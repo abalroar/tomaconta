@@ -292,6 +292,40 @@ def salvar_cache(dados_periodos, periodo_info):
         f.write(f"Total de períodos: {len(dados_periodos)}\n")
     return get_cache_info_detalhado()
 
+def ordenar_periodos_cache(periodos):
+    return sorted(periodos, key=lambda p: (p[:4], p[4:6]))
+
+def formatar_periodo_chave(periodo):
+    if isinstance(periodo, str) and len(periodo) >= 6:
+        return f"{periodo[4:6]}/{periodo[:4]}"
+    return str(periodo)
+
+def mesclar_cache_existente(dados_existentes, dados_novos):
+    if not dados_existentes:
+        return {
+            "modo": "overwrite",
+            "dados": dados_novos,
+            "periodos_antes": [],
+            "periodos_adicionados": list(dados_novos.keys()),
+            "periodos_atualizados": [],
+        }
+
+    periodos_antes = set(dados_existentes.keys())
+    periodos_novos = set(dados_novos.keys())
+    periodos_adicionados = sorted(periodos_novos - periodos_antes)
+    periodos_atualizados = sorted(periodos_novos & periodos_antes)
+
+    dados_mesclados = dict(dados_existentes)
+    dados_mesclados.update(dados_novos)
+
+    return {
+        "modo": "merge",
+        "dados": dados_mesclados,
+        "periodos_antes": sorted(periodos_antes),
+        "periodos_adicionados": periodos_adicionados,
+        "periodos_atualizados": periodos_atualizados,
+    }
+
 def carregar_cache():
     """Carrega o cache do arquivo local."""
     if os.path.exists(CACHE_FILE):
@@ -1000,19 +1034,46 @@ with st.sidebar:
 
                     dados = processar_todos_periodos(periodos, st.session_state['dict_aliases'], update)
 
-                    periodo_info = f"{periodos[0][4:6]}/{periodos[0][:4]} até {periodos[-1][4:6]}/{periodos[-1][:4]}"
-                    cache_salvo = salvar_cache(dados, periodo_info)
+                    if not dados:
+                        progress_bar.empty()
+                        status.empty()
+                        st.error("falha ao extrair dados: nenhum período retornou dados válidos.")
+                    else:
+                        dados_existentes = carregar_cache() or {}
+                        resultado_merge = mesclar_cache_existente(dados_existentes, dados)
+                        dados_finais = resultado_merge["dados"]
 
-                    # Atualizar session_state com os novos dados
-                    st.session_state['dados_periodos'] = dados
-                    st.session_state['cache_fonte'] = 'extração local'
+                        periodos_finais = ordenar_periodos_cache(dados_finais.keys())
+                        periodo_info = (
+                            f"{formatar_periodo_chave(periodos_finais[0])} até {formatar_periodo_chave(periodos_finais[-1])}"
+                            if periodos_finais
+                            else "N/A"
+                        )
+                        cache_salvo = salvar_cache(dados_finais, periodo_info)
 
-                    progress_bar.empty()
-                    status.empty()
-                    st.success(f"{len(dados)} períodos extraídos e salvos!")
-                    st.info(f"cache salvo em: {cache_salvo['caminho']}")
-                    st.info(f"tamanho: {cache_salvo['tamanho_formatado']}")
-                    st.rerun()
+                        # Atualizar session_state com os novos dados
+                        st.session_state['dados_periodos'] = dados_finais
+                        st.session_state['cache_fonte'] = 'extração local'
+
+                        progress_bar.empty()
+                        status.empty()
+                        if resultado_merge["modo"] == "merge":
+                            st.success("merge incremental aplicado no cache.")
+                        else:
+                            st.success("cache salvo com overwrite total (sem cache anterior).")
+                        st.info(
+                            f"períodos antes: {len(resultado_merge['periodos_antes'])} | "
+                            f"adicionados: {len(resultado_merge['periodos_adicionados'])} | "
+                            f"atualizados: {len(resultado_merge['periodos_atualizados'])}"
+                        )
+                        st.caption(
+                            "períodos finais: "
+                            + ", ".join(formatar_periodo_chave(p) for p in periodos_finais)
+                        )
+                        st.success(f"{len(dados)} períodos extraídos e salvos!")
+                        st.info(f"cache salvo em: {cache_salvo['caminho']}")
+                        st.info(f"tamanho: {cache_salvo['tamanho_formatado']}")
+                        st.rerun()
 
                 st.markdown("---")
                 st.markdown("**publicar cache no github**")

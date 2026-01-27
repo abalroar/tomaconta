@@ -6,12 +6,46 @@ import time
 BASE_URL = "https://olinda.bcb.gov.br/olinda/servico/IFDATA/versao/v1/odata"
 cache_lucros = {}
 
+def _fetch_json(url: str, timeout: int, retries: int = 2, backoff: float = 1.5):
+    for attempt in range(retries + 1):
+        try:
+            response = requests.get(url, timeout=timeout)
+            response.raise_for_status()
+            return response.json()
+        except (requests.RequestException, ValueError):
+            if attempt >= retries:
+                raise
+            time.sleep(backoff * (attempt + 1))
+    return None
+
+def normalizar_nome_coluna(valor: str) -> str:
+    if not isinstance(valor, str):
+        return valor
+    return " ".join(valor.split())
+
+def obter_coluna_nome_instituicao(df: pd.DataFrame) -> str | None:
+    candidatos = {
+        "NomeInstituicao",
+        "NomeInstituição",
+        "Nome Instituicao",
+        "Nome Instituição",
+        "Nome da Instituicao",
+        "Nome da Instituição",
+    }
+    for coluna in df.columns:
+        if coluna in candidatos:
+            return coluna
+        if normalizar_nome_coluna(str(coluna)) in candidatos:
+            return coluna
+    return None
+
 def extrair_cadastro(ano_mes: str) -> pd.DataFrame:
     url = f"{BASE_URL}/IfDataCadastro(AnoMes={int(ano_mes)})?$format=json&$top=5000"
-    r = requests.get(url, timeout=60)
-    if r.status_code != 200:
+    try:
+        data = _fetch_json(url, timeout=60)
+    except requests.RequestException:
         return pd.DataFrame()
-    return pd.DataFrame(r.json().get("value", []))
+    return pd.DataFrame((data or {}).get("value", []))
 
 def extrair_valores(ano_mes: str) -> pd.DataFrame:
     url = (
@@ -21,10 +55,11 @@ def extrair_valores(ano_mes: str) -> pd.DataFrame:
         f"Relatorio='1'"
         f")?$format=json&$top=200000"
     )
-    r = requests.get(url, timeout=120)
-    if r.status_code != 200:
+    try:
+        data = _fetch_json(url, timeout=120)
+    except requests.RequestException:
         return pd.DataFrame()
-    return pd.DataFrame(r.json().get("value", []))
+    return pd.DataFrame((data or {}).get("value", []))
 
 def extrair_lucro_periodo(ano_mes: str) -> pd.DataFrame:
     if ano_mes in cache_lucros:
@@ -37,11 +72,12 @@ def extrair_lucro_periodo(ano_mes: str) -> pd.DataFrame:
         f"Relatorio='1'"
         f")?$format=json&$top=200000"
     )
-    r = requests.get(url, timeout=120)
-    if r.status_code != 200:
+    try:
+        data = _fetch_json(url, timeout=120)
+    except requests.RequestException:
         return pd.DataFrame()
-    
-    df = pd.DataFrame(r.json().get("value", []))
+
+    df = pd.DataFrame((data or {}).get("value", []))
     if df.empty:
         return pd.DataFrame()
     
@@ -97,9 +133,34 @@ def processar_periodo(ano_mes: str, dict_aliases: dict) -> pd.DataFrame:
     df_valores = extrair_valores(ano_mes)
     if df_valores.empty:
         return None
+    if "NomeColuna" in df_valores.columns:
+        df_valores["NomeColuna"] = df_valores["NomeColuna"].map(normalizar_nome_coluna)
+
+    nome_col_valores = obter_coluna_nome_instituicao(df_valores)
+    if nome_col_valores:
+        df_nomes = df_valores[["CodInst", nome_col_valores]].drop_duplicates().rename(
+            columns={nome_col_valores: "NomeInstituicao"}
+        )
+    else:
+        df_nomes = pd.DataFrame()
+
     if df_cad.empty:
-        df_cad = df_valores[["CodInst"]].drop_duplicates().copy()
-        df_cad["NomeInstituicao"] = df_cad["CodInst"]
+        if not df_nomes.empty:
+            df_cad = df_nomes.copy()
+        else:
+            df_cad = df_valores[["CodInst"]].drop_duplicates().copy()
+            df_cad["NomeInstituicao"] = df_cad["CodInst"]
+    elif not df_nomes.empty and "NomeInstituicao" in df_cad.columns:
+        df_cad = df_cad.merge(
+            df_nomes,
+            on="CodInst",
+            how="left",
+            suffixes=("", "_valores")
+        )
+        df_cad["NomeInstituicao"] = df_cad["NomeInstituicao"].fillna(
+            df_cad["NomeInstituicao_valores"]
+        )
+        df_cad = df_cad.drop(columns=["NomeInstituicao_valores"], errors="ignore")
     
     colunas_desejadas = [
         "Ativo Total",
@@ -110,6 +171,7 @@ def processar_periodo(ano_mes: str, dict_aliases: dict) -> pd.DataFrame:
         "Captações",
         "Patrimônio Líquido",
         "Lucro Líquido",
+        "Patrimônio de Referência",
         "Patrimônio de Referência para Comparação com o RWA (e)",
         "Índice de Basileia",
         "Índice de Imobilização",
@@ -158,6 +220,7 @@ def processar_periodo(ano_mes: str, dict_aliases: dict) -> pd.DataFrame:
         "Captações",
         "Patrimônio Líquido",
         "Lucro Líquido",
+        "Patrimônio de Referência",
         "Patrimônio de Referência para Comparação com o RWA (e)",
         "Índice de Basileia",
         "Índice de Imobilização",
