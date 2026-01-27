@@ -1001,7 +1001,7 @@ with col_header:
 st.markdown('<div class="header-nav">', unsafe_allow_html=True)
 menu = st.segmented_control(
     "navegação",
-    ["Sobre", "Resumo", "Análise Individual", "Série Histórica", "Scatter Plot"],
+    ["Sobre", "Resumo", "Análise Individual", "Série Histórica", "Scatter Plot", "Deltas"],
     default=st.session_state['menu_atual'],
     label_visibility="collapsed"
 )
@@ -2214,6 +2214,264 @@ elif menu == "Scatter Plot":
         )
 
         st.plotly_chart(fig_scatter, use_container_width=True)
+    else:
+        st.info("carregando dados automaticamente do github...")
+        st.markdown("por favor, aguarde alguns segundos e recarregue a página")
+
+elif menu == "Deltas":
+    if 'dados_periodos' in st.session_state and st.session_state['dados_periodos']:
+        df = pd.concat(st.session_state['dados_periodos'].values(), ignore_index=True)
+
+        colunas_numericas = [col for col in df.columns if col not in ['Instituição', 'Período'] and df[col].dtype in ['float64', 'int64']]
+        periodos = sorted(df['Período'].unique(), key=lambda x: (x.split('/')[1], x.split('/')[0]))
+
+        # Lista de bancos com a mesma ordenação das outras abas
+        bancos_todos = df['Instituição'].dropna().unique().tolist()
+
+        if 'dict_aliases' in st.session_state and st.session_state['dict_aliases']:
+            aliases_set = set(st.session_state['dict_aliases'].values())
+            bancos_com_alias = []
+            bancos_sem_alias = []
+
+            for banco in bancos_todos:
+                if banco in aliases_set:
+                    bancos_com_alias.append(banco)
+                else:
+                    bancos_sem_alias.append(banco)
+
+            def sort_key(nome):
+                primeiro_char = nome[0].lower() if nome else 'z'
+                if primeiro_char.isdigit():
+                    return (1, nome.lower())
+                return (0, nome.lower())
+
+            bancos_com_alias_sorted = sorted(bancos_com_alias, key=sort_key)
+            bancos_sem_alias_sorted = sorted(bancos_sem_alias, key=sort_key)
+            todos_bancos = bancos_com_alias_sorted + bancos_sem_alias_sorted
+        else:
+            todos_bancos = sorted(bancos_todos)
+
+        # Primeira linha: seleção de variável e períodos
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            # Variável padrão: ROE An. (%)
+            idx_var_default = colunas_numericas.index('ROE An. (%)') if 'ROE An. (%)' in colunas_numericas else 0
+            variavel_delta = st.selectbox("variável", colunas_numericas, index=idx_var_default, key="delta_variavel")
+
+        with col2:
+            # Período inicial (penúltimo por padrão)
+            idx_inicial = max(0, len(periodos) - 2)
+            periodo_inicial = st.selectbox("período inicial", periodos, index=idx_inicial, key="delta_periodo_inicial")
+
+        with col3:
+            # Período subsequente (último por padrão)
+            periodo_subsequente = st.selectbox("período subsequente", periodos, index=len(periodos) - 1, key="delta_periodo_subsequente")
+
+        # Segunda linha: modo de seleção e Top N
+        col_m1, col_m2, col_m3 = st.columns([1, 1, 2])
+
+        with col_m1:
+            modo_selecao = st.selectbox("modo de seleção", ["Top N Bancos", "Peer Group", "Seleção Manual"], key="delta_modo")
+
+        with col_m2:
+            if modo_selecao == "Top N Bancos":
+                top_n_delta = st.slider("número de bancos", 5, 30, 15, key="delta_top_n")
+                var_ordenacao = st.selectbox("ordenar por", colunas_numericas,
+                                             index=colunas_numericas.index('Carteira de Crédito') if 'Carteira de Crédito' in colunas_numericas else 0,
+                                             key="delta_var_ordenacao")
+
+        # Terceira linha: seleção de peers e bancos
+        peers_disponiveis = []
+        if 'colunas_classificacao' in st.session_state and 'df_aliases' in st.session_state:
+            peers_disponiveis = st.session_state['colunas_classificacao']
+
+        bancos_do_peer = []
+        if modo_selecao == "Peer Group":
+            col_p1, col_p2 = st.columns([1, 3])
+            with col_p1:
+                peer_selecionado_delta = st.selectbox("peer group", peers_disponiveis if peers_disponiveis else ['Nenhum disponível'], key="delta_peer")
+            if peer_selecionado_delta and peer_selecionado_delta != 'Nenhum disponível' and 'df_aliases' in st.session_state:
+                df_aliases = st.session_state['df_aliases']
+                coluna_peer = df_aliases[peer_selecionado_delta]
+                mask_peer = coluna_peer.fillna(0).astype(str).str.strip().isin(["1", "1.0"])
+                bancos_do_peer = df_aliases.loc[mask_peer, 'Alias Banco'].tolist()
+            with col_p2:
+                bancos_selecionados_delta = st.multiselect("bancos adicionais (opcional)", todos_bancos, default=[], key="delta_bancos_adicionais")
+        elif modo_selecao == "Seleção Manual":
+            bancos_selecionados_delta = st.multiselect("selecionar bancos", todos_bancos, default=[], key="delta_bancos_manual")
+        else:
+            bancos_selecionados_delta = []
+
+        # Filtra dados pelos dois períodos
+        df_inicial = df[df['Período'] == periodo_inicial].copy()
+        df_subsequente = df[df['Período'] == periodo_subsequente].copy()
+
+        # Determina lista final de bancos
+        if modo_selecao == "Top N Bancos":
+            df_ordenado = df_subsequente.dropna(subset=[var_ordenacao]).nlargest(top_n_delta, var_ordenacao)
+            bancos_finais = df_ordenado['Instituição'].tolist()
+        elif modo_selecao == "Peer Group":
+            bancos_finais = list(set(bancos_do_peer + bancos_selecionados_delta))
+        else:
+            bancos_finais = bancos_selecionados_delta
+
+        if bancos_finais and periodo_inicial != periodo_subsequente:
+            # Prepara dados para o gráfico
+            dados_grafico = []
+            for banco in bancos_finais:
+                val_inicial = df_inicial[df_inicial['Instituição'] == banco][variavel_delta].values
+                val_subsequente = df_subsequente[df_subsequente['Instituição'] == banco][variavel_delta].values
+
+                if len(val_inicial) > 0 and len(val_subsequente) > 0:
+                    v_ini = val_inicial[0]
+                    v_sub = val_subsequente[0]
+                    if pd.notna(v_ini) and pd.notna(v_sub):
+                        delta = v_sub - v_ini
+                        dados_grafico.append({
+                            'banco': banco,
+                            'valor_inicial': v_ini,
+                            'valor_subsequente': v_sub,
+                            'delta': delta
+                        })
+
+            if dados_grafico:
+                # Ordena por delta (maior variação positiva em cima)
+                dados_grafico = sorted(dados_grafico, key=lambda x: x['delta'], reverse=True)
+
+                fig_delta = go.Figure()
+
+                # Determina formato baseado no tipo de variável
+                is_percentual = variavel_delta in VARS_PERCENTUAL
+                is_moeda = variavel_delta in VARS_MOEDAS
+                format_info = get_axis_format(variavel_delta)
+
+                for i, item in enumerate(dados_grafico):
+                    y_pos = len(dados_grafico) - i - 1
+                    v_ini = item['valor_inicial'] * format_info['multiplicador']
+                    v_sub = item['valor_subsequente'] * format_info['multiplicador']
+                    delta = item['delta']
+
+                    # Cor do período subsequente baseada na variação
+                    cor_subsequente = '#2ca02c' if delta >= 0 else '#d62728'  # Verde ou vermelho
+
+                    # Linha conectando os dois pontos
+                    fig_delta.add_trace(go.Scatter(
+                        x=[v_ini, v_sub],
+                        y=[y_pos, y_pos],
+                        mode='lines',
+                        line=dict(color='#999999', width=2),
+                        showlegend=False,
+                        hoverinfo='skip'
+                    ))
+
+                    # Bolinha preta (período inicial)
+                    fig_delta.add_trace(go.Scatter(
+                        x=[v_ini],
+                        y=[y_pos],
+                        mode='markers',
+                        marker=dict(size=12, color='#333333', line=dict(width=1, color='white')),
+                        name=periodo_inicial if i == 0 else None,
+                        showlegend=(i == 0),
+                        legendgroup='inicial',
+                        hovertemplate=f'<b>{item["banco"]}</b><br>{periodo_inicial}: {v_ini:{format_info["tickformat"]}}{format_info["ticksuffix"]}<extra></extra>'
+                    ))
+
+                    # Bolinha colorida (período subsequente)
+                    fig_delta.add_trace(go.Scatter(
+                        x=[v_sub],
+                        y=[y_pos],
+                        mode='markers',
+                        marker=dict(size=12, color=cor_subsequente, line=dict(width=1, color='white')),
+                        showlegend=False,
+                        hovertemplate=f'<b>{item["banco"]}</b><br>{periodo_subsequente}: {v_sub:{format_info["tickformat"]}}{format_info["ticksuffix"]}<extra></extra>'
+                    ))
+
+                    # Formata o delta para exibição
+                    if is_percentual:
+                        delta_formatado = f"{'+' if delta >= 0 else ''}{delta * 100:.2f}pp"
+                    elif is_moeda:
+                        delta_mm = delta / 1e6
+                        delta_formatado = f"{'+' if delta >= 0 else ''}{delta_mm:,.0f}MM".replace(",", ".")
+                    else:
+                        delta_formatado = f"{'+' if delta >= 0 else ''}{delta:.2f}"
+
+                    # Anotação com o delta
+                    fig_delta.add_annotation(
+                        x=max(v_ini, v_sub) + (abs(v_sub - v_ini) * 0.1 if abs(v_sub - v_ini) > 0 else abs(v_sub) * 0.05),
+                        y=y_pos,
+                        text=f"<b>{delta_formatado}</b>",
+                        showarrow=False,
+                        font=dict(size=10, color=cor_subsequente),
+                        xanchor='left'
+                    )
+
+                # Adiciona marcadores de legenda para verde e vermelho
+                fig_delta.add_trace(go.Scatter(
+                    x=[None], y=[None],
+                    mode='markers',
+                    marker=dict(size=12, color='#2ca02c'),
+                    name=f'{periodo_subsequente} (↑)',
+                    showlegend=True
+                ))
+                fig_delta.add_trace(go.Scatter(
+                    x=[None], y=[None],
+                    mode='markers',
+                    marker=dict(size=12, color='#d62728'),
+                    name=f'{periodo_subsequente} (↓)',
+                    showlegend=True
+                ))
+
+                # Layout do gráfico
+                fig_delta.update_layout(
+                    title=f'{variavel_delta}: {periodo_inicial} → {periodo_subsequente}',
+                    xaxis_title=variavel_delta,
+                    yaxis=dict(
+                        tickmode='array',
+                        tickvals=list(range(len(dados_grafico))),
+                        ticktext=[d['banco'] for d in reversed(dados_grafico)],
+                        showgrid=False
+                    ),
+                    xaxis=dict(
+                        showgrid=True,
+                        gridcolor='#e0e0e0',
+                        tickformat=format_info['tickformat'],
+                        ticksuffix=format_info['ticksuffix']
+                    ),
+                    height=max(400, len(dados_grafico) * 35),
+                    plot_bgcolor='#f8f9fa',
+                    paper_bgcolor='white',
+                    showlegend=True,
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+                    font=dict(family='IBM Plex Sans'),
+                    margin=dict(l=200, r=80, t=80, b=40)
+                )
+
+                st.plotly_chart(fig_delta, use_container_width=True)
+
+                # Tabela de dados
+                with st.expander("ver dados"):
+                    df_tabela = pd.DataFrame(dados_grafico)
+                    df_tabela.columns = ['Instituição', periodo_inicial, periodo_subsequente, 'Delta']
+
+                    # Formata valores para exibição
+                    for col in [periodo_inicial, periodo_subsequente]:
+                        df_tabela[col] = df_tabela[col].apply(lambda x: formatar_valor(x, variavel_delta))
+
+                    if is_percentual:
+                        df_tabela['Delta'] = df_tabela['Delta'].apply(lambda x: f"{'+' if x >= 0 else ''}{x * 100:.2f}pp")
+                    elif is_moeda:
+                        df_tabela['Delta'] = df_tabela['Delta'].apply(lambda x: f"{'+' if x >= 0 else ''}{x / 1e6:,.0f}MM".replace(",", "."))
+                    else:
+                        df_tabela['Delta'] = df_tabela['Delta'].apply(lambda x: f"{'+' if x >= 0 else ''}{x:.2f}")
+
+                    st.dataframe(df_tabela, use_container_width=True, hide_index=True)
+            else:
+                st.warning("nenhum dado disponível para os bancos e períodos selecionados")
+        elif periodo_inicial == periodo_subsequente:
+            st.warning("selecione períodos diferentes para comparação")
+        else:
+            st.info("selecione bancos para visualizar o gráfico de deltas")
     else:
         st.info("carregando dados automaticamente do github...")
         st.markdown("por favor, aguarde alguns segundos e recarregue a página")
