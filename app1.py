@@ -6,7 +6,7 @@ import requests
 import plotly.express as px
 import plotly.graph_objects as go
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 import time
 
 # === PERFORMANCE TIMER ===
@@ -45,6 +45,17 @@ from utils.capital_extractor import (
     get_capital_cache_info,
     ler_info_cache_capital,
     get_campos_capital_info,
+)
+# Import para extração de taxas de juros do BCB
+from utils.taxas_juros_extractor import (
+    buscar_modalidades_disponiveis,
+    buscar_instituicoes_por_modalidade,
+    buscar_instituicoes_todas_modalidades,
+    extrair_taxas_juros,
+    formatar_nome_modalidade,
+    obter_periodos_disponiveis,
+    criar_tabela_pivot,
+    calcular_estatisticas,
 )
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -1448,7 +1459,7 @@ with col_header:
 st.markdown('<div class="header-nav">', unsafe_allow_html=True)
 menu = st.segmented_control(
     "navegação",
-    ["Sobre", "Resumo", "Infos de Capital", "Análise Individual", "Série Histórica", "Scatter Plot", "Deltas", "Brincar"],
+    ["Sobre", "Resumo", "Infos de Capital", "Análise Individual", "Série Histórica", "Scatter Plot", "Deltas", "Brincar", "Dados"],
     default=st.session_state['menu_atual'],
     label_visibility="collapsed"
 )
@@ -4836,3 +4847,308 @@ elif menu == "Brincar":
     else:
         st.info("carregando dados automaticamente do github...")
         st.markdown("por favor, aguarde alguns segundos e recarregue a página")
+
+# =====================================================================
+# ABA: DADOS - Extração de Taxas de Juros do BCB
+# =====================================================================
+elif menu == "Dados":
+    st.markdown("### taxas de juros - banco central")
+    st.caption("extração de dados de taxas de juros por produto e instituição financeira")
+
+    # Inicializa session state para a aba Dados
+    if 'dados_taxas_modalidades' not in st.session_state:
+        st.session_state['dados_taxas_modalidades'] = None
+    if 'dados_taxas_df_amostra' not in st.session_state:
+        st.session_state['dados_taxas_df_amostra'] = None
+    if 'dados_taxas_resultado' not in st.session_state:
+        st.session_state['dados_taxas_resultado'] = None
+    if 'dados_taxas_instituicoes_cache' not in st.session_state:
+        st.session_state['dados_taxas_instituicoes_cache'] = {}
+
+    # Carrega modalidades disponíveis (com cache)
+    if st.session_state['dados_taxas_modalidades'] is None:
+        with st.spinner("Carregando produtos disponíveis da API do BCB..."):
+            modalidades, df_amostra = buscar_modalidades_disponiveis()
+            st.session_state['dados_taxas_modalidades'] = modalidades
+            st.session_state['dados_taxas_df_amostra'] = df_amostra
+
+    modalidades = st.session_state['dados_taxas_modalidades']
+    df_amostra = st.session_state['dados_taxas_df_amostra']
+
+    if not modalidades:
+        st.error("Não foi possível conectar à API do BCB. Tente novamente mais tarde.")
+    else:
+        st.success(f"{len(modalidades)} produtos disponíveis")
+
+        # === SEÇÃO 1: SELEÇÃO DE PRODUTOS ===
+        st.markdown("---")
+        st.markdown("#### 1. selecione os produtos")
+        st.caption("escolha até 4 produtos para consultar simultaneamente")
+
+        # Formata nomes para exibição
+        modalidades_formatadas = [formatar_nome_modalidade(m) for m in modalidades]
+        mapa_modalidades = dict(zip(modalidades_formatadas, modalidades))
+
+        produtos_selecionados_formatados = st.multiselect(
+            "produtos",
+            options=modalidades_formatadas,
+            max_selections=4,
+            help="selecione de 1 a 4 produtos para consultar"
+        )
+
+        # Mapeia de volta para nomes originais
+        produtos_selecionados = [mapa_modalidades[p] for p in produtos_selecionados_formatados]
+
+        # === SEÇÃO 2: SELEÇÃO DE INSTITUIÇÕES ===
+        if produtos_selecionados:
+            st.markdown("---")
+            st.markdown("#### 2. selecione as instituições financeiras")
+
+            # Busca instituições para os produtos selecionados (com cache)
+            cache_key = tuple(sorted(produtos_selecionados))
+            if cache_key not in st.session_state['dados_taxas_instituicoes_cache']:
+                with st.spinner("Buscando instituições disponíveis..."):
+                    instituicoes = buscar_instituicoes_todas_modalidades(
+                        produtos_selecionados,
+                        df_amostra
+                    )
+                    st.session_state['dados_taxas_instituicoes_cache'][cache_key] = instituicoes
+
+            instituicoes_disponiveis = st.session_state['dados_taxas_instituicoes_cache'][cache_key]
+
+            if instituicoes_disponiveis:
+                st.caption(f"{len(instituicoes_disponiveis)} instituições encontradas")
+
+                # Opção de selecionar todas
+                col_todas, col_select = st.columns([1, 3])
+
+                with col_todas:
+                    selecionar_todas = st.checkbox("selecionar todas", value=False)
+
+                with col_select:
+                    if selecionar_todas:
+                        instituicoes_selecionadas = instituicoes_disponiveis
+                        st.info(f"{len(instituicoes_selecionadas)} instituições selecionadas")
+                    else:
+                        instituicoes_selecionadas = st.multiselect(
+                            "instituições",
+                            options=instituicoes_disponiveis,
+                            help="selecione as instituições financeiras"
+                        )
+            else:
+                st.warning("Nenhuma instituição encontrada para os produtos selecionados")
+                instituicoes_selecionadas = []
+
+            # === SEÇÃO 3: SELEÇÃO DE PERÍODO ===
+            if instituicoes_selecionadas:
+                st.markdown("---")
+                st.markdown("#### 3. selecione o período")
+
+                col_inicio, col_fim = st.columns(2)
+
+                with col_inicio:
+                    # Data inicial - padrão: 6 meses atrás
+                    data_inicial_padrao = datetime.now() - timedelta(days=180)
+                    data_inicio = st.date_input(
+                        "data inicial",
+                        value=data_inicial_padrao,
+                        max_value=datetime.now(),
+                        format="DD/MM/YYYY"
+                    )
+
+                with col_fim:
+                    # Data final - padrão: hoje
+                    opcao_data_fim = st.radio(
+                        "data final",
+                        ["mais recente", "selecionar data"],
+                        horizontal=True
+                    )
+
+                    if opcao_data_fim == "mais recente":
+                        data_fim = datetime.now()
+                        st.caption(f"usando data mais recente: {data_fim.strftime('%d/%m/%Y')}")
+                    else:
+                        data_fim = st.date_input(
+                            "selecione a data final",
+                            value=datetime.now(),
+                            max_value=datetime.now(),
+                            format="DD/MM/YYYY"
+                        )
+
+                # === SEÇÃO 4: EXECUTAR EXTRAÇÃO ===
+                st.markdown("---")
+
+                # Resumo da seleção
+                st.markdown("#### resumo da seleção")
+                col_resumo1, col_resumo2 = st.columns(2)
+
+                with col_resumo1:
+                    st.markdown(f"**Produtos:** {len(produtos_selecionados)}")
+                    for p in produtos_selecionados_formatados:
+                        st.caption(f"• {p}")
+
+                with col_resumo2:
+                    st.markdown(f"**Instituições:** {len(instituicoes_selecionadas)}")
+                    st.markdown(f"**Período:** {data_inicio.strftime('%d/%m/%Y')} a {data_fim.strftime('%d/%m/%Y')}")
+
+                st.markdown("---")
+
+                # Botão de extração
+                if st.button("extrair dados", type="primary", use_container_width=True):
+                    with st.spinner("Extraindo dados da API do BCB..."):
+                        placeholder_progresso = st.empty()
+
+                        def callback_progresso(msg):
+                            placeholder_progresso.caption(msg)
+
+                        df_resultado = extrair_taxas_juros(
+                            modalidades=produtos_selecionados,
+                            data_inicio=data_inicio.strftime('%Y-%m-%d'),
+                            data_fim=data_fim.strftime('%Y-%m-%d') if isinstance(data_fim, datetime) else str(data_fim),
+                            instituicoes=instituicoes_selecionadas,
+                            callback_progresso=callback_progresso
+                        )
+
+                        placeholder_progresso.empty()
+
+                        if not df_resultado.empty:
+                            st.session_state['dados_taxas_resultado'] = df_resultado
+                            st.success(f"Extraídos {len(df_resultado)} registros com sucesso!")
+                            st.rerun()
+                        else:
+                            st.error("Nenhum dado encontrado para os critérios selecionados")
+
+                # === SEÇÃO 5: EXIBIÇÃO E EXPORTAÇÃO DOS DADOS ===
+                if st.session_state['dados_taxas_resultado'] is not None:
+                    df_resultado = st.session_state['dados_taxas_resultado']
+
+                    st.markdown("---")
+                    st.markdown("#### dados extraídos")
+
+                    # Estatísticas
+                    stats = calcular_estatisticas(df_resultado)
+                    col_stat1, col_stat2, col_stat3, col_stat4 = st.columns(4)
+
+                    with col_stat1:
+                        st.metric("Registros", f"{stats.get('total_registros', 0):,}")
+                    with col_stat2:
+                        st.metric("Instituições", f"{stats.get('n_instituicoes', 0)}")
+                    with col_stat3:
+                        st.metric("Períodos", f"{stats.get('n_periodos', 0)}")
+                    with col_stat4:
+                        if stats.get('taxa_mensal_media'):
+                            st.metric("Taxa Média (a.m.)", f"{stats['taxa_mensal_media']:.2f}%")
+
+                    # Opções de visualização
+                    st.markdown("---")
+                    tipo_visualizacao = st.radio(
+                        "visualização",
+                        ["tabela completa", "tabela pivotada (instituições nas colunas)"],
+                        horizontal=True
+                    )
+
+                    if tipo_visualizacao == "tabela completa":
+                        # Formata datas para exibição
+                        df_exibir = df_resultado.copy()
+                        df_exibir['data_inicio'] = df_exibir['data_inicio'].dt.strftime('%d/%m/%Y')
+                        df_exibir['data_fim'] = df_exibir['data_fim'].dt.strftime('%d/%m/%Y')
+
+                        # Renomeia colunas para exibição
+                        df_exibir = df_exibir.rename(columns={
+                            'data_inicio': 'Início Período',
+                            'data_fim': 'Fim Período',
+                            'modalidade': 'Produto',
+                            'instituicao': 'Instituição Financeira',
+                            'posicao': 'Posição',
+                            'taxa_mensal': 'Taxa % a.m.',
+                            'taxa_anual': 'Taxa % a.a.',
+                            'cnpj8': 'CNPJ'
+                        })
+
+                        st.dataframe(df_exibir, use_container_width=True, hide_index=True)
+
+                        # Exportação
+                        st.markdown("---")
+                        st.markdown("#### exportar dados")
+
+                        col_excel, col_csv = st.columns(2)
+
+                        with col_excel:
+                            buffer_excel = BytesIO()
+                            with pd.ExcelWriter(buffer_excel, engine='xlsxwriter') as writer:
+                                df_exibir.to_excel(writer, index=False, sheet_name='taxas_juros')
+                            buffer_excel.seek(0)
+
+                            st.download_button(
+                                label="Exportar Excel",
+                                data=buffer_excel,
+                                file_name=f"taxas_juros_bcb_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                key="export_excel_taxas"
+                            )
+
+                        with col_csv:
+                            csv_data = df_exibir.to_csv(index=False)
+                            st.download_button(
+                                label="Exportar CSV",
+                                data=csv_data,
+                                file_name=f"taxas_juros_bcb_{datetime.now().strftime('%Y%m%d')}.csv",
+                                mime="text/csv",
+                                key="export_csv_taxas"
+                            )
+
+                    else:
+                        # Tabela pivotada
+                        opcao_taxa = st.radio(
+                            "tipo de taxa",
+                            ["mensal (% a.m.)", "anual (% a.a.)"],
+                            horizontal=True
+                        )
+
+                        valor_col = 'taxa_mensal' if 'mensal' in opcao_taxa else 'taxa_anual'
+                        df_pivot = criar_tabela_pivot(df_resultado, valor=valor_col)
+
+                        if not df_pivot.empty:
+                            # Formata data para exibição
+                            df_pivot_exibir = df_pivot.copy()
+                            df_pivot_exibir['data'] = pd.to_datetime(df_pivot_exibir['data']).dt.strftime('%d/%m/%Y')
+
+                            st.dataframe(df_pivot_exibir, use_container_width=True, hide_index=True)
+
+                            # Exportação
+                            st.markdown("---")
+                            st.markdown("#### exportar dados")
+
+                            col_excel, col_csv = st.columns(2)
+
+                            with col_excel:
+                                buffer_excel = BytesIO()
+                                with pd.ExcelWriter(buffer_excel, engine='xlsxwriter') as writer:
+                                    df_pivot_exibir.to_excel(writer, index=False, sheet_name='taxas_pivot')
+                                buffer_excel.seek(0)
+
+                                st.download_button(
+                                    label="Exportar Excel",
+                                    data=buffer_excel,
+                                    file_name=f"taxas_juros_pivot_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                    key="export_excel_taxas_pivot"
+                                )
+
+                            with col_csv:
+                                csv_data = df_pivot_exibir.to_csv(index=False)
+                                st.download_button(
+                                    label="Exportar CSV",
+                                    data=csv_data,
+                                    file_name=f"taxas_juros_pivot_{datetime.now().strftime('%Y%m%d')}.csv",
+                                    mime="text/csv",
+                                    key="export_csv_taxas_pivot"
+                                )
+                        else:
+                            st.warning("Não foi possível criar tabela pivotada")
+
+                    # Botão para limpar dados
+                    st.markdown("---")
+                    if st.button("limpar dados e fazer nova consulta", use_container_width=True):
+                        st.session_state['dados_taxas_resultado'] = None
+                        st.rerun()
