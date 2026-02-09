@@ -2300,25 +2300,12 @@ elif menu == "Painel":
         indicadores_config = {
             'Ativo Total': ['Ativo Total'],
             'Carteira de Crédito': ['Carteira de Crédito'],
-            'Títulos e Valores Mobiliários': ['Títulos e Valores Mobiliários'],
-            'Passivo Exigível': ['Passivo Exigível'],
             'Captações': ['Captações'],
             'Patrimônio Líquido': ['Patrimônio Líquido'],
-            'Lucro Líquido Acumulado YTD': ['Lucro Líquido Acumulado YTD'],
-            'Patrimônio de Referência': [
-                'Patrimônio de Referência para Comparação com o RWA (e)',
-                'Patrimônio de Referência',
-            ],
-            'Índice de Basileia': ['Índice de Basileia'],
-            'Índice de Imobilização': ['Índice de Imobilização'],
-            'Número de Agências': ['Número de Agências'],
-            'Número de Postos de Atendimento': ['Número de Postos de Atendimento'],
-            # Variáveis de Capital (Relatório 5)
-            'RWA Total': ['RWA Total'],
-            'Capital Principal': ['Capital Principal'],
             'Índice de Capital Principal': ['Índice de Capital Principal'],
-            'Índice de Capital Nível I': ['Índice de Capital Nível I'],
-            'Razão de Alavancagem': ['Razão de Alavancagem'],
+            'Índice de Basileia': ['Índice de Basileia'],
+            'Lucro Líquido Acumulado YTD': ['Lucro Líquido Acumulado YTD'],
+            'ROE Ac. Anualizado (%)': ['ROE Ac. YTD an. (%)'],
         }
 
         indicadores_disponiveis = {}
