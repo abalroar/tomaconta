@@ -6961,7 +6961,7 @@ elif menu == "Peers (Tabela)":
                             <strong>Ativos Líquidos</strong> = Disponibilidades (a) + Aplicações Interfinanceiras de Liquidez (b) + Títulos e Valores Mobiliários (c), no relatório de Ativo (Rel. 2).<br>
                             <strong>Carteira de Crédito Bruta</strong> = Valor Contábil Bruto (e1) + Valor Contábil Bruto (f1) + Valor Contábil Bruto (g1) + Valor Contábil Bruto (h1), no relatório de Ativo (Rel. 2).<br>
                             Headers do Ativo usados: Operações de Crédito, Operações de Arrendamento Financeiro, Outras Operações com Características de Concessão de Crédito, Valores a Receber de Transações de Pagamentos - Usuários Finais (Pós-pago).<br>
-                            <em>Nota:</em> Para 2000–2024, usamos Carteira de Crédito Bruta + Carteira de Arrendamento Bruta + Outros Créditos Líquidos de Provisão (Rel. 2).<br>
+                            <em>Nota:</em> Para 2000–2024, usamos Carteira de Crédito Bruta + Carteira de Arrendamento Bruta + Outros Créditos Líquidos de Provisão (Rel. 2). A partir de 2025, usamos Valor Contábil Bruto (e1+f1+g1+h1).<br>
                             <strong>Carteira de Crédito Classificada</strong> = Total da Carteira de Pessoa Física (Rel. 11) + Total da Carteira de Pessoa Jurídica (Rel. 13).<br>
                             <strong>Depósitos Totais</strong> = Depósitos (e) no relatório de Passivo (Rel. 3), conforme o IFData. Quando indisponível, soma Depósitos à Vista (a1) + Poupança (a2) + Interfinanceiros (a3) + a Prazo (a4) + Outros (a5/a6).<br>
                             <strong>Patrimônio Líquido (PL)</strong> = Patrimônio Líquido do balanço principal (Rel. 1).<br>
@@ -7517,7 +7517,7 @@ elif menu == "Evolução":
                 x=ano_labels,
                 y=df_graph["Carteira de Crédito Bruta"],
                 mode="lines+markers",
-                name="Carteira de Crédito Bruta",
+                name="Carteira de Crédito Bruta*",
                 line=dict(color="#ff5a00", width=2, shape="spline", smoothing=1.15),
                 marker=dict(size=8, color="#ff5a00"),
                 connectgaps=True,
@@ -7570,7 +7570,7 @@ elif menu == "Evolução":
             barmode="group",
             height=480,
             yaxis=dict(title="Lucro/PL (R$ mm)", rangemode="tozero"),
-                yaxis2=dict(title="Carteira Bruta/Core Funding (R$ mm)", overlaying="y", side="right", rangemode="tozero"),
+                yaxis2=dict(title="Carteira Bruta*/Core Funding (R$ mm)", overlaying="y", side="right", rangemode="tozero"),
             xaxis_title="Ano",
             xaxis=dict(type="category", categoryorder="array", categoryarray=ano_labels),
             legend=dict(orientation="v", y=0.5, x=0.01),
@@ -7587,8 +7587,8 @@ elif menu == "Evolução":
                 <strong>mini-glossário (Evolução):</strong><br><br>
                 <strong>Core Funding:</strong> = <em>Captações (e)</em> = (a) + (b) + (c) + (d) + <em>Instrumentos de Dívida Elegíveis a Capital (h)</em>, todos do Relatório Passivo. Onde:
                 (a) Depósitos; (b) Obrigações por Operações Compromissadas; (c) Relações Interfinanceiras; (d) Relações Interdependências; (h) Instrumentos de Dívida Elegíveis a Capital.<br>
-                <strong>Carteira de Crédito Bruta:</strong> Soma do Valor Contábil Bruto (e1+f1+g1+h1) no Relatório de Ativo (Rel. 2).<br>
-                <em>Nota:</em> Para 2000–2024, usamos Carteira de Crédito Bruta + Carteira de Arrendamento Bruta + Outros Créditos Líquidos de Provisão (Rel. 2).<br>
+                <strong>Carteira de Crédito Bruta*:</strong> Soma do Valor Contábil Bruto (e1+f1+g1+h1) no Relatório de Ativo (Rel. 2).<br>
+                <em>Nota:</em> Para 2000–2024, usamos Carteira de Crédito Bruta + Carteira de Arrendamento Bruta + Outros Créditos Líquidos de Provisão (Rel. 2). A partir de 2025, usamos Valor Contábil Bruto (e1+f1+g1+h1).<br>
             </div>
             """,
             unsafe_allow_html=True,
@@ -7597,7 +7597,7 @@ elif menu == "Evolução":
         df_metric = pd.DataFrame({
             "Métrica": [
                 "ROE anualizado",
-                "Carteira de Crédito Bruta / PL",
+                "Carteira de Crédito Bruta / PL*",
                 "Índice de Basileia (%)",
                 "Índice de Capital Principal (CET1)",
             ]
@@ -7634,7 +7634,7 @@ elif menu == "Evolução":
                 return "-"
             if m in ("ROE anualizado", "Índice de Basileia (%)", "Índice de Capital Principal (CET1)"):
                 return _fmt_pct(v)
-            if m == "Carteira de Crédito Bruta / PL":
+            if m == "Carteira de Crédito Bruta / PL*":
                 return f"{float(v):.1f}x".replace(".", ",")
             return _fmt_valor_br(v)
 
