@@ -712,7 +712,7 @@ PEERS_TABELA_LAYOUT = [
                 "format_key": "Ativos Líquidos",
             },
             {
-                "label": "Carteira de Crédito Bruta",
+                "label": "Carteira de Crédito Bruta*",
                 "data_keys": [],
                 "format_key": "Carteira de Crédito Bruta",
             },
@@ -773,7 +773,7 @@ PEERS_TABELA_LAYOUT = [
                 "todo": "TODO: Integrar Ativo/PL a partir das fontes do projeto (sem criar fórmula nova).",
             },
             {
-                "label": "Carteira de Crédito Bruta / PL",
+                "label": "Carteira de Crédito Bruta / PL*",
                 "data_keys": ["Carteira de Crédito Bruta / PL", "Crédito/PL (%)", "Crédito/PL"],
                 "format_key": "Carteira de Crédito Bruta / PL",
             },
@@ -3314,6 +3314,14 @@ def _somar_valores(valores: list) -> Optional[float]:
     return float(sum(numeros))
 
 
+def _periodo_ano_int(periodo_txt: str) -> Optional[int]:
+    parsed = _parse_periodo(periodo_txt)
+    if not parsed:
+        return None
+    _, ano, _ = parsed
+    return int(ano)
+
+
 def _prefer_carteira_bruta(colunas: list) -> str:
     if "Carteira de Crédito Bruta" in colunas:
         return "Carteira de Crédito Bruta"
@@ -3868,6 +3876,18 @@ def _preparar_metricas_extra_peers(
         cache_ativo,
         ["Valor Contábil Bruto (h1)", "Valor Contabil Bruto (h1)"],
     )
+    col_credito_bruta_d1 = _resolver_coluna_peers(
+        cache_ativo,
+        ["Operações de Crédito (d1)", "Operacoes de Credito (d1)"],
+    )
+    col_credito_bruta_e1_alt = _resolver_coluna_peers(
+        cache_ativo,
+        ["Arrendamento Mercantil a Receber (e1)", "Arrendamento Mercantil a Receber"],
+    )
+    col_credito_bruta_f = _resolver_coluna_peers(
+        cache_ativo,
+        ["Outros Créditos - Líquido de Provisão (f)", "Outros Creditos - Liquido de Provisao (f)", "Outros Créditos - Líquido de Provisão"],
+    )
     col_credito_net_e = _resolver_coluna_peers(
         cache_ativo,
         ["Operações de Crédito (e)", "Operacoes de Credito (e)"],
@@ -3952,12 +3972,20 @@ def _preparar_metricas_extra_peers(
             carteira_classificada = _somar_valores([valor_pf, valor_pj])
             extra["Carteira de Crédito Classificada"][chave] = carteira_classificada
 
-            carteira_bruta = _somar_valores([
-                _obter_valor_peers(cache_ativo, banco, periodo, col_credito_bruta_e1),
-                _obter_valor_peers(cache_ativo, banco, periodo, col_credito_bruta_f1),
-                _obter_valor_peers(cache_ativo, banco, periodo, col_credito_bruta_g1),
-                _obter_valor_peers(cache_ativo, banco, periodo, col_credito_bruta_h1),
-            ])
+            ano_ref = _periodo_ano_int(periodo)
+            if ano_ref is not None and ano_ref <= 2024:
+                carteira_bruta = _somar_valores([
+                    _obter_valor_peers(cache_ativo, banco, periodo, col_credito_bruta_d1),
+                    _obter_valor_peers(cache_ativo, banco, periodo, col_credito_bruta_e1_alt),
+                    _obter_valor_peers(cache_ativo, banco, periodo, col_credito_bruta_f),
+                ])
+            else:
+                carteira_bruta = _somar_valores([
+                    _obter_valor_peers(cache_ativo, banco, periodo, col_credito_bruta_e1),
+                    _obter_valor_peers(cache_ativo, banco, periodo, col_credito_bruta_f1),
+                    _obter_valor_peers(cache_ativo, banco, periodo, col_credito_bruta_g1),
+                    _obter_valor_peers(cache_ativo, banco, periodo, col_credito_bruta_h1),
+                ])
             if carteira_bruta is None:
                 carteira_bruta = _somar_valores([
                     _obter_valor_peers(cache_ativo, banco, periodo, col_credito_net_e),
@@ -6933,6 +6961,7 @@ elif menu == "Peers (Tabela)":
                             <strong>Ativos Líquidos</strong> = Disponibilidades (a) + Aplicações Interfinanceiras de Liquidez (b) + Títulos e Valores Mobiliários (c), no relatório de Ativo (Rel. 2).<br>
                             <strong>Carteira de Crédito Bruta</strong> = Valor Contábil Bruto (e1) + Valor Contábil Bruto (f1) + Valor Contábil Bruto (g1) + Valor Contábil Bruto (h1), no relatório de Ativo (Rel. 2).<br>
                             Headers do Ativo usados: Operações de Crédito, Operações de Arrendamento Financeiro, Outras Operações com Características de Concessão de Crédito, Valores a Receber de Transações de Pagamentos - Usuários Finais (Pós-pago).<br>
+                            <em>Nota:</em> Para 2000–2024, usamos Carteira de Crédito Bruta + Carteira de Arrendamento Bruta + Outros Créditos Líquidos de Provisão (Rel. 2).<br>
                             <strong>Carteira de Crédito Classificada</strong> = Total da Carteira de Pessoa Física (Rel. 11) + Total da Carteira de Pessoa Jurídica (Rel. 13).<br>
                             <strong>Depósitos Totais</strong> = Depósitos (e) no relatório de Passivo (Rel. 3), conforme o IFData. Quando indisponível, soma Depósitos à Vista (a1) + Poupança (a2) + Interfinanceiros (a3) + a Prazo (a4) + Outros (a5/a6).<br>
                             <strong>Patrimônio Líquido (PL)</strong> = Patrimônio Líquido do balanço principal (Rel. 1).<br>
@@ -7330,6 +7359,12 @@ elif menu == "Evolução":
                 ["Valores a Receber de Transações de Pagamentos - Usuários Finais (Pós-pago) (h)",
                  "Valores a Receber de Transacoes de Pagamentos - Usuarios Finais (Pos-pago) (h)"],
             )
+            col_d1 = _resolver_coluna_peers(cache_ativo, ["Operações de Crédito (d1)", "Operacoes de Credito (d1)"])
+            col_e1_alt = _resolver_coluna_peers(cache_ativo, ["Arrendamento Mercantil a Receber (e1)", "Arrendamento Mercantil a Receber"])
+            col_f_outros = _resolver_coluna_peers(
+                cache_ativo,
+                ["Outros Créditos - Líquido de Provisão (f)", "Outros Creditos - Liquido de Provisao (f)", "Outros Créditos - Líquido de Provisão"],
+            )
             if col_e1 or col_f1 or col_g1 or col_h1:
                 cache_ativo = cache_ativo.copy()
                 cache_ativo["_tri_key"] = cache_ativo.get("Período", pd.Series(dtype="object")).astype(str).map(_periodo_tri_key)
@@ -7339,6 +7374,13 @@ elif menu == "Evolução":
                     + pd.to_numeric(cache_ativo.get(col_g1), errors="coerce").fillna(0)
                     + pd.to_numeric(cache_ativo.get(col_h1), errors="coerce").fillna(0)
                 )
+                carteira_old = None
+                if col_d1 or col_e1_alt or col_f_outros:
+                    carteira_old = (
+                        pd.to_numeric(cache_ativo.get(col_d1), errors="coerce").fillna(0)
+                        + pd.to_numeric(cache_ativo.get(col_e1_alt), errors="coerce").fillna(0)
+                        + pd.to_numeric(cache_ativo.get(col_f_outros), errors="coerce").fillna(0)
+                    )
                 carteira_net = None
                 if col_e or col_f or col_g or col_h:
                     carteira_net = (
@@ -7347,10 +7389,17 @@ elif menu == "Evolução":
                         + pd.to_numeric(cache_ativo.get(col_g), errors="coerce").fillna(0)
                         + pd.to_numeric(cache_ativo.get(col_h), errors="coerce").fillna(0)
                     )
+                # Regra por ano: até 2024 usa d1+e1+f (outros créditos líqu. prov.).
+                # A partir de 2025 usa VCB (e1+f1+g1+h1). Fallbacks para net quando necessário.
+                anos = cache_ativo.get("Período", pd.Series(dtype="object")).astype(str).map(_periodo_ano_int)
+                use_old = anos <= 2024
+                base_old = carteira_old if carteira_old is not None else carteira_net
+                base_new = carteira_vcb
                 if carteira_net is not None:
-                    cache_ativo["_carteira_bruta"] = carteira_vcb.mask(carteira_vcb <= 0, carteira_net)
-                else:
-                    cache_ativo["_carteira_bruta"] = carteira_vcb
+                    base_new = base_new.mask(base_new <= 0, carteira_net)
+                cache_ativo["_carteira_bruta"] = base_new
+                if base_old is not None:
+                    cache_ativo.loc[use_old, "_carteira_bruta"] = base_old[use_old]
                 bruta_map = (
                     cache_ativo.groupby("_tri_key", dropna=True)["_carteira_bruta"]
                     .sum(min_count=1)
@@ -7539,6 +7588,7 @@ elif menu == "Evolução":
                 <strong>Core Funding:</strong> = <em>Captações (e)</em> = (a) + (b) + (c) + (d) + <em>Instrumentos de Dívida Elegíveis a Capital (h)</em>, todos do Relatório Passivo. Onde:
                 (a) Depósitos; (b) Obrigações por Operações Compromissadas; (c) Relações Interfinanceiras; (d) Relações Interdependências; (h) Instrumentos de Dívida Elegíveis a Capital.<br>
                 <strong>Carteira de Crédito Bruta:</strong> Soma do Valor Contábil Bruto (e1+f1+g1+h1) no Relatório de Ativo (Rel. 2).<br>
+                <em>Nota:</em> Para 2000–2024, usamos Carteira de Crédito Bruta + Carteira de Arrendamento Bruta + Outros Créditos Líquidos de Provisão (Rel. 2).<br>
             </div>
             """,
             unsafe_allow_html=True,
