@@ -367,8 +367,8 @@ VARS_MOEDAS = [
     'Saldo PDD Outros Créditos',
     'PDD Total 4060',
     'Carteira Estágio 1',
-    'Carteira Estágio 2',
-    'Carteira Estágio 3',
+    'Ativos Estágio 2',
+    'Ativos Estágio 3',
 ]
 VARS_CONTAGEM = ['Número de Agências', 'Número de Postos de Atendimento']
 
@@ -407,39 +407,14 @@ PEERS_TABELA_LAYOUT = [
         "section": "Qualidade Carteira 4060",
         "rows": [
             {
-                "label": "Saldo PDD Crédito",
+                "label": "Ativos Estágio 2",
                 "data_keys": [],
-                "format_key": "Saldo PDD Crédito",
+                "format_key": "Ativos Estágio 2",
             },
             {
-                "label": "Saldo PDD Outros Créditos",
+                "label": "Ativos Estágio 3",
                 "data_keys": [],
-                "format_key": "Saldo PDD Outros Créditos",
-            },
-            {
-                "label": "PDD Total 4060",
-                "data_keys": [],
-                "format_key": "PDD Total 4060",
-            },
-            {
-                "label": "Carteira Estágio 1",
-                "data_keys": [],
-                "format_key": "Carteira Estágio 1",
-            },
-            {
-                "label": "Carteira Estágio 2",
-                "data_keys": [],
-                "format_key": "Carteira Estágio 2",
-            },
-            {
-                "label": "Carteira Estágio 3",
-                "data_keys": [],
-                "format_key": "Carteira Estágio 3",
-            },
-            {
-                "label": "PDD / Estágio 3",
-                "data_keys": [],
-                "format_key": "PDD / Estágio 3",
+                "format_key": "Ativos Estágio 3",
             },
             {
                 "label": "Perda Esperada / Estágio 3",
@@ -475,11 +450,6 @@ PEERS_TABELA_LAYOUT = [
                 "label": "Perda Esperada / (Carteira C4 + C5)",
                 "data_keys": [],
                 "format_key": "Perda Esperada / (Carteira C4 + C5)",
-            },
-            {
-                "label": "PDD Total 4060",
-                "data_keys": [],
-                "format_key": "PDD Total 4060",
             },
         ],
     },
@@ -3201,8 +3171,8 @@ def _preparar_metricas_extra_peers(
         "Saldo PDD Outros Créditos": {},
         "PDD Total 4060": {},
         "Carteira Estágio 1": {},
-        "Carteira Estágio 2": {},
-        "Carteira Estágio 3": {},
+        "Ativos Estágio 2": {},
+        "Ativos Estágio 3": {},
         "PDD / Estágio 3": {},
         "Perda Esperada / Estágio 3": {},
         "Índice de Capital Principal (CET1)": {},
@@ -3456,6 +3426,7 @@ def _preparar_metricas_extra_peers(
         cache_passivo,
         [
             "Depósitos (a)",
+            "Depósitos Totais (a)",
             "Depósito Total (a)",
             "Depositos (a)",
             "Deposito Total (a)",
@@ -3578,8 +3549,8 @@ def _preparar_metricas_extra_peers(
             extra["Saldo PDD Outros Créditos"][chave] = pdd_outros
             extra["PDD Total 4060"][chave] = pdd_total_4060
             extra["Carteira Estágio 1"][chave] = estagio1_mes
-            extra["Carteira Estágio 2"][chave] = estagio2_mes
-            extra["Carteira Estágio 3"][chave] = estagio3_mes
+            extra["Ativos Estágio 2"][chave] = estagio2_mes
+            extra["Ativos Estágio 3"][chave] = estagio3_mes
             extra["PDD / Estágio 3"][chave] = _calcular_ratio_peers(pdd_total_4060, estagio3_mes)
             extra["Perda Esperada / Estágio 3"][chave] = _calcular_ratio_peers(perda_esperada, estagio3_mes)
 
@@ -3807,8 +3778,8 @@ def _montar_tabela_peers(
                         "Perda Esperada / Carteira Classificada": ("Perda Esperada", "Carteira de Crédito Classificada"),
                         "Carteira de Créd. Class. C4+C5 / Carteira Classificada": ("Carteira de Créd. Class. C4+C5", "Carteira de Crédito Classificada"),
                         "Perda Esperada / (Carteira C4 + C5)": ("Perda Esperada", "Carteira de Créd. Class. C4+C5"),
-                        "PDD / Estágio 3": ("PDD Total 4060", "Carteira Estágio 3"),
-                        "Perda Esperada / Estágio 3": ("Perda Esperada", "Carteira Estágio 3"),
+                        "PDD / Estágio 3": ("PDD Total 4060", "Ativos Estágio 3"),
+                        "Perda Esperada / Estágio 3": ("Perda Esperada", "Ativos Estágio 3"),
                     }
                     if label in extra_values and label in _RATIO_COMPONENTS:
                         valor = extra_values[label].get((banco, periodo))
@@ -6462,14 +6433,9 @@ elif menu == "Peers (Tabela)":
                             <strong>Carteira de Créd. Class. C4+C5</strong> = Soma das linhas C4 e C5 do relatório de Carteira 4.966 (Rel. 16).<br>
                             <strong>Carteira de Créd. Class. C4+C5 / Carteira Classificada</strong> = (C4 + C5) ÷ Carteira de Crédito Classificada.<br>
                             <strong>Perda Esperada / (Carteira C4 + C5)</strong> = Perda Esperada ÷ (C4 + C5).<br>
-                            <strong>Saldo PDD Crédito</strong> = Saldo da conta COSIF 1490000004 (Cadoc 4060) para o período selecionado.<br>
-                            <strong>Saldo PDD Outros Créditos</strong> = Saldo da conta COSIF 1890000006 (Cadoc 4060) para o período selecionado.<br>
-                            <strong>PDD Total 4060</strong> = 1490000004 + 1890000006.<br>
-                            <strong>Carteira Estágio 1</strong> = Saldo da conta 3311000002 no mês/período selecionado.<br>
-                            <strong>Carteira Estágio 2</strong> = Saldo da conta 3312000001 no mês/período selecionado.<br>
-                            <strong>Carteira Estágio 3</strong> = Saldo da conta 3313000000 no mês/período selecionado.<br>
-                            <strong>PDD / Estágio 3</strong> = PDD Total 4060 ÷ Carteira Estágio 3 do mesmo mês/período.<br>
-                            <strong>Perda Esperada / Estágio 3</strong> = Perda Esperada (Rel. 2) ÷ Carteira Estágio 3 (Cadoc 4060) do mesmo mês/período.<br>
+                            <strong>Ativos Estágio 2</strong> = Saldo da conta 3312000001 no mês/período selecionado.<br>
+                            <strong>Ativos Estágio 3</strong> = Saldo da conta 3313000000 no mês/período selecionado.<br>
+                            <strong>Perda Esperada / Estágio 3</strong> = Perda Esperada (Rel. 2) ÷ Ativos Estágio 3 (Cadoc 4060) do mesmo mês/período.<br>
                             <br>
                             <em>Alavancagem</em><br>
                             <strong>Ativo / PL</strong> = Ativo Total ÷ Patrimônio Líquido.<br>
@@ -12296,21 +12262,11 @@ elif menu == "Glossário":
 
     **Desp PDD / Resultado Intermediação Fin. Bruto (%):** Desp. PDD dividido pelo Resultado de Intermediação Financeira Bruto. Fórmula: Desp. PDD / Resultado de Intermediação Financeira Bruto.
 
-    **Saldo PDD Crédito:** Saldo da conta COSIF 1490000004 (Cadoc 4060) no período.
+    **Ativos Estágio 2:** Saldo da conta 3312000001 no mês/período selecionado (Cadoc 4060).
 
-    **Saldo PDD Outros Créditos:** Saldo da conta COSIF 1890000006 (Cadoc 4060) no período.
+    **Ativos Estágio 3:** Saldo da conta 3313000000 no mês/período selecionado (Cadoc 4060).
 
-    **PDD Total 4060:** Soma dos saldos das contas 1490000004 e 1890000006 no período.
-
-    **Carteira Estágio 1:** Saldo da conta 3311000002 no mês/período selecionado (Cadoc 4060).
-
-    **Carteira Estágio 2:** Saldo da conta 3312000001 no mês/período selecionado (Cadoc 4060).
-
-    **Carteira Estágio 3:** Saldo da conta 3313000000 no mês/período selecionado (Cadoc 4060).
-
-    **PDD / Estágio 3 (%):** Relação entre PDD Total 4060 e Carteira Estágio 3 do mesmo mês/período.
-
-    **Perda Esperada / Estágio 3 (%):** Relação entre Perda Esperada (Rel. 2) e Carteira Estágio 3 (Cadoc 4060) do mesmo mês/período.
+    **Perda Esperada / Estágio 3 (%):** Relação entre Perda Esperada (Rel. 2) e Ativos Estágio 3 (Cadoc 4060) do mesmo mês/período.
 
     **Desp Captação / Captação (%):** Desp. Captação anualizada dividida por Captações. Fórmula: (Desp. Captação * (12 / meses_do_período)) / Captações.
     """)
