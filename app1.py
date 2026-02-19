@@ -7496,7 +7496,7 @@ elif menu == "Evolução":
                 return "-"
             if m in ("ROE anualizado", "Índice de Basileia (%)", "Índice de Capital Principal (CET1)"):
                 return _fmt_pct(v)
-            if m == "Carteira Classificada / PL":
+            if m == "Carteira de Crédito Bruta / PL":
                 return f"{float(v):.1f}x".replace(".", ",")
             return _fmt_valor_br(v)
 
