@@ -7275,14 +7275,8 @@ elif menu == "Evolução":
         if core_funding_series is None:
             core_funding_series = _numeric_series(df_ano, "Captações")
         df_ano["Core Funding"] = core_funding_series
-        carteira_classificada_2025 = _numeric_series(df_ano, "Carteira Classificada")
-        carteira_classificada_historica = _numeric_series(df_ano, "Carteira de Crédito Classificada")
         carteira_credito_base = _numeric_series(df_ano, _prefer_carteira_bruta(list(df_ano.columns)))
-        df_ano["Carteira Classificada"] = (
-            carteira_classificada_historica
-            .combine_first(carteira_classificada_2025)
-            .combine_first(carteira_credito_base)
-        )
+        df_ano["Carteira de Crédito Bruta"] = carteira_credito_base
         # ROE na Evolução: usar exatamente o mesmo valor já calculado para Peers (coluna canônica).
         col_roe = "ROE Ac. Anualizado (%)" if "ROE Ac. Anualizado (%)" in df_ano.columns else (
             "ROE Ac. YTD an. (%)" if "ROE Ac. YTD an. (%)" in df_ano.columns else None
@@ -7302,9 +7296,9 @@ elif menu == "Evolução":
                 df_ano = df_ano.drop(columns=["_roe_peers"], errors="ignore")
             else:
                 df_ano["ROE anualizado"] = np.nan
-        df_ano["Crédito 2.682 / PL"] = np.where(
+        df_ano["Carteira de Crédito Bruta / PL"] = np.where(
             pd.to_numeric(df_ano.get("Patrimônio Líquido"), errors="coerce") != 0,
-            pd.to_numeric(df_ano["Carteira Classificada"], errors="coerce") / pd.to_numeric(df_ano.get("Patrimônio Líquido"), errors="coerce"),
+            pd.to_numeric(df_ano["Carteira de Crédito Bruta"], errors="coerce") / pd.to_numeric(df_ano.get("Patrimônio Líquido"), errors="coerce"),
             np.nan,
         )
         basileia_fonte = _numeric_series(df_ano, "Índice de Basileia")
@@ -7344,7 +7338,7 @@ elif menu == "Evolução":
         graf_cols = {
             "Lucro Líquido": "Lucro Líquido Acumulado YTD",
             "Patrimônio Líquido": "Patrimônio Líquido",
-            "Carteira Classificada": "Carteira Classificada",
+            "Carteira de Crédito Bruta": "Carteira de Crédito Bruta",
             "Core Funding": "Core Funding",
         }
         df_graph = pd.DataFrame({"Ano": df_ano["Ano"]})
@@ -7384,9 +7378,9 @@ elif menu == "Evolução":
         fig_ev.add_trace(
             go.Scatter(
                 x=ano_labels,
-                y=df_graph["Carteira Classificada"],
+                y=df_graph["Carteira de Crédito Bruta"],
                 mode="lines+markers",
-                name="Carteira Classificada",
+                name="Carteira de Crédito Bruta",
                 line=dict(color="#ff5a00", width=2, shape="spline", smoothing=1.15),
                 marker=dict(size=8, color="#ff5a00"),
                 connectgaps=True,
@@ -7432,14 +7426,14 @@ elif menu == "Evolução":
 
         _add_label_annotations(df_graph["Lucro Líquido"], "y", "#FFFFFF", "rgba(17,17,17,0.94)", 14)
         _add_label_annotations(df_graph["Patrimônio Líquido"], "y", "#111111", "rgba(232,232,232,0.96)", 14)
-        _add_label_annotations(df_graph["Carteira Classificada"], "y2", "#ff5a00", "rgba(255,243,236,0.96)", 16)
+        _add_label_annotations(df_graph["Carteira de Crédito Bruta"], "y2", "#ff5a00", "rgba(255,243,236,0.96)", 16)
         _add_label_annotations(df_graph["Core Funding"], "y2", "#FFFFFF", "rgba(34,34,34,0.94)", -22)
 
         fig_ev.update_layout(
             barmode="group",
             height=480,
             yaxis=dict(title="Lucro/PL (R$ mm)", rangemode="tozero"),
-            yaxis2=dict(title="Carteira/Core Funding (R$ mm)", overlaying="y", side="right", rangemode="tozero"),
+                yaxis2=dict(title="Carteira Bruta/Core Funding (R$ mm)", overlaying="y", side="right", rangemode="tozero"),
             xaxis_title="Ano",
             xaxis=dict(type="category", categoryorder="array", categoryarray=ano_labels),
             legend=dict(orientation="v", y=0.5, x=0.01),
@@ -7456,7 +7450,7 @@ elif menu == "Evolução":
                 <strong>mini-glossário (Evolução):</strong><br><br>
                 <strong>Core Funding:</strong> = <em>Captações (e)</em> = (a) + (b) + (c) + (d) + <em>Instrumentos de Dívida Elegíveis a Capital (h)</em>, todos do Relatório Passivo. Onde:
                 (a) Depósitos; (b) Obrigações por Operações Compromissadas; (c) Relações Interfinanceiras; (d) Relações Interdependências; (h) Instrumentos de Dívida Elegíveis a Capital.<br>
-                <strong>Carteira Classificada:</strong> Carteira Pós PDD (valor líquido).<br>
+                <strong>Carteira de Crédito Bruta:</strong> Soma do Valor Contábil Bruto (e1+f1+g1+h1) no Relatório de Ativo (Rel. 2).<br>
             </div>
             """,
             unsafe_allow_html=True,
@@ -7465,7 +7459,7 @@ elif menu == "Evolução":
         df_metric = pd.DataFrame({
             "Métrica": [
                 "ROE anualizado",
-                "Carteira Classificada / PL",
+                "Carteira de Crédito Bruta / PL",
                 "Índice de Basileia (%)",
                 "Índice de Capital Principal (CET1)",
             ]
@@ -7474,7 +7468,7 @@ elif menu == "Evolução":
             periodo_label = row.get("LabelPeriodo", str(int(row["Ano"])))
             df_metric[periodo_label] = [
                 row.get("ROE anualizado"),
-                row.get("Crédito 2.682 / PL"),
+                row.get("Carteira de Crédito Bruta / PL"),
                 row.get("Índice de Basileia (%)"),
                 row.get("Índice de Capital Principal (CET1)"),
             ]
