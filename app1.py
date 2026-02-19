@@ -3352,23 +3352,28 @@ def _anexar_carteira_credito_bruta(dados_periodos: dict) -> dict:
         + df_bruta[col_h1].fillna(0)
     )
     df_bruta = df_bruta[["Instituição", "Período", "Carteira de Crédito Bruta"]]
-
-    mapa_por_periodo = {
-        periodo: sub.set_index("Instituição")["Carteira de Crédito Bruta"]
-        for periodo, sub in df_bruta.groupby("Período")
-    }
+    # Garante unicidade por período/instituição para evitar InvalidIndexError no map
+    df_bruta = (
+        df_bruta.groupby(["Período", "Instituição"], as_index=False)["Carteira de Crédito Bruta"]
+        .sum(min_count=1)
+    )
 
     dados_out = {}
     for periodo, df in dados_periodos.items():
         if df is None or df.empty or "Instituição" not in df.columns:
             dados_out[periodo] = df
             continue
-        serie_bruta = mapa_por_periodo.get(str(periodo))
-        if serie_bruta is None:
-            dados_out[periodo] = df
-            continue
         df_out = df.copy()
-        df_out["Carteira de Crédito Bruta"] = df_out["Instituição"].map(serie_bruta)
+        sub = df_bruta[df_bruta["Período"].astype(str) == str(periodo)][["Instituição", "Carteira de Crédito Bruta"]]
+        if sub.empty:
+            dados_out[periodo] = df_out
+            continue
+        df_out = df_out.merge(sub, on="Instituição", how="left", suffixes=("", "_bruta"))
+        if "Carteira de Crédito Bruta_bruta" in df_out.columns and "Carteira de Crédito Bruta" in df_out.columns:
+            df_out["Carteira de Crédito Bruta"] = df_out["Carteira de Crédito Bruta_bruta"].combine_first(
+                df_out["Carteira de Crédito Bruta"]
+            )
+            df_out = df_out.drop(columns=["Carteira de Crédito Bruta_bruta"])
         # Uniformiza Carteira de Crédito para critério Bruto quando disponível
         if "Carteira de Crédito" in df_out.columns:
             df_out["Carteira de Crédito"] = df_out["Carteira de Crédito Bruta"].combine_first(
