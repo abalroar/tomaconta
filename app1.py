@@ -5,6 +5,7 @@ import pandas as pd
 import os
 import requests
 import json
+import threading
 import plotly.express as px
 import plotly.graph_objects as go
 from pathlib import Path
@@ -2244,6 +2245,7 @@ def formatar_periodos_lista(periodos: list) -> list:
     return [periodo_para_exibicao(p) for p in periodos]
 
 CHECKPOINT_ATUALIZACAO_PATH = Path("data/cache/update_checkpoint.json")
+STATUS_ATUALIZACAO_PATH = Path("data/cache/update_job_status.json")
 
 def _carregar_checkpoint_atualizacao() -> dict:
     if not CHECKPOINT_ATUALIZACAO_PATH.exists():
@@ -2264,6 +2266,28 @@ def _limpar_checkpoint_atualizacao() -> None:
     try:
         if CHECKPOINT_ATUALIZACAO_PATH.exists():
             CHECKPOINT_ATUALIZACAO_PATH.unlink()
+    except Exception:
+        pass
+
+def _carregar_status_atualizacao() -> dict:
+    if not STATUS_ATUALIZACAO_PATH.exists():
+        return {}
+    try:
+        return json.loads(STATUS_ATUALIZACAO_PATH.read_text())
+    except Exception:
+        return {}
+
+def _salvar_status_atualizacao(payload: dict) -> None:
+    try:
+        STATUS_ATUALIZACAO_PATH.parent.mkdir(parents=True, exist_ok=True)
+        STATUS_ATUALIZACAO_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2))
+    except Exception:
+        pass
+
+def _limpar_status_atualizacao() -> None:
+    try:
+        if STATUS_ATUALIZACAO_PATH.exists():
+            STATUS_ATUALIZACAO_PATH.unlink()
     except Exception:
         pass
 
@@ -6279,6 +6303,8 @@ with st.sidebar:
                 checkpoint = _carregar_checkpoint_atualizacao()
                 checkpoint_periodos = checkpoint.get("periodos") if checkpoint else None
                 checkpoint_pendentes = checkpoint.get("pendentes") if checkpoint else None
+                status_job = _carregar_status_atualizacao()
+                job_running = bool(status_job.get("running"))
 
                 if checkpoint_periodos == periodos and checkpoint_pendentes:
                     st.caption(f"↩️ extração interrompida detectada: {len(checkpoint_pendentes)} período(s) pendente(s).")
@@ -6303,6 +6329,25 @@ with st.sidebar:
                         help="reduz risco de travamento na sessão. após um lote, você pode continuar.",
                     )
 
+                modo_bg = st.checkbox(
+                    "executar em background (recomendado online)",
+                    value=True if len(periodos) > 12 else False,
+                    help="mantém a extração rodando mesmo se a página recarregar.",
+                )
+
+                if job_running:
+                    st.info("⏳ extração em background em andamento.")
+                    if status_job:
+                        st.caption(
+                            f"progresso: {status_job.get('progress', 0):.1%} | "
+                            f"atualizando: {status_job.get('current', '-')}"
+                        )
+                        st.caption(f"última atualização: {status_job.get('last_update', '-')}")
+                    if st.button("limpar status travado", width='stretch'):
+                        _limpar_status_atualizacao()
+                        st.success("status limpo. você pode iniciar novamente.")
+                    st.stop()
+
                 if st.button("extrair dados do BCB", type="primary", width='stretch') or retomar:
                     periodos_totais = periodos
                     concluidos = set(checkpoint.get("concluidos") or [])
@@ -6317,6 +6362,91 @@ with st.sidebar:
                     else:
                         periodos_lote = periodos_exec
                         periodos_restantes = []
+
+                    if modo_bg:
+                        def _run_bg(periodos_lote_bg, periodos_restantes_bg, periodos_totais_bg, dict_aliases_bg):
+                            total = len(periodos_lote_bg)
+                            _salvar_status_atualizacao({
+                                "running": True,
+                                "progress": 0.0,
+                                "current": "-",
+                                "total": total,
+                                "last_update": datetime.now().isoformat(),
+                            })
+
+                            try:
+                                def update_bg(i, total_bg, p):
+                                    _salvar_status_atualizacao({
+                                        "running": True,
+                                        "progress": (i + 1) / max(total_bg, 1),
+                                        "current": f"{p[4:6]}/{p[:4]}",
+                                        "total": total_bg,
+                                        "last_update": datetime.now().isoformat(),
+                                    })
+
+                                def save_progress_bg(dados_parciais, info):
+                                    salvar_cache(dados_parciais, info, incremental=True)
+                                    concluidos.update(dados_parciais.keys())
+                                    pendentes = [p for p in periodos_totais_bg if p not in concluidos]
+                                    _salvar_checkpoint_atualizacao({
+                                        "periodos": periodos_totais_bg,
+                                        "concluidos": sorted(concluidos),
+                                        "pendentes": pendentes,
+                                        "timestamp": datetime.now().isoformat(),
+                                    })
+
+                                processar_todos_periodos(
+                                    periodos_lote_bg,
+                                    dict_aliases_bg,
+                                    progress_callback=update_bg,
+                                    save_callback=save_progress_bg,
+                                    save_interval=5
+                                )
+
+                                pendentes_final_bg = [p for p in periodos_totais_bg if p not in concluidos]
+                                if periodos_restantes_bg:
+                                    pendentes_final_bg = periodos_restantes_bg + [p for p in pendentes_final_bg if p not in periodos_restantes_bg]
+
+                                if not pendentes_final_bg:
+                                    _limpar_checkpoint_atualizacao()
+                                    _salvar_status_atualizacao({
+                                        "running": False,
+                                        "progress": 1.0,
+                                        "current": "concluído",
+                                        "total": total,
+                                        "last_update": datetime.now().isoformat(),
+                                    })
+                                else:
+                                    _salvar_checkpoint_atualizacao({
+                                        "periodos": periodos_totais_bg,
+                                        "concluidos": sorted(concluidos),
+                                        "pendentes": pendentes_final_bg,
+                                        "timestamp": datetime.now().isoformat(),
+                                    })
+                                    _salvar_status_atualizacao({
+                                        "running": False,
+                                        "progress": 0.0,
+                                        "current": "parcial",
+                                        "total": total,
+                                        "last_update": datetime.now().isoformat(),
+                                    })
+                            except Exception as exc:
+                                _salvar_status_atualizacao({
+                                    "running": False,
+                                    "progress": 0.0,
+                                    "current": f"erro: {exc}",
+                                    "total": total,
+                                    "last_update": datetime.now().isoformat(),
+                                })
+
+                        st.info("🟢 extração iniciada em background. você pode recarregar a página.")
+                        th = threading.Thread(
+                            target=_run_bg,
+                            args=(periodos_lote, periodos_restantes, periodos_totais, st.session_state['dict_aliases']),
+                            daemon=True,
+                        )
+                        th.start()
+                        st.stop()
 
                     progress_bar = st.progress(0)
                     status = st.empty()
