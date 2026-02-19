@@ -3760,6 +3760,36 @@ def _preparar_metricas_extra_peers(
             "Depositos",
         ],
     )
+    col_dep_a1 = _resolver_coluna_peers(
+        cache_passivo,
+        ["Depósitos à Vista (a1)", "Depositos a Vista (a1)", "Depósitos à Vista", "Depositos a Vista"],
+    )
+    col_dep_a2 = _resolver_coluna_peers(
+        cache_passivo,
+        ["Depósitos de Poupança (a2)", "Depositos de Poupanca (a2)", "Depósitos de Poupança"],
+    )
+    col_dep_a3 = _resolver_coluna_peers(
+        cache_passivo,
+        ["Depósitos Interfinanceiros (a3)", "Depositos Interfinanceiros (a3)"],
+    )
+    col_dep_a4 = _resolver_coluna_peers(
+        cache_passivo,
+        ["Depósitos a Prazo (a4)", "Depositos a Prazo (a4)"],
+    )
+    col_dep_a5 = _resolver_coluna_peers(
+        cache_passivo,
+        [
+            "Outros Depósitos (a5)",
+            "Outros Depositos (a5)",
+            "Conta de Pagamento Pré-Paga (a5)",
+            "Conta de Pagamento Pre-Paga (a5)",
+            "Conta de Pagamento Pre Paga (a5)",
+        ],
+    )
+    col_dep_a6 = _resolver_coluna_peers(
+        cache_passivo,
+        ["Depósitos Outros (a6)", "Depositos Outros (a6)"],
+    )
 
     perda_colunas_base = [
         "Perda Esperada (e2)",
@@ -3838,6 +3868,15 @@ def _preparar_metricas_extra_peers(
 
             # Depósitos Totais = Depósitos (e) do relatório de Passivo (Rel. 3)
             depositos_totais = _obter_valor_peers(cache_passivo, banco, periodo, col_depositos_passivo)
+            if depositos_totais is None or pd.isna(_coerce_numeric_value(depositos_totais)):
+                depositos_totais = _somar_valores([
+                    _obter_valor_peers(cache_passivo, banco, periodo, col_dep_a1),
+                    _obter_valor_peers(cache_passivo, banco, periodo, col_dep_a2),
+                    _obter_valor_peers(cache_passivo, banco, periodo, col_dep_a3),
+                    _obter_valor_peers(cache_passivo, banco, periodo, col_dep_a4),
+                    _obter_valor_peers(cache_passivo, banco, periodo, col_dep_a5),
+                    _obter_valor_peers(cache_passivo, banco, periodo, col_dep_a6),
+                ])
             extra["Depósitos Totais"][chave] = _coerce_numeric_value(depositos_totais)
 
             perda_vals = [
@@ -6777,7 +6816,7 @@ elif menu == "Peers (Tabela)":
                             <strong>Ativo Total</strong> = Ativo Total do balanço principal (Rel. 1).<br>
                             <strong>Ativos Líquidos</strong> = Disponibilidades (a) + Aplicações Interfinanceiras de Liquidez (b) + Títulos e Valores Mobiliários (c) no relatório de Ativo (Rel. 2).<br>
                             <strong>Carteira de Crédito Classificada</strong> = Total da Carteira de Pessoa Física (Rel. 11) + Total da Carteira de Pessoa Jurídica (Rel. 13).<br>
-                            <strong>Depósitos Totais</strong> = Depósitos (e) no relatório de Passivo (Rel. 3), conforme o IFData.<br>
+                            <strong>Depósitos Totais</strong> = Depósitos (e) no relatório de Passivo (Rel. 3), conforme o IFData. Quando indisponível, soma Depósitos à Vista (a1) + Poupança (a2) + Interfinanceiros (a3) + a Prazo (a4) + Outros (a5/a6).<br>
                             <strong>Patrimônio Líquido (PL)</strong> = Patrimônio Líquido do balanço principal (Rel. 1).<br>
                             <br>
                             <em>Qualidade Carteira</em><br>
