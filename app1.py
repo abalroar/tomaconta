@@ -2243,6 +2243,92 @@ def formatar_periodos_lista(periodos: list) -> list:
     """
     return [periodo_para_exibicao(p) for p in periodos]
 
+def _periodo_exibicao_para_api_local(periodo_exib: str) -> str:
+    """Converte período T/YYYY para YYYYMM (local, sem depender do extrator)."""
+    if not periodo_exib or "/" not in str(periodo_exib):
+        return ""
+    try:
+        tri, ano = str(periodo_exib).split("/")
+        tri = tri.strip()
+        mes_map = {"1": "03", "2": "06", "3": "09", "4": "12"}
+        mes = mes_map.get(tri, "03")
+        return f"{ano.strip()}{mes}"
+    except Exception:
+        return ""
+
+def _inferir_periodo_api_padrao() -> str:
+    """Infere um período YYYYMM padrão a partir do metadata do cache principal."""
+    try:
+        meta_path = Path("data/cache/principal/metadata.json")
+        if not meta_path.exists():
+            return "202503"
+        meta = json.loads(meta_path.read_text())
+        periodos = meta.get("periodos") or []
+        if not periodos:
+            return "202503"
+        ultimo = sorted(periodos, key=lambda p: (int(p.split("/")[1]), int(p.split("/")[0])))[-1]
+        return _periodo_exibicao_para_api_local(ultimo) or "202503"
+    except Exception:
+        return "202503"
+
+@st.cache_data(ttl=900, show_spinner=False)
+def _diagnosticar_ifdata_resumo(periodo_api: str, termo_busca: str):
+    """Diagnóstico objetivo da presença de IF no Relatório 1 (Resumo) do IFData."""
+    from utils.ifdata_cache.extractor import (
+        extrair_cadastro,
+        extrair_valores,
+        _normalizar_nome_coluna,
+        VARIAVEIS_RESUMO_API,
+    )
+
+    termo = (termo_busca or "").strip()
+    if not periodo_api or not termo:
+        return {"erro": "período e termo são obrigatórios"}
+
+    df_cad = extrair_cadastro(periodo_api)
+    df_val = extrair_valores(periodo_api, relatorio=1)
+
+    col_nome = None
+    for candidato in ["NomeInstituicao", "NomeInstituição", "NomeInstituicaoCompleto"]:
+        if candidato in df_cad.columns:
+            col_nome = candidato
+            break
+
+    resultado = {
+        "periodo": periodo_api,
+        "termo": termo,
+        "cadastro_total": len(df_cad),
+        "valores_total": len(df_val),
+        "cadastro_match": [],
+        "codinst_match": [],
+        "vars_resumo_match": [],
+        "erro": None,
+    }
+
+    if df_cad.empty or not col_nome:
+        resultado["erro"] = "cadastro vazio ou coluna de nome não encontrada"
+        return resultado
+
+    mask = df_cad[col_nome].astype(str).str.contains(termo, case=False, na=False)
+    df_match = df_cad.loc[mask, ["CodInst", col_nome]].drop_duplicates()
+    resultado["cadastro_match"] = df_match[col_nome].astype(str).head(10).tolist()
+    codinsts = df_match["CodInst"].dropna().astype(str).unique().tolist()
+    resultado["codinst_match"] = codinsts
+
+    if not codinsts or df_val.empty:
+        return resultado
+
+    df_val = df_val.copy()
+    if "NomeColuna" in df_val.columns:
+        df_val["NomeColuna"] = df_val["NomeColuna"].apply(_normalizar_nome_coluna)
+    variaveis_norm = set(_normalizar_nome_coluna(v) for v in VARIAVEIS_RESUMO_API)
+
+    df_val = df_val[df_val["CodInst"].astype(str).isin(codinsts)]
+    df_val_vars = df_val[df_val["NomeColuna"].isin(variaveis_norm)]
+    resultado["vars_resumo_match"] = sorted(df_val_vars["NomeColuna"].dropna().unique().tolist())
+
+    return resultado
+
 
 def ordenar_bancos_com_alias(bancos: list, dict_aliases: dict = None) -> list:
     """Ordena bancos com alias primeiro (A-Z), depois sem alias (A-Z).
@@ -6119,6 +6205,36 @@ with st.sidebar:
             key="modo_diagnostico",
             help="exibe memória aproximada, tamanho do recorte do cache derivado e tempos de execução",
         )
+        if st.session_state.get("modo_diagnostico"):
+            with st.expander("diagnóstico IFData (Rel. 1)", expanded=False):
+                periodo_default = _inferir_periodo_api_padrao()
+                termo_busca = st.text_input("instituição (texto exato ou parcial)", value="DOCK IP", key="diag_ifdata_texto")
+                periodo_api = st.text_input("período (YYYYMM)", value=periodo_default, key="diag_ifdata_periodo")
+                if st.button("rodar diagnóstico", key="diag_ifdata_run"):
+                    with st.spinner("consultando IFData (Rel. 1)..."):
+                        resultado = _diagnosticar_ifdata_resumo(periodo_api.strip(), termo_busca.strip())
+
+                    if resultado.get("erro"):
+                        st.error(resultado["erro"])
+                    else:
+                        st.caption(f"Período: {resultado['periodo']} | Termo: {resultado['termo']}")
+                        st.caption(f"Cadastro: {resultado['cadastro_total']} linhas | Valores (Rel. 1): {resultado['valores_total']} linhas")
+                        if resultado["cadastro_match"]:
+                            st.markdown("**Matches no cadastro (exemplos):**")
+                            st.write(resultado["cadastro_match"])
+                        else:
+                            st.warning("Nenhum match no cadastro para o termo informado.")
+
+                        if resultado["codinst_match"]:
+                            st.caption(f"CodInst encontrados: {', '.join(resultado['codinst_match'][:10])}")
+                        else:
+                            st.warning("Nenhum CodInst encontrado para o termo.")
+
+                        if resultado["vars_resumo_match"]:
+                            st.markdown("**Variáveis do Rel. 1 encontradas para a IF:**")
+                            st.write(resultado["vars_resumo_match"])
+                        else:
+                            st.warning("Nenhuma variável do Rel. 1 (Resumo) encontrada para essa IF.")
 
         st.markdown("---")
         st.markdown("**atualizar dados (admin)**")
