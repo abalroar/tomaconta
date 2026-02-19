@@ -664,6 +664,7 @@ VARS_RAZAO = ['Carteira de Crédito Bruta / PL', 'Ativo/PL', 'Crédito/PL (%)']
 VARS_MOEDAS = [
     'Carteira de Crédito',
     'Carteira de Crédito Bruta',
+    'Core Funding',
     'Carteira de Crédito Classificada',
     'Ativos Líquidos',
     'Depósitos Totais',
@@ -722,6 +723,11 @@ PEERS_TABELA_LAYOUT = [
                 "format_key": "Depósitos Totais",
             },
             {
+                "label": "Core Funding*",
+                "data_keys": [],
+                "format_key": "Core Funding",
+            },
+            {
                 "label": "Patrimônio Líquido (PL)",
                 "data_keys": ["Patrimônio Líquido"],
                 "format_key": "Patrimônio Líquido",
@@ -757,7 +763,7 @@ PEERS_TABELA_LAYOUT = [
                 "format_key": "Perda Esperada",
             },
             {
-                "label": "Perda Esperada / Carteira de Crédito Bruta",
+                "label": "Perda Esperada / Carteira de Crédito*",
                 "data_keys": [],
                 "format_key": "Perda Esperada / Carteira de Crédito Bruta",
             },
@@ -812,9 +818,9 @@ VARIAVEIS_PONDERACAO = {
     'Média Simples': None,  # Sem ponderação
     'Ativo Total': 'Ativo Total',
     'Carteira de Crédito Bruta': 'Carteira de Crédito Bruta',
+    'Core Funding': 'Core Funding',
     'Patrimônio Líquido': 'Patrimônio Líquido',
     'Patrimônio de Referência': 'Patrimônio de Referência',
-    'Captações': 'Captações',
     'Passivo Exigível': 'Passivo Exigível',
     'RWA Total': 'RWA Total',
 }
@@ -868,9 +874,9 @@ def get_label_media(coluna_peso):
     abreviacoes = {
         'Ativo Total': 'Ativo Total',
         'Carteira de Crédito Bruta': 'Cart. Crédito Bruta',
+        'Core Funding': 'Core Funding',
         'Patrimônio Líquido': 'PL',
         'Patrimônio de Referência': 'PR',
-        'Captações': 'Captações',
         'Passivo Exigível': 'Passivo',
         'RWA Total': 'RWA',
     }
@@ -2739,7 +2745,7 @@ def _tooltip_ratio_peers(label, valor_num, valor_den, valor_ratio):
     _NOMES_COMPONENTES = {
         "Ativo / PL": ("Ativo Total", "PL"),
         "Carteira de Crédito* / PL*": ("Carteira de Crédito Bruta", "PL"),
-        "Perda Esperada / Carteira de Crédito Bruta": ("Perda Esperada", "Carteira de Crédito Bruta"),
+        "Perda Esperada / Carteira de Crédito*": ("Perda Esperada", "Carteira de Crédito Bruta"),
         "Carteira de Créd. Class. C4+C5 / Carteira Classificada": ("C4+C5", "Carteira de Crédito Classificada"),
         "Perda Esperada / (Carteira C4 + C5)": ("Perda Esperada", "C4+C5"),
     }
@@ -3322,10 +3328,35 @@ def _periodo_ano_int(periodo_txt: str) -> Optional[int]:
     return int(ano)
 
 
+def _calcular_core_funding(
+    cache_passivo: Optional[pd.DataFrame],
+    instituicao: str,
+    periodo: str,
+    col_capt: Optional[str],
+    col_instr: Optional[str],
+) -> Optional[float]:
+    """Core Funding por período: até 2024 usa Captações (e); 2025+ usa Captações (e) + Dívida Subordinada (h)."""
+    if cache_passivo is None or cache_passivo.empty:
+        return None
+    ano_ref = _periodo_ano_int(periodo)
+    cap_val = _obter_valor_peers(cache_passivo, instituicao, periodo, col_capt) if col_capt else None
+    if ano_ref is None or ano_ref <= 2024:
+        return _coerce_numeric_value(cap_val)
+    instr_val = _obter_valor_peers(cache_passivo, instituicao, periodo, col_instr) if col_instr else None
+    return _somar_valores([cap_val, instr_val])
+
+
 def _prefer_carteira_bruta(colunas: list) -> str:
     if "Carteira de Crédito Bruta" in colunas:
         return "Carteira de Crédito Bruta"
     return "Carteira de Crédito"
+
+
+def _ajustar_colunas_core_funding(colunas: list) -> list:
+    """Remove Captações quando Core Funding estiver disponível na lista de seleção."""
+    if "Core Funding" in colunas and "Captações" in colunas:
+        return [c for c in colunas if c != "Captações"]
+    return colunas
 
 
 def _anexar_carteira_credito_bruta(dados_periodos: dict) -> dict:
@@ -3387,6 +3418,77 @@ def _anexar_carteira_credito_bruta(dados_periodos: dict) -> dict:
             df_out["Carteira de Crédito"] = df_out["Carteira de Crédito Bruta"].combine_first(
                 df_out["Carteira de Crédito"]
             )
+        dados_out[periodo] = df_out
+
+    return dados_out
+
+
+def _anexar_core_funding(dados_periodos: dict) -> dict:
+    """Anexa Core Funding (Passivo) aos dados por período."""
+    if not dados_periodos:
+        return dados_periodos
+    cache_manager = get_cache_manager()
+    if cache_manager is None:
+        return dados_periodos
+    resultado = cache_manager.carregar("passivo")
+    if not resultado or not resultado.sucesso or resultado.dados is None:
+        return dados_periodos
+
+    df_passivo = resultado.dados
+    if df_passivo is None or df_passivo.empty:
+        return dados_periodos
+
+    col_capt = _resolver_coluna_peers(
+        df_passivo,
+        [
+            "Captações (e) = (a) + (b) + (c) + (d)",
+            "Captações (e)",
+            "Captações",
+            "Captacoes (e)",
+        ],
+    )
+    col_instr = _resolver_coluna_peers(
+        df_passivo,
+        [
+            "Instrumentos de Dívida Elegíveis a Capital (h)",
+            "Instrumentos de Divida Elegiveis a Capital (h)",
+            "Instrumentos de Dívida Elegíveis a Capital",
+            "Instrumentos de Divida Elegiveis a Capital",
+        ],
+    )
+    if not col_capt:
+        return dados_periodos
+
+    df_tmp = df_passivo[["Instituição", "Período"]].copy()
+    df_tmp["_cap"] = pd.to_numeric(df_passivo[col_capt], errors="coerce")
+    df_tmp["_instr"] = pd.to_numeric(df_passivo[col_instr], errors="coerce") if col_instr else pd.NA
+    df_tmp["_ano"] = df_tmp["Período"].astype(str).map(_periodo_ano_int)
+    df_tmp["Core Funding"] = df_tmp["_cap"]
+    mask_2025 = df_tmp["_ano"].notna() & (df_tmp["_ano"] >= 2025)
+    if col_instr:
+        df_tmp.loc[mask_2025, "Core Funding"] = (
+            df_tmp.loc[mask_2025, "_cap"].fillna(0) + df_tmp.loc[mask_2025, "_instr"].fillna(0)
+        )
+
+    df_core = (
+        df_tmp.groupby(["Período", "Instituição"], as_index=False)["Core Funding"]
+        .sum(min_count=1)
+    )
+
+    dados_out = {}
+    for periodo, df in dados_periodos.items():
+        if df is None or df.empty or "Instituição" not in df.columns:
+            dados_out[periodo] = df
+            continue
+        sub = df_core[df_core["Período"].astype(str) == str(periodo)][["Instituição", "Core Funding"]]
+        if sub.empty:
+            dados_out[periodo] = df
+            continue
+        df_out = df.copy()
+        df_out = df_out.merge(sub, on="Instituição", how="left", suffixes=("", "_core"))
+        if "Core Funding_core" in df_out.columns and "Core Funding" in df_out.columns:
+            df_out["Core Funding"] = df_out["Core Funding_core"].combine_first(df_out["Core Funding"])
+            df_out = df_out.drop(columns=["Core Funding_core"])
         dados_out[periodo] = df_out
 
     return dados_out
@@ -3551,11 +3653,15 @@ def _preparar_metricas_extra_peers(
 ) -> dict:
     extra = {
         "Carteira de Crédito Bruta": {},
+        "Carteira de Crédito*": {},
         "Carteira de Crédito Classificada": {},
         "Ativos Líquidos": {},
         "Depósitos Totais": {},
+        "Core Funding": {},
+        "Core Funding*": {},
         "Perda Esperada": {},
         "Perda Esperada / Carteira de Crédito Bruta": {},
+        "Perda Esperada / Carteira de Crédito*": {},
         "Carteira de Créd. Class. C4+C5": {},
         "Carteira de Créd. Class. C4+C5 / Carteira Classificada": {},
         "Perda Esperada / (Carteira C4 + C5)": {},
@@ -3859,6 +3965,26 @@ def _preparar_metricas_extra_peers(
         ["Depósitos Outros (a6)", "Depositos Outros (a6)"],
     )
 
+    # Core Funding: Captações (e); 2025+ inclui Dívida Subordinada (h)
+    col_capt_passivo = _resolver_coluna_peers(
+        cache_passivo,
+        [
+            "Captações (e) = (a) + (b) + (c) + (d)",
+            "Captações (e)",
+            "Captações",
+            "Captacoes (e)",
+        ],
+    )
+    col_instr_passivo = _resolver_coluna_peers(
+        cache_passivo,
+        [
+            "Instrumentos de Dívida Elegíveis a Capital (h)",
+            "Instrumentos de Divida Elegiveis a Capital (h)",
+            "Instrumentos de Dívida Elegíveis a Capital",
+            "Instrumentos de Divida Elegiveis a Capital",
+        ],
+    )
+
     # Carteira de Crédito Bruta: Valor Contábil Bruto (e1 + f1 + g1 + h1) do relatório de Ativo (Rel. 2)
     col_credito_bruta_e1 = _resolver_coluna_peers(
         cache_ativo,
@@ -3994,6 +4120,7 @@ def _preparar_metricas_extra_peers(
                     _obter_valor_peers(cache_ativo, banco, periodo, col_credito_net_h),
                 ])
             extra["Carteira de Crédito Bruta"][chave] = carteira_bruta
+            extra["Carteira de Crédito*"][chave] = carteira_bruta
 
             # Ativos Líquidos = Disponibilidades (a) + Aplicações Interfinanceiras (b) + TVM (c)
             # do relatório de Ativo (Rel. 2)
@@ -4017,16 +4144,29 @@ def _preparar_metricas_extra_peers(
                 ])
             extra["Depósitos Totais"][chave] = _coerce_numeric_value(depositos_totais)
 
+            # Core Funding (Captações; 2025+ inclui dívida subordinada h)
+            core_funding = _calcular_core_funding(
+                cache_passivo,
+                banco,
+                periodo,
+                col_capt_passivo,
+                col_instr_passivo,
+            )
+            extra["Core Funding"][chave] = _coerce_numeric_value(core_funding)
+            extra["Core Funding*"][chave] = _coerce_numeric_value(core_funding)
+
             perda_vals = [
                 _obter_valor_peers(cache_ativo, banco, periodo, col)
                 for col in perda_colunas
             ]
             perda_esperada = _somar_valores(perda_vals)
             extra["Perda Esperada"][chave] = perda_esperada
-            extra["Perda Esperada / Carteira de Crédito Bruta"][chave] = _calcular_ratio_peers(
+            perda_ratio = _calcular_ratio_peers(
                 perda_esperada,
                 carteira_bruta,
             )
+            extra["Perda Esperada / Carteira de Crédito Bruta"][chave] = perda_ratio
+            extra["Perda Esperada / Carteira de Crédito*"][chave] = perda_ratio
 
             valor_c4 = _obter_valor_peers(cache_carteira_instr, banco, periodo, col_c4)
             valor_c5 = _obter_valor_peers(cache_carteira_instr, banco, periodo, col_c5)
@@ -4278,7 +4418,7 @@ def _montar_tabela_peers(
                     tip = ""
                     # Mapeamento de ratios → (chave numerador, chave denominador)
                     _RATIO_COMPONENTS = {
-                        "Perda Esperada / Carteira de Crédito Bruta": ("Perda Esperada", "Carteira de Crédito Bruta"),
+                        "Perda Esperada / Carteira de Crédito*": ("Perda Esperada", "Carteira de Crédito Bruta"),
                         "Carteira de Créd. Class. C4+C5 / Carteira Classificada": ("Carteira de Créd. Class. C4+C5", "Carteira de Crédito Classificada"),
                         "Perda Esperada / (Carteira C4 + C5)": ("Perda Esperada", "Carteira de Créd. Class. C4+C5"),
                         "PDD / Estágio 3": ("PDD Total 4060", "Ativos Estágio 3"),
@@ -4676,6 +4816,10 @@ def _gerar_excel_peers_tabela(
             col_idx += 1
     row_idx += 1
 
+    nota = "* Carteira de Crédito: 2000–2024 = Crédito Bruta + Arrendamento Bruta + Outros Créditos Líquidos de Provisão. 2025+ = VCB (e1+f1+g1+h1). | Core Funding*: até 2024 = Captações (e); 2025+ = Captações (e) + Dívida Subordinada (h)."
+    worksheet.merge_range(row_idx, 0, row_idx, n_cols - 1, nota, workbook.add_format({"font_size": 9, "font_color": "#666666"}))
+    row_idx += 1
+
     zebra_idx = 0
     for section in PEERS_TABELA_LAYOUT:
         worksheet.merge_range(row_idx, 0, row_idx, n_cols - 1, section["section"], section_fmt)
@@ -4709,7 +4853,7 @@ def _gerar_excel_peers_tabela(
             zebra_idx += 1
 
     # congelar cabeçalho e primeira coluna
-    worksheet.freeze_panes(3, 1)
+    worksheet.freeze_panes(4, 1)
 
     workbook.close()
     output.seek(0)
@@ -4786,6 +4930,11 @@ def _gerar_excel_peers_dados_puros(
     # congelar cabeçalho e primeira coluna
     worksheet.freeze_panes(2, 1)
 
+    nota_ws = workbook.add_worksheet("nota")
+    nota_ws.write(0, 0, "* Carteira de Crédito: 2000–2024 = Crédito Bruta + Arrendamento Bruta + Outros Créditos Líquidos de Provisão.")
+    nota_ws.write(1, 0, "2025+ = Valor Contábil Bruto (e1+f1+g1+h1) no Relatório de Ativo (Rel. 2).")
+    nota_ws.write(2, 0, "Core Funding*: até 2024 = Captações (e); 2025+ = Captações (e) + Dívida Subordinada (h) no Relatório de Passivo (Rel. 3).")
+
     workbook.close()
     output.seek(0)
     return output
@@ -4844,7 +4993,7 @@ def _gerar_excel_evolucao_tabela_visual(
     worksheet.merge_range(row_idx, 0, row_idx, n_cols - 1, titulo, title_fmt)
     row_idx += 1
 
-    nota = "* Carteira de Crédito Bruta: 2000–2024 = Crédito Bruta + Arrendamento Bruta + Outros Créditos Líquidos de Provisão. 2025+ = VCB (e1+f1+g1+h1)."
+    nota = "* Carteira de Crédito: 2000–2024 = Crédito Bruta + Arrendamento Bruta + Outros Créditos Líquidos de Provisão. 2025+ = VCB (e1+f1+g1+h1). Core Funding*: até 2024 = Captações (e); 2025+ = Captações (e) + Dívida Subordinada (h)."
     worksheet.merge_range(row_idx, 0, row_idx, n_cols - 1, nota, workbook.add_format({"font_size": 9, "font_color": "#666666"}))
     row_idx += 1
 
@@ -5270,8 +5419,9 @@ def _get_crie_metrica_context(periodos_hash: str, periodos_keys: tuple):
     periodos_disponiveis = ordenar_periodos(list(periodos_keys))
     periodos_dropdown = ordenar_periodos(list(periodos_keys), reverso=True)
 
+    colunas_numericas_list = _ajustar_colunas_core_funding(sorted(colunas_numericas))
     return {
-        'colunas_numericas': sorted(colunas_numericas),
+        'colunas_numericas': colunas_numericas_list,
         'periodos_disponiveis': periodos_disponiveis,
         'periodos_dropdown': periodos_dropdown,
         'bancos_todos': sorted(bancos_todos),
@@ -5622,6 +5772,7 @@ def _carregar_dados_periodos_preparados(cache_token: str, alias_sig: tuple):
         return None
 
     dados_cache = _anexar_carteira_credito_bruta(dados_cache)
+    dados_cache = _anexar_core_funding(dados_cache)
 
     if _precisa_recalcular_metricas_rapido(dados_cache):
         dados_cache = recalcular_metricas_derivadas(dados_cache)
@@ -6462,7 +6613,7 @@ elif False and menu == "Painel":
             'Carteira de Crédito Bruta': ['Carteira de Crédito Bruta', 'Carteira de Crédito'],
             'Títulos e Valores Mobiliários': ['Títulos e Valores Mobiliários'],
             'Passivo Exigível': ['Passivo Exigível'],
-            'Captações': ['Captações'],
+            'Core Funding': ['Core Funding', 'Captações'],
             'Patrimônio Líquido': ['Patrimônio Líquido'],
             'Lucro Líquido Acumulado YTD': ['Lucro Líquido Acumulado YTD'],
             'Lucro Líquido Trimestral': ['Lucro Líquido Trimestral'],
@@ -6963,24 +7114,25 @@ elif menu == "Peers (Tabela)":
                             <em>Balanço</em><br>
                             <strong>Ativo Total</strong> = Ativo Total do balanço principal (Rel. 1).<br>
                             <strong>Ativos Líquidos</strong> = Disponibilidades (a) + Aplicações Interfinanceiras de Liquidez (b) + Títulos e Valores Mobiliários (c), no relatório de Ativo (Rel. 2).<br>
-                            <strong>Carteira de Crédito Bruta</strong> = Valor Contábil Bruto (e1) + Valor Contábil Bruto (f1) + Valor Contábil Bruto (g1) + Valor Contábil Bruto (h1), no relatório de Ativo (Rel. 2).<br>
+                            <strong>Carteira de Crédito*</strong> = Valor Contábil Bruto (e1) + Valor Contábil Bruto (f1) + Valor Contábil Bruto (g1) + Valor Contábil Bruto (h1), no relatório de Ativo (Rel. 2).<br>
                             Headers do Ativo usados: Operações de Crédito, Operações de Arrendamento Financeiro, Outras Operações com Características de Concessão de Crédito, Valores a Receber de Transações de Pagamentos - Usuários Finais (Pós-pago).<br>
                             <em>Nota:</em> Para 2000–2024, usamos Carteira de Crédito Bruta + Carteira de Arrendamento Bruta + Outros Créditos Líquidos de Provisão (Rel. 2). A partir de 2025, usamos Valor Contábil Bruto (e1+f1+g1+h1).<br>
                             <strong>Carteira de Crédito Classificada</strong> = Total da Carteira de Pessoa Física (Rel. 11) + Total da Carteira de Pessoa Jurídica (Rel. 13).<br>
                             <strong>Depósitos Totais</strong> = Depósitos (e) no relatório de Passivo (Rel. 3), conforme o IFData. Quando indisponível, soma Depósitos à Vista (a1) + Poupança (a2) + Interfinanceiros (a3) + a Prazo (a4) + Outros (a5/a6).<br>
+                            <strong>Core Funding*</strong> = Captações (e) no Passivo (Rel. 3). A partir de 2025, soma-se Dívida Subordinada (h).<br>
                             <strong>Patrimônio Líquido (PL)</strong> = Patrimônio Líquido do balanço principal (Rel. 1).<br>
                             <br>
                             <em>Qualidade Carteira</em><br>
                             <strong>Perda Esperada</strong> = Soma das linhas Perda Esperada (e2), Hedge de Valor Justo (e3), Ajuste a Valor Justo (e4), Perda Esperada (f2), Hedge de Valor Justo (f3), Perda Esperada (g2), Hedge de Valor Justo (g3), Ajuste a Valor Justo (g4) e Perda Esperada (h2), no relatório de Ativo (Rel. 2).<br>
                             Headers referentes a Operações de Crédito, Operações de Arrendamento Financeiro, Outras Operações com Características de Concessão de Crédito, Valores a Receber de Transações de Pagamentos - Usuários Finais (Pós-pago).<br>
-                            <strong>Perda Esperada / Carteira de Crédito Bruta</strong> = Perda Esperada ÷ Carteira de Crédito Bruta.<br>
+                            <strong>Perda Esperada / Carteira de Crédito*</strong> = Perda Esperada ÷ Carteira de Crédito*.<br>
                             <strong>Ativos Estágio 2</strong> = Saldo da conta 3312000001 (Cadoc 4060) no mês/período selecionado.<br>
                             <strong>Ativos Estágio 3</strong> = Saldo da conta 3313000000 (Cadoc 4060) no mês/período selecionado.<br>
                             <strong>Perda Esperada / Estágio 3</strong> = Perda Esperada (Rel. 2) ÷ Ativos Estágio 3 (Cadoc 4060) do mesmo período.<br>
                             <br>
                             <em>Alavancagem</em><br>
                             <strong>Ativo / PL</strong> = Ativo Total ÷ Patrimônio Líquido.<br>
-                            <strong>Carteira de Crédito Bruta / PL</strong> = Carteira de Crédito Bruta (Rel. 2) ÷ Patrimônio Líquido (Rel. 1).<br>
+                            <strong>Carteira de Crédito* / PL*</strong> = Carteira de Crédito* (Rel. 2) ÷ Patrimônio Líquido (Rel. 1).<br>
                             <strong>Índice de Capital Principal (CET1)</strong> = Capital Principal ÷ RWA Total, extraído do relatório de Informações de Capital (Rel. 5).<br>
                             <strong>Índice de Basileia Total</strong> = (Capital Principal + Capital Complementar + Capital Nível II) ÷ RWA Total (Rel. 5). Equivale à soma CET1 + AT1 + T2.<br>
                             <br>
@@ -7298,9 +7450,13 @@ elif menu == "Evolução":
             if col_capt or col_instr:
                 core_map = {}
                 for periodo in periodos_evo:
-                    cap_val = _obter_valor_peers(cache_passivo, instituicao, periodo, col_capt) if col_capt else np.nan
-                    instr_val = _obter_valor_peers(cache_passivo, instituicao, periodo, col_instr) if col_instr else np.nan
-                    core_map[periodo] = _somar_valores([cap_val, instr_val])
+                    core_map[periodo] = _calcular_core_funding(
+                        cache_passivo,
+                        instituicao,
+                        periodo,
+                        col_capt,
+                        col_instr,
+                    )
                 core_funding_series = df_ano.get("Período", pd.Series(index=df_ano.index)).map(core_map)
         except Exception:
             core_funding_series = None
@@ -7479,8 +7635,8 @@ elif menu == "Evolução":
         graf_cols = {
             "Lucro Líquido": "Lucro Líquido Acumulado YTD",
             "Patrimônio Líquido": "Patrimônio Líquido",
-            "Carteira de Crédito Bruta": "Carteira de Crédito Bruta",
-            "Core Funding": "Core Funding",
+            "Carteira de Crédito*": "Carteira de Crédito Bruta",
+            "Core Funding*": "Core Funding",
         }
         df_graph = pd.DataFrame({"Ano": df_ano["Ano"]})
         for k, c in graf_cols.items():
@@ -7519,7 +7675,7 @@ elif menu == "Evolução":
         fig_ev.add_trace(
             go.Scatter(
                 x=ano_labels,
-                y=df_graph["Carteira de Crédito Bruta"],
+                y=df_graph["Carteira de Crédito*"],
                 mode="lines+markers",
                 name="Carteira de Crédito*",
                 line=dict(color="#ff5a00", width=2, shape="spline", smoothing=1.15),
@@ -7531,9 +7687,9 @@ elif menu == "Evolução":
         fig_ev.add_trace(
             go.Scatter(
                 x=ano_labels,
-                y=df_graph["Core Funding"],
+                y=df_graph["Core Funding*"],
                 mode="lines+markers",
-                name="Core Funding",
+                name="Core Funding*",
                 line=dict(color="#222222", width=2, shape="spline", smoothing=1.15),
                 marker=dict(size=8, color="#222222"),
                 connectgaps=True,
@@ -7567,14 +7723,14 @@ elif menu == "Evolução":
 
         _add_label_annotations(df_graph["Lucro Líquido"], "y", "#FFFFFF", "rgba(17,17,17,0.94)", 14)
         _add_label_annotations(df_graph["Patrimônio Líquido"], "y", "#111111", "rgba(232,232,232,0.96)", 14)
-        _add_label_annotations(df_graph["Carteira de Crédito Bruta"], "y2", "#ff5a00", "rgba(255,243,236,0.96)", 16)
-        _add_label_annotations(df_graph["Core Funding"], "y2", "#FFFFFF", "rgba(34,34,34,0.94)", -22)
+        _add_label_annotations(df_graph["Carteira de Crédito*"], "y2", "#ff5a00", "rgba(255,243,236,0.96)", 16)
+        _add_label_annotations(df_graph["Core Funding*"], "y2", "#FFFFFF", "rgba(34,34,34,0.94)", -22)
 
         fig_ev.update_layout(
             barmode="group",
             height=480,
             yaxis=dict(title="Lucro/PL (R$ mm)", rangemode="tozero"),
-                yaxis2=dict(title="Carteira Bruta*/Core Funding (R$ mm)", overlaying="y", side="right", rangemode="tozero"),
+                yaxis2=dict(title="Carteira* / Core Funding* (R$ mm)", overlaying="y", side="right", rangemode="tozero"),
             xaxis_title="Ano",
             xaxis=dict(type="category", categoryorder="array", categoryarray=ano_labels),
             legend=dict(orientation="v", y=0.5, x=0.01),
@@ -7589,9 +7745,9 @@ elif menu == "Evolução":
             """
             <div style="font-size: 12px; color: #666; margin-top: 8px;">
                 <strong>mini-glossário (Evolução):</strong><br><br>
-                <strong>Core Funding:</strong> = <em>Captações (e)</em> = (a) + (b) + (c) + (d) + <em>Instrumentos de Dívida Elegíveis a Capital (h)</em>, todos do Relatório Passivo. Onde:
+                <strong>Core Funding*:</strong> Captações (e) no Relatório Passivo; a partir de 2025, soma-se Dívida Subordinada (h). Onde:
                 (a) Depósitos; (b) Obrigações por Operações Compromissadas; (c) Relações Interfinanceiras; (d) Relações Interdependências; (h) Instrumentos de Dívida Elegíveis a Capital.<br>
-                <strong>Carteira de Crédito Bruta*:</strong> Soma do Valor Contábil Bruto (e1+f1+g1+h1) no Relatório de Ativo (Rel. 2).<br>
+                <strong>Carteira de Crédito*:</strong> Soma do Valor Contábil Bruto (e1+f1+g1+h1) no Relatório de Ativo (Rel. 2).<br>
                 <em>Nota:</em> Para 2000–2024, usamos Carteira de Crédito Bruta + Carteira de Arrendamento Bruta + Outros Créditos Líquidos de Provisão (Rel. 2). A partir de 2025, usamos Valor Contábil Bruto (e1+f1+g1+h1).<br>
             </div>
             """,
@@ -7696,6 +7852,7 @@ elif menu == "Evolução":
                 "nota": [
                     "* Carteira de Crédito: 2000–2024 = Crédito Bruta + Arrendamento Bruta + Outros Créditos Líquidos de Provisão.",
                     "2025+ = Valor Contábil Bruto (e1+f1+g1+h1) no Relatório de Ativo (Rel. 2).",
+                    "Core Funding*: até 2024 = Captações (e); 2025+ = Captações (e) + Dívida Subordinada (h) no Relatório de Passivo (Rel. 3).",
                 ]
             })
             nota_df.to_excel(writer, index=False, sheet_name='nota')
@@ -7756,6 +7913,7 @@ elif menu == "Scatter Plot":
         colunas_numericas = colunas_base + [m for m in DERIVED_METRICS if m not in colunas_base]
         if 'ROE Ac. Anualizado (%)' in colunas_numericas and 'ROE Ac. YTD an. (%)' in colunas_numericas:
             colunas_numericas = [c for c in colunas_numericas if c != 'ROE Ac. YTD an. (%)']
+        colunas_numericas = _ajustar_colunas_core_funding(colunas_numericas)
         periodos = ordenar_periodos(df['Período'].unique(), reverso=True)
 
         # Lista de todos os bancos disponíveis com ordenação por alias
@@ -8192,7 +8350,7 @@ elif menu == "Rankings":
         indicadores_config = {
             'Ativo Total': ['Ativo Total'],
             'Carteira de Crédito Bruta': ['Carteira de Crédito Bruta', 'Carteira de Crédito'],
-            'Captações': ['Captações'],
+            'Core Funding': ['Core Funding', 'Captações'],
             'Patrimônio Líquido': ['Patrimônio Líquido'],
             'Índice de Capital Principal (CET1)': ['Índice de Capital Principal (CET1)', 'Índice de Capital Principal'],
             'Índice de Basileia (%)': ['Índice de Basileia'],
@@ -8214,7 +8372,7 @@ elif menu == "Rankings":
             ordem_prioritaria = [
                 'Ativo Total',
                 'Carteira de Crédito Bruta',
-                'Captações',
+                'Core Funding',
                 'Patrimônio Líquido',
                 'Índice de Capital Principal (CET1)',
                 'Índice de Basileia (%)',
@@ -11277,7 +11435,7 @@ elif menu == "Crie sua métrica!":
         brincar_ctx = _get_crie_metrica_context(periodos_hash, dados_periodos_keys)
         print(_perf_log("brincar_context"))
 
-        colunas_numericas = brincar_ctx['colunas_numericas']
+        colunas_numericas = _ajustar_colunas_core_funding(brincar_ctx['colunas_numericas'])
         periodos_disponiveis = brincar_ctx['periodos_disponiveis']
         periodos_dropdown = brincar_ctx['periodos_dropdown']
 
