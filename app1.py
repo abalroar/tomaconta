@@ -6930,15 +6930,15 @@ elif menu == "Peers (Tabela)":
                             <br>
                             <em>Balanço</em><br>
                             <strong>Ativo Total</strong> = Ativo Total do balanço principal (Rel. 1).<br>
-                            <strong>Ativos Líquidos</strong> = Disponibilidades (a) + Aplicações Interfinanceiras de Liquidez (b) + Títulos e Valores Mobiliários (c), do relatório de Ativo (Rel. 2).<br>
-                            <strong>Carteira de Crédito Bruta</strong> = Valor Contábil Bruto (e1) + Valor Contábil Bruto (f1) + Valor Contábil Bruto (g1) + Valor Contábil Bruto (h1), do relatório de Ativo (Rel. 2).<br>
+                            <strong>Ativos Líquidos</strong> = Disponibilidades (a) + Aplicações Interfinanceiras de Liquidez (b) + Títulos e Valores Mobiliários (c), no relatório de Ativo (Rel. 2).<br>
+                            <strong>Carteira de Crédito Bruta</strong> = Valor Contábil Bruto (e1) + Valor Contábil Bruto (f1) + Valor Contábil Bruto (g1) + Valor Contábil Bruto (h1), no relatório de Ativo (Rel. 2).<br>
                             Headers do Ativo usados: Operações de Crédito, Operações de Arrendamento Financeiro, Outras Operações com Características de Concessão de Crédito, Valores a Receber de Transações de Pagamentos - Usuários Finais (Pós-pago).<br>
                             <strong>Carteira de Crédito Classificada</strong> = Total da Carteira de Pessoa Física (Rel. 11) + Total da Carteira de Pessoa Jurídica (Rel. 13).<br>
                             <strong>Depósitos Totais</strong> = Depósitos (e) no relatório de Passivo (Rel. 3), conforme o IFData. Quando indisponível, soma Depósitos à Vista (a1) + Poupança (a2) + Interfinanceiros (a3) + a Prazo (a4) + Outros (a5/a6).<br>
                             <strong>Patrimônio Líquido (PL)</strong> = Patrimônio Líquido do balanço principal (Rel. 1).<br>
                             <br>
                             <em>Qualidade Carteira</em><br>
-                            <strong>Perda Esperada</strong> = Soma das linhas Perda Esperada (e2), Hedge de Valor Justo (e3), Ajuste a Valor Justo (e4), Perda Esperada (f2), Hedge de Valor Justo (f3), Perda Esperada (g2), Hedge de Valor Justo (g3), Ajuste a Valor Justo (g4) e Perda Esperada (h2), do relatório de Ativo (Rel. 2).<br>
+                            <strong>Perda Esperada</strong> = Soma das linhas Perda Esperada (e2), Hedge de Valor Justo (e3), Ajuste a Valor Justo (e4), Perda Esperada (f2), Hedge de Valor Justo (f3), Perda Esperada (g2), Hedge de Valor Justo (g3), Ajuste a Valor Justo (g4) e Perda Esperada (h2), no relatório de Ativo (Rel. 2).<br>
                             Headers referentes a Operações de Crédito, Operações de Arrendamento Financeiro, Outras Operações com Características de Concessão de Crédito, Valores a Receber de Transações de Pagamentos - Usuários Finais (Pós-pago).<br>
                             <strong>Perda Esperada / Carteira de Crédito Bruta</strong> = Perda Esperada ÷ Carteira de Crédito Bruta.<br>
                             <strong>Ativos Estágio 2</strong> = Saldo da conta 3312000001 (Cadoc 4060) no mês/período selecionado.<br>
@@ -6953,7 +6953,7 @@ elif menu == "Peers (Tabela)":
                             <br>
                             <em>Desempenho</em><br>
                             <strong>Lucro Líquido Acumulado</strong> = Lucro Líquido acumulado no ano (YTD) até o fim do período (Rel. 1).<br>
-                            <strong>ROE AC. Anualizado (%)</strong> = (LL YTD × fator de anualização) ÷ PL Médio, onde PL Médio = (PL no período + PL em Dez do ano anterior) / 2. O LL YTD de Set é obtido somando Jun (Jan-Jun) ao Set (Jul-Sep). Fator: Mar=4, Jun=2, Set=12/9, Dez=1. Se PL médio ≤ 0 ou dado faltante: N/A.<br>
+                            <strong>ROE Ac. Anualizado (%)</strong> = (LL YTD × fator de anualização) ÷ PL Médio, onde PL Médio = (PL no período + PL em Dez do ano anterior) / 2. O LL YTD de Set é obtido somando Jun (Jan-Jun) ao Set (Jul-Sep). Fator: Mar=4, Jun=2, Set=12/9, Dez=1. Se PL médio ≤ 0 ou dado faltante: N/A.<br>
                             <br>
                             <strong>Δ (▲/▼)</strong> = Variação vs. mesmo período do ano anterior.
                         </div>
