@@ -6868,6 +6868,7 @@ elif menu == "Peers (Tabela)":
                             <strong>Ativo Total</strong> = Ativo Total do balanço principal (Rel. 1).<br>
                             <strong>Ativos Líquidos</strong> = Disponibilidades (a) + Aplicações Interfinanceiras de Liquidez (b) + Títulos e Valores Mobiliários (c) no relatório de Ativo (Rel. 2).<br>
                             <strong>Carteira de Crédito Bruta</strong> = Valor Contábil Bruto (e1) + Valor Contábil Bruto (f1) + Valor Contábil Bruto (g1) + Valor Contábil Bruto (h1) no relatório de Ativo (Rel. 2).<br>
+                            Headers do Ativo usados: Operações de Crédito, Operações de Arrendamento Financeiro, Outras Operações com Características de Concessão de Crédito, Valores a Receber de Transações de Pagamentos - Usuários Finais (Pós-pago).<br>
                             <strong>Carteira de Crédito Classificada</strong> = Total da Carteira de Pessoa Física (Rel. 11) + Total da Carteira de Pessoa Jurídica (Rel. 13).<br>
                             <strong>Depósitos Totais</strong> = Depósitos (e) no relatório de Passivo (Rel. 3), conforme o IFData. Quando indisponível, soma Depósitos à Vista (a1) + Poupança (a2) + Interfinanceiros (a3) + a Prazo (a4) + Outros (a5/a6).<br>
                             <strong>Patrimônio Líquido (PL)</strong> = Patrimônio Líquido do balanço principal (Rel. 1).<br>
