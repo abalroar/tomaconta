@@ -647,7 +647,7 @@ VARS_PERCENTUAL = [
     'Crédito/Captações (%)',
     'Crédito/Ativo (%)',
     'Índice de Imobilização',
-    'Perda Esperada / Carteira Classificada',
+    'Perda Esperada / Carteira de Crédito Bruta',
     'Perda Esperada / (Carteira C4 + C5)',
     'Carteira de Créd. Class. C4+C5 / Carteira Classificada',
     'PDD / Estágio 3',
@@ -757,9 +757,9 @@ PEERS_TABELA_LAYOUT = [
                 "format_key": "Perda Esperada",
             },
             {
-                "label": "Perda Esperada / Carteira Classificada",
+                "label": "Perda Esperada / Carteira de Crédito Bruta",
                 "data_keys": [],
-                "format_key": "Perda Esperada / Carteira Classificada",
+                "format_key": "Perda Esperada / Carteira de Crédito Bruta",
             },
         ],
     },
@@ -2739,7 +2739,7 @@ def _tooltip_ratio_peers(label, valor_num, valor_den, valor_ratio):
     _NOMES_COMPONENTES = {
         "Ativo / PL": ("Ativo Total", "PL"),
         "Carteira de Crédito Bruta / PL": ("Carteira de Crédito Bruta", "PL"),
-        "Perda Esperada / Carteira Classificada": ("Perda Esperada", "Carteira de Crédito Classificada"),
+        "Perda Esperada / Carteira de Crédito Bruta": ("Perda Esperada", "Carteira de Crédito Bruta"),
         "Carteira de Créd. Class. C4+C5 / Carteira Classificada": ("C4+C5", "Carteira de Crédito Classificada"),
         "Perda Esperada / (Carteira C4 + C5)": ("Perda Esperada", "C4+C5"),
     }
@@ -3389,7 +3389,8 @@ def _normalizar_nomes_carteira(df: Optional[pd.DataFrame]) -> Optional[pd.DataFr
         return df
     rename_map = {
         "Carteira Bruta": "Carteira Classificada",
-        "Perda Esperada / Carteira Bruta": "Perda Esperada / Carteira Classificada",
+        "Perda Esperada / Carteira Bruta": "Perda Esperada / Carteira de Crédito Bruta",
+        "Perda Esperada / Carteira Classificada": "Perda Esperada / Carteira de Crédito Bruta",
         "Carteira de Créd. Class. C4+C5 / Carteira Bruta": "Carteira de Créd. Class. C4+C5 / Carteira Classificada",
     }
     rename_cols = {k: v for k, v in rename_map.items() if k in df.columns}
@@ -3546,7 +3547,7 @@ def _preparar_metricas_extra_peers(
         "Ativos Líquidos": {},
         "Depósitos Totais": {},
         "Perda Esperada": {},
-        "Perda Esperada / Carteira Classificada": {},
+        "Perda Esperada / Carteira de Crédito Bruta": {},
         "Carteira de Créd. Class. C4+C5": {},
         "Carteira de Créd. Class. C4+C5 / Carteira Classificada": {},
         "Perda Esperada / (Carteira C4 + C5)": {},
@@ -3994,9 +3995,9 @@ def _preparar_metricas_extra_peers(
             ]
             perda_esperada = _somar_valores(perda_vals)
             extra["Perda Esperada"][chave] = perda_esperada
-            extra["Perda Esperada / Carteira Classificada"][chave] = _calcular_ratio_peers(
+            extra["Perda Esperada / Carteira de Crédito Bruta"][chave] = _calcular_ratio_peers(
                 perda_esperada,
-                carteira_classificada,
+                carteira_bruta,
             )
 
             valor_c4 = _obter_valor_peers(cache_carteira_instr, banco, periodo, col_c4)
@@ -4249,7 +4250,7 @@ def _montar_tabela_peers(
                     tip = ""
                     # Mapeamento de ratios → (chave numerador, chave denominador)
                     _RATIO_COMPONENTS = {
-                        "Perda Esperada / Carteira Classificada": ("Perda Esperada", "Carteira de Crédito Classificada"),
+                        "Perda Esperada / Carteira de Crédito Bruta": ("Perda Esperada", "Carteira de Crédito Bruta"),
                         "Carteira de Créd. Class. C4+C5 / Carteira Classificada": ("Carteira de Créd. Class. C4+C5", "Carteira de Crédito Classificada"),
                         "Perda Esperada / (Carteira C4 + C5)": ("Perda Esperada", "Carteira de Créd. Class. C4+C5"),
                         "PDD / Estágio 3": ("PDD Total 4060", "Ativos Estágio 3"),
@@ -6938,7 +6939,8 @@ elif menu == "Peers (Tabela)":
                             <br>
                             <em>Qualidade Carteira</em><br>
                             <strong>Perda Esperada</strong> = Soma das linhas Perda Esperada (e2), Hedge de Valor Justo (e3), Ajuste a Valor Justo (e4), Perda Esperada (f2), Hedge de Valor Justo (f3), Perda Esperada (g2), Hedge de Valor Justo (g3), Ajuste a Valor Justo (g4) e Perda Esperada (h2), do relatório de Ativo (Rel. 2).<br>
-                            <strong>Perda Esperada / Carteira Classificada</strong> = Perda Esperada ÷ Carteira de Crédito Classificada.<br>
+                            Headers referentes a Operações de Crédito, Operações de Arrendamento Financeiro, Outras Operações com Características de Concessão de Crédito, Valores a Receber de Transações de Pagamentos - Usuários Finais (Pós-pago).<br>
+                            <strong>Perda Esperada / Carteira de Crédito Bruta</strong> = Perda Esperada ÷ Carteira de Crédito Bruta.<br>
                             <strong>Ativos Estágio 2</strong> = Saldo da conta 3312000001 (Cadoc 4060) no mês/período selecionado.<br>
                             <strong>Ativos Estágio 3</strong> = Saldo da conta 3313000000 (Cadoc 4060) no mês/período selecionado.<br>
                             <strong>Perda Esperada / Estágio 3</strong> = Perda Esperada (Rel. 2) ÷ Ativos Estágio 3 (Cadoc 4060) do mesmo período.<br>
