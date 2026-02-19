@@ -2244,6 +2244,23 @@ def formatar_periodos_lista(periodos: list) -> list:
     """
     return [periodo_para_exibicao(p) for p in periodos]
 
+def _prox_periodo_api(periodo_exib: str) -> str:
+    if not periodo_exib or "/" not in str(periodo_exib):
+        return ""
+    try:
+        tri_str, ano_str = str(periodo_exib).split("/")
+        tri = int(tri_str)
+        ano = int(ano_str)
+        if tri >= 4:
+            tri = 1
+            ano += 1
+        else:
+            tri += 1
+        mes_map = {1: "03", 2: "06", 3: "09", 4: "12"}
+        return f"{ano}{mes_map.get(tri, '03')}"
+    except Exception:
+        return ""
+
 CHECKPOINT_ATUALIZACAO_PATH = Path("data/cache/update_checkpoint.json")
 STATUS_ATUALIZACAO_PATH = Path("data/cache/update_job_status.json")
 
@@ -6286,443 +6303,10 @@ with st.sidebar:
 
         st.markdown("---")
         st.markdown("**atualizar dados (admin)**")
-
-        senha_input = st.text_input("senha de administrador", type="password", key="senha_admin")
-
-        if senha_input == SENHA_ADMIN:
-            col1, col2 = st.columns(2)
-            with col1:
-                ano_i = st.selectbox("ano inicial", range(2015,2028), index=8, key="ano_i")
-                mes_i = st.selectbox("trimestre inicial", ['03','06','09','12'], key="mes_i")
-            with col2:
-                ano_f = st.selectbox("ano final", range(2015,2028), index=10, key="ano_f")
-                mes_f = st.selectbox("trimestre final", ['03','06','09','12'], index=2, key="mes_f")
-
-            if 'dict_aliases' in st.session_state:
-                periodos = gerar_periodos(ano_i, mes_i, ano_f, mes_f)
-                checkpoint = _carregar_checkpoint_atualizacao()
-                checkpoint_periodos = checkpoint.get("periodos") if checkpoint else None
-                checkpoint_pendentes = checkpoint.get("pendentes") if checkpoint else None
-                status_job = _carregar_status_atualizacao()
-                job_running = bool(status_job.get("running"))
-
-                if checkpoint_periodos == periodos and checkpoint_pendentes:
-                    st.caption(f"↩️ extração interrompida detectada: {len(checkpoint_pendentes)} período(s) pendente(s).")
-                    col_chk1, col_chk2 = st.columns(2)
-                    with col_chk1:
-                        retomar = st.button("retomar extração", width='stretch')
-                    with col_chk2:
-                        reiniciar = st.button("reiniciar extração", width='stretch')
-                    if reiniciar:
-                        _limpar_checkpoint_atualizacao()
-                        checkpoint = {}
-                        checkpoint_pendentes = None
-                        st.info("checkpoint limpo. pronto para nova extração.")
-                else:
-                    retomar = False
-
-                modo_lotes = False
-                if len(periodos) > 12:
-                    modo_lotes = st.checkbox(
-                        "executar em lotes menores (recomendado para intervalos longos)",
-                        value=True,
-                        help="reduz risco de travamento na sessão. após um lote, você pode continuar.",
-                    )
-
-                modo_bg = st.checkbox(
-                    "executar em background (recomendado online)",
-                    value=True if len(periodos) > 12 else False,
-                    help="mantém a extração rodando mesmo se a página recarregar.",
-                )
-
-                if job_running:
-                    st.info("⏳ extração em background em andamento.")
-                    if status_job:
-                        st.caption(
-                            f"progresso: {status_job.get('progress', 0):.1%} | "
-                            f"atualizando: {status_job.get('current', '-')}"
-                        )
-                        st.caption(f"última atualização: {status_job.get('last_update', '-')}")
-                    if st.button("limpar status travado", width='stretch'):
-                        _limpar_status_atualizacao()
-                        st.success("status limpo. você pode iniciar novamente.")
-                    st.stop()
-
-                if st.button("extrair dados do BCB", type="primary", width='stretch') or retomar:
-                    periodos_totais = periodos
-                    concluidos = set(checkpoint.get("concluidos") or [])
-                    if retomar and checkpoint_pendentes:
-                        periodos_exec = checkpoint_pendentes
-                    else:
-                        periodos_exec = [p for p in periodos if p not in concluidos]
-
-                    if modo_lotes and len(periodos_exec) > 8:
-                        periodos_lote = periodos_exec[:8]
-                        periodos_restantes = periodos_exec[8:]
-                    else:
-                        periodos_lote = periodos_exec
-                        periodos_restantes = []
-
-                    if modo_bg:
-                        def _run_bg(periodos_lote_bg, periodos_restantes_bg, periodos_totais_bg, dict_aliases_bg):
-                            total = len(periodos_lote_bg)
-                            _salvar_status_atualizacao({
-                                "running": True,
-                                "progress": 0.0,
-                                "current": "-",
-                                "total": total,
-                                "last_update": datetime.now().isoformat(),
-                            })
-
-                            try:
-                                def update_bg(i, total_bg, p):
-                                    _salvar_status_atualizacao({
-                                        "running": True,
-                                        "progress": (i + 1) / max(total_bg, 1),
-                                        "current": f"{p[4:6]}/{p[:4]}",
-                                        "total": total_bg,
-                                        "last_update": datetime.now().isoformat(),
-                                    })
-
-                                def save_progress_bg(dados_parciais, info):
-                                    salvar_cache(dados_parciais, info, incremental=True)
-                                    concluidos.update(dados_parciais.keys())
-                                    pendentes = [p for p in periodos_totais_bg if p not in concluidos]
-                                    _salvar_checkpoint_atualizacao({
-                                        "periodos": periodos_totais_bg,
-                                        "concluidos": sorted(concluidos),
-                                        "pendentes": pendentes,
-                                        "timestamp": datetime.now().isoformat(),
-                                    })
-
-                                processar_todos_periodos(
-                                    periodos_lote_bg,
-                                    dict_aliases_bg,
-                                    progress_callback=update_bg,
-                                    save_callback=save_progress_bg,
-                                    save_interval=5
-                                )
-
-                                pendentes_final_bg = [p for p in periodos_totais_bg if p not in concluidos]
-                                if periodos_restantes_bg:
-                                    pendentes_final_bg = periodos_restantes_bg + [p for p in pendentes_final_bg if p not in periodos_restantes_bg]
-
-                                if not pendentes_final_bg:
-                                    _limpar_checkpoint_atualizacao()
-                                    _salvar_status_atualizacao({
-                                        "running": False,
-                                        "progress": 1.0,
-                                        "current": "concluído",
-                                        "total": total,
-                                        "last_update": datetime.now().isoformat(),
-                                    })
-                                else:
-                                    _salvar_checkpoint_atualizacao({
-                                        "periodos": periodos_totais_bg,
-                                        "concluidos": sorted(concluidos),
-                                        "pendentes": pendentes_final_bg,
-                                        "timestamp": datetime.now().isoformat(),
-                                    })
-                                    _salvar_status_atualizacao({
-                                        "running": False,
-                                        "progress": 0.0,
-                                        "current": "parcial",
-                                        "total": total,
-                                        "last_update": datetime.now().isoformat(),
-                                    })
-                            except Exception as exc:
-                                _salvar_status_atualizacao({
-                                    "running": False,
-                                    "progress": 0.0,
-                                    "current": f"erro: {exc}",
-                                    "total": total,
-                                    "last_update": datetime.now().isoformat(),
-                                })
-
-                        st.info("🟢 extração iniciada em background. você pode recarregar a página.")
-                        th = threading.Thread(
-                            target=_run_bg,
-                            args=(periodos_lote, periodos_restantes, periodos_totais, st.session_state['dict_aliases']),
-                            daemon=True,
-                        )
-                        th.start()
-                        st.stop()
-
-                    progress_bar = st.progress(0)
-                    status = st.empty()
-                    save_status = st.empty()
-
-                    def update(i, total, p):
-                        progress_bar.progress((i+1)/total)
-                        status.text(f"extraindo {p[4:6]}/{p[:4]} ({i+1}/{total})")
-
-                    def save_progress(dados_parciais, info):
-                        save_status.text(f"💾 salvando {len(dados_parciais)} períodos...")
-                        salvar_cache(dados_parciais, info, incremental=True)
-                        concluidos.update(dados_parciais.keys())
-                        pendentes = [p for p in periodos_totais if p not in concluidos]
-                        _salvar_checkpoint_atualizacao({
-                            "periodos": periodos_totais,
-                            "concluidos": sorted(concluidos),
-                            "pendentes": pendentes,
-                            "timestamp": datetime.now().isoformat(),
-                        })
-                        save_status.text(f"✓ {len(dados_parciais)} períodos salvos no cache")
-
-                    st.info(f"🔄 iniciando extração de {len(periodos_lote)} períodos. salvamento progressivo a cada 5 períodos.")
-
-                    dados = processar_todos_periodos(
-                        periodos_lote,
-                        st.session_state['dict_aliases'],
-                        progress_callback=update,
-                        save_callback=save_progress,
-                        save_interval=5
-                    )
-
-                    pendentes_final = [p for p in periodos_totais if p not in concluidos]
-                    if periodos_restantes:
-                        pendentes_final = periodos_restantes + [p for p in pendentes_final if p not in periodos_restantes]
-
-                    if not pendentes_final:
-                        _limpar_checkpoint_atualizacao()
-                        st.success("✅ extração concluída sem pendências.")
-                    else:
-                        _salvar_checkpoint_atualizacao({
-                            "periodos": periodos_totais,
-                            "concluidos": sorted(concluidos),
-                            "pendentes": pendentes_final,
-                            "timestamp": datetime.now().isoformat(),
-                        })
-                        st.warning(f"extração parcial concluída. pendentes: {len(pendentes_final)}. clique em retomar para continuar.")
-
-                    if not dados:
-                        progress_bar.empty()
-                        status.empty()
-                        save_status.empty()
-                        st.error("falha ao extrair dados: nenhum período retornou dados válidos.")
-                    else:
-                        periodo_info = f"{periodos[0][4:6]}/{periodos[0][:4]} até {periodos[-1][4:6]}/{periodos[-1][:4]}"
-                        cache_salvo = salvar_cache(dados, periodo_info, incremental=True)
-
-                        # Atualizar session_state com merge dos dados existentes + novos
-                        if 'dados_periodos' in st.session_state and st.session_state['dados_periodos']:
-                            # Merge: dados existentes + novos (novos sobrescrevem)
-                            dados_merged = st.session_state['dados_periodos'].copy()
-                            dados_merged.update(dados)
-                            st.session_state['dados_periodos'] = dados_merged
-                        else:
-                            st.session_state['dados_periodos'] = dados
-
-                        st.session_state['cache_fonte'] = 'extração local'
-
-                        progress_bar.empty()
-                        status.empty()
-                        save_status.empty()
-                        st.success(f"✓ {len(dados)} períodos extraídos! cache total: {len(st.session_state['dados_periodos'])} períodos")
-                        st.info(f"cache salvo em: {cache_salvo['caminho']}")
-                        st.info(f"tamanho: {cache_salvo['tamanho_formatado']}")
-                        st.rerun()
-
-                st.markdown("---")
-                st.markdown("**status dos caches**")
-
-                # Verificar status no GitHub
-                with st.spinner("verificando github..."):
-                    gh_status = verificar_caches_github()
-
-                col_status1, col_status2 = st.columns(2)
-
-                with col_status1:
-                    st.caption("**Cache Principal (dados.parquet/pickle)**")
-                    # Local
-                    cache_info_local = get_cache_info()
-                    if cache_info_local['existe']:
-                        st.caption(f"📁 Local: ✅ {cache_info_local['tamanho_formatado']}")
-                    else:
-                        st.caption("📁 Local: ❌ não existe")
-                    # GitHub
-                    if gh_status['cache_principal']['existe']:
-                        st.caption(f"☁️ GitHub: ✅ {gh_status['cache_principal']['tamanho_fmt']}")
-                    else:
-                        st.caption("☁️ GitHub: ❌ não existe")
-
-                with col_status2:
-                    st.caption("**Cache Capital (dados.parquet/pickle)**")
-                    # Local
-                    capital_info_local = get_capital_cache_info()
-                    if capital_info_local['existe']:
-                        st.caption(f"📁 Local: ✅ {capital_info_local['tamanho_formatado']} ({capital_info_local['n_periodos']} períodos)")
-                    else:
-                        st.caption("📁 Local: ❌ não existe")
-                    # GitHub
-                    if gh_status['cache_capital']['existe']:
-                        st.caption(f"☁️ GitHub: ✅ {gh_status['cache_capital']['tamanho_fmt']}")
-                    else:
-                        st.caption("☁️ GitHub: ⚠️ **NÃO EXISTE** - envie abaixo!")
-
-                if gh_status['erro']:
-                    st.warning(f"⚠️ Erro ao verificar GitHub: {gh_status['erro']}")
-
-                st.markdown("---")
-                st.markdown("**publicar caches no github**")
-                st.caption("envia os caches locais para github releases para persistência")
-
-                # Tentar usar token do Streamlit Secrets primeiro
-                token_from_secrets = st.secrets.get("GITHUB_TOKEN", None) if hasattr(st, 'secrets') else None
-                if token_from_secrets:
-                    st.caption("✓ usando GITHUB_TOKEN dos Secrets")
-
-                gh_token = st.text_input("github token (opcional)", type="password", key="gh_token",
-                                        help="token com permissão 'repo'. deixe em branco para usar Secrets ou gh CLI")
-
-                col_upload1, col_upload2 = st.columns(2)
-
-                with col_upload1:
-                    if st.button("📦 enviar cache PRINCIPAL", width='stretch', help="Envia dados_cache"):
-                        token_final = gh_token if gh_token else token_from_secrets
-                        with st.spinner("enviando cache principal para github releases..."):
-                            sucesso, mensagem = upload_cache_github(get_cache_manager(), "principal", token_final)
-                            if sucesso:
-                                st.success(f"✅ Cache PRINCIPAL: {mensagem}")
-                            else:
-                                st.error(f"❌ Cache PRINCIPAL: {mensagem}")
-
-                with col_upload2:
-                    # Botão para enviar cache de capital separadamente
-                    capital_info = get_capital_cache_info()
-                    btn_disabled = not capital_info['existe']
-                    btn_help = "Envia cache de capital" if capital_info['existe'] else "Cache de capital não existe localmente"
-
-                    if st.button("💰 enviar cache CAPITAL", width='stretch', disabled=btn_disabled, help=btn_help):
-                        token_final = gh_token if gh_token else token_from_secrets
-                        with st.spinner("enviando cache de capital para github releases..."):
-                            sucesso, mensagem = upload_cache_github(get_cache_manager(), "capital", token_final)
-                            if sucesso:
-                                st.success(f"✅ Cache CAPITAL: {mensagem}")
-                            else:
-                                st.error(f"❌ Cache CAPITAL: {mensagem}")
-
-                # =============================================================
-                # SEÇÃO ISOLADA: EXTRAÇÃO DE DADOS DE CAPITAL
-                # Cache separado (parquet/pickle), sem impacto no fluxo principal
-                # =============================================================
-                st.markdown("---")
-                st.markdown("**extrair capital (relatório 5)**")
-                st.caption("extrai informações de capital (índices, RWA, alavancagem) - cache separado")
-
-                # Mostrar status do cache de capital
-                capital_cache_info = get_capital_cache_info()
-                if capital_cache_info['existe']:
-                    st.caption(f"📊 cache capital: {capital_cache_info['n_periodos']} períodos | {capital_cache_info['tamanho_formatado']}")
-                    st.caption(f"📅 atualizado: {capital_cache_info['data_formatada']}")
-
-                    # Botão para baixar o cache localmente (backup)
-                    cache_download = preparar_download_cache_local(get_cache_manager(), "capital")
-                    if cache_download:
-                        st.download_button(
-                            label="📥 baixar cache de capital (backup local)",
-                            data=cache_download["data"],
-                            file_name=cache_download["file_name"],
-                            mime=cache_download["mime"],
-                            width='stretch',
-                            help="Baixe uma cópia do cache antes que o Streamlit reinicie"
-                        )
-                else:
-                    st.caption("📊 cache capital: não existe ainda")
-
-                col_cap1, col_cap2 = st.columns(2)
-                with col_cap1:
-                    ano_cap_i = st.selectbox("ano inicial", range(2015, 2028), index=8, key="ano_cap_i")
-                    mes_cap_i = st.selectbox("trim. inicial", ['03', '06', '09', '12'], key="mes_cap_i")
-                with col_cap2:
-                    ano_cap_f = st.selectbox("ano final", range(2015, 2028), index=10, key="ano_cap_f")
-                    mes_cap_f = st.selectbox("trim. final", ['03', '06', '09', '12'], index=2, key="mes_cap_f")
-
-                # Opção de atualização completa (sobrescreve cache antigo)
-                atualizar_completo_capital = st.checkbox(
-                    "🔄 atualização completa (sobrescrever cache antigo)",
-                    value=False,
-                    key="atualizar_completo_capital",
-                    help="Marque para apagar o cache existente e extrair tudo do zero. Use quando houver problemas com nomes ou dados antigos."
-                )
-
-                if st.button("extrair dados de capital", type="secondary", width='stretch', key="btn_extrair_capital"):
-                    periodos_cap = gerar_periodos_capital(ano_cap_i, mes_cap_i, ano_cap_f, mes_cap_f)
-                    progress_bar_cap = st.progress(0)
-                    status_cap = st.empty()
-                    save_status_cap = st.empty()
-
-                    # Se atualização completa, deletar cache existente primeiro
-                    incremental_mode = not atualizar_completo_capital
-                    if atualizar_completo_capital:
-                        cache_manager = get_cache_manager()
-                        resultado_limpar = cache_manager.limpar("capital")
-                        if resultado_limpar.sucesso:
-                            st.info("🗑️ cache antigo de capital removido para atualização completa")
-
-                    def update_cap(i, total, p):
-                        progress_bar_cap.progress((i + 1) / total)
-                        status_cap.text(f"extraindo capital {p[4:6]}/{p[:4]} ({i + 1}/{total})")
-
-                    def save_progress_cap(dados_parciais, info):
-                        save_status_cap.text(f"💾 salvando {len(dados_parciais)} períodos de capital...")
-                        salvar_cache_capital(dados_parciais, info, incremental=incremental_mode)
-                        save_status_cap.text(f"✓ {len(dados_parciais)} períodos de capital salvos")
-
-                    modo_texto = "completa" if atualizar_completo_capital else "incremental"
-                    st.info(f"🔄 iniciando extração de capital ({modo_texto}): {len(periodos_cap)} períodos")
-
-                    # Usar dict_aliases se disponível
-                    aliases_para_capital = st.session_state.get('dict_aliases', {})
-
-                    dados_capital = processar_todos_periodos_capital(
-                        periodos_cap,
-                        dict_aliases=aliases_para_capital,
-                        progress_callback=update_cap,
-                        save_callback=save_progress_cap,
-                        save_interval=5
-                    )
-
-                    if not dados_capital:
-                        progress_bar_cap.empty()
-                        status_cap.empty()
-                        save_status_cap.empty()
-                        st.error("falha ao extrair dados de capital: nenhum período retornou dados válidos.")
-                    else:
-                        periodo_info_cap = f"capital {periodos_cap[0][4:6]}/{periodos_cap[0][:4]} até {periodos_cap[-1][4:6]}/{periodos_cap[-1][:4]}"
-                        cache_capital_salvo = salvar_cache_capital(dados_capital, periodo_info_cap, incremental=incremental_mode)
-
-                        progress_bar_cap.empty()
-                        status_cap.empty()
-                        save_status_cap.empty()
-
-                        st.success(f"✓ {len(dados_capital)} períodos de capital extraídos!")
-                        st.info(f"cache capital salvo em: {cache_capital_salvo['caminho']}")
-                        st.info(f"tamanho: {cache_capital_salvo['tamanho_formatado']} | total: {cache_capital_salvo['n_periodos']} períodos")
-
-                        # Upload para GitHub Releases para persistência
-                        # Usa token do Streamlit Secrets se disponível
-                        github_token = st.secrets.get("GITHUB_TOKEN", None) if hasattr(st, 'secrets') else None
-                        with st.spinner("enviando cache de capital para github releases..."):
-                            sucesso_upload, msg_upload = upload_cache_github(get_cache_manager(), "capital", github_token)
-                            if sucesso_upload:
-                                st.success(f"☁️ {msg_upload}")
-                            else:
-                                st.warning(f"⚠️ cache local salvo, mas falha no upload: {msg_upload}")
-
-                        # Atualizar session_state com novos dados
-                        st.session_state['dados_capital'] = dados_capital
-
-                        # Mostrar campos extraídos
-                        with st.expander("campos extraídos"):
-                            campos = get_campos_capital_info()
-                            for original, exibido in campos.items():
-                                st.caption(f"• {exibido} ← _{original}_")
-
-            else:
-                st.warning("carregue os aliases primeiro")
-        elif senha_input:
-            st.error("senha incorreta")
+        st.caption("este painel foi simplificado. use o menu **Atualizar Base** para extração e publicação.")
+        if st.button("ir para Atualizar Base", width='stretch', key="sidebar_ir_atualizar_base"):
+            st.session_state['menu_atual'] = "Atualizar Base"
+            st.rerun()
 
 if menu == "Sobre":
     st.markdown("""
@@ -12567,7 +12151,7 @@ elif menu == "Crie sua métrica!":
 
 elif menu == "Atualizar Base":
     st.markdown("## Atualização Base")
-    st.markdown("painel de controle unificado para extração de dados do IFData/BCB")
+    st.markdown("painel unificado para extração e publicação dos dados do IFData/BCB")
     st.markdown("---")
 
     # Importar o gerenciador de cache unificado
@@ -12817,9 +12401,35 @@ elif menu == "Atualizar Base":
             with col2:
                 ano_f = st.selectbox("ano final", range(2015, 2029), index=10, key="ano_f_unificado")
                 mes_f = st.selectbox("trimestre final", ['03', '06', '09', '12'], index=2, key="mes_f_unificado")
+            info_cache_local = cache_manager.info(cache_selecionado)
+            ultimo_periodo_local = None
+            if info_cache_local.get("periodos"):
+                try:
+                    ultimo_periodo_local = sorted(
+                        info_cache_local["periodos"],
+                        key=lambda p: (int(p.split("/")[1]), int(p.split("/")[0])),
+                    )[-1]
+                except Exception:
+                    ultimo_periodo_local = None
 
-            periodos_extrair = gerar_periodos_cache(ano_i, mes_i, ano_f, mes_f)
-            st.caption(f"Serão extraídos {len(periodos_extrair)} períodos: {periodos_extrair[0][4:6]}/{periodos_extrair[0][:4]} até {periodos_extrair[-1][4:6]}/{periodos_extrair[-1][:4]}")
+            usar_proximo = False
+            if ultimo_periodo_local:
+                usar_proximo = st.checkbox(
+                    f"atualizar somente o próximo período após {periodo_para_exibicao(ultimo_periodo_local)} (recomendado)",
+                    value=True,
+                    key="usar_proximo_periodo",
+                )
+
+            if usar_proximo and ultimo_periodo_local:
+                prox_periodo = _prox_periodo_api(ultimo_periodo_local)
+                periodos_extrair = [prox_periodo] if prox_periodo else []
+                if periodos_extrair:
+                    st.caption(f"Período automático: {periodos_extrair[0][4:6]}/{periodos_extrair[0][:4]}")
+                else:
+                    st.warning("Não foi possível calcular o próximo período automático.")
+            else:
+                periodos_extrair = gerar_periodos_cache(ano_i, mes_i, ano_f, mes_f)
+                st.caption(f"Serão extraídos {len(periodos_extrair)} períodos: {periodos_extrair[0][4:6]}/{periodos_extrair[0][:4]} até {periodos_extrair[-1][4:6]}/{periodos_extrair[-1][:4]}")
 
         # =============================================================
         # CONFIGURAÇÕES AVANÇADAS
@@ -12875,12 +12485,73 @@ elif menu == "Atualizar Base":
         # =============================================================
         st.markdown("#### 4. Executar extração")
 
+        publicar_auto = st.checkbox(
+            "publicar automaticamente no GitHub ao concluir (recomendado)",
+            value=True if gh_token_final else False,
+            key="publicar_auto",
+            help="mantém o cache persistido no GitHub Releases.",
+        )
+
         # Para taxas de juros, não precisa de aliases; para outros, precisa
         pode_extrair = is_taxas_juros or ('dict_aliases' in st.session_state)
+        if not is_taxas_juros and not is_bloprudencial and not periodos_extrair:
+            st.error("nenhum período válido selecionado para extração.")
+            pode_extrair = False
 
         if pode_extrair:
+            checkpoint = _carregar_checkpoint_atualizacao()
+            checkpoint_periodos = checkpoint.get("periodos") if checkpoint else None
+            checkpoint_pendentes = checkpoint.get("pendentes") if checkpoint else None
+            checkpoint_cache = checkpoint.get("cache_tipo")
 
-            if st.button(f"Extrair dados de {opcoes_cache[cache_selecionado]}", type="primary", width='stretch', key="btn_extrair_unificado"):
+            status_job = _carregar_status_atualizacao()
+            job_running = bool(status_job.get("running")) and status_job.get("cache_tipo") == cache_selecionado
+
+            if checkpoint_cache == cache_selecionado and checkpoint_periodos == periodos_extrair and checkpoint_pendentes:
+                st.caption(f"↩️ extração interrompida detectada: {len(checkpoint_pendentes)} período(s) pendente(s).")
+                col_chk1, col_chk2 = st.columns(2)
+                with col_chk1:
+                    retomar = st.button("retomar extração", width='stretch', key="retomar_unificado")
+                with col_chk2:
+                    reiniciar = st.button("reiniciar extração", width='stretch', key="reiniciar_unificado")
+                if reiniciar:
+                    _limpar_checkpoint_atualizacao()
+                    checkpoint = {}
+                    checkpoint_pendentes = None
+                    st.info("checkpoint limpo. pronto para nova extração.")
+            else:
+                retomar = False
+
+            if job_running:
+                st.info("⏳ extração em background em andamento.")
+                if status_job:
+                    st.caption(
+                        f"progresso: {status_job.get('progress', 0):.1%} | "
+                        f"atualizando: {status_job.get('current', '-')}"
+                    )
+                    st.caption(f"última atualização: {status_job.get('last_update', '-')}")
+                if st.button("limpar status travado", width='stretch', key="limpar_status_unificado"):
+                    _limpar_status_atualizacao()
+                    st.success("status limpo. você pode iniciar novamente.")
+                st.stop()
+
+            modo_lotes = False
+            if not is_taxas_juros and not is_bloprudencial and periodos_extrair and len(periodos_extrair) > 12:
+                modo_lotes = st.checkbox(
+                    "executar em lotes menores (recomendado para intervalos longos)",
+                    value=True,
+                    help="reduz risco de travamento na sessão. após um lote, você pode continuar.",
+                    key="modo_lotes_unificado",
+                )
+
+            modo_bg = st.checkbox(
+                "executar em background (recomendado online)",
+                value=True if (periodos_extrair and len(periodos_extrair) > 12) else False,
+                help="mantém a extração rodando mesmo se a página recarregar.",
+                key="modo_bg_unificado",
+            )
+
+            if st.button(f"Extrair dados de {opcoes_cache[cache_selecionado]}", type="primary", width='stretch', key="btn_extrair_unificado") or retomar:
 
                 # Containers para UI
                 progress_bar = st.progress(0)
@@ -12890,6 +12561,25 @@ elif menu == "Atualizar Base":
                 error_container = st.container()
                 erros_encontrados = []
                 logs_extracao = []
+
+                if not is_taxas_juros and not is_bloprudencial:
+                    periodos_totais = periodos_extrair
+                    concluidos = set(checkpoint.get("concluidos") or [])
+                    if retomar and checkpoint_pendentes:
+                        periodos_exec = checkpoint_pendentes
+                    else:
+                        periodos_exec = [p for p in periodos_extrair if p not in concluidos]
+
+                    if modo_lotes and len(periodos_exec) > 6:
+                        periodos_lote = periodos_exec[:6]
+                        periodos_restantes = periodos_exec[6:]
+                    else:
+                        periodos_lote = periodos_exec
+                        periodos_restantes = []
+                else:
+                    periodos_totais = periodos_extrair
+                    periodos_lote = periodos_extrair
+                    periodos_restantes = []
 
                 # =============================================================
                 # EXTRAÇÃO ESPECIAL PARA TAXAS DE JUROS
@@ -13090,13 +12780,110 @@ elif menu == "Atualizar Base":
                         with error_container:
                             st.warning(f"Erro em {periodo[4:6]}/{periodo[:4]}: {mensagem[:100]}...")
 
-                    st.info(f"iniciando extração de {len(periodos_extrair)} períodos para '{cache_selecionado}'. Salvamento a cada {intervalo_save} períodos.")
+                    st.info(f"iniciando extração de {len(periodos_lote)} períodos para '{cache_selecionado}'. Salvamento a cada {intervalo_save} períodos.")
 
                     try:
+                        if modo_bg:
+                            dict_aliases_bg = dict(st.session_state.get('dict_aliases', {}))
+                            def _run_bg_unificado(periodos_lote_bg, periodos_restantes_bg, periodos_totais_bg, cache_tipo_bg, modo_bg_local, dict_aliases_local):
+                                total_bg = len(periodos_lote_bg)
+                                _salvar_status_atualizacao({
+                                    "running": True,
+                                    "progress": 0.0,
+                                    "current": "-",
+                                    "total": total_bg,
+                                    "cache_tipo": cache_tipo_bg,
+                                    "last_update": datetime.now().isoformat(),
+                                })
+
+                                def callback_progresso_bg(i, total, periodo):
+                                    _salvar_status_atualizacao({
+                                        "running": True,
+                                        "progress": (i + 1) / max(total, 1),
+                                        "current": f"{periodo[4:6]}/{periodo[:4]}",
+                                        "total": total,
+                                        "cache_tipo": cache_tipo_bg,
+                                        "last_update": datetime.now().isoformat(),
+                                    })
+
+                                def callback_salvamento_bg(info):
+                                    _salvar_status_atualizacao({
+                                        "running": True,
+                                        "progress": _carregar_status_atualizacao().get("progress", 0),
+                                        "current": "salvando",
+                                        "total": total_bg,
+                                        "cache_tipo": cache_tipo_bg,
+                                        "last_update": datetime.now().isoformat(),
+                                    })
+
+                                resultado_bg = cache_manager.extrair_periodos_com_salvamento(
+                                    tipo=cache_tipo_bg,
+                                    periodos=periodos_lote_bg,
+                                    modo=modo_bg_local,
+                                    intervalo_salvamento=intervalo_save,
+                                    callback_progresso=callback_progresso_bg,
+                                    callback_salvamento=callback_salvamento_bg,
+                                    callback_erro=None,
+                                    dict_aliases=dict_aliases_local
+                                )
+
+                                pendentes_final_bg = periodos_restantes_bg or []
+                                if resultado_bg.sucesso:
+                                    concluidos_bg = set(checkpoint.get("concluidos") or [])
+                                    concluidos_bg.update(periodos_lote_bg)
+                                    pendentes_final_bg = [p for p in periodos_totais_bg if p not in concluidos_bg]
+                                    if periodos_restantes_bg:
+                                        pendentes_final_bg = periodos_restantes_bg + [p for p in pendentes_final_bg if p not in periodos_restantes_bg]
+
+                                    if not pendentes_final_bg:
+                                        _limpar_checkpoint_atualizacao()
+                                        _salvar_status_atualizacao({
+                                            "running": False,
+                                            "progress": 1.0,
+                                            "current": "concluído",
+                                            "total": total_bg,
+                                            "cache_tipo": cache_tipo_bg,
+                                            "last_update": datetime.now().isoformat(),
+                                        })
+                                    else:
+                                        _salvar_checkpoint_atualizacao({
+                                            "cache_tipo": cache_tipo_bg,
+                                            "periodos": periodos_totais_bg,
+                                            "concluidos": sorted(concluidos_bg),
+                                            "pendentes": pendentes_final_bg,
+                                            "timestamp": datetime.now().isoformat(),
+                                        })
+                                        _salvar_status_atualizacao({
+                                            "running": False,
+                                            "progress": 0.0,
+                                            "current": "parcial",
+                                            "total": total_bg,
+                                            "cache_tipo": cache_tipo_bg,
+                                            "last_update": datetime.now().isoformat(),
+                                        })
+                                else:
+                                    _salvar_status_atualizacao({
+                                        "running": False,
+                                        "progress": 0.0,
+                                        "current": f"erro: {resultado_bg.mensagem}",
+                                        "total": total_bg,
+                                        "cache_tipo": cache_tipo_bg,
+                                        "last_update": datetime.now().isoformat(),
+                                    })
+
+                            st.info("🟢 extração iniciada em background. você pode recarregar a página.")
+                            th = threading.Thread(
+                                target=_run_bg_unificado,
+                                args=(periodos_lote, periodos_restantes, periodos_totais, cache_selecionado, modo_atualizacao, dict_aliases_bg),
+                                daemon=True,
+                            )
+                            th.start()
+                            st.stop()
+
                         # Usar o gerenciador unificado para extração
                         resultado = cache_manager.extrair_periodos_com_salvamento(
                             tipo=cache_selecionado,
-                            periodos=periodos_extrair,
+                            periodos=periodos_lote,
                             modo=modo_atualizacao,
                             intervalo_salvamento=intervalo_save,
                             callback_progresso=callback_progresso,
@@ -13184,6 +12971,35 @@ elif menu == "Atualizar Base":
                                 if dados_dict:
                                     st.session_state['dados_capital'] = dados_dict
 
+                            if not is_taxas_juros and not is_bloprudencial:
+                                concluidos.update(periodos_lote)
+                                pendentes_final = [p for p in periodos_totais if p not in concluidos]
+                                if periodos_restantes:
+                                    pendentes_final = periodos_restantes + [p for p in pendentes_final if p not in periodos_restantes]
+                                if not pendentes_final:
+                                    _limpar_checkpoint_atualizacao()
+                                else:
+                                    _salvar_checkpoint_atualizacao({
+                                        "cache_tipo": cache_selecionado,
+                                        "periodos": periodos_totais,
+                                        "concluidos": sorted(concluidos),
+                                        "pendentes": pendentes_final,
+                                        "timestamp": datetime.now().isoformat(),
+                                    })
+                                    st.warning(f"extração parcial concluída. pendentes: {len(pendentes_final)}. clique em retomar para continuar.")
+
+                            if publicar_auto and gh_token_final:
+                                with st.spinner("publicando cache no GitHub Releases..."):
+                                    sucesso_pub, msg_pub = upload_cache_github(
+                                        cache_manager,
+                                        cache_selecionado,
+                                        gh_token_final
+                                    )
+                                    if sucesso_pub:
+                                        st.success(f"✅ {msg_pub}")
+                                    else:
+                                        st.warning(f"⚠️ falha ao publicar: {msg_pub}")
+
                         else:
                             st.error(f"Extração falhou: {resultado.mensagem}")
                             if resultado.metadata and resultado.metadata.get('erros'):
@@ -13233,68 +13049,6 @@ elif menu == "Atualizar Base":
                         st.error(f"❌ {mensagem}")
         with col_pub2:
             st.caption(f"Token: {'✅' if token_para_upload else '❌'}")
-
-        # =============================================================
-        # SEÇÃO LEGACY: EXTRAÇÃO PRINCIPAL (COMPATIBILIDADE)
-        # =============================================================
-        st.markdown("---")
-        with st.expander("extração legacy (sistema antigo)", expanded=False):
-            st.caption("Use esta opção apenas para compatibilidade com o sistema antigo")
-
-            col_leg1, col_leg2 = st.columns(2)
-            with col_leg1:
-                ano_leg_i = st.selectbox("ano inicial", range(2015, 2028), index=8, key="ano_leg_i")
-                mes_leg_i = st.selectbox("trim. inicial", ['03', '06', '09', '12'], key="mes_leg_i")
-            with col_leg2:
-                ano_leg_f = st.selectbox("ano final", range(2015, 2028), index=10, key="ano_leg_f")
-                mes_leg_f = st.selectbox("trim. final", ['03', '06', '09', '12'], index=2, key="mes_leg_f")
-
-            if st.button("extrair (sistema legado)", key="btn_extrair_legado"):
-                periodos = gerar_periodos(ano_leg_i, mes_leg_i, ano_leg_f, mes_leg_f)
-                progress_bar = st.progress(0)
-                status = st.empty()
-                save_status = st.empty()
-
-                def update(i, total, p):
-                    progress_bar.progress((i+1)/total)
-                    status.text(f"extraindo {p[4:6]}/{p[:4]} ({i+1}/{total})")
-
-                def save_progress(dados_parciais, info):
-                    save_status.text(f"salvando {len(dados_parciais)} períodos...")
-                    salvar_cache(dados_parciais, info, incremental=True)
-                    save_status.text(f"salvos {len(dados_parciais)} períodos")
-
-                dados = processar_todos_periodos(
-                    periodos,
-                    st.session_state['dict_aliases'],
-                    progress_callback=update,
-                    save_callback=save_progress,
-                    save_interval=5
-                )
-
-                if not dados:
-                    progress_bar.empty()
-                    status.empty()
-                    save_status.empty()
-                    st.error("falha ao extrair dados")
-                else:
-                    periodo_info = f"{periodos[0][4:6]}/{periodos[0][:4]} até {periodos[-1][4:6]}/{periodos[-1][:4]}"
-                    cache_salvo = salvar_cache(dados, periodo_info, incremental=True)
-
-                    if 'dados_periodos' in st.session_state and st.session_state['dados_periodos']:
-                        dados_merged = st.session_state['dados_periodos'].copy()
-                        dados_merged.update(dados)
-                        st.session_state['dados_periodos'] = dados_merged
-                    else:
-                        st.session_state['dados_periodos'] = dados
-
-                    st.session_state['cache_fonte'] = 'extração local'
-
-                    progress_bar.empty()
-                    status.empty()
-                    save_status.empty()
-                    st.success(f"{len(dados)} períodos extraídos!")
-                    st.rerun()
 
     elif senha_input:
         st.error("senha incorreta")
