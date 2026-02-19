@@ -7310,9 +7310,11 @@ elif menu == "Evolução":
                 "ativo",
                 _cache_version_token("ativo"),
                 tuple(sorted(set(periodos_evo_expand))) if periodos_evo_expand else tuple(periodos_evo),
-                (instituicao,),
+                (),
             )
             cache_ativo = _aplicar_aliases_df(cache_ativo, st.session_state.get("dict_aliases", {}))
+            if cache_ativo is not None and not cache_ativo.empty and "Instituição" in cache_ativo.columns:
+                cache_ativo = cache_ativo[cache_ativo["Instituição"] == instituicao].copy()
             col_e1 = _resolver_coluna_peers(cache_ativo, ["Valor Contábil Bruto (e1)", "Valor Contabil Bruto (e1)"])
             col_f1 = _resolver_coluna_peers(cache_ativo, ["Valor Contábil Bruto (f1)", "Valor Contabil Bruto (f1)"])
             col_g1 = _resolver_coluna_peers(cache_ativo, ["Valor Contábil Bruto (g1)", "Valor Contabil Bruto (g1)"])
