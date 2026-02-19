@@ -712,7 +712,7 @@ PEERS_TABELA_LAYOUT = [
                 "format_key": "Ativos Líquidos",
             },
             {
-                "label": "Carteira de Crédito Bruta*",
+                "label": "Carteira de Crédito*",
                 "data_keys": [],
                 "format_key": "Carteira de Crédito Bruta",
             },
@@ -773,7 +773,7 @@ PEERS_TABELA_LAYOUT = [
                 "todo": "TODO: Integrar Ativo/PL a partir das fontes do projeto (sem criar fórmula nova).",
             },
             {
-                "label": "Carteira de Crédito Bruta / PL*",
+                "label": "Carteira de Crédito* / PL*",
                 "data_keys": ["Carteira de Crédito Bruta / PL", "Crédito/PL (%)", "Crédito/PL"],
                 "format_key": "Carteira de Crédito Bruta / PL",
             },
@@ -2738,7 +2738,7 @@ def _tooltip_ratio_peers(label, valor_num, valor_den, valor_ratio):
     fmt = _fmt_tooltip_mm
     _NOMES_COMPONENTES = {
         "Ativo / PL": ("Ativo Total", "PL"),
-        "Carteira de Crédito Bruta / PL": ("Carteira de Crédito Bruta", "PL"),
+        "Carteira de Crédito* / PL*": ("Carteira de Crédito Bruta", "PL"),
         "Perda Esperada / Carteira de Crédito Bruta": ("Perda Esperada", "Carteira de Crédito Bruta"),
         "Carteira de Créd. Class. C4+C5 / Carteira Classificada": ("C4+C5", "Carteira de Crédito Classificada"),
         "Perda Esperada / (Carteira C4 + C5)": ("Perda Esperada", "C4+C5"),
@@ -4304,7 +4304,7 @@ def _montar_tabela_peers(
                         valor_pl = _obter_valor_peers(df, banco, periodo, coluna_pl)
                         valor = _calcular_ratio_peers(valor_ativo, valor_pl)
                         tip = _tooltip_ratio_peers(label, valor_ativo, valor_pl, valor)
-                    elif label == "Carteira de Crédito Bruta / PL":
+                    elif label == "Carteira de Crédito* / PL*":
                         valor_credito = extra_values.get("Carteira de Crédito Bruta", {}).get((banco, periodo))
                         if valor_credito is None or pd.isna(valor_credito):
                             valor_credito = _obter_valor_peers(df, banco, periodo, coluna_credito)
@@ -4340,7 +4340,7 @@ def _montar_tabela_peers(
                         valor_ativo_base = _obter_valor_peers(df, banco, periodo_base, coluna_ativo)
                         valor_pl_base = _obter_valor_peers(df, banco, periodo_base, coluna_pl)
                         valor_base = _calcular_ratio_peers(valor_ativo_base, valor_pl_base)
-                    elif periodo_base and label == "Carteira de Crédito Bruta / PL":
+                    elif periodo_base and label == "Carteira de Crédito* / PL*":
                         valor_credito_b = extra_values.get("Carteira de Crédito Bruta", {}).get((banco, periodo_base))
                         if valor_credito_b is None or pd.isna(valor_credito_b):
                             valor_credito_b = _obter_valor_peers(df, banco, periodo_base, coluna_credito)
@@ -7521,7 +7521,7 @@ elif menu == "Evolução":
                 x=ano_labels,
                 y=df_graph["Carteira de Crédito Bruta"],
                 mode="lines+markers",
-                name="Carteira de Crédito Bruta*",
+                name="Carteira de Crédito*",
                 line=dict(color="#ff5a00", width=2, shape="spline", smoothing=1.15),
                 marker=dict(size=8, color="#ff5a00"),
                 connectgaps=True,
@@ -7601,7 +7601,7 @@ elif menu == "Evolução":
         df_metric = pd.DataFrame({
             "Métrica": [
                 "ROE anualizado",
-                "Carteira de Crédito Bruta / PL*",
+                "Carteira de Crédito* / PL*",
                 "Índice de Basileia (%)",
                 "Índice de Capital Principal (CET1)",
             ]
@@ -7638,7 +7638,7 @@ elif menu == "Evolução":
                 return "-"
             if m in ("ROE anualizado", "Índice de Basileia (%)", "Índice de Capital Principal (CET1)"):
                 return _fmt_pct(v)
-            if m == "Carteira de Crédito Bruta / PL*":
+            if m == "Carteira de Crédito* / PL*":
                 return f"{float(v):.1f}x".replace(".", ",")
             return _fmt_valor_br(v)
 
@@ -7692,6 +7692,13 @@ elif menu == "Evolução":
         with pd.ExcelWriter(buffer_excel, engine='xlsxwriter') as writer:
             df_graph.to_excel(writer, index=False, sheet_name='grafico_dados')
             df_metric.to_excel(writer, index=False, sheet_name='tabela_metricas')
+            nota_df = pd.DataFrame({
+                "nota": [
+                    "* Carteira de Crédito: 2000–2024 = Crédito Bruta + Arrendamento Bruta + Outros Créditos Líquidos de Provisão.",
+                    "2025+ = Valor Contábil Bruto (e1+f1+g1+h1) no Relatório de Ativo (Rel. 2).",
+                ]
+            })
+            nota_df.to_excel(writer, index=False, sheet_name='nota')
         buffer_excel.seek(0)
         instituicao_arquivo = re.sub(r"[^\w\-.]+", "_", str(instituicao), flags=re.UNICODE).strip("_") or "instituicao"
 
