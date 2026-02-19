@@ -718,6 +718,11 @@ PEERS_TABELA_LAYOUT = [
                 "format_key": "Carteira de Crédito Bruta",
             },
             {
+                "label": "Perda Esperada",
+                "data_keys": [],
+                "format_key": "Perda Esperada",
+            },
+            {
                 "label": "Depósitos Totais",
                 "data_keys": [],
                 "format_key": "Depósitos Totais",
@@ -752,16 +757,6 @@ PEERS_TABELA_LAYOUT = [
                 "data_keys": [],
                 "format_key": "Perda Esperada / Estágio 3",
             },
-        ],
-    },
-    {
-        "section": "Qualidade Carteira IFData",
-        "rows": [
-            {
-                "label": "Perda Esperada",
-                "data_keys": [],
-                "format_key": "Perda Esperada",
-            },
             {
                 "label": "Perda Esperada / Carteira de Crédito*",
                 "data_keys": [],
@@ -773,7 +768,7 @@ PEERS_TABELA_LAYOUT = [
         "section": "Alavancagem",
         "rows": [
             {
-                "label": "Ativo / PL",
+                "label": "Ativo Total / PL",
                 "data_keys": ["Ativo/PL", "Ativo / PL"],
                 "format_key": "Ativo/PL",
                 "todo": "TODO: Integrar Ativo/PL a partir das fontes do projeto (sem criar fórmula nova).",
@@ -2749,7 +2744,7 @@ def _tooltip_ratio_peers(label, valor_num, valor_den, valor_ratio):
     """Tooltip para métricas do tipo razão (Ativo/PL, Carteira Bruta/PL, ratios %)."""
     fmt = _fmt_tooltip_mm
     _NOMES_COMPONENTES = {
-        "Ativo / PL": ("Ativo Total", "PL"),
+        "Ativo Total / PL": ("Ativo Total", "PL"),
         "Carteira de Crédito* / PL": ("Carteira de Crédito Bruta", "PL"),
         "Perda Esperada / Carteira de Crédito*": ("Perda Esperada", "Carteira de Crédito Bruta"),
         "Carteira de Créd. Class. C4+C5 / Carteira Classificada": ("C4+C5", "Carteira de Crédito Classificada"),
@@ -4411,7 +4406,7 @@ def _montar_tabela_peers(
             label = row["label"]
             candidatos = row.get("data_keys", [])
             coluna = _resolver_coluna_peers(df, candidatos) if candidatos else None
-            if label == "Ativo / PL":
+            if label == "Ativo Total / PL":
                 coluna = None
             colunas_usadas[label] = coluna
             if coluna is None and row.get("todo"):
@@ -4445,7 +4440,7 @@ def _montar_tabela_peers(
                                 tip = f"{label}: N/A"
                         else:
                             tip = f"{label}: {_fmt_tooltip_mm(valor)}" if valor is not None else ""
-                    elif label == "Ativo / PL":
+                    elif label == "Ativo Total / PL":
                         valor_ativo = _obter_valor_peers(df, banco, periodo, coluna_ativo)
                         valor_pl = _obter_valor_peers(df, banco, periodo, coluna_pl)
                         valor = _calcular_ratio_peers(valor_ativo, valor_pl)
@@ -4482,7 +4477,7 @@ def _montar_tabela_peers(
                             valor_base = _ajustar_lucro_acumulado_peers(df, banco, periodo_base, coluna)
                         else:
                             valor_base = _obter_valor_peers(df, banco, periodo_base, coluna)
-                    elif periodo_base and label == "Ativo / PL":
+                    elif periodo_base and label == "Ativo Total / PL":
                         valor_ativo_base = _obter_valor_peers(df, banco, periodo_base, coluna_ativo)
                         valor_pl_base = _obter_valor_peers(df, banco, periodo_base, coluna_pl)
                         valor_base = _calcular_ratio_peers(valor_ativo_base, valor_pl_base)
@@ -7138,7 +7133,7 @@ elif menu == "Peers (Tabela)":
                             <strong>Perda Esperada / Estágio 3</strong> = Perda Esperada (Rel. 2) ÷ Ativos Estágio 3 (Cadoc 4060) do mesmo período.<br>
                             <br>
                             <em>Alavancagem</em><br>
-                            <strong>Ativo / PL</strong> = Ativo Total ÷ Patrimônio Líquido.<br>
+                            <strong>Ativo Total / PL</strong> = Ativo Total ÷ Patrimônio Líquido.<br>
                             <strong>Carteira de Crédito* / PL</strong> = Carteira de Crédito* (Rel. 2) ÷ Patrimônio Líquido (Rel. 1).<br>
                             <strong>Índice de Capital Principal (CET1)</strong> = Capital Principal ÷ RWA Total, extraído do relatório de Informações de Capital (Rel. 5).<br>
                             <strong>Índice de Basileia Total</strong> = (Capital Principal + Capital Complementar + Capital Nível II) ÷ RWA Total (Rel. 5). Equivale à soma CET1 + AT1 + T2.<br>
