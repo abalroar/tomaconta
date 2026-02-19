@@ -3744,11 +3744,13 @@ def _preparar_metricas_extra_peers(
         ],
     )
 
-    # Depósitos Totais: Depósitos (a) do relatório de Passivo (Rel. 3)
-    # Nota: BCB mudou nome de "Depósito Total (a)" (até 2024) para "Depósitos (a)" (2025+)
+    # Depósitos Totais: Depósitos (e) do relatório de Passivo (Rel. 3)
+    # Nota: coluna pode aparecer com variações de nome ao longo do tempo no IFData.
     col_depositos_passivo = _resolver_coluna_peers(
         cache_passivo,
         [
+            "Depósitos (e)",
+            "Depositos (e)",
             "Depósitos (a)",
             "Depósitos Totais (a)",
             "Depósito Total (a)",
@@ -3834,7 +3836,7 @@ def _preparar_metricas_extra_peers(
             ])
             extra["Ativos Líquidos"][chave] = ativos_liquidos
 
-            # Depósitos Totais = Depósitos (a) do relatório de Passivo (Rel. 3)
+            # Depósitos Totais = Depósitos (e) do relatório de Passivo (Rel. 3)
             depositos_totais = _obter_valor_peers(cache_passivo, banco, periodo, col_depositos_passivo)
             extra["Depósitos Totais"][chave] = _coerce_numeric_value(depositos_totais)
 
@@ -6775,7 +6777,7 @@ elif menu == "Peers (Tabela)":
                             <strong>Ativo Total</strong> = Ativo Total do balanço principal (Rel. 1).<br>
                             <strong>Ativos Líquidos</strong> = Disponibilidades (a) + Aplicações Interfinanceiras de Liquidez (b) + Títulos e Valores Mobiliários (c) no relatório de Ativo (Rel. 2).<br>
                             <strong>Carteira de Crédito Classificada</strong> = Total da Carteira de Pessoa Física (Rel. 11) + Total da Carteira de Pessoa Jurídica (Rel. 13).<br>
-                            <strong>Depósitos Totais</strong> = Depósitos (a) no relatório de Passivo (Rel. 3).<br>
+                            <strong>Depósitos Totais</strong> = Depósitos (e) no relatório de Passivo (Rel. 3), conforme o IFData.<br>
                             <strong>Patrimônio Líquido (PL)</strong> = Patrimônio Líquido do balanço principal (Rel. 1).<br>
                             <br>
                             <em>Qualidade Carteira</em><br>
