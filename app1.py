@@ -4709,7 +4709,7 @@ def _gerar_excel_peers_tabela(
             zebra_idx += 1
 
     # congelar cabeçalho e primeira coluna
-    worksheet.freeze_panes(2, 1)
+    worksheet.freeze_panes(3, 1)
 
     workbook.close()
     output.seek(0)
@@ -4842,6 +4842,10 @@ def _gerar_excel_evolucao_tabela_visual(
     row_idx = 0
     titulo = f"Evolução - {instituicao} | {periodo_para_exibicao(periodo_inicio)} a {periodo_para_exibicao(periodo_final)}"
     worksheet.merge_range(row_idx, 0, row_idx, n_cols - 1, titulo, title_fmt)
+    row_idx += 1
+
+    nota = "* Carteira de Crédito Bruta: 2000–2024 = Crédito Bruta + Arrendamento Bruta + Outros Créditos Líquidos de Provisão. 2025+ = VCB (e1+f1+g1+h1)."
+    worksheet.merge_range(row_idx, 0, row_idx, n_cols - 1, nota, workbook.add_format({"font_size": 9, "font_color": "#666666"}))
     row_idx += 1
 
     worksheet.write(row_idx, 0, "Métrica", header_first_fmt)
@@ -7725,25 +7729,7 @@ elif menu == "Evolução":
             else:
                 pass
 
-        with col_export4:
-            tabela_png = _gerar_png_tabela_evolucao(df_show, periodos_cols)
-            grafico_png = _plotly_fig_to_png_bytes(fig_ev)
-            pptx_bytes = _gerar_pptx_evolucao(
-                instituicao=instituicao,
-                periodo_inicio=periodo_inicio,
-                periodo_final=periodo_final,
-                tabela_png=tabela_png,
-                grafico_png=grafico_png,
-            )
-            if pptx_bytes:
-                st.download_button(
-                    label="exportar PPT",
-                    data=pptx_bytes,
-                    file_name=f"evolucao_{instituicao_arquivo}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pptx",
-                    mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                    key="evolucao_pptx",
-                    use_container_width=True,
-                )
+        # exportação PPT removida
     else:
         st.info("carregando dados automaticamente do github...")
         st.markdown("por favor, aguarde alguns segundos e recarregue a página")
