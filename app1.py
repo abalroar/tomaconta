@@ -663,6 +663,7 @@ VARS_PERCENTUAL = [
 VARS_RAZAO = ['Crédito/PL (%)', 'Ativo/PL']
 VARS_MOEDAS = [
     'Carteira de Crédito',
+    'Carteira de Crédito Bruta',
     'Carteira de Crédito Classificada',
     'Ativos Líquidos',
     'Depósitos Totais',
@@ -711,9 +712,9 @@ PEERS_TABELA_LAYOUT = [
                 "format_key": "Ativos Líquidos",
             },
             {
-                "label": "Carteira de Crédito Classificada",
+                "label": "Carteira de Crédito Bruta",
                 "data_keys": [],
-                "format_key": "Carteira de Crédito Classificada",
+                "format_key": "Carteira de Crédito Bruta",
             },
             {
                 "label": "Depósitos Totais",
@@ -3483,6 +3484,7 @@ def _preparar_metricas_extra_peers(
     cache_bloprudencial: Optional[pd.DataFrame] = None,
 ) -> dict:
     extra = {
+        "Carteira de Crédito Bruta": {},
         "Carteira de Crédito Classificada": {},
         "Ativos Líquidos": {},
         "Depósitos Totais": {},
@@ -3791,6 +3793,41 @@ def _preparar_metricas_extra_peers(
         ["Depósitos Outros (a6)", "Depositos Outros (a6)"],
     )
 
+    # Carteira de Crédito Bruta: Valor Contábil Bruto (e1 + f1 + g1 + h1) do relatório de Ativo (Rel. 2)
+    col_credito_bruta_e1 = _resolver_coluna_peers(
+        cache_ativo,
+        ["Valor Contábil Bruto (e1)", "Valor Contabil Bruto (e1)"],
+    )
+    col_credito_bruta_f1 = _resolver_coluna_peers(
+        cache_ativo,
+        ["Valor Contábil Bruto (f1)", "Valor Contabil Bruto (f1)"],
+    )
+    col_credito_bruta_g1 = _resolver_coluna_peers(
+        cache_ativo,
+        ["Valor Contábil Bruto (g1)", "Valor Contabil Bruto (g1)"],
+    )
+    col_credito_bruta_h1 = _resolver_coluna_peers(
+        cache_ativo,
+        ["Valor Contábil Bruto (h1)", "Valor Contabil Bruto (h1)"],
+    )
+    col_credito_net_e = _resolver_coluna_peers(
+        cache_ativo,
+        ["Operações de Crédito (e)", "Operacoes de Credito (e)"],
+    )
+    col_credito_net_f = _resolver_coluna_peers(
+        cache_ativo,
+        ["Operações de Arrendamento Financeiro (f)", "Operacoes de Arrendamento Financeiro (f)"],
+    )
+    col_credito_net_g = _resolver_coluna_peers(
+        cache_ativo,
+        ["Outras Operações com Características de Concessão de Crédito (g)", "Outras Operacoes com Caracteristicas de Concessao de Credito (g)"],
+    )
+    col_credito_net_h = _resolver_coluna_peers(
+        cache_ativo,
+        ["Valores a Receber de Transações de Pagamentos - Usuários Finais (Pós-pago) (h)",
+         "Valores a Receber de Transacoes de Pagamentos - Usuarios Finais (Pos-pago) (h)"],
+    )
+
     perda_colunas_base = [
         "Perda Esperada (e2)",
         "Hedge de Valor Justo (e3)",
@@ -3856,6 +3893,21 @@ def _preparar_metricas_extra_peers(
             valor_pj = _obter_valor_peers(cache_carteira_pj, banco, periodo, col_pj_total)
             carteira_classificada = _somar_valores([valor_pf, valor_pj])
             extra["Carteira de Crédito Classificada"][chave] = carteira_classificada
+
+            carteira_bruta = _somar_valores([
+                _obter_valor_peers(cache_ativo, banco, periodo, col_credito_bruta_e1),
+                _obter_valor_peers(cache_ativo, banco, periodo, col_credito_bruta_f1),
+                _obter_valor_peers(cache_ativo, banco, periodo, col_credito_bruta_g1),
+                _obter_valor_peers(cache_ativo, banco, periodo, col_credito_bruta_h1),
+            ])
+            if carteira_bruta is None:
+                carteira_bruta = _somar_valores([
+                    _obter_valor_peers(cache_ativo, banco, periodo, col_credito_net_e),
+                    _obter_valor_peers(cache_ativo, banco, periodo, col_credito_net_f),
+                    _obter_valor_peers(cache_ativo, banco, periodo, col_credito_net_g),
+                    _obter_valor_peers(cache_ativo, banco, periodo, col_credito_net_h),
+                ])
+            extra["Carteira de Crédito Bruta"][chave] = carteira_bruta
 
             # Ativos Líquidos = Disponibilidades (a) + Aplicações Interfinanceiras (b) + TVM (c)
             # do relatório de Ativo (Rel. 2)
@@ -6815,6 +6867,7 @@ elif menu == "Peers (Tabela)":
                             <em>Balanço</em><br>
                             <strong>Ativo Total</strong> = Ativo Total do balanço principal (Rel. 1).<br>
                             <strong>Ativos Líquidos</strong> = Disponibilidades (a) + Aplicações Interfinanceiras de Liquidez (b) + Títulos e Valores Mobiliários (c) no relatório de Ativo (Rel. 2).<br>
+                            <strong>Carteira de Crédito Bruta</strong> = Valor Contábil Bruto (e1) + Valor Contábil Bruto (f1) + Valor Contábil Bruto (g1) + Valor Contábil Bruto (h1) no relatório de Ativo (Rel. 2).<br>
                             <strong>Carteira de Crédito Classificada</strong> = Total da Carteira de Pessoa Física (Rel. 11) + Total da Carteira de Pessoa Jurídica (Rel. 13).<br>
                             <strong>Depósitos Totais</strong> = Depósitos (e) no relatório de Passivo (Rel. 3), conforme o IFData. Quando indisponível, soma Depósitos à Vista (a1) + Poupança (a2) + Interfinanceiros (a3) + a Prazo (a4) + Outros (a5/a6).<br>
                             <strong>Patrimônio Líquido (PL)</strong> = Patrimônio Líquido do balanço principal (Rel. 1).<br>
