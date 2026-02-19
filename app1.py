@@ -7280,10 +7280,36 @@ elif menu == "Evolução":
         carteira_bruta_series = None
         try:
             periodos_evo = df_ano.get("Período", pd.Series(dtype="object")).dropna().unique().tolist()
+
+            def _periodo_tri_key(periodo_txt: str) -> Optional[str]:
+                parsed = _parse_periodo(periodo_txt)
+                if not parsed:
+                    return None
+                parte, ano, _ = parsed
+                tri = _parte_periodo_para_trimestre_idx(parte)
+                if tri is None:
+                    return None
+                return f"{tri}/{ano}"
+
+            periodos_evo_expand = []
+            for p in periodos_evo:
+                parsed = _parse_periodo(p)
+                if not parsed:
+                    continue
+                parte, ano, _ = parsed
+                tri = _parte_periodo_para_trimestre_idx(parte)
+                if tri is None:
+                    continue
+                periodos_evo_expand.append(f"{tri}/{ano}")
+                mes_map = {1: "03", 2: "06", 3: "09", 4: "12"}
+                mes = mes_map.get(tri)
+                if mes:
+                    periodos_evo_expand.append(f"{mes}/{ano}")
+
             cache_ativo = _carregar_cache_relatorio_slice(
                 "ativo",
                 _cache_version_token("ativo"),
-                tuple(periodos_evo),
+                tuple(sorted(set(periodos_evo_expand))) if periodos_evo_expand else tuple(periodos_evo),
                 (instituicao,),
             )
             cache_ativo = _aplicar_aliases_df(cache_ativo, st.session_state.get("dict_aliases", {}))
@@ -7292,15 +7318,20 @@ elif menu == "Evolução":
             col_g1 = _resolver_coluna_peers(cache_ativo, ["Valor Contábil Bruto (g1)", "Valor Contabil Bruto (g1)"])
             col_h1 = _resolver_coluna_peers(cache_ativo, ["Valor Contábil Bruto (h1)", "Valor Contabil Bruto (h1)"])
             if col_e1 or col_f1 or col_g1 or col_h1:
-                bruta_map = {}
-                for periodo in periodos_evo:
-                    bruta_map[periodo] = _somar_valores([
-                        _obter_valor_peers(cache_ativo, instituicao, periodo, col_e1),
-                        _obter_valor_peers(cache_ativo, instituicao, periodo, col_f1),
-                        _obter_valor_peers(cache_ativo, instituicao, periodo, col_g1),
-                        _obter_valor_peers(cache_ativo, instituicao, periodo, col_h1),
-                    ])
-                carteira_bruta_series = df_ano.get("Período", pd.Series(index=df_ano.index)).map(bruta_map)
+                cache_ativo = cache_ativo.copy()
+                cache_ativo["_tri_key"] = cache_ativo.get("Período", pd.Series(dtype="object")).astype(str).map(_periodo_tri_key)
+                cache_ativo["_carteira_bruta"] = (
+                    pd.to_numeric(cache_ativo.get(col_e1), errors="coerce").fillna(0)
+                    + pd.to_numeric(cache_ativo.get(col_f1), errors="coerce").fillna(0)
+                    + pd.to_numeric(cache_ativo.get(col_g1), errors="coerce").fillna(0)
+                    + pd.to_numeric(cache_ativo.get(col_h1), errors="coerce").fillna(0)
+                )
+                bruta_map = (
+                    cache_ativo.groupby("_tri_key", dropna=True)["_carteira_bruta"]
+                    .sum(min_count=1)
+                    .to_dict()
+                )
+                carteira_bruta_series = df_ano.get("Período", pd.Series(index=df_ano.index)).astype(str).map(_periodo_tri_key).map(bruta_map)
         except Exception:
             carteira_bruta_series = None
 
