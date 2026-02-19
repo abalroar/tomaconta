@@ -660,7 +660,7 @@ VARS_PERCENTUAL = [
     # Métricas derivadas
     *DERIVED_METRICS,
 ]
-VARS_RAZAO = ['Crédito/PL (%)', 'Ativo/PL']
+VARS_RAZAO = ['Carteira de Crédito Bruta / PL', 'Ativo/PL', 'Crédito/PL (%)']
 VARS_MOEDAS = [
     'Carteira de Crédito',
     'Carteira de Crédito Bruta',
@@ -761,21 +761,6 @@ PEERS_TABELA_LAYOUT = [
                 "data_keys": [],
                 "format_key": "Perda Esperada / Carteira Classificada",
             },
-            {
-                "label": "Carteira de Créd. Class. C4+C5",
-                "data_keys": [],
-                "format_key": "Carteira de Créd. Class. C4+C5",
-            },
-            {
-                "label": "Carteira de Créd. Class. C4+C5 / Carteira Classificada",
-                "data_keys": [],
-                "format_key": "Carteira de Créd. Class. C4+C5 / Carteira Classificada",
-            },
-            {
-                "label": "Perda Esperada / (Carteira C4 + C5)",
-                "data_keys": [],
-                "format_key": "Perda Esperada / (Carteira C4 + C5)",
-            },
         ],
     },
     {
@@ -788,9 +773,9 @@ PEERS_TABELA_LAYOUT = [
                 "todo": "TODO: Integrar Ativo/PL a partir das fontes do projeto (sem criar fórmula nova).",
             },
             {
-                "label": "Crédito / PL",
-                "data_keys": ["Crédito/PL (%)", "Crédito/PL"],
-                "format_key": "Crédito/PL (%)",
+                "label": "Carteira de Crédito Bruta / PL",
+                "data_keys": ["Carteira de Crédito Bruta / PL", "Crédito/PL (%)", "Crédito/PL"],
+                "format_key": "Carteira de Crédito Bruta / PL",
             },
             {
                 "label": "Índice de Capital Principal (CET1)",
@@ -826,7 +811,7 @@ PEERS_TABELA_LAYOUT = [
 VARIAVEIS_PONDERACAO = {
     'Média Simples': None,  # Sem ponderação
     'Ativo Total': 'Ativo Total',
-    'Carteira de Crédito': 'Carteira de Crédito',
+    'Carteira de Crédito Bruta': 'Carteira de Crédito Bruta',
     'Patrimônio Líquido': 'Patrimônio Líquido',
     'Patrimônio de Referência': 'Patrimônio de Referência',
     'Captações': 'Captações',
@@ -882,7 +867,7 @@ def get_label_media(coluna_peso):
     # Abreviar nomes longos
     abreviacoes = {
         'Ativo Total': 'Ativo Total',
-        'Carteira de Crédito': 'Cart. Crédito',
+        'Carteira de Crédito Bruta': 'Cart. Crédito Bruta',
         'Patrimônio Líquido': 'PL',
         'Patrimônio de Referência': 'PR',
         'Captações': 'Captações',
@@ -999,7 +984,8 @@ def recalcular_metricas_derivadas(dados_periodos):
     RENOMEAR_COLUNAS = {
         'Lucro Líquido': 'Lucro Líquido Acumulado YTD',
         'ROE An. (%)': 'ROE Ac. YTD an. (%)',
-        'Crédito/PL': 'Crédito/PL (%)',
+        'Crédito/PL': 'Carteira de Crédito Bruta / PL',
+        'Crédito/PL (%)': 'Carteira de Crédito Bruta / PL',
     }
 
     # Colunas obsoletas a serem removidas
@@ -1063,24 +1049,26 @@ def recalcular_metricas_derivadas(dados_periodos):
             # Persistir valor de LL utilizado no cálculo do ROE para uso downstream
             df_atualizado[ll_col] = ll_ytd
 
-        # Crédito/PL - SEMPRE recalcular
-        if "Carteira de Crédito" in df_atualizado.columns and "Patrimônio Líquido" in df_atualizado.columns:
-            df_atualizado["Crédito/PL (%)"] = (
-                df_atualizado["Carteira de Crédito"].fillna(0) /
+        # Carteira de Crédito Bruta / PL - SEMPRE recalcular
+        base_credito_col = "Carteira de Crédito Bruta" if "Carteira de Crédito Bruta" in df_atualizado.columns else "Carteira de Crédito"
+        if base_credito_col in df_atualizado.columns and "Patrimônio Líquido" in df_atualizado.columns:
+            df_atualizado["Carteira de Crédito Bruta / PL"] = (
+                df_atualizado[base_credito_col].fillna(0) /
                 df_atualizado["Patrimônio Líquido"].replace(0, np.nan)
             )
+            df_atualizado["Crédito/PL (%)"] = df_atualizado["Carteira de Crédito Bruta / PL"]
 
-        # Crédito/Captações - SEMPRE recalcular
-        if "Carteira de Crédito" in df_atualizado.columns and "Captações" in df_atualizado.columns:
+        # Crédito/Captações - SEMPRE recalcular (base carteira bruta quando disponível)
+        if base_credito_col in df_atualizado.columns and "Captações" in df_atualizado.columns:
             df_atualizado["Crédito/Captações (%)"] = (
-                df_atualizado["Carteira de Crédito"].fillna(0) /
+                df_atualizado[base_credito_col].fillna(0) /
                 df_atualizado["Captações"].replace(0, np.nan)
             )
 
-        # Crédito/Ativo (%) - SEMPRE recalcular
-        if "Carteira de Crédito" in df_atualizado.columns and "Ativo Total" in df_atualizado.columns:
+        # Crédito/Ativo (%) - SEMPRE recalcular (base carteira bruta quando disponível)
+        if base_credito_col in df_atualizado.columns and "Ativo Total" in df_atualizado.columns:
             df_atualizado["Crédito/Ativo (%)"] = (
-                df_atualizado["Carteira de Crédito"].fillna(0) /
+                df_atualizado[base_credito_col].fillna(0) /
                 df_atualizado["Ativo Total"].replace(0, np.nan)
             )
 
@@ -2713,7 +2701,7 @@ def _formatar_valor_peers(valor, format_key: str, coluna_origem: Optional[str] =
             return f"{float(valor):.2f}x"
         except Exception:
             return "—"
-    if format_key == "Crédito/PL (%)":
+    if format_key in ("Crédito/PL (%)", "Carteira de Crédito Bruta / PL"):
         try:
             return f"{float(valor):.2f}x"
         except Exception:
@@ -2746,11 +2734,11 @@ def _tooltip_ll_peers(df, banco, periodo, coluna, valor):
 
 
 def _tooltip_ratio_peers(label, valor_num, valor_den, valor_ratio):
-    """Tooltip para métricas do tipo razão (Ativo/PL, Crédito/PL, ratios %)."""
+    """Tooltip para métricas do tipo razão (Ativo/PL, Carteira Bruta/PL, ratios %)."""
     fmt = _fmt_tooltip_mm
     _NOMES_COMPONENTES = {
         "Ativo / PL": ("Ativo Total", "PL"),
-        "Crédito / PL": ("Carteira de Crédito", "PL"),
+        "Carteira de Crédito Bruta / PL": ("Carteira de Crédito Bruta", "PL"),
         "Perda Esperada / Carteira Classificada": ("Perda Esperada", "Carteira de Crédito Classificada"),
         "Carteira de Créd. Class. C4+C5 / Carteira Classificada": ("C4+C5", "Carteira de Crédito Classificada"),
         "Perda Esperada / (Carteira C4 + C5)": ("Perda Esperada", "C4+C5"),
@@ -3326,11 +3314,75 @@ def _somar_valores(valores: list) -> Optional[float]:
     return float(sum(numeros))
 
 
+def _prefer_carteira_bruta(colunas: list) -> str:
+    if "Carteira de Crédito Bruta" in colunas:
+        return "Carteira de Crédito Bruta"
+    return "Carteira de Crédito"
+
+
+def _anexar_carteira_credito_bruta(dados_periodos: dict) -> dict:
+    """Anexa Carteira de Crédito Bruta (Rel. 2) e uniformiza Carteira de Crédito."""
+    if not dados_periodos:
+        return dados_periodos
+    cache_manager = get_cache_manager()
+    if cache_manager is None:
+        return dados_periodos
+    resultado = cache_manager.carregar("ativo")
+    if not resultado or not resultado.sucesso or resultado.dados is None:
+        return dados_periodos
+
+    df_ativo = resultado.dados
+    if df_ativo is None or df_ativo.empty:
+        return dados_periodos
+
+    col_e1 = _resolver_coluna_peers(df_ativo, ["Valor Contábil Bruto (e1)", "Valor Contabil Bruto (e1)"])
+    col_f1 = _resolver_coluna_peers(df_ativo, ["Valor Contábil Bruto (f1)", "Valor Contabil Bruto (f1)"])
+    col_g1 = _resolver_coluna_peers(df_ativo, ["Valor Contábil Bruto (g1)", "Valor Contabil Bruto (g1)"])
+    col_h1 = _resolver_coluna_peers(df_ativo, ["Valor Contábil Bruto (h1)", "Valor Contabil Bruto (h1)"])
+    if not all([col_e1, col_f1, col_g1, col_h1]):
+        return dados_periodos
+
+    df_bruta = df_ativo[["Instituição", "Período", col_e1, col_f1, col_g1, col_h1]].copy()
+    for col in [col_e1, col_f1, col_g1, col_h1]:
+        df_bruta[col] = pd.to_numeric(df_bruta[col], errors="coerce")
+    df_bruta["Carteira de Crédito Bruta"] = (
+        df_bruta[col_e1].fillna(0)
+        + df_bruta[col_f1].fillna(0)
+        + df_bruta[col_g1].fillna(0)
+        + df_bruta[col_h1].fillna(0)
+    )
+    df_bruta = df_bruta[["Instituição", "Período", "Carteira de Crédito Bruta"]]
+
+    mapa_por_periodo = {
+        periodo: sub.set_index("Instituição")["Carteira de Crédito Bruta"]
+        for periodo, sub in df_bruta.groupby("Período")
+    }
+
+    dados_out = {}
+    for periodo, df in dados_periodos.items():
+        if df is None or df.empty or "Instituição" not in df.columns:
+            dados_out[periodo] = df
+            continue
+        serie_bruta = mapa_por_periodo.get(str(periodo))
+        if serie_bruta is None:
+            dados_out[periodo] = df
+            continue
+        df_out = df.copy()
+        df_out["Carteira de Crédito Bruta"] = df_out["Instituição"].map(serie_bruta)
+        # Uniformiza Carteira de Crédito para critério Bruto quando disponível
+        if "Carteira de Crédito" in df_out.columns:
+            df_out["Carteira de Crédito"] = df_out["Carteira de Crédito Bruta"].combine_first(
+                df_out["Carteira de Crédito"]
+            )
+        dados_out[periodo] = df_out
+
+    return dados_out
+
+
 def _normalizar_nomes_carteira(df: Optional[pd.DataFrame]) -> Optional[pd.DataFrame]:
     if df is None or df.empty:
         return df
     rename_map = {
-        "Carteira de Crédito Bruta": "Carteira de Crédito Classificada",
         "Carteira Bruta": "Carteira Classificada",
         "Perda Esperada / Carteira Bruta": "Perda Esperada / Carteira Classificada",
         "Carteira de Créd. Class. C4+C5 / Carteira Bruta": "Carteira de Créd. Class. C4+C5 / Carteira Classificada",
@@ -4171,7 +4223,7 @@ def _montar_tabela_peers(
     )
     _perf_peers_stage(perf, "c_joins_mapeamentos_metricas_extra", t_extra)
 
-    coluna_credito = _resolver_coluna_peers(df, ["Carteira de Crédito"])
+    coluna_credito = _resolver_coluna_peers(df, ["Carteira de Crédito Bruta", "Carteira de Crédito"])
 
     t_calc = time.perf_counter()
     for section in PEERS_TABELA_LAYOUT:
@@ -4218,8 +4270,10 @@ def _montar_tabela_peers(
                         valor_pl = _obter_valor_peers(df, banco, periodo, coluna_pl)
                         valor = _calcular_ratio_peers(valor_ativo, valor_pl)
                         tip = _tooltip_ratio_peers(label, valor_ativo, valor_pl, valor)
-                    elif label == "Crédito / PL":
-                        valor_credito = _obter_valor_peers(df, banco, periodo, coluna_credito)
+                    elif label == "Carteira de Crédito Bruta / PL":
+                        valor_credito = extra_values.get("Carteira de Crédito Bruta", {}).get((banco, periodo))
+                        if valor_credito is None or pd.isna(valor_credito):
+                            valor_credito = _obter_valor_peers(df, banco, periodo, coluna_credito)
                         valor_pl_v = _obter_valor_peers(df, banco, periodo, coluna_pl)
                         valor = _calcular_ratio_peers(valor_credito, valor_pl_v)
                         tip = _tooltip_ratio_peers(label, valor_credito, valor_pl_v, valor)
@@ -4252,8 +4306,10 @@ def _montar_tabela_peers(
                         valor_ativo_base = _obter_valor_peers(df, banco, periodo_base, coluna_ativo)
                         valor_pl_base = _obter_valor_peers(df, banco, periodo_base, coluna_pl)
                         valor_base = _calcular_ratio_peers(valor_ativo_base, valor_pl_base)
-                    elif periodo_base and label == "Crédito / PL":
-                        valor_credito_b = _obter_valor_peers(df, banco, periodo_base, coluna_credito)
+                    elif periodo_base and label == "Carteira de Crédito Bruta / PL":
+                        valor_credito_b = extra_values.get("Carteira de Crédito Bruta", {}).get((banco, periodo_base))
+                        if valor_credito_b is None or pd.isna(valor_credito_b):
+                            valor_credito_b = _obter_valor_peers(df, banco, periodo_base, coluna_credito)
                         valor_pl_b = _obter_valor_peers(df, banco, periodo_base, coluna_pl)
                         valor_base = _calcular_ratio_peers(valor_credito_b, valor_pl_b)
                     else:
@@ -5483,7 +5539,7 @@ def _precisa_recalcular_metricas_rapido(dados_periodos: dict) -> bool:
     if not dados_periodos:
         return False
 
-    colunas_obsoletas = {'Risco/Retorno', 'Funding Gap (%)', 'Lucro Líquido', 'ROE An. (%)', 'Crédito/PL'}
+    colunas_obsoletas = {'Risco/Retorno', 'Funding Gap (%)', 'Lucro Líquido', 'ROE An. (%)', 'Crédito/PL', 'Crédito/PL (%)'}
     for _, df in dados_periodos.items():
         if df is None or df.empty:
             continue
@@ -5494,7 +5550,7 @@ def _precisa_recalcular_metricas_rapido(dados_periodos: dict) -> bool:
 
         if {"Lucro Líquido Acumulado YTD", "Patrimônio Líquido"}.issubset(cols) and not ({"ROE Ac. YTD an. (%)", "ROE Ac. Anualizado (%)"} & cols):
             return True
-        if {"Carteira de Crédito", "Patrimônio Líquido"}.issubset(cols) and "Crédito/PL (%)" not in cols:
+        if {"Carteira de Crédito", "Patrimônio Líquido"}.issubset(cols) and "Carteira de Crédito Bruta / PL" not in cols:
             return True
         if {"Carteira de Crédito", "Captações"}.issubset(cols) and "Crédito/Captações (%)" not in cols:
             return True
@@ -5526,6 +5582,8 @@ def _carregar_dados_periodos_preparados(cache_token: str, alias_sig: tuple):
     dados_cache = cache_principal.carregar_formato_antigo() if cache_principal else None
     if not dados_cache:
         return None
+
+    dados_cache = _anexar_carteira_credito_bruta(dados_cache)
 
     if _precisa_recalcular_metricas_rapido(dados_cache):
         dados_cache = recalcular_metricas_derivadas(dados_cache)
@@ -6363,7 +6421,7 @@ elif False and menu == "Painel":
 
         indicadores_config = {
             'Ativo Total': ['Ativo Total'],
-            'Carteira de Crédito': ['Carteira de Crédito'],
+            'Carteira de Crédito Bruta': ['Carteira de Crédito Bruta', 'Carteira de Crédito'],
             'Títulos e Valores Mobiliários': ['Títulos e Valores Mobiliários'],
             'Passivo Exigível': ['Passivo Exigível'],
             'Captações': ['Captações'],
@@ -6866,26 +6924,23 @@ elif menu == "Peers (Tabela)":
                             <br>
                             <em>Balanço</em><br>
                             <strong>Ativo Total</strong> = Ativo Total do balanço principal (Rel. 1).<br>
-                            <strong>Ativos Líquidos</strong> = Disponibilidades (a) + Aplicações Interfinanceiras de Liquidez (b) + Títulos e Valores Mobiliários (c) no relatório de Ativo (Rel. 2).<br>
-                            <strong>Carteira de Crédito Bruta</strong> = Valor Contábil Bruto (e1) + Valor Contábil Bruto (f1) + Valor Contábil Bruto (g1) + Valor Contábil Bruto (h1) no relatório de Ativo (Rel. 2).<br>
+                            <strong>Ativos Líquidos</strong> = Disponibilidades (a) + Aplicações Interfinanceiras de Liquidez (b) + Títulos e Valores Mobiliários (c), do relatório de Ativo (Rel. 2).<br>
+                            <strong>Carteira de Crédito Bruta</strong> = Valor Contábil Bruto (e1) + Valor Contábil Bruto (f1) + Valor Contábil Bruto (g1) + Valor Contábil Bruto (h1), do relatório de Ativo (Rel. 2).<br>
                             Headers do Ativo usados: Operações de Crédito, Operações de Arrendamento Financeiro, Outras Operações com Características de Concessão de Crédito, Valores a Receber de Transações de Pagamentos - Usuários Finais (Pós-pago).<br>
                             <strong>Carteira de Crédito Classificada</strong> = Total da Carteira de Pessoa Física (Rel. 11) + Total da Carteira de Pessoa Jurídica (Rel. 13).<br>
                             <strong>Depósitos Totais</strong> = Depósitos (e) no relatório de Passivo (Rel. 3), conforme o IFData. Quando indisponível, soma Depósitos à Vista (a1) + Poupança (a2) + Interfinanceiros (a3) + a Prazo (a4) + Outros (a5/a6).<br>
                             <strong>Patrimônio Líquido (PL)</strong> = Patrimônio Líquido do balanço principal (Rel. 1).<br>
                             <br>
                             <em>Qualidade Carteira</em><br>
-                            <strong>Perda Esperada</strong> = Soma das linhas Perda Esperada (e2), Hedge de Valor Justo (e3), Ajuste a Valor Justo (e4), Perda Esperada (f2), Hedge de Valor Justo (f3), Perda Esperada (g2), Hedge de Valor Justo (g3), Ajuste a Valor Justo (g4) e Perda Esperada (h2) no relatório de Ativo (Rel. 2).<br>
+                            <strong>Perda Esperada</strong> = Soma das linhas Perda Esperada (e2), Hedge de Valor Justo (e3), Ajuste a Valor Justo (e4), Perda Esperada (f2), Hedge de Valor Justo (f3), Perda Esperada (g2), Hedge de Valor Justo (g3), Ajuste a Valor Justo (g4) e Perda Esperada (h2), do relatório de Ativo (Rel. 2).<br>
                             <strong>Perda Esperada / Carteira Classificada</strong> = Perda Esperada ÷ Carteira de Crédito Classificada.<br>
-                            <strong>Carteira de Créd. Class. C4+C5</strong> = Soma das linhas C4 e C5 do relatório de Carteira 4.966 (Rel. 16).<br>
-                            <strong>Carteira de Créd. Class. C4+C5 / Carteira Classificada</strong> = (C4 + C5) ÷ Carteira de Crédito Classificada.<br>
-                            <strong>Perda Esperada / (Carteira C4 + C5)</strong> = Perda Esperada ÷ (C4 + C5).<br>
-                            <strong>Ativos Estágio 2</strong> = Saldo da conta 3312000001 no mês/período selecionado.<br>
-                            <strong>Ativos Estágio 3</strong> = Saldo da conta 3313000000 no mês/período selecionado.<br>
-                            <strong>Perda Esperada / Estágio 3</strong> = Perda Esperada (Rel. 2) ÷ Ativos Estágio 3 (Cadoc 4060) do mesmo mês/período.<br>
+                            <strong>Ativos Estágio 2</strong> = Saldo da conta 3312000001 (Cadoc 4060) no mês/período selecionado.<br>
+                            <strong>Ativos Estágio 3</strong> = Saldo da conta 3313000000 (Cadoc 4060) no mês/período selecionado.<br>
+                            <strong>Perda Esperada / Estágio 3</strong> = Perda Esperada (Rel. 2) ÷ Ativos Estágio 3 (Cadoc 4060) do mesmo período.<br>
                             <br>
                             <em>Alavancagem</em><br>
                             <strong>Ativo / PL</strong> = Ativo Total ÷ Patrimônio Líquido.<br>
-                            <strong>Crédito / PL</strong> = Carteira de Crédito (Rel. 1) ÷ Patrimônio Líquido.<br>
+                            <strong>Carteira de Crédito Bruta / PL</strong> = Carteira de Crédito Bruta (Rel. 2) ÷ Patrimônio Líquido (Rel. 1).<br>
                             <strong>Índice de Capital Principal (CET1)</strong> = Capital Principal ÷ RWA Total, extraído do relatório de Informações de Capital (Rel. 5).<br>
                             <strong>Índice de Basileia Total</strong> = (Capital Principal + Capital Complementar + Capital Nível II) ÷ RWA Total (Rel. 5). Equivale à soma CET1 + AT1 + T2.<br>
                             <br>
@@ -7215,7 +7270,7 @@ elif menu == "Evolução":
         df_ano["Core Funding"] = core_funding_series
         carteira_classificada_2025 = _numeric_series(df_ano, "Carteira Classificada")
         carteira_classificada_historica = _numeric_series(df_ano, "Carteira de Crédito Classificada")
-        carteira_credito_base = _numeric_series(df_ano, "Carteira de Crédito")
+        carteira_credito_base = _numeric_series(df_ano, _prefer_carteira_bruta(list(df_ano.columns)))
         df_ano["Carteira Classificada"] = (
             carteira_classificada_historica
             .combine_first(carteira_classificada_2025)
@@ -7595,7 +7650,12 @@ elif menu == "Scatter Plot":
         with col_t1:
             top_n_scatter = st.slider("top n", 5, 50, 5)
         with col_t2:
-            var_top_n = st.selectbox("top n por", colunas_numericas, index=colunas_numericas.index('Carteira de Crédito') if 'Carteira de Crédito' in colunas_numericas else 0)
+            prefer_credito = _prefer_carteira_bruta(colunas_numericas)
+            var_top_n = st.selectbox(
+                "top n por",
+                colunas_numericas,
+                index=colunas_numericas.index(prefer_credito) if prefer_credito in colunas_numericas else 0,
+            )
 
         # Terceira linha: Seleção de bancos
         col_f = st.columns(1)[0]
@@ -7748,10 +7808,11 @@ elif menu == "Scatter Plot":
         with col_n2_t1:
             top_n_scatter_n2 = st.slider("top n", 5, 50, 5, key="top_n_n2")
         with col_n2_t2:
+            prefer_credito = _prefer_carteira_bruta(colunas_numericas)
             var_top_n_n2 = st.selectbox(
                 "top n por",
                 colunas_numericas,
-                index=colunas_numericas.index('Carteira de Crédito') if 'Carteira de Crédito' in colunas_numericas else 0,
+                index=colunas_numericas.index(prefer_credito) if prefer_credito in colunas_numericas else 0,
                 key="var_top_n_n2"
             )
         with col_n2_t3:
@@ -7998,7 +8059,7 @@ elif menu == "Rankings":
 
         indicadores_config = {
             'Ativo Total': ['Ativo Total'],
-            'Carteira de Crédito': ['Carteira de Crédito'],
+            'Carteira de Crédito Bruta': ['Carteira de Crédito Bruta', 'Carteira de Crédito'],
             'Captações': ['Captações'],
             'Patrimônio Líquido': ['Patrimônio Líquido'],
             'Índice de Capital Principal (CET1)': ['Índice de Capital Principal (CET1)', 'Índice de Capital Principal'],
@@ -8020,7 +8081,7 @@ elif menu == "Rankings":
             periodos = ordenar_periodos(df['Período'].dropna().unique(), reverso=True)
             ordem_prioritaria = [
                 'Ativo Total',
-                'Carteira de Crédito',
+                'Carteira de Crédito Bruta',
                 'Captações',
                 'Patrimônio Líquido',
                 'Índice de Capital Principal (CET1)',
@@ -11219,10 +11280,11 @@ elif menu == "Crie sua métrica!":
                 with col_slider:
                     top_n_brincar = st.slider("quantidade de bancos", 5, 40, 15, key="top_n_brincar")
                 with col_var_ord:
+                    prefer_credito = _prefer_carteira_bruta(colunas_numericas)
                     var_ordenacao_brincar = st.selectbox(
                         "ordenar por",
                         colunas_numericas,
-                        index=colunas_numericas.index('Carteira de Crédito') if 'Carteira de Crédito' in colunas_numericas else 0,
+                        index=colunas_numericas.index(prefer_credito) if prefer_credito in colunas_numericas else 0,
                         key="var_ordenacao_brincar"
                     )
                 # Obtém top N bancos do período mais recente
@@ -12675,7 +12737,7 @@ elif menu == "Glossário":
 
     **Ativo Total:** Padrão COSIF.
 
-    **Carteira de Crédito:** Valor líquido, já descontada a PDD.
+    **Carteira de Crédito Bruta:** Soma do Valor Contábil Bruto (e1+f1+g1+h1) no Relatório de Ativo (Rel. 2).
 
     **Títulos e Valores Mobiliários:** Títulos de Renda Fixa + Aplicação em COEs + Cotas de Fundos de Curto Prazo e Fundos de Investimentos, já descontados de Perda Incorrida, Perda Esperada e Ajuste a Valor Justo.
 
@@ -12699,11 +12761,11 @@ elif menu == "Glossário":
 
     **ROE Ac. Anualizado (%):** (LL YTD × fator de anualização) ÷ PL Médio. PL Médio = (PL no período + PL em Dez do ano anterior) / 2. Fator: Mar=4, Jun=2, Set≈1.33, Dez=1. N/A se PL médio ≤ 0 ou dado faltante.
 
-    **Crédito/PL (%):** Carteira de Crédito Líquida dividida pelo Patrimônio Líquido.
+    **Carteira de Crédito Bruta / PL:** Carteira de Crédito Bruta dividida pelo Patrimônio Líquido.
 
-    **Crédito/Captações (%):** Carteira de Crédito Líquida dividida pelas Captações.
+    **Crédito/Captações (%):** Carteira de Crédito Bruta dividida pelas Captações.
 
-    **Crédito/Ativo (%):** Carteira de Crédito Líquida dividida pelo Ativo Total.
+    **Crédito/Ativo (%):** Carteira de Crédito Bruta dividida pelo Ativo Total.
 
 
     **Desp PDD / Resultado Intermediação Fin. Bruto (%):** Desp. PDD dividido pelo Resultado de Intermediação Financeira Bruto. Fórmula: Desp. PDD / Resultado de Intermediação Financeira Bruto.
