@@ -7116,12 +7116,11 @@ elif menu == "Peers (Tabela)":
                             <em>Balanço</em><br>
                             <strong>Ativo Total</strong> = Ativo Total do balanço principal (Rel. 1).<br>
                             <strong>Ativos Líquidos</strong> = Disponibilidades (a) + Aplicações Interfinanceiras de Liquidez (b) + Títulos e Valores Mobiliários (c), no relatório de Ativo (Rel. 2).<br>
-                            <strong>Carteira de Crédito*</strong> = Valor Contábil Bruto (e1) + Valor Contábil Bruto (f1) + Valor Contábil Bruto (g1) + Valor Contábil Bruto (h1), no relatório de Ativo (Rel. 2).<br>
-                            Headers do Ativo usados: Operações de Crédito, Operações de Arrendamento Financeiro, Outras Operações com Características de Concessão de Crédito, Valores a Receber de Transações de Pagamentos - Usuários Finais (Pós-pago).<br>
+                            <strong>Carteira de Crédito*</strong> = Soma do Valor Contábil Bruto (e1+f1+g1+h1) no Relatório de Ativo (Rel. 2).<br>
                             <em>Nota:</em> Para 2000–2024, usamos Carteira de Crédito Bruta + Carteira de Arrendamento Bruta + Outros Créditos Líquidos de Provisão (Rel. 2). A partir de 2025, usamos Valor Contábil Bruto (e1+f1+g1+h1).<br>
                             <strong>Carteira de Crédito Classificada</strong> = Total da Carteira de Pessoa Física (Rel. 11) + Total da Carteira de Pessoa Jurídica (Rel. 13).<br>
                             <strong>Depósitos Totais</strong> = Depósitos (e) no relatório de Passivo (Rel. 3), conforme o IFData. Quando indisponível, soma Depósitos à Vista (a1) + Poupança (a2) + Interfinanceiros (a3) + a Prazo (a4) + Outros (a5/a6).<br>
-                            <strong>Core Funding*</strong> = Captações (e) no Passivo (Rel. 3). A partir de 2025, soma-se Dívida Subordinada (h).<br>
+                            <strong>Core Funding*</strong> = Captações (e) no Relatório Passivo; a partir de 2025, soma-se Dívida Subordinada (h). Onde: (a) Depósitos; (b) Obrigações por Operações Compromissadas; (c) Relações Interfinanceiras; (d) Relações Interdependências; (h) Instrumentos de Dívida Elegíveis a Capital.<br>
                             <strong>Patrimônio Líquido (PL)</strong> = Patrimônio Líquido do balanço principal (Rel. 1).<br>
                             <br>
                             <em>Qualidade Carteira</em><br>
