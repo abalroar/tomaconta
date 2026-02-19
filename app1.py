@@ -779,7 +779,7 @@ PEERS_TABELA_LAYOUT = [
                 "todo": "TODO: Integrar Ativo/PL a partir das fontes do projeto (sem criar fórmula nova).",
             },
             {
-                "label": "Carteira de Crédito* / PL*",
+                "label": "Carteira de Crédito* / PL",
                 "data_keys": ["Carteira de Crédito Bruta / PL", "Crédito/PL (%)", "Crédito/PL"],
                 "format_key": "Carteira de Crédito Bruta / PL",
             },
@@ -2746,7 +2746,7 @@ def _tooltip_ratio_peers(label, valor_num, valor_den, valor_ratio):
     fmt = _fmt_tooltip_mm
     _NOMES_COMPONENTES = {
         "Ativo / PL": ("Ativo Total", "PL"),
-        "Carteira de Crédito* / PL*": ("Carteira de Crédito Bruta", "PL"),
+        "Carteira de Crédito* / PL": ("Carteira de Crédito Bruta", "PL"),
         "Perda Esperada / Carteira de Crédito*": ("Perda Esperada", "Carteira de Crédito Bruta"),
         "Carteira de Créd. Class. C4+C5 / Carteira Classificada": ("C4+C5", "Carteira de Crédito Classificada"),
         "Perda Esperada / (Carteira C4 + C5)": ("Perda Esperada", "C4+C5"),
@@ -4446,7 +4446,7 @@ def _montar_tabela_peers(
                         valor_pl = _obter_valor_peers(df, banco, periodo, coluna_pl)
                         valor = _calcular_ratio_peers(valor_ativo, valor_pl)
                         tip = _tooltip_ratio_peers(label, valor_ativo, valor_pl, valor)
-                    elif label == "Carteira de Crédito* / PL*":
+                    elif label == "Carteira de Crédito* / PL":
                         valor_credito = extra_values.get("Carteira de Crédito Bruta", {}).get((banco, periodo))
                         if valor_credito is None or pd.isna(valor_credito):
                             valor_credito = _obter_valor_peers(df, banco, periodo, coluna_credito)
@@ -4482,7 +4482,7 @@ def _montar_tabela_peers(
                         valor_ativo_base = _obter_valor_peers(df, banco, periodo_base, coluna_ativo)
                         valor_pl_base = _obter_valor_peers(df, banco, periodo_base, coluna_pl)
                         valor_base = _calcular_ratio_peers(valor_ativo_base, valor_pl_base)
-                    elif periodo_base and label == "Carteira de Crédito* / PL*":
+                    elif periodo_base and label == "Carteira de Crédito* / PL":
                         valor_credito_b = extra_values.get("Carteira de Crédito Bruta", {}).get((banco, periodo_base))
                         if valor_credito_b is None or pd.isna(valor_credito_b):
                             valor_credito_b = _obter_valor_peers(df, banco, periodo_base, coluna_credito)
@@ -7133,7 +7133,7 @@ elif menu == "Peers (Tabela)":
                             <br>
                             <em>Alavancagem</em><br>
                             <strong>Ativo / PL</strong> = Ativo Total ÷ Patrimônio Líquido.<br>
-                            <strong>Carteira de Crédito* / PL*</strong> = Carteira de Crédito* (Rel. 2) ÷ Patrimônio Líquido (Rel. 1).<br>
+                            <strong>Carteira de Crédito* / PL</strong> = Carteira de Crédito* (Rel. 2) ÷ Patrimônio Líquido (Rel. 1).<br>
                             <strong>Índice de Capital Principal (CET1)</strong> = Capital Principal ÷ RWA Total, extraído do relatório de Informações de Capital (Rel. 5).<br>
                             <strong>Índice de Basileia Total</strong> = (Capital Principal + Capital Complementar + Capital Nível II) ÷ RWA Total (Rel. 5). Equivale à soma CET1 + AT1 + T2.<br>
                             <br>
@@ -7757,7 +7757,7 @@ elif menu == "Evolução":
         df_metric = pd.DataFrame({
             "Métrica": [
                 "ROE anualizado",
-                "Carteira de Crédito* / PL*",
+                "Carteira de Crédito* / PL",
                 "Índice de Basileia (%)",
                 "Índice de Capital Principal (CET1)",
             ]
@@ -7794,7 +7794,7 @@ elif menu == "Evolução":
                 return "-"
             if m in ("ROE anualizado", "Índice de Basileia (%)", "Índice de Capital Principal (CET1)"):
                 return _fmt_pct(v)
-            if m == "Carteira de Crédito* / PL*":
+            if m == "Carteira de Crédito* / PL":
                 return f"{float(v):.1f}x".replace(".", ",")
             return _fmt_valor_br(v)
 
