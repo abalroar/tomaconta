@@ -279,6 +279,121 @@ st.markdown("""
     .feature-card p {
         font-family: 'IBM Plex Sans', sans-serif !important;
     }
+
+    /* ============================================================
+       MÓDULOS - BOTÕES COMPACTOS (HOMEPAGE)
+       ============================================================ */
+    .modules-panel {
+        background: linear-gradient(180deg, rgba(31,119,180,0.08), rgba(31,119,180,0.02));
+        border: 1px solid rgba(31,119,180,0.15);
+        border-radius: 16px;
+        padding: 1.25rem 1.25rem 1rem 1.25rem;
+        margin: 0.5rem 0 1.25rem 0;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.04);
+        position: relative;
+        overflow: hidden;
+    }
+
+    .modules-panel::after {
+        content: "";
+        position: absolute;
+        right: -120px;
+        top: -120px;
+        width: 240px;
+        height: 240px;
+        background: radial-gradient(circle, rgba(31,119,180,0.15), rgba(31,119,180,0));
+        pointer-events: none;
+    }
+
+    .modules-header {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 1rem;
+        margin-bottom: 0.75rem;
+    }
+
+    .modules-kicker {
+        font-size: 1.1rem;
+        font-weight: 500;
+        color: #1f77b4;
+        letter-spacing: 0.2px;
+    }
+
+    .modules-sub {
+        font-size: 0.85rem;
+        color: #5f6b7a;
+        font-weight: 300;
+    }
+
+    .module-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(220px, 1fr));
+        gap: 0.75rem;
+    }
+
+    .module-chip {
+        background: #ffffff;
+        border: 1px solid rgba(31,119,180,0.2);
+        border-radius: 12px;
+        padding: 0.75rem 0.9rem;
+        display: grid;
+        gap: 0.35rem;
+        min-height: 78px;
+        transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+        box-shadow: 0 6px 18px rgba(0,0,0,0.05);
+        cursor: default;
+    }
+
+    .module-chip:hover {
+        transform: translateY(-2px);
+        border-color: rgba(31,119,180,0.35);
+        box-shadow: 0 10px 26px rgba(0,0,0,0.08);
+    }
+
+    .module-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.5rem;
+    }
+
+    .module-title {
+        color: #1f77b4;
+        font-size: 1rem;
+        font-weight: 500;
+    }
+
+    .module-pill {
+        font-size: 0.7rem;
+        font-weight: 500;
+        color: #1f77b4;
+        border: 1px solid rgba(31,119,180,0.3);
+        border-radius: 999px;
+        padding: 0.1rem 0.5rem;
+        background: rgba(31,119,180,0.08);
+        white-space: nowrap;
+    }
+
+    .module-desc {
+        font-size: 0.85rem;
+        color: #3b4654;
+        font-weight: 300;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
+
+    @media (max-width: 900px) {
+        .modules-header {
+            flex-direction: column;
+            align-items: flex-start;
+        }
+        .module-grid {
+            grid-template-columns: 1fr;
+        }
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -5732,67 +5847,72 @@ if menu == "Sobre":
     o **toma.conta** consolida dados oficiais do banco central para análise comparativa de instituições financeiras brasileiras, com foco em leitura rápida, filtros reproduzíveis e exportação.
     """)
 
-    st.markdown("### módulos de análise")
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.markdown("""
-        <div class="feature-card">
-            <h4>rankings</h4>
-            <p>ordenação por indicador e período, com comparação direta entre instituições, média do grupo selecionado e variação anual (Δ).</p>
+    st.markdown("""
+    <div class="modules-panel">
+        <div class="modules-header">
+            <div class="modules-kicker">módulos de análise</div>
+            <div class="modules-sub">acessos compactos e diretos ao ponto</div>
         </div>
-        """, unsafe_allow_html=True)
-
-        st.markdown("""
-        <div class="feature-card">
-            <h4>peers (tabela)</h4>
-            <p>comparativo multi-bancos com até 5 instituições e até 3 períodos por visão, incluindo variação versus ano anterior.</p>
+        <div class="module-grid">
+            <div class="module-chip">
+                <div class="module-top">
+                    <span class="module-title">rankings</span>
+                    <span class="module-pill">ranking</span>
+                </div>
+                <div class="module-desc">ordene indicadores por período com comparação imediata.</div>
+            </div>
+            <div class="module-chip">
+                <div class="module-top">
+                    <span class="module-title">dre</span>
+                    <span class="module-pill">resultado</span>
+                </div>
+                <div class="module-desc">leitura de receitas, despesas e margens em um painel limpo.</div>
+            </div>
+            <div class="module-chip">
+                <div class="module-top">
+                    <span class="module-title">peers (tabela)</span>
+                    <span class="module-pill">comparativo</span>
+                </div>
+                <div class="module-desc">multi-bancos e até 3 períodos com variação anual.</div>
+            </div>
+            <div class="module-chip">
+                <div class="module-top">
+                    <span class="module-title">carteira 4.966</span>
+                    <span class="module-pill">risco</span>
+                </div>
+                <div class="module-desc">qualidade da carteira com foco em classes críticas.</div>
+            </div>
+            <div class="module-chip">
+                <div class="module-top">
+                    <span class="module-title">evolução</span>
+                    <span class="module-pill">tendência</span>
+                </div>
+                <div class="module-desc">séries temporais para aceleração, desaceleração e patamar.</div>
+            </div>
+            <div class="module-chip">
+                <div class="module-top">
+                    <span class="module-title">taxas por produto</span>
+                    <span class="module-pill">juros</span>
+                </div>
+                <div class="module-desc">comparação por modalidade (pf/pj) e período.</div>
+            </div>
+            <div class="module-chip">
+                <div class="module-top">
+                    <span class="module-title">scatter plot</span>
+                    <span class="module-pill">x/y</span>
+                </div>
+                <div class="module-desc">relação entre indicadores com tamanho de bolha.</div>
+            </div>
+            <div class="module-chip">
+                <div class="module-top">
+                    <span class="module-title">métrica + glossário</span>
+                    <span class="module-pill">custom</span>
+                </div>
+                <div class="module-desc">crie indicadores e navegue a documentação técnica.</div>
+            </div>
         </div>
-        """, unsafe_allow_html=True)
-
-        st.markdown("""
-        <div class="feature-card">
-            <h4>evolução</h4>
-            <p>séries temporais por instituição e indicador para analisar tendência, aceleração/desaceleração e mudança de patamar.</p>
-        </div>
-        """, unsafe_allow_html=True)
-
-        st.markdown("""
-        <div class="feature-card">
-            <h4>scatter plot</h4>
-            <p>análise de relação entre dois indicadores (x/y), com dimensão adicional por tamanho da bolha e filtros por período/grupo.</p>
-        </div>
-        """, unsafe_allow_html=True)
-
-    with col2:
-        st.markdown("""
-        <div class="feature-card">
-            <h4>dre</h4>
-            <p>visão de resultado com estrutura de receitas, despesas e lucro, com apoio para leitura de margem e composição.</p>
-        </div>
-        """, unsafe_allow_html=True)
-
-        st.markdown("""
-        <div class="feature-card">
-            <h4>carteira 4.966</h4>
-            <p>acompanhamento de qualidade da carteira por classificação de risco, com foco em classes críticas e indicadores de cobertura.</p>
-        </div>
-        """, unsafe_allow_html=True)
-
-        st.markdown("""
-        <div class="feature-card">
-            <h4>taxas de juros por produto</h4>
-            <p>consulta de taxas por modalidade de crédito (pf/pj), permitindo comparação entre instituições e períodos.</p>
-        </div>
-        """, unsafe_allow_html=True)
-
-        st.markdown("""
-        <div class="feature-card">
-            <h4>crie sua métrica + glossário</h4>
-            <p>criação de indicadores customizados com operadores matemáticos e documentação técnica das variáveis disponíveis.</p>
-        </div>
-        """, unsafe_allow_html=True)
+    </div>
+    """, unsafe_allow_html=True)
 
     st.markdown("---")
 
