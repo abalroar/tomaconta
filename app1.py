@@ -2243,6 +2243,30 @@ def formatar_periodos_lista(periodos: list) -> list:
     """
     return [periodo_para_exibicao(p) for p in periodos]
 
+CHECKPOINT_ATUALIZACAO_PATH = Path("data/cache/update_checkpoint.json")
+
+def _carregar_checkpoint_atualizacao() -> dict:
+    if not CHECKPOINT_ATUALIZACAO_PATH.exists():
+        return {}
+    try:
+        return json.loads(CHECKPOINT_ATUALIZACAO_PATH.read_text())
+    except Exception:
+        return {}
+
+def _salvar_checkpoint_atualizacao(payload: dict) -> None:
+    try:
+        CHECKPOINT_ATUALIZACAO_PATH.parent.mkdir(parents=True, exist_ok=True)
+        CHECKPOINT_ATUALIZACAO_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2))
+    except Exception:
+        pass
+
+def _limpar_checkpoint_atualizacao() -> None:
+    try:
+        if CHECKPOINT_ATUALIZACAO_PATH.exists():
+            CHECKPOINT_ATUALIZACAO_PATH.unlink()
+    except Exception:
+        pass
+
 def _periodo_exibicao_para_api_local(periodo_exib: str) -> str:
     """Converte período T/YYYY para YYYYMM (local, sem depender do extrator)."""
     if not periodo_exib or "/" not in str(periodo_exib):
@@ -6251,8 +6275,49 @@ with st.sidebar:
                 mes_f = st.selectbox("trimestre final", ['03','06','09','12'], index=2, key="mes_f")
 
             if 'dict_aliases' in st.session_state:
-                if st.button("extrair dados do BCB", type="primary", width='stretch'):
-                    periodos = gerar_periodos(ano_i, mes_i, ano_f, mes_f)
+                periodos = gerar_periodos(ano_i, mes_i, ano_f, mes_f)
+                checkpoint = _carregar_checkpoint_atualizacao()
+                checkpoint_periodos = checkpoint.get("periodos") if checkpoint else None
+                checkpoint_pendentes = checkpoint.get("pendentes") if checkpoint else None
+
+                if checkpoint_periodos == periodos and checkpoint_pendentes:
+                    st.caption(f"↩️ extração interrompida detectada: {len(checkpoint_pendentes)} período(s) pendente(s).")
+                    col_chk1, col_chk2 = st.columns(2)
+                    with col_chk1:
+                        retomar = st.button("retomar extração", width='stretch')
+                    with col_chk2:
+                        reiniciar = st.button("reiniciar extração", width='stretch')
+                    if reiniciar:
+                        _limpar_checkpoint_atualizacao()
+                        checkpoint = {}
+                        checkpoint_pendentes = None
+                        st.info("checkpoint limpo. pronto para nova extração.")
+                else:
+                    retomar = False
+
+                modo_lotes = False
+                if len(periodos) > 12:
+                    modo_lotes = st.checkbox(
+                        "executar em lotes menores (recomendado para intervalos longos)",
+                        value=True,
+                        help="reduz risco de travamento na sessão. após um lote, você pode continuar.",
+                    )
+
+                if st.button("extrair dados do BCB", type="primary", width='stretch') or retomar:
+                    periodos_totais = periodos
+                    concluidos = set(checkpoint.get("concluidos") or [])
+                    if retomar and checkpoint_pendentes:
+                        periodos_exec = checkpoint_pendentes
+                    else:
+                        periodos_exec = [p for p in periodos if p not in concluidos]
+
+                    if modo_lotes and len(periodos_exec) > 8:
+                        periodos_lote = periodos_exec[:8]
+                        periodos_restantes = periodos_exec[8:]
+                    else:
+                        periodos_lote = periodos_exec
+                        periodos_restantes = []
+
                     progress_bar = st.progress(0)
                     status = st.empty()
                     save_status = st.empty()
@@ -6261,21 +6326,44 @@ with st.sidebar:
                         progress_bar.progress((i+1)/total)
                         status.text(f"extraindo {p[4:6]}/{p[:4]} ({i+1}/{total})")
 
-                    # Callback para salvamento progressivo (a cada 5 períodos)
                     def save_progress(dados_parciais, info):
                         save_status.text(f"💾 salvando {len(dados_parciais)} períodos...")
                         salvar_cache(dados_parciais, info, incremental=True)
+                        concluidos.update(dados_parciais.keys())
+                        pendentes = [p for p in periodos_totais if p not in concluidos]
+                        _salvar_checkpoint_atualizacao({
+                            "periodos": periodos_totais,
+                            "concluidos": sorted(concluidos),
+                            "pendentes": pendentes,
+                            "timestamp": datetime.now().isoformat(),
+                        })
                         save_status.text(f"✓ {len(dados_parciais)} períodos salvos no cache")
 
-                    st.info(f"🔄 iniciando extração de {len(periodos)} períodos. salvamento progressivo a cada 5 períodos.")
+                    st.info(f"🔄 iniciando extração de {len(periodos_lote)} períodos. salvamento progressivo a cada 5 períodos.")
 
                     dados = processar_todos_periodos(
-                        periodos,
+                        periodos_lote,
                         st.session_state['dict_aliases'],
                         progress_callback=update,
                         save_callback=save_progress,
                         save_interval=5
                     )
+
+                    pendentes_final = [p for p in periodos_totais if p not in concluidos]
+                    if periodos_restantes:
+                        pendentes_final = periodos_restantes + [p for p in pendentes_final if p not in periodos_restantes]
+
+                    if not pendentes_final:
+                        _limpar_checkpoint_atualizacao()
+                        st.success("✅ extração concluída sem pendências.")
+                    else:
+                        _salvar_checkpoint_atualizacao({
+                            "periodos": periodos_totais,
+                            "concluidos": sorted(concluidos),
+                            "pendentes": pendentes_final,
+                            "timestamp": datetime.now().isoformat(),
+                        })
+                        st.warning(f"extração parcial concluída. pendentes: {len(pendentes_final)}. clique em retomar para continuar.")
 
                     if not dados:
                         progress_bar.empty()
