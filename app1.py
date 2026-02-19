@@ -7755,6 +7755,11 @@ elif menu == "Evolução":
                 <strong>Core Funding*:</strong> Captações (e) no Relatório Passivo; a partir de 2025, soma-se Dívida Subordinada (h). Captações (e) = (a) + (b) + (c) + (d), onde: (a) Depósitos — inclui À Vista, Poupança, DI, Dep. a Prazo, Contas de Pagamento Pré-Paga e Outros; (b) Obrigações por Operações Compromissadas; (c) Recursos de Aceite e Emissão de Títulos — inclui LCIs, LCAs, LFs e TVMs no Exterior; (d) Obrigações por Empréstimos e Repasses; (h) Instrumentos de Dívida Elegíveis a Capital.<br>
                 <strong>Carteira de Crédito*:</strong> Soma do Valor Contábil Bruto (e1+f1+g1+h1) no Relatório de Ativo (Rel. 2), onde: e = Operações de Crédito; f = Operações de Arrendamento Financeiro; g = Outras Operações com Características de Concessão; h = Valores de Transação de Pagamentos – Usuários Finais.<br>
                 <em>Nota:</em> Para 2000–2024, usamos Carteira de Crédito Bruta + Carteira de Arrendamento Bruta + Outros Créditos Líquidos de Provisão (Rel. 2). Isso significa que, em “Outros Créditos”, a base é líquida de provisão e não há detalhamento — logo, a comparação é imprecisa. A partir de 2025, usamos Valor Contábil Bruto (e1+f1+g1+h1).<br>
+                <br>
+                <strong>ROE anualizado:</strong> Retorno sobre o patrimônio líquido. (Lucro Líquido acumulado no ano × fator de anualização) ÷ PL Médio, onde PL Médio = (PL no período + PL em Dez do ano anterior) / 2. Fator: Mar=4, Jun=2, Set=12/9, Dez=1. Se PL médio ≤ 0 ou dado faltante: N/A.<br>
+                <strong>Carteira de Crédito* / PL:</strong> Carteira de Crédito* (Rel. 2) ÷ Patrimônio Líquido (Rel. 1).<br>
+                <strong>Índice de Basileia (%):</strong> (Capital Principal + Capital Complementar + Capital Nível II) ÷ RWA Total (Rel. 5). Equivale à soma CET1 + AT1 + T2.<br>
+                <strong>Índice de Capital Principal (CET1):</strong> Capital Principal ÷ RWA Total, extraído do relatório de Informações de Capital (Rel. 5).<br>
             </div>
             """,
             unsafe_allow_html=True,
