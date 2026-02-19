@@ -416,46 +416,42 @@ st.markdown("""
 
     .metrics-grid {
         display: grid;
-        grid-template-columns: repeat(3, minmax(200px, 1fr));
+        grid-template-columns: repeat(3, minmax(220px, 1fr));
         gap: 0.9rem;
     }
 
     .metrics-card {
         background: #ffffff;
         border-radius: 14px;
-        padding: 0.9rem;
+        padding: 0.95rem 1rem;
         border: 1px solid rgba(31,119,180,0.18);
         box-shadow: 0 8px 18px rgba(0,0,0,0.05);
     }
 
     .metrics-kicker {
-        font-size: 0.92rem;
+        font-size: 0.95rem;
         font-weight: 500;
         color: #223247;
-        margin-bottom: 0.5rem;
+        margin-bottom: 0.45rem;
     }
 
     .metrics-list {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.4rem;
+        margin: 0.25rem 0 0 0;
+        padding-left: 1.05rem;
+        color: #2f3a48;
+        font-size: 0.86rem;
+        line-height: 1.55;
+        font-weight: 300;
     }
 
-    .metrics-chip {
-        background: rgba(31,119,180,0.08);
-        border: 1px solid rgba(31,119,180,0.2);
-        color: #1f77b4;
-        border-radius: 999px;
-        padding: 0.2rem 0.55rem;
-        font-size: 0.75rem;
-        font-weight: 400;
-        white-space: nowrap;
+    .metrics-list li {
+        margin: 0.1rem 0;
     }
 
     .metrics-divider {
         height: 1px;
         background: rgba(31,119,180,0.12);
-        margin: 0.75rem 0;
+        margin: 0.75rem 0 0.6rem 0;
     }
 
     /* ============================================================
@@ -569,6 +565,43 @@ st.markdown("""
         .ops-grid {
             grid-template-columns: 1fr;
         }
+    }
+
+    /* ============================================================
+       STACK TECNOLÓGICA
+       ============================================================ */
+    .stack-panel {
+        border-radius: 16px;
+        padding: 1.1rem 1.25rem 0.5rem 1.25rem;
+        background: #ffffff;
+        border: 1px solid rgba(31,119,180,0.12);
+        box-shadow: 0 10px 26px rgba(0,0,0,0.04);
+        margin-bottom: 1.25rem;
+    }
+
+    .stack-panel table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.88rem;
+    }
+
+    .stack-panel thead th {
+        text-align: left;
+        font-weight: 500;
+        color: #1f77b4;
+        padding: 0.4rem 0.35rem;
+        border-bottom: 1px solid rgba(31,119,180,0.18);
+    }
+
+    .stack-panel tbody td {
+        padding: 0.45rem 0.35rem;
+        border-bottom: 1px solid rgba(31,119,180,0.1);
+        color: #2f3a48;
+        font-weight: 300;
+    }
+
+    .stack-panel tbody tr:last-child td {
+        border-bottom: none;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -6098,45 +6131,45 @@ if menu == "Sobre":
         <div class="metrics-grid">
             <div class="metrics-card">
                 <div class="metrics-kicker">estrutura patrimonial</div>
-                <div class="metrics-list">
-                    <span class="metrics-chip">ativo total</span>
-                    <span class="metrics-chip">ativos líquidos</span>
-                    <span class="metrics-chip">carteira de crédito classificada e líquida</span>
-                    <span class="metrics-chip">títulos e valores mobiliários</span>
-                    <span class="metrics-chip">depósitos e captações</span>
-                    <span class="metrics-chip">patrimônio líquido</span>
-                    <span class="metrics-chip">lucro líquido acumulado (ytd)</span>
-                </div>
+                <ul class="metrics-list">
+                    <li>ativo total</li>
+                    <li>ativos líquidos</li>
+                    <li>carteira de crédito classificada e líquida</li>
+                    <li>títulos e valores mobiliários</li>
+                    <li>depósitos e captações</li>
+                    <li>patrimônio líquido</li>
+                    <li>lucro líquido acumulado (ytd)</li>
+                </ul>
             </div>
             <div class="metrics-card">
                 <div class="metrics-kicker">capital e prudencial</div>
-                <div class="metrics-list">
-                    <span class="metrics-chip">capital principal (tier 1)</span>
-                    <span class="metrics-chip">capital complementar</span>
-                    <span class="metrics-chip">capital nível ii</span>
-                    <span class="metrics-chip">rwa total / crédito / mercado / operacional</span>
-                    <span class="metrics-chip">exposição total</span>
-                    <span class="metrics-chip">índices de capital (cet1 e basileia)</span>
-                    <span class="metrics-chip">razão de alavancagem</span>
-                </div>
+                <ul class="metrics-list">
+                    <li>capital principal (tier 1)</li>
+                    <li>capital complementar</li>
+                    <li>capital nível ii</li>
+                    <li>rwa total / crédito / mercado / operacional</li>
+                    <li>exposição total</li>
+                    <li>índices de capital (cet1 e basileia)</li>
+                    <li>razão de alavancagem</li>
+                </ul>
             </div>
             <div class="metrics-card">
                 <div class="metrics-kicker">métricas derivadas</div>
-                <div class="metrics-list">
-                    <span class="metrics-chip">roe acumulado anualizado (%)</span>
-                    <span class="metrics-chip">ativo / pl</span>
-                    <span class="metrics-chip">crédito / pl (%)</span>
-                    <span class="metrics-chip">crédito / captações (%)</span>
-                    <span class="metrics-chip">perda esperada / carteira</span>
-                    <span class="metrics-chip">pdd total e coberturas</span>
-                </div>
+                <ul class="metrics-list">
+                    <li>roe acumulado anualizado (%)</li>
+                    <li>ativo / pl</li>
+                    <li>crédito / pl (%)</li>
+                    <li>crédito / captações (%)</li>
+                    <li>perda esperada / carteira</li>
+                    <li>pdd total e coberturas</li>
+                </ul>
                 <div class="metrics-divider"></div>
                 <div class="metrics-kicker">outros blocos</div>
-                <div class="metrics-list">
-                    <span class="metrics-chip">carteira 4.966 por classe de risco</span>
-                    <span class="metrics-chip">taxas de juros por produto (pf e pj)</span>
-                    <span class="metrics-chip">conselho e diretoria por conglomerado</span>
-                </div>
+                <ul class="metrics-list">
+                    <li>carteira 4.966 por classe de risco</li>
+                    <li>taxas de juros por produto (pf e pj)</li>
+                    <li>conselho e diretoria por conglomerado</li>
+                </ul>
             </div>
         </div>
     </div>
@@ -6199,21 +6232,30 @@ if menu == "Sobre":
 
     ---
 
-    ### stack tecnológica
-
-    | componente | função |
-    |------------|--------|
-    | **python 3.10+** | linguagem base |
-    | **streamlit** | interface web interativa |
-    | **pandas** | processamento e análise de dados |
-    | **numpy** | computação numérica e vetorização |
-    | **plotly** | visualizações dinâmicas e interativas |
-    | **matplotlib** | gráficos auxiliares e exportações |
-    | **reportlab** | geração de pdfs e scorecards |
-    | **openpyxl / xlsxwriter** | exportação avançada para excel |
-    | **pillow** | tratamento de imagens e assets |
-    | **requests** | integrações http e consumo de apis |
-    | **api bcb olinda** | fonte oficial de dados |
+    <div class="stack-panel">
+        <div class="metrics-title">stack tecnológica</div>
+        <table>
+            <thead>
+                <tr>
+                    <th>componente</th>
+                    <th>função</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td><strong>python 3.10+</strong></td><td>linguagem base</td></tr>
+                <tr><td><strong>streamlit</strong></td><td>interface web interativa</td></tr>
+                <tr><td><strong>pandas</strong></td><td>processamento e análise de dados</td></tr>
+                <tr><td><strong>numpy</strong></td><td>computação numérica e vetorização</td></tr>
+                <tr><td><strong>plotly</strong></td><td>visualizações dinâmicas e interativas</td></tr>
+                <tr><td><strong>matplotlib</strong></td><td>gráficos auxiliares e exportações</td></tr>
+                <tr><td><strong>reportlab</strong></td><td>geração de pdfs e scorecards</td></tr>
+                <tr><td><strong>openpyxl / xlsxwriter</strong></td><td>exportação avançada para excel</td></tr>
+                <tr><td><strong>pillow</strong></td><td>tratamento de imagens e assets</td></tr>
+                <tr><td><strong>requests</strong></td><td>integrações http e consumo de apis</td></tr>
+                <tr><td><strong>api bcb olinda</strong></td><td>fonte oficial de dados</td></tr>
+            </tbody>
+        </table>
+    </div>
     """)
 
     st.markdown("---")
