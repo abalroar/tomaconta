@@ -2034,7 +2034,8 @@ def _render_orgaos_tabela_html(df_orgaos: pd.DataFrame, cor_linha: str = "#F4F1E
     .orgaos-table-wrap {{
         border: 1px solid #dcdcdc;
         border-radius: 10px;
-        overflow: hidden;
+        max-height: 520px;
+        overflow: auto;
         margin-top: 0.4rem;
     }}
     .orgaos-table {{
@@ -2050,6 +2051,9 @@ def _render_orgaos_tabela_html(df_orgaos: pd.DataFrame, cor_linha: str = "#F4F1E
         padding: 12px 14px;
         font-weight: 600;
         border-bottom: 1px solid #c7c9d0;
+        position: sticky;
+        top: 0;
+        z-index: 1;
     }}
     .orgaos-table tbody td {{
         padding: 12px 14px;
