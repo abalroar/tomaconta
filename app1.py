@@ -200,7 +200,7 @@ st.markdown("""
     }
     .sidebar-author {
         text-align: center; font-size: 0.75rem; color: #888;
-        font-style: italic; margin: 0 0 1rem 0;
+        margin: 0 0 1rem 0;
     }
 
     .feature-card {
@@ -5967,7 +5967,7 @@ with col_header:
         <div style="text-align: center; margin-top: -0.5rem;">
             <p style="font-size: 3.6rem; font-weight: 700; color: #1f77b4; margin-bottom: 0.2rem;">toma.conta</p>
             <p style="font-size: 1.6rem; color: #666; margin-bottom: 0.1rem;">análise de instituições financeiras brasileiras</p>
-            <p style="font-size: 0.9rem; color: #888; font-style: italic; margin-bottom: 0.5rem;">por matheus prates, cfa</p>
+            <p style="font-size: 0.9rem; color: #888; margin-bottom: 0.5rem;">por matheus prates, cfa</p>
         </div>
     """, unsafe_allow_html=True)
 
