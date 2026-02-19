@@ -4818,7 +4818,7 @@ def _gerar_excel_peers_tabela(
             col_idx += 1
     row_idx += 1
 
-    nota = "* Carteira de Crédito: 2000–2024 = Crédito Bruta + Arrendamento Bruta + Outros Créditos Líquidos de Provisão. 2025+ = VCB (e1+f1+g1+h1). | Core Funding*: até 2024 = Captações (e); 2025+ = Captações (e) + Dívida Subordinada (h). Captações (e) = (a) + (b) + (c) + (d)."
+    nota = "* Carteira de Crédito: 2000–2024 = Crédito Bruta + Arrendamento Bruta + Outros Créditos Líquidos de Provisão (base líquida, sem detalhamento — comparação imprecisa). 2025+ = VCB (e1+f1+g1+h1), onde e = Crédito, f = Arrendamento, g = Outras Ops., h = Transações de Pgto. | Core Funding*: até 2024 = Captações (e); 2025+ = Captações (e) + Dívida Subordinada (h). Captações (e) = (a) + (b) + (c) + (d)."
     worksheet.merge_range(row_idx, 0, row_idx, n_cols - 1, nota, workbook.add_format({"font_size": 9, "font_color": "#666666"}))
     row_idx += 1
 
@@ -4933,8 +4933,8 @@ def _gerar_excel_peers_dados_puros(
     worksheet.freeze_panes(2, 1)
 
     nota_ws = workbook.add_worksheet("nota")
-    nota_ws.write(0, 0, "* Carteira de Crédito: 2000–2024 = Crédito Bruta + Arrendamento Bruta + Outros Créditos Líquidos de Provisão.")
-    nota_ws.write(1, 0, "2025+ = Valor Contábil Bruto (e1+f1+g1+h1) no Relatório de Ativo (Rel. 2).")
+    nota_ws.write(0, 0, "* Carteira de Crédito: 2000–2024 = Crédito Bruta + Arrendamento Bruta + Outros Créditos Líquidos de Provisão (base líquida, sem detalhamento — comparação imprecisa).")
+    nota_ws.write(1, 0, "2025+ = Valor Contábil Bruto (e1+f1+g1+h1), onde: e = Operações de Crédito; f = Arrendamento; g = Outras Ops.; h = Transações de Pagamentos.")
     nota_ws.write(2, 0, "Core Funding*: até 2024 = Captações (e); 2025+ = Captações (e) + Dívida Subordinada (h) no Relatório de Passivo (Rel. 3). Captações (e) = (a) + (b) + (c) + (d).")
 
     workbook.close()
@@ -7116,11 +7116,11 @@ elif menu == "Peers (Tabela)":
                             <em>Balanço</em><br>
                             <strong>Ativo Total</strong> = Ativo Total do balanço principal (Rel. 1).<br>
                             <strong>Ativos Líquidos</strong> = Disponibilidades (a) + Aplicações Interfinanceiras de Liquidez (b) + Títulos e Valores Mobiliários (c), no relatório de Ativo (Rel. 2).<br>
-                            <strong>Carteira de Crédito*</strong> = Soma do Valor Contábil Bruto (e1+f1+g1+h1) no Relatório de Ativo (Rel. 2).<br>
-                            <em>Nota:</em> Para 2000–2024, usamos Carteira de Crédito Bruta + Carteira de Arrendamento Bruta + Outros Créditos Líquidos de Provisão (Rel. 2). A partir de 2025, usamos Valor Contábil Bruto (e1+f1+g1+h1).<br>
+                            <strong>Carteira de Crédito*</strong> = Soma do Valor Contábil Bruto (e1+f1+g1+h1) no Relatório de Ativo (Rel. 2), onde: e = Operações de Crédito; f = Operações de Arrendamento Financeiro; g = Outras Operações com Características de Concessão; h = Valores de Transação de Pagamentos – Usuários Finais.<br>
+                            <em>Nota:</em> Para 2000–2024, usamos Carteira de Crédito Bruta + Carteira de Arrendamento Bruta + Outros Créditos Líquidos de Provisão (Rel. 2). Isso significa que, em “Outros Créditos”, a base é líquida de provisão e não há detalhamento — logo, a comparação é imprecisa. A partir de 2025, usamos Valor Contábil Bruto (e1+f1+g1+h1).<br>
                             <strong>Carteira de Crédito Classificada</strong> = Total da Carteira de Pessoa Física (Rel. 11) + Total da Carteira de Pessoa Jurídica (Rel. 13).<br>
                             <strong>Depósitos Totais</strong> = Depósitos (e) no relatório de Passivo (Rel. 3), conforme o IFData. Quando indisponível, soma Depósitos à Vista (a1) + Poupança (a2) + Interfinanceiros (a3) + a Prazo (a4) + Outros (a5/a6).<br>
-                            <strong>Core Funding*</strong> = Captações (e) no Relatório Passivo; a partir de 2025, soma-se Dívida Subordinada (h). Captações (e) = (a) + (b) + (c) + (d). Onde: (a) Depósitos; (b) Obrigações por Operações Compromissadas; (c) Relações Interfinanceiras; (d) Relações Interdependências; (h) Instrumentos de Dívida Elegíveis a Capital.<br>
+                            <strong>Core Funding*</strong> = Captações (e) no Relatório Passivo; a partir de 2025, soma-se Dívida Subordinada (h). Captações (e) = (a) + (b) + (c) + (d), onde: (a) Depósitos — inclui À Vista, Poupança, DI, Dep. a Prazo, Contas de Pagamento Pré-Paga e Outros; (b) Obrigações por Operações Compromissadas; (c) Recursos de Aceite e Emissão de Títulos — inclui LCIs, LCAs, LFs e TVMs no Exterior; (d) Obrigações por Empréstimos e Repasses; (h) Instrumentos de Dívida Elegíveis a Capital.<br>
                             <strong>Patrimônio Líquido (PL)</strong> = Patrimônio Líquido do balanço principal (Rel. 1).<br>
                             <br>
                             <em>Qualidade Carteira</em><br>
@@ -7746,9 +7746,9 @@ elif menu == "Evolução":
             """
             <div style="font-size: 12px; color: #666; margin-top: 8px;">
                 <strong>mini-glossário (Evolução):</strong><br><br>
-                <strong>Core Funding*:</strong> Captações (e) no Relatório Passivo; a partir de 2025, soma-se Dívida Subordinada (h). Captações (e) = (a) + (b) + (c) + (d). Onde: (a) Depósitos; (b) Obrigações por Operações Compromissadas; (c) Relações Interfinanceiras; (d) Relações Interdependências; (h) Instrumentos de Dívida Elegíveis a Capital.<br>
-                <strong>Carteira de Crédito*:</strong> Soma do Valor Contábil Bruto (e1+f1+g1+h1) no Relatório de Ativo (Rel. 2).<br>
-                <em>Nota:</em> Para 2000–2024, usamos Carteira de Crédito Bruta + Carteira de Arrendamento Bruta + Outros Créditos Líquidos de Provisão (Rel. 2). A partir de 2025, usamos Valor Contábil Bruto (e1+f1+g1+h1).<br>
+                <strong>Core Funding*:</strong> Captações (e) no Relatório Passivo; a partir de 2025, soma-se Dívida Subordinada (h). Captações (e) = (a) + (b) + (c) + (d), onde: (a) Depósitos — inclui À Vista, Poupança, DI, Dep. a Prazo, Contas de Pagamento Pré-Paga e Outros; (b) Obrigações por Operações Compromissadas; (c) Recursos de Aceite e Emissão de Títulos — inclui LCIs, LCAs, LFs e TVMs no Exterior; (d) Obrigações por Empréstimos e Repasses; (h) Instrumentos de Dívida Elegíveis a Capital.<br>
+                <strong>Carteira de Crédito*:</strong> Soma do Valor Contábil Bruto (e1+f1+g1+h1) no Relatório de Ativo (Rel. 2), onde: e = Operações de Crédito; f = Operações de Arrendamento Financeiro; g = Outras Operações com Características de Concessão; h = Valores de Transação de Pagamentos – Usuários Finais.<br>
+                <em>Nota:</em> Para 2000–2024, usamos Carteira de Crédito Bruta + Carteira de Arrendamento Bruta + Outros Créditos Líquidos de Provisão (Rel. 2). Isso significa que, em “Outros Créditos”, a base é líquida de provisão e não há detalhamento — logo, a comparação é imprecisa. A partir de 2025, usamos Valor Contábil Bruto (e1+f1+g1+h1).<br>
             </div>
             """,
             unsafe_allow_html=True,
@@ -7850,8 +7850,8 @@ elif menu == "Evolução":
             df_metric.to_excel(writer, index=False, sheet_name='tabela_metricas')
             nota_df = pd.DataFrame({
                 "nota": [
-                    "* Carteira de Crédito: 2000–2024 = Crédito Bruta + Arrendamento Bruta + Outros Créditos Líquidos de Provisão.",
-                    "2025+ = Valor Contábil Bruto (e1+f1+g1+h1) no Relatório de Ativo (Rel. 2).",
+                    "* Carteira de Crédito: 2000–2024 = Crédito Bruta + Arrendamento Bruta + Outros Créditos Líquidos de Provisão (base líquida, sem detalhamento — comparação imprecisa).",
+                    "2025+ = Valor Contábil Bruto (e1+f1+g1+h1), onde: e = Operações de Crédito; f = Arrendamento; g = Outras Ops.; h = Transações de Pagamentos.",
                     "Core Funding*: até 2024 = Captações (e); 2025+ = Captações (e) + Dívida Subordinada (h) no Relatório de Passivo (Rel. 3). Captações (e) = (a) + (b) + (c) + (d).",
                 ]
             })
