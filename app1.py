@@ -7882,7 +7882,7 @@ elif menu == "Evolução":
                 pass
 
         # exportação PPT removida
-        with st.expander("Mini-glossário (Evolução)", expanded=False):
+        with st.expander("Mini-glossário", expanded=False):
             st.markdown(
                 """
                 <div style="font-size: 12px; color: #666; margin-top: 6px;">
@@ -10755,7 +10755,7 @@ elif menu == "DRE":
             key="dre_download_excel"
         )
 
-        with st.expander("Mini-glossário DRE", expanded=False):
+        with st.expander("Mini-glossário", expanded=False):
             st.markdown(
                 f"""
                 <div style="font-size: 12px; color: #666; margin-top: 6px;">
