@@ -6256,7 +6256,7 @@ if menu == "Sobre":
             </tbody>
         </table>
     </div>
-    """)
+    """, unsafe_allow_html=True)
 
     st.markdown("---")
     st.caption("desenvolvido por matheus prates, cfa | ferramenta open-source para análise de instituições financeiras brasileiras")
