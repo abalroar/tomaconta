@@ -1,0 +1,62 @@
+coluna_a_nome_tabela_dre,coluna_b_contas_cosif
+Instituição,Nome da instituição
+Código,Conglomerado ou CNPJ
+TCB,"TCB - Tipo de Consolidado Bancário: (b1) Banco Comercial, Banco Múltiplo com Carteira Comercial ou Caixas Econômicas (b2) Banco Múltiplo sem Carteira Comercial ou Banco de Câmbio ou Banco de Investimento (b3S) Cooperativa de Crédito Singular (b3C) Central e Confederação de Cooperativas de Crédito (b4) Banco de Desenvolvimento (n1) Não bancário de Crédito (n2) Não bancário do Mercado de Capitais (n4) Instituições de Pagamento"
+SR,"SR - Segmento Resolução nº 4.553/2017: (S1) bancos múltiplos, bancos comerciais, bancos de investimento, bancos de câmbio e caixas econômicas que (i) tenham porte (Exposição/Produto Interno Bruto) superior a 10%; ou (ii) exerçam atividade internacional relevante (ativos no exterior superiores a US$ 10 bilhões). (S2) (i) bancos múltiplos, bancos comerciais, bancos de investimento, bancos de câmbio e caixas econômicas de porte inferior a 10% e igual ou superior a 1%; e (ii) demais instituições autorizadas a funcionar pelo Banco Central do Brasil de porte igual ou superior a 1% do PIB. (S3) Instituições de porte inferior a 1% e igual ou superior a 0,1%. (S4) Instituições de porte inferior a 0,1%. (S5) Composto por: (i) instituições de porte inferior a 0,1% que utilizem metodologia facultativa simplificada para apuração dos requerimentos mínimos de Patrimônio de Referência (PR), de Nível I e de Capital Principal, exceto bancos múltiplos, bancos comerciais, bancos de investimento, bancos de câmbio e caixas econômicas; e (ii) não sujeitas a apuração de PR."
+TD,TD - Tipo de Consolidação: (I) Instituição Independente (C) Conglomerado
+TC,TC - Tipo de Controle: (1) Público (2) Privado Nacional (3) Privado com Controle Estrangeiro
+Cidade,Cidade da sede da instituição
+UF,Estado
+Data,Data-base
+Ativo Total,[1000000009] + [2000000008]
+Receita de Juros com Aplicações Interfinanceiras de Liquidez (a1),[7141000003]+ [7142000002]+ [8115020001]
+Ajuste de Variação Cambial de Aplicações Interfinanceiras de Liquidez (a2),[7199112008]+ [8199112007]
+Ajuste a Valor Justo e Ajuste de Hedge de Valor Justo de Aplicações Interfinanceiras de Liquidez (a3),[7199312004]+ [7199342005]+ [7199412007]+ [7199442204]+ [7199442307]+ [8199312003]+[8199342004]+ [8199412006]
+Rendas de Aplicações Interfinanceiras de Liquidez (a),Somatório de Receita de Juros Ajuste de Variação Cambial Ajuste a Valor Justo e Ajuste de Hedge de Valor Justo de Aplicações Interfinanceiras de Liquidez
+Receita de Juros com TVM (b1),[7151000000]+ [7151500005]+ [7194000005]
+Ajuste de Variação Cambial de TVM (b2),[7199113007]+ [8199113006]
+Ajuste a Valor Justo e Ajuste de Hedge de Valor Justo de TVM (b3),[7199313003]+ [7199413006]+ [8199313002]+ [8199413005]
+Outros Resultados de TVM (b4),[7151300009]+ [7152000009]+ [7154000007]+ [7155000006]+ [7157500009]+ [7192013001]+ [8152000008]+ [8153000007]
+Rendas de Títulos e Valores Mobiliários (b),Somatório de Receita de Juros Ajuste de Variação Cambial Ajuste a Valor Justo Ajuste de Hedge de Valor Justo e Outros Resultados de Títulos e Valores Mobiliários
+Receita de Juros com Operações de Crédito (c1),[7110000003]
+Ajuste de Variação Cambial de Operações de Crédito (c2),[7199116004]+ [8199116003]
+Ajuste a Valor Justo e Ajuste de Hedge de Valor Justo de Operações de Crédito (c3),[7199316000]+ [7199416003]+ [8199316009]+ [8199416002]
+Outros Resultados de Operações de Crédito (c4),[7191510000]+ [7192016008]+ [8191510009]+ [8195000003]+ [8195210006]
+Rendas de Operações de Crédito (c),Somatório de Receita de Juros Ajuste de Variação Cambial Ajuste a Valor Justo Ajuste de Hedge de Valor Justo e Outros Resultados de Operações de Crédito
+Rendas de Arrendamento Financeiro (d),[7124010003]+ [7125010002]+ [7191520007]+ [7192017007]+ [7199117003]+ [7199417002]+ [8191520006]+ [8194000004]+ [8195220003]+ [8199117002]+ [8199417001]
+Rendas de Outras Operações com Características de Concessão de Crédito (e),[7160000008]+ [7191530004]+ [7192018006]+ [7199118002]+ [7199318008]+ [7199418001]+ [8191530003]+ [8194500009]+ [8195230000]+ [8199118001]+ [8199318007]+ [8199418000]
+Resultado com Perda Esperada de Aplicações Interfinanceiras de Liquidez (f1),[7199212001]+ [8199212000]
+Resultado com Perda Esperada de TVM (f2),[7199213000]+ [8199213009]
+Resultado com Perda Esperada de Operações de Crédito (f3),[7199216007]+ [8199216006]
+Resultado com Perda Esperada de Arrendamento (f4),[7199217006]+ [8199217005]
+Resultado com Perda Esperada de Outras Operações com Características de Concessão de Crédito (f5),[7199218005]+ [8199218004]
+Resultado com Perda Esperada de Outros Ativos Geradores de Renda (f6),[7199214906]+ [7199219901]+ [8199214905]+ [8199219900]
+Resultado com Perda Esperada (f),Somatório do Resultado com Perdas Esperadas de Aplicações Interfinanceiras de Liquidez TVM Operações de Crédito e Outros Ativos Geradores de Renda
+Despesa de Juros com Captações (g1),[8110000002]+ [8120000009]- [8115020001]- [8118500009]- [8119110003]- [8119120000]- [8119130007]
+Ajuste de Variação Cambial de Captações (g2),[7199141000]+ [7199142009]+ [7199143905]+ [7199144007]+ [8199141009]+ [8199142008]+ [8199143904]+ [8199145005]
+Ajuste de Hedge de Valor Justo de Captações (g3),[7199441009]+ [7199442101]+ [7199443904]+ [7199444006]+ [8199441008]+ [8199442007]+ [8199443903]+ [8199444005]
+Outros Resultados de Captações (g4),[8118500009]+ [8191200003]+ [8198600008]
+Despesas de Captações (g),Somatório de Despesa de Juros Ajuste de Variação Cambial Ajuste a Valor Justo Ajuste de Hedge de Valor Justo e Outros Resultados de Captações
+Despesas de Instrumentos de Dívida Elegíveis a Capital (h),[7199143101]+ [7199143204]+ [7199143307]+ [7199443100]+ [7199443203]+ [7199443306]+ [8119110003]+ [8119120000]+ [8119130007]+ [8199143100]+ [8199143203]+ [8199143306]+ [8199443109]+ [8199443202]+[8199443305]
+Resultado com Derivativos (i),[7158000003]+ [8155000005]
+Outros Resultados de Intermediação Financeira (j),[7144000000]+ [7191000008]+ [7191540001]+ [7191700009]+ [7192012002]+ [7192014000]+ [7192019005]+ [7192500002]+ [7199111009]+ [7199119001]+ [7199149002]+ [7199319007]+ [7199388007]+ [7199399003]+ [7199419000]+ [7199449001]+ [8191540000]+ [8199111008]+ [8199119000]+ [8199149001]+ [8199319006]+ [8199349007]+ [8199388006]+ [8199419009]+ [8199449000]
+Resultado de Intermediação Financeira (k) = (a) + (b) + (c) + (d) + (e) + (f) + (g) + (h) + (i) + (j),Somatório das Rendas de Aplicações Interfinanceiras de Liquidez Rendas de Títulos e Valores Mobiliários Rendas de Operações de Crédito Rendas de Arrendamento Financeiro Rendas de Outras Operações com Características de Concessão de Crédito Resultado com Perda Esperada Despesas de Captações Despesas de Instrumentos de Dívida Elegíveis a Capital Resultado com Derivativos e Outros Resultados de Intermediação Financeira
+Resultado com Serviços por Transações de Pagamento (l1),[7170500000]+ [8191900004]
+Resultados de Perda Esperada com Transações de Pagamento (l2),[7199214102]+ [7199219107]+ [8199214101]+ [8199219106]
+Outros Resultados com Transações de Pagamento (l3),[7191800002]+ [7198100004]+ [7199115005]+[8191800001]+ [8198100003]+ [8199115004]
+Resultado com Transações de Pagamento (l),Somatório das Rendas de Serviços por Transações de Pagamento Resultados de Perda Esperada com Transações de Pagamento e Outros Resultados com Transações de Pagamento
+Rendas de Tarifas Bancárias (m),[7170100008]+ [7170200001]
+Outras Rendas de Prestação de Serviços (n),[7170000005]- [7170100008]- [7170200001]- [7170500000]
+Despesas de Pessoal (o),[8171810004]+ [8171830008]+ [8172700003]+ [8173000001]+ [8173300000]+ [8173600009]+ [8173700002]+ [8199020003]
+Despesas Administrativas (p),[8170000004]- [8171810004]- [8171830008]- [8172700003]- [8173000001]- [8173300000]- [8173600009]- [8173700002]- [8176900005]+ [8180000001]-[8181030001]- [8181035006]- [8181038003]
+Resultado com Perdas Esperadas de Outras Operações (q),[7199281001]+ [7199283009]+ [7199288004]+ [8199281000]+ [8199283008]
+Despesas de Juros Sobre Capital Próprio de Cooperativas (r),[8195600001]
+Despesas Tributárias (s),[8176900005]+ [8192500001]+ [8193000005]+ [8193300004]
+Resultado de Participações (t),[7180000002]+ [8160000007]+ [8181030001]+ [8181035006]+ [8181038003]
+Outras Receitas (u),[7124020000]+ [7125020009]+ [7126000004]+ [7128500007]+ [7190000009]- [7191000008]- [7191500003]- [7191700009]- [7191800002]- [7192000007]- [7192500002]- [7194000005]- [7198100004]- [7199100003]- [7199200006]- [7199300009]- [7199400002]+ [7300000002]
+Outras Despesas (v),[8130000006]+ [8190000008]- [8191200003]- [8191500002]- [8191800001]- [8191900004]- [8192500001]- [8193000005]- [8193300004]- [8194500009]- [8195000003]- [8195200009]- [8195600001]- [8198100003]- [8198600008]- [8199020003]- [8199100002]- [8199200005]- [8199300008]- [8199400001]+ [8300000001]
+Outras Receitas / Despesas (w)= (m) + (n) + (o) + (p) + (q) + (r) + (s) + (t) + (u) + (v),Somatório das Rendas de Tarifas Bancárias Outras Rendas de Prestação de Serviços Despesas de Pessoal Despesas Administrativas Resultado com Perdas Esperadas com Outras Operações Despesas de Juros Sobre Capital Próprio de Cooperativas Despesas Tributárias Resultado de Participações Outras Receitas e Outras Despesas
+Resultado antes da Tributação e Participações (x) = (k) + (l) + (w),[7100000006] + [7300000002] + [8100000005] + [8300000001]
+Imposto de Renda e Contribuição Social (y),[7940000008]+ [8940000007]
+Participações no Lucro (z),[8970000008]
+Lucro Líquido (aa) = (x) + (y) + (z),[7000000003] + [8000000002]

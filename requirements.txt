@@ -24,10 +24,10 @@ plotly==6.5.2
 protobuf==6.33.4
 pyarrow>=14.0.0
 pydeck==0.9.1
+python-pptx==0.6.23
 python-dateutil==2.9.0.post0
 pytz==2025.2
 referencing==0.37.0
-reportlab==4.2.5
 requests==2.32.5
 rpds-py==0.30.0
 six==1.17.0

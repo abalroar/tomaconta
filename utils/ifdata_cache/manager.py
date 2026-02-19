@@ -84,6 +84,26 @@ CACHES_INFO = {
         "todas_variaveis": True,
         "periodicidade": "diaria",  # Janelas de 5 dias úteis
     },
+    "derived_metrics": {
+        "nome_exibicao": "Métricas Derivadas",
+        "descricao": "Indicadores derivados (DRE + Resumo)",
+        "relatorio": None,
+        "todas_variaveis": False,
+    },
+    "bloprudencial": {
+        "nome_exibicao": "Conglomerados Prudenciais (BLOPRUDENCIAL)",
+        "descricao": "Arquivo mensal estático BLOPRUDENCIAL (BCB)",
+        "relatorio": None,
+        "todas_variaveis": True,
+        "periodicidade": "mensal",
+    },
+    "balancetes": {
+        "nome_exibicao": "Balancetes COSIF (4060, 4066)",
+        "descricao": "Demonstrações Contábeis - Balancetes do BCB",
+        "relatorio": None,  # API REST diferente do IFData
+        "todas_variaveis": True,
+        "periodicidade": "trimestral",
+    },
 }
 
 
@@ -117,6 +137,9 @@ class CacheManager:
             CarteiraInstrumentosCache,
         )
         from .taxas_juros import TaxasJurosCache
+        from .derived_metrics import DerivedMetricsCache
+        from .balancetes import BalancetesCache
+        from .bloprudencial_cache import BloprudencialCache
 
         # Caches principais (variáveis selecionadas)
         self.registrar(PrincipalCache(self.base_dir))
@@ -132,6 +155,12 @@ class CacheManager:
 
         # Cache de Taxas de Juros (API BCB diferente)
         self.registrar(TaxasJurosCache(self.base_dir))
+        # Cache de métricas derivadas (DRE + Resumo)
+        self.registrar(DerivedMetricsCache(self.base_dir))
+        # Cache de balancetes COSIF (API REST BCB)
+        self.registrar(BalancetesCache(self.base_dir))
+        # Cache BLOPRUDENCIAL mensal (arquivo estático BCB)
+        self.registrar(BloprudencialCache(self.base_dir))
 
     def registrar(self, cache: BaseCache):
         """Registra um novo tipo de cache.

@@ -53,11 +53,12 @@ from .manager import (
     CacheManager,
     CACHES_INFO,
     criar_manager,
-    gerar_periodos_trimestrais,
+    gerar_periodos_trimestrais as gerar_periodos_trimestrais_cache,
 )
 
 from .principal import PrincipalCache
 from .capital import CapitalCache, CAMPOS_CAPITAL
+from .bloprudencial_cache import BloprudencialCache
 
 # Novos caches de relatórios completos
 from .relatorios_completos import (
@@ -79,6 +80,43 @@ from .taxas_juros import (
     MODALIDADES_CONHECIDAS,
 )
 
+from .bloprudencial import (
+    build_bloprudencial_url,
+    download_bloprudencial_zip,
+    extract_bloprudencial_csv,
+    inspect_bloprudencial_csv,
+    load_bloprudencial_df,
+    load_bloprudencial_df_cached,
+    preload_bloprudencial,
+)
+
+from .metric_registry import (
+    MetricDefinition,
+    DatasetContract,
+    AnnualizationRule,
+    METRIC_REGISTRY,
+    DATASET_CONTRACTS,
+    get_metric_registry,
+    get_metric_definition,
+    list_metrics_by_domain,
+    get_dataset_contracts,
+    validate_dataset_contract,
+    validate_dataframe_by_contract_name,
+    DERIVED_METRIC_KEYS,
+    get_derived_metric_labels,
+    get_derived_metric_format_map,
+    get_derived_metric_formula_map,
+)
+
+from .derived_metrics import (
+    DerivedMetricsCache,
+    DERIVED_METRICS,
+    DERIVED_METRICS_FORMAT,
+    DERIVED_METRICS_FORMULAS,
+    build_derived_metrics,
+    load_derived_metrics_slice,
+)
+
 # Extrator autônomo (novo sistema)
 from .extractor import (
     extrair_cadastro,
@@ -96,14 +134,31 @@ from .extractor import (
 )
 
 # Compatibilidade com unified_extractor (mantido por retrocompatibilidade)
-from .unified_extractor import (
-    processar_periodo,
-    processar_multiplos_periodos,
-    gerar_periodos_trimestrais,
-    get_info_relatorio,
-    listar_relatorios_disponiveis,
-    RELATORIOS_INFO,
-)
+def processar_periodo(*args, **kwargs):
+    from .unified_extractor import processar_periodo as _fn
+
+    return _fn(*args, **kwargs)
+
+
+def processar_multiplos_periodos(*args, **kwargs):
+    from .unified_extractor import processar_multiplos_periodos as _fn
+
+    return _fn(*args, **kwargs)
+
+
+def get_info_relatorio(*args, **kwargs):
+    from .unified_extractor import get_info_relatorio as _fn
+
+    return _fn(*args, **kwargs)
+
+
+def listar_relatorios_disponiveis(*args, **kwargs):
+    from .unified_extractor import listar_relatorios_disponiveis as _fn
+
+    return _fn(*args, **kwargs)
+
+
+from .unified_extractor import RELATORIOS_INFO
 
 # Funcoes de compatibilidade com sistema antigo
 from .compat import (
@@ -156,6 +211,11 @@ def limpar(tipo: str = None) -> CacheResult:
     return get_manager().limpar(tipo)
 
 
+def gerar_periodos_trimestrais(*args, **kwargs):
+    """Compatibilidade: usa gerador de períodos trimestrais do cache."""
+    return gerar_periodos_trimestrais_cache(*args, **kwargs)
+
+
 __all__ = [
     # Classes principais
     "CacheConfig",
@@ -167,6 +227,7 @@ __all__ = [
     "PrincipalCache",
     "CapitalCache",
     "CAMPOS_CAPITAL",
+    "BloprudencialCache",
     # Implementacoes - relatórios completos
     "AtivoCache",
     "PassivoCache",
@@ -181,6 +242,37 @@ __all__ = [
     "buscar_instituicoes_taxas_juros",
     "formatar_nome_modalidade",
     "MODALIDADES_CONHECIDAS",
+    # Implementacoes - BLOPRUDENCIAL
+    "build_bloprudencial_url",
+    "download_bloprudencial_zip",
+    "extract_bloprudencial_csv",
+    "inspect_bloprudencial_csv",
+    "load_bloprudencial_df",
+    "load_bloprudencial_df_cached",
+    "preload_bloprudencial",
+    # Derived metrics
+    # Metric registry / contracts
+    "MetricDefinition",
+    "DatasetContract",
+    "AnnualizationRule",
+    "METRIC_REGISTRY",
+    "DATASET_CONTRACTS",
+    "get_metric_registry",
+    "get_metric_definition",
+    "list_metrics_by_domain",
+    "get_dataset_contracts",
+    "validate_dataset_contract",
+    "validate_dataframe_by_contract_name",
+    "DERIVED_METRIC_KEYS",
+    "get_derived_metric_labels",
+    "get_derived_metric_format_map",
+    "get_derived_metric_formula_map",
+    "DerivedMetricsCache",
+    "DERIVED_METRICS",
+    "DERIVED_METRICS_FORMAT",
+    "DERIVED_METRICS_FORMULAS",
+    "build_derived_metrics",
+    "load_derived_metrics_slice",
     # Extrator autônomo
     "extrair_cadastro",
     "extrair_valores",

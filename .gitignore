@@ -26,3 +26,16 @@ env/
 
 # Sistema
 .DS_Store
+
+# Cache BLOPRUDENCIAL (arquivos brutos BCB)
+data/cache/bcb_bloprudencial/
+
+# Cache parquet local
+data/cache/
+
+# Logs locais
+streamlit.log
+docs/.Rhistory
+
+# Artefato gerado localmente (não versionar binário)
+data/DRE_COSIF_mapeamento_explicativo.xlsx

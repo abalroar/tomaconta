@@ -1,0 +1,1002 @@
+Section,Level,Label,LineId,ParentId,Derived,CONTA,NOME_CONTA,Prefixo
+Ativo,1,Operações de Crédito,ativo_credito,,True,1740000008,Arrendador,174
+Ativo,1,Operações de Crédito,ativo_credito,,True,1741000007,FINANCEIRO,174
+Ativo,1,Operações de Crédito,ativo_credito,,True,1742000006,OPERACIONAL,174
+Ativo,1,Operações de Crédito,ativo_credito,,True,1760000002,Arrendatário,176
+Ativo,1,Operações de Crédito,ativo_credito,,True,1761000001,ANTECIPAÇÕES DE PAGAMENTOS DE ARRENDAMENTO,176
+Ativo,1,Operações de Crédito,ativo_credito,,True,1811000009,CRÉDITOS POR AVAIS E FIANÇAS HONRADOS,181
+Ativo,1,Operações de Crédito,ativo_credito,,True,1812000008,ADIANTAMENTO DE CONTRATO DE CÂMBIO,181
+Ativo,1,Operações de Crédito,ativo_credito,,True,1813000007,TÍTULOS COM CARACTERÍSTICA DE CONCESSÃO DE CRÉDITO,181
+Ativo,1,Operações de Crédito,ativo_credito,,True,1814000006,CRÉDITO POR VENDA A PRAZO DE ATIVOS NÃO FINANCEIROS,181
+Ativo,1,Operações de Crédito,ativo_credito,,True,1819000001,OUTRAS OPERAÇÕES COM CARACTERÍSTICA DE CONCESSÃO DE CRÉDITO,181
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1000000009,Ativo Realizável,100
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1100000002,DISPONIBILIDADES,110
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1110000009,Caixa,111
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1111000008,CAIXA,111
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1120000006,Depósitos Bancários,112
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1123000003,DEPÓSITOS BANCÁRIOS DE INSTITUIÇÕES SEM CONTA RESERVA,112
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1130000003,Reservas Livres,113
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1131000002,BANCO CENTRAL - RESERVAS LIVRES EM ESPÉCIE,113
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1139000004,BANCO CENTRAL - OUTRAS RESERVAS LIVRES,113
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1150000007,Disponibilidades em Moedas Estrangeiras,115
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1151000006,BANCOS - DEPÓSITOS EM MOEDAS ESTRANGEIRAS NO PAÍS,115
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1152000005,DEPÓSITOS NO EXTERIOR EM MOEDAS ESTRANGEIRAS,115
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1154000003,DISPONIBILIDADES EM MOEDAS ESTRANGEIRAS,115
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1190000005,Disponibilidades - Outras,119
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1193000002,NUMERÁRIO EM TRÂNSITO - TERCEIROS,119
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1200000005,APLICAÇÕES INTERFINANCEIRAS DE LIQUIDEZ,120
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1210000002,Aplicações em Operações Compromissadas,121
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1211000001,REVENDAS A LIQUIDAR - POSIÇÃO BANCADA,121
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1212000000,REVENDAS A LIQUIDAR - POSIÇÃO FINANCIADA,121
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1213000009,REVENDAS A LIQUIDAR - POSIÇÃO VENDIDA,121
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1220000009,Aplicações em Depósitos Interfinanceiros,122
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1221000008,APLICAÇÕES EM DEPÓSITOS INTERFINANCEIROS,122
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1250000000,Aplicações em Depósitos de Poupança,125
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1251000009,APLICAÇÕES EM DEPÓSITOS DE POUPANÇA,125
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1260000007,Aplicações em Moedas Estrangeiras,126
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1261000006,APLICAÇÕES EM MOEDAS ESTRANGEIRAS,126
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1269900005,(-) Provisão para Perdas Associadas a Risco de Crédito,126
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1300000008,TÍTULOS E VALORES MOBILIÁRIOS E INSTRUMENTOS FINANCEIROS DERIVATIVOS,130
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1310000005,Livres,131
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1311000004,TÍTULOS DE RENDA FIXA,131
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1311300003,APLICAÇÃO EM CERTIFICADOS DE OPERAÇÕES ESTRUTURADAS,131
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1311500009,COTAS DE FUNDOS DE INVESTIMENTO,131
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1312000003,TÍTULOS DE RENDA VARIÁVEL,131
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1318500002,APLICAÇÕES EM TÍTULOS E VALORES MOBILIÁRIOS NO EXTERIOR,131
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1320000002,Vinculados a Operações Compromissadas,132
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1321000001,TÍTULOS DE RENDA FIXA - VINCULADOS A RECOMPRAS,132
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1330000009,Instrumentos Financeiros Derivativos,133
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1330100002,CONTRATOS DE CÂMBIO - COMPRA DE MOEDA ESTRANGEIRA,133
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1330200005,CONTRATOS DE CÂMBIO - VENDA DE MOEDA ESTRANGEIRA,133
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1331500003,OPERAÇÕES DE SWAP,133
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1333000006,COMPRAS A TERMO A RECEBER,133
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1333500001,VENDAS A TERMO A RECEBER,133
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1334500000,MERCADOS FUTUROS - AJUSTES DIARIOS A RECEBER,133
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1336000003,PRÊMIOS DE OPÇÕES A EXERCER - AÇÕES,133
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1337000002,"PREMIOS DE OPÇÕESA EXERCER - OUTROS ATIVOS, EXCETO AÇÕES",133
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1338000001,DERIVATIVOS DE CRÉDITO,133
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1338500006,OUTROS INSTRUMENTOS FINANCEIROS DERIVATIVOS,133
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1340000006,Vinculados ao Banco Central,134
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1341000005,BANCO CENTRAL - DEPÓSITOS PARA CAPITAL EM TÍTULOS,134
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1342000004,BANCO CENTRAL - RESERVAS COMPULSÓRIAS EM TÍTULOS,134
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1344500007,BANCO CENTRAL - TÍTULOS VINCULADOS A RECURSOS DE POUPANÇA,134
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1345000001,TÍTULOS DE RENDA FIXA BLOQUEADOS,134
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1360000000,Vinculados à Prestação de Garantias,136
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1361000009,TÍTULOS DADOS EM GARANTIA EM OPERAÇÕES EM BOLSAS,136
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1361500004,TÍTULOS DADOS EM GARANTIA DE OPERAÇÕES EM CÂMARAS DE LIQUIDAÇÃO E COMPENSAÇÃO,136
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1361600007,TÍTULOS DADOS EM GARANTIA EM ARRANJO DE PAGAMENTO,136
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1361700000,TÍTULOS - CARTEIRAS DE ATIVOS - LIG,136
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1362000008,TÍTULOS DADOS EM GARANTIA - OUTROS,136
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1362500003,TÍTULOS VINCULADOS A SALDOS EM CONTA PRÉ-PAGA,136
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1370000007,Títulos Objeto de Operações Compromissadas com Livre Movimentação,137
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1371000006,TÍTULOS OBJETO DE OPERAÇÕES COMPROMISSADAS COM LIVRE MOVIMENTAÇÃO,137
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1390000001,Vinculados a Operações de Empréstimos,139
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1391000000,ATIVOS FINANCEIROS EMPRESTADOS,139
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1400000001,RELAÇÕES INTERFINANCEIRAS,140
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1410000008,Direitos Junto a Participantes de Sistema de Liquidação e de Arranjo de Pagamento,141
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1411000007,CHEQUES E OUTROS PAPÉIS A DEVOLVER,141
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1412000006,CHEQUES E OUTROS PAPÉIS A REMETER,141
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1413000005,CHEQUES E OUTROS PAPÉIS REMETIDOS,141
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1414000004,RECEBIMENTOS DE DOCUMENTOS ENVIADOS POR OUTROS PARTICIPANTES DO SISTEMA,141
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1415000003,TRANSAÇÕES DE PAGAMENTO,141
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1416500007,TRANSAÇÕES DE PAGAMENTOS INSTANTÂNEOS,141
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1420000005,Créditos Vinculados,142
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1420200001,BANCO CENTRAL - DEPÓSITOS DE MOEDA ELETRÔNICA,142
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1420600003,BANCO CENTRAL - CONTA DE PAGAMENTO INSTANTÂNEO,142
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1421500009,BANCO CENTRAL - DEPÓSITOS PARA CAPITAL EM DINHEIRO,142
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1422800007,RESERVAS COMPULSÓRIAS EM ESPÉCIE NO BANCO CENTRAL,142
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1423300001,BANCO CENTRAL - RECOLHIMENTOS OBRIGATÓRIOS,142
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1423500007,BANCO CENTRAL - OUTROS DEPÓSITOS,142
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1424000001,BANCOS OFICIAIS - DEPÓSITOS VINCULADOS A CONVÊNIO,142
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1426000009,SFH - FGTS A RESSARCIR,142
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1426500004,SFH - FUNDO DE COMPENSAÇÃO DE VARIAÇÕES SALARIAIS,142
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1428000007,CRÉDITO RURAL - PROAGRO A RECEBER,142
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1430000002,Repasses Interfinanceiros,143
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1431000001,DEVEDORES POR REPASSES DE RECURSOS DO CRÉDITO RURAL,143
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1432000000,DEVEDORES POR REPASSES DE RECURSOS EXTERNOS,143
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1436000006,DEVEDORES POR REPASSES A AGENTES FINANCEIROS,143
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1439000003,DEVEDORES POR REPASSES DE OUTROS RECURSOS,143
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1440000009,Relações com Correspondentes,144
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1443000006,CORRESPONDENTES NO PAÍS,144
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1460000003,Créditos Vinculados a Operações Adquiridas em Cessão,146
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1461000002,DE OPERAÇÕES DE CRÉDITO,146
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1461500007,DE OPERAÇÕES DE ARRENDAMENTO,146
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1463500005,DE OUTROS ATIVOS FINANCEIROS,146
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1490000004,(-) Provisão Para Perdas Associadas a Risco de Crédito,149
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1494000000,(-) PERDAS INCORRIDAS ASSOCIADAS AO RISCO DE CRÉDITO,149
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1496000008,(-) PERDAS ESPERADAS ASSOCIADAS AO RISCO DE CRÉDITO,149
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1600000007,OPERAÇÕES DE CRÉDITO,160
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1610000004,Empréstimos e Direitos Creditórios Descontados,161
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1611000003,ADIANTAMENTOS A DEPOSITANTES,161
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1612000002,EMPRÉSTIMOS,161
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1613000001,DIREITOS CREDITÓRIOS DESCONTADOS,161
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1620000001,Financiamentos,162
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1621000000,FINANCIAMENTOS,162
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1622000009,FINANCIAMENTOS À EXPORTAÇÃO,162
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1622500004,FINANCIAMENTOS EM MOEDAS ESTRANGEIRAS,162
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1623000008,FINANCIAMENTOS COM INTERVENIÊNCIA,162
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1624000007,FINANCIAMENTOS AGROINDUSTRIAIS,162
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1630000008,Financiamentos Rurais,163
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1630500003,FINANCIAMENTOS RURAIS - APLICAÇÕES COM RECURSOS LIVRES,163
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1631500002,FINANCIAMENTOS RURAIS - APLICAÇÕES COM RECURSOS DIRECIONADOS À VISTA,163
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1632500001,FINANCIAMENTOS RURAIS - APLICAÇÕES COM RECURSOS DIRECIONADOS DA POUPANÇA RURAL,163
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1633500000,FINANCIAMENTOS RURAIS - APLICAÇÕES COM RECURSOS DIRECIONADOS DE LCA,163
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1634500009,FINANCIAMENTOS RURAIS COM RECURSOS DE FONTES PÚBLICAS,163
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1640000005,Financiamentos Imobiliários,164
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1641000004,IMÓVEIS NÃO RESIDENCIAIS,164
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1643000002,IMÓVEIS RESIDENCIAIS,164
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1644000001,FINANCIAMENTOS IMOBILIÁRIOS - CARTEIRAS DE ATIVOS - LIG,164
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1650000002,Financiamentos de Títulos e Valores Mobiliários,165
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1652000000,FINANCIAMENTOS DE CONTA MARGEM,165
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1660000009,Financiamentos de Infraestrutura e Desenvolvimento,166
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1661000008,FINANCIAMENTOS DE INFRAESTRUTURA E DESENVOLVIMENTO,166
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1700000000,OPERAÇÕES DE ARRENDAMENTO,170
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1800000003,OUTROS CRÉDITOS,180
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1810000000,Operações com Características de Concessão de Crédito,181
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1830000004,Rendas a Receber,183
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1833000001,COMISSÕES E CORRETAGENS A RECEBER,183
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1834000000,COMISSÕES POR COOBRIGAÇÕES A RECEBER,183
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1835000009,CORRETAGENS DE CÂMBIO A RECEBER,183
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1835500004,VALORES A RECEBER DE EMPRÉSTIMOS DE ATIVOS FINANCEIROS,183
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1836000008,DIVIDENDOS E BONIFICAÇÕES EM DINHEIRO A RECEBER,183
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1837000007,SERVIÇOS PRESTADOS A RECEBER,183
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1838000006,SERVIÇOS PRESTADOS EM ARRANJO DE PAGAMENTO,183
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1839000005,OUTRAS RENDAS A RECEBER,183
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1840000001,Negociação e Intermediação de Valores,184
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1840500006,BOLSAS - DEPÓSITOS EM GARANTIA,184
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1841000000,CAIXAS DE REGISTRO E LIQUIDAÇÃO,184
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1843000008,DEVEDORES - CONTA LIQUIDAÇÕES PENDENTES,184
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1843500003,FUNDO DE GARANTIA PARA LIQUIDAÇÃO DE OPERAÇÕES,184
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1844000007,OPERAÇÕES COM ATIVOS FINANCEIROS E MERCADORIAS A LIQUIDAR,184
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1845300005,OPERAÇÕES DE INTERMEDIAÇÃO DE SWAP,184
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1847000004,CAPTAÇÕES INTERFINANCEIRAS DE TERCEIROS A LIQUIDAR,184
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1849000002,OUTROS CRÉDITOS POR NEGOCIAÇÃO E INTERMEDIAÇÃO DE VALORES,184
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1850000008,Créditos Específicos,185
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1851000007,DEVEDORES LOTÉRICOS - LOTERIA FEDERAL E ESTADUAL,185
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1853600003,OPERAÇÕES VINCULADAS A FUNDOS ADMINISTRADOS,185
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1856000002,TESOURO NACIONAL - PAGAMENTOS A RESSARCIR,185
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1859000009,TESOURO NACIONAL - ALONGAMENTO DE CRÉDITO RURAL,185
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1860000005,Direitos Creditórios Oriundos de Ações Judiciais,186
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1861000004,PRECATÓRIOS PRÓPRIOS,186
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1862000003,PRECATÓRIOS - ADQUIRIDOS - COM REGISTRO PÚBLICO,186
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1863000002,PRECATÓRIOS - ADQUIRIDOS - SEM REGISTRO PÚBLICO,186
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1864000001,DIREITOS CREDITÓRIOS EM PROCESSO DE EXECUÇÃO - PRÓPRIOS,186
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1865000000,DIREITOS CREDITÓRIOS EM PROCESSO DE EXECUÇÃO - ADQUIRIDOS - COM REGISTRO PÚBLICO,186
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1866000009,DIREITOS CREDITÓRIOS EM PROCESSO DE EXECUÇÃO - ADQUIRIDOS - SEM REGISTRO PÚBLICO,186
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1869000006,OUTROS DIREITOS CREDITÓRIOS ORIUNDOS DE AÇÕES JUDICIAIS,186
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1870000002,Valores Específicos,187
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1875000007,APLICAÇÕES ESPECIAIS,187
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1877000005,CUSTO INCREMENTAL PARA OBTENÇÃO DO CONTRATO DE CONSÓRCIO,187
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1877500000,Cotas de grupos de consórcio,187
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1880000009,Diversos,188
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1880200005,ADIANTAMENTOS AO FGC OU AO FGCOOP,188
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1880300008,ADIANTAMENTOS E ANTECIPAÇÕES SALARIAIS,188
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1880500004,ADIANTAMENTOS PARA PAGAMENTOS POR CONTA DA INSTITUIÇÃO,188
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1881000008,ADIANTAMENTOS POR CONTA DE IMOBILIZAÇÕES,188
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1882300006,DIREITOS ESPECÍFICOS DE CONTROLADAS NÃO SUJEITAS À AUTORIZAÇÃO DO BANCO CENTRAL,188
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1882500002,ATIVOS FISCAIS DIFERIDOS DE IMPOSTOS E CONTRIBUIÇÕES,188
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1883000006,VALORES A RECEBER EM MOEDA ESTRANGEIRA,188
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1883500001,DEVEDORES POR COMPRA DE VALORES E BENS,188
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1884000005,DEVEDORES POR DEPÓSITOS EM GARANTIA,188
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1884500000,IMPOSTOS E CONTRIBUIÇÕES A COMPENSAR,188
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1885000004,IMPOSTO DE RENDA A RECUPERAR,188
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1885200000,CRÉDITO PRESUMIDO,188
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1886000003,OPÇÕES POR INCENTIVOS FISCAIS,188
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1886500008,PAGAMENTOS A RESSARCIR,188
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1887000002,PARTICIPAÇÕES PAGAS ANTECIPADAMENTE,188
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1887900009,VALORES A RECEBER RELATIVOS A TRANSAÇÕES DE PAGAMENTO,188
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1888000001,"TÍTULOS E CRÉDITOS A RECEBER, SEM CARACTERÍSTICA DE CONCESSÃO DE CRÉDITO",188
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1888200007,ATIVOS ATUARIAIS GERADOS POR FUNDOS DE PENSÃO DE BENEFÍCIO DEFINIDO,188
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1888500006,VALORES A RECEBER DE SOCIEDADES LIGADAS,188
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1889000000,DEVEDORES DIVERSOS - EXTERIOR,188
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1889200006,DEVEDORES DIVERSOS - PAÍS,188
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1890000006,(-) Provisões para Outros Créditos,189
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1899600005,(-) PROVISÃO PARA PERDAS DE CRÉDITO DE VALORES A RECEBER RELATIVOS A TRANSAÇÕES DE PAGAMENTO,189
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1899700008,(-) PROVISÃO PARA PERDAS DE CRÉDITO SOBRE DIREITOS CREDITÓRIOS ORIUNDOS DE AÇÕES JUDICIAIS,189
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1899800001,(-) PROVISÃO PARA PERDAS DE CRÉDITO EM RESTITUIÇÃO DE DEPÓSITOS JUDICIAIS E ADMINISTRATIVOS,189
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1899900004,(-) PROVISÃO PARA PERDAS DE CRÉDITO - OUTROS CRÉDITOS,189
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1900000006,OUTROS VALORES E BENS,190
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1910000003,Investimentos Temporários,191
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1912000001,INVESTIMENTOS MANTIDOS PARA VENDA,191
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1980000002,Outros Valores e Bens,198
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1981500006,ATIVOS NÃO FINANCEIROS A RECEBER DECORRENTE DE ADIANTAMENTO CONCEDIDOS,198
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1984000008,ATIVOS EM ESTOQUE,198
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1987000005,ATIVOS NÃO FINANCEIROS MANTIDOS PARA VENDA - PRÓPRIOS,198
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1988000004,ATIVOS NÃO FINANCEIROS MANTIDOS PARA VENDA - RECEBIDOS,198
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1989000003,OUTROS ATIVOS NÃO FINANCEIROS,198
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1989700004,(-) PROVISÃO PARA DESVALORIZAÇÃO DE ATIVOS NÃO FINANCEIROS MANTIDOS PARA VENDA - PRÓPRIOS,198
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1989800007,(-) PROVISÃO PARA DESVALORIZAÇÃO DE ATIVOS NÃO FINANCEIROS MANTIDOS PARA VENDA - RECEBIDOS,198
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1989900000,(-) PROVISÃO PARA DESVALORIZAÇÃO DE OUTROS VALORES E BENS,198
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1990000009,Despesas Pagas Antecipadamente,199
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1991000008,DESPESAS PAGAS ANTECIPADAMENTE,199
+Ativo,1,Outros Créditos,ativo_outros_creditos,,True,1992000007,PERDAS NO RECONHECIMENTO INICIAL A APROPRIAR,199
+Ativo,1,Ativo Permanente,ativo_permanente,,True,2000000008,Ativo Permanente,200
+Ativo,1,Ativo Permanente,ativo_permanente,,True,2100000001,INVESTIMENTOS,210
+Ativo,1,Ativo Permanente,ativo_permanente,,True,2110000008,Investimentos no Exterior,211
+Ativo,1,Ativo Permanente,ativo_permanente,,True,2111000007,DEPENDÊNCIAS NO EXTERIOR,211
+Ativo,1,Ativo Permanente,ativo_permanente,,True,2112000006,PARTICIPAÇÕES NO EXTERIOR AVALIADAS PELO MEP,211
+Ativo,1,Ativo Permanente,ativo_permanente,,True,2119900006,(-) PROVISÃO PARA PERDAS EM INVESTIMENTOS NO EXTERIOR,211
+Ativo,1,Ativo Permanente,ativo_permanente,,True,2120000005,"Participações em Coligadas, Controladas e Controladas em Conjunto no País",212
+Ativo,1,Ativo Permanente,ativo_permanente,,True,2121000004,"PARTICIPAÇÕES EM COLIGADAS, CONTROLADAS E CONTROLADAS EM CONJUNTO",212
+Ativo,1,Ativo Permanente,ativo_permanente,,True,2129900003,"(-) PROVISÃO PARA PERDAS EM SOCIEDADES COLIGADAS, CONTROLADAS E CONTROLADAS EM CONJUNTO",212
+Ativo,1,Ativo Permanente,ativo_permanente,,True,2160000003,Propriedades para Investimento,216
+Ativo,1,Ativo Permanente,ativo_permanente,,True,2161000002,MENSURADAS PELO MÉTODO DO VALOR JUSTO,216
+Ativo,1,Ativo Permanente,ativo_permanente,,True,2162000001,MENSURADAS PELO MÉTODO DO CUSTO,216
+Ativo,1,Ativo Permanente,ativo_permanente,,True,2169500009,(-) REDUÇÃO AO VALOR RECUPERÁVEL DE PROPRIEDADES PARA INVESTIMENTO AVALIADAS AO CUSTO,216
+Ativo,1,Ativo Permanente,ativo_permanente,,True,2169900001,(-) DEPRECIAÇÃO ACUMULADA DE PROPRIEDADES PARA INVESTIMENTO AVALIADAS AO CUSTO,216
+Ativo,1,Ativo Permanente,ativo_permanente,,True,2200000004,IMOBILIZADO DE USO,220
+Ativo,1,Ativo Permanente,ativo_permanente,,True,2250000009,Ativo Imobilizado de Uso,225
+Ativo,1,Ativo Permanente,ativo_permanente,,True,2250500004,IMOBILIZADO EM ESTOQUE,225
+Ativo,1,Ativo Permanente,ativo_permanente,,True,2251000008,IMOBILIZAÇÕES EM CURSO,225
+Ativo,1,Ativo Permanente,ativo_permanente,,True,2252000007,INSTALAÇÕES,225
+Ativo,1,Ativo Permanente,ativo_permanente,,True,2253000006,MÓVEIS E EQUIPAMENTOS,225
+Ativo,1,Ativo Permanente,ativo_permanente,,True,2254000005,VEÍCULOS,225
+Ativo,1,Ativo Permanente,ativo_permanente,,True,2255000004,BENFEITORIAS EM IMÓVEIS DE TERCEIROS,225
+Ativo,1,Ativo Permanente,ativo_permanente,,True,2256000003,IMÓVEIS,225
+Ativo,1,Ativo Permanente,ativo_permanente,,True,2257000002,OBRAS DE ARTE,225
+Ativo,1,Ativo Permanente,ativo_permanente,,True,2258000001,DIREITOS DE USO,225
+Ativo,1,Ativo Permanente,ativo_permanente,,True,2259000000,OUTROS IMOBILIZADOS DE USO,225
+Ativo,1,Ativo Permanente,ativo_permanente,,True,2259500005,(-) REDUÇÃO AO VALOR RECUPERÁVEL DE ATIVO IMOBILIZADO DE USO,225
+Ativo,1,Ativo Permanente,ativo_permanente,,True,2259900007,(-) DEPRECIAÇÃO ACUMULADA DE ATIVO IMOBILIZADO DE USO,225
+Ativo,1,Ativo Permanente,ativo_permanente,,True,2300000007,ATIVO DE ARRENDAMENTO,230
+Ativo,1,Ativo Permanente,ativo_permanente,,True,2320000001,Imobilizado,232
+Ativo,1,Ativo Permanente,ativo_permanente,,True,2321000000,BENS ARRENDADOS,232
+Ativo,1,Ativo Permanente,ativo_permanente,,True,2500000003,INTANGÍVEL,250
+Ativo,1,Ativo Permanente,ativo_permanente,,True,2510000000,Ativos Intangíveis,251
+Ativo,1,Ativo Permanente,ativo_permanente,,True,2510500005,DIREITOS RELATIVOS A CARTEIRAS DE CLIENTES,251
+Ativo,1,Ativo Permanente,ativo_permanente,,True,2511500004,SISTEMAS DE PROCESSAMENTO DE DADOS,251
+Ativo,1,Ativo Permanente,ativo_permanente,,True,2512500003,SISTEMAS DE COMUNICAÇÃO E DE SEGURANÇA,251
+Ativo,1,Ativo Permanente,ativo_permanente,,True,2513000007,MARCAS,251
+Ativo,1,Ativo Permanente,ativo_permanente,,True,2513500002,LICENÇAS E DIREITOS AUTORAIS E DE USO,251
+Ativo,1,Ativo Permanente,ativo_permanente,,True,2514000006,DIREITOS DE EXCLUSIVIDADE OU PREFERÊNCIA,251
+Ativo,1,Ativo Permanente,ativo_permanente,,True,2514500001,PATENTES,251
+Ativo,1,Ativo Permanente,ativo_permanente,,True,2515000005,DIREITOS DE USO,251
+Ativo,1,Ativo Permanente,ativo_permanente,,True,2519000001,OUTROS ATIVOS INTANGÍVEIS,251
+Ativo,1,Ativo Permanente,ativo_permanente,,True,2519500006,(-) REDUÇÃO AO VALOR RECUPERÁVEL DE ATIVOS INTANGÍVEIS,251
+Ativo,1,Ativo Permanente,ativo_permanente,,True,2519900008,(-) AMORTIZAÇÃO ACUMULADA DE ATIVOS INTANGÍVEIS,251
+Ativo,1,Ativo Permanente,ativo_permanente,,True,2520000007,Ágio na Aquisição de Investimento,252
+Ativo,1,Ativo Permanente,ativo_permanente,,True,2521000006,ÁGIO BASEADO EM EXPECTATIVA DE RENTABILIDADE FUTURA,252
+Ativo,1,Ativo Permanente,ativo_permanente,,True,2529000008,(-) AMORTIZAÇÃO ACUMULADA DE ÁGIO NA AQUISIÇÃO DE INVESTIMENTOS,252
+Ativo,1,Ativo Permanente,ativo_permanente,,True,2529500003,(-) REDUÇÃO AO VALOR RECUPERÁVEL DE ÁGIO NA AQUISIÇÃO DE INVESTIMENTOS,252
+Ativo,2,Arrendamento Financeiro,ativo_arrendamento,ativo_credito,False,1740000008,Arrendador,174
+Ativo,2,Arrendamento Financeiro,ativo_arrendamento,ativo_credito,False,1741000007,FINANCEIRO,174
+Ativo,2,Arrendamento Financeiro,ativo_arrendamento,ativo_credito,False,1742000006,OPERACIONAL,174
+Ativo,2,Arrendamento Financeiro,ativo_arrendamento,ativo_credito,False,1760000002,Arrendatário,176
+Ativo,2,Arrendamento Financeiro,ativo_arrendamento,ativo_credito,False,1761000001,ANTECIPAÇÕES DE PAGAMENTOS DE ARRENDAMENTO,176
+Ativo,2,Outras Operações de Crédito,ativo_credito_outros,ativo_credito,False,1811000009,CRÉDITOS POR AVAIS E FIANÇAS HONRADOS,181
+Ativo,2,Outras Operações de Crédito,ativo_credito_outros,ativo_credito,False,1812000008,ADIANTAMENTO DE CONTRATO DE CÂMBIO,181
+Ativo,2,Outras Operações de Crédito,ativo_credito_outros,ativo_credito,False,1813000007,TÍTULOS COM CARACTERÍSTICA DE CONCESSÃO DE CRÉDITO,181
+Ativo,2,Outras Operações de Crédito,ativo_credito_outros,ativo_credito,False,1814000006,CRÉDITO POR VENDA A PRAZO DE ATIVOS NÃO FINANCEIROS,181
+Ativo,2,Outras Operações de Crédito,ativo_credito_outros,ativo_credito,False,1819000001,OUTRAS OPERAÇÕES COM CARACTERÍSTICA DE CONCESSÃO DE CRÉDITO,181
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1000000009,Ativo Realizável,100
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1100000002,DISPONIBILIDADES,110
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1110000009,Caixa,111
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1111000008,CAIXA,111
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1120000006,Depósitos Bancários,112
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1123000003,DEPÓSITOS BANCÁRIOS DE INSTITUIÇÕES SEM CONTA RESERVA,112
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1130000003,Reservas Livres,113
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1131000002,BANCO CENTRAL - RESERVAS LIVRES EM ESPÉCIE,113
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1139000004,BANCO CENTRAL - OUTRAS RESERVAS LIVRES,113
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1150000007,Disponibilidades em Moedas Estrangeiras,115
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1151000006,BANCOS - DEPÓSITOS EM MOEDAS ESTRANGEIRAS NO PAÍS,115
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1152000005,DEPÓSITOS NO EXTERIOR EM MOEDAS ESTRANGEIRAS,115
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1154000003,DISPONIBILIDADES EM MOEDAS ESTRANGEIRAS,115
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1190000005,Disponibilidades - Outras,119
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1193000002,NUMERÁRIO EM TRÂNSITO - TERCEIROS,119
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1200000005,APLICAÇÕES INTERFINANCEIRAS DE LIQUIDEZ,120
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1210000002,Aplicações em Operações Compromissadas,121
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1211000001,REVENDAS A LIQUIDAR - POSIÇÃO BANCADA,121
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1212000000,REVENDAS A LIQUIDAR - POSIÇÃO FINANCIADA,121
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1213000009,REVENDAS A LIQUIDAR - POSIÇÃO VENDIDA,121
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1220000009,Aplicações em Depósitos Interfinanceiros,122
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1221000008,APLICAÇÕES EM DEPÓSITOS INTERFINANCEIROS,122
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1250000000,Aplicações em Depósitos de Poupança,125
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1251000009,APLICAÇÕES EM DEPÓSITOS DE POUPANÇA,125
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1260000007,Aplicações em Moedas Estrangeiras,126
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1261000006,APLICAÇÕES EM MOEDAS ESTRANGEIRAS,126
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1269900005,(-) Provisão para Perdas Associadas a Risco de Crédito,126
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1300000008,TÍTULOS E VALORES MOBILIÁRIOS E INSTRUMENTOS FINANCEIROS DERIVATIVOS,130
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1310000005,Livres,131
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1311000004,TÍTULOS DE RENDA FIXA,131
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1311300003,APLICAÇÃO EM CERTIFICADOS DE OPERAÇÕES ESTRUTURADAS,131
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1311500009,COTAS DE FUNDOS DE INVESTIMENTO,131
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1312000003,TÍTULOS DE RENDA VARIÁVEL,131
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1318500002,APLICAÇÕES EM TÍTULOS E VALORES MOBILIÁRIOS NO EXTERIOR,131
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1320000002,Vinculados a Operações Compromissadas,132
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1321000001,TÍTULOS DE RENDA FIXA - VINCULADOS A RECOMPRAS,132
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1330000009,Instrumentos Financeiros Derivativos,133
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1330100002,CONTRATOS DE CÂMBIO - COMPRA DE MOEDA ESTRANGEIRA,133
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1330200005,CONTRATOS DE CÂMBIO - VENDA DE MOEDA ESTRANGEIRA,133
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1331500003,OPERAÇÕES DE SWAP,133
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1333000006,COMPRAS A TERMO A RECEBER,133
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1333500001,VENDAS A TERMO A RECEBER,133
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1334500000,MERCADOS FUTUROS - AJUSTES DIARIOS A RECEBER,133
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1336000003,PRÊMIOS DE OPÇÕES A EXERCER - AÇÕES,133
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1337000002,"PREMIOS DE OPÇÕESA EXERCER - OUTROS ATIVOS, EXCETO AÇÕES",133
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1338000001,DERIVATIVOS DE CRÉDITO,133
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1338500006,OUTROS INSTRUMENTOS FINANCEIROS DERIVATIVOS,133
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1340000006,Vinculados ao Banco Central,134
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1341000005,BANCO CENTRAL - DEPÓSITOS PARA CAPITAL EM TÍTULOS,134
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1342000004,BANCO CENTRAL - RESERVAS COMPULSÓRIAS EM TÍTULOS,134
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1344500007,BANCO CENTRAL - TÍTULOS VINCULADOS A RECURSOS DE POUPANÇA,134
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1345000001,TÍTULOS DE RENDA FIXA BLOQUEADOS,134
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1360000000,Vinculados à Prestação de Garantias,136
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1361000009,TÍTULOS DADOS EM GARANTIA EM OPERAÇÕES EM BOLSAS,136
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1361500004,TÍTULOS DADOS EM GARANTIA DE OPERAÇÕES EM CÂMARAS DE LIQUIDAÇÃO E COMPENSAÇÃO,136
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1361600007,TÍTULOS DADOS EM GARANTIA EM ARRANJO DE PAGAMENTO,136
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1361700000,TÍTULOS - CARTEIRAS DE ATIVOS - LIG,136
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1362000008,TÍTULOS DADOS EM GARANTIA - OUTROS,136
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1362500003,TÍTULOS VINCULADOS A SALDOS EM CONTA PRÉ-PAGA,136
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1370000007,Títulos Objeto de Operações Compromissadas com Livre Movimentação,137
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1371000006,TÍTULOS OBJETO DE OPERAÇÕES COMPROMISSADAS COM LIVRE MOVIMENTAÇÃO,137
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1390000001,Vinculados a Operações de Empréstimos,139
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1391000000,ATIVOS FINANCEIROS EMPRESTADOS,139
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1400000001,RELAÇÕES INTERFINANCEIRAS,140
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1410000008,Direitos Junto a Participantes de Sistema de Liquidação e de Arranjo de Pagamento,141
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1411000007,CHEQUES E OUTROS PAPÉIS A DEVOLVER,141
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1412000006,CHEQUES E OUTROS PAPÉIS A REMETER,141
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1413000005,CHEQUES E OUTROS PAPÉIS REMETIDOS,141
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1414000004,RECEBIMENTOS DE DOCUMENTOS ENVIADOS POR OUTROS PARTICIPANTES DO SISTEMA,141
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1415000003,TRANSAÇÕES DE PAGAMENTO,141
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1416500007,TRANSAÇÕES DE PAGAMENTOS INSTANTÂNEOS,141
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1420000005,Créditos Vinculados,142
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1420200001,BANCO CENTRAL - DEPÓSITOS DE MOEDA ELETRÔNICA,142
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1420600003,BANCO CENTRAL - CONTA DE PAGAMENTO INSTANTÂNEO,142
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1421500009,BANCO CENTRAL - DEPÓSITOS PARA CAPITAL EM DINHEIRO,142
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1422800007,RESERVAS COMPULSÓRIAS EM ESPÉCIE NO BANCO CENTRAL,142
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1423300001,BANCO CENTRAL - RECOLHIMENTOS OBRIGATÓRIOS,142
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1423500007,BANCO CENTRAL - OUTROS DEPÓSITOS,142
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1424000001,BANCOS OFICIAIS - DEPÓSITOS VINCULADOS A CONVÊNIO,142
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1426000009,SFH - FGTS A RESSARCIR,142
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1426500004,SFH - FUNDO DE COMPENSAÇÃO DE VARIAÇÕES SALARIAIS,142
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1428000007,CRÉDITO RURAL - PROAGRO A RECEBER,142
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1430000002,Repasses Interfinanceiros,143
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1431000001,DEVEDORES POR REPASSES DE RECURSOS DO CRÉDITO RURAL,143
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1432000000,DEVEDORES POR REPASSES DE RECURSOS EXTERNOS,143
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1436000006,DEVEDORES POR REPASSES A AGENTES FINANCEIROS,143
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1439000003,DEVEDORES POR REPASSES DE OUTROS RECURSOS,143
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1440000009,Relações com Correspondentes,144
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1443000006,CORRESPONDENTES NO PAÍS,144
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1460000003,Créditos Vinculados a Operações Adquiridas em Cessão,146
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1461000002,DE OPERAÇÕES DE CRÉDITO,146
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1461500007,DE OPERAÇÕES DE ARRENDAMENTO,146
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1463500005,DE OUTROS ATIVOS FINANCEIROS,146
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1490000004,(-) Provisão Para Perdas Associadas a Risco de Crédito,149
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1494000000,(-) PERDAS INCORRIDAS ASSOCIADAS AO RISCO DE CRÉDITO,149
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1496000008,(-) PERDAS ESPERADAS ASSOCIADAS AO RISCO DE CRÉDITO,149
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1600000007,OPERAÇÕES DE CRÉDITO,160
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1610000004,Empréstimos e Direitos Creditórios Descontados,161
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1611000003,ADIANTAMENTOS A DEPOSITANTES,161
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1612000002,EMPRÉSTIMOS,161
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1613000001,DIREITOS CREDITÓRIOS DESCONTADOS,161
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1620000001,Financiamentos,162
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1621000000,FINANCIAMENTOS,162
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1622000009,FINANCIAMENTOS À EXPORTAÇÃO,162
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1622500004,FINANCIAMENTOS EM MOEDAS ESTRANGEIRAS,162
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1623000008,FINANCIAMENTOS COM INTERVENIÊNCIA,162
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1624000007,FINANCIAMENTOS AGROINDUSTRIAIS,162
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1630000008,Financiamentos Rurais,163
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1630500003,FINANCIAMENTOS RURAIS - APLICAÇÕES COM RECURSOS LIVRES,163
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1631500002,FINANCIAMENTOS RURAIS - APLICAÇÕES COM RECURSOS DIRECIONADOS À VISTA,163
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1632500001,FINANCIAMENTOS RURAIS - APLICAÇÕES COM RECURSOS DIRECIONADOS DA POUPANÇA RURAL,163
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1633500000,FINANCIAMENTOS RURAIS - APLICAÇÕES COM RECURSOS DIRECIONADOS DE LCA,163
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1634500009,FINANCIAMENTOS RURAIS COM RECURSOS DE FONTES PÚBLICAS,163
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1640000005,Financiamentos Imobiliários,164
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1641000004,IMÓVEIS NÃO RESIDENCIAIS,164
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1643000002,IMÓVEIS RESIDENCIAIS,164
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1644000001,FINANCIAMENTOS IMOBILIÁRIOS - CARTEIRAS DE ATIVOS - LIG,164
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1650000002,Financiamentos de Títulos e Valores Mobiliários,165
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1652000000,FINANCIAMENTOS DE CONTA MARGEM,165
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1660000009,Financiamentos de Infraestrutura e Desenvolvimento,166
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1661000008,FINANCIAMENTOS DE INFRAESTRUTURA E DESENVOLVIMENTO,166
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1700000000,OPERAÇÕES DE ARRENDAMENTO,170
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1800000003,OUTROS CRÉDITOS,180
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1810000000,Operações com Características de Concessão de Crédito,181
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1830000004,Rendas a Receber,183
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1833000001,COMISSÕES E CORRETAGENS A RECEBER,183
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1834000000,COMISSÕES POR COOBRIGAÇÕES A RECEBER,183
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1835000009,CORRETAGENS DE CÂMBIO A RECEBER,183
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1835500004,VALORES A RECEBER DE EMPRÉSTIMOS DE ATIVOS FINANCEIROS,183
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1836000008,DIVIDENDOS E BONIFICAÇÕES EM DINHEIRO A RECEBER,183
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1837000007,SERVIÇOS PRESTADOS A RECEBER,183
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1838000006,SERVIÇOS PRESTADOS EM ARRANJO DE PAGAMENTO,183
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1839000005,OUTRAS RENDAS A RECEBER,183
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1840000001,Negociação e Intermediação de Valores,184
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1840500006,BOLSAS - DEPÓSITOS EM GARANTIA,184
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1841000000,CAIXAS DE REGISTRO E LIQUIDAÇÃO,184
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1843000008,DEVEDORES - CONTA LIQUIDAÇÕES PENDENTES,184
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1843500003,FUNDO DE GARANTIA PARA LIQUIDAÇÃO DE OPERAÇÕES,184
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1844000007,OPERAÇÕES COM ATIVOS FINANCEIROS E MERCADORIAS A LIQUIDAR,184
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1845300005,OPERAÇÕES DE INTERMEDIAÇÃO DE SWAP,184
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1847000004,CAPTAÇÕES INTERFINANCEIRAS DE TERCEIROS A LIQUIDAR,184
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1849000002,OUTROS CRÉDITOS POR NEGOCIAÇÃO E INTERMEDIAÇÃO DE VALORES,184
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1850000008,Créditos Específicos,185
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1851000007,DEVEDORES LOTÉRICOS - LOTERIA FEDERAL E ESTADUAL,185
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1853600003,OPERAÇÕES VINCULADAS A FUNDOS ADMINISTRADOS,185
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1856000002,TESOURO NACIONAL - PAGAMENTOS A RESSARCIR,185
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1859000009,TESOURO NACIONAL - ALONGAMENTO DE CRÉDITO RURAL,185
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1860000005,Direitos Creditórios Oriundos de Ações Judiciais,186
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1861000004,PRECATÓRIOS PRÓPRIOS,186
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1862000003,PRECATÓRIOS - ADQUIRIDOS - COM REGISTRO PÚBLICO,186
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1863000002,PRECATÓRIOS - ADQUIRIDOS - SEM REGISTRO PÚBLICO,186
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1864000001,DIREITOS CREDITÓRIOS EM PROCESSO DE EXECUÇÃO - PRÓPRIOS,186
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1865000000,DIREITOS CREDITÓRIOS EM PROCESSO DE EXECUÇÃO - ADQUIRIDOS - COM REGISTRO PÚBLICO,186
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1866000009,DIREITOS CREDITÓRIOS EM PROCESSO DE EXECUÇÃO - ADQUIRIDOS - SEM REGISTRO PÚBLICO,186
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1869000006,OUTROS DIREITOS CREDITÓRIOS ORIUNDOS DE AÇÕES JUDICIAIS,186
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1870000002,Valores Específicos,187
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1875000007,APLICAÇÕES ESPECIAIS,187
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1877000005,CUSTO INCREMENTAL PARA OBTENÇÃO DO CONTRATO DE CONSÓRCIO,187
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1877500000,Cotas de grupos de consórcio,187
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1880000009,Diversos,188
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1880200005,ADIANTAMENTOS AO FGC OU AO FGCOOP,188
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1880300008,ADIANTAMENTOS E ANTECIPAÇÕES SALARIAIS,188
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1880500004,ADIANTAMENTOS PARA PAGAMENTOS POR CONTA DA INSTITUIÇÃO,188
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1881000008,ADIANTAMENTOS POR CONTA DE IMOBILIZAÇÕES,188
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1882300006,DIREITOS ESPECÍFICOS DE CONTROLADAS NÃO SUJEITAS À AUTORIZAÇÃO DO BANCO CENTRAL,188
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1882500002,ATIVOS FISCAIS DIFERIDOS DE IMPOSTOS E CONTRIBUIÇÕES,188
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1883000006,VALORES A RECEBER EM MOEDA ESTRANGEIRA,188
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1883500001,DEVEDORES POR COMPRA DE VALORES E BENS,188
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1884000005,DEVEDORES POR DEPÓSITOS EM GARANTIA,188
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1884500000,IMPOSTOS E CONTRIBUIÇÕES A COMPENSAR,188
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1885000004,IMPOSTO DE RENDA A RECUPERAR,188
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1885200000,CRÉDITO PRESUMIDO,188
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1886000003,OPÇÕES POR INCENTIVOS FISCAIS,188
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1886500008,PAGAMENTOS A RESSARCIR,188
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1887000002,PARTICIPAÇÕES PAGAS ANTECIPADAMENTE,188
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1887900009,VALORES A RECEBER RELATIVOS A TRANSAÇÕES DE PAGAMENTO,188
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1888000001,"TÍTULOS E CRÉDITOS A RECEBER, SEM CARACTERÍSTICA DE CONCESSÃO DE CRÉDITO",188
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1888200007,ATIVOS ATUARIAIS GERADOS POR FUNDOS DE PENSÃO DE BENEFÍCIO DEFINIDO,188
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1888500006,VALORES A RECEBER DE SOCIEDADES LIGADAS,188
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1889000000,DEVEDORES DIVERSOS - EXTERIOR,188
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1889200006,DEVEDORES DIVERSOS - PAÍS,188
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1890000006,(-) Provisões para Outros Créditos,189
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1899600005,(-) PROVISÃO PARA PERDAS DE CRÉDITO DE VALORES A RECEBER RELATIVOS A TRANSAÇÕES DE PAGAMENTO,189
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1899700008,(-) PROVISÃO PARA PERDAS DE CRÉDITO SOBRE DIREITOS CREDITÓRIOS ORIUNDOS DE AÇÕES JUDICIAIS,189
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1899800001,(-) PROVISÃO PARA PERDAS DE CRÉDITO EM RESTITUIÇÃO DE DEPÓSITOS JUDICIAIS E ADMINISTRATIVOS,189
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1899900004,(-) PROVISÃO PARA PERDAS DE CRÉDITO - OUTROS CRÉDITOS,189
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1900000006,OUTROS VALORES E BENS,190
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1910000003,Investimentos Temporários,191
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1912000001,INVESTIMENTOS MANTIDOS PARA VENDA,191
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1980000002,Outros Valores e Bens,198
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1981500006,ATIVOS NÃO FINANCEIROS A RECEBER DECORRENTE DE ADIANTAMENTO CONCEDIDOS,198
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1984000008,ATIVOS EM ESTOQUE,198
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1987000005,ATIVOS NÃO FINANCEIROS MANTIDOS PARA VENDA - PRÓPRIOS,198
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1988000004,ATIVOS NÃO FINANCEIROS MANTIDOS PARA VENDA - RECEBIDOS,198
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1989000003,OUTROS ATIVOS NÃO FINANCEIROS,198
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1989700004,(-) PROVISÃO PARA DESVALORIZAÇÃO DE ATIVOS NÃO FINANCEIROS MANTIDOS PARA VENDA - PRÓPRIOS,198
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1989800007,(-) PROVISÃO PARA DESVALORIZAÇÃO DE ATIVOS NÃO FINANCEIROS MANTIDOS PARA VENDA - RECEBIDOS,198
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1989900000,(-) PROVISÃO PARA DESVALORIZAÇÃO DE OUTROS VALORES E BENS,198
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1990000009,Despesas Pagas Antecipadamente,199
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1991000008,DESPESAS PAGAS ANTECIPADAMENTE,199
+Ativo,2,Outros Créditos (Residual),ativo_outros_creditos_residual,ativo_outros_creditos,False,1992000007,PERDAS NO RECONHECIMENTO INICIAL A APROPRIAR,199
+Ativo,2,Imobilizado e Bens de Uso,ativo_imobilizado,ativo_permanente,False,2259500005,(-) REDUÇÃO AO VALOR RECUPERÁVEL DE ATIVO IMOBILIZADO DE USO,225
+Ativo,2,Imobilizado e Bens de Uso,ativo_imobilizado,ativo_permanente,False,2259900007,(-) DEPRECIAÇÃO ACUMULADA DE ATIVO IMOBILIZADO DE USO,225
+Ativo,2,Intangível,ativo_intangivel,ativo_permanente,False,2510500005,DIREITOS RELATIVOS A CARTEIRAS DE CLIENTES,251
+Ativo,2,Intangível,ativo_intangivel,ativo_permanente,False,2511500004,SISTEMAS DE PROCESSAMENTO DE DADOS,251
+Ativo,2,Intangível,ativo_intangivel,ativo_permanente,False,2512500003,SISTEMAS DE COMUNICAÇÃO E DE SEGURANÇA,251
+Ativo,2,Intangível,ativo_intangivel,ativo_permanente,False,2513000007,MARCAS,251
+Ativo,2,Intangível,ativo_intangivel,ativo_permanente,False,2513500002,LICENÇAS E DIREITOS AUTORAIS E DE USO,251
+Ativo,2,Intangível,ativo_intangivel,ativo_permanente,False,2514000006,DIREITOS DE EXCLUSIVIDADE OU PREFERÊNCIA,251
+Ativo,2,Intangível,ativo_intangivel,ativo_permanente,False,2514500001,PATENTES,251
+Ativo,2,Intangível,ativo_intangivel,ativo_permanente,False,2515000005,DIREITOS DE USO,251
+Ativo,2,Intangível,ativo_intangivel,ativo_permanente,False,2519000001,OUTROS ATIVOS INTANGÍVEIS,251
+Ativo,2,Intangível,ativo_intangivel,ativo_permanente,False,2519500006,(-) REDUÇÃO AO VALOR RECUPERÁVEL DE ATIVOS INTANGÍVEIS,251
+Ativo,2,Intangível,ativo_intangivel,ativo_permanente,False,2519900008,(-) AMORTIZAÇÃO ACUMULADA DE ATIVOS INTANGÍVEIS,251
+Ativo,2,Permanente (Residual),ativo_permanente_residual,ativo_permanente,False,2000000008,Ativo Permanente,200
+Ativo,2,Permanente (Residual),ativo_permanente_residual,ativo_permanente,False,2100000001,INVESTIMENTOS,210
+Ativo,2,Permanente (Residual),ativo_permanente_residual,ativo_permanente,False,2110000008,Investimentos no Exterior,211
+Ativo,2,Permanente (Residual),ativo_permanente_residual,ativo_permanente,False,2111000007,DEPENDÊNCIAS NO EXTERIOR,211
+Ativo,2,Permanente (Residual),ativo_permanente_residual,ativo_permanente,False,2112000006,PARTICIPAÇÕES NO EXTERIOR AVALIADAS PELO MEP,211
+Ativo,2,Permanente (Residual),ativo_permanente_residual,ativo_permanente,False,2119900006,(-) PROVISÃO PARA PERDAS EM INVESTIMENTOS NO EXTERIOR,211
+Ativo,2,Permanente (Residual),ativo_permanente_residual,ativo_permanente,False,2120000005,"Participações em Coligadas, Controladas e Controladas em Conjunto no País",212
+Ativo,2,Permanente (Residual),ativo_permanente_residual,ativo_permanente,False,2121000004,"PARTICIPAÇÕES EM COLIGADAS, CONTROLADAS E CONTROLADAS EM CONJUNTO",212
+Ativo,2,Permanente (Residual),ativo_permanente_residual,ativo_permanente,False,2129900003,"(-) PROVISÃO PARA PERDAS EM SOCIEDADES COLIGADAS, CONTROLADAS E CONTROLADAS EM CONJUNTO",212
+Ativo,2,Permanente (Residual),ativo_permanente_residual,ativo_permanente,False,2160000003,Propriedades para Investimento,216
+Ativo,2,Permanente (Residual),ativo_permanente_residual,ativo_permanente,False,2161000002,MENSURADAS PELO MÉTODO DO VALOR JUSTO,216
+Ativo,2,Permanente (Residual),ativo_permanente_residual,ativo_permanente,False,2162000001,MENSURADAS PELO MÉTODO DO CUSTO,216
+Ativo,2,Permanente (Residual),ativo_permanente_residual,ativo_permanente,False,2169500009,(-) REDUÇÃO AO VALOR RECUPERÁVEL DE PROPRIEDADES PARA INVESTIMENTO AVALIADAS AO CUSTO,216
+Ativo,2,Permanente (Residual),ativo_permanente_residual,ativo_permanente,False,2169900001,(-) DEPRECIAÇÃO ACUMULADA DE PROPRIEDADES PARA INVESTIMENTO AVALIADAS AO CUSTO,216
+Ativo,2,Permanente (Residual),ativo_permanente_residual,ativo_permanente,False,2200000004,IMOBILIZADO DE USO,220
+Ativo,2,Permanente (Residual),ativo_permanente_residual,ativo_permanente,False,2250000009,Ativo Imobilizado de Uso,225
+Ativo,2,Permanente (Residual),ativo_permanente_residual,ativo_permanente,False,2250500004,IMOBILIZADO EM ESTOQUE,225
+Ativo,2,Permanente (Residual),ativo_permanente_residual,ativo_permanente,False,2251000008,IMOBILIZAÇÕES EM CURSO,225
+Ativo,2,Permanente (Residual),ativo_permanente_residual,ativo_permanente,False,2252000007,INSTALAÇÕES,225
+Ativo,2,Permanente (Residual),ativo_permanente_residual,ativo_permanente,False,2253000006,MÓVEIS E EQUIPAMENTOS,225
+Ativo,2,Permanente (Residual),ativo_permanente_residual,ativo_permanente,False,2254000005,VEÍCULOS,225
+Ativo,2,Permanente (Residual),ativo_permanente_residual,ativo_permanente,False,2255000004,BENFEITORIAS EM IMÓVEIS DE TERCEIROS,225
+Ativo,2,Permanente (Residual),ativo_permanente_residual,ativo_permanente,False,2256000003,IMÓVEIS,225
+Ativo,2,Permanente (Residual),ativo_permanente_residual,ativo_permanente,False,2257000002,OBRAS DE ARTE,225
+Ativo,2,Permanente (Residual),ativo_permanente_residual,ativo_permanente,False,2258000001,DIREITOS DE USO,225
+Ativo,2,Permanente (Residual),ativo_permanente_residual,ativo_permanente,False,2259000000,OUTROS IMOBILIZADOS DE USO,225
+Ativo,2,Permanente (Residual),ativo_permanente_residual,ativo_permanente,False,2300000007,ATIVO DE ARRENDAMENTO,230
+Ativo,2,Permanente (Residual),ativo_permanente_residual,ativo_permanente,False,2320000001,Imobilizado,232
+Ativo,2,Permanente (Residual),ativo_permanente_residual,ativo_permanente,False,2321000000,BENS ARRENDADOS,232
+Ativo,2,Permanente (Residual),ativo_permanente_residual,ativo_permanente,False,2500000003,INTANGÍVEL,250
+Ativo,2,Permanente (Residual),ativo_permanente_residual,ativo_permanente,False,2510000000,Ativos Intangíveis,251
+Ativo,2,Permanente (Residual),ativo_permanente_residual,ativo_permanente,False,2520000007,Ágio na Aquisição de Investimento,252
+Ativo,2,Permanente (Residual),ativo_permanente_residual,ativo_permanente,False,2521000006,ÁGIO BASEADO EM EXPECTATIVA DE RENTABILIDADE FUTURA,252
+Ativo,2,Permanente (Residual),ativo_permanente_residual,ativo_permanente,False,2529000008,(-) AMORTIZAÇÃO ACUMULADA DE ÁGIO NA AQUISIÇÃO DE INVESTIMENTOS,252
+Ativo,2,Permanente (Residual),ativo_permanente_residual,ativo_permanente,False,2529500003,(-) REDUÇÃO AO VALOR RECUPERÁVEL DE ÁGIO NA AQUISIÇÃO DE INVESTIMENTOS,252
+Passivo,1,Depósitos,passivo_depositos,,True,4000000006,Passivo Exigível,400
+Passivo,1,Depósitos,passivo_depositos,,True,4100000009,DEPÓSITOS,410
+Passivo,1,Depósitos,passivo_depositos,,True,4110000006,Depósitos à Vista,411
+Passivo,1,Depósitos,passivo_depositos,,True,4110500001,DEPÓSITOS À VISTA DE LIGADAS,411
+Passivo,1,Depósitos,passivo_depositos,,True,4111000005,DEPÓSITOS DE PESSOAS NATURAIS,411
+Passivo,1,Depósitos,passivo_depositos,,True,4112000004,DEPÓSITOS DE PESSOAS JURÍDICAS,411
+Passivo,1,Depósitos,passivo_depositos,,True,4113000003,DEPÓSITOS DE INSTITUIÇÕES DO SISTEMA FINANCEIRO,411
+Passivo,1,Depósitos,passivo_depositos,,True,4114000002,DEPÓSITOS DE GOVERNOS,411
+Passivo,1,Depósitos,passivo_depositos,,True,4116000000,DEPÓSITOS DE DOMICILIADOS NO EXTERIOR,411
+Passivo,1,Depósitos,passivo_depositos,,True,4116500005,DEPÓSITOS ESPECIAIS DO TESOURO NACIONAL,411
+Passivo,1,Depósitos,passivo_depositos,,True,4117500004,DEPÓSITOS OBRIGATÓRIOS,411
+Passivo,1,Depósitos,passivo_depositos,,True,4117700000,DEPÓSITOS OBRIGATÓRIOS DE LIGADAS,411
+Passivo,1,Depósitos,passivo_depositos,,True,4118000008,DEPÓSITOS PARA INVESTIMENTOS DECORRENTES DE INCENTIVOS FISCAIS,411
+Passivo,1,Depósitos,passivo_depositos,,True,4118500003,DEPÓSITOS VINCULADOS,411
+Passivo,1,Depósitos,passivo_depositos,,True,4119000007,SALDOS CREDORES EM CONTAS DE EMPRÉSTIMOS E FINANCIAMENTOS,411
+Passivo,1,Depósitos,passivo_depositos,,True,4119800001,CONTAS ENCERRADAS,411
+Passivo,1,Depósitos,passivo_depositos,,True,4120000003,Depósitos de Poupança,412
+Passivo,1,Depósitos,passivo_depositos,,True,4121000002,DEPÓSITOS DE POUPANÇA LIVRES - PESSOAS NATURAIS,412
+Passivo,1,Depósitos,passivo_depositos,,True,4122000001,DEPÓSITOS DE POUPANÇA LIVRES - PESSOAS JURÍDICAS,412
+Passivo,1,Depósitos,passivo_depositos,,True,4122500006,DEPÓSITOS DE POUPANÇA DE LIGADAS,412
+Passivo,1,Depósitos,passivo_depositos,,True,4122700002,DEPÓSITOS DE POUPANÇA RURAL,412
+Passivo,1,Depósitos,passivo_depositos,,True,4129500009,OUTROS DEPÓSITOS DE POUPANÇA,412
+Passivo,1,Depósitos,passivo_depositos,,True,4129800008,CONTAS ENCERRADAS,412
+Passivo,1,Depósitos,passivo_depositos,,True,4130000000,Depósitos Interfinanceiros,413
+Passivo,1,Depósitos,passivo_depositos,,True,4131000009,DEPÓSITOS INTERFINANCEIROS,413
+Passivo,1,Depósitos,passivo_depositos,,True,4139900008,(+/-) AJUSTE DE HEDGE DE VALOR JUSTO,413
+Passivo,1,Depósitos,passivo_depositos,,True,4140000007,Depósitos sob Aviso,414
+Passivo,1,Depósitos,passivo_depositos,,True,4142000005,DEPÓSITOS DE AVISO PRÉVIO EM MOEDAS ESTRANGEIRAS,414
+Passivo,1,Depósitos,passivo_depositos,,True,4150000004,Depósitos a Prazo,415
+Passivo,1,Depósitos,passivo_depositos,,True,4151000003,DEPÓSITOS A PRAZO,415
+Passivo,1,Depósitos,passivo_depositos,,True,4152000002,DEPÓSITOS A PRAZO EM MOEDAS ESTRANGEIRAS,415
+Passivo,1,Depósitos,passivo_depositos,,True,4155000009,DEPÓSITOS JUDICIAIS E ADMINISTRATIVOS MANTIDOS NA INSTITUIÇÃO,415
+Passivo,1,Depósitos,passivo_depositos,,True,4159900002,(+/-) AJUSTE DE HEDGE DE VALOR JUSTO,415
+Passivo,1,Depósitos,passivo_depositos,,True,4160000001,Obrigações por Depósitos Especiais e de Fundos e Programas,416
+Passivo,1,Depósitos,passivo_depositos,,True,4161000000,DEPÓSITOS ESPECIAIS COM REMUNERAÇÃO,416
+Passivo,1,Depósitos,passivo_depositos,,True,4161500005,DEPÓSITOS DE PAGAMENTOS POR CONSIGNAÇÃO - EXTRAJUDICIAL,416
+Passivo,1,Depósitos,passivo_depositos,,True,4162000009,DEPÓSITOS DE FUNDOS E PROGRAMAS COM REMUNERAÇÃO,416
+Passivo,1,Depósitos,passivo_depositos,,True,4163000008,DEPÓSITOS DO FGTS,416
+Passivo,1,Depósitos,passivo_depositos,,True,4180000005,Depósitos em Moedas Estrangeiras,418
+Passivo,1,Depósitos,passivo_depositos,,True,4181000004,DEPÓSITOS EM MOEDAS ESTRANGEIRAS NO PAÍS,418
+Passivo,1,Depósitos,passivo_depositos,,True,4190000002,Outros Depósitos,419
+Passivo,1,Depósitos,passivo_depositos,,True,4192000000,DEPÓSITOS PARA LIQUIDAÇÃO DE AJUSTES E DE POSIÇÕES EM SISTEMAS DE COMPENSAÇÃO E DE LIQUIDAÇÃO,419
+Passivo,1,Depósitos,passivo_depositos,,True,4192500005,RECURSOS DISPONÍVEIS DE CLIENTES,419
+Passivo,1,Depósitos,passivo_depositos,,True,4193000009,CONTA DE PAGAMENTO PRÉ-PAGA,419
+Passivo,1,Depósitos,passivo_depositos,,True,4195000007,ORDENS DE PAGAMENTO EM MOEDA NACIONAL,419
+Passivo,1,Depósitos,passivo_depositos,,True,4200000002,OBRIGAÇÕES POR OPERAÇÕES COMPROMISSADAS,420
+Passivo,1,Depósitos,passivo_depositos,,True,4210000009,Carteira Própria,421
+Passivo,1,Depósitos,passivo_depositos,,True,4211000008,RECOMPRAS A LIQUIDAR - CARTEIRA PROPRIA,421
+Passivo,1,Depósitos,passivo_depositos,,True,4220000006,Carteira de Terceiros,422
+Passivo,1,Depósitos,passivo_depositos,,True,4222000004,RECOMPRAS A LIQUIDAR - CARTEIRA DE TERCEIROS,422
+Passivo,1,Depósitos,passivo_depositos,,True,4230000003,Obrigações por Venda de Títulos de Livre Movimentação,423
+Passivo,1,Depósitos,passivo_depositos,,True,4234000009,RECOMPRAS A LIQUIDAR - VENDA DE TÍTULOS DE TERCEIROS DE LIVRE MOVIMENTAÇÃO,423
+Passivo,1,Depósitos,passivo_depositos,,True,4300000005,OUTROS INSTRUMENTOS DE DÍVIDA,430
+Passivo,1,Depósitos,passivo_depositos,,True,4310000002,Recursos de Aceites Cambiais,431
+Passivo,1,Depósitos,passivo_depositos,,True,4311000001,OBRIGAÇÕES POR ACEITES DE TÍTULOS CAMBIAIS,431
+Passivo,1,Depósitos,passivo_depositos,,True,4320000009,Recursos por Emissões de Letras,432
+Passivo,1,Depósitos,passivo_depositos,,True,4320500004,OBRIGAÇÕES POR EMISSÃO DE LETRAS IMOBILIÁRIAS GARANTIDAS,432
+Passivo,1,Depósitos,passivo_depositos,,True,4322500002,OBRIGAÇÕES POR EMISSÃO DE LETRAS HIPOTECÁRIAS,432
+Passivo,1,Depósitos,passivo_depositos,,True,4323500001,OBRIGAÇÕES POR EMISSÃO DE LETRAS DE CRÉDITO IMOBILIÁRIO,432
+Passivo,1,Depósitos,passivo_depositos,,True,4324000005,OBRIGAÇÕES POR EMISSÃO DE LETRAS DE CRÉDITO DO AGRONEGÓCIO,432
+Passivo,1,Depósitos,passivo_depositos,,True,4325000004,OBRIGAÇÕES POR EMISSÃO DE LETRAS FINANCEIRAS,432
+Passivo,1,Depósitos,passivo_depositos,,True,4326000003,LETRAS DE CRÉDITO DE DESENVOLVIMENTO,432
+Passivo,1,Depósitos,passivo_depositos,,True,4329300009,OUTRAS,432
+Passivo,1,Depósitos,passivo_depositos,,True,4329900007,(+/-) AJUSTE DE HEDGE DE VALOR JUSTO,432
+Passivo,1,Depósitos,passivo_depositos,,True,4340000003,Recursos de Debêntures,434
+Passivo,1,Depósitos,passivo_depositos,,True,4341000002,OBRIGAÇÕES POR EMISSÃO DE DEBÊNTURES,434
+Passivo,1,Depósitos,passivo_depositos,,True,4350000000,Obrigações por Títulos e Valores Mobiliários no Exterior,435
+Passivo,1,Depósitos,passivo_depositos,,True,4351000009,OBRIGAÇÕES POR TÍTULOS E VALORES MOBILIÁRIOS NO EXTERIOR,435
+Passivo,1,Depósitos,passivo_depositos,,True,4359900008,(+/-) AJUSTE DE HEDGE DE VALOR JUSTO,435
+Passivo,1,Depósitos,passivo_depositos,,True,4370000004,Captação por Certificados de Operações Estruturadas,437
+Passivo,1,Depósitos,passivo_depositos,,True,4371300002,CAPTAÇÃO POR CERTIFICADOS DE OPERAÇÕES ESTRUTURADAS,437
+Passivo,1,Depósitos,passivo_depositos,,True,4379900002,(+/-) AJUSTE DE HEDGE DE VALOR JUSTO,437
+Passivo,1,Depósitos,passivo_depositos,,True,4390000008,Instrumentos de Dívida com Cláusulas de Subordinação,439
+Passivo,1,Depósitos,passivo_depositos,,True,4391000007,TÍTULOS DE DÍVIDA ELEGÍVEIS A CAPITAL,439
+Passivo,1,Depósitos,passivo_depositos,,True,4392000006,DÍVIDAS SUBORDINADAS ELEGÍVEIS A CAPITAL,439
+Passivo,1,Depósitos,passivo_depositos,,True,4396000002,TÍTULOS DE DÍVIDA NÃO ELEGÍVEIS A CAPITAL,439
+Passivo,1,Depósitos,passivo_depositos,,True,4397000001,DÍVIDAS SUBORDINADAS NÃO ELEGÍVEIS A CAPITAL,439
+Passivo,1,Depósitos,passivo_depositos,,True,4399900006,(+/-) AJUSTE DE HEDGE DE VALOR JUSTO,439
+Passivo,1,Depósitos,passivo_depositos,,True,4400000008,RELAÇÕES INTERFINANCEIRAS,440
+Passivo,1,Depósitos,passivo_depositos,,True,4410000005,Obrigações junto a Participantes de Sistema de Liquidação e de Arranjo de Pagamento,441
+Passivo,1,Depósitos,passivo_depositos,,True,4411000004,CHEQUES E OUTROS PAPÉIS RECEBIDOS,441
+Passivo,1,Depósitos,passivo_depositos,,True,4412000003,RECEBIMENTOS A DEVOLVER,441
+Passivo,1,Depósitos,passivo_depositos,,True,4413000002,RECEBIMENTOS REMETIDOS,441
+Passivo,1,Depósitos,passivo_depositos,,True,4415000000,RECEBIMENTOS REMETIDOS A REGULARIZAR,441
+Passivo,1,Depósitos,passivo_depositos,,True,4416000009,TRANSAÇÕES DE PAGAMENTO,441
+Passivo,1,Depósitos,passivo_depositos,,True,4416500004,OBRIGAÇÕES COM TRANSAÇÕES DE PAGAMENTOS INSTANTÂNEOS,441
+Passivo,1,Depósitos,passivo_depositos,,True,4420000002,Obrigações Vinculadas,442
+Passivo,1,Depósitos,passivo_depositos,,True,4421000001,REDESCONTO DO BANCO CENTRAL - COMPRA COM COMPROMISSO DE REVENDA - TÍTULOS PÚBLICOS FEDERAIS,442
+Passivo,1,Depósitos,passivo_depositos,,True,4430000009,Repasses Interfinanceiros,443
+Passivo,1,Depósitos,passivo_depositos,,True,4431000008,OBRIGAÇÕES POR REPASSES INTERFINANCEIROS,443
+Passivo,1,Depósitos,passivo_depositos,,True,4440000006,Relações com Correspondentes,444
+Passivo,1,Depósitos,passivo_depositos,,True,4443000003,CORRESPONDENTES NO PAÍS,444
+Passivo,1,Depósitos,passivo_depositos,,True,4450000003,Recursos Recebidos de Cooperativas Filiadas,445
+Passivo,1,Depósitos,passivo_depositos,,True,4451500007,RECURSOS RECEBIDOS - DEPÓSITOS DE POUPANÇA LIVRES PESSOAS NATURAIS,445
+Passivo,1,Depósitos,passivo_depositos,,True,4452700002,RECURSOS RECEBIDOS - DEPÓSITOS DE POUPANÇA RURAL,445
+Passivo,1,Depósitos,passivo_depositos,,True,4500000001,RELAÇÕES INTERDEPENDÊNCIAS,450
+Passivo,1,Depósitos,passivo_depositos,,True,4520000005,Transferências Internas de Recursos,452
+Passivo,1,Depósitos,passivo_depositos,,True,4521000004,CHEQUES E DOCUMENTOS A LIQUIDAR,452
+Passivo,1,Depósitos,passivo_depositos,,True,4600000004,OBRIGAÇÕES POR EMPRÉSTIMOS E REPASSES,460
+Passivo,1,Depósitos,passivo_depositos,,True,4610000001,Empréstimos no País - Instituições Oficiais,461
+Passivo,1,Depósitos,passivo_depositos,,True,4615000006,SFH - CONTA EMPRÉSTIMOS,461
+Passivo,1,Depósitos,passivo_depositos,,True,4618000003,OBRIGAÇÕES POR AQUISIÇÃO DE TÍTULOS FEDERAIS,461
+Passivo,1,Depósitos,passivo_depositos,,True,4620000008,Empréstimos no País - Outras Instituições,462
+Passivo,1,Depósitos,passivo_depositos,,True,4621000007,OBRIGAÇÕES POR EMPRÉSTIMOS NO PAÍS,462
+Passivo,1,Depósitos,passivo_depositos,,True,4629900006,(+/-) AJUSTE DE HEDGE DE VALOR JUSTO,462
+Passivo,1,Depósitos,passivo_depositos,,True,4630000005,Empréstimos no Exterior,463
+Passivo,1,Depósitos,passivo_depositos,,True,4631000004,OBRIGAÇÕES EM MOEDAS ESTRANGEIRAS,463
+Passivo,1,Depósitos,passivo_depositos,,True,4633000002,OBRIGAÇÕES POR EMPRÉSTIMOS NO EXTERIOR,463
+Passivo,1,Depósitos,passivo_depositos,,True,4639900003,(+/-) AJUSTE DE HEDGE DE VALOR JUSTO,463
+Passivo,1,Depósitos,passivo_depositos,,True,4640000002,Repasses do País - Instituições Oficiais,464
+Passivo,1,Depósitos,passivo_depositos,,True,4641000001,OBRIGAÇÕES POR REPASSES - TESOURO NACIONAL,464
+Passivo,1,Depósitos,passivo_depositos,,True,4642000000,OBRIGAÇÕES POR REPASSES - BANCO DO BRASIL,464
+Passivo,1,Depósitos,passivo_depositos,,True,4643000009,OBRIGAÇÕES POR REPASSES - BNDES,464
+Passivo,1,Depósitos,passivo_depositos,,True,4644000008,OBRIGAÇÕES POR REPASSES - CEF,464
+Passivo,1,Depósitos,passivo_depositos,,True,4645000007,OBRIGAÇÕES POR REPASSES - FINAME,464
+Passivo,1,Depósitos,passivo_depositos,,True,4646000006,OBRIGAÇÕES POR REPASSES - FINEP,464
+Passivo,1,Depósitos,passivo_depositos,,True,4649000003,OBRIGAÇÕES POR REPASSES - OUTRAS INSTITUIÇÕES OFICIAIS,464
+Passivo,1,Depósitos,passivo_depositos,,True,4660000006,Repasses do Exterior,466
+Passivo,1,Depósitos,passivo_depositos,,True,4661000005,OBRIGAÇÕES POR REPASSES DO EXTERIOR,466
+Passivo,1,Depósitos,passivo_depositos,,True,4669900004,(+/-) AJUSTE DE HEDGE DE VALOR JUSTO,466
+Passivo,1,Depósitos,passivo_depositos,,True,4680000000,Arrendamento,468
+Passivo,1,Depósitos,passivo_depositos,,True,4685000005,ARRENDATÁRIO,468
+Passivo,1,Depósitos,passivo_depositos,,True,4700000007,INSTRUMENTOS FINANCEIROS DERIVATIVOS,470
+Passivo,1,Depósitos,passivo_depositos,,True,4710000004,Instrumentos Financeiros Derivativos,471
+Passivo,1,Depósitos,passivo_depositos,,True,4710100007,CONTRATOS DE CÂMBIO - COMPRA DE MOEDA ESTRANGEIRA,471
+Passivo,1,Depósitos,passivo_depositos,,True,4710200000,CONTRATOS DE CÂMBIO - VENDA DE MOEDA ESTRANGEIRA,471
+Passivo,1,Depósitos,passivo_depositos,,True,4710500009,INSTRUMENTOS FINANCEIROS DERIVATIVOS - HEDGE DE CARTEIRA DE ATIVOS - LIG,471
+Passivo,1,Depósitos,passivo_depositos,,True,4711000003,OPERAÇÕES DE SWAP,471
+Passivo,1,Depósitos,passivo_depositos,,True,4713000001,COMPRAS A TERMO A PAGAR,471
+Passivo,1,Depósitos,passivo_depositos,,True,4714000000,VENDAS A TERMO A ENTREGAR,471
+Passivo,1,Depósitos,passivo_depositos,,True,4715000009,MERCADOS FUTUROS - AJUSTES DIARIOS A PAGAR,471
+Passivo,1,Depósitos,passivo_depositos,,True,4716000008,PRÊMIOS DE OPÇÕES LANÇADAS - AÇÕES,471
+Passivo,1,Depósitos,passivo_depositos,,True,4717000007,"PRÊMIOS DE OPCOES LANÇADAS - OUTROS ATIVOS, EXCETO AÇÕES",471
+Passivo,1,Depósitos,passivo_depositos,,True,4718000006,DERIVATIVOS DE CRÉDITO,471
+Passivo,1,Depósitos,passivo_depositos,,True,4718500001,OUTROS INSTRUMENTOS FINANCEIROS DERIVATIVOS,471
+Passivo,1,Depósitos,passivo_depositos,,True,4800000000,PROVISÕES E OUTRAS OBRIGAÇÕES COM INSTRUMENTOS FINANCEIROS,480
+Passivo,1,Depósitos,passivo_depositos,,True,4810000007,Compromissos de Crédito e Créditos a Liberar,481
+Passivo,1,Depósitos,passivo_depositos,,True,4811000006,PROVISÃO PARA PERDAS ESPERADAS COM COMPROMISSOS DE CRÉDITO,481
+Passivo,1,Depósitos,passivo_depositos,,True,4812000005,PROVISÃO PARA PERDAS ESPERADAS COM CRÉDITOS A LIBERAR,481
+Passivo,1,Depósitos,passivo_depositos,,True,4830000001,Garantias Financeiras Prestadas,483
+Passivo,1,Depósitos,passivo_depositos,,True,4831000000,RECEITAS A APROPRIAR - PRÊMIOS RECEBIDOS POR GARANTIAS FINANCEIRAS PRESTADAS,483
+Passivo,1,Depósitos,passivo_depositos,,True,4832000009,PROVISÃO PARA PERDAS ESPERADAS COM GARANTIAS FINANCEIRAS PRESTADAS,483
+Passivo,1,Depósitos,passivo_depositos,,True,4850000005,Operações de Arrendamento Operacional,485
+Passivo,1,Depósitos,passivo_depositos,,True,4851000004,PROVISÃO PARA PERDAS ESPERADAS ASSOCIADAS A RISCO DE CRÉDITO,485
+Passivo,1,Depósitos,passivo_depositos,,True,4880000006,Obrigações por Empréstimos de Instrumentos Financeiros,488
+Passivo,1,Depósitos,passivo_depositos,,True,4881000005,VALORES A PAGAR DE EMPRÉSTIMOS DE INSTRUMENTOS FINANCEIROS,488
+Passivo,1,Depósitos,passivo_depositos,,True,4885000001,OBRIGAÇÕES POR VENDA DE INSTRUMENTOS FINANCEIROS DE TERCEIROS EMPRESTADOS,488
+Passivo,1,Depósitos,passivo_depositos,,True,4900000003,OUTRAS OBRIGAÇÕES,490
+Passivo,1,Depósitos,passivo_depositos,,True,4910000000,Cobrança e Arrecadação de Tributos e Assemelhados,491
+Passivo,1,Depósitos,passivo_depositos,,True,4911000009,IOF A RECOLHER,491
+Passivo,1,Depósitos,passivo_depositos,,True,4912500003,RECURSOS DO PROAGRO,491
+Passivo,1,Depósitos,passivo_depositos,,True,4913000007,RECEBIMENTOS DE CONTRIBUIÇÃO SINDICAL,491
+Passivo,1,Depósitos,passivo_depositos,,True,4913500002,RECEBIMENTOS DE CONTRIBUIÇÕES PREVIDENCIÁRIAS,491
+Passivo,1,Depósitos,passivo_depositos,,True,4914000006,RECEBIMENTOS DE TRIBUTOS ESTADUAIS E MUNICIPAIS,491
+Passivo,1,Depósitos,passivo_depositos,,True,4915000005,RECEBIMENTOS DE TRIBUTOS FEDERAIS,491
+Passivo,1,Depósitos,passivo_depositos,,True,4916000004,RECEBIMENTOS DO FGTS,491
+Passivo,1,Depósitos,passivo_depositos,,True,4930000004,Sociais e Estatutárias,493
+Passivo,1,Depósitos,passivo_depositos,,True,4931000003,REMUNERAÇÃO DO CAPITAL A PAGAR,493
+Passivo,1,Depósitos,passivo_depositos,,True,4931500008,PROVISÃO PARA PARTICIPAÇÕES NOS LUCROS,493
+Passivo,1,Depósitos,passivo_depositos,,True,4933000001,GRATIFICAÇÕES E PARTICIPAÇÕES A PAGAR,493
+Passivo,1,Depósitos,passivo_depositos,,True,4935500004,DEPÓSITO PARA GARANTIA DE PATRIMÔNIO LÍQUIDO EXIGIDO,493
+Passivo,1,Depósitos,passivo_depositos,,True,4940000001,Fiscais e Previdenciárias,494
+Passivo,1,Depósitos,passivo_depositos,,True,4941000000,IMPOSTOS E CONTRIBUIÇÕES SOBRE LUCROS A PAGAR,494
+Passivo,1,Depósitos,passivo_depositos,,True,4941500005,PROVISÃO P/IMPOSTOS E CONTRIBUIÇÕES SOBRE LUCROS,494
+Passivo,1,Depósitos,passivo_depositos,,True,4942000009,IMPOSTOS E CONTRIBUIÇÕES A RECOLHER,494
+Passivo,1,Depósitos,passivo_depositos,,True,4943000008,PROVISÃO PARA IMPOSTOS E CONTRIBUIÇÕES DIFERIDOS,494
+Passivo,1,Depósitos,passivo_depositos,,True,4950000008,Negociação e Intermediação de Valores,495
+Passivo,1,Depósitos,passivo_depositos,,True,4950500003,AQUISIÇÃO E SUBSCRIÇÃO DE TÍTULOS DECORRENTES DE LANÇAMENTO,495
+Passivo,1,Depósitos,passivo_depositos,,True,4951000007,CAIXAS DE REGISTRO E LIQUIDAÇÃO,495
+Passivo,1,Depósitos,passivo_depositos,,True,4951500002,COMISSÕES E CORRETAGENS A PAGAR,495
+Passivo,1,Depósitos,passivo_depositos,,True,4952100009,COTAS A EMITIR,495
+Passivo,1,Depósitos,passivo_depositos,,True,4952400008,COTAS A RESGATAR,495
+Passivo,1,Depósitos,passivo_depositos,,True,4953000005,CREDORES CONTA LIQUIDAÇÕES PENDENTES,495
+Passivo,1,Depósitos,passivo_depositos,,True,4953300004,APLICAÇÕES INTERFINANCEIRAS DE TERCEIROS A LIQUIDAR,495
+Passivo,1,Depósitos,passivo_depositos,,True,4954000004,OPERAÇÕES COM ATIVOS FINANCEIROS E MERCADORIAS A LIQUIDAR,495
+Passivo,1,Depósitos,passivo_depositos,,True,4959000009,OUTRAS OBRIGAÇÕES POR NEGOCIAÇÃO E INTERMEDIAÇÃO DE VALORES,495
+Passivo,1,Depósitos,passivo_depositos,,True,4960000005,Recursos para Destinação Específica,496
+Passivo,1,Depósitos,passivo_depositos,,True,4961000004,OBRIGAÇÕES DE OPERAÇÕES COM LOTERIAS,496
+Passivo,1,Depósitos,passivo_depositos,,True,4963000002,OBRIGAÇÕES POR FUNDOS E PROGRAMAS SOCIAIS,496
+Passivo,1,Depósitos,passivo_depositos,,True,4965000000,OBRIGAÇÕES POR FUNDOS FINANCEIROS E DE DESENVOLVIMENTO,496
+Passivo,1,Depósitos,passivo_depositos,,True,4970000002,Operações Especiais,497
+Passivo,1,Depósitos,passivo_depositos,,True,4974500003,FUNDO DE INVESTIMENTOS SETORIAIS,497
+Passivo,1,Depósitos,passivo_depositos,,True,4980000009,Obrigações Diversas,498
+Passivo,1,Depósitos,passivo_depositos,,True,4981300007,TAXA DE ADMINISTRAÇÃO ANTECIPADA,498
+Passivo,1,Depósitos,passivo_depositos,,True,4981500003,ATIVOS NÃO FINANCEIROS A ENTREGAR DECORRENTES DE ADIANTAMENTOS RECEBIDOS,498
+Passivo,1,Depósitos,passivo_depositos,,True,4982000007,OBRIGAÇÕES EM MOEDA ESTRANGEIRA,498
+Passivo,1,Depósitos,passivo_depositos,,True,4985500009,OBRIGAÇÕES VINCULADAS AO TESOURO NACIONAL,498
+Passivo,1,Depósitos,passivo_depositos,,True,4988600009,VALORES A REPASSAR,498
+Passivo,1,Depósitos,passivo_depositos,,True,4989300009,OBRIGAÇÕES POR RECURSOS DE CONSORCIADOS GRUPOS ENCERRADOS - RECURSOS NÃO PROCURADOS,498
+Passivo,1,Depósitos,passivo_depositos,,True,4989700001,OBRIGAÇÕES POR ADIANTAMENTOS A TERCEIROS,498
+Passivo,1,Depósitos,passivo_depositos,,True,4990000006,Diversas,499
+Passivo,1,Depósitos,passivo_depositos,,True,4990100009,OBRIGAÇÕES POR TRANSAÇÕES DE PAGAMENTO,499
+Passivo,1,Depósitos,passivo_depositos,,True,4990200002,OBRIGAÇÕES POR DEVOLUÇÃO DE TARIFAS,499
+Passivo,1,Depósitos,passivo_depositos,,True,4990300005,OBRIGAÇÕES POR SERVIÇOS DE INSTITUIDORES DE ARRANJO,499
+Passivo,1,Depósitos,passivo_depositos,,True,4990400008,OBRIGAÇÕES POR EMPRÉSTIMOS E FINANCIAMENTOS ENTRE PESSOAS,499
+Passivo,1,Depósitos,passivo_depositos,,True,4990500001,CHEQUES ADMINISTRATIVOS,499
+Passivo,1,Depósitos,passivo_depositos,,True,4990600004,VALORES A DEVOLVER A CLIENTES,499
+Passivo,1,Depósitos,passivo_depositos,,True,4990800000,VALORES A PAGAR EM MOEDA ESTRANGEIRA,499
+Passivo,1,Depósitos,passivo_depositos,,True,4991000005,CREDORES POR RECURSOS A LIBERAR,499
+Passivo,1,Depósitos,passivo_depositos,,True,4991200001,CONTRATOS DE ASSUNÇÃO DE OBRIGAÇÕES,499
+Passivo,1,Depósitos,passivo_depositos,,True,4991500000,ADIANTAMENTOS PARA FUTURO AUMENTO DE CAPITAL,499
+Passivo,1,Depósitos,passivo_depositos,,True,4991700006,OBRIGAÇÕES POR OPERAÇÕES VINCULADAS A CESSÃO,499
+Passivo,1,Depósitos,passivo_depositos,,True,4992000004,OBRIGAÇÕES POR AQUISIÇÃO DE BENS E DIREITOS,499
+Passivo,1,Depósitos,passivo_depositos,,True,4992300003,OBRIGAÇÕES POR CONTRIBUIÇÕES AO SFH,499
+Passivo,1,Depósitos,passivo_depositos,,True,4992500009,OBRIGAÇÕES POR CONVÊNIOS OFICIAIS,499
+Passivo,1,Depósitos,passivo_depositos,,True,4992700005,OBRIGAÇÕES DE PAGAMENTO EM NOME DE TERCEIROS,499
+Passivo,1,Depósitos,passivo_depositos,,True,4993000003,PROVISÃO PARA PAGAMENTOS A EFETUAR,499
+Passivo,1,Depósitos,passivo_depositos,,True,4993500008,PROVISÃO PARA CONTINGÊNCIAS,499
+Passivo,1,Depósitos,passivo_depositos,,True,4995500006,RECURSOS VINCULADOS A OPERAÇÕES DE CRÉDITO,499
+Passivo,1,Depósitos,passivo_depositos,,True,4996000000,RECURSOS DE GARANTIAS REALIZADAS,499
+Passivo,1,Depósitos,passivo_depositos,,True,4996500005,RECURSOS EM TRÂNSITO DE TERCEIROS,499
+Passivo,1,Depósitos,passivo_depositos,,True,4997000009,RECURSOS DO FGTS PARA AMORTIZAÇÕES,499
+Passivo,1,Depósitos,passivo_depositos,,True,4998000008,SUBSCRIÇÕES DE CAPITAL A INTEGRALIZAR,499
+Passivo,1,Depósitos,passivo_depositos,,True,4998200004,PASSIVOS ATUARIAIS,499
+Passivo,1,Depósitos,passivo_depositos,,True,4998300007,VALORES A PAGAR A SOCIEDADE ADMINISTRADORA,499
+Passivo,1,Depósitos,passivo_depositos,,True,4998500003,VALORES A PAGAR A SOCIEDADES LIGADAS,499
+Passivo,1,Depósitos,passivo_depositos,,True,4999000007,CREDORES DIVERSOS - EXTERIOR,499
+Passivo,1,Depósitos,passivo_depositos,,True,4999200003,CREDORES DIVERSOS - PAÍS,499
+Passivo,1,Depósitos,passivo_depositos,,True,4999400009,OBRIGAÇÕES ESPECÍFICAS DE CONTROLADAS NÃO SUJEITAS À AUTORIZAÇÃO DO BANCO CENTRAL,499
+Passivo,1,Depósitos,passivo_depositos,,True,4999800001,GANHOS NO RECONHECIMENTO INICIAL A APROPRIAR,499
+Passivo,1,Depósitos,passivo_depositos,,True,4999900004,RECEITAS A APROPRIAR,499
+Passivo,2,Depósitos Interfinanceiros,passivo_dep_interfin,passivo_depositos,False,4131000009,DEPÓSITOS INTERFINANCEIROS,413
+Passivo,2,Depósitos Interfinanceiros,passivo_dep_interfin,passivo_depositos,False,4139900008,(+/-) AJUSTE DE HEDGE DE VALOR JUSTO,413
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4000000006,Passivo Exigível,400
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4100000009,DEPÓSITOS,410
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4110000006,Depósitos à Vista,411
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4110500001,DEPÓSITOS À VISTA DE LIGADAS,411
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4111000005,DEPÓSITOS DE PESSOAS NATURAIS,411
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4112000004,DEPÓSITOS DE PESSOAS JURÍDICAS,411
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4113000003,DEPÓSITOS DE INSTITUIÇÕES DO SISTEMA FINANCEIRO,411
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4114000002,DEPÓSITOS DE GOVERNOS,411
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4116000000,DEPÓSITOS DE DOMICILIADOS NO EXTERIOR,411
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4116500005,DEPÓSITOS ESPECIAIS DO TESOURO NACIONAL,411
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4117500004,DEPÓSITOS OBRIGATÓRIOS,411
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4117700000,DEPÓSITOS OBRIGATÓRIOS DE LIGADAS,411
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4118000008,DEPÓSITOS PARA INVESTIMENTOS DECORRENTES DE INCENTIVOS FISCAIS,411
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4118500003,DEPÓSITOS VINCULADOS,411
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4119000007,SALDOS CREDORES EM CONTAS DE EMPRÉSTIMOS E FINANCIAMENTOS,411
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4119800001,CONTAS ENCERRADAS,411
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4120000003,Depósitos de Poupança,412
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4121000002,DEPÓSITOS DE POUPANÇA LIVRES - PESSOAS NATURAIS,412
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4122000001,DEPÓSITOS DE POUPANÇA LIVRES - PESSOAS JURÍDICAS,412
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4122500006,DEPÓSITOS DE POUPANÇA DE LIGADAS,412
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4122700002,DEPÓSITOS DE POUPANÇA RURAL,412
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4129500009,OUTROS DEPÓSITOS DE POUPANÇA,412
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4129800008,CONTAS ENCERRADAS,412
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4130000000,Depósitos Interfinanceiros,413
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4140000007,Depósitos sob Aviso,414
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4142000005,DEPÓSITOS DE AVISO PRÉVIO EM MOEDAS ESTRANGEIRAS,414
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4150000004,Depósitos a Prazo,415
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4151000003,DEPÓSITOS A PRAZO,415
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4152000002,DEPÓSITOS A PRAZO EM MOEDAS ESTRANGEIRAS,415
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4155000009,DEPÓSITOS JUDICIAIS E ADMINISTRATIVOS MANTIDOS NA INSTITUIÇÃO,415
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4159900002,(+/-) AJUSTE DE HEDGE DE VALOR JUSTO,415
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4160000001,Obrigações por Depósitos Especiais e de Fundos e Programas,416
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4161000000,DEPÓSITOS ESPECIAIS COM REMUNERAÇÃO,416
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4161500005,DEPÓSITOS DE PAGAMENTOS POR CONSIGNAÇÃO - EXTRAJUDICIAL,416
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4162000009,DEPÓSITOS DE FUNDOS E PROGRAMAS COM REMUNERAÇÃO,416
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4163000008,DEPÓSITOS DO FGTS,416
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4180000005,Depósitos em Moedas Estrangeiras,418
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4181000004,DEPÓSITOS EM MOEDAS ESTRANGEIRAS NO PAÍS,418
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4190000002,Outros Depósitos,419
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4192000000,DEPÓSITOS PARA LIQUIDAÇÃO DE AJUSTES E DE POSIÇÕES EM SISTEMAS DE COMPENSAÇÃO E DE LIQUIDAÇÃO,419
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4192500005,RECURSOS DISPONÍVEIS DE CLIENTES,419
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4193000009,CONTA DE PAGAMENTO PRÉ-PAGA,419
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4195000007,ORDENS DE PAGAMENTO EM MOEDA NACIONAL,419
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4200000002,OBRIGAÇÕES POR OPERAÇÕES COMPROMISSADAS,420
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4210000009,Carteira Própria,421
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4211000008,RECOMPRAS A LIQUIDAR - CARTEIRA PROPRIA,421
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4220000006,Carteira de Terceiros,422
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4222000004,RECOMPRAS A LIQUIDAR - CARTEIRA DE TERCEIROS,422
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4230000003,Obrigações por Venda de Títulos de Livre Movimentação,423
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4234000009,RECOMPRAS A LIQUIDAR - VENDA DE TÍTULOS DE TERCEIROS DE LIVRE MOVIMENTAÇÃO,423
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4300000005,OUTROS INSTRUMENTOS DE DÍVIDA,430
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4310000002,Recursos de Aceites Cambiais,431
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4311000001,OBRIGAÇÕES POR ACEITES DE TÍTULOS CAMBIAIS,431
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4320000009,Recursos por Emissões de Letras,432
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4320500004,OBRIGAÇÕES POR EMISSÃO DE LETRAS IMOBILIÁRIAS GARANTIDAS,432
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4322500002,OBRIGAÇÕES POR EMISSÃO DE LETRAS HIPOTECÁRIAS,432
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4323500001,OBRIGAÇÕES POR EMISSÃO DE LETRAS DE CRÉDITO IMOBILIÁRIO,432
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4324000005,OBRIGAÇÕES POR EMISSÃO DE LETRAS DE CRÉDITO DO AGRONEGÓCIO,432
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4325000004,OBRIGAÇÕES POR EMISSÃO DE LETRAS FINANCEIRAS,432
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4326000003,LETRAS DE CRÉDITO DE DESENVOLVIMENTO,432
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4329300009,OUTRAS,432
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4329900007,(+/-) AJUSTE DE HEDGE DE VALOR JUSTO,432
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4340000003,Recursos de Debêntures,434
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4341000002,OBRIGAÇÕES POR EMISSÃO DE DEBÊNTURES,434
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4350000000,Obrigações por Títulos e Valores Mobiliários no Exterior,435
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4351000009,OBRIGAÇÕES POR TÍTULOS E VALORES MOBILIÁRIOS NO EXTERIOR,435
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4359900008,(+/-) AJUSTE DE HEDGE DE VALOR JUSTO,435
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4370000004,Captação por Certificados de Operações Estruturadas,437
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4371300002,CAPTAÇÃO POR CERTIFICADOS DE OPERAÇÕES ESTRUTURADAS,437
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4379900002,(+/-) AJUSTE DE HEDGE DE VALOR JUSTO,437
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4390000008,Instrumentos de Dívida com Cláusulas de Subordinação,439
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4391000007,TÍTULOS DE DÍVIDA ELEGÍVEIS A CAPITAL,439
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4392000006,DÍVIDAS SUBORDINADAS ELEGÍVEIS A CAPITAL,439
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4396000002,TÍTULOS DE DÍVIDA NÃO ELEGÍVEIS A CAPITAL,439
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4397000001,DÍVIDAS SUBORDINADAS NÃO ELEGÍVEIS A CAPITAL,439
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4399900006,(+/-) AJUSTE DE HEDGE DE VALOR JUSTO,439
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4400000008,RELAÇÕES INTERFINANCEIRAS,440
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4410000005,Obrigações junto a Participantes de Sistema de Liquidação e de Arranjo de Pagamento,441
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4411000004,CHEQUES E OUTROS PAPÉIS RECEBIDOS,441
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4412000003,RECEBIMENTOS A DEVOLVER,441
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4413000002,RECEBIMENTOS REMETIDOS,441
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4415000000,RECEBIMENTOS REMETIDOS A REGULARIZAR,441
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4416000009,TRANSAÇÕES DE PAGAMENTO,441
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4416500004,OBRIGAÇÕES COM TRANSAÇÕES DE PAGAMENTOS INSTANTÂNEOS,441
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4420000002,Obrigações Vinculadas,442
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4421000001,REDESCONTO DO BANCO CENTRAL - COMPRA COM COMPROMISSO DE REVENDA - TÍTULOS PÚBLICOS FEDERAIS,442
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4430000009,Repasses Interfinanceiros,443
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4431000008,OBRIGAÇÕES POR REPASSES INTERFINANCEIROS,443
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4440000006,Relações com Correspondentes,444
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4443000003,CORRESPONDENTES NO PAÍS,444
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4450000003,Recursos Recebidos de Cooperativas Filiadas,445
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4451500007,RECURSOS RECEBIDOS - DEPÓSITOS DE POUPANÇA LIVRES PESSOAS NATURAIS,445
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4452700002,RECURSOS RECEBIDOS - DEPÓSITOS DE POUPANÇA RURAL,445
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4500000001,RELAÇÕES INTERDEPENDÊNCIAS,450
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4520000005,Transferências Internas de Recursos,452
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4521000004,CHEQUES E DOCUMENTOS A LIQUIDAR,452
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4600000004,OBRIGAÇÕES POR EMPRÉSTIMOS E REPASSES,460
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4610000001,Empréstimos no País - Instituições Oficiais,461
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4615000006,SFH - CONTA EMPRÉSTIMOS,461
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4618000003,OBRIGAÇÕES POR AQUISIÇÃO DE TÍTULOS FEDERAIS,461
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4620000008,Empréstimos no País - Outras Instituições,462
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4621000007,OBRIGAÇÕES POR EMPRÉSTIMOS NO PAÍS,462
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4629900006,(+/-) AJUSTE DE HEDGE DE VALOR JUSTO,462
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4630000005,Empréstimos no Exterior,463
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4631000004,OBRIGAÇÕES EM MOEDAS ESTRANGEIRAS,463
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4633000002,OBRIGAÇÕES POR EMPRÉSTIMOS NO EXTERIOR,463
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4639900003,(+/-) AJUSTE DE HEDGE DE VALOR JUSTO,463
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4640000002,Repasses do País - Instituições Oficiais,464
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4641000001,OBRIGAÇÕES POR REPASSES - TESOURO NACIONAL,464
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4642000000,OBRIGAÇÕES POR REPASSES - BANCO DO BRASIL,464
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4643000009,OBRIGAÇÕES POR REPASSES - BNDES,464
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4644000008,OBRIGAÇÕES POR REPASSES - CEF,464
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4645000007,OBRIGAÇÕES POR REPASSES - FINAME,464
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4646000006,OBRIGAÇÕES POR REPASSES - FINEP,464
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4649000003,OBRIGAÇÕES POR REPASSES - OUTRAS INSTITUIÇÕES OFICIAIS,464
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4660000006,Repasses do Exterior,466
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4661000005,OBRIGAÇÕES POR REPASSES DO EXTERIOR,466
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4669900004,(+/-) AJUSTE DE HEDGE DE VALOR JUSTO,466
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4680000000,Arrendamento,468
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4685000005,ARRENDATÁRIO,468
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4700000007,INSTRUMENTOS FINANCEIROS DERIVATIVOS,470
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4710000004,Instrumentos Financeiros Derivativos,471
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4710100007,CONTRATOS DE CÂMBIO - COMPRA DE MOEDA ESTRANGEIRA,471
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4710200000,CONTRATOS DE CÂMBIO - VENDA DE MOEDA ESTRANGEIRA,471
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4710500009,INSTRUMENTOS FINANCEIROS DERIVATIVOS - HEDGE DE CARTEIRA DE ATIVOS - LIG,471
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4711000003,OPERAÇÕES DE SWAP,471
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4713000001,COMPRAS A TERMO A PAGAR,471
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4714000000,VENDAS A TERMO A ENTREGAR,471
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4715000009,MERCADOS FUTUROS - AJUSTES DIARIOS A PAGAR,471
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4716000008,PRÊMIOS DE OPÇÕES LANÇADAS - AÇÕES,471
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4717000007,"PRÊMIOS DE OPCOES LANÇADAS - OUTROS ATIVOS, EXCETO AÇÕES",471
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4718000006,DERIVATIVOS DE CRÉDITO,471
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4718500001,OUTROS INSTRUMENTOS FINANCEIROS DERIVATIVOS,471
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4800000000,PROVISÕES E OUTRAS OBRIGAÇÕES COM INSTRUMENTOS FINANCEIROS,480
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4810000007,Compromissos de Crédito e Créditos a Liberar,481
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4811000006,PROVISÃO PARA PERDAS ESPERADAS COM COMPROMISSOS DE CRÉDITO,481
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4812000005,PROVISÃO PARA PERDAS ESPERADAS COM CRÉDITOS A LIBERAR,481
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4830000001,Garantias Financeiras Prestadas,483
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4831000000,RECEITAS A APROPRIAR - PRÊMIOS RECEBIDOS POR GARANTIAS FINANCEIRAS PRESTADAS,483
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4832000009,PROVISÃO PARA PERDAS ESPERADAS COM GARANTIAS FINANCEIRAS PRESTADAS,483
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4850000005,Operações de Arrendamento Operacional,485
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4851000004,PROVISÃO PARA PERDAS ESPERADAS ASSOCIADAS A RISCO DE CRÉDITO,485
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4880000006,Obrigações por Empréstimos de Instrumentos Financeiros,488
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4881000005,VALORES A PAGAR DE EMPRÉSTIMOS DE INSTRUMENTOS FINANCEIROS,488
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4885000001,OBRIGAÇÕES POR VENDA DE INSTRUMENTOS FINANCEIROS DE TERCEIROS EMPRESTADOS,488
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4900000003,OUTRAS OBRIGAÇÕES,490
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4910000000,Cobrança e Arrecadação de Tributos e Assemelhados,491
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4911000009,IOF A RECOLHER,491
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4912500003,RECURSOS DO PROAGRO,491
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4913000007,RECEBIMENTOS DE CONTRIBUIÇÃO SINDICAL,491
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4913500002,RECEBIMENTOS DE CONTRIBUIÇÕES PREVIDENCIÁRIAS,491
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4914000006,RECEBIMENTOS DE TRIBUTOS ESTADUAIS E MUNICIPAIS,491
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4915000005,RECEBIMENTOS DE TRIBUTOS FEDERAIS,491
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4916000004,RECEBIMENTOS DO FGTS,491
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4930000004,Sociais e Estatutárias,493
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4931000003,REMUNERAÇÃO DO CAPITAL A PAGAR,493
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4931500008,PROVISÃO PARA PARTICIPAÇÕES NOS LUCROS,493
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4933000001,GRATIFICAÇÕES E PARTICIPAÇÕES A PAGAR,493
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4935500004,DEPÓSITO PARA GARANTIA DE PATRIMÔNIO LÍQUIDO EXIGIDO,493
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4940000001,Fiscais e Previdenciárias,494
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4941000000,IMPOSTOS E CONTRIBUIÇÕES SOBRE LUCROS A PAGAR,494
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4941500005,PROVISÃO P/IMPOSTOS E CONTRIBUIÇÕES SOBRE LUCROS,494
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4942000009,IMPOSTOS E CONTRIBUIÇÕES A RECOLHER,494
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4943000008,PROVISÃO PARA IMPOSTOS E CONTRIBUIÇÕES DIFERIDOS,494
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4950000008,Negociação e Intermediação de Valores,495
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4950500003,AQUISIÇÃO E SUBSCRIÇÃO DE TÍTULOS DECORRENTES DE LANÇAMENTO,495
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4951000007,CAIXAS DE REGISTRO E LIQUIDAÇÃO,495
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4951500002,COMISSÕES E CORRETAGENS A PAGAR,495
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4952100009,COTAS A EMITIR,495
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4952400008,COTAS A RESGATAR,495
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4953000005,CREDORES CONTA LIQUIDAÇÕES PENDENTES,495
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4953300004,APLICAÇÕES INTERFINANCEIRAS DE TERCEIROS A LIQUIDAR,495
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4954000004,OPERAÇÕES COM ATIVOS FINANCEIROS E MERCADORIAS A LIQUIDAR,495
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4959000009,OUTRAS OBRIGAÇÕES POR NEGOCIAÇÃO E INTERMEDIAÇÃO DE VALORES,495
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4960000005,Recursos para Destinação Específica,496
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4961000004,OBRIGAÇÕES DE OPERAÇÕES COM LOTERIAS,496
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4963000002,OBRIGAÇÕES POR FUNDOS E PROGRAMAS SOCIAIS,496
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4965000000,OBRIGAÇÕES POR FUNDOS FINANCEIROS E DE DESENVOLVIMENTO,496
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4970000002,Operações Especiais,497
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4974500003,FUNDO DE INVESTIMENTOS SETORIAIS,497
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4980000009,Obrigações Diversas,498
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4981300007,TAXA DE ADMINISTRAÇÃO ANTECIPADA,498
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4981500003,ATIVOS NÃO FINANCEIROS A ENTREGAR DECORRENTES DE ADIANTAMENTOS RECEBIDOS,498
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4982000007,OBRIGAÇÕES EM MOEDA ESTRANGEIRA,498
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4985500009,OBRIGAÇÕES VINCULADAS AO TESOURO NACIONAL,498
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4988600009,VALORES A REPASSAR,498
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4989300009,OBRIGAÇÕES POR RECURSOS DE CONSORCIADOS GRUPOS ENCERRADOS - RECURSOS NÃO PROCURADOS,498
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4989700001,OBRIGAÇÕES POR ADIANTAMENTOS A TERCEIROS,498
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4990000006,Diversas,499
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4990100009,OBRIGAÇÕES POR TRANSAÇÕES DE PAGAMENTO,499
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4990200002,OBRIGAÇÕES POR DEVOLUÇÃO DE TARIFAS,499
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4990300005,OBRIGAÇÕES POR SERVIÇOS DE INSTITUIDORES DE ARRANJO,499
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4990400008,OBRIGAÇÕES POR EMPRÉSTIMOS E FINANCIAMENTOS ENTRE PESSOAS,499
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4990500001,CHEQUES ADMINISTRATIVOS,499
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4990600004,VALORES A DEVOLVER A CLIENTES,499
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4990800000,VALORES A PAGAR EM MOEDA ESTRANGEIRA,499
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4991000005,CREDORES POR RECURSOS A LIBERAR,499
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4991200001,CONTRATOS DE ASSUNÇÃO DE OBRIGAÇÕES,499
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4991500000,ADIANTAMENTOS PARA FUTURO AUMENTO DE CAPITAL,499
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4991700006,OBRIGAÇÕES POR OPERAÇÕES VINCULADAS A CESSÃO,499
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4992000004,OBRIGAÇÕES POR AQUISIÇÃO DE BENS E DIREITOS,499
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4992300003,OBRIGAÇÕES POR CONTRIBUIÇÕES AO SFH,499
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4992500009,OBRIGAÇÕES POR CONVÊNIOS OFICIAIS,499
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4992700005,OBRIGAÇÕES DE PAGAMENTO EM NOME DE TERCEIROS,499
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4993000003,PROVISÃO PARA PAGAMENTOS A EFETUAR,499
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4993500008,PROVISÃO PARA CONTINGÊNCIAS,499
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4995500006,RECURSOS VINCULADOS A OPERAÇÕES DE CRÉDITO,499
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4996000000,RECURSOS DE GARANTIAS REALIZADAS,499
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4996500005,RECURSOS EM TRÂNSITO DE TERCEIROS,499
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4997000009,RECURSOS DO FGTS PARA AMORTIZAÇÕES,499
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4998000008,SUBSCRIÇÕES DE CAPITAL A INTEGRALIZAR,499
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4998200004,PASSIVOS ATUARIAIS,499
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4998300007,VALORES A PAGAR A SOCIEDADE ADMINISTRADORA,499
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4998500003,VALORES A PAGAR A SOCIEDADES LIGADAS,499
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4999000007,CREDORES DIVERSOS - EXTERIOR,499
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4999200003,CREDORES DIVERSOS - PAÍS,499
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4999400009,OBRIGAÇÕES ESPECÍFICAS DE CONTROLADAS NÃO SUJEITAS À AUTORIZAÇÃO DO BANCO CENTRAL,499
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4999800001,GANHOS NO RECONHECIMENTO INICIAL A APROPRIAR,499
+Passivo,2,Outros Depósitos,passivo_dep_outros,passivo_depositos,False,4999900004,RECEITAS A APROPRIAR,499
+Patrimônio Líquido,2,Ações em Tesouraria,pl_tesouraria,pl_total,False,6191000009,(-) AÇÕES EM TESOURARIA,619
+Patrimônio Líquido,2,Outros (Residual),pl_outros,pl_total,False,6000000004,Patrimônio Líquido,600
+Patrimônio Líquido,2,Outros (Residual),pl_outros,pl_total,False,6100000007,PATRIMÔNIO LÍQUIDO,610
+Patrimônio Líquido,2,Outros (Residual),pl_outros,pl_total,False,6110000004,Capital Social,611
+Patrimônio Líquido,2,Outros (Residual),pl_outros,pl_total,False,6111000003,CAPITAL,611
+Patrimônio Líquido,2,Outros (Residual),pl_outros,pl_total,False,6112000002,AUMENTO DE CAPITAL,611
+Patrimônio Líquido,2,Outros (Residual),pl_outros,pl_total,False,6114000000,(-) REDUÇÃO DE CAPITAL,611
+Patrimônio Líquido,2,Outros (Residual),pl_outros,pl_total,False,6115000009,(-) CAPITAL A REALIZAR,611
+Patrimônio Líquido,2,Outros (Residual),pl_outros,pl_total,False,6118000006,(+/-) VARIAÇÕES NO RESGATE DE COTAS,611
+Patrimônio Líquido,2,Outros (Residual),pl_outros,pl_total,False,6130000008,Reservas de Capital,613
+Patrimônio Líquido,2,Outros (Residual),pl_outros,pl_total,False,6131000007,RESERVA DE ÁGIOS POR SUBSCRIÇÃO DE AÇÕES,613
+Patrimônio Líquido,2,Outros (Residual),pl_outros,pl_total,False,6134000004,RESERVA DE PAGAMENTOS BASEADOS EM INSTRUMENTOS DE CAPITAL,613
+Patrimônio Líquido,2,Outros (Residual),pl_outros,pl_total,False,6139900006,OUTRAS RESERVAS DE CAPITAL,613
+Patrimônio Líquido,2,Outros (Residual),pl_outros,pl_total,False,6140000005,Reserva de Reavaliação,614
+Patrimônio Líquido,2,Outros (Residual),pl_outros,pl_total,False,6141000004,RESERVA DE REAVALIAÇÃO,614
+Patrimônio Líquido,2,Outros (Residual),pl_outros,pl_total,False,6150000002,Reservas de Lucros,615
+Patrimônio Líquido,2,Outros (Residual),pl_outros,pl_total,False,6151000001,RESERVA LEGAL,615
+Patrimônio Líquido,2,Outros (Residual),pl_outros,pl_total,False,6152000000,RESERVAS ESTATUTÁRIAS,615
+Patrimônio Líquido,2,Outros (Residual),pl_outros,pl_total,False,6154000008,RESERVAS PARA EXPANSÃO,615
+Patrimônio Líquido,2,Outros (Residual),pl_outros,pl_total,False,6155000007,RESERVAS DE LUCROS A REALIZAR,615
+Patrimônio Líquido,2,Outros (Residual),pl_outros,pl_total,False,6156000006,RESERVA PARA INCENTIVOS FISCAIS,615
+Patrimônio Líquido,2,Outros (Residual),pl_outros,pl_total,False,6158000004,RESERVAS ESPECIAIS DE LUCROS,615
+Patrimônio Líquido,2,Outros (Residual),pl_outros,pl_total,False,6160000009,(+/-) Ajustes de Avaliação Patrimonial,616
+Patrimônio Líquido,2,Outros (Residual),pl_outros,pl_total,False,6161500003,(+/-) INSTRUMENTOS FINANCEIROS CLASSIFICADOS COMO VJORA,616
+Patrimônio Líquido,2,Outros (Residual),pl_outros,pl_total,False,6162000007,(+/-) HEDGE DE FLUXO DE CAIXA,616
+Patrimônio Líquido,2,Outros (Residual),pl_outros,pl_total,False,6162500002,(+/-) HEDGE DE INVESTIMENTO NO EXTERIOR,616
+Patrimônio Líquido,2,Outros (Residual),pl_outros,pl_total,False,6163000006,(+/-) AJUSTES DE COMBINAÇÕES DE NEGÓCIOS,616
+Patrimônio Líquido,2,Outros (Residual),pl_outros,pl_total,False,6164000005,(+/-) AJUSTES DE AVALIAÇÃO ATUARIAL,616
+Patrimônio Líquido,2,Outros (Residual),pl_outros,pl_total,False,6165000004,(+/-) AJUSTES DE VARIAÇÃO CAMBIAL DE INVESTIMENTO NO EXTERIOR,616
+Patrimônio Líquido,2,Outros (Residual),pl_outros,pl_total,False,6166000003,(+/-) RISCO DE CRÉDITO PRÓPRIO,616
+Patrimônio Líquido,2,Outros (Residual),pl_outros,pl_total,False,6166500008,(-) GOODWILL EM NOVAS AQUISIÇÕES DE CONTROLADAS,616
+Patrimônio Líquido,2,Outros (Residual),pl_outros,pl_total,False,6167000002,(+/-) AQUISIÇÕES DE PARTICIPAÇÕES ENTRE ENTIDADES DO GRUPO,616
+Patrimônio Líquido,2,Outros (Residual),pl_outros,pl_total,False,6169000000,(+/-) OUTROS AJUSTES DE AVALIAÇÃO PATRIMONIAL,616
+Patrimônio Líquido,2,Outros (Residual),pl_outros,pl_total,False,6180000003,(+/-) Lucros ou Prejuízos Acumulados,618
+Patrimônio Líquido,2,Outros (Residual),pl_outros,pl_total,False,6181000002,(+/-) LUCROS OU PREJUÍZOS ACUMULADOS,618
+Patrimônio Líquido,2,Outros (Residual),pl_outros,pl_total,False,6188000005,(-) REMUNERAÇÃO DO CAPITAL PAGA ANTECIPADAMENTE,618
+Patrimônio Líquido,2,Outros (Residual),pl_outros,pl_total,False,6189000004,(+/-) GANHOS OU PERDAS DE CAPITAL NÃO REALIZADOS,618
+Patrimônio Líquido,2,Outros (Residual),pl_outros,pl_total,False,6190000000,(-) Ações em Tesouraria.,619
+Patrimônio Líquido,2,Outros (Residual),pl_outros,pl_total,False,6400000006,PARTICIPAÇÃO DE NÃO CONTROLADORES,640
+Patrimônio Líquido,2,Outros (Residual),pl_outros,pl_total,False,6410000003,Participação de Não Controladores,641
+Patrimônio Líquido,2,Outros (Residual),pl_outros,pl_total,False,6411000002,PARTICIPAÇÃO DE NÃO CONTROLADORES,641

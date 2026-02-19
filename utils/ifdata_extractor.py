@@ -878,16 +878,7 @@ def processar_periodo(ano_mes: str, dict_aliases: dict) -> pd.DataFrame:
     mes = int(ano_mes[4:6])
 
     if "Lucro Líquido Acumulado YTD" in df_out.columns and "Patrimônio Líquido" in df_out.columns:
-        if mes == 3:
-            fator = 4
-        elif mes == 6:
-            fator = 2
-        elif mes == 9:
-            fator = 12 / 9
-        elif mes == 12:
-            fator = 1
-        else:
-            fator = 12 / mes
+        fator = 12 / mes if mes else 1
 
         df_out["ROE Ac. YTD an. (%)"] = (
             (fator * df_out["Lucro Líquido Acumulado YTD"].fillna(0)) /

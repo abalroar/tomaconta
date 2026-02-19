@@ -375,17 +375,16 @@ def _calcular_metricas_derivadas(df: pd.DataFrame, periodo: str) -> pd.DataFrame
     # Lucro Líquido Acumulado YTD
     if "Lucro Líquido" in df.columns:
         mes = periodo[4:6]
-        # Fator de anualização baseado no trimestre
-        fator_map = {"03": 4, "06": 2, "09": 4/3, "12": 1}
-        fator = fator_map.get(mes, 1)
+        mes_int = int(mes) if str(mes).isdigit() else None
+        fator = 12 / mes_int if mes_int else 1
         df["Lucro Líquido Acumulado YTD"] = df["Lucro Líquido"]
         # Nota: o Lucro Líquido já vem acumulado do BCB
 
     # ROE Acumulado YTD Anualizado (%)
     if "Lucro Líquido" in df.columns and "Patrimônio Líquido" in df.columns:
         mes = periodo[4:6]
-        fator_map = {"03": 4, "06": 2, "09": 4/3, "12": 1}
-        fator = fator_map.get(mes, 1)
+        mes_int = int(mes) if str(mes).isdigit() else None
+        fator = 12 / mes_int if mes_int else 1
 
         # ROE = (Lucro / PL) * fator_anualização
         # Armazenado como decimal (0-1), não percentual
@@ -423,13 +422,15 @@ def _calcular_metricas_derivadas(df: pd.DataFrame, periodo: str) -> pd.DataFrame
             axis=1
         )
 
-    # Converter índices que vêm como percentual (0-100) para decimal (0-1)
+    # Converter índices que vêm como percentual (0-100) para decimal (0-1).
+    # Tratamento por linha (não por coluna inteira) para evitar dividir novamente
+    # valores que já estão em base decimal quando há dados mistos no mesmo período.
     for col in ["Índice de Basileia", "Índice de Imobilização"]:
         if col in df.columns:
-            # Se valores parecem estar em percentual (> 1), converter
-            max_val = df[col].max() if not df[col].isna().all() else 0
-            if max_val > 1:
-                df[col] = df[col] / 100
+            serie_num = pd.to_numeric(df[col], errors="coerce")
+            mask_percentual = serie_num.abs() > 1
+            if mask_percentual.any():
+                df.loc[mask_percentual, col] = serie_num.loc[mask_percentual] / 100
 
     return df
 
@@ -514,14 +515,16 @@ def extrair_capital(
     # Adicionar período
     df_pivot["Período"] = periodo_api_para_exibicao(periodo)
 
-    # Converter índices percentuais para decimal
+    # Converter índices percentuais para decimal com tratamento por linha
+    # para evitar dupla divisão em colunas com escala mista (0-1 e 0-100).
     for col in ["Índice de Capital Principal", "Índice de Capital Nível I",
                 "Índice de Basileia Capital", "Razão de Alavancagem",
                 "Índice de Imobilização Capital"]:
         if col in df_pivot.columns:
-            max_val = df_pivot[col].max() if not df_pivot[col].isna().all() else 0
-            if max_val > 1:
-                df_pivot[col] = df_pivot[col] / 100
+            serie_num = pd.to_numeric(df_pivot[col], errors="coerce")
+            mask_percentual = serie_num.abs() > 1
+            if mask_percentual.any():
+                df_pivot.loc[mask_percentual, col] = serie_num.loc[mask_percentual] / 100
 
     # Remover CodInst
     if "CodInst" in df_pivot.columns:

@@ -1,0 +1,320 @@
+{
+  "version": "0.3.0",
+  "updated_at": "2026-02-14",
+  "scope": "Aba DRE (Relatório 4)",
+  "notes": "Mapeamento explicativo expandido com granularidade da conta a1 e geração de planilha.",
+  "mappings": [
+    {
+      "label": "Rec. Aplicações Interfinanceiras Liquidez",
+      "ifdata_label": "Receita de Juros com Aplicações Interfinanceiras de Liquidez (a1)",
+      "cosif_depara": [
+        {
+          "account": "7141000003",
+          "description": "RENDAS DE APLICAÇÕES EM OPERAÇÕES COMPROMISSADAS"
+        },
+        {
+          "account": "7142000002",
+          "description": "RENDAS DE APLICAÇÕES EM DEPÓSITOS INTERFINANCEIROS"
+        },
+        {
+          "account": "8115020001",
+          "description": "(-) DESPESAS DE OPERAÇÕES COMPROMISSADAS (subconta COSIF informada no IFData)"
+        }
+      ],
+      "cosif_formula": "Somatório das contas COSIF [7141000003]+[7142000002]+[8115020001]",
+      "source": "IFData DRE (estrutura antiga a1) + validação amostral no 4060"
+    },
+    {
+      "label": "Rec. TVMs",
+      "ifdata_label": "Rendas de Títulos e Valores Mobiliários (b)",
+      "cosif_depara": [
+        {
+          "account": "7151000000",
+          "description": "RENDAS DE TÍTULOS DE RENDA FIXA"
+        },
+        {
+          "account": "7151300009",
+          "description": "RENDAS DE CERTIFICADOS DE OPERAÇÕES ESTRUTURADAS"
+        },
+        {
+          "account": "7151500005",
+          "description": "RENDAS DE TÍTULOS E VALORES MOBILIÁRIOS NO EXTERIOR"
+        },
+        {
+          "account": "7152000009",
+          "description": "RENDAS DE TÍTULOS DE RENDA VARIÁVEL"
+        },
+        {
+          "account": "7154000007",
+          "description": "RENDAS DE APLICAÇÕES EM FUNDOS DE INVESTIMENTO"
+        },
+        {
+          "account": "7155000006",
+          "description": "RENDAS DE APLICAÇÕES NO FUNDO DE DESENVOLVIMENTO SOCIAL"
+        },
+        {
+          "account": "7157500009",
+          "description": "LUCROS COM TÍTULOS DE RENDA FIXA"
+        }
+      ],
+      "cosif_formula": "Somatório das contas COSIF [7151000000]+[7151300009]+[7151500005]+[7152000009]+[7154000007]+[7155000006]+[7157500009]"
+    },
+    {
+      "label": "Rec. Crédito",
+      "ifdata_label": "Rendas de Operações de Crédito (c)",
+      "cosif_depara": [
+        {
+          "account": "7110000003",
+          "description": "Rendas de Operações de Crédito"
+        }
+      ],
+      "cosif_formula": "Somatório das contas COSIF [7110000003]"
+    },
+    {
+      "label": "Rec. Arrendamento Financeiro",
+      "ifdata_label": "Rendas de Arrendamento Financeiro (d)",
+      "cosif_depara": [
+        {
+          "account": "7120000000",
+          "description": "Rendas de Arrendamento"
+        }
+      ],
+      "cosif_formula": "Somatório das contas COSIF [7120000000]"
+    },
+    {
+      "label": "Rec. Outras Operações c/ Características de Crédito",
+      "ifdata_label": "Rendas de Outras Operações com Características de Concessão de Crédito (e)",
+      "cosif_depara": [
+        {
+          "account": "7160000008",
+          "description": "Rendas de Outras Operações Com Características de Crédito"
+        }
+      ],
+      "cosif_formula": "Somatório das contas COSIF [7160000008]"
+    },
+    {
+      "label": "Resultado de Intermediação Financeira Bruto",
+      "ifdata_label": "Resultado de Intermediação Financeira Bruto",
+      "cosif_depara": [
+        {
+          "account": "7140000004",
+          "description": "Rendas de Aplicações Interfinanceiras de Liquidez"
+        },
+        {
+          "account": "7151000000",
+          "description": "RENDAS DE TÍTULOS DE RENDA FIXA"
+        },
+        {
+          "account": "7151300009",
+          "description": "RENDAS DE CERTIFICADOS DE OPERAÇÕES ESTRUTURADAS"
+        },
+        {
+          "account": "7151500005",
+          "description": "RENDAS DE TÍTULOS E VALORES MOBILIÁRIOS NO EXTERIOR"
+        },
+        {
+          "account": "7152000009",
+          "description": "RENDAS DE TÍTULOS DE RENDA VARIÁVEL"
+        },
+        {
+          "account": "7154000007",
+          "description": "RENDAS DE APLICAÇÕES EM FUNDOS DE INVESTIMENTO"
+        },
+        {
+          "account": "7155000006",
+          "description": "RENDAS DE APLICAÇÕES NO FUNDO DE DESENVOLVIMENTO SOCIAL"
+        },
+        {
+          "account": "7157500009",
+          "description": "LUCROS COM TÍTULOS DE RENDA FIXA"
+        },
+        {
+          "account": "7110000003",
+          "description": "Rendas de Operações de Crédito"
+        },
+        {
+          "account": "7120000000",
+          "description": "Rendas de Arrendamento"
+        },
+        {
+          "account": "7160000008",
+          "description": "Rendas de Outras Operações Com Características de Crédito"
+        }
+      ],
+      "cosif_formula": "Somatório das contas COSIF de (a)+(b)+(c)+(d)+(e)"
+    },
+    {
+      "label": "Desp. Captação",
+      "ifdata_label": "Despesas de Captações (g)",
+      "cosif_depara": [
+        {
+          "account": "8110000002",
+          "description": "(-) Despesas de Captação"
+        }
+      ],
+      "cosif_formula": "Somatório das contas COSIF [8110000002]"
+    },
+    {
+      "label": "Desp. Dívida Elegível a Capital",
+      "ifdata_label": "Despesas de Instrumentos de Dívida Elegíveis a Capital (h)",
+      "cosif_depara": [
+        {
+          "account": "8119100006",
+          "description": "(-) DESPESAS DE INSTRUMENTOS COM CLÁUSULAS DE SUBORDINAÇÃO"
+        }
+      ],
+      "cosif_formula": "Somatório das contas COSIF [8119100006]"
+    },
+    {
+      "label": "Res. Derivativos",
+      "ifdata_label": "Resultado com Derivativos (i)",
+      "cosif_depara": [
+        {
+          "account": "7158000003",
+          "description": "RENDAS EM OPERAÇÕES COM DERIVATIVOS"
+        },
+        {
+          "account": "8155000005",
+          "description": "(-) DESPESAS EM OPERAÇÕES COM DERIVATIVOS"
+        }
+      ],
+      "cosif_formula": "Somatório das contas COSIF [7158000003] + [8155000005]",
+      "status": "validado_exemplo"
+    },
+    {
+      "label": "Resultado Transações Pgto",
+      "ifdata_label": "Resultado com Transações de Pagamento (l)",
+      "cosif_depara": [
+        {
+          "account": "7170500000",
+          "description": "RECEITAS POR SERVIÇOS DE PAGAMENTO"
+        },
+        {
+          "account": "7191800002",
+          "description": "RENDAS POR ANTECIPAÇÃO DE OBRIGAÇÕES DE TRANSAÇÕES DE PAGAMENTO"
+        },
+        {
+          "account": "8191800001",
+          "description": "(-) DESPESAS PELO RECEBIMENTO ANTECIPADO DE VALORES RELATIVOS A TRANSAÇÕES DE PAGAMENTO"
+        },
+        {
+          "account": "8191900004",
+          "description": "(-) DESPESAS COM SERVIÇOS ASSOCIADOS A TRANSAÇÕES DE PAGAMENTO"
+        }
+      ],
+      "cosif_formula": "Somatório das contas COSIF [7170500000]+[7191800002]+[8191800001]+[8191900004]"
+    },
+    {
+      "label": "Renda Tarifas Bancárias",
+      "ifdata_label": "Rendas de Tarifas Bancárias (m)",
+      "cosif_depara": [
+        {
+          "account": "7170100008",
+          "description": "RECEITA DE TARIFAS - PN E MEI"
+        },
+        {
+          "account": "7170200001",
+          "description": "RECEITA DE TARIFAS - PJ"
+        }
+      ],
+      "cosif_formula": "Somatório das contas COSIF [7170100008] + [7170200001]"
+    },
+    {
+      "label": "Desp. Pessoal",
+      "ifdata_label": "Despesas de Pessoal (o)",
+      "cosif_depara": [
+        {
+          "account": "8172700003",
+          "description": "(-) DESPESAS DE PESSOAL - BENEFÍCIOS"
+        },
+        {
+          "account": "8173000001",
+          "description": "(-) DESPESAS DE PESSOAL - ENCARGOS SOCIAIS"
+        },
+        {
+          "account": "8173300000",
+          "description": "(-) DESPESAS DE PESSOAL - PROVENTOS"
+        },
+        {
+          "account": "8173600009",
+          "description": "(-) DESPESAS DE PESSOAL - TREINAMENTO"
+        },
+        {
+          "account": "8173700002",
+          "description": "(-) DESPESAS DE REMUNERAÇÃO DE ESTAGIÁRIOS"
+        }
+      ],
+      "cosif_formula": "Somatório das contas COSIF de despesas de pessoal"
+    },
+    {
+      "label": "Desp. Adm",
+      "ifdata_label": "Despesas Administrativas (p)",
+      "cosif_depara": [
+        {
+          "account": "8170000004",
+          "description": "(-) Despesas Administrativas"
+        }
+      ],
+      "cosif_formula": "Somatório das contas COSIF [8170000004]"
+    },
+    {
+      "label": "Desp. Tributárias",
+      "ifdata_label": "Despesas Tributárias (s)",
+      "cosif_depara": [
+        {
+          "account": "8176900005",
+          "description": "(-) DESPESAS TRIBUTÁRIAS"
+        }
+      ],
+      "cosif_formula": "Somatório das contas COSIF [8176900005]"
+    },
+    {
+      "label": "Outras Receitas",
+      "ifdata_label": "Outras Receitas (u)",
+      "cosif_depara": [
+        {
+          "account": "7190000009",
+          "description": "Outras Receitas Operacionais"
+        }
+      ],
+      "cosif_formula": "Somatório das contas COSIF [7190000009]"
+    },
+    {
+      "label": "Outras Despesas",
+      "ifdata_label": "Outras Despesas (v)",
+      "cosif_depara": [
+        {
+          "account": "8190000008",
+          "description": "(-) Outras Despesas Operacionais"
+        }
+      ],
+      "cosif_formula": "Somatório das contas COSIF [8190000008]"
+    },
+    {
+      "label": "IR/CSLL",
+      "ifdata_label": "Imposto de Renda e Contribuição Social (y)",
+      "cosif_depara": [
+        {
+          "account": "7940000008",
+          "description": "Tributos sobre o Lucro"
+        },
+        {
+          "account": "8940000007",
+          "description": "(-) Tributos sobre o Lucro"
+        }
+      ],
+      "cosif_formula": "Somatório das contas COSIF [7940000008] + [8940000007]"
+    },
+    {
+      "label": "Res. Participação Lucro",
+      "ifdata_label": "Participações no Lucro (z)",
+      "cosif_depara": [
+        {
+          "account": "8970000008",
+          "description": "(-) Participações no Lucro"
+        }
+      ],
+      "cosif_formula": "Somatório das contas COSIF [8970000008]"
+    }
+  ]
+}
