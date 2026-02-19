@@ -176,14 +176,37 @@ def extrair_cadastro(periodo: str) -> pd.DataFrame:
     Returns:
         DataFrame com CodInst e NomeInstituicao
     """
-    url = f"{BASE_URL}/IfDataCadastro(AnoMes={int(periodo)})?$format=json&$top=5000"
+    page_size = 5000
+    skip = 0
+    all_rows = []
 
-    data = _fetch_json(url, timeout=60)
-    if not data or "value" not in data:
+    while True:
+        url = (
+            f"{BASE_URL}/IfDataCadastro(AnoMes={int(periodo)})"
+            f"?$format=json&$top={page_size}&$skip={skip}"
+        )
+
+        data = _fetch_json(url, timeout=60)
+        if not data or "value" not in data:
+            break
+
+        rows = data.get("value") or []
+        if not rows:
+            break
+
+        all_rows.extend(rows)
+
+        # Se retornou menos que o page_size, chegou ao fim
+        if len(rows) < page_size:
+            break
+
+        skip += page_size
+
+    if not all_rows:
         logger.warning(f"Cadastro vazio para {periodo}")
         return pd.DataFrame()
 
-    df = pd.DataFrame(data["value"])
+    df = pd.DataFrame(all_rows)
     logger.debug(f"Cadastro {periodo}: {len(df)} instituições")
     return df
 
