@@ -394,6 +394,182 @@ st.markdown("""
             grid-template-columns: 1fr;
         }
     }
+
+    /* ============================================================
+       INDICADORES - GRID DE CHIPS
+       ============================================================ */
+    .metrics-panel {
+        border-radius: 16px;
+        padding: 1.25rem;
+        background: linear-gradient(180deg, rgba(31,119,180,0.06), rgba(255,255,255,0.95));
+        border: 1px solid rgba(31,119,180,0.12);
+        box-shadow: 0 10px 26px rgba(0,0,0,0.04);
+        margin-bottom: 1.25rem;
+    }
+
+    .metrics-title {
+        font-size: 1.05rem;
+        font-weight: 500;
+        color: #1f77b4;
+        margin-bottom: 0.5rem;
+    }
+
+    .metrics-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(200px, 1fr));
+        gap: 0.9rem;
+    }
+
+    .metrics-card {
+        background: #ffffff;
+        border-radius: 14px;
+        padding: 0.9rem;
+        border: 1px solid rgba(31,119,180,0.18);
+        box-shadow: 0 8px 18px rgba(0,0,0,0.05);
+    }
+
+    .metrics-kicker {
+        font-size: 0.92rem;
+        font-weight: 500;
+        color: #223247;
+        margin-bottom: 0.5rem;
+    }
+
+    .metrics-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem;
+    }
+
+    .metrics-chip {
+        background: rgba(31,119,180,0.08);
+        border: 1px solid rgba(31,119,180,0.2);
+        color: #1f77b4;
+        border-radius: 999px;
+        padding: 0.2rem 0.55rem;
+        font-size: 0.75rem;
+        font-weight: 400;
+        white-space: nowrap;
+    }
+
+    .metrics-divider {
+        height: 1px;
+        background: rgba(31,119,180,0.12);
+        margin: 0.75rem 0;
+    }
+
+    /* ============================================================
+       RECURSOS OPERACIONAIS - CARTÕES COMPACTOS
+       ============================================================ */
+    .ops-panel {
+        border-radius: 16px;
+        padding: 1.1rem 1.25rem;
+        background: #f8fafc;
+        border: 1px solid rgba(31,119,180,0.12);
+        margin-bottom: 1.25rem;
+    }
+
+    .ops-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(240px, 1fr));
+        gap: 0.9rem;
+    }
+
+    .ops-card {
+        background: #ffffff;
+        border-radius: 14px;
+        padding: 0.9rem 1rem;
+        border: 1px solid rgba(31,119,180,0.16);
+        box-shadow: 0 8px 18px rgba(0,0,0,0.05);
+        display: grid;
+        gap: 0.35rem;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .ops-card::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 4px;
+        background: linear-gradient(90deg, rgba(31,119,180,0.6), rgba(31,119,180,0.15));
+    }
+
+    .ops-title {
+        font-size: 0.98rem;
+        font-weight: 500;
+        color: #1f77b4;
+    }
+
+    .ops-desc {
+        font-size: 0.85rem;
+        color: #3b4654;
+        font-weight: 300;
+    }
+
+    /* ============================================================
+       COMO UTILIZAR - PASSOS
+       ============================================================ */
+    .steps-panel {
+        border-radius: 16px;
+        padding: 1.1rem 1.25rem;
+        background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(31,119,180,0.03));
+        border: 1px solid rgba(31,119,180,0.12);
+        box-shadow: 0 10px 26px rgba(0,0,0,0.04);
+        margin-bottom: 1.25rem;
+    }
+
+    .steps-list {
+        list-style: none;
+        padding: 0;
+        margin: 0.25rem 0 0 0;
+        display: grid;
+        gap: 0.65rem;
+    }
+
+    .steps-item {
+        display: grid;
+        grid-template-columns: 28px 1fr;
+        gap: 0.6rem;
+        align-items: start;
+    }
+
+    .steps-num {
+        width: 28px;
+        height: 28px;
+        border-radius: 999px;
+        background: rgba(31,119,180,0.12);
+        border: 1px solid rgba(31,119,180,0.25);
+        color: #1f77b4;
+        font-size: 0.8rem;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-top: 0.1rem;
+    }
+
+    .steps-text {
+        font-size: 0.9rem;
+        color: #2f3a48;
+        font-weight: 300;
+    }
+
+    .steps-text strong {
+        font-weight: 500;
+        color: #1f77b4;
+    }
+
+    @media (max-width: 900px) {
+        .metrics-grid {
+            grid-template-columns: 1fr;
+        }
+        .ops-grid {
+            grid-template-columns: 1fr;
+        }
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -5916,97 +6092,110 @@ if menu == "Sobre":
 
     st.markdown("---")
 
-    st.markdown("### indicadores e métricas disponíveis")
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        st.markdown("""
-        **estrutura patrimonial**
-        - ativo total
-        - ativos líquidos
-        - carteira de crédito classificada e líquida
-        - títulos e valores mobiliários
-        - depósitos e captações
-        - patrimônio líquido
-        - lucro líquido acumulado (ytd)
-        """)
-
-    with col2:
-        st.markdown("""
-        **capital e prudencial**
-        - capital principal (tier 1)
-        - capital complementar
-        - capital nível ii
-        - rwa total / crédito / mercado / operacional
-        - exposição total
-        - índices de capital (cet1 e basileia)
-        - razão de alavancagem
-        """)
-
-    with col3:
-        st.markdown("""
-        **métricas derivadas**
-        - roe acumulado anualizado (%)
-        - ativo / pl
-        - crédito / pl (%)
-        - crédito / captações (%)
-        - perda esperada / carteira
-        - pdd total e coberturas
-
-        **outros blocos**
-        - carteira 4.966 por classe de risco
-        - taxas de juros por produto (pf e pj)
-        - conselho e diretoria por conglomerado
-        """)
-
-    st.markdown("---")
-
-    st.markdown("### recursos operacionais")
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        st.markdown("""
-        <div class="feature-card">
-            <h4>filtros inteligentes</h4>
-            <p>seleção por lista customizada e recortes por período.</p>
+    st.markdown("""
+    <div class="metrics-panel">
+        <div class="metrics-title">indicadores e métricas disponíveis</div>
+        <div class="metrics-grid">
+            <div class="metrics-card">
+                <div class="metrics-kicker">estrutura patrimonial</div>
+                <div class="metrics-list">
+                    <span class="metrics-chip">ativo total</span>
+                    <span class="metrics-chip">ativos líquidos</span>
+                    <span class="metrics-chip">carteira de crédito classificada e líquida</span>
+                    <span class="metrics-chip">títulos e valores mobiliários</span>
+                    <span class="metrics-chip">depósitos e captações</span>
+                    <span class="metrics-chip">patrimônio líquido</span>
+                    <span class="metrics-chip">lucro líquido acumulado (ytd)</span>
+                </div>
+            </div>
+            <div class="metrics-card">
+                <div class="metrics-kicker">capital e prudencial</div>
+                <div class="metrics-list">
+                    <span class="metrics-chip">capital principal (tier 1)</span>
+                    <span class="metrics-chip">capital complementar</span>
+                    <span class="metrics-chip">capital nível ii</span>
+                    <span class="metrics-chip">rwa total / crédito / mercado / operacional</span>
+                    <span class="metrics-chip">exposição total</span>
+                    <span class="metrics-chip">índices de capital (cet1 e basileia)</span>
+                    <span class="metrics-chip">razão de alavancagem</span>
+                </div>
+            </div>
+            <div class="metrics-card">
+                <div class="metrics-kicker">métricas derivadas</div>
+                <div class="metrics-list">
+                    <span class="metrics-chip">roe acumulado anualizado (%)</span>
+                    <span class="metrics-chip">ativo / pl</span>
+                    <span class="metrics-chip">crédito / pl (%)</span>
+                    <span class="metrics-chip">crédito / captações (%)</span>
+                    <span class="metrics-chip">perda esperada / carteira</span>
+                    <span class="metrics-chip">pdd total e coberturas</span>
+                </div>
+                <div class="metrics-divider"></div>
+                <div class="metrics-kicker">outros blocos</div>
+                <div class="metrics-list">
+                    <span class="metrics-chip">carteira 4.966 por classe de risco</span>
+                    <span class="metrics-chip">taxas de juros por produto (pf e pj)</span>
+                    <span class="metrics-chip">conselho e diretoria por conglomerado</span>
+                </div>
+            </div>
         </div>
-        """, unsafe_allow_html=True)
-
-        st.markdown("""
-        <div class="feature-card">
-            <h4>nomenclatura personalizada</h4>
-            <p>defina aliases e cores por instituição para manter consistência visual entre tabelas e gráficos.</p>
-        </div>
-        """, unsafe_allow_html=True)
-
-    with col2:
-        st.markdown("""
-        <div class="feature-card">
-            <h4>exportação</h4>
-            <p>saídas em excel e csv nas análises tabulares, além de artefatos para apoio a relatórios internos.</p>
-        </div>
-        """, unsafe_allow_html=True)
-
-    with col3:
-        st.markdown("""
-        <div class="feature-card">
-            <h4>dados oficiais</h4>
-            <p>integração com bases oficiais do bcb (incluindo if.data, relatório 5 e carteira 4.966), com atualização via aba "Atualizar Base".</p>
-        </div>
-        """, unsafe_allow_html=True)
+    </div>
+    """, unsafe_allow_html=True)
 
     st.markdown("---")
 
     st.markdown("""
-    ### como utilizar
+    <div class="ops-panel">
+        <div class="metrics-title">recursos operacionais</div>
+        <div class="ops-grid">
+            <div class="ops-card">
+                <div class="ops-title">filtros inteligentes</div>
+                <div class="ops-desc">seleção por lista customizada e recortes por período.</div>
+            </div>
+            <div class="ops-card">
+                <div class="ops-title">nomenclatura personalizada</div>
+                <div class="ops-desc">aliases e cores por instituição para manter consistência visual.</div>
+            </div>
+            <div class="ops-card">
+                <div class="ops-title">exportação</div>
+                <div class="ops-desc">excel e csv nas análises tabulares, com artefatos para relatórios.</div>
+            </div>
+            <div class="ops-card">
+                <div class="ops-title">dados oficiais</div>
+                <div class="ops-desc">fontes oficiais do bcb (if.data, relatório 5 e 4.966).</div>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
-    1. **selecione o módulo**: rankings, peers, evolução, scatter, dre, carteira 4.966, taxas, conselho ou métrica customizada
-    2. **defina período e instituições**: ajuste o recorte conforme o objetivo da análise
-    3. **aplique filtros e aliases**: padronize nomes e cores para leitura comparável
-    4. **consulte definições no glossário**: valide fórmulas e conceitos antes de concluir
-    5. **exporte os resultados**: gere excel/csv quando precisar compartilhar
+    st.markdown("---")
+
+    st.markdown("""
+    <div class="steps-panel">
+        <div class="metrics-title">como utilizar</div>
+        <ul class="steps-list">
+            <li class="steps-item">
+                <div class="steps-num">1</div>
+                <div class="steps-text"><strong>selecione o módulo</strong> com foco no objetivo (rankings, peers, evolução, scatter, dre, carteira 4.966, taxas, conselho ou métrica customizada).</div>
+            </li>
+            <li class="steps-item">
+                <div class="steps-num">2</div>
+                <div class="steps-text"><strong>defina período e instituições</strong> para ajustar o recorte comparativo.</div>
+            </li>
+            <li class="steps-item">
+                <div class="steps-num">3</div>
+                <div class="steps-text"><strong>aplique filtros e aliases</strong> para padronizar nomes e cores.</div>
+            </li>
+            <li class="steps-item">
+                <div class="steps-num">4</div>
+                <div class="steps-text"><strong>consulte o glossário</strong> para validar fórmulas e conceitos.</div>
+            </li>
+            <li class="steps-item">
+                <div class="steps-num">5</div>
+                <div class="steps-text"><strong>exporte os resultados</strong> em excel/csv quando precisar compartilhar.</div>
+            </li>
+        </ul>
+    </div>
 
     ---
 
