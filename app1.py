@@ -7747,8 +7747,7 @@ elif menu == "Evolução":
             """
             <div style="font-size: 12px; color: #666; margin-top: 8px;">
                 <strong>mini-glossário (Evolução):</strong><br><br>
-                <strong>Core Funding*:</strong> Captações (e) no Relatório Passivo; a partir de 2025, soma-se Dívida Subordinada (h). Onde:
-                (a) Depósitos; (b) Obrigações por Operações Compromissadas; (c) Relações Interfinanceiras; (d) Relações Interdependências; (h) Instrumentos de Dívida Elegíveis a Capital.<br>
+                <strong>Core Funding*:</strong> Captações (e) no Relatório Passivo; a partir de 2025, soma-se Dívida Subordinada (h). Onde: (a) Depósitos; (b) Obrigações por Operações Compromissadas; (c) Relações Interfinanceiras; (d) Relações Interdependências; (h) Instrumentos de Dívida Elegíveis a Capital.<br>
                 <strong>Carteira de Crédito*:</strong> Soma do Valor Contábil Bruto (e1+f1+g1+h1) no Relatório de Ativo (Rel. 2).<br>
                 <em>Nota:</em> Para 2000–2024, usamos Carteira de Crédito Bruta + Carteira de Arrendamento Bruta + Outros Créditos Líquidos de Provisão (Rel. 2). A partir de 2025, usamos Valor Contábil Bruto (e1+f1+g1+h1).<br>
             </div>
