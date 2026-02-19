@@ -644,7 +644,7 @@ VARS_PERCENTUAL = [
     'ROE Ac. YTD an. (%)',
     'Índice de Basileia',
     'Índice de CET1',
-    'Crédito/Captações (%)',
+    'Carteira de Crédito/Core Funding (%)',
     'Crédito/Ativo (%)',
     'Índice de Imobilização',
     'Perda Esperada / Carteira de Crédito Bruta',
@@ -992,6 +992,7 @@ def recalcular_metricas_derivadas(dados_periodos):
         'ROE An. (%)': 'ROE Ac. YTD an. (%)',
         'Crédito/PL': 'Carteira de Crédito Bruta / PL',
         'Crédito/PL (%)': 'Carteira de Crédito Bruta / PL',
+        'Crédito/Captações (%)': 'Carteira de Crédito/Core Funding (%)',
     }
 
     # Colunas obsoletas a serem removidas
@@ -1064,12 +1065,13 @@ def recalcular_metricas_derivadas(dados_periodos):
             )
             df_atualizado["Crédito/PL (%)"] = df_atualizado["Carteira de Crédito Bruta / PL"]
 
-        # Crédito/Captações - SEMPRE recalcular (base carteira bruta quando disponível)
-        if base_credito_col in df_atualizado.columns and "Captações" in df_atualizado.columns:
-            df_atualizado["Crédito/Captações (%)"] = (
+        # Carteira/Core Funding - SEMPRE recalcular (base carteira bruta quando disponível)
+        if base_credito_col in df_atualizado.columns and "Core Funding" in df_atualizado.columns:
+            df_atualizado["Carteira de Crédito/Core Funding (%)"] = (
                 df_atualizado[base_credito_col].fillna(0) /
-                df_atualizado["Captações"].replace(0, np.nan)
+                df_atualizado["Core Funding"].replace(0, np.nan)
             )
+            df_atualizado["Crédito/Captações (%)"] = df_atualizado["Carteira de Crédito/Core Funding (%)"]
 
         # Crédito/Ativo (%) - SEMPRE recalcular (base carteira bruta quando disponível)
         if base_credito_col in df_atualizado.columns and "Ativo Total" in df_atualizado.columns:
@@ -5740,7 +5742,7 @@ def _precisa_recalcular_metricas_rapido(dados_periodos: dict) -> bool:
             return True
         if {"Carteira de Crédito", "Patrimônio Líquido"}.issubset(cols) and "Carteira de Crédito Bruta / PL" not in cols:
             return True
-        if {"Carteira de Crédito", "Captações"}.issubset(cols) and "Crédito/Captações (%)" not in cols:
+        if {"Carteira de Crédito", "Core Funding"}.issubset(cols) and "Carteira de Crédito/Core Funding (%)" not in cols:
             return True
         if {"Carteira de Crédito", "Ativo Total"}.issubset(cols) and "Crédito/Ativo (%)" not in cols:
             return True
@@ -13053,7 +13055,7 @@ elif menu == "Glossário":
 
     **Carteira de Crédito Bruta / PL:** Carteira de Crédito Bruta dividida pelo Patrimônio Líquido.
 
-    **Crédito/Captações (%):** Carteira de Crédito Bruta dividida pelas Captações.
+    **Carteira de Crédito/Core Funding (%):** Carteira de Crédito Bruta dividida pelo Core Funding.
 
     **Crédito/Ativo (%):** Carteira de Crédito Bruta dividida pelo Ativo Total.
 
