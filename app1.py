@@ -7275,8 +7275,40 @@ elif menu == "Evolução":
         if core_funding_series is None:
             core_funding_series = _numeric_series(df_ano, "Captações")
         df_ano["Core Funding"] = core_funding_series
+
+        # Carteira de Crédito Bruta: preferir cálculo direto do Rel. 2 (Ativo)
+        carteira_bruta_series = None
+        try:
+            periodos_evo = df_ano.get("Período", pd.Series(dtype="object")).dropna().unique().tolist()
+            cache_ativo = _carregar_cache_relatorio_slice(
+                "ativo",
+                _cache_version_token("ativo"),
+                tuple(periodos_evo),
+                (instituicao,),
+            )
+            cache_ativo = _aplicar_aliases_df(cache_ativo, st.session_state.get("dict_aliases", {}))
+            col_e1 = _resolver_coluna_peers(cache_ativo, ["Valor Contábil Bruto (e1)", "Valor Contabil Bruto (e1)"])
+            col_f1 = _resolver_coluna_peers(cache_ativo, ["Valor Contábil Bruto (f1)", "Valor Contabil Bruto (f1)"])
+            col_g1 = _resolver_coluna_peers(cache_ativo, ["Valor Contábil Bruto (g1)", "Valor Contabil Bruto (g1)"])
+            col_h1 = _resolver_coluna_peers(cache_ativo, ["Valor Contábil Bruto (h1)", "Valor Contabil Bruto (h1)"])
+            if col_e1 or col_f1 or col_g1 or col_h1:
+                bruta_map = {}
+                for periodo in periodos_evo:
+                    bruta_map[periodo] = _somar_valores([
+                        _obter_valor_peers(cache_ativo, instituicao, periodo, col_e1),
+                        _obter_valor_peers(cache_ativo, instituicao, periodo, col_f1),
+                        _obter_valor_peers(cache_ativo, instituicao, periodo, col_g1),
+                        _obter_valor_peers(cache_ativo, instituicao, periodo, col_h1),
+                    ])
+                carteira_bruta_series = df_ano.get("Período", pd.Series(index=df_ano.index)).map(bruta_map)
+        except Exception:
+            carteira_bruta_series = None
+
         carteira_credito_base = _numeric_series(df_ano, _prefer_carteira_bruta(list(df_ano.columns)))
-        df_ano["Carteira de Crédito Bruta"] = carteira_credito_base
+        if carteira_bruta_series is not None:
+            df_ano["Carteira de Crédito Bruta"] = carteira_bruta_series.combine_first(carteira_credito_base)
+        else:
+            df_ano["Carteira de Crédito Bruta"] = carteira_credito_base
         # ROE na Evolução: usar exatamente o mesmo valor já calculado para Peers (coluna canônica).
         col_roe = "ROE Ac. Anualizado (%)" if "ROE Ac. Anualizado (%)" in df_ano.columns else (
             "ROE Ac. YTD an. (%)" if "ROE Ac. YTD an. (%)" in df_ano.columns else None
