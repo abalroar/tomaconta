@@ -7319,15 +7319,38 @@ elif menu == "Evolução":
             col_f1 = _resolver_coluna_peers(cache_ativo, ["Valor Contábil Bruto (f1)", "Valor Contabil Bruto (f1)"])
             col_g1 = _resolver_coluna_peers(cache_ativo, ["Valor Contábil Bruto (g1)", "Valor Contabil Bruto (g1)"])
             col_h1 = _resolver_coluna_peers(cache_ativo, ["Valor Contábil Bruto (h1)", "Valor Contabil Bruto (h1)"])
+            col_e = _resolver_coluna_peers(cache_ativo, ["Operações de Crédito (e)", "Operacoes de Credito (e)"])
+            col_f = _resolver_coluna_peers(cache_ativo, ["Operações de Arrendamento Financeiro (f)", "Operacoes de Arrendamento Financeiro (f)"])
+            col_g = _resolver_coluna_peers(
+                cache_ativo,
+                ["Outras Operações com Características de Concessão de Crédito (g)", "Outras Operacoes com Caracteristicas de Concessao de Credito (g)"],
+            )
+            col_h = _resolver_coluna_peers(
+                cache_ativo,
+                ["Valores a Receber de Transações de Pagamentos - Usuários Finais (Pós-pago) (h)",
+                 "Valores a Receber de Transacoes de Pagamentos - Usuarios Finais (Pos-pago) (h)"],
+            )
             if col_e1 or col_f1 or col_g1 or col_h1:
                 cache_ativo = cache_ativo.copy()
                 cache_ativo["_tri_key"] = cache_ativo.get("Período", pd.Series(dtype="object")).astype(str).map(_periodo_tri_key)
-                cache_ativo["_carteira_bruta"] = (
+                carteira_vcb = (
                     pd.to_numeric(cache_ativo.get(col_e1), errors="coerce").fillna(0)
                     + pd.to_numeric(cache_ativo.get(col_f1), errors="coerce").fillna(0)
                     + pd.to_numeric(cache_ativo.get(col_g1), errors="coerce").fillna(0)
                     + pd.to_numeric(cache_ativo.get(col_h1), errors="coerce").fillna(0)
                 )
+                carteira_net = None
+                if col_e or col_f or col_g or col_h:
+                    carteira_net = (
+                        pd.to_numeric(cache_ativo.get(col_e), errors="coerce").fillna(0)
+                        + pd.to_numeric(cache_ativo.get(col_f), errors="coerce").fillna(0)
+                        + pd.to_numeric(cache_ativo.get(col_g), errors="coerce").fillna(0)
+                        + pd.to_numeric(cache_ativo.get(col_h), errors="coerce").fillna(0)
+                    )
+                if carteira_net is not None:
+                    cache_ativo["_carteira_bruta"] = carteira_vcb.mask(carteira_vcb <= 0, carteira_net)
+                else:
+                    cache_ativo["_carteira_bruta"] = carteira_vcb
                 bruta_map = (
                     cache_ativo.groupby("_tri_key", dropna=True)["_carteira_bruta"]
                     .sum(min_count=1)
