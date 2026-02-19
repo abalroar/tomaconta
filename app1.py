@@ -4818,7 +4818,7 @@ def _gerar_excel_peers_tabela(
             col_idx += 1
     row_idx += 1
 
-    nota = "* Carteira de Crédito: 2000–2024 = Crédito Bruta + Arrendamento Bruta + Outros Créditos Líquidos de Provisão. 2025+ = VCB (e1+f1+g1+h1). | Core Funding*: até 2024 = Captações (e); 2025+ = Captações (e) + Dívida Subordinada (h)."
+    nota = "* Carteira de Crédito: 2000–2024 = Crédito Bruta + Arrendamento Bruta + Outros Créditos Líquidos de Provisão. 2025+ = VCB (e1+f1+g1+h1). | Core Funding*: até 2024 = Captações (e); 2025+ = Captações (e) + Dívida Subordinada (h). Captações (e) = (a) + (b) + (c) + (d)."
     worksheet.merge_range(row_idx, 0, row_idx, n_cols - 1, nota, workbook.add_format({"font_size": 9, "font_color": "#666666"}))
     row_idx += 1
 
@@ -4935,7 +4935,7 @@ def _gerar_excel_peers_dados_puros(
     nota_ws = workbook.add_worksheet("nota")
     nota_ws.write(0, 0, "* Carteira de Crédito: 2000–2024 = Crédito Bruta + Arrendamento Bruta + Outros Créditos Líquidos de Provisão.")
     nota_ws.write(1, 0, "2025+ = Valor Contábil Bruto (e1+f1+g1+h1) no Relatório de Ativo (Rel. 2).")
-    nota_ws.write(2, 0, "Core Funding*: até 2024 = Captações (e); 2025+ = Captações (e) + Dívida Subordinada (h) no Relatório de Passivo (Rel. 3).")
+    nota_ws.write(2, 0, "Core Funding*: até 2024 = Captações (e); 2025+ = Captações (e) + Dívida Subordinada (h) no Relatório de Passivo (Rel. 3). Captações (e) = (a) + (b) + (c) + (d).")
 
     workbook.close()
     output.seek(0)
@@ -4995,7 +4995,7 @@ def _gerar_excel_evolucao_tabela_visual(
     worksheet.merge_range(row_idx, 0, row_idx, n_cols - 1, titulo, title_fmt)
     row_idx += 1
 
-    nota = "* Carteira de Crédito: 2000–2024 = Crédito Bruta + Arrendamento Bruta + Outros Créditos Líquidos de Provisão. 2025+ = VCB (e1+f1+g1+h1). Core Funding*: até 2024 = Captações (e); 2025+ = Captações (e) + Dívida Subordinada (h)."
+    nota = "* Carteira de Crédito: 2000–2024 = Crédito Bruta + Arrendamento Bruta + Outros Créditos Líquidos de Provisão. 2025+ = VCB (e1+f1+g1+h1). Core Funding*: até 2024 = Captações (e); 2025+ = Captações (e) + Dívida Subordinada (h). Captações (e) = (a) + (b) + (c) + (d)."
     worksheet.merge_range(row_idx, 0, row_idx, n_cols - 1, nota, workbook.add_format({"font_size": 9, "font_color": "#666666"}))
     row_idx += 1
 
@@ -7120,7 +7120,7 @@ elif menu == "Peers (Tabela)":
                             <em>Nota:</em> Para 2000–2024, usamos Carteira de Crédito Bruta + Carteira de Arrendamento Bruta + Outros Créditos Líquidos de Provisão (Rel. 2). A partir de 2025, usamos Valor Contábil Bruto (e1+f1+g1+h1).<br>
                             <strong>Carteira de Crédito Classificada</strong> = Total da Carteira de Pessoa Física (Rel. 11) + Total da Carteira de Pessoa Jurídica (Rel. 13).<br>
                             <strong>Depósitos Totais</strong> = Depósitos (e) no relatório de Passivo (Rel. 3), conforme o IFData. Quando indisponível, soma Depósitos à Vista (a1) + Poupança (a2) + Interfinanceiros (a3) + a Prazo (a4) + Outros (a5/a6).<br>
-                            <strong>Core Funding*</strong> = Captações (e) no Relatório Passivo; a partir de 2025, soma-se Dívida Subordinada (h). Onde: (a) Depósitos; (b) Obrigações por Operações Compromissadas; (c) Relações Interfinanceiras; (d) Relações Interdependências; (h) Instrumentos de Dívida Elegíveis a Capital.<br>
+                            <strong>Core Funding*</strong> = Captações (e) no Relatório Passivo; a partir de 2025, soma-se Dívida Subordinada (h). Captações (e) = (a) + (b) + (c) + (d). Onde: (a) Depósitos; (b) Obrigações por Operações Compromissadas; (c) Relações Interfinanceiras; (d) Relações Interdependências; (h) Instrumentos de Dívida Elegíveis a Capital.<br>
                             <strong>Patrimônio Líquido (PL)</strong> = Patrimônio Líquido do balanço principal (Rel. 1).<br>
                             <br>
                             <em>Qualidade Carteira</em><br>
@@ -7746,7 +7746,7 @@ elif menu == "Evolução":
             """
             <div style="font-size: 12px; color: #666; margin-top: 8px;">
                 <strong>mini-glossário (Evolução):</strong><br><br>
-                <strong>Core Funding*:</strong> Captações (e) no Relatório Passivo; a partir de 2025, soma-se Dívida Subordinada (h). Onde: (a) Depósitos; (b) Obrigações por Operações Compromissadas; (c) Relações Interfinanceiras; (d) Relações Interdependências; (h) Instrumentos de Dívida Elegíveis a Capital.<br>
+                <strong>Core Funding*:</strong> Captações (e) no Relatório Passivo; a partir de 2025, soma-se Dívida Subordinada (h). Captações (e) = (a) + (b) + (c) + (d). Onde: (a) Depósitos; (b) Obrigações por Operações Compromissadas; (c) Relações Interfinanceiras; (d) Relações Interdependências; (h) Instrumentos de Dívida Elegíveis a Capital.<br>
                 <strong>Carteira de Crédito*:</strong> Soma do Valor Contábil Bruto (e1+f1+g1+h1) no Relatório de Ativo (Rel. 2).<br>
                 <em>Nota:</em> Para 2000–2024, usamos Carteira de Crédito Bruta + Carteira de Arrendamento Bruta + Outros Créditos Líquidos de Provisão (Rel. 2). A partir de 2025, usamos Valor Contábil Bruto (e1+f1+g1+h1).<br>
             </div>
@@ -7852,7 +7852,7 @@ elif menu == "Evolução":
                 "nota": [
                     "* Carteira de Crédito: 2000–2024 = Crédito Bruta + Arrendamento Bruta + Outros Créditos Líquidos de Provisão.",
                     "2025+ = Valor Contábil Bruto (e1+f1+g1+h1) no Relatório de Ativo (Rel. 2).",
-                    "Core Funding*: até 2024 = Captações (e); 2025+ = Captações (e) + Dívida Subordinada (h) no Relatório de Passivo (Rel. 3).",
+                    "Core Funding*: até 2024 = Captações (e); 2025+ = Captações (e) + Dívida Subordinada (h) no Relatório de Passivo (Rel. 3). Captações (e) = (a) + (b) + (c) + (d).",
                 ]
             })
             nota_df.to_excel(writer, index=False, sheet_name='nota')
