@@ -33,20 +33,6 @@ PRAZO_TETO_DIAS = {
     "A vencer Acima de 5400 Dias": 5400,
 }
 
-CSV_CANDIDATE_PATHS = {
-    "PF": [
-        "/mnt/data/credito_prazo.csv",
-        "data/credito_prazo.csv",
-        "data/cache/credito_prazo.csv",
-        "data/cache/ifdata/credito_prazo.csv",
-    ],
-    "PJ": [
-        "/mnt/data/carteira_prazo_pj.csv",
-        "data/carteira_prazo_pj.csv",
-        "data/cache/carteira_prazo_pj.csv",
-        "data/cache/ifdata/carteira_prazo_pj.csv",
-    ],
-}
 
 
 def _norm_text(value: object) -> str:
@@ -100,13 +86,6 @@ def _resolve_meta_col(meta_map: dict[str, str], aliases: list[str]) -> str | Non
         if alias in meta_map:
             return meta_map[alias]
     return None
-
-
-def _first_existing_path(candidates: list[str], fallback: str) -> str:
-    for cand in candidates:
-        if Path(cand).exists():
-            return str(Path(cand))
-    return fallback
 
 
 def _extract_codigo_from_instituicao(series: pd.Series) -> pd.Series:
@@ -421,16 +400,14 @@ def compute_prazo_medio(df_long: pd.DataFrame, incluir_vencido: bool = False) ->
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def _load_both_segments(pf_path: str, pj_path: str, use_csv_override: bool = False) -> pd.DataFrame:
+def _load_both_segments() -> pd.DataFrame:
     dfs = []
-    pairs = [("PF", pf_path), ("PJ", pj_path)]
-    for seg, path in pairs:
+    pairs = ["PF", "PJ"]
+    for seg in pairs:
         df = load_carteira_prazo_cache_segment(seg)
         if df.empty:
             parquet_path = "data/cache/carteira_pf/dados.parquet" if seg == "PF" else "data/cache/carteira_pj/dados.parquet"
             df = load_carteira_prazo_parquet_fallback(parquet_path, seg)
-        if df.empty and use_csv_override:
-            df = load_carteira_prazo_csv(path)
         if df.empty:
             continue
         dfs.append(df)
@@ -453,26 +430,9 @@ def render_carteira_prazo_modalidade_tab() -> None:
     st.markdown("### Carteira - Prazo e Modalidade")
     st.caption("Fonte padrão: caches persistidos dos relatórios 11 (PF) e 13 (PJ).")
 
-    pf_default = _first_existing_path(CSV_CANDIDATE_PATHS["PF"], DEFAULT_PF_PATH)
-    pj_default = _first_existing_path(CSV_CANDIDATE_PATHS["PJ"], DEFAULT_PJ_PATH)
-    use_csv_override = st.checkbox(
-        "Usar CSV de override (opcional)",
-        value=False,
-        help="Desmarcado: usa apenas carteira_pf/carteira_pj do cache persistido.",
-    )
-
-    with st.expander("Configuração de CSV (override)", expanded=False):
-        pf_path = st.text_input("CSV PF", value=pf_default, key="carteira_prazo_pf_path")
-        pj_path = st.text_input("CSV PJ", value=pj_default, key="carteira_prazo_pj_path")
-
-    df_long = _load_both_segments(pf_path, pj_path, use_csv_override=use_csv_override)
+    df_long = _load_both_segments()
     if df_long.empty:
-        attempted_pf = [pf_path] + CSV_CANDIDATE_PATHS["PF"]
-        attempted_pj = [pj_path] + CSV_CANDIDATE_PATHS["PJ"]
         st.warning("Sem dados nos caches persistidos carteira_pf/carteira_pj.")
-        if use_csv_override:
-            st.caption("CSV PF testados: " + " | ".join(dict.fromkeys(attempted_pf)))
-            st.caption("CSV PJ testados: " + " | ".join(dict.fromkeys(attempted_pj)))
         return
 
     df_long = compute_pct_total_produto(df_long)
