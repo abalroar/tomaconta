@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-import re
 import unicodedata
 
 import numpy as np
@@ -113,6 +112,82 @@ def _first_existing_path(candidates: list[str], fallback: str) -> str:
 def _extract_codigo_from_instituicao(series: pd.Series) -> pd.Series:
     extracted = series.astype(str).str.extract(r"\[IF\s*(\d+)\]", expand=False)
     return extracted
+
+
+def _df_cache_to_long(df: pd.DataFrame, segmento: str) -> pd.DataFrame:
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    lower_cols = {c.lower(): c for c in df.columns}
+    col_inst = lower_cols.get("instituição") or lower_cols.get("instituicao")
+    col_periodo = lower_cols.get("período") or lower_cols.get("periodo")
+    col_total_seg = next(
+        (
+            c for c in df.columns
+            if "total da carteira de pessoa fisica" in _norm_text(c)
+            or "total da carteira de pessoa juridica" in _norm_text(c)
+        ),
+        None,
+    )
+    modalidade_cols = [c for c in df.columns if normalize_modalidade_text(c) in CANONICAL_MODALIDADES]
+    if not col_inst or not col_periodo or not modalidade_cols:
+        return pd.DataFrame()
+
+    out = df[[col_inst, col_periodo] + ([col_total_seg] if col_total_seg else []) + modalidade_cols].copy()
+    out = out.rename(columns={col_inst: "instituicao", col_periodo: "data"})
+    out["codigo"] = _extract_codigo_from_instituicao(out["instituicao"])
+    out["produto"] = "Carteira Total"
+    out["segmento"] = segmento
+    out["tcb"] = np.nan
+    out["td"] = np.nan
+    out["tc"] = np.nan
+    out["sr"] = np.nan
+    out["cidade"] = np.nan
+    out["uf"] = np.nan
+    out["total_segmento"] = out[col_total_seg] if col_total_seg else np.nan
+
+    melt = out.melt(
+        id_vars=[
+            "instituicao",
+            "codigo",
+            "tcb",
+            "td",
+            "tc",
+            "sr",
+            "cidade",
+            "uf",
+            "data",
+            "segmento",
+            "total_segmento",
+            "produto",
+        ],
+        value_vars=modalidade_cols,
+        var_name="modalidade",
+        value_name="valor",
+    )
+    melt["modalidade"] = melt["modalidade"].apply(normalize_modalidade_text)
+    melt["data"] = pd.to_datetime("01/" + melt["data"].astype(str), format="%d/%m/%Y", errors="coerce")
+    melt["valor"] = pd.to_numeric(melt["valor"], errors="coerce")
+    melt["total_segmento"] = pd.to_numeric(melt["total_segmento"], errors="coerce")
+    melt["modalidade"] = pd.Categorical(melt["modalidade"], categories=CANONICAL_MODALIDADES, ordered=True)
+    return melt[
+        [
+            "instituicao",
+            "codigo",
+            "tcb",
+            "td",
+            "tc",
+            "sr",
+            "cidade",
+            "uf",
+            "data",
+            "segmento",
+            "total_segmento",
+            "produto",
+            "modalidade",
+            "valor",
+        ]
+    ]
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -277,82 +352,25 @@ def load_carteira_prazo_parquet_fallback(path: str, segmento: str) -> pd.DataFra
     p = Path(path)
     if not p.exists():
         return pd.DataFrame()
+    return _df_cache_to_long(pd.read_parquet(p).copy(), segmento)
 
-    df = pd.read_parquet(p).copy()
-    if df.empty:
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def load_carteira_prazo_cache_segment(segmento: str) -> pd.DataFrame:
+    try:
+        from utils.ifdata_cache import get_manager
+    except Exception:
         return pd.DataFrame()
 
-    lower_cols = {c.lower(): c for c in df.columns}
-    col_inst = lower_cols.get("instituição") or lower_cols.get("instituicao")
-    col_periodo = lower_cols.get("período") or lower_cols.get("periodo")
-    col_total_seg = next(
-        (c for c in df.columns if "total da carteira de pessoa física" in _norm_text(c) or "total da carteira de pessoa juridica" in _norm_text(c)),
-        None,
-    )
-    modalidade_cols = [c for c in df.columns if normalize_modalidade_text(c) in CANONICAL_MODALIDADES]
-
-    if not col_inst or not col_periodo or not modalidade_cols:
+    manager = get_manager()
+    if manager is None:
         return pd.DataFrame()
 
-    out = df[[col_inst, col_periodo] + ([col_total_seg] if col_total_seg else []) + modalidade_cols].copy()
-    out = out.rename(columns={col_inst: "instituicao", col_periodo: "data"})
-    out["codigo"] = _extract_codigo_from_instituicao(out["instituicao"])
-    out["produto"] = "Carteira Total"
-    out["segmento"] = segmento
-    out["tcb"] = np.nan
-    out["td"] = np.nan
-    out["tc"] = np.nan
-    out["sr"] = np.nan
-    out["cidade"] = np.nan
-    out["uf"] = np.nan
-    out["total_segmento"] = out[col_total_seg] if col_total_seg else np.nan
-
-    melt = out.melt(
-        id_vars=[
-            "instituicao",
-            "codigo",
-            "tcb",
-            "td",
-            "tc",
-            "sr",
-            "cidade",
-            "uf",
-            "data",
-            "segmento",
-            "total_segmento",
-            "produto",
-        ],
-        value_vars=modalidade_cols,
-        var_name="modalidade",
-        value_name="valor",
-    )
-    melt["modalidade"] = melt["modalidade"].apply(normalize_modalidade_text)
-    melt["data"] = pd.to_datetime(
-        "01/" + melt["data"].astype(str).str.replace(r"^(\d{1,2})/(\d{4})$", r"\1/\2", regex=True),
-        format="%d/%m/%Y",
-        errors="coerce",
-    )
-    melt["valor"] = pd.to_numeric(melt["valor"], errors="coerce")
-    melt["total_segmento"] = pd.to_numeric(melt["total_segmento"], errors="coerce")
-    melt["modalidade"] = pd.Categorical(melt["modalidade"], categories=CANONICAL_MODALIDADES, ordered=True)
-    return melt[
-        [
-            "instituicao",
-            "codigo",
-            "tcb",
-            "td",
-            "tc",
-            "sr",
-            "cidade",
-            "uf",
-            "data",
-            "segmento",
-            "total_segmento",
-            "produto",
-            "modalidade",
-            "valor",
-        ]
-    ]
+    tipo_cache = "carteira_pf" if segmento == "PF" else "carteira_pj"
+    resultado = manager.carregar(tipo_cache)
+    if resultado.sucesso and resultado.dados is not None:
+        return _df_cache_to_long(resultado.dados.copy(), segmento)
+    return pd.DataFrame()
 
 
 def compute_pct_total_produto(df_long: pd.DataFrame) -> pd.DataFrame:
@@ -403,16 +421,19 @@ def compute_prazo_medio(df_long: pd.DataFrame, incluir_vencido: bool = False) ->
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def _load_both_segments(pf_path: str, pj_path: str) -> pd.DataFrame:
+def _load_both_segments(pf_path: str, pj_path: str, use_csv_override: bool = False) -> pd.DataFrame:
     dfs = []
-    pairs = [(pf_path, "PF"), (pj_path, "PJ")]
-    for path, seg in pairs:
-        df = load_carteira_prazo_csv(path)
+    pairs = [("PF", pf_path), ("PJ", pj_path)]
+    for seg, path in pairs:
+        df = load_carteira_prazo_cache_segment(seg)
         if df.empty:
             parquet_path = "data/cache/carteira_pf/dados.parquet" if seg == "PF" else "data/cache/carteira_pj/dados.parquet"
             df = load_carteira_prazo_parquet_fallback(parquet_path, seg)
-        if not df.empty:
-            dfs.append(df)
+        if df.empty and use_csv_override:
+            df = load_carteira_prazo_csv(path)
+        if df.empty:
+            continue
+        dfs.append(df)
     if not dfs:
         return pd.DataFrame()
     return pd.concat(dfs, ignore_index=True)
@@ -430,22 +451,28 @@ def _build_bank_options(df: pd.DataFrame) -> pd.DataFrame:
 
 def render_carteira_prazo_modalidade_tab() -> None:
     st.markdown("### Carteira - Prazo e Modalidade")
-    st.caption("PF e PJ no mesmo parser (header duplo: produto x modalidade).")
+    st.caption("Fonte padrão: caches persistidos dos relatórios 11 (PF) e 13 (PJ).")
 
     pf_default = _first_existing_path(CSV_CANDIDATE_PATHS["PF"], DEFAULT_PF_PATH)
     pj_default = _first_existing_path(CSV_CANDIDATE_PATHS["PJ"], DEFAULT_PJ_PATH)
+    use_csv_override = st.checkbox(
+        "Usar CSV de override (opcional)",
+        value=False,
+        help="Desmarcado: usa apenas carteira_pf/carteira_pj do cache persistido.",
+    )
 
-    with st.expander("Configuração de fontes CSV", expanded=False):
+    with st.expander("Configuração de CSV (override)", expanded=False):
         pf_path = st.text_input("CSV PF", value=pf_default, key="carteira_prazo_pf_path")
         pj_path = st.text_input("CSV PJ", value=pj_default, key="carteira_prazo_pj_path")
 
-    df_long = _load_both_segments(pf_path, pj_path)
+    df_long = _load_both_segments(pf_path, pj_path, use_csv_override=use_csv_override)
     if df_long.empty:
         attempted_pf = [pf_path] + CSV_CANDIDATE_PATHS["PF"]
         attempted_pj = [pj_path] + CSV_CANDIDATE_PATHS["PJ"]
-        st.warning("Nenhuma fonte válida encontrada (CSV ou cache parquet).")
-        st.caption("PF testados: " + " | ".join(dict.fromkeys(attempted_pf)))
-        st.caption("PJ testados: " + " | ".join(dict.fromkeys(attempted_pj)))
+        st.warning("Sem dados nos caches persistidos carteira_pf/carteira_pj.")
+        if use_csv_override:
+            st.caption("CSV PF testados: " + " | ".join(dict.fromkeys(attempted_pf)))
+            st.caption("CSV PJ testados: " + " | ".join(dict.fromkeys(attempted_pj)))
         return
 
     df_long = compute_pct_total_produto(df_long)
