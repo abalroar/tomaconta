@@ -91,6 +91,7 @@ import numpy as np
 import xlsxwriter
 from PIL import Image as PILImage
 from io import BytesIO
+from tabs.carteira_prazo_modalidade import render_carteira_prazo_modalidade_tab
 
 st.set_page_config(page_title="🏦 👀 toma.conta!", page_icon="👁️", layout="wide", initial_sidebar_state="expanded")
 
@@ -6126,6 +6127,7 @@ MENU_PRINCIPAL = [
     "Scatter Plot",
     "DRE",
     "Carteira 4.966",
+    "Carteira – Prazo e Modalidade",
     "Taxas de Juros por Produto",
     "Crie sua métrica!",
     "Contribuições FGC/FGCoop",
@@ -11072,6 +11074,9 @@ elif menu == "Carteira 4.966":
         info = manager.info("carteira_instrumentos")
         if info and not info.get("erro"):
             st.caption(f"Status do cache: {info}")
+
+elif menu == "Carteira – Prazo e Modalidade":
+    render_carteira_prazo_modalidade_tab()
 
 elif menu == "Taxas de Juros por Produto":
     # =========================================================================
