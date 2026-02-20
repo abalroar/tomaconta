@@ -7842,6 +7842,17 @@ elif menu == "Scatter Plot":
         bancos_todos = df['Instituição'].dropna().unique().tolist()
         dict_aliases = st.session_state.get('dict_aliases', {})
         todos_bancos = ordenar_bancos_com_alias(bancos_todos, dict_aliases)
+        _default_scatter_bancos = _encontrar_bancos_default(
+            todos_bancos,
+            [
+                ("itau", "itaú"),
+                ("banco do brasil", "bb"),
+                ("caixa economica federal", "caixa econômica federal", "caixa"),
+                ("santander",),
+                ("bradesco",),
+                ("btg", "btg pactual"),
+            ],
+        )
 
         # Primeira linha: variáveis dos eixos e tamanho
         col1, col2, col3, col4 = st.columns(4)
@@ -7875,6 +7886,7 @@ elif menu == "Scatter Plot":
             bancos_selecionados = st.multiselect(
                 "selecionar bancos",
                 todos_bancos,
+                default=_default_scatter_bancos,
                 key="bancos_multiselect"
             )
 
@@ -8037,6 +8049,7 @@ elif menu == "Scatter Plot":
             bancos_selecionados_n2 = st.multiselect(
                 "selecionar bancos",
                 todos_bancos,
+                default=_default_scatter_bancos,
                 key="bancos_multiselect_n2"
             )
 
