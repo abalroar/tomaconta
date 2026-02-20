@@ -95,6 +95,35 @@ def _periodo_to_datetime(periodo: object) -> pd.Timestamp | pd.NaT:
     return pd.Timestamp(year=ano, month=mes, day=1)
 
 
+def _periodo_exib_to_api(periodo_exib: object) -> str | None:
+    if periodo_exib is None:
+        return None
+    txt = str(periodo_exib).strip()
+    m = re.match(r"^(\d{1,2})\/(\d{4})$", txt)
+    if not m:
+        return None
+    p1 = int(m.group(1))
+    ano = int(m.group(2))
+    if 1 <= p1 <= 4:
+        mes = {1: "03", 2: "06", 3: "09", 4: "12"}[p1]
+    elif 1 <= p1 <= 12:
+        mes = f"{p1:02d}"
+    else:
+        return None
+    return f"{ano}{mes}"
+
+
+def _periodo_api_to_data(periodo_api: str) -> pd.Timestamp | pd.NaT:
+    if not periodo_api or len(periodo_api) != 6:
+        return pd.NaT
+    try:
+        ano = int(periodo_api[:4])
+        mes = int(periodo_api[4:])
+        return pd.Timestamp(year=ano, month=mes, day=1)
+    except Exception:
+        return pd.NaT
+
+
 def _extract_codigo_from_instituicao(series: pd.Series) -> pd.Series:
     return series.astype(str).str.extract(r"\[IF\s*(\d+)\]", expand=False)
 
@@ -257,6 +286,85 @@ def _melt_cache_df(df: pd.DataFrame, segmento: str) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
+def _load_relatorio_raw_long(periodos_api: tuple[str, ...], relatorio: int, segmento: str) -> pd.DataFrame:
+    """Extrai rel. 11/13 bruto da API e preserva dimensão de produto (Grupo)."""
+    try:
+        from utils.ifdata_cache.extractor import extrair_cadastro, extrair_valores
+    except Exception:
+        return pd.DataFrame()
+
+    rows = []
+    for periodo in periodos_api:
+        if not periodo:
+            continue
+        df_val = extrair_valores(periodo, relatorio)
+        if df_val is None or df_val.empty:
+            continue
+
+        df_cad = extrair_cadastro(periodo)
+        nome_col = None
+        if df_cad is not None and not df_cad.empty:
+            for cand in ["NomeInstituicao", "NomeInstituição"]:
+                if cand in df_cad.columns:
+                    nome_col = cand
+                    break
+        nome_map = (
+            df_cad[["CodInst", nome_col]].drop_duplicates().set_index("CodInst")[nome_col].to_dict()
+            if nome_col
+            else {}
+        )
+
+        tmp = df_val.copy()
+        tmp["CodInst"] = tmp["CodInst"].astype(str)
+        tmp["instituicao"] = tmp["CodInst"].map(nome_map).fillna(tmp["CodInst"].apply(lambda x: f"[IF {x}]"))
+        tmp["codigo"] = tmp["CodInst"]
+        tmp["data"] = _periodo_api_to_data(periodo)
+        tmp["segmento"] = segmento
+        tmp["modalidade"] = tmp["NomeColuna"].apply(normalize_modalidade_text)
+        tmp["valor"] = pd.to_numeric(tmp.get("Saldo"), errors="coerce")
+        tmp["produto"] = tmp["Grupo"].astype(str).str.strip()
+        tmp.loc[tmp["Grupo"].isna() | (tmp["produto"] == ""), "produto"] = np.nan
+
+        total_seg_nome = "Total da Carteira de Pessoa Física" if segmento == "PF" else "Total da Carteira de Pessoa Jurídica"
+        total_seg = (
+            tmp[tmp["NomeColuna"].astype(str).str.strip() == total_seg_nome][["codigo", "data", "valor"]]
+            .rename(columns={"valor": "total_segmento"})
+            .drop_duplicates(subset=["codigo", "data"])
+        )
+
+        # Linhas com produto explícito (Grupo) + modalidade de prazo/total.
+        parte_prod = tmp[tmp["produto"].notna() & tmp["modalidade"].isin(CANONICAL_MODALIDADES)][
+            ["instituicao", "codigo", "data", "segmento", "produto", "modalidade", "valor"]
+        ]
+
+        # Total exterior entra como produto próprio com modalidade Total.
+        exterior_label = "Total Exterior Pessoa Física" if segmento == "PF" else "Total Exterior Pessoa Jurídica"
+        parte_ext = tmp[tmp["NomeColuna"].astype(str).str.strip() == exterior_label].copy()
+        if not parte_ext.empty:
+            parte_ext = parte_ext.assign(produto=exterior_label, modalidade="Total")[
+                ["instituicao", "codigo", "data", "segmento", "produto", "modalidade", "valor"]
+            ]
+            parte_prod = pd.concat([parte_prod, parte_ext], ignore_index=True)
+
+        if parte_prod.empty:
+            continue
+
+        parte_prod = parte_prod.merge(total_seg, on=["codigo", "data"], how="left")
+        rows.append(parte_prod)
+
+    if not rows:
+        return pd.DataFrame()
+
+    out = pd.concat(rows, ignore_index=True)
+    out = out.groupby(
+        ["instituicao", "codigo", "data", "segmento", "produto", "modalidade", "total_segmento"],
+        as_index=False,
+    )["valor"].sum(min_count=1)
+    out["modalidade"] = pd.Categorical(out["modalidade"], categories=CANONICAL_MODALIDADES, ordered=True)
+    return out
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
 def load_carteira_prazo_long() -> pd.DataFrame:
     """Carrega Relatórios 11/13 reais do cache do app e normaliza para long."""
     frames = []
@@ -268,8 +376,8 @@ def load_carteira_prazo_long() -> pd.DataFrame:
     except Exception:
         manager = None
 
-    mapping = [("carteira_pf", "PF"), ("carteira_pj", "PJ")]
-    for tipo_cache, segmento in mapping:
+    mapping = [("carteira_pf", "PF", 11), ("carteira_pj", "PJ", 13)]
+    for tipo_cache, segmento, relatorio in mapping:
         df_raw = pd.DataFrame()
 
         if manager is not None:
@@ -282,7 +390,19 @@ def load_carteira_prazo_long() -> pd.DataFrame:
             if parquet_path.exists():
                 df_raw = pd.read_parquet(parquet_path)
 
-        df_long = _melt_cache_df(df_raw, segmento)
+        periodos_api = tuple(
+            sorted(
+                {
+                    _periodo_exib_to_api(p)
+                    for p in (df_raw["Período"].dropna().unique().tolist() if ("Período" in df_raw.columns) else [])
+                    if _periodo_exib_to_api(p) is not None
+                }
+            )
+        )
+
+        df_long = _load_relatorio_raw_long(periodos_api, relatorio, segmento) if periodos_api else pd.DataFrame()
+        if df_long.empty:
+            df_long = _melt_cache_df(df_raw, segmento)
         if not df_long.empty:
             frames.append(df_long)
 
