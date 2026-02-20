@@ -6219,6 +6219,9 @@ st.markdown('</div>', unsafe_allow_html=True)
 
 # Usar menu_atual (já atualizado pelos callbacks)
 menu = st.session_state['menu_atual']
+_menu_prev_rendered = st.session_state.get('_menu_prev_rendered')
+_just_entered_scatter = menu == "Scatter Plot" and _menu_prev_rendered != "Scatter Plot"
+st.session_state['_menu_prev_rendered'] = menu
 
 st.markdown("---")
 
@@ -7853,6 +7856,10 @@ elif menu == "Scatter Plot":
                 ("btg", "btg pactual"),
             ],
         )
+        # Força defaults ao ENTRAR na aba (multiselect com key ignora `default` quando já há estado).
+        if _just_entered_scatter:
+            st.session_state["bancos_multiselect"] = _default_scatter_bancos
+            st.session_state["bancos_multiselect_n2"] = _default_scatter_bancos
 
         # Primeira linha: variáveis dos eixos e tamanho
         col1, col2, col3, col4 = st.columns(4)
