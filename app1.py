@@ -91,7 +91,6 @@ import numpy as np
 import xlsxwriter
 from PIL import Image as PILImage
 from io import BytesIO
-from tabs.carteira_prazo_modalidade import render_carteira_prazo_modalidade_tab
 
 st.set_page_config(page_title="🏦 👀 toma.conta!", page_icon="👁️", layout="wide", initial_sidebar_state="expanded")
 
@@ -6127,7 +6126,6 @@ MENU_PRINCIPAL = [
     "Scatter Plot",
     "DRE",
     "Carteira 4.966",
-    "Carteira – Prazo e Modalidade",
     "Taxas de Juros por Produto",
     "Crie sua métrica!",
     "Contribuições FGC/FGCoop",
@@ -8564,6 +8562,9 @@ elif menu == "Rankings":
                                     lambda x: round(x, 2) if pd.notna(x) else None
                                 )
 
+                            st.markdown("#### Tabela dos dados do gráfico")
+                            st.dataframe(df_export_capital, use_container_width=True, hide_index=True)
+
                             st.markdown("#### Exportar")
                             buffer_excel = BytesIO()
                             with pd.ExcelWriter(buffer_excel, engine='xlsxwriter') as writer:
@@ -8578,7 +8579,7 @@ elif menu == "Rankings":
                                     file_name=f"indice_basileia_{periodo_resumo.replace('/', '-')}.xlsx",
                                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                     key="exportar_resumo_excel_basileia",
-                                    use_container_width=True,
+                                    use_container_width=False,
                                 )
                             with col_export_b:
                                 png_bytes = _plotly_fig_to_png_bytes(fig_basileia)
@@ -8724,6 +8725,21 @@ elif menu == "Rankings":
                             'Diferença vs Média'
                         ]].rename(columns={'ranking': 'Ranking'})
 
+                        df_plotado = df_selecionado[[
+                            'Instituição',
+                            'ranking',
+                            'valor_display',
+                            'diff_media',
+                            'diff_pct_text',
+                        ]].rename(columns={
+                            'ranking': 'Ranking',
+                            'valor_display': 'Valor Plotado',
+                            'diff_media': 'Diferença vs Média',
+                            'diff_pct_text': 'Diferença vs Média (%)',
+                        })
+                        st.markdown("#### Tabela dos dados do gráfico")
+                        st.dataframe(df_plotado, use_container_width=True, hide_index=True)
+
                         st.markdown("#### Exportar")
                         buffer_excel = BytesIO()
                         with pd.ExcelWriter(buffer_excel, engine='xlsxwriter') as writer:
@@ -8738,7 +8754,7 @@ elif menu == "Rankings":
                                 file_name=f"ranking_{periodo_resumo.replace('/', '-')}.xlsx",
                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                 key="exportar_resumo_excel",
-                                use_container_width=True,
+                                use_container_width=False,
                             )
                         with col_export_b:
                             png_bytes = _plotly_fig_to_png_bytes(fig_resumo)
@@ -11074,9 +11090,6 @@ elif menu == "Carteira 4.966":
         info = manager.info("carteira_instrumentos")
         if info and not info.get("erro"):
             st.caption(f"Status do cache: {info}")
-
-elif menu == "Carteira – Prazo e Modalidade":
-    render_carteira_prazo_modalidade_tab()
 
 elif menu == "Taxas de Juros por Produto":
     # =========================================================================
