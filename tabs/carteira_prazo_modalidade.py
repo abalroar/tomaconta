@@ -530,10 +530,20 @@ def render_carteira_prazo_modalidade_tab() -> None:
         inst_sel = st.multiselect("Instituição", instituicoes, default=instituicoes[:1])
 
     with col_f3:
+        df_codes_scope = df[df["instituicao"].isin(inst_sel)] if inst_sel else df
         codigos = sorted(
-            [c for c in df["codigo"].astype(str).str.strip().unique().tolist() if c and c not in ["nan", "None"]]
+            [
+                c
+                for c in df_codes_scope["codigo"].astype(str).str.strip().unique().tolist()
+                if c and c not in ["nan", "None"]
+            ]
         )
-        cod_sel = st.multiselect("Código", codigos, default=codigos[: min(3, len(codigos))])
+        cod_sel = st.multiselect(
+            "Código (CodInst IFData)",
+            codigos,
+            default=[],
+            help="Identificador interno CodInst do IFData (não é código COMPE). Deixe vazio para não filtrar por código.",
+        )
 
     if inst_sel:
         df = df[df["instituicao"].isin(inst_sel)]
