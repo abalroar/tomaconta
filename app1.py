@@ -6164,9 +6164,15 @@ def _garantir_dados_principais(menu_nome: str) -> bool:
     if 'dados_periodos' in st.session_state and st.session_state['dados_periodos']:
         return True
 
-    with st.spinner("Carregando dados principais..."):
+    with st.status("carregando dados do banco central...", expanded=True) as _status:
+        st.write("lendo cache local (parquet)...")
         carregar_dados_periodos()
-    return bool(st.session_state.get('dados_periodos'))
+        ok = bool(st.session_state.get('dados_periodos'))
+        if ok:
+            _status.update(label="dados carregados", state="complete", expanded=False)
+        else:
+            _status.update(label="falha ao carregar dados", state="error", expanded=True)
+    return ok
 
 # Callbacks para navegação entre menus (evita conflito)
 def _on_main_menu_change():
@@ -6260,10 +6266,10 @@ with st.sidebar:
         # Botão para forçar recarregamento do cache local
         if st.button("recarregar cache do disco", width='stretch'):
             if forcar_recarregar_cache():
-                st.success("cache recarregado do disco com sucesso!")
+                st.toast("cache recarregado com sucesso!", icon="✅")
                 st.rerun()
             else:
-                st.error("falha ao recarregar cache - arquivo não existe")
+                st.toast("falha ao recarregar — arquivo não existe", icon="⚠️")
 
         st.markdown("---")
         st.markdown("**diagnóstico**")
@@ -6384,6 +6390,32 @@ if menu == "Sobre":
         </div>
     </div>
     """, unsafe_allow_html=True)
+
+    # Acesso rápido — botões nativos que navegam diretamente ao módulo
+    st.markdown("""
+    <p style="font-size:0.85rem; color:#5f6b7a; font-weight:300; margin:0.25rem 0 0.5rem 0;">
+        clique em qualquer módulo para abrir diretamente.
+    </p>
+    """, unsafe_allow_html=True)
+
+    _modulos_nav = [
+        ("Rankings", "Rankings"),
+        ("Peers (Tabela)", "Peers (Tabela)"),
+        ("Evolução", "Evolução"),
+        ("Scatter Plot", "Scatter Plot"),
+        ("DRE", "DRE"),
+        ("Carteira 4.966", "Carteira 4.966"),
+        ("Taxas de Juros por Produto", "Taxas de Juros por Produto"),
+        ("Conselho e Diretoria", "Conselho e Diretoria"),
+        ("Crie sua métrica!", "Crie sua métrica!"),
+        ("Glossário", "Glossário"),
+    ]
+    _nav_cols = st.columns(5)
+    for _i, (_label, _menu_dest) in enumerate(_modulos_nav):
+        with _nav_cols[_i % 5]:
+            if st.button(_label, key=f"nav_sobre_{_i}", use_container_width=True):
+                st.session_state['menu_atual'] = _menu_dest
+                st.rerun()
 
     st.markdown("---")
 
@@ -8326,7 +8358,20 @@ elif menu == "Rankings":
             indicadores_restantes = [i for i in indicadores_disponiveis.keys() if i not in indicadores_ordenados]
             indicadores_ordenados.extend(indicadores_restantes)
 
-            col_periodo, col_indicador, col_media = st.columns([1.2, 2, 1.8])
+            # Mini-glossário para popovers inline nos Rankings
+            _RANKINGS_GLOSSARIO = {
+                'Ativo Total': 'Padrão COSIF. Soma de todos os ativos do conglomerado prudencial.',
+                'Carteira de Crédito Bruta': 'Soma do Valor Contábil Bruto (e1+f1+g1+h1) no Relatório de Ativo (Rel. 2).',
+                'Core Funding': 'Todos os passivos exceto títulos de dívida e dívidas subordinadas elegíveis a capital.',
+                'Patrimônio Líquido': 'Padrão COSIF.',
+                'Índice de Capital Principal (CET1)': 'Capital Principal ÷ RWA Total. Indicador de solidez patrimonial regulatório (mínimo exigido: 4,5% + ACPs).',
+                'Índice de Basileia (%)': 'Patrimônio de Referência ÷ RWA Total. Índice global de adequação de capital.',
+                'Lucro Líquido Acumulado YTD': 'Lucro líquido acumulado no ano-calendário até o final do período (Jan–Set, Jan–Jun etc.).',
+                'Lucro Líquido Trimestral': 'Lucro líquido do trimestre de referência (isolado).',
+                'ROE Ac. Anualizado (%)': '(LL YTD × fator de anualização) ÷ PL Médio.\nPL Médio = (PL período + PL Dez anterior) / 2.\nFatores: Mar=4×, Jun=2×, Set≈1,33×, Dez=1×.',
+            }
+
+            col_periodo, col_indicador, col_info, col_media = st.columns([1.2, 2, 0.25, 1.8])
             with col_periodo:
                 _idx_periodo_rank = 0
                 _p_set25 = _encontrar_periodo(periodos, 3, 2025)
@@ -8345,6 +8390,15 @@ elif menu == "Rankings":
                     indicadores_ordenados,
                     key="indicador_resumo"
                 )
+            with col_info:
+                st.markdown("<div style='margin-top:1.65rem'></div>", unsafe_allow_html=True)
+                with st.popover("ℹ️", use_container_width=True):
+                    _def = _RANKINGS_GLOSSARIO.get(indicador_label)
+                    if _def:
+                        st.markdown(f"**{indicador_label}**")
+                        st.markdown(_def)
+                    else:
+                        st.caption("definição não disponível — consulte o Glossário.")
             with col_media:
                 tipo_media_label = st.selectbox(
                     "ponderar média por",
@@ -13081,10 +13135,10 @@ elif menu == "Atualizar Base":
                         token_para_upload
                     )
                     if sucesso:
-                        st.success(f"✅ {mensagem}")
+                        st.toast(f"✅ {mensagem}", icon="🚀")
                         st.balloons()
                     else:
-                        st.error(f"❌ {mensagem}")
+                        st.toast(f"❌ {mensagem}", icon="⚠️")
         with col_pub2:
             st.caption(f"Token: {'✅' if token_para_upload else '❌'}")
 

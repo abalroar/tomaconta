@@ -1,0 +1,19 @@
+[theme]
+# Paleta principal do toma.conta
+primaryColor        = "#1f77b4"
+backgroundColor     = "#ffffff"
+secondaryBackgroundColor = "#f8f9fa"
+textColor           = "#2f3a48"
+
+[server]
+headless            = true
+maxUploadSize       = 50
+
+[browser]
+gatherUsageStats    = false
+
+[client]
+# Oculta o menu hamburger e o rodapé "Made with Streamlit"
+# (complementa os seletores CSS já existentes no app)
+toolbarMode         = "minimal"
+showSidebarNavigation = false
