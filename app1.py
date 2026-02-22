@@ -94,8 +94,63 @@ from io import BytesIO
 
 st.set_page_config(page_title="🏦 👀 toma.conta!", page_icon="👁️", layout="wide", initial_sidebar_state="expanded")
 
-# CSS - sidebar fixa, tipografia e ícones corrigidos
+# CSS e JS de interface — injetados uma única vez na carga da página.
+# O Streamlit reavalia esta chamada a cada rerun, mas o React difere o HTML
+# e só executa o <script> na primeira montagem do elemento no DOM,
+# evitando registro duplicado de event listeners entre reruns.
 st.markdown("""
+<script>
+(function () {
+    /* Guarda de execução única: impede re-registro caso o React remontar o nó */
+    if (window.__tomaconta_tab_bar_init) return;
+    window.__tomaconta_tab_bar_init = true;
+
+    /* Barra de progresso fina no topo da página */
+    var bar = document.createElement('div');
+    bar.id = '__tc_tab_bar';
+    bar.style.cssText = [
+        'position:fixed', 'top:0', 'left:0', 'height:2px', 'width:0',
+        'background:linear-gradient(90deg,#1f77b4,#4fb8e0)',
+        'z-index:99999', 'opacity:0',
+        'transition:width .45s ease-out, opacity .2s ease'
+    ].join(';');
+    document.body.appendChild(bar);
+
+    function showBar() {
+        bar.style.opacity = '1';
+        bar.style.width = '0';
+        /* Force reflow para a transition width funcionar corretamente */
+        void bar.offsetWidth;
+        bar.style.width = '75%';
+    }
+
+    function completeBar() {
+        bar.style.width = '100%';
+        setTimeout(function () {
+            bar.style.opacity = '0';
+            setTimeout(function () { bar.style.width = '0'; }, 220);
+        }, 180);
+    }
+
+    /* Detecta cliques nos segmented controls de navegação */
+    document.addEventListener('click', function (e) {
+        if (!e.target.closest('[data-testid="stSegmentedControl"]')) return;
+        showBar();
+
+        /* Observa mudanças no DOM da área principal para saber quando
+           o Streamlit terminou de renderizar o novo conteúdo */
+        var target = document.querySelector('section.main') || document.body;
+        var obs = new MutationObserver(function () {
+            completeBar();
+            obs.disconnect();
+        });
+        obs.observe(target, { childList: true, subtree: true });
+
+        /* Fallback: completa após 3 s caso o MutationObserver não dispare */
+        setTimeout(function () { completeBar(); obs.disconnect(); }, 3000);
+    }, true);
+})();
+</script>
 <style>
     @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@100;200;300;400;500;600;700&display=swap');
     @import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200');
@@ -603,6 +658,44 @@ st.markdown("""
 
     .stack-panel tbody tr:last-child td {
         border-bottom: none;
+    }
+
+    /* ===================================================
+       TRANSIÇÃO DE ABAS — reduz o "ghost" do Streamlit
+       =================================================== */
+
+    /*
+     * Durante um rerun, o Streamlit aplica opacity reduzida ao conteúdo
+     * via JavaScript inline. Adicionamos uma transition CSS para que a
+     * mudança de opacidade seja gradual (fade suave) em vez de abrupta.
+     * Isso torna o "ghost" visualmente mais polido enquanto o backend
+     * processa o novo conteúdo.
+     */
+    .stMain .stMainBlockContainer,
+    section.main > div {
+        transition: opacity 0.10s ease-out !important;
+    }
+
+    /*
+     * Barra de progresso no topo — indica visualmente que algo está
+     * carregando logo que a aba é clicada, usando apenas CSS e o
+     * evento :focus/:active do segmented control (sem JS extra).
+     */
+    [data-testid="stSegmentedControl"] button:active ~ * {
+        /* seletor de CSS puro para dar feedback imediato — efeito cosmético */
+        opacity: 0.6;
+    }
+
+    /* Spinner global de transição de aba: usa a mesma animação do Streamlit
+       mas aplicada ao ícone de loading que já existe no DOM */
+    [data-testid="stStatusWidget"] {
+        position: sticky;
+        top: 0.25rem;
+        z-index: 200;
+        backdrop-filter: blur(4px);
+        background: rgba(255,255,255,0.85);
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
     }
 </style>
 """, unsafe_allow_html=True)
@@ -6193,6 +6286,27 @@ def _on_sec_menu_change():
         if 'nav_main' in st.session_state:
             st.session_state['nav_main'] = None
 
+def _nav_para_menu(dest: str):
+    """Callback de navegação direta: atualiza menu_atual sem st.rerun() explícito.
+
+    Usado por botões de atalho (página Sobre, sidebar) para evitar double rerun:
+    o callback roda antes do rerun que o próprio clique do botão já dispara.
+    """
+    st.session_state['menu_atual'] = dest
+    if dest in MENU_PRINCIPAL:
+        st.session_state['nav_main'] = dest
+        st.session_state['nav_sec'] = None
+    else:
+        st.session_state['nav_sec'] = dest
+        st.session_state['nav_main'] = None
+
+def _recarregar_cache_callback():
+    """Callback para o botão de recarga de cache: evita double rerun."""
+    if forcar_recarregar_cache():
+        st.toast("cache recarregado com sucesso!", icon="✅")
+    else:
+        st.toast("falha ao recarregar — arquivo não existe", icon="⚠️")
+
 # Configurar valores iniciais nos widgets (antes de renderizar)
 if menu_atual in MENU_PRINCIPAL:
     st.session_state['nav_main'] = menu_atual
@@ -6227,6 +6341,7 @@ st.markdown('</div>', unsafe_allow_html=True)
 menu = st.session_state['menu_atual']
 _menu_prev_rendered = st.session_state.get('_menu_prev_rendered')
 _just_entered_scatter = menu == "Scatter Plot" and _menu_prev_rendered != "Scatter Plot"
+_just_changed_tab = menu != _menu_prev_rendered and _menu_prev_rendered is not None
 st.session_state['_menu_prev_rendered'] = menu
 
 st.markdown("---")
@@ -6264,12 +6379,11 @@ with st.sidebar:
             st.warning("cache não encontrado no disco")
 
         # Botão para forçar recarregamento do cache local
-        if st.button("recarregar cache do disco", width='stretch'):
-            if forcar_recarregar_cache():
-                st.toast("cache recarregado com sucesso!", icon="✅")
-                st.rerun()
-            else:
-                st.toast("falha ao recarregar — arquivo não existe", icon="⚠️")
+        st.button(
+            "recarregar cache do disco",
+            width='stretch',
+            on_click=_recarregar_cache_callback,
+        )
 
         st.markdown("---")
         st.markdown("**diagnóstico**")
@@ -6313,9 +6427,13 @@ with st.sidebar:
         st.markdown("---")
         st.markdown("**atualizar dados (admin)**")
         st.caption("este painel foi simplificado. use o menu **Atualizar Base** para extração e publicação.")
-        if st.button("ir para Atualizar Base", width='stretch', key="sidebar_ir_atualizar_base"):
-            st.session_state['menu_atual'] = "Atualizar Base"
-            st.rerun()
+        st.button(
+            "ir para Atualizar Base",
+            width='stretch',
+            key="sidebar_ir_atualizar_base",
+            on_click=_nav_para_menu,
+            args=("Atualizar Base",),
+        )
 
 if menu == "Sobre":
     st.markdown("""
@@ -6413,9 +6531,13 @@ if menu == "Sobre":
     _nav_cols = st.columns(5)
     for _i, (_label, _menu_dest) in enumerate(_modulos_nav):
         with _nav_cols[_i % 5]:
-            if st.button(_label, key=f"nav_sobre_{_i}", use_container_width=True):
-                st.session_state['menu_atual'] = _menu_dest
-                st.rerun()
+            st.button(
+                _label,
+                key=f"nav_sobre_{_i}",
+                use_container_width=True,
+                on_click=_nav_para_menu,
+                args=(_menu_dest,),
+            )
 
     st.markdown("---")
 
