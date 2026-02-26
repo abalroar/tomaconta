@@ -758,7 +758,9 @@ VARS_RAZAO = ['Carteira de Crédito Bruta / PL', 'Ativo/PL', 'Crédito/PL (%)']
 VARS_MOEDAS = [
     'Carteira de Crédito',
     'Carteira de Crédito Bruta',
+    'Carteira de Crédito*',
     'Core Funding',
+    'Core Funding*',
     'Carteira de Crédito Classificada',
     'Ativos Líquidos',
     'Depósitos Totais',
@@ -6127,7 +6129,44 @@ def _get_rankings_base_df(
                 df["Índice de CET1"] = df["Índice de CET1"].fillna(df["Índice de CET1_cet1"])
                 df = df.drop(columns=["Índice de CET1_cet1"])
 
-    return df
+    return _normalizar_indicadores_rankings(df)
+
+
+def _normalizar_indicadores_rankings(df: pd.DataFrame) -> pd.DataFrame:
+    """Padroniza colunas-chave dos Rankings com a mesma semântica da aba Peers."""
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    df_out = df.copy()
+
+    def _coalesce_colunas(colunas_candidatas: list[str]) -> Optional[pd.Series]:
+        serie_out = None
+        for col in colunas_candidatas:
+            if col not in df_out.columns:
+                continue
+            serie = pd.to_numeric(df_out[col], errors="coerce")
+            serie_out = serie if serie_out is None else serie_out.combine_first(serie)
+        return serie_out
+
+    serie_carteira = _coalesce_colunas([
+        "Carteira de Crédito*",
+        "Carteira de Crédito Bruta",
+        "Carteira de Crédito",
+    ])
+    if serie_carteira is not None:
+        df_out["Carteira de Crédito Bruta"] = serie_carteira
+        df_out["Carteira de Crédito*"] = serie_carteira
+
+    serie_core = _coalesce_colunas([
+        "Core Funding*",
+        "Core Funding",
+        "Captações",
+    ])
+    if serie_core is not None:
+        df_out["Core Funding"] = serie_core
+        df_out["Core Funding*"] = serie_core
+
+    return df_out
 
 def carregar_dados_capital():
     if 'dados_capital' in st.session_state and st.session_state['dados_capital']:
@@ -8445,8 +8484,8 @@ elif menu == "Rankings":
 
         indicadores_config = {
             'Ativo Total': ['Ativo Total'],
-            'Carteira de Crédito Bruta': ['Carteira de Crédito Bruta', 'Carteira de Crédito'],
-            'Core Funding': ['Core Funding', 'Captações'],
+            'Carteira de Crédito*': ['Carteira de Crédito*', 'Carteira de Crédito Bruta', 'Carteira de Crédito'],
+            'Core Funding*': ['Core Funding*', 'Core Funding', 'Captações'],
             'Patrimônio Líquido': ['Patrimônio Líquido'],
             'Índice de Capital Principal (CET1)': ['Índice de Capital Principal (CET1)', 'Índice de Capital Principal'],
             'Índice de Basileia (%)': ['Índice de Basileia'],
@@ -8467,8 +8506,8 @@ elif menu == "Rankings":
             periodos = ordenar_periodos(df['Período'].dropna().unique(), reverso=True)
             ordem_prioritaria = [
                 'Ativo Total',
-                'Carteira de Crédito Bruta',
-                'Core Funding',
+                'Carteira de Crédito*',
+                'Core Funding*',
                 'Patrimônio Líquido',
                 'Índice de Capital Principal (CET1)',
                 'Índice de Basileia (%)',
@@ -8483,8 +8522,8 @@ elif menu == "Rankings":
             # Mini-glossário para popovers inline nos Rankings
             _RANKINGS_GLOSSARIO = {
                 'Ativo Total': 'Padrão COSIF. Soma de todos os ativos do conglomerado prudencial.',
-                'Carteira de Crédito Bruta': 'Soma do Valor Contábil Bruto (e1+f1+g1+h1) no Relatório de Ativo (Rel. 2).',
-                'Core Funding': 'Todos os passivos exceto títulos de dívida e dívidas subordinadas elegíveis a capital.',
+                'Carteira de Crédito*': 'Soma do Valor Contábil Bruto (e1+f1+g1+h1) no Relatório de Ativo (Rel. 2).',
+                'Core Funding*': 'Captações (e) no Relatório de Passivo; a partir de 2025, soma-se Dívida Subordinada (h).',
                 'Patrimônio Líquido': 'Padrão COSIF.',
                 'Índice de Capital Principal (CET1)': 'Capital Principal ÷ RWA Total. Indicador de solidez patrimonial regulatório (mínimo exigido: 4,5% + ACPs).',
                 'Índice de Basileia (%)': 'Patrimônio de Referência ÷ RWA Total. Índice global de adequação de capital.',
