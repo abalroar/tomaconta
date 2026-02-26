@@ -3665,6 +3665,16 @@ def _scatter_metric_criteria(label_exibicao: str) -> str:
     return criterios.get(label_exibicao, "Definição específica não cadastrada; usa série da base principal conforme nome da variável.")
 
 
+def _scatter_preferred_ui_option(opcoes_ui: list, display_to_internal: Dict[str, str], prefer_internal: str) -> Optional[str]:
+    """Retorna a opção de UI preferida para o Top N considerando aliases UI→interno."""
+    if prefer_internal in opcoes_ui:
+        return prefer_internal
+    for opcao in opcoes_ui:
+        if display_to_internal.get(opcao, opcao) == prefer_internal:
+            return opcao
+    return opcoes_ui[0] if opcoes_ui else None
+
+
 def _scatter_variable_health(df_periodo: pd.DataFrame, opcoes_ui: list, display_to_internal: Dict[str, str]) -> pd.DataFrame:
     linhas = []
     for var_ui in opcoes_ui:
@@ -8180,10 +8190,11 @@ elif menu == "Scatter Plot":
             top_n_scatter = st.slider("top n", 5, 50, 5)
         with col_t2:
             prefer_credito = _prefer_carteira_bruta(colunas_numericas)
+            prefer_credito_ui = _scatter_preferred_ui_option(colunas_scatter, scatter_display_to_internal, prefer_credito)
             var_top_n_ui = st.selectbox(
                 "top n por",
                 colunas_scatter,
-                index=colunas_scatter.index(prefer_credito) if prefer_credito in colunas_scatter else 0,
+                index=colunas_scatter.index(prefer_credito_ui) if prefer_credito_ui in colunas_scatter else 0,
             )
             var_top_n = scatter_display_to_internal.get(var_top_n_ui, var_top_n_ui)
 
@@ -8365,10 +8376,11 @@ elif menu == "Scatter Plot":
             top_n_scatter_n2 = st.slider("top n", 5, 50, 5, key="top_n_n2")
         with col_n2_t2:
             prefer_credito = _prefer_carteira_bruta(colunas_numericas)
+            prefer_credito_ui = _scatter_preferred_ui_option(colunas_scatter, scatter_display_to_internal, prefer_credito)
             var_top_n_n2_ui = st.selectbox(
                 "top n por",
                 colunas_scatter,
-                index=colunas_scatter.index(prefer_credito) if prefer_credito in colunas_scatter else 0,
+                index=colunas_scatter.index(prefer_credito_ui) if prefer_credito_ui in colunas_scatter else 0,
                 key="var_top_n_n2"
             )
             var_top_n_n2 = scatter_display_to_internal.get(var_top_n_n2_ui, var_top_n_n2_ui)
