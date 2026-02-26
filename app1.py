@@ -2601,6 +2601,8 @@ def formatar_valor(valor, variavel):
         return f"{valor:.2f}"
 
 def get_axis_format(variavel, serie: Optional[pd.Series] = None):
+    if variavel in {'Carteira de Crédito / PL', 'Carteira de Crédito Bruta / PL', 'Crédito/PL (%)', 'Crédito/PL', 'Ativo/PL'}:
+        return {'tickformat': '.1f', 'ticksuffix': 'x', 'multiplicador': 1}
     if _is_variavel_percentual(variavel):
         return {'tickformat': '.2f', 'ticksuffix': '%', 'multiplicador': 100}
     elif variavel in VARS_MOEDAS:
@@ -2737,6 +2739,8 @@ def _calcular_valores_display(serie: pd.Series, variavel: str, format_info: dict
         return _normalizar_basileia_display(serie)
     if variavel and ("Capital Principal" in variavel or "CET1" in variavel):
         return _normalizar_capital_principal_display(serie)
+    if variavel in {'Carteira de Crédito / PL', 'Carteira de Crédito Bruta / PL', 'Crédito/PL (%)', 'Crédito/PL', 'Ativo/PL'}:
+        return serie * format_info['multiplicador']
     if _is_variavel_percentual(variavel):
         return _normalizar_percentual_display(serie, variavel)
     return serie * format_info['multiplicador']
@@ -3594,6 +3598,8 @@ def _calcular_core_funding(
 
 
 def _prefer_carteira_bruta(colunas: list) -> str:
+    if "Carteira de Crédito" in colunas:
+        return "Carteira de Crédito"
     if "Carteira de Crédito Bruta" in colunas:
         return "Carteira de Crédito Bruta"
     return "Carteira de Crédito"
@@ -3614,20 +3620,25 @@ def _build_scatter_var_options(colunas: list) -> Tuple[list, Dict[str, str]]:
         "Títulos e Valores Mobiliários",
         "Desp PDD / Resultado Intermediação Fin. Bruto",
         "Crédito/Ativo (%)",
+        "Passivo Exigível",
+        "Crédito/Captações (%)",
+        "Patrimônio de Referência para Comparação com o RWA (e)",
+        "Patrimônio de Referência para Comparação com RWA",
     }
     opcoes_base = [c for c in colunas if c not in excluidas]
     display_to_internal = {c: c for c in opcoes_base}
 
     aliases_ui = {
-        "Carteira de Crédito Classificada": [
-            "Carteira de Crédito Classificada",
+        "Carteira de Crédito": [
+            "Carteira de Crédito",
             "Carteira de Crédito*",
             "Carteira de Crédito Bruta",
-            "Carteira de Crédito",
+            "Carteira de Crédito Classificada",
         ],
         "Core Funding": ["Core Funding", "Core Funding*", "Captações"],
         "ROE YTD Ac. Anualizado (%)": ["ROE Ac. Anualizado (%)", "ROE Ac. YTD an. (%)"],
         "Lucro Líquido Trimestral": ["Lucro Líquido Trimestral", "Lucro Líquido"],
+        "Carteira de Crédito / PL": ["Carteira de Crédito / PL", "Carteira de Crédito Bruta / PL"],
     }
 
     for label_ui, candidatos in aliases_ui.items():
@@ -3640,6 +3651,31 @@ def _build_scatter_var_options(colunas: list) -> Tuple[list, Dict[str, str]]:
         if label_ui not in opcoes_base:
             opcoes_base.append(label_ui)
 
+    remover_pos_alias = {
+        "Carteira de Crédito Classificada",
+        "Carteira de Crédito Bruta",
+        "Carteira de Crédito*",
+        "ROE Ac. YTD an. (%)",
+    }
+    opcoes_base = [c for c in opcoes_base if c not in remover_pos_alias]
+
+    # Deduplicação automática (Opção 2): se duas labels apontarem para a mesma série interna,
+    # mantém apenas a label canônica quando houver (aliases_ui) ou a primeira em ordem alfabética.
+    labels_canonicas = set(aliases_ui.keys())
+    labels_por_interno = {}
+    for label in opcoes_base:
+        interno = display_to_internal.get(label, label)
+        labels_por_interno.setdefault(interno, []).append(label)
+
+    opcoes_dedup = []
+    for interno, labels in labels_por_interno.items():
+        labels_ordenadas = sorted(labels, key=lambda x: str(x).lower())
+        preferida = next((l for l in labels_ordenadas if l in labels_canonicas), labels_ordenadas[0])
+        opcoes_dedup.append(preferida)
+        display_to_internal[preferida] = interno
+
+    opcoes_base = sorted(opcoes_dedup, key=lambda x: str(x).lower())
+    display_to_internal = {label: display_to_internal[label] for label in opcoes_base}
     return opcoes_base, display_to_internal
 
 
@@ -3668,7 +3704,8 @@ def _scatter_compor_texto_label(
     size_valor=None,
     format_size: Optional[dict] = None,
 ) -> str:
-    linhas = [instituicao]
+    incluir_nome = instituicao is not None and str(instituicao).strip() != ""
+    linhas = [instituicao] if incluir_nome else []
     linhas.append(f"X ({x_label}): {_format_scatter_label_value(x_valor, format_x, usar_mm_numeral=True)}")
     linhas.append(f"Y ({y_label}): {_format_scatter_label_value(y_valor, format_y, usar_mm_numeral=True)}")
     if size_label and format_size is not None:
@@ -3683,7 +3720,7 @@ def _scatter_metric_criteria(label_exibicao: str) -> str:
         "ROE YTD Ac. Anualizado (%)": "(LL YTD × fator de anualização) ÷ PL Médio.",
         "Crédito/PL (%)": "Carteira de Crédito ÷ Patrimônio Líquido.",
         "Crédito/Ativo (%)": "Carteira de Crédito ÷ Ativo Total.",
-        "Carteira de Crédito Bruta / PL": "Carteira de Crédito Bruta ÷ Patrimônio Líquido.",
+        "Carteira de Crédito / PL": "Carteira de Crédito ÷ Patrimônio Líquido.",
         "Carteira de Crédito/Core Funding (%)": "Carteira de Crédito ÷ Core Funding.",
         "Lucro Líquido Trimestral": "Lucro líquido do trimestre de referência (não acumulado YTD).",
     }
@@ -8373,6 +8410,7 @@ elif menu == "Scatter Plot":
         st.markdown("---")
         st.markdown("#### Scatter Plot t=2")
         st.caption("Visualize a movimentação dos bancos entre dois períodos")
+        mostrar_labels_scatter_n2 = st.toggle("data labels t=2", value=False, key="scatter_labels_t2")
 
         # Seletores para os dois períodos
         col_p1, col_p2, col_p3, col_p4 = st.columns(4)
@@ -8548,11 +8586,48 @@ elif menu == "Scatter Plot":
                         hoverinfo='skip'
                     ))
 
+                    x_label_n2 = scatter_internal_to_display.get(var_x_n2, var_x_n2)
+                    y_label_n2 = scatter_internal_to_display.get(var_y_n2, var_y_n2)
+                    size_label_n2 = scatter_internal_to_display.get(var_size_n2, var_size_n2) if var_size_n2 != 'Tamanho Fixo' else None
+                    size_fmt_n2 = get_axis_format(var_size_n2, df_p1[var_size_n2] if var_size_n2 in df_p1.columns else None) if var_size_n2 != 'Tamanho Fixo' else None
+                    size_val_p1 = row_p1['size_display'].values[0] if var_size_n2 != 'Tamanho Fixo' and 'size_display' in row_p1.columns else None
+                    size_val_p2 = row_p2['size_display'].values[0] if var_size_n2 != 'Tamanho Fixo' and 'size_display' in row_p2.columns else None
+
+                    texto_p1 = _scatter_compor_texto_label(
+                        instituicao,
+                        x_label_n2,
+                        x1,
+                        format_x_n2,
+                        y_label_n2,
+                        y1,
+                        format_y_n2,
+                        size_label=size_label_n2,
+                        size_valor=size_val_p1,
+                        format_size=size_fmt_n2,
+                    )
+                    texto_p2 = _scatter_compor_texto_label(
+                        None,
+                        x_label_n2,
+                        x2,
+                        format_x_n2,
+                        y_label_n2,
+                        y2,
+                        format_y_n2,
+                        size_label=size_label_n2,
+                        size_valor=size_val_p2,
+                        format_size=size_fmt_n2,
+                    )
+
                     # Ponto do período inicial (círculo vazio/anel)
                     fig_scatter_n2.add_trace(go.Scatter(
                         x=[x1],
                         y=[y1],
-                        mode='markers',
+                        mode='markers+text' if mostrar_labels_scatter_n2 else 'markers',
+                        text=[texto_p1],
+                        textposition='top center',
+                        texttemplate='%{text}',
+                        cliponaxis=False,
+                        textfont=dict(size=11, color='#1f2937'),
                         name=f'{instituicao} ({periodo_inicial})',
                         marker=dict(
                             size=marker_size_p1,
@@ -8560,7 +8635,7 @@ elif menu == "Scatter Plot":
                             opacity=1.0,
                             line=dict(width=3, color=cor)
                         ),
-                        hovertemplate=f'<b>{instituicao}</b> ({periodo_inicial})<br>{scatter_internal_to_display.get(var_x_n2, var_x_n2)}: %{{x:{format_x_n2["tickformat"]}}}{format_x_n2["ticksuffix"]}<br>{scatter_internal_to_display.get(var_y_n2, var_y_n2)}: %{{y:{format_y_n2["tickformat"]}}}{format_y_n2["ticksuffix"]}<extra></extra>',
+                        hovertemplate=f'<b>{instituicao}</b> ({periodo_inicial})<br>{x_label_n2}: %{{x:{format_x_n2["tickformat"]}}}{format_x_n2["ticksuffix"]}<br>{y_label_n2}: %{{y:{format_y_n2["tickformat"]}}}{format_y_n2["ticksuffix"]}<extra></extra>',
                         legendgroup=instituicao,
                         showlegend=False
                     ))
@@ -8569,7 +8644,12 @@ elif menu == "Scatter Plot":
                     fig_scatter_n2.add_trace(go.Scatter(
                         x=[x2],
                         y=[y2],
-                        mode='markers',
+                        mode='markers+text' if mostrar_labels_scatter_n2 else 'markers',
+                        text=[texto_p2],
+                        textposition='top center',
+                        texttemplate='%{text}',
+                        cliponaxis=False,
+                        textfont=dict(size=11, color='#1f2937'),
                         name=instituicao,
                         marker=dict(
                             size=marker_size_p2,
@@ -8578,7 +8658,7 @@ elif menu == "Scatter Plot":
                             line=dict(width=1, color='white'),
                             symbol='circle'
                         ),
-                        hovertemplate=f'<b>{instituicao}</b> ({periodo_subseq})<br>{scatter_internal_to_display.get(var_x_n2, var_x_n2)}: %{{x:{format_x_n2["tickformat"]}}}{format_x_n2["ticksuffix"]}<br>{scatter_internal_to_display.get(var_y_n2, var_y_n2)}: %{{y:{format_y_n2["tickformat"]}}}{format_y_n2["ticksuffix"]}<extra></extra>',
+                        hovertemplate=f'<b>{instituicao}</b> ({periodo_subseq})<br>{x_label_n2}: %{{x:{format_x_n2["tickformat"]}}}{format_x_n2["ticksuffix"]}<br>{y_label_n2}: %{{y:{format_y_n2["tickformat"]}}}{format_y_n2["ticksuffix"]}<extra></extra>',
                         legendgroup=instituicao,
                         showlegend=True
                     ))
