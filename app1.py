@@ -904,6 +904,26 @@ PEERS_TABELA_LAYOUT = [
     },
 ]
 
+PEERS_GLOSSARIO_RESUMIDO = {
+    "Ativo Total": "Ativo Total do balanço principal (Rel. 1).",
+    "Ativos Líquidos": "Disponibilidades (a) + Aplicações Interfinanceiras de Liquidez (b) + TVM (c) no Rel. 2.",
+    "Carteira de Crédito*": "Soma do Valor Contábil Bruto (e1+f1+g1+h1) no Rel. 2.",
+    "Perda Esperada": "Soma de perdas esperadas e ajustes de valor justo das bases e/f/g/h no Rel. 2.",
+    "Depósitos Totais": "Depósitos (e) no Rel. 3; fallback para soma dos subtipos quando necessário.",
+    "Core Funding*": "Captações (e) no Rel. 3; a partir de 2025, soma-se Dívida Subordinada (h).",
+    "Patrimônio Líquido (PL)": "Patrimônio Líquido do balanço principal (Rel. 1).",
+    "Ativos Estágio 2": "Saldo da conta 3312000001 (Cadoc 4060) no período.",
+    "Ativos Estágio 3": "Saldo da conta 3313000000 (Cadoc 4060) no período.",
+    "Perda Esperada / Estágio 3": "Perda Esperada (Rel. 2) ÷ Ativos Estágio 3 (Cadoc 4060).",
+    "Perda Esperada / Carteira de Crédito*": "Perda Esperada ÷ Carteira de Crédito*.",
+    "Ativo Total / PL": "Ativo Total ÷ Patrimônio Líquido.",
+    "Carteira de Crédito* / PL": "Carteira de Crédito* ÷ Patrimônio Líquido.",
+    "Índice de Capital Principal (CET1)": "Capital Principal ÷ RWA Total (Rel. 5).",
+    "Índice de Basileia Total": "(CET1 + AT1 + T2) ÷ RWA Total (Rel. 5).",
+    "Lucro Líquido Acumulado": "Lucro Líquido acumulado no ano (YTD) até o fim do período (Rel. 1).",
+    "ROE Acumulado YTD (%)": "(LL YTD × fator de anualização) ÷ PL Médio.",
+}
+
 # Variáveis disponíveis para ponderação (variáveis de tamanho/volume em valores absolutos)
 # Mapeamento: label exibido -> nome da coluna no DataFrame
 VARIAVEIS_PONDERACAO = {
@@ -2610,6 +2630,22 @@ def _is_variavel_percentual(variavel: str) -> bool:
     return "Basileia" in variavel
 
 
+def _to_ptbr_decimal(texto: str) -> str:
+    if texto is None:
+        return ""
+    return str(texto).replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def _formatar_numero_ptbr(valor, decimais: int = 2) -> str:
+    if valor is None or pd.isna(valor):
+        return "N/A"
+    try:
+        valor_float = float(valor)
+    except Exception:
+        return "N/A"
+    return _to_ptbr_decimal(f"{valor_float:.{decimais}f}")
+
+
 def _formatar_percentual(valor, decimais: int = 2) -> str:
     if valor is None or pd.isna(valor):
         return "N/A"
@@ -2618,7 +2654,7 @@ def _formatar_percentual(valor, decimais: int = 2) -> str:
     except Exception:
         return "N/A"
     valor_float *= 100
-    return f"{valor_float:.{decimais}f}%"
+    return f"{_formatar_numero_ptbr(valor_float, decimais)}%"
 
 
 def formatar_valor(valor, variavel):
@@ -2628,14 +2664,14 @@ def formatar_valor(valor, variavel):
     if _is_variavel_percentual(variavel):
         return _formatar_percentual(valor)
     elif variavel in VARS_RAZAO:
-        return f"{valor:.2f}x"
+        return f"{_formatar_numero_ptbr(valor)}x"
     elif variavel in VARS_MOEDAS:
         valor_mm = valor / 1e6
         return f"R$ {valor_mm:,.0f}MM".replace(",", ".")
     elif variavel in VARS_CONTAGEM:
         return f"{valor:,.0f}".replace(",", ".")
     else:
-        return f"{valor:.2f}"
+        return _formatar_numero_ptbr(valor)
 
 def get_axis_format(variavel, serie: Optional[pd.Series] = None):
     if variavel in {'Carteira de Crédito / PL', 'Carteira de Crédito Bruta / PL', 'Crédito/PL (%)', 'Crédito/PL', 'Ativo/PL'}:
@@ -3048,9 +3084,9 @@ def _tooltip_ratio_peers(label, valor_num, valor_den, valor_ratio):
     if valor_ratio is not None and not pd.isna(valor_ratio):
         # Leverage ratios (x/PL) show as Nx; other ratios as %
         if "/ PL" in label or "/PL" in label:
-            lines.append(f"= {float(valor_ratio):.2f}x")
+            lines.append(f"= {_formatar_numero_ptbr(float(valor_ratio), decimais=2)}x")
         else:
-            lines.append(f"= {float(valor_ratio) * 100:.2f}%")
+            lines.append(f"= {_formatar_percentual(float(valor_ratio), decimais=2)}")
     else:
         lines.append("= N/A")
     return "\n".join(lines)
@@ -3726,7 +3762,10 @@ def _format_scatter_label_value(valor, format_info: dict, usar_mm_numeral: bool 
     if usar_mm_numeral and ticksuffix == 'M':
         ticksuffix = 'MM'
     try:
-        return f"{valor:{tickformat}}{ticksuffix}"
+        valor_fmt = f"{valor:{tickformat}}"
+        if any(ch in tickformat for ch in ["f", "g", "%"]):
+            valor_fmt = _to_ptbr_decimal(valor_fmt)
+        return f"{valor_fmt}{ticksuffix}"
     except Exception:
         return str(valor)
 
@@ -4868,6 +4907,7 @@ def _montar_tabela_peers(
     colunas_usadas = {}
     faltas = set()
     delta_flags = {}
+    delta_context = {}
     tooltips = {}
     coluna_ativo = _resolver_coluna_peers(df, ["Ativo Total"])
     coluna_pl = _resolver_coluna_peers(df, ["Patrimônio Líquido"])
@@ -4927,7 +4967,7 @@ def _montar_tabela_peers(
                         valor = extra_values[label].get((banco, periodo))
                         if label in ("Índice de Capital Principal (CET1)", "Índice de Basileia Total"):
                             if valor is not None and not pd.isna(valor):
-                                tip = f"{label}: {float(valor) * 100:.2f}%"
+                                tip = f"{label}: {_formatar_percentual(float(valor), decimais=2)}"
                             else:
                                 tip = f"{label}: N/A"
                         else:
@@ -4952,7 +4992,7 @@ def _montar_tabela_peers(
                             valor = _obter_valor_peers(df, banco, periodo, coluna)
                             if coluna and "(%)" in coluna and valor is not None and not pd.isna(valor):
                                 try:
-                                    tip = f"{label}: {float(valor) * 100:.2f}%"
+                                    tip = f"{label}: {_formatar_percentual(float(valor), decimais=2)}"
                                 except Exception:
                                     tip = ""
                             else:
@@ -4987,10 +5027,18 @@ def _montar_tabela_peers(
                             delta_flag = "up"
                         elif delta < 0:
                             delta_flag = "down"
+                        if delta_flag in ("up", "down"):
+                            valor_atual_fmt = _formatar_valor_peers(valor, row["format_key"], coluna_origem=coluna)
+                            valor_base_fmt = _formatar_valor_peers(valor_base, row["format_key"], coluna_origem=coluna)
+                            delta_context[chave] = (
+                                f"Comparação Δ: {periodo_para_exibicao(periodo)} vs {periodo_para_exibicao(periodo_base)}"
+                                f"\nAtual: {valor_atual_fmt}"
+                                f"\nBase: {valor_base_fmt}"
+                            )
                     delta_flags[chave] = delta_flag
 
     _perf_peers_stage(perf, "d_calculo_metricas_colunas_derivadas", t_calc)
-    return valores, colunas_usadas, faltas, delta_flags, tooltips
+    return valores, colunas_usadas, faltas, delta_flags, delta_context, tooltips
 
 
 def _render_peers_table_html(
@@ -4999,6 +5047,7 @@ def _render_peers_table_html(
     valores: dict,
     colunas_usadas: dict,
     delta_flags: dict,
+    delta_context: Optional[dict] = None,
     tooltips: Optional[dict] = None,
 ):
     colunas_total = 1 + len(bancos) * len(periodos)
@@ -5058,8 +5107,9 @@ def _render_peers_table_html(
     .peer-zebra {
         background-color: #f8f9fa;
     }
-    .delta-pos { color: #28a745; margin-left: 4px; }
-    .delta-neg { color: #dc3545; margin-left: 4px; }
+    .delta-pos { color: #28a745; margin-left: 4px; position: relative; cursor: help; }
+    .delta-neg { color: #dc3545; margin-left: 4px; position: relative; cursor: help; }
+    .delta-pos:hover .tip-text, .delta-neg:hover .tip-text { display: block; }
     .peers-table td.has-tip {
         position: relative;
         cursor: help;
@@ -5087,6 +5137,31 @@ def _render_peers_table_html(
     .peers-table td.has-tip:hover .tip-text {
         display: block;
     }
+    .peers-table .metric-with-info {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+    }
+    .peers-table .metric-info {
+        display: inline-flex;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        justify-content: center;
+        align-items: center;
+        background: #eceff1;
+        color: #333;
+        font-size: 11px;
+        font-weight: 700;
+        cursor: help;
+        position: relative;
+    }
+    .peers-table .metric-info .tip-text {
+        min-width: 220px;
+    }
+    .peers-table .metric-info:hover .tip-text {
+        display: block;
+    }
     </style>
     <div class="peers-table-wrap"><table class="peers-table">
     <thead>
@@ -5109,7 +5184,18 @@ def _render_peers_table_html(
         for row in section["rows"]:
             zebra_class = "peer-zebra" if zebra_idx % 2 == 0 else ""
             zebra_idx += 1
-            html += f'<tr class="peer-item {zebra_class}"><td>{row["label"]}</td>'
+            label = row["label"]
+            label_html = _html_mod.escape(label)
+            gloss = PEERS_GLOSSARIO_RESUMIDO.get(label)
+            if gloss:
+                gloss_html = _html_mod.escape(gloss)
+                label_html = (
+                    f'<span class="metric-with-info">{label_html}'
+                    f'<span class="metric-info" aria-label="Informação da métrica" role="img">i'
+                    f'<span class="tip-text">{gloss_html}</span>'
+                    f'</span></span>'
+                )
+            html += f'<tr class="peer-item {zebra_class}"><td>{label_html}</td>'
 
             for banco in bancos:
                 for periodo in periodos:
@@ -5120,10 +5206,19 @@ def _render_peers_table_html(
 
                     delta_html = ""
                     delta_flag = delta_flags.get(chave)
+                    delta_tip = (delta_context or {}).get(chave, "")
                     if delta_flag == "up":
-                        delta_html = ' <span class="delta-pos">▲</span>'
+                        if delta_tip:
+                            delta_tip_html = _html_mod.escape(delta_tip).replace("\n", "<br>")
+                            delta_html = f' <span class="delta-pos" aria-label="Variação positiva">▲<span class="tip-text">{delta_tip_html}</span></span>'
+                        else:
+                            delta_html = ' <span class="delta-pos" aria-label="Variação positiva">▲</span>'
                     elif delta_flag == "down":
-                        delta_html = ' <span class="delta-neg">▼</span>'
+                        if delta_tip:
+                            delta_tip_html = _html_mod.escape(delta_tip).replace("\n", "<br>")
+                            delta_html = f' <span class="delta-neg" aria-label="Variação negativa">▼<span class="tip-text">{delta_tip_html}</span></span>'
+                        else:
+                            delta_html = ' <span class="delta-neg" aria-label="Variação negativa">▼</span>'
                     tip = (tooltips or {}).get(chave, "") if tooltips else ""
                     if tip:
                         tip_html = _html_mod.escape(tip).replace("\n", "<br>")
@@ -5357,8 +5452,10 @@ def _gerar_excel_peers_dados_puros(
     bancos: list,
     periodos: list,
     valores: dict,
+    colunas_usadas: dict,
+    delta_flags: dict,
 ) -> BytesIO:
-    """Exporta tabela Peers no mesmo layout matricial, mas com valores numéricos puros."""
+    """Exporta tabela Peers em paridade visual (mesma string formatada exibida no UI)."""
     output = BytesIO()
     workbook = xlsxwriter.Workbook(output, {"in_memory": True})
     worksheet = workbook.add_worksheet("dados_puros")
@@ -5413,10 +5510,14 @@ def _gerar_excel_peers_dados_puros(
                 for periodo in periodos:
                     chave = (row["label"], banco, periodo)
                     valor = valores.get(chave)
-                    if valor is not None and not pd.isna(valor):
-                        worksheet.write_number(row_idx, col_idx, float(valor), num_fmt)
-                    else:
-                        worksheet.write(row_idx, col_idx, "", empty_fmt)
+                    coluna = colunas_usadas.get(row["label"])
+                    valor_fmt = _formatar_valor_peers(valor, row["format_key"], coluna_origem=coluna)
+                    delta_flag = delta_flags.get(chave)
+                    if delta_flag == "up":
+                        valor_fmt = f"{valor_fmt} ▲"
+                    elif delta_flag == "down":
+                        valor_fmt = f"{valor_fmt} ▼"
+                    worksheet.write(row_idx, col_idx, valor_fmt, empty_fmt)
                     col_idx += 1
             row_idx += 1
 
@@ -7397,7 +7498,7 @@ elif menu == "Peers (Tabela)":
                         cache_bloprudencial = slice_fn(cache_bloprudencial, bancos_selecionados, periodos_ext_peers)
                     _perf_peers_stage(peers_perf, "b_filtros_alias_periodo_banco", t_filtros)
 
-                    valores, colunas_usadas, faltas, delta_flags, tooltips = _montar_tabela_peers(
+                    valores, colunas_usadas, faltas, delta_flags, delta_context, tooltips = _montar_tabela_peers(
                         df,
                         bancos_selecionados,
                         periodos_selecionados,
@@ -7421,6 +7522,7 @@ elif menu == "Peers (Tabela)":
                         valores,
                         colunas_usadas,
                         delta_flags,
+                        delta_context,
                         tooltips,
                     )
                     _perf_peers_stage(peers_perf, "e_formatacao", t_format)
@@ -7457,6 +7559,8 @@ elif menu == "Peers (Tabela)":
                             bancos_selecionados,
                             periodos_selecionados,
                             valores,
+                            colunas_usadas,
+                            delta_flags,
                         )
                         st.download_button(
                             label="Download Dados Puros",
