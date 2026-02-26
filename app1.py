@@ -1290,6 +1290,8 @@ def normalizar_colunas_capital(df_capital: pd.DataFrame) -> pd.DataFrame:
             'RWA Total',
             'Ativos Ponderados pelo Risco (RWA) (j) = (f) + (g) + (h) + (i)',
             'Ativos Ponderados pelo Risco (RWA) (j)',
+            'Ativos Ponderados pelo Risco (RWA) (i) = (f) + (g) + (h)',
+            'Ativos Ponderados pelo Risco (RWA) (i)',
             'RWA',
         ],
     }
@@ -4222,8 +4224,11 @@ def _preparar_metricas_extra_peers(
     col_blop_nome_congl = _bloprud_pick_col(cache_bloprudencial, ["NOME_CONGL", "Nome_Congl", "nome_congl"])
     col_blop_conta = _bloprud_pick_col(cache_bloprudencial, ["CONTA", "Conta", "codigo_conta", "COD_CONTA"])
     col_blop_saldo = _bloprud_pick_col(cache_bloprudencial, ["SALDO", "Saldo", "VALOR", "Valor"])
+    col_blop_cod_congl = _bloprud_pick_col(cache_bloprudencial, ["COD_CONGL", "Cod_Congl", "codigo_congl", "cod_congl"])
 
     blop_lookup: dict[tuple[str, str, str], float] = {}
+    blop_lookup_cod: dict[tuple[str, str, str], float] = {}
+    blop_nome_para_codigos: dict[str, set[str]] = {}
     if (
         cache_bloprudencial is not None
         and not cache_bloprudencial.empty
@@ -4248,6 +4253,16 @@ def _preparar_metricas_extra_peers(
             df_blop["_congl_norm"] = df_blop[col_blop_nome_congl].map(_bloprud_norm_name)
         else:
             df_blop["_congl_norm"] = ""
+        if col_blop_cod_congl:
+            df_blop["_cod_congl"] = (
+                df_blop[col_blop_cod_congl]
+                .astype(str)
+                .str.strip()
+                .str.upper()
+                .str.replace(r"\s+", "", regex=True)
+            )
+        else:
+            df_blop["_cod_congl"] = ""
         df_blop["_conta"] = df_blop[col_blop_conta].astype(str).str.replace(r"\D", "", regex=True)
         df_blop["_saldo"] = pd.to_numeric(df_blop[col_blop_saldo], errors="coerce")
 
@@ -4287,13 +4302,49 @@ def _preparar_metricas_extra_peers(
             if congl_norm and congl_norm != "None" and pd.notna(val):
                 blop_lookup[(yyyymm, congl_norm, conta)] = float(val)
 
+        if col_blop_cod_congl:
+            ag_cod = (
+                df_blop.groupby(["_yyyymm", "_cod_congl", "_conta"], dropna=False)["_saldo"]
+                .sum(min_count=1)
+                .reset_index()
+            )
+            for _, row in ag_cod.iterrows():
+                yyyymm = str(row["_yyyymm"])
+                cod_congl = str(row["_cod_congl"]).strip().upper()
+                conta = str(row["_conta"])
+                val = row["_saldo"]
+                if not yyyymm or yyyymm == "None" or len(yyyymm) != 6:
+                    continue
+                if cod_congl and cod_congl != "None" and pd.notna(val):
+                    blop_lookup_cod[(yyyymm, cod_congl, conta)] = float(val)
+
+            for _, row in df_blop.iterrows():
+                cod = str(row.get("_cod_congl", "")).strip().upper()
+                if not cod or cod == "None":
+                    continue
+                for nome in (row.get("_inst_norm", ""), row.get("_congl_norm", "")):
+                    nome_norm = str(nome).strip()
+                    if not nome_norm:
+                        continue
+                    blop_nome_para_codigos.setdefault(nome_norm, set()).add(cod)
+
     def _blop_get_sum_periodo_conta(banco: str, periodo: str, conta: str) -> Optional[float]:
-        if not blop_lookup:
+        if not blop_lookup and not blop_lookup_cod:
             return None
         yyyymm = _periodo_to_yyyymm(periodo)
         if not yyyymm:
             return None
         banco_variants = _bloprud_name_variants(banco)
+
+        # Prioridade: lookup por código estável do conglomerado prudencial.
+        codigos = set()
+        for variant in banco_variants:
+            codigos.update(blop_nome_para_codigos.get(variant, set()))
+        for cod in codigos:
+            val_cod = blop_lookup_cod.get((yyyymm, cod, conta))
+            if val_cod is not None and not pd.isna(val_cod):
+                return float(val_cod)
+
         for variant in banco_variants:
             val = blop_lookup.get((yyyymm, variant, conta))
             if val is not None and not pd.isna(val):
@@ -4509,6 +4560,8 @@ def _preparar_metricas_extra_peers(
             "RWA Total",
             "Ativos Ponderados pelo Risco (RWA) (j) = (f) + (g) + (h) + (i)",
             "Ativos Ponderados pelo Risco (RWA) (j)",
+            "Ativos Ponderados pelo Risco (RWA) (i) = (f) + (g) + (h)",
+            "Ativos Ponderados pelo Risco (RWA) (i)",
             "RWA",
         ],
     )
@@ -4517,6 +4570,7 @@ def _preparar_metricas_extra_peers(
         [
             "Índice de Capital Principal",
             "Índice de Capital Principal (l) = (a) / (j)",
+            "Índice de Capital Principal (k) = (a) / (i)",
         ],
     )
     col_indice_basileia_precalc = _resolver_coluna_peers(
@@ -4525,6 +4579,7 @@ def _preparar_metricas_extra_peers(
             "Índice de Basileia",
             "Índice de Basileia Capital",
             "Índice de Basileia (n) = (e) / (j)",
+            "Índice de Basileia (m) = (e) / (i)",
         ],
     )
 
@@ -5541,8 +5596,8 @@ def _mapear_colunas_capital(df_capital: pd.DataFrame):
         'Capital Principal': ['Capital Principal', 'Capital Principal para Comparação com RWA (a)'],
         'Capital Complementar': ['Capital Complementar', 'Capital Complementar (b)'],
         'Capital Nível II': ['Capital Nível II', 'Capital Nível II (d)'],
-        'RWA Total': ['RWA Total', 'Ativos Ponderados pelo Risco (RWA) (j) = (f) + (g) + (h) + (i)', 'Ativos Ponderados pelo Risco (RWA) (j)', 'RWA'],
-        'Índice de Basileia Capital': ['Índice de Basileia Capital', 'Índice de Basileia (n) = (e) / (j)', 'Índice de Basileia'],
+        'RWA Total': ['RWA Total', 'Ativos Ponderados pelo Risco (RWA) (j) = (f) + (g) + (h) + (i)', 'Ativos Ponderados pelo Risco (RWA) (j)', 'Ativos Ponderados pelo Risco (RWA) (i) = (f) + (g) + (h)', 'Ativos Ponderados pelo Risco (RWA) (i)', 'RWA'],
+        'Índice de Basileia Capital': ['Índice de Basileia Capital', 'Índice de Basileia (n) = (e) / (j)', 'Índice de Basileia (m) = (e) / (i)', 'Índice de Basileia'],
     }
     colunas_encontradas = {}
     colunas_faltantes = []
@@ -5738,18 +5793,22 @@ def obter_cet1_periodo(
         df_capital, dict_aliases, df_aliases, dados_periodos
     )
 
+    colunas_saida = ["Instituição"]
+    if "CodInst" in df_capital.columns:
+        colunas_saida.append("CodInst")
+
     if "CET1 (%)" in df_capital.columns:
-        df_temp = df_capital[["Instituição", "CET1 (%)"]].copy()
+        df_temp = df_capital[colunas_saida + ["CET1 (%)"]].copy()
         df_temp["Índice de CET1"] = df_temp["CET1 (%)"] / 100
     elif "Capital Principal" in df_capital.columns and "RWA Total" in df_capital.columns:
-        df_temp = df_capital[["Instituição", "Capital Principal", "RWA Total"]].copy()
+        df_temp = df_capital[colunas_saida + ["Capital Principal", "RWA Total"]].copy()
         df_temp["Índice de CET1"] = (
             df_temp["Capital Principal"] / df_temp["RWA Total"].replace(0, np.nan)
         )
     else:
         return pd.DataFrame()
 
-    return df_temp[["Instituição", "Índice de CET1"]]
+    return df_temp[colunas_saida + ["Índice de CET1"]]
 
 
 @st.cache_resource(show_spinner=False)
@@ -7917,6 +7976,12 @@ elif menu == "Evolução":
         # CET1: usar a mesma fonte/lógica da Tabela (Peers), via relatório de Capital.
         # Obtém Índice de CET1 por período (decimal 0-1) e só então converte para display.
         cet1_map = {}
+        codinst_alvo = None
+        if "CodInst" in df_ano.columns:
+            codinst_vals = df_ano["CodInst"].dropna()
+            if not codinst_vals.empty:
+                codinst_alvo = str(codinst_vals.iloc[0]).strip()
+
         for periodo in df_ano.get("Período", pd.Series(dtype="object")).dropna().unique():
             df_cet1_periodo = obter_cet1_periodo(
                 periodo,
@@ -7927,7 +7992,14 @@ elif menu == "Evolução":
             )
             if df_cet1_periodo is None or df_cet1_periodo.empty:
                 continue
-            mask_inst = df_cet1_periodo["Instituição"] == instituicao
+
+            mask_inst = pd.Series(False, index=df_cet1_periodo.index)
+            if codinst_alvo and "CodInst" in df_cet1_periodo.columns:
+                codinst_series = df_cet1_periodo["CodInst"].astype(str).str.strip()
+                mask_inst = codinst_series == codinst_alvo
+
+            if not bool(mask_inst.any()):
+                mask_inst = df_cet1_periodo["Instituição"] == instituicao
             if not bool(mask_inst.any()):
                 inst_norm = _normalizar_label_peers(str(instituicao))
                 mask_inst = df_cet1_periodo["Instituição"].astype(str).apply(_normalizar_label_peers) == inst_norm
@@ -8058,8 +8130,8 @@ elif menu == "Evolução":
             "Métrica": [
                 "ROE anualizado",
                 "Carteira de Crédito* / PL",
-                "Índice de Basileia (%)",
                 "Índice de Capital Principal (CET1)",
+                "Índice de Basileia (%)",
             ]
         })
         for _, row in df_ano.iterrows():
@@ -8067,8 +8139,8 @@ elif menu == "Evolução":
             df_metric[periodo_label] = [
                 row.get("ROE anualizado"),
                 row.get("Carteira de Crédito Bruta / PL"),
-                row.get("Índice de Basileia (%)"),
                 row.get("Índice de Capital Principal (CET1)"),
+                row.get("Índice de Basileia (%)"),
             ]
 
         def _fmt_valor_br(v):
