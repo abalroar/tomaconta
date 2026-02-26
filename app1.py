@@ -2601,6 +2601,8 @@ def formatar_valor(valor, variavel):
         return f"{valor:.2f}"
 
 def get_axis_format(variavel, serie: Optional[pd.Series] = None):
+    if variavel in {'Carteira de Crédito / PL', 'Carteira de Crédito Bruta / PL', 'Crédito/PL (%)', 'Crédito/PL', 'Ativo/PL'}:
+        return {'tickformat': '.1f', 'ticksuffix': 'x', 'multiplicador': 1}
     if _is_variavel_percentual(variavel):
         return {'tickformat': '.2f', 'ticksuffix': '%', 'multiplicador': 100}
     elif variavel in VARS_MOEDAS:
@@ -2737,6 +2739,8 @@ def _calcular_valores_display(serie: pd.Series, variavel: str, format_info: dict
         return _normalizar_basileia_display(serie)
     if variavel and ("Capital Principal" in variavel or "CET1" in variavel):
         return _normalizar_capital_principal_display(serie)
+    if variavel in {'Carteira de Crédito / PL', 'Carteira de Crédito Bruta / PL', 'Crédito/PL (%)', 'Crédito/PL', 'Ativo/PL'}:
+        return serie * format_info['multiplicador']
     if _is_variavel_percentual(variavel):
         return _normalizar_percentual_display(serie, variavel)
     return serie * format_info['multiplicador']
@@ -3594,6 +3598,8 @@ def _calcular_core_funding(
 
 
 def _prefer_carteira_bruta(colunas: list) -> str:
+    if "Carteira de Crédito" in colunas:
+        return "Carteira de Crédito"
     if "Carteira de Crédito Bruta" in colunas:
         return "Carteira de Crédito Bruta"
     return "Carteira de Crédito"
@@ -3614,20 +3620,25 @@ def _build_scatter_var_options(colunas: list) -> Tuple[list, Dict[str, str]]:
         "Títulos e Valores Mobiliários",
         "Desp PDD / Resultado Intermediação Fin. Bruto",
         "Crédito/Ativo (%)",
+        "Passivo Exigível",
+        "Crédito/Captações (%)",
+        "Patrimônio de Referência para Comparação com o RWA (e)",
+        "Patrimônio de Referência para Comparação com RWA",
     }
     opcoes_base = [c for c in colunas if c not in excluidas]
     display_to_internal = {c: c for c in opcoes_base}
 
     aliases_ui = {
-        "Carteira de Crédito Classificada": [
-            "Carteira de Crédito Classificada",
+        "Carteira de Crédito": [
+            "Carteira de Crédito",
             "Carteira de Crédito*",
             "Carteira de Crédito Bruta",
-            "Carteira de Crédito",
+            "Carteira de Crédito Classificada",
         ],
         "Core Funding": ["Core Funding", "Core Funding*", "Captações"],
         "ROE YTD Ac. Anualizado (%)": ["ROE Ac. Anualizado (%)", "ROE Ac. YTD an. (%)"],
         "Lucro Líquido Trimestral": ["Lucro Líquido Trimestral", "Lucro Líquido"],
+        "Carteira de Crédito / PL": ["Carteira de Crédito / PL", "Carteira de Crédito Bruta / PL"],
     }
 
     for label_ui, candidatos in aliases_ui.items():
@@ -3640,6 +3651,14 @@ def _build_scatter_var_options(colunas: list) -> Tuple[list, Dict[str, str]]:
         if label_ui not in opcoes_base:
             opcoes_base.append(label_ui)
 
+    remover_pos_alias = {
+        "Carteira de Crédito Classificada",
+        "Carteira de Crédito Bruta",
+        "Carteira de Crédito*",
+        "ROE Ac. YTD an. (%)",
+    }
+    opcoes_base = [c for c in opcoes_base if c not in remover_pos_alias]
+    opcoes_base = sorted(opcoes_base, key=lambda x: str(x).lower())
     return opcoes_base, display_to_internal
 
 
@@ -3683,7 +3702,7 @@ def _scatter_metric_criteria(label_exibicao: str) -> str:
         "ROE YTD Ac. Anualizado (%)": "(LL YTD × fator de anualização) ÷ PL Médio.",
         "Crédito/PL (%)": "Carteira de Crédito ÷ Patrimônio Líquido.",
         "Crédito/Ativo (%)": "Carteira de Crédito ÷ Ativo Total.",
-        "Carteira de Crédito Bruta / PL": "Carteira de Crédito Bruta ÷ Patrimônio Líquido.",
+        "Carteira de Crédito / PL": "Carteira de Crédito ÷ Patrimônio Líquido.",
         "Carteira de Crédito/Core Funding (%)": "Carteira de Crédito ÷ Core Funding.",
         "Lucro Líquido Trimestral": "Lucro líquido do trimestre de referência (não acumulado YTD).",
     }
