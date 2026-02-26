@@ -10,6 +10,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from pathlib import Path
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from typing import Tuple, Optional
 import time
 import html as _html_mod
@@ -1900,6 +1901,40 @@ def _normalizar_texto_sem_acento(valor: str) -> str:
     return re.sub(r"\s+", " ", txt).strip().upper()
 
 
+TZ_BRASILIA = ZoneInfo("America/Sao_Paulo")
+
+
+def _agora_brasilia() -> datetime:
+    """Retorna timestamp timezone-aware em Horário de Brasília (GMT-3)."""
+    return datetime.now(TZ_BRASILIA)
+
+
+def _classificar_prioridade_cargo_estatutario(cargo: str) -> int:
+    """Classifica cargos para ordenação: Presidente -> Vice-Presidente -> Demais."""
+    cargo_norm = _normalizar_texto_sem_acento(cargo)
+    cargo_norm = re.sub(r"[^A-Z0-9\s]", " ", cargo_norm)
+    cargo_norm = re.sub(r"\s+", " ", cargo_norm).strip()
+
+    # Estratégia 1: normalização + padrões genéricos robustos
+    if re.search(r"\bVICE\s*PRESIDENTE(S)?\b", cargo_norm):
+        return 1
+    if re.search(r"\bPRESIDENTE\b", cargo_norm):
+        return 0
+    return 2
+
+
+def _ordenar_cargos_estatutarios(df_orgaos: pd.DataFrame) -> pd.DataFrame:
+    """Aplica ordenação prioritária por cargo mantendo ordem BACEN para demais."""
+    if df_orgaos.empty or "Cargo" not in df_orgaos.columns:
+        return df_orgaos
+
+    df_ord = df_orgaos.copy()
+    df_ord["_ordem_bacen"] = range(len(df_ord))
+    df_ord["_prioridade_cargo"] = df_ord["Cargo"].astype(str).apply(_classificar_prioridade_cargo_estatutario)
+    df_ord = df_ord.sort_values(["_prioridade_cargo", "_ordem_bacen"]).drop(columns=["_prioridade_cargo", "_ordem_bacen"])
+    return df_ord.reset_index(drop=True)
+
+
 def obter_aliases_orgaos() -> pd.DataFrame:
     """Reutiliza o mesmo cache de Aliases.xlsx já carregado nas demais abas."""
     df_aliases = st.session_state.get("df_aliases")
@@ -2107,7 +2142,7 @@ def _extrair_orgaos_do_json(payload) -> pd.DataFrame:
         return pd.DataFrame(columns=colunas)
 
     df = pd.DataFrame(linhas)
-    return df.drop_duplicates().sort_values(["OrgaoNome", "Cargo", "Nome"]).reset_index(drop=True)
+    return df.drop_duplicates().reset_index(drop=True)
 
 
 def _render_orgaos_tabela_html(df_orgaos: pd.DataFrame, cor_linha: str = "#F4F1EA") -> str:
@@ -7451,10 +7486,12 @@ elif menu == "Conselho e Diretoria":
             mapa_conglomerado[chave] = item
             opcoes_conglomerado.append(chave)
 
+        default_conglomerado = "80099 - ITAU"
+        idx_conglomerado = opcoes_conglomerado.index(default_conglomerado) if default_conglomerado in opcoes_conglomerado else 0
         conglomerado_sel = st.selectbox(
             "Selecione o conglomerado",
             options=opcoes_conglomerado,
-            index=0,
+            index=idx_conglomerado,
             key="orgaos_conglomerado",
         )
 
@@ -7480,10 +7517,13 @@ elif menu == "Conselho e Diretoria":
         if not instituicoes:
             st.warning("Não há instituições LIDER/PARTICIPANTE para este conglomerado.")
         else:
+            opcoes_instituicao = [x["label"] for x in instituicoes]
+            default_instituicao = "2523178 - CONSELHO DE ADMINISTRACAO"
+            idx_instituicao = opcoes_instituicao.index(default_instituicao) if default_instituicao in opcoes_instituicao else 0
             inst_sel = st.selectbox(
                 "Selecione a instituição",
-                options=[x["label"] for x in instituicoes],
-                index=0,
+                options=opcoes_instituicao,
+                index=idx_instituicao,
                 key="orgaos_instituicao",
             )
             inst_obj = next((x for x in instituicoes if x["label"] == inst_sel), None)
@@ -7556,6 +7596,8 @@ elif menu == "Conselho e Diretoria":
                                     mask = mask_nome
                                 df_filtrado = df_orgaos[mask].copy()
 
+                        df_filtrado = _ordenar_cargos_estatutarios(df_filtrado)
+
                         if df_filtrado.empty:
                             st.info(f"Sem registros para '{orgao_sel}' nesta instituição.")
                         else:
@@ -7568,7 +7610,7 @@ elif menu == "Conselho e Diretoria":
                                 unsafe_allow_html=True,
                             )
 
-                            data_extracao = datetime.now().strftime('%d/%m/%Y')
+                            data_extracao = _agora_brasilia().strftime('%d/%m/%Y')
                             excel_bytes = gerar_excel_orgaos_estatutarios(
                                 df_filtrado,
                                 titulo=f"Órgãos Estatutários - {inst_obj['nome']} ({orgao_sel})",
@@ -7578,7 +7620,7 @@ elif menu == "Conselho e Diretoria":
                             st.download_button(
                                 "Download Excel",
                                 data=excel_bytes,
-                                file_name=f"orgaos_estatutarios_{inst_obj['cnpj']}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                                file_name=f"orgaos_estatutarios_{inst_obj['cnpj']}_{_agora_brasilia().strftime('%Y%m%d_%H%M%S')}.xlsx",
                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                 key="download_orgaos_estatutarios",
                             )
@@ -7586,8 +7628,8 @@ elif menu == "Conselho e Diretoria":
                     st.error(f"Erro ao consultar API de pessoas jurídicas: {exc}")
 
                 st.caption(
-                    f"Dados extraídos em {datetime.now().strftime('%d/%m/%Y às %H:%M')}. "
-                    "Fonte: Banco Central do Brasil via API /informes/rest/pessoasJuridicas"
+                    f"Dados extraídos em {_agora_brasilia().strftime('%d/%m/%Y às %H:%M')} (GMT-3). "
+                    "Fonte: Banco Central do Brasil via API /informes/rest/pessoasJuridicas (horário exibido em GMT-3)"
                 )
 
 elif menu == "Evolução":
