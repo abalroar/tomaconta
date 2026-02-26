@@ -758,7 +758,9 @@ VARS_RAZAO = ['Carteira de Crédito Bruta / PL', 'Ativo/PL', 'Crédito/PL (%)']
 VARS_MOEDAS = [
     'Carteira de Crédito',
     'Carteira de Crédito Bruta',
+    'Carteira de Crédito*',
     'Core Funding',
+    'Core Funding*',
     'Carteira de Crédito Classificada',
     'Ativos Líquidos',
     'Depósitos Totais',
