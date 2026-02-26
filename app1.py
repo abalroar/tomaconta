@@ -8322,6 +8322,19 @@ elif menu == "Scatter Plot":
                     format_size=size_fmt,
                 )
 
+            size_line = ""
+            if var_size != 'Tamanho Fixo' and 'size_display' in df_inst.columns:
+                size_fmt = get_axis_format(var_size, df_scatter[var_size] if var_size in df_scatter.columns else None)
+                size_txt = _format_scatter_label_value(df_inst['size_display'].iloc[0], size_fmt)
+                size_label = scatter_internal_to_display.get(var_size, var_size)
+                size_line = f"<br>{size_label}: {size_txt}"
+
+            texto = instituicao
+            if var_size != 'Tamanho Fixo' and 'size_display' in df_inst.columns:
+                size_fmt = get_axis_format(var_size, df_scatter[var_size] if var_size in df_scatter.columns else None)
+                size_txt = _format_scatter_label_value(df_inst['size_display'].iloc[0], size_fmt)
+                texto = f"{instituicao}<br>{scatter_internal_to_display.get(var_size, var_size)}: {size_txt}"
+
             fig_scatter.add_trace(go.Scatter(
                 x=df_inst['x_display'],
                 y=df_inst['y_display'],
