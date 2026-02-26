@@ -3669,10 +3669,10 @@ def _scatter_compor_texto_label(
     format_size: Optional[dict] = None,
 ) -> str:
     linhas = [instituicao]
-    linhas.append(f"{x_label}: {_format_scatter_label_value(x_valor, format_x, usar_mm_numeral=True)}")
-    linhas.append(f"{y_label}: {_format_scatter_label_value(y_valor, format_y, usar_mm_numeral=True)}")
+    linhas.append(f"X ({x_label}): {_format_scatter_label_value(x_valor, format_x, usar_mm_numeral=True)}")
+    linhas.append(f"Y ({y_label}): {_format_scatter_label_value(y_valor, format_y, usar_mm_numeral=True)}")
     if size_label and format_size is not None:
-        linhas.append(f"{size_label}: {_format_scatter_label_value(size_valor, format_size, usar_mm_numeral=True)}")
+        linhas.append(f"Tamanho ({size_label}): {_format_scatter_label_value(size_valor, format_size, usar_mm_numeral=True)}")
     return "<br>".join(linhas)
 
 
@@ -8322,26 +8322,15 @@ elif menu == "Scatter Plot":
                     format_size=size_fmt,
                 )
 
-            size_line = ""
-            if var_size != 'Tamanho Fixo' and 'size_display' in df_inst.columns:
-                size_fmt = get_axis_format(var_size, df_scatter[var_size] if var_size in df_scatter.columns else None)
-                size_txt = _format_scatter_label_value(df_inst['size_display'].iloc[0], size_fmt)
-                size_label = scatter_internal_to_display.get(var_size, var_size)
-                size_line = f"<br>{size_label}: {size_txt}"
-
-            texto = instituicao
-            if var_size != 'Tamanho Fixo' and 'size_display' in df_inst.columns:
-                size_fmt = get_axis_format(var_size, df_scatter[var_size] if var_size in df_scatter.columns else None)
-                size_txt = _format_scatter_label_value(df_inst['size_display'].iloc[0], size_fmt)
-                texto = f"{instituicao}<br>{scatter_internal_to_display.get(var_size, var_size)}: {size_txt}"
-
             fig_scatter.add_trace(go.Scatter(
                 x=df_inst['x_display'],
                 y=df_inst['y_display'],
                 mode='markers+text' if mostrar_labels_scatter else 'markers',
                 text=[texto],
                 textposition='top center',
-                textfont=dict(size=11),
+                texttemplate='%{text}',
+                cliponaxis=False,
+                textfont=dict(size=12, color='#1f2937'),
                 name=instituicao,
                 marker=dict(size=marker_size, color=cor, opacity=1.0, line=dict(width=1, color='white')),
                 hovertemplate=f'<b>{instituicao}</b><br>{scatter_internal_to_display.get(var_x, var_x)}: %{{x:{format_x["tickformat"]}}}{format_x["ticksuffix"]}<br>{scatter_internal_to_display.get(var_y, var_y)}: %{{y:{format_y["tickformat"]}}}{format_y["ticksuffix"]}{size_line}<extra></extra>'
