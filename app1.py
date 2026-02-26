@@ -3613,6 +3613,7 @@ def _build_scatter_var_options(colunas: list) -> Tuple[list, Dict[str, str]]:
         "Índice de Imobilização",
         "Títulos e Valores Mobiliários",
         "Desp PDD / Resultado Intermediação Fin. Bruto",
+        "Crédito/Ativo (%)",
     }
     opcoes_base = [c for c in colunas if c not in excluidas]
     display_to_internal = {c: c for c in opcoes_base}
@@ -3626,6 +3627,7 @@ def _build_scatter_var_options(colunas: list) -> Tuple[list, Dict[str, str]]:
         ],
         "Core Funding": ["Core Funding", "Core Funding*", "Captações"],
         "ROE YTD Ac. Anualizado (%)": ["ROE Ac. Anualizado (%)", "ROE Ac. YTD an. (%)"],
+        "Lucro Líquido Trimestral": ["Lucro Líquido Trimestral", "Lucro Líquido"],
     }
 
     for label_ui, candidatos in aliases_ui.items():
@@ -3641,13 +3643,85 @@ def _build_scatter_var_options(colunas: list) -> Tuple[list, Dict[str, str]]:
     return opcoes_base, display_to_internal
 
 
-def _format_scatter_label_value(valor, format_info: dict) -> str:
+def _format_scatter_label_value(valor, format_info: dict, usar_mm_numeral: bool = False) -> str:
     if valor is None or pd.isna(valor):
         return "N/A"
+    tickformat = format_info.get('tickformat', '.2f')
+    ticksuffix = format_info.get('ticksuffix', '')
+    if usar_mm_numeral and ticksuffix == 'M':
+        ticksuffix = 'MM'
     try:
-        return f"{valor:{format_info['tickformat']}}{format_info['ticksuffix']}"
+        return f"{valor:{tickformat}}{ticksuffix}"
     except Exception:
         return str(valor)
+
+
+def _scatter_compor_texto_label(
+    instituicao: str,
+    x_label: str,
+    x_valor,
+    format_x: dict,
+    y_label: str,
+    y_valor,
+    format_y: dict,
+    size_label: Optional[str] = None,
+    size_valor=None,
+    format_size: Optional[dict] = None,
+) -> str:
+    linhas = [instituicao]
+    linhas.append(f"{x_label}: {_format_scatter_label_value(x_valor, format_x, usar_mm_numeral=True)}")
+    linhas.append(f"{y_label}: {_format_scatter_label_value(y_valor, format_y, usar_mm_numeral=True)}")
+    if size_label and format_size is not None:
+        linhas.append(f"{size_label}: {_format_scatter_label_value(size_valor, format_size, usar_mm_numeral=True)}")
+    return "<br>".join(linhas)
+
+
+def _scatter_metric_criteria(label_exibicao: str) -> str:
+    criterios = {
+        "Core Funding": "Captações (e) no Relatório de Passivo; a partir de 2025, soma-se Dívida Subordinada (h).",
+        "Carteira de Crédito Classificada": "Prioriza Carteira de Crédito Classificada/Carteira de Crédito*; fallback para Carteira de Crédito Bruta/Carteira de Crédito, conforme disponibilidade da base.",
+        "ROE YTD Ac. Anualizado (%)": "(LL YTD × fator de anualização) ÷ PL Médio.",
+        "Crédito/PL (%)": "Carteira de Crédito ÷ Patrimônio Líquido.",
+        "Crédito/Ativo (%)": "Carteira de Crédito ÷ Ativo Total.",
+        "Carteira de Crédito Bruta / PL": "Carteira de Crédito Bruta ÷ Patrimônio Líquido.",
+        "Carteira de Crédito/Core Funding (%)": "Carteira de Crédito ÷ Core Funding.",
+        "Lucro Líquido Trimestral": "Lucro líquido do trimestre de referência (não acumulado YTD).",
+    }
+    return criterios.get(label_exibicao, "Definição específica não cadastrada; usa série da base principal conforme nome da variável.")
+
+
+def _scatter_preferred_ui_option(opcoes_ui: list, display_to_internal: Dict[str, str], prefer_internal: str) -> Optional[str]:
+    """Retorna a opção de UI preferida para o Top N considerando aliases UI→interno."""
+    if prefer_internal in opcoes_ui:
+        return prefer_internal
+    for opcao in opcoes_ui:
+        if display_to_internal.get(opcao, opcao) == prefer_internal:
+            return opcao
+    return opcoes_ui[0] if opcoes_ui else None
+
+
+def _scatter_variable_health(df_periodo: pd.DataFrame, opcoes_ui: list, display_to_internal: Dict[str, str]) -> pd.DataFrame:
+    linhas = []
+    for var_ui in opcoes_ui:
+        interno = display_to_internal.get(var_ui, var_ui)
+        status = "ausente"
+        preenchimento = 0.0
+        if interno in df_periodo.columns:
+            serie = pd.to_numeric(df_periodo[interno], errors="coerce")
+            validos = int(serie.notna().sum())
+            total = int(len(serie))
+            preenchimento = (validos / total * 100.0) if total > 0 else 0.0
+            status = "ok" if validos > 0 else "sem dados"
+        linhas.append({
+            "Variável (UI)": var_ui,
+            "Série interna": interno,
+            "Status": status,
+            "% preenchimento": preenchimento,
+        })
+    df_health = pd.DataFrame(linhas)
+    if not df_health.empty:
+        df_health["% preenchimento"] = df_health["% preenchimento"].round(1)
+    return df_health
 
 
 def _anexar_carteira_credito_bruta(dados_periodos: dict) -> dict:
@@ -8117,12 +8191,18 @@ elif menu == "Scatter Plot":
         with col6:
             st.markdown("<div style='margin-top:1.65rem'></div>", unsafe_allow_html=True)
             with st.popover("ℹ️", use_container_width=True):
-                st.markdown("**Variáveis (Scatter Plot)**")
-                st.markdown("- **Core Funding***: Captações (e) no Relatório de Passivo; a partir de 2025, soma-se Dívida Subordinada (h).")
-                st.markdown("- **Carteira de Crédito***: Soma do Valor Contábil Bruto (e1+f1+g1+h1) no Relatório de Ativo (Rel. 2).")
-                st.markdown("- **ROE YTD Ac. Anualizado (%)**: (LL YTD × fator de anualização) ÷ PL Médio.")
-                st.markdown("- **Crédito/PL (%)**: Carteira de Crédito* ÷ Patrimônio Líquido.")
-                st.markdown("- **Crédito/Ativo (%)**: Carteira de Crédito* ÷ Ativo Total.")
+                st.markdown("**Critérios das variáveis selecionadas**")
+                selecionadas_info = [
+                    ("Eixo X", var_x_ui),
+                    ("Eixo Y", var_y_ui),
+                    ("Tamanho", var_size_ui),
+                ]
+                for posicao, var_ui in selecionadas_info:
+                    if var_ui == "Tamanho Fixo":
+                        st.markdown(f"- **{posicao}**: Tamanho Fixo (sem série associada).")
+                        continue
+                    st.markdown(f"- **{posicao} · {var_ui}**")
+                    st.caption(_scatter_metric_criteria(var_ui))
 
         var_x = scatter_display_to_internal.get(var_x_ui, var_x_ui)
         var_y = scatter_display_to_internal.get(var_y_ui, var_y_ui)
@@ -8135,10 +8215,11 @@ elif menu == "Scatter Plot":
             top_n_scatter = st.slider("top n", 5, 50, 5)
         with col_t2:
             prefer_credito = _prefer_carteira_bruta(colunas_numericas)
+            prefer_credito_ui = _scatter_preferred_ui_option(colunas_scatter, scatter_display_to_internal, prefer_credito)
             var_top_n_ui = st.selectbox(
                 "top n por",
                 colunas_scatter,
-                index=colunas_scatter.index(prefer_credito) if prefer_credito in colunas_scatter else 0,
+                index=colunas_scatter.index(prefer_credito_ui) if prefer_credito_ui in colunas_scatter else 0,
             )
             var_top_n = scatter_display_to_internal.get(var_top_n_ui, var_top_n_ui)
 
@@ -8160,6 +8241,11 @@ elif menu == "Scatter Plot":
             _alias_signature(),
             bool(st.session_state.get('_dados_capital_mesclados', False)),
         )
+
+        df_scatter_health = _scatter_variable_health(df_periodo, colunas_scatter, scatter_display_to_internal)
+        with st.expander("diagnóstico de variáveis do scatter", expanded=False):
+            st.caption("Use esta tabela para decidir quais variáveis remover: status e cobertura no período selecionado.")
+            st.dataframe(df_scatter_health, width='stretch', hide_index=True)
 
         if bancos_selecionados:
             # Usa os bancos selecionados no multiselect
@@ -8199,7 +8285,42 @@ elif menu == "Scatter Plot":
             if var_size == 'Tamanho Fixo':
                 marker_size = tamanho_constante
             else:
-                marker_size = df_inst['size_display'] / df_scatter_plot['size_display'].max() * 100
+                max_size_t1 = pd.to_numeric(df_scatter_plot['size_display'], errors='coerce').max()
+                marker_size = (df_inst['size_display'] / max_size_t1 * 100) if pd.notna(max_size_t1) and max_size_t1 > 0 else 25
+
+            x_label = scatter_internal_to_display.get(var_x, var_x)
+            y_label = scatter_internal_to_display.get(var_y, var_y)
+            x_val = df_inst['x_display'].iloc[0]
+            y_val = df_inst['y_display'].iloc[0]
+
+            size_line = ""
+            texto = _scatter_compor_texto_label(
+                instituicao,
+                x_label,
+                x_val,
+                format_x,
+                y_label,
+                y_val,
+                format_y,
+            )
+            if var_size != 'Tamanho Fixo' and 'size_display' in df_inst.columns:
+                size_fmt = get_axis_format(var_size, df_scatter[var_size] if var_size in df_scatter.columns else None)
+                size_label = scatter_internal_to_display.get(var_size, var_size)
+                size_val = df_inst['size_display'].iloc[0]
+                size_txt = _format_scatter_label_value(size_val, size_fmt, usar_mm_numeral=True)
+                size_line = f"<br>{size_label}: {size_txt}"
+                texto = _scatter_compor_texto_label(
+                    instituicao,
+                    x_label,
+                    x_val,
+                    format_x,
+                    y_label,
+                    y_val,
+                    format_y,
+                    size_label=size_label,
+                    size_valor=size_val,
+                    format_size=size_fmt,
+                )
 
             size_line = ""
             if var_size != 'Tamanho Fixo' and 'size_display' in df_inst.columns:
@@ -8314,10 +8435,11 @@ elif menu == "Scatter Plot":
             top_n_scatter_n2 = st.slider("top n", 5, 50, 5, key="top_n_n2")
         with col_n2_t2:
             prefer_credito = _prefer_carteira_bruta(colunas_numericas)
+            prefer_credito_ui = _scatter_preferred_ui_option(colunas_scatter, scatter_display_to_internal, prefer_credito)
             var_top_n_n2_ui = st.selectbox(
                 "top n por",
                 colunas_scatter,
-                index=colunas_scatter.index(prefer_credito) if prefer_credito in colunas_scatter else 0,
+                index=colunas_scatter.index(prefer_credito_ui) if prefer_credito_ui in colunas_scatter else 0,
                 key="var_top_n_n2"
             )
             var_top_n_n2 = scatter_display_to_internal.get(var_top_n_n2_ui, var_top_n_n2_ui)
@@ -8449,7 +8571,7 @@ elif menu == "Scatter Plot":
                             opacity=1.0,
                             line=dict(width=3, color=cor)
                         ),
-                        hovertemplate=f'<b>{instituicao}</b> ({periodo_inicial})<br>{var_x_n2}: %{{x:{format_x_n2["tickformat"]}}}{format_x_n2["ticksuffix"]}<br>{var_y_n2}: %{{y:{format_y_n2["tickformat"]}}}{format_y_n2["ticksuffix"]}<extra></extra>',
+                        hovertemplate=f'<b>{instituicao}</b> ({periodo_inicial})<br>{scatter_internal_to_display.get(var_x_n2, var_x_n2)}: %{{x:{format_x_n2["tickformat"]}}}{format_x_n2["ticksuffix"]}<br>{scatter_internal_to_display.get(var_y_n2, var_y_n2)}: %{{y:{format_y_n2["tickformat"]}}}{format_y_n2["ticksuffix"]}<extra></extra>',
                         legendgroup=instituicao,
                         showlegend=False
                     ))
@@ -8467,7 +8589,7 @@ elif menu == "Scatter Plot":
                             line=dict(width=1, color='white'),
                             symbol='circle'
                         ),
-                        hovertemplate=f'<b>{instituicao}</b> ({periodo_subseq})<br>{var_x_n2}: %{{x:{format_x_n2["tickformat"]}}}{format_x_n2["ticksuffix"]}<br>{var_y_n2}: %{{y:{format_y_n2["tickformat"]}}}{format_y_n2["ticksuffix"]}<extra></extra>',
+                        hovertemplate=f'<b>{instituicao}</b> ({periodo_subseq})<br>{scatter_internal_to_display.get(var_x_n2, var_x_n2)}: %{{x:{format_x_n2["tickformat"]}}}{format_x_n2["ticksuffix"]}<br>{scatter_internal_to_display.get(var_y_n2, var_y_n2)}: %{{y:{format_y_n2["tickformat"]}}}{format_y_n2["ticksuffix"]}<extra></extra>',
                         legendgroup=instituicao,
                         showlegend=True
                     ))
