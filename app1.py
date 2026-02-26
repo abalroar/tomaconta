@@ -2601,6 +2601,8 @@ def formatar_valor(valor, variavel):
         return f"{valor:.2f}"
 
 def get_axis_format(variavel, serie: Optional[pd.Series] = None):
+    if variavel in {'Carteira de Crédito / PL', 'Carteira de Crédito Bruta / PL', 'Crédito/PL (%)', 'Crédito/PL', 'Ativo/PL'}:
+        return {'tickformat': '.1f', 'ticksuffix': 'x', 'multiplicador': 1}
     if _is_variavel_percentual(variavel):
         return {'tickformat': '.2f', 'ticksuffix': '%', 'multiplicador': 100}
     elif variavel in VARS_MOEDAS:
@@ -2737,6 +2739,8 @@ def _calcular_valores_display(serie: pd.Series, variavel: str, format_info: dict
         return _normalizar_basileia_display(serie)
     if variavel and ("Capital Principal" in variavel or "CET1" in variavel):
         return _normalizar_capital_principal_display(serie)
+    if variavel in {'Carteira de Crédito / PL', 'Carteira de Crédito Bruta / PL', 'Crédito/PL (%)', 'Crédito/PL', 'Ativo/PL'}:
+        return serie * format_info['multiplicador']
     if _is_variavel_percentual(variavel):
         return _normalizar_percentual_display(serie, variavel)
     return serie * format_info['multiplicador']
@@ -3594,6 +3598,8 @@ def _calcular_core_funding(
 
 
 def _prefer_carteira_bruta(colunas: list) -> str:
+    if "Carteira de Crédito" in colunas:
+        return "Carteira de Crédito"
     if "Carteira de Crédito Bruta" in colunas:
         return "Carteira de Crédito Bruta"
     return "Carteira de Crédito"
@@ -3604,6 +3610,156 @@ def _ajustar_colunas_core_funding(colunas: list) -> list:
     if "Core Funding" in colunas and "Captações" in colunas:
         return [c for c in colunas if c != "Captações"]
     return colunas
+
+
+def _build_scatter_var_options(colunas: list) -> Tuple[list, Dict[str, str]]:
+    """Monta opções de variáveis do Scatter com aliases de UI e exclusões."""
+    excluidas = {
+        "Desp Captação / Captação",
+        "Índice de Imobilização",
+        "Títulos e Valores Mobiliários",
+        "Desp PDD / Resultado Intermediação Fin. Bruto",
+        "Crédito/Ativo (%)",
+        "Crédito/PL (%)",
+        "Crédito/PL",
+        "Passivo Exigível",
+        "Crédito/Captações (%)",
+        "Patrimônio de Referência para Comparação com o RWA (e)",
+        "Patrimônio de Referência para Comparação com RWA",
+    }
+    opcoes_base = [c for c in colunas if c not in excluidas]
+    display_to_internal = {c: c for c in opcoes_base}
+
+    aliases_ui = {
+        "Carteira de Crédito": [
+            "Carteira de Crédito",
+            "Carteira de Crédito*",
+            "Carteira de Crédito Bruta",
+            "Carteira de Crédito Classificada",
+        ],
+        "Core Funding": ["Core Funding", "Core Funding*", "Captações"],
+        "ROE YTD Ac. Anualizado (%)": ["ROE Ac. Anualizado (%)", "ROE Ac. YTD an. (%)"],
+        "Lucro Líquido Trimestral": ["Lucro Líquido Trimestral", "Lucro Líquido"],
+        "Carteira de Crédito / PL": ["Carteira de Crédito / PL", "Carteira de Crédito Bruta / PL"],
+    }
+
+    for label_ui, candidatos in aliases_ui.items():
+        interno = next((c for c in candidatos if c in opcoes_base), None)
+        if not interno:
+            continue
+        display_to_internal[label_ui] = interno
+        if interno in opcoes_base and interno != label_ui:
+            opcoes_base = [c for c in opcoes_base if c != interno]
+        if label_ui not in opcoes_base:
+            opcoes_base.append(label_ui)
+
+    remover_pos_alias = {
+        "Carteira de Crédito Classificada",
+        "Carteira de Crédito Bruta",
+        "Carteira de Crédito*",
+        "ROE Ac. YTD an. (%)",
+    }
+    opcoes_base = [c for c in opcoes_base if c not in remover_pos_alias]
+
+    # Deduplicação automática (Opção 2): se duas labels apontarem para a mesma série interna,
+    # mantém apenas a label canônica quando houver (aliases_ui) ou a primeira em ordem alfabética.
+    labels_canonicas = set(aliases_ui.keys())
+    labels_por_interno = {}
+    for label in opcoes_base:
+        interno = display_to_internal.get(label, label)
+        labels_por_interno.setdefault(interno, []).append(label)
+
+    opcoes_dedup = []
+    for interno, labels in labels_por_interno.items():
+        labels_ordenadas = sorted(labels, key=lambda x: str(x).lower())
+        preferida = next((l for l in labels_ordenadas if l in labels_canonicas), labels_ordenadas[0])
+        opcoes_dedup.append(preferida)
+        display_to_internal[preferida] = interno
+
+    opcoes_base = sorted(opcoes_dedup, key=lambda x: str(x).lower())
+    display_to_internal = {label: display_to_internal[label] for label in opcoes_base}
+    return opcoes_base, display_to_internal
+
+
+def _format_scatter_label_value(valor, format_info: dict, usar_mm_numeral: bool = False) -> str:
+    if valor is None or pd.isna(valor):
+        return "N/A"
+    tickformat = format_info.get('tickformat', '.2f')
+    ticksuffix = format_info.get('ticksuffix', '')
+    if usar_mm_numeral and ticksuffix == 'M':
+        ticksuffix = 'MM'
+    try:
+        return f"{valor:{tickformat}}{ticksuffix}"
+    except Exception:
+        return str(valor)
+
+
+def _scatter_compor_texto_label(
+    instituicao: str,
+    x_label: str,
+    x_valor,
+    format_x: dict,
+    y_label: str,
+    y_valor,
+    format_y: dict,
+    size_label: Optional[str] = None,
+    size_valor=None,
+    format_size: Optional[dict] = None,
+) -> str:
+    incluir_nome = instituicao is not None and str(instituicao).strip() != ""
+    linhas = [instituicao] if incluir_nome else []
+    linhas.append(f"X ({x_label}): {_format_scatter_label_value(x_valor, format_x, usar_mm_numeral=True)}")
+    linhas.append(f"Y ({y_label}): {_format_scatter_label_value(y_valor, format_y, usar_mm_numeral=True)}")
+    if size_label and format_size is not None:
+        linhas.append(f"Tamanho ({size_label}): {_format_scatter_label_value(size_valor, format_size, usar_mm_numeral=True)}")
+    return "<br>".join(linhas)
+
+
+def _scatter_metric_criteria(label_exibicao: str) -> str:
+    criterios = {
+        "Core Funding": "Captações (e) no Relatório de Passivo; a partir de 2025, soma-se Dívida Subordinada (h).",
+        "Carteira de Crédito Classificada": "Prioriza Carteira de Crédito Classificada/Carteira de Crédito*; fallback para Carteira de Crédito Bruta/Carteira de Crédito, conforme disponibilidade da base.",
+        "ROE YTD Ac. Anualizado (%)": "(LL YTD × fator de anualização) ÷ PL Médio.",
+        "Crédito/Ativo (%)": "Carteira de Crédito ÷ Ativo Total.",
+        "Carteira de Crédito / PL": "Carteira de Crédito ÷ Patrimônio Líquido.",
+        "Carteira de Crédito/Core Funding (%)": "Carteira de Crédito ÷ Core Funding.",
+        "Lucro Líquido Trimestral": "Lucro líquido do trimestre de referência (não acumulado YTD).",
+    }
+    return criterios.get(label_exibicao, "Definição específica não cadastrada; usa série da base principal conforme nome da variável.")
+
+
+def _scatter_preferred_ui_option(opcoes_ui: list, display_to_internal: Dict[str, str], prefer_internal: str) -> Optional[str]:
+    """Retorna a opção de UI preferida para o Top N considerando aliases UI→interno."""
+    if prefer_internal in opcoes_ui:
+        return prefer_internal
+    for opcao in opcoes_ui:
+        if display_to_internal.get(opcao, opcao) == prefer_internal:
+            return opcao
+    return opcoes_ui[0] if opcoes_ui else None
+
+
+def _scatter_variable_health(df_periodo: pd.DataFrame, opcoes_ui: list, display_to_internal: Dict[str, str]) -> pd.DataFrame:
+    linhas = []
+    for var_ui in opcoes_ui:
+        interno = display_to_internal.get(var_ui, var_ui)
+        status = "ausente"
+        preenchimento = 0.0
+        if interno in df_periodo.columns:
+            serie = pd.to_numeric(df_periodo[interno], errors="coerce")
+            validos = int(serie.notna().sum())
+            total = int(len(serie))
+            preenchimento = (validos / total * 100.0) if total > 0 else 0.0
+            status = "ok" if validos > 0 else "sem dados"
+        linhas.append({
+            "Variável (UI)": var_ui,
+            "Série interna": interno,
+            "Status": status,
+            "% preenchimento": preenchimento,
+        })
+    df_health = pd.DataFrame(linhas)
+    if not df_health.empty:
+        df_health["% preenchimento"] = df_health["% preenchimento"].round(1)
+    return df_health
 
 
 def _anexar_carteira_credito_bruta(dados_periodos: dict) -> dict:
@@ -8029,9 +8185,9 @@ elif menu == "Scatter Plot":
             if col not in ['Instituição', 'Período'] and pd.api.types.is_numeric_dtype(df[col])
         ]
         colunas_numericas = colunas_base + [m for m in DERIVED_METRICS if m not in colunas_base]
-        if 'ROE Ac. Anualizado (%)' in colunas_numericas and 'ROE Ac. YTD an. (%)' in colunas_numericas:
-            colunas_numericas = [c for c in colunas_numericas if c != 'ROE Ac. YTD an. (%)']
         colunas_numericas = _ajustar_colunas_core_funding(colunas_numericas)
+        colunas_scatter, scatter_display_to_internal = _build_scatter_var_options(colunas_numericas)
+        scatter_internal_to_display = {v: k for k, v in scatter_display_to_internal.items()}
         periodos = ordenar_periodos(df['Período'].unique(), reverso=True)
 
         # Lista de todos os bancos disponíveis com ordenação por alias
@@ -8055,17 +8211,40 @@ elif menu == "Scatter Plot":
             st.session_state["bancos_multiselect_n2"] = _default_scatter_bancos
 
         # Primeira linha: variáveis dos eixos e tamanho
-        col1, col2, col3, col4 = st.columns(4)
+        col1, col2, col3, col4, col5, col6 = st.columns([1.25, 1.25, 1.25, 1.25, 1.0, 0.3])
 
         with col1:
-            var_x = st.selectbox("eixo x", colunas_numericas, index=colunas_numericas.index('Índice de Basileia') if 'Índice de Basileia' in colunas_numericas else 0)
+            idx_x = colunas_scatter.index('Índice de Basileia') if 'Índice de Basileia' in colunas_scatter else 0
+            var_x_ui = st.selectbox("eixo x", colunas_scatter, index=idx_x)
         with col2:
-            var_y = st.selectbox("eixo y", colunas_numericas, index=colunas_numericas.index('ROE Ac. Anualizado (%)') if 'ROE Ac. Anualizado (%)' in colunas_numericas else (colunas_numericas.index('ROE Ac. YTD an. (%)') if 'ROE Ac. YTD an. (%)' in colunas_numericas else 1))
+            idx_y = colunas_scatter.index('ROE YTD Ac. Anualizado (%)') if 'ROE YTD Ac. Anualizado (%)' in colunas_scatter else min(1, len(colunas_scatter) - 1)
+            var_y_ui = st.selectbox("eixo y", colunas_scatter, index=idx_y)
         with col3:
-            opcoes_tamanho = ['Tamanho Fixo'] + colunas_numericas
-            var_size = st.selectbox("tamanho", opcoes_tamanho, index=0)
+            opcoes_tamanho = ['Tamanho Fixo'] + colunas_scatter
+            var_size_ui = st.selectbox("tamanho", opcoes_tamanho, index=0)
         with col4:
             periodo_scatter = st.selectbox("período", periodos, index=0, format_func=periodo_para_exibicao)
+        with col5:
+            mostrar_labels_scatter = st.toggle("data labels", value=False, key="scatter_labels_t1")
+        with col6:
+            st.markdown("<div style='margin-top:1.65rem'></div>", unsafe_allow_html=True)
+            with st.popover("ℹ️", use_container_width=True):
+                st.markdown("**Critérios das variáveis selecionadas**")
+                selecionadas_info = [
+                    ("Eixo X", var_x_ui),
+                    ("Eixo Y", var_y_ui),
+                    ("Tamanho", var_size_ui),
+                ]
+                for posicao, var_ui in selecionadas_info:
+                    if var_ui == "Tamanho Fixo":
+                        st.markdown(f"- **{posicao}**: Tamanho Fixo (sem série associada).")
+                        continue
+                    st.markdown(f"- **{posicao} · {var_ui}**")
+                    st.caption(_scatter_metric_criteria(var_ui))
+
+        var_x = scatter_display_to_internal.get(var_x_ui, var_x_ui)
+        var_y = scatter_display_to_internal.get(var_y_ui, var_y_ui)
+        var_size = scatter_display_to_internal.get(var_size_ui, var_size_ui) if var_size_ui != 'Tamanho Fixo' else 'Tamanho Fixo'
 
         # Segunda linha: Top N e variável de ordenação
         col_t1, col_t2, col_t3 = st.columns([1, 1, 2])
@@ -8074,11 +8253,13 @@ elif menu == "Scatter Plot":
             top_n_scatter = st.slider("top n", 5, 50, 5)
         with col_t2:
             prefer_credito = _prefer_carteira_bruta(colunas_numericas)
-            var_top_n = st.selectbox(
+            prefer_credito_ui = _scatter_preferred_ui_option(colunas_scatter, scatter_display_to_internal, prefer_credito)
+            var_top_n_ui = st.selectbox(
                 "top n por",
-                colunas_numericas,
-                index=colunas_numericas.index(prefer_credito) if prefer_credito in colunas_numericas else 0,
+                colunas_scatter,
+                index=colunas_scatter.index(prefer_credito_ui) if prefer_credito_ui in colunas_scatter else 0,
             )
+            var_top_n = scatter_display_to_internal.get(var_top_n_ui, var_top_n_ui)
 
         # Terceira linha: Seleção de bancos
         col_f = st.columns(1)[0]
@@ -8098,6 +8279,11 @@ elif menu == "Scatter Plot":
             _alias_signature(),
             bool(st.session_state.get('_dados_capital_mesclados', False)),
         )
+
+        df_scatter_health = _scatter_variable_health(df_periodo, colunas_scatter, scatter_display_to_internal)
+        with st.expander("diagnóstico de variáveis do scatter", expanded=False):
+            st.caption("Use esta tabela para decidir quais variáveis remover: status e cobertura no período selecionado.")
+            st.dataframe(df_scatter_health, width='stretch', hide_index=True)
 
         if bancos_selecionados:
             # Usa os bancos selecionados no multiselect
@@ -8137,28 +8323,68 @@ elif menu == "Scatter Plot":
             if var_size == 'Tamanho Fixo':
                 marker_size = tamanho_constante
             else:
-                marker_size = df_inst['size_display'] / df_scatter_plot['size_display'].max() * 100
+                max_size_t1 = pd.to_numeric(df_scatter_plot['size_display'], errors='coerce').max()
+                marker_size = (df_inst['size_display'] / max_size_t1 * 100) if pd.notna(max_size_t1) and max_size_t1 > 0 else 25
+
+            x_label = scatter_internal_to_display.get(var_x, var_x)
+            y_label = scatter_internal_to_display.get(var_y, var_y)
+            x_val = df_inst['x_display'].iloc[0]
+            y_val = df_inst['y_display'].iloc[0]
+
+            size_line = ""
+            texto = _scatter_compor_texto_label(
+                instituicao,
+                x_label,
+                x_val,
+                format_x,
+                y_label,
+                y_val,
+                format_y,
+            )
+            if var_size != 'Tamanho Fixo' and 'size_display' in df_inst.columns:
+                size_fmt = get_axis_format(var_size, df_scatter[var_size] if var_size in df_scatter.columns else None)
+                size_label = scatter_internal_to_display.get(var_size, var_size)
+                size_val = df_inst['size_display'].iloc[0]
+                size_txt = _format_scatter_label_value(size_val, size_fmt, usar_mm_numeral=True)
+                size_line = f"<br>{size_label}: {size_txt}"
+                texto = _scatter_compor_texto_label(
+                    instituicao,
+                    x_label,
+                    x_val,
+                    format_x,
+                    y_label,
+                    y_val,
+                    format_y,
+                    size_label=size_label,
+                    size_valor=size_val,
+                    format_size=size_fmt,
+                )
 
             fig_scatter.add_trace(go.Scatter(
                 x=df_inst['x_display'],
                 y=df_inst['y_display'],
-                mode='markers',
+                mode='markers+text' if mostrar_labels_scatter else 'markers',
+                text=[texto],
+                textposition='top center',
+                texttemplate='%{text}',
+                cliponaxis=False,
+                textfont=dict(size=12, color='#1f2937'),
                 name=instituicao,
                 marker=dict(size=marker_size, color=cor, opacity=1.0, line=dict(width=1, color='white')),
-                hovertemplate=f'<b>{instituicao}</b><br>{var_x}: %{{x:{format_x["tickformat"]}}}{format_x["ticksuffix"]}<br>{var_y}: %{{y:{format_y["tickformat"]}}}{format_y["ticksuffix"]}<extra></extra>'
+                hovertemplate=f'<b>{instituicao}</b><br>{scatter_internal_to_display.get(var_x, var_x)}: %{{x:{format_x["tickformat"]}}}{format_x["ticksuffix"]}<br>{scatter_internal_to_display.get(var_y, var_y)}: %{{y:{format_y["tickformat"]}}}{format_y["ticksuffix"]}{size_line}<extra></extra>'
             ))
 
         # Título dinâmico - Scatter Plot t=1
         st.markdown("#### Scatter Plot t=1")
         if bancos_selecionados:
-            titulo_scatter = f'{var_y} vs {var_x} - {periodo_scatter} ({len(df_scatter)} bancos)'
+            titulo_scatter = f'{scatter_internal_to_display.get(var_y, var_y)} vs {scatter_internal_to_display.get(var_x, var_x)} - {periodo_scatter} ({len(df_scatter)} bancos)'
         else:
-            titulo_scatter = f'{var_y} vs {var_x} - {periodo_scatter} (top {top_n_scatter} por {var_top_n})'
+            titulo_scatter = f'{scatter_internal_to_display.get(var_y, var_y)} vs {scatter_internal_to_display.get(var_x, var_x)} - {periodo_scatter} (top {top_n_scatter} por {scatter_internal_to_display.get(var_top_n, var_top_n)})'
 
         fig_scatter.update_layout(
             title=titulo_scatter,
-            xaxis_title=var_x,
-            yaxis_title=var_y,
+            xaxis_title=scatter_internal_to_display.get(var_x, var_x),
+            yaxis_title=scatter_internal_to_display.get(var_y, var_y),
             height=650,
             plot_bgcolor='#f8f9fa',
             paper_bgcolor='white',
@@ -8185,6 +8411,7 @@ elif menu == "Scatter Plot":
         st.markdown("---")
         st.markdown("#### Scatter Plot t=2")
         st.caption("Visualize a movimentação dos bancos entre dois períodos")
+        mostrar_labels_scatter_n2 = st.toggle("data labels t=2", value=False, key="scatter_labels_t2")
 
         # Seletores para os dois períodos
         col_p1, col_p2, col_p3, col_p4 = st.columns(4)
@@ -8192,15 +8419,15 @@ elif menu == "Scatter Plot":
         with col_p1:
             var_x_n2 = st.selectbox(
                 "eixo x",
-                colunas_numericas,
-                index=colunas_numericas.index('Índice de Basileia') if 'Índice de Basileia' in colunas_numericas else 0,
+                colunas_scatter,
+                index=colunas_scatter.index('Índice de Basileia') if 'Índice de Basileia' in colunas_scatter else 0,
                 key="var_x_n2"
             )
         with col_p2:
             var_y_n2 = st.selectbox(
                 "eixo y",
-                colunas_numericas,
-                index=colunas_numericas.index('ROE Ac. Anualizado (%)') if 'ROE Ac. Anualizado (%)' in colunas_numericas else (colunas_numericas.index('ROE Ac. YTD an. (%)') if 'ROE Ac. YTD an. (%)' in colunas_numericas else 1),
+                colunas_scatter,
+                index=colunas_scatter.index('ROE YTD Ac. Anualizado (%)') if 'ROE YTD Ac. Anualizado (%)' in colunas_scatter else min(1, len(colunas_scatter) - 1),
                 key="var_y_n2"
             )
         with col_p3:
@@ -8226,6 +8453,9 @@ elif menu == "Scatter Plot":
                 format_func=periodo_para_exibicao
             )
 
+        var_x_n2 = scatter_display_to_internal.get(var_x_n2, var_x_n2)
+        var_y_n2 = scatter_display_to_internal.get(var_y_n2, var_y_n2)
+
         # Segunda linha: Top N e tamanho
         col_n2_t1, col_n2_t2, col_n2_t3 = st.columns([1, 1, 2])
 
@@ -8233,15 +8463,18 @@ elif menu == "Scatter Plot":
             top_n_scatter_n2 = st.slider("top n", 5, 50, 5, key="top_n_n2")
         with col_n2_t2:
             prefer_credito = _prefer_carteira_bruta(colunas_numericas)
-            var_top_n_n2 = st.selectbox(
+            prefer_credito_ui = _scatter_preferred_ui_option(colunas_scatter, scatter_display_to_internal, prefer_credito)
+            var_top_n_n2_ui = st.selectbox(
                 "top n por",
-                colunas_numericas,
-                index=colunas_numericas.index(prefer_credito) if prefer_credito in colunas_numericas else 0,
+                colunas_scatter,
+                index=colunas_scatter.index(prefer_credito_ui) if prefer_credito_ui in colunas_scatter else 0,
                 key="var_top_n_n2"
             )
+            var_top_n_n2 = scatter_display_to_internal.get(var_top_n_n2_ui, var_top_n_n2_ui)
         with col_n2_t3:
-            opcoes_tamanho_n2 = ['Tamanho Fixo'] + colunas_numericas
-            var_size_n2 = st.selectbox("tamanho", opcoes_tamanho_n2, index=0, key="var_size_n2")
+            opcoes_tamanho_n2 = ['Tamanho Fixo'] + colunas_scatter
+            var_size_n2_ui = st.selectbox("tamanho", opcoes_tamanho_n2, index=0, key="var_size_n2")
+            var_size_n2 = scatter_display_to_internal.get(var_size_n2_ui, var_size_n2_ui) if var_size_n2_ui != "Tamanho Fixo" else "Tamanho Fixo"
 
         # Terceira linha: Seleção de bancos
         col_n2_f = st.columns(1)[0]
@@ -8354,11 +8587,48 @@ elif menu == "Scatter Plot":
                         hoverinfo='skip'
                     ))
 
+                    x_label_n2 = scatter_internal_to_display.get(var_x_n2, var_x_n2)
+                    y_label_n2 = scatter_internal_to_display.get(var_y_n2, var_y_n2)
+                    size_label_n2 = scatter_internal_to_display.get(var_size_n2, var_size_n2) if var_size_n2 != 'Tamanho Fixo' else None
+                    size_fmt_n2 = get_axis_format(var_size_n2, df_p1[var_size_n2] if var_size_n2 in df_p1.columns else None) if var_size_n2 != 'Tamanho Fixo' else None
+                    size_val_p1 = row_p1['size_display'].values[0] if var_size_n2 != 'Tamanho Fixo' and 'size_display' in row_p1.columns else None
+                    size_val_p2 = row_p2['size_display'].values[0] if var_size_n2 != 'Tamanho Fixo' and 'size_display' in row_p2.columns else None
+
+                    texto_p1 = _scatter_compor_texto_label(
+                        instituicao,
+                        x_label_n2,
+                        x1,
+                        format_x_n2,
+                        y_label_n2,
+                        y1,
+                        format_y_n2,
+                        size_label=size_label_n2,
+                        size_valor=size_val_p1,
+                        format_size=size_fmt_n2,
+                    )
+                    texto_p2 = _scatter_compor_texto_label(
+                        None,
+                        x_label_n2,
+                        x2,
+                        format_x_n2,
+                        y_label_n2,
+                        y2,
+                        format_y_n2,
+                        size_label=size_label_n2,
+                        size_valor=size_val_p2,
+                        format_size=size_fmt_n2,
+                    )
+
                     # Ponto do período inicial (círculo vazio/anel)
                     fig_scatter_n2.add_trace(go.Scatter(
                         x=[x1],
                         y=[y1],
-                        mode='markers',
+                        mode='markers+text' if mostrar_labels_scatter_n2 else 'markers',
+                        text=[texto_p1],
+                        textposition='top center',
+                        texttemplate='%{text}',
+                        cliponaxis=False,
+                        textfont=dict(size=11, color='#1f2937'),
                         name=f'{instituicao} ({periodo_inicial})',
                         marker=dict(
                             size=marker_size_p1,
@@ -8366,7 +8636,7 @@ elif menu == "Scatter Plot":
                             opacity=1.0,
                             line=dict(width=3, color=cor)
                         ),
-                        hovertemplate=f'<b>{instituicao}</b> ({periodo_inicial})<br>{var_x_n2}: %{{x:{format_x_n2["tickformat"]}}}{format_x_n2["ticksuffix"]}<br>{var_y_n2}: %{{y:{format_y_n2["tickformat"]}}}{format_y_n2["ticksuffix"]}<extra></extra>',
+                        hovertemplate=f'<b>{instituicao}</b> ({periodo_inicial})<br>{x_label_n2}: %{{x:{format_x_n2["tickformat"]}}}{format_x_n2["ticksuffix"]}<br>{y_label_n2}: %{{y:{format_y_n2["tickformat"]}}}{format_y_n2["ticksuffix"]}<extra></extra>',
                         legendgroup=instituicao,
                         showlegend=False
                     ))
@@ -8375,7 +8645,12 @@ elif menu == "Scatter Plot":
                     fig_scatter_n2.add_trace(go.Scatter(
                         x=[x2],
                         y=[y2],
-                        mode='markers',
+                        mode='markers+text' if mostrar_labels_scatter_n2 else 'markers',
+                        text=[texto_p2],
+                        textposition='top center',
+                        texttemplate='%{text}',
+                        cliponaxis=False,
+                        textfont=dict(size=11, color='#1f2937'),
                         name=instituicao,
                         marker=dict(
                             size=marker_size_p2,
@@ -8384,7 +8659,7 @@ elif menu == "Scatter Plot":
                             line=dict(width=1, color='white'),
                             symbol='circle'
                         ),
-                        hovertemplate=f'<b>{instituicao}</b> ({periodo_subseq})<br>{var_x_n2}: %{{x:{format_x_n2["tickformat"]}}}{format_x_n2["ticksuffix"]}<br>{var_y_n2}: %{{y:{format_y_n2["tickformat"]}}}{format_y_n2["ticksuffix"]}<extra></extra>',
+                        hovertemplate=f'<b>{instituicao}</b> ({periodo_subseq})<br>{x_label_n2}: %{{x:{format_x_n2["tickformat"]}}}{format_x_n2["ticksuffix"]}<br>{y_label_n2}: %{{y:{format_y_n2["tickformat"]}}}{format_y_n2["ticksuffix"]}<extra></extra>',
                         legendgroup=instituicao,
                         showlegend=True
                     ))
@@ -8409,14 +8684,14 @@ elif menu == "Scatter Plot":
 
                 # Título do gráfico n=2
                 if bancos_selecionados_n2:
-                    titulo_scatter_n2 = f'{var_y_n2} vs {var_x_n2} - {periodo_inicial} → {periodo_subseq} ({len(bancos_comuns)} bancos)'
+                    titulo_scatter_n2 = f'{scatter_internal_to_display.get(var_y_n2, var_y_n2)} vs {scatter_internal_to_display.get(var_x_n2, var_x_n2)} - {periodo_inicial} → {periodo_subseq} ({len(bancos_comuns)} bancos)'
                 else:
-                    titulo_scatter_n2 = f'{var_y_n2} vs {var_x_n2} - {periodo_inicial} → {periodo_subseq} (top {top_n_scatter_n2} por {var_top_n_n2})'
+                    titulo_scatter_n2 = f'{scatter_internal_to_display.get(var_y_n2, var_y_n2)} vs {scatter_internal_to_display.get(var_x_n2, var_x_n2)} - {periodo_inicial} → {periodo_subseq} (top {top_n_scatter_n2} por {scatter_internal_to_display.get(var_top_n_n2, var_top_n_n2)})'
 
                 fig_scatter_n2.update_layout(
                     title=titulo_scatter_n2,
-                    xaxis_title=var_x_n2,
-                    yaxis_title=var_y_n2,
+                    xaxis_title=scatter_internal_to_display.get(var_x_n2, var_x_n2),
+                    yaxis_title=scatter_internal_to_display.get(var_y_n2, var_y_n2),
                     height=650,
                     plot_bgcolor='#f8f9fa',
                     paper_bgcolor='white',
