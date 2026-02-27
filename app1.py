@@ -5270,6 +5270,231 @@ def _render_peers_table_html(
     return html
 
 
+def _periodo_trimestre_anterior(periodo: Optional[str], periodos_disponiveis: list[str]) -> Optional[str]:
+    """Retorna o período imediatamente anterior (QoQ) respeitando o formato disponível."""
+    if not periodo:
+        return None
+    parsed = _parse_periodo(str(periodo))
+    if not parsed:
+        return None
+    parte, ano, _ = parsed
+    tri_idx = _parte_periodo_para_trimestre_idx(parte)
+    if tri_idx is None:
+        return None
+
+    if tri_idx > 1:
+        ano_prev = ano
+        tri_prev = tri_idx - 1
+    else:
+        ano_prev = ano - 1
+        tri_prev = 4
+
+    candidatos = [
+        f"{tri_prev}/{ano_prev}",
+        f"{tri_prev}/{str(ano_prev)[-2:]}",
+        f"{tri_prev * 3:02d}/{ano_prev}",
+        f"{tri_prev * 3:02d}/{str(ano_prev)[-2:]}",
+    ]
+    for candidato in candidatos:
+        encontrado = next((p for p in periodos_disponiveis if _periodos_equivalentes(p, candidato)), None)
+        if encontrado:
+            return encontrado
+    return None
+
+
+def _obter_valor_snapshot(
+    df_base: pd.DataFrame,
+    banco: str,
+    periodo: str,
+    metrica_cfg: dict,
+    extra_values: Optional[dict] = None,
+):
+    """Obtém valor bruto para Snapshot reutilizando o padrão da aba Peers."""
+    extra_key = metrica_cfg.get("extra_key")
+    if extra_key:
+        return (extra_values or {}).get(extra_key, {}).get((banco, periodo))
+
+    for coluna in metrica_cfg.get("data_keys", []):
+        col_resolvida = _resolver_coluna_peers(df_base, [coluna])
+        if not col_resolvida:
+            continue
+        val = _obter_valor_peers(df_base, banco, periodo, col_resolvida)
+        if val is not None and not pd.isna(val):
+            return val
+    return None
+
+
+def _formatar_valor_snapshot(metrica_cfg: dict, valor) -> str:
+    return _formatar_valor_peers(valor, metrica_cfg.get("format_key", ""), coluna_origem=metrica_cfg.get("coluna_origem"))
+
+
+def _render_snapshot_card(metrica_cfg: dict, periodo_atual: str, valor_atual, periodo_base: Optional[str], valor_base) -> str:
+    valor_atual_fmt = _formatar_valor_snapshot(metrica_cfg, valor_atual)
+    valor_base_fmt = _formatar_valor_snapshot(metrica_cfg, valor_base)
+    setinha = "•"
+    cor = "#6c757d"
+    if (
+        valor_atual is not None and valor_base is not None
+        and not pd.isna(valor_atual) and not pd.isna(valor_base)
+    ):
+        if float(valor_atual) > float(valor_base):
+            setinha = "▲"
+        elif float(valor_atual) < float(valor_base):
+            setinha = "▼"
+        regra_sobe_bom = bool(metrica_cfg.get("higher_is_better", True))
+        if setinha != "•":
+            melhorou = (setinha == "▲" and regra_sobe_bom) or (setinha == "▼" and not regra_sobe_bom)
+            cor = "#2e7d32" if melhorou else "#c62828"
+    periodo_base_txt = periodo_para_exibicao(periodo_base) if periodo_base else "--"
+    valor_base_txt = valor_base_fmt if (valor_base is not None and not pd.isna(valor_base)) else "--"
+
+    return f"""
+    <div class="snapshot-card">
+        <div class="snapshot-label">{_html_mod.escape(metrica_cfg.get('label', 'Métrica'))}</div>
+        <div class="snapshot-valor">{_html_mod.escape(valor_atual_fmt)}</div>
+        <div class="snapshot-sub">
+            ({_html_mod.escape(periodo_base_txt)}: {_html_mod.escape(valor_base_txt)})
+            <span style="color:{cor};font-weight:700;margin-left:6px;">{setinha}</span>
+        </div>
+        <div class="snapshot-periodo">Atual: {_html_mod.escape(periodo_para_exibicao(periodo_atual))}</div>
+    </div>
+    """
+
+
+def pagina_snapshot():
+    if not _garantir_dados_principais("Snapshot"):
+        st.info("carregando dados automaticamente do github...")
+        return
+
+    st.markdown("### Snapshot")
+    st.caption("briefing executivo de 60–90 segundos com os principais indicadores.")
+
+    df_base = get_analise_base_df()
+    if df_base is None or df_base.empty or "Instituição" not in df_base.columns:
+        st.warning("base indisponível para Snapshot.")
+        return
+
+    bancos = ordenar_bancos_com_alias(df_base["Instituição"].dropna().unique().tolist(), st.session_state.get("dict_aliases", {}))
+    banco = st.selectbox("Instituição", bancos, key="snapshot_banco")
+
+    periodos_banco = ordenar_periodos(df_base.loc[df_base["Instituição"] == banco, "Período"].dropna().unique().tolist(), reverso=True)
+    if not periodos_banco:
+        st.warning("sem períodos disponíveis para a instituição selecionada.")
+        return
+
+    periodo_atual = periodos_banco[0]
+    periodo_anterior_qoq = _periodo_trimestre_anterior(periodo_atual, periodos_banco)
+    periodo_anterior_yoy = _periodo_ano_anterior(periodo_atual)
+    periodo_yoy_existente = next((p for p in periodos_banco if periodo_anterior_yoy and _periodos_equivalentes(p, periodo_anterior_yoy)), None)
+
+    periodos_snapshot = [p for p in [periodo_atual, periodo_anterior_qoq, periodo_yoy_existente] if p]
+    periodos_snapshot = list(dict.fromkeys(periodos_snapshot))
+
+    bancos_tuple = (banco,)
+    periodos_tuple = tuple(periodos_snapshot)
+    cache_ativo = _carregar_cache_relatorio_slice("ativo", _cache_version_token("ativo"), periodos_tuple, bancos_tuple)
+    cache_passivo = _carregar_cache_relatorio_slice("passivo", _cache_version_token("passivo"), periodos_tuple, bancos_tuple)
+    cache_carteira_pf = _carregar_cache_relatorio_slice("carteira_pf", _cache_version_token("carteira_pf"), periodos_tuple, bancos_tuple)
+    cache_carteira_pj = _carregar_cache_relatorio_slice("carteira_pj", _cache_version_token("carteira_pj"), periodos_tuple, bancos_tuple)
+    cache_carteira_instr = _carregar_cache_relatorio_slice("carteira_instrumentos", _cache_version_token("carteira_instrumentos"), periodos_tuple, bancos_tuple)
+    cache_dre = _carregar_cache_relatorio_slice("dre", _cache_version_token("dre"), periodos_tuple, bancos_tuple)
+    cache_capital = _carregar_cache_relatorio_slice("capital", _cache_version_token("capital"), periodos_tuple, bancos_tuple)
+    cache_bloprud = _carregar_cache_relatorio_slice("bloprudencial", _cache_version_token("bloprudencial"), periodos_tuple, bancos_tuple)
+
+    extra_values = _preparar_metricas_extra_peers(
+        [banco],
+        periodos_snapshot,
+        cache_ativo,
+        cache_passivo,
+        cache_carteira_pf,
+        cache_carteira_pj,
+        cache_carteira_instr,
+        cache_dre,
+        cache_capital,
+        cache_bloprud,
+    )
+
+    snapshot_layout = [
+        {
+            "section": "Balanço",
+            "rows": [
+                {"label": "Ativo Total", "data_keys": ["Ativo Total"], "format_key": "Ativo Total", "higher_is_better": True},
+                {"label": "Carteira de Crédito", "extra_key": "Carteira de Crédito Bruta", "format_key": "Carteira de Crédito Bruta", "higher_is_better": True},
+                {"label": "Captações", "data_keys": ["Captações", "Core Funding"], "format_key": "Captações", "higher_is_better": True},
+            ],
+        },
+        {
+            "section": "Funding",
+            "rows": [
+                {"label": "Crédito / Captações", "data_keys": ["Carteira de Crédito/Core Funding (%)", "Crédito/Captações (%)"], "format_key": "Carteira de Crédito/Core Funding (%)", "higher_is_better": False},
+                {"label": "Desp. Captação / Captações", "data_keys": ["Desp Captação / Captação"], "format_key": "Desp Captação / Captação", "higher_is_better": False},
+            ],
+        },
+        {
+            "section": "Qualidade de carteira",
+            "rows": [
+                {"label": "Stage 3 / Carteira", "calc": "stage3_sobre_carteira", "format_key": "Perda Esperada / Estágio 3", "higher_is_better": False},
+                {"label": "PDD / Stage 3", "extra_key": "PDD / Estágio 3", "format_key": "PDD / Estágio 3", "higher_is_better": True},
+            ],
+        },
+        {
+            "section": "Desempenho",
+            "rows": [
+                {"label": "Lucro Líquido Trimestral", "data_keys": ["Lucro Líquido Trimestral"], "format_key": "Lucro Líquido Trimestral", "higher_is_better": True},
+                {"label": "Lucro Líquido Acumulado YTD", "data_keys": ["Lucro Líquido Acumulado YTD"], "format_key": "Lucro Líquido Acumulado YTD", "higher_is_better": True, "comparison": "yoy"},
+            ],
+        },
+        {
+            "section": "Capital",
+            "rows": [
+                {"label": "CET1", "extra_key": "Índice de Capital Principal (CET1)", "format_key": "Índice de Capital Principal", "higher_is_better": True},
+                {"label": "Índice de Basileia", "extra_key": "Índice de Basileia Total", "format_key": "Índice de Basileia", "higher_is_better": True},
+            ],
+        },
+    ]
+
+    st.markdown(
+        """
+        <style>
+        .snapshot-grid { display:grid; grid-template-columns: 1fr; gap: 10px; margin: 8px 0 14px 0; }
+        @media (min-width: 900px) { .snapshot-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+        .snapshot-card { border: 1px solid #e6e8eb; border-radius: 10px; padding: 10px 12px; background: #fff; }
+        .snapshot-label { font-size: 0.82rem; color: #6b7280; line-height: 1.2; margin-bottom: 4px; }
+        .snapshot-valor { font-size: 1.28rem; font-weight: 650; color: #111827; line-height: 1.25; }
+        .snapshot-sub { font-size: 0.78rem; color: #6b7280; margin-top: 5px; }
+        .snapshot-periodo { font-size: 0.72rem; color: #9ca3af; margin-top: 3px; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    for sec in snapshot_layout:
+        with st.expander(sec["section"], expanded=True):
+            cards_html = []
+            for row in sec["rows"]:
+                periodo_base = periodo_anterior_qoq
+                if row.get("comparison") == "yoy":
+                    periodo_base = periodo_yoy_existente
+
+                if row.get("calc") == "stage3_sobre_carteira":
+                    stage3_atual = _obter_valor_snapshot(df_base, banco, periodo_atual, {"extra_key": "Ativos Estágio 3"}, extra_values)
+                    cart_atual = _obter_valor_snapshot(df_base, banco, periodo_atual, {"extra_key": "Carteira de Crédito Bruta"}, extra_values)
+                    valor_atual = _calcular_ratio_peers(stage3_atual, cart_atual)
+                    if periodo_base:
+                        stage3_base = _obter_valor_snapshot(df_base, banco, periodo_base, {"extra_key": "Ativos Estágio 3"}, extra_values)
+                        cart_base = _obter_valor_snapshot(df_base, banco, periodo_base, {"extra_key": "Carteira de Crédito Bruta"}, extra_values)
+                        valor_base = _calcular_ratio_peers(stage3_base, cart_base)
+                    else:
+                        valor_base = None
+                else:
+                    valor_atual = _obter_valor_snapshot(df_base, banco, periodo_atual, row, extra_values)
+                    valor_base = _obter_valor_snapshot(df_base, banco, periodo_base, row, extra_values) if periodo_base else None
+
+                cards_html.append(_render_snapshot_card(row, periodo_atual, valor_atual, periodo_base, valor_base))
+
+            st.markdown(f"<div class='snapshot-grid'>{''.join(cards_html)}</div>", unsafe_allow_html=True)
+
+
 def _gerar_imagem_peers_tabela(
     bancos: list,
     periodos: list,
@@ -6674,6 +6899,7 @@ with col_header:
 
 # Lista de opções do menu principal (análise)
 MENU_PRINCIPAL = [
+    "Snapshot",
     "Rankings",
     "Peers (Tabela)",
     "Conselho e Diretoria",
@@ -7474,6 +7700,9 @@ elif False and menu == "Painel":
         else:
             st.info("carregando dados automaticamente do github...")
             st.markdown("por favor, aguarde alguns segundos e recarregue a página")
+
+elif menu == "Snapshot":
+    pagina_snapshot()
 
 elif menu == "Peers (Tabela)":
     if _garantir_dados_principais("Peers (Tabela)"):
