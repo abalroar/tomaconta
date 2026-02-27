@@ -3535,6 +3535,21 @@ def _build_peers_lookup(df: Optional[pd.DataFrame]) -> dict:
         return lookup_existente
 
     lookup = {}
+    lookup_por_codigo = {}
+    instituicao_para_codigos = {}
+    col_codigo_congl = next(
+        (
+            c for c in df.columns
+            if str(c).strip().lower() in {
+                "codigo_conglomerado",
+                "código_conglomerado",
+                "cod_conglomerado",
+                "codigoconglomerado",
+                "cod_congl",
+            }
+        ),
+        None,
+    )
     # Evita iterrows(): converte para registros e preserva 1ª ocorrência por chave.
     inst_vals = df["Instituição"].tolist()
     per_vals = df["Período"].tolist()
@@ -3545,7 +3560,21 @@ def _build_peers_lookup(df: Optional[pd.DataFrame]) -> dict:
         if chave not in lookup:
             lookup[chave] = row
 
+        if col_codigo_congl:
+            cod = row.get(col_codigo_congl)
+            if pd.notna(cod):
+                cod_norm = str(cod).strip()
+                if cod_norm:
+                    chave_cod = (cod_norm, per)
+                    if chave_cod not in lookup_por_codigo:
+                        lookup_por_codigo[chave_cod] = row
+                    inst_norm = normalizar_nome_instituicao(inst)
+                    if inst_norm:
+                        instituicao_para_codigos.setdefault(inst_norm, set()).add(cod_norm)
+
     df.attrs["_peers_lookup"] = lookup
+    df.attrs["_peers_lookup_por_codigo"] = lookup_por_codigo
+    df.attrs["_peers_inst_to_codigos"] = instituicao_para_codigos
     df.attrs["_peers_lookup_meta"] = meta_nova
     return lookup
 
@@ -3557,6 +3586,15 @@ def _obter_valor_peers(df: pd.DataFrame, banco: str, periodo: str, coluna: Optio
     if not lookup:
         return None
     row = lookup.get((banco, periodo))
+    if row is None:
+        codigos_por_inst = df.attrs.get("_peers_inst_to_codigos", {})
+        lookup_por_codigo = df.attrs.get("_peers_lookup_por_codigo", {})
+        banco_norm = normalizar_nome_instituicao(banco)
+        codigos = codigos_por_inst.get(banco_norm, set()) if banco_norm else set()
+        for cod in codigos:
+            row = lookup_por_codigo.get((str(cod).strip(), periodo))
+            if row is not None:
+                break
     if row is None:
         return None
     return row.get(coluna)
@@ -5831,6 +5869,41 @@ def normalizar_periodo_chave(periodo: str) -> str:
     return periodo_str
 
 
+def _periodo_para_ano_trimestre(periodo: str) -> Optional[tuple[int, int]]:
+    if periodo is None:
+        return None
+    parsed = _parse_periodo(str(periodo))
+    if parsed:
+        parte, ano, _ = parsed
+        return int(ano), _parte_periodo_para_trimestre_idx(parte)
+
+    periodo_str = str(periodo).strip()
+    match_mes = re.match(r"^(\d{1,2})\/(\d{4})$", periodo_str)
+    if not match_mes:
+        return None
+    mes = int(match_mes.group(1))
+    ano = int(match_mes.group(2))
+    if 1 <= mes <= 3:
+        tri = 1
+    elif 4 <= mes <= 6:
+        tri = 2
+    elif 7 <= mes <= 9:
+        tri = 3
+    elif 10 <= mes <= 12:
+        tri = 4
+    else:
+        return None
+    return ano, tri
+
+
+def _periodos_equivalentes(periodo_a: str, periodo_b: str) -> bool:
+    chave_a = _periodo_para_ano_trimestre(periodo_a)
+    chave_b = _periodo_para_ano_trimestre(periodo_b)
+    if chave_a and chave_b:
+        return chave_a == chave_b
+    return normalizar_periodo_chave(periodo_a) == normalizar_periodo_chave(periodo_b)
+
+
 def construir_cet1_capital(
     dados_capital: dict,
     dict_aliases: Optional[dict] = None,
@@ -5876,10 +5949,9 @@ def obter_cet1_periodo(
 ) -> pd.DataFrame:
     if not dados_capital:
         return pd.DataFrame()
-    periodo_norm = normalizar_periodo_chave(periodo)
     chave_periodo = None
     for chave in dados_capital.keys():
-        if normalizar_periodo_chave(chave) == periodo_norm:
+        if _periodos_equivalentes(chave, periodo):
             chave_periodo = chave
             break
     if chave_periodo is None:
@@ -8253,8 +8325,8 @@ elif menu == "Evolução":
             "Métrica": [
                 "ROE anualizado",
                 "Carteira de Crédito* / PL",
-                "Índice de Capital Principal (CET1)",
                 "Índice de Basileia (%)",
+                "Índice de Capital Principal (CET1)",
             ]
         })
         for _, row in df_ano.iterrows():
@@ -8262,8 +8334,8 @@ elif menu == "Evolução":
             df_metric[periodo_label] = [
                 row.get("ROE anualizado"),
                 row.get("Carteira de Crédito Bruta / PL"),
-                row.get("Índice de Capital Principal (CET1)"),
                 row.get("Índice de Basileia (%)"),
+                row.get("Índice de Capital Principal (CET1)"),
             ]
 
         def _fmt_valor_br(v):
