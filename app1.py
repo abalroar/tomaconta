@@ -13934,7 +13934,15 @@ elif menu == "Glossário":
 
     **Ativo Total:** Padrão COSIF.
 
+    **Ativos Líquidos:** Soma de Disponibilidades, Aplicações Interfinanceiras de Liquidez e Títulos e Valores Mobiliários no Relatório de Ativo (Rel. 2).
+
     **Carteira de Crédito Bruta:** Soma do Valor Contábil Bruto (e1+f1+g1+h1) no Relatório de Ativo (Rel. 2).
+
+    **`Carteira de Crédito*`**: Na aba Peers (Tabela), corresponde à Carteira de Crédito Bruta.
+
+    **Perda Esperada:** Soma de perdas esperadas e ajustes de valor justo das bases e/f/g/h no Relatório de Ativo (Rel. 2).
+
+    **Depósitos Totais:** Depósitos do Relatório de Passivo (Rel. 3), com fallback para soma dos subtipos quando necessário.
 
     **Títulos e Valores Mobiliários:** Títulos de Renda Fixa + Aplicação em COEs + Cotas de Fundos de Curto Prazo e Fundos de Investimentos, já descontados de Perda Incorrida, Perda Esperada e Ajuste a Valor Justo.
 
@@ -13942,7 +13950,13 @@ elif menu == "Glossário":
 
     **Captações:** Todos os tipos de passivos, exceto (i) Títulos de Dívida Elegíveis a Capital e (ii) Dívidas Subordinadas Elegíveis a Capital.
 
+    **Core Funding:** Até 2024, usa Captações (e) no Rel. 3. A partir de 2025, soma Captações (e) e Dívida Subordinada (h).
+
+    **`Core Funding*`**: Na aba Peers (Tabela), corresponde ao Core Funding.
+
     **Patrimônio Líquido:** Padrão COSIF.
+
+    **Patrimônio Líquido (PL):** Na aba Peers (Tabela), corresponde ao Patrimônio Líquido.
 
     **Lucro Líquido Acumulado YTD:** Lucro líquido acumulado entre janeiro do ano-competência até o final do semestre de referência (ex: 09/2025 refere-se ao lucro acumulado no ano de 2025, até 30/09/2025).
 
@@ -13952,17 +13966,29 @@ elif menu == "Glossário":
 
     **Índice de Imobilização:** Ativo Permanente dividido pelo Patrimônio de Referência.
 
+    **Índice de Basileia Total:** Na aba Peers (Tabela), corresponde ao Índice de Basileia.
+
     ---
 
     ## **Métricas Calculadas**
+
+    **Ativo Total / PL:** Ativo Total dividido pelo Patrimônio Líquido.
 
     **ROE Ac. Anualizado (%):** (LL YTD × fator de anualização) ÷ PL Médio. PL Médio = (PL no período + PL em Dez do ano anterior) / 2. Fator: Mar=4, Jun=2, Set≈1.33, Dez=1. N/A se PL médio ≤ 0 ou dado faltante.
 
     **Carteira de Crédito Bruta / PL:** Carteira de Crédito Bruta dividida pelo Patrimônio Líquido.
 
+    **`Carteira de Crédito* / PL`**: Na aba Peers (Tabela), corresponde a Carteira de Crédito Bruta / PL.
+
+    **`Perda Esperada / Carteira de Crédito*`**: Na aba Peers (Tabela), corresponde a Perda Esperada / Carteira de Crédito Bruta.
+
     **Carteira de Crédito/Core Funding (%):** Carteira de Crédito Bruta dividida pelo Core Funding.
 
     **Crédito/Ativo (%):** Carteira de Crédito Bruta dividida pelo Ativo Total.
+
+    **Lucro Líquido Acumulado:** Na aba Peers (Tabela), corresponde ao Lucro Líquido Acumulado YTD.
+
+    **ROE Acumulado YTD (%):** Na aba Peers (Tabela), corresponde ao ROE Ac. Anualizado (%).
 
 
     **Desp PDD / Resultado Intermediação Fin. Bruto (%):** Desp. PDD dividido pelo Resultado de Intermediação Financeira Bruto. Fórmula: Desp. PDD / Resultado de Intermediação Financeira Bruto.
