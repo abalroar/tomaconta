@@ -7532,7 +7532,7 @@ elif menu == "Peers (Tabela)":
                     _perf_peers_stage(peers_perf, "f_render_tabela", t_render)
 
                     st.markdown("#### Exportar")
-                    col_exp1, col_exp2 = st.columns(2)
+                    col_exp1, col_exp2, col_exp3 = st.columns(3)
                     with col_exp1:
                         st.caption("Tabela formatada (layout visual)")
                         t_export_fmt = time.perf_counter()
@@ -7571,6 +7571,25 @@ elif menu == "Peers (Tabela)":
                             use_container_width=True,
                         )
                         _perf_peers_stage(peers_perf, "g_preparo_export", t_export_raw)
+                    with col_exp3:
+                        st.caption("Imagem da tabela")
+                        t_export_png = time.perf_counter()
+                        peers_tabela_png = _gerar_imagem_peers_tabela(
+                            bancos_selecionados,
+                            periodos_selecionados,
+                            valores,
+                            colunas_usadas,
+                            delta_flags,
+                        )
+                        st.download_button(
+                            label="Download PNG",
+                            data=peers_tabela_png.getvalue(),
+                            file_name=f"peers_tabela_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png",
+                            mime="image/png",
+                            key="peers_tabela_png",
+                            use_container_width=True,
+                        )
+                        _perf_peers_stage(peers_perf, "g_preparo_export", t_export_png)
 
                     print("[PEERS_PERF]", {k: round(v, 3) for k, v in sorted(peers_perf.items())})
                     _log_roe_trace(df, "peers_pos_render")
@@ -8368,6 +8387,18 @@ elif menu == "Evolução":
                 )
             else:
                 pass
+
+        with col_export4:
+            tabela_png = _gerar_png_tabela_evolucao(df_show, periodos_cols)
+            if tabela_png:
+                st.download_button(
+                    label="exportar tabela PNG",
+                    data=tabela_png,
+                    file_name=f"evolucao_tabela_{instituicao_arquivo}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png",
+                    mime="image/png",
+                    key="evolucao_tabela_png",
+                    use_container_width=True,
+                )
 
         # exportação PPT removida
         with st.expander("Mini-glossário", expanded=False):
