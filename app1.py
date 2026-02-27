@@ -7532,7 +7532,7 @@ elif menu == "Peers (Tabela)":
                     _perf_peers_stage(peers_perf, "f_render_tabela", t_render)
 
                     st.markdown("#### Exportar")
-                    col_exp1, col_exp2 = st.columns(2)
+                    col_exp1, col_exp2, col_exp3 = st.columns(3)
                     with col_exp1:
                         st.caption("Tabela formatada (layout visual)")
                         t_export_fmt = time.perf_counter()
@@ -7571,6 +7571,25 @@ elif menu == "Peers (Tabela)":
                             use_container_width=True,
                         )
                         _perf_peers_stage(peers_perf, "g_preparo_export", t_export_raw)
+                    with col_exp3:
+                        st.caption("Imagem da tabela")
+                        t_export_png = time.perf_counter()
+                        peers_tabela_png = _gerar_imagem_peers_tabela(
+                            bancos_selecionados,
+                            periodos_selecionados,
+                            valores,
+                            colunas_usadas,
+                            delta_flags,
+                        )
+                        st.download_button(
+                            label="Download PNG",
+                            data=peers_tabela_png.getvalue(),
+                            file_name=f"peers_tabela_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png",
+                            mime="image/png",
+                            key="peers_tabela_png",
+                            use_container_width=True,
+                        )
+                        _perf_peers_stage(peers_perf, "g_preparo_export", t_export_png)
 
                     print("[PEERS_PERF]", {k: round(v, 3) for k, v in sorted(peers_perf.items())})
                     _log_roe_trace(df, "peers_pos_render")
@@ -8368,6 +8387,18 @@ elif menu == "Evolução":
                 )
             else:
                 pass
+
+        with col_export4:
+            tabela_png = _gerar_png_tabela_evolucao(df_show, periodos_cols)
+            if tabela_png:
+                st.download_button(
+                    label="exportar tabela PNG",
+                    data=tabela_png,
+                    file_name=f"evolucao_tabela_{instituicao_arquivo}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png",
+                    mime="image/png",
+                    key="evolucao_tabela_png",
+                    use_container_width=True,
+                )
 
         # exportação PPT removida
         with st.expander("Mini-glossário", expanded=False):
@@ -9834,13 +9865,27 @@ elif menu == "Rankings":
                                     df_export_hist.to_excel(writer, index=False, sheet_name='historico')
                                 buffer_excel_hist.seek(0)
 
-                                st.download_button(
-                                    label="Download Excel",
-                                    data=buffer_excel_hist,
-                                    file_name=f"Historico_{variavel}_{periodo_inicial_delta.replace('/', '-')}_{periodo_subsequente_delta.replace('/', '-')}.xlsx",
-                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                    key=f"exportar_historico_delta_{variavel}"
-                                )
+                                col_hist_excel, col_hist_png = st.columns(2)
+                                with col_hist_excel:
+                                    st.download_button(
+                                        label="Download Excel",
+                                        data=buffer_excel_hist,
+                                        file_name=f"Historico_{variavel}_{periodo_inicial_delta.replace('/', '-')}_{periodo_subsequente_delta.replace('/', '-')}.xlsx",
+                                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                        key=f"exportar_historico_delta_{variavel}",
+                                        use_container_width=True,
+                                    )
+                                with col_hist_png:
+                                    png_hist = _plotly_fig_to_png_bytes(fig_hist)
+                                    if png_hist:
+                                        st.download_button(
+                                            label="exportar histórico PNG",
+                                            data=png_hist,
+                                            file_name=f"Historico_{variavel}_{periodo_inicial_delta.replace('/', '-')}_{periodo_subsequente_delta.replace('/', '-')}.png",
+                                            mime="image/png",
+                                            key=f"exportar_historico_delta_png_{variavel}",
+                                            use_container_width=True,
+                                        )
 
                         st.markdown("#### Exportar")
                         df_resumo = pd.DataFrame(dados_grafico)
@@ -9860,14 +9905,27 @@ elif menu == "Rankings":
                         buffer_excel.seek(0)
 
                         nome_variavel = variavel.replace(' ', '_').replace('/', '_')
-                        st.download_button(
-                            label="Download Excel",
-                            data=buffer_excel,
-                            file_name=f"Deltas_{variavel}_{periodo_inicial_delta.replace('/', '-')}_{periodo_subsequente_delta.replace('/', '-')}.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            key=f"exportar_excel_delta_{variavel}",
-                            use_container_width=True,
-                        )
+                        col_delta_excel, col_delta_png = st.columns(2)
+                        with col_delta_excel:
+                            st.download_button(
+                                label="Download Excel",
+                                data=buffer_excel,
+                                file_name=f"Deltas_{variavel}_{periodo_inicial_delta.replace('/', '-')}_{periodo_subsequente_delta.replace('/', '-')}.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                key=f"exportar_excel_delta_{variavel}",
+                                use_container_width=True,
+                            )
+                        with col_delta_png:
+                            png_delta = _plotly_fig_to_png_bytes(fig_barras)
+                            if png_delta:
+                                st.download_button(
+                                    label="exportar gráfico PNG",
+                                    data=png_delta,
+                                    file_name=f"Deltas_{variavel}_{periodo_inicial_delta.replace('/', '-')}_{periodo_subsequente_delta.replace('/', '-')}.png",
+                                    mime="image/png",
+                                    key=f"exportar_png_delta_{variavel}",
+                                    use_container_width=True,
+                                )
                 elif not periodo_valido:
                     pass  # Já exibiu warning acima
                 elif not variaveis_selecionadas_delta:
@@ -12696,7 +12754,7 @@ elif menu == "Crie sua métrica!":
 
                             st.dataframe(df_export_delta, width='stretch', hide_index=True)
 
-                            col_excel, col_csv = st.columns(2)
+                            col_excel, col_csv, col_png = st.columns(3)
                             with col_excel:
                                 buffer_excel = BytesIO()
                                 with pd.ExcelWriter(buffer_excel, engine='xlsxwriter') as writer:
@@ -12720,6 +12778,17 @@ elif menu == "Crie sua métrica!":
                                     key="export_csv_delta_brincar",
                                     use_container_width=True,
                                 )
+                            with col_png:
+                                png_delta_brincar = _plotly_fig_to_png_bytes(fig_delta_brincar)
+                                if png_delta_brincar:
+                                    st.download_button(
+                                        label="exportar gráfico PNG",
+                                        data=png_delta_brincar,
+                                        file_name=f"Brincar_Deltas_{nome_metrica.replace(' ', '_')}_{periodo_inicial_brincar.replace('/', '-')}_{periodo_subsequente_brincar.replace('/', '-')}.png",
+                                        mime="image/png",
+                                        key="export_png_delta_brincar",
+                                        use_container_width=True,
+                                    )
                         else:
                             st.info("sem dados válidos para exibir")
 
