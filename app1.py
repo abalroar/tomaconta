@@ -5472,13 +5472,13 @@ def _snapshot_capital_indices_por_periodo(
     return cet1, basileia
 
 
-def _snapshot_delta_ui(metrica_cfg: dict, valor_atual, valor_base) -> tuple[str, Optional[str], str]:
-    """Retorna seta, modo de cor do st.metric e fallback textual."""
+def _snapshot_delta_ui(metrica_cfg: dict, valor_atual, valor_base) -> tuple[str, str]:
+    """Retorna direção (▲/▼/•) e semáforo visual (🟢/🔴/⚪) conforme regra da métrica."""
     if (
         valor_atual is None or valor_base is None
         or pd.isna(valor_atual) or pd.isna(valor_base)
     ):
-        return "•", None, "--"
+        return "•", "⚪"
 
     atual_f = float(valor_atual)
     base_f = float(valor_base)
@@ -5490,14 +5490,11 @@ def _snapshot_delta_ui(metrica_cfg: dict, valor_atual, valor_base) -> tuple[str,
         seta = "•"
 
     if seta == "•":
-        return seta, None, "0"
+        return seta, "⚪"
 
     regra_sobe_bom = bool(metrica_cfg.get("higher_is_better", True))
-    # st.metric: normal => verde quando delta positivo; inverse => verde quando delta negativo
-    delta_mode = "normal" if regra_sobe_bom else "inverse"
-    magnitude = atual_f - base_f
-    sinal = "+" if magnitude > 0 else ""
-    return seta, delta_mode, f"{sinal}{magnitude:.6f}"
+    melhorou = (seta == "▲" and regra_sobe_bom) or (seta == "▼" and not regra_sobe_bom)
+    return seta, ("🟢" if melhorou else "🔴")
 
 
 def pagina_snapshot():
@@ -5559,6 +5556,9 @@ def pagina_snapshot():
     col_capt = _snapshot_pick_col(df_inst, ["Captações", "Core Funding"])
     capt_map = {p: _coerce_numeric_value(_obter_valor_peers(df_inst, banco, p, col_capt)) if col_capt else None for p in periodos_snapshot}
 
+    col_pl = _snapshot_pick_col(df_inst, ["Patrimônio Líquido"])
+    pl_map = {p: _coerce_numeric_value(_obter_valor_peers(df_inst, banco, p, col_pl)) if col_pl else None for p in periodos_snapshot}
+
     col_credito_capt = _snapshot_pick_col(df_inst, ["Carteira de Crédito/Core Funding (%)", "Crédito/Captações (%)"])
     credito_capt_map = {
         p: _coerce_numeric_value(_obter_valor_peers(df_inst, banco, p, col_credito_capt)) if col_credito_capt else None
@@ -5589,6 +5589,7 @@ def pagina_snapshot():
                 {"label": "Ativo Total", "format_key": "Ativo Total", "higher_is_better": True, "serie": ativo_map},
                 {"label": "Carteira de Crédito", "format_key": "Carteira de Crédito Bruta", "higher_is_better": True, "serie": carteira_map},
                 {"label": "Captações", "format_key": "Captações", "higher_is_better": True, "serie": capt_map},
+                {"label": "Patrimônio Líquido", "format_key": "Patrimônio Líquido", "higher_is_better": True, "serie": pl_map},
             ],
         },
         {
@@ -5645,19 +5646,24 @@ def pagina_snapshot():
 
                     valor_atual_fmt = _formatar_valor_snapshot(row, valor_atual)
                     valor_base_fmt = _formatar_valor_snapshot(row, valor_base)
-                    seta, delta_mode, _ = _snapshot_delta_ui(row, valor_atual, valor_base)
+                    seta, semaforo = _snapshot_delta_ui(row, valor_atual, valor_base)
 
                     periodo_base_txt = periodo_para_exibicao(periodo_base) if periodo_base else "--"
                     base_txt = valor_base_fmt if (valor_base is not None and not pd.isna(valor_base)) else "--"
-                    delta_txt = f"{seta} {periodo_base_txt}: {base_txt}"
+                    delta_txt = f"{semaforo} {seta} {periodo_base_txt}: {base_txt}"
 
                     st.metric(
                         label=row.get("label", "Métrica"),
                         value=valor_atual_fmt,
                         delta=delta_txt,
-                        delta_color=delta_mode if delta_mode else "off",
+                        delta_color="off",
                     )
                     st.caption(f"Atual: {periodo_para_exibicao(periodo_atual)}")
+
+    st.caption(
+        "Semáforo Snapshot: 🟢 melhora | 🔴 piora | ⚪ sem base/estável. "
+        "Ex.: Crédito/Captações: subir é pior (mais alavancagem de funding)."
+    )
 
     tempo_render = time.perf_counter() - t_render
     tempo_total = time.perf_counter() - t0
