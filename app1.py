@@ -13934,17 +13934,31 @@ elif menu == "Glossário":
 
     **Ativo Total:** Padrão COSIF.
 
-    **Carteira de Crédito Bruta:** Soma do Valor Contábil Bruto (e1+f1+g1+h1) no Relatório de Ativo (Rel. 2).
+    **Ativos Líquidos:** Disponibilidades (a) + Aplicações Interfinanceiras de Liquidez (b) + Títulos e Valores Mobiliários (c), no Relatório de Ativo (Rel. 2).
+
+    **Carteira de Crédito Bruta:** Na Peers, segue a regra de apuração da tabela: até 2024 usa d1+e1+f (Rel. 2); a partir de 2025 usa Valor Contábil Bruto (e1+f1+g1+h1), com fallback para e+f+g+h quando necessário.
+
+    **Carteira de Crédito*:** Na aba Peers (Tabela), é o mesmo valor de Carteira de Crédito Bruta.
+
+    **Perda Esperada:** Soma das parcelas de perda esperada/ajustes de valor justo das bases e, f, g e h no Relatório de Ativo (Rel. 2), conforme as linhas disponíveis no período.
+
+    **Depósitos Totais:** Depósitos do Relatório de Passivo (Rel. 3). Quando a linha agregada não está disponível, usa a soma dos subtipos de depósitos.
 
     **Títulos e Valores Mobiliários:** Títulos de Renda Fixa + Aplicação em COEs + Cotas de Fundos de Curto Prazo e Fundos de Investimentos, já descontados de Perda Incorrida, Perda Esperada e Ajuste a Valor Justo.
 
     **Passivo Exigível:** Passivo Total, incluindo Depósitos, Compromissadas, Outros Instrumentos de Dívida, Relações Interfinanceiras, Relações Interdependências, Derivativos, Provisões (Cíveis, Fiscais, Trabalhistas) e Outras Obrigações.
 
-    **Captações:** Todos os tipos de passivos, exceto (i) Títulos de Dívida Elegíveis a Capital e (ii) Dívidas Subordinadas Elegíveis a Capital.
+    **Captações:** Linha de Captações (e) do Relatório de Passivo (Rel. 3), correspondente à soma de (a)+(b)+(c)+(d).
+
+    **Core Funding:** Na Peers, usa Captações (e) até 2024; a partir de 2025, usa Captações (e) + Instrumentos de Dívida Elegíveis a Capital (h), no Relatório de Passivo.
+
+    **Core Funding*:** Na aba Peers (Tabela), é o mesmo valor de Core Funding.
 
     **Patrimônio Líquido:** Padrão COSIF.
 
-    **Lucro Líquido Acumulado YTD:** Lucro líquido acumulado entre janeiro do ano-competência até o final do semestre de referência (ex: 09/2025 refere-se ao lucro acumulado no ano de 2025, até 30/09/2025).
+    **Patrimônio Líquido (PL):** Na aba Peers (Tabela), corresponde ao Patrimônio Líquido.
+
+    **Lucro Líquido Acumulado YTD:** Lucro líquido acumulado no ano até o fim do período de referência.
 
     ---
 
@@ -13952,18 +13966,29 @@ elif menu == "Glossário":
 
     **Índice de Imobilização:** Ativo Permanente dividido pelo Patrimônio de Referência.
 
+    **Índice de Basileia Total:** Na aba Peers (Tabela), corresponde ao Índice de Basileia (Patrimônio de Referência ÷ RWA Total).
+
     ---
 
     ## **Métricas Calculadas**
 
-    **ROE Ac. Anualizado (%):** (LL YTD × fator de anualização) ÷ PL Médio. PL Médio = (PL no período + PL em Dez do ano anterior) / 2. Fator: Mar=4, Jun=2, Set≈1.33, Dez=1. N/A se PL médio ≤ 0 ou dado faltante.
+    **Ativo Total / PL:** Ativo Total dividido pelo Patrimônio Líquido.
+
+    **ROE Ac. Anualizado (%):** (LL YTD × fator de anualização) ÷ PL Médio. PL Médio = (PL no período + PL em Dez do ano anterior) / 2. Fator: Mar=4, Jun=2, Set≈1,33, Dez=1. N/A se PL médio ≤ 0 ou dado faltante.
 
     **Carteira de Crédito Bruta / PL:** Carteira de Crédito Bruta dividida pelo Patrimônio Líquido.
+
+    **Carteira de Crédito* / PL:** Na aba Peers (Tabela), corresponde à Carteira de Crédito Bruta / PL.
+
+    **Perda Esperada / Carteira de Crédito*:** Na aba Peers (Tabela), corresponde a Perda Esperada / Carteira de Crédito Bruta.
 
     **Carteira de Crédito/Core Funding (%):** Carteira de Crédito Bruta dividida pelo Core Funding.
 
     **Crédito/Ativo (%):** Carteira de Crédito Bruta dividida pelo Ativo Total.
 
+    **Lucro Líquido Acumulado:** Na aba Peers (Tabela), corresponde ao Lucro Líquido Acumulado YTD.
+
+    **ROE Acumulado YTD (%):** Na aba Peers (Tabela), corresponde ao ROE Ac. Anualizado (%).
 
     **Desp PDD / Resultado Intermediação Fin. Bruto (%):** Desp. PDD dividido pelo Resultado de Intermediação Financeira Bruto. Fórmula: Desp. PDD / Resultado de Intermediação Financeira Bruto.
 
@@ -13971,7 +13996,9 @@ elif menu == "Glossário":
 
     **Ativos Estágio 3:** Saldo da conta 3313000000 no mês/período selecionado (Cadoc 4060).
 
-    **Perda Esperada / Estágio 3 (%):** Relação entre Perda Esperada (Rel. 2) e Ativos Estágio 3 (Cadoc 4060) do mesmo mês/período.
+    **Perda Esperada / Estágio 3:** Relação entre Perda Esperada (Rel. 2) e Ativos Estágio 3 (Cadoc 4060) do mesmo mês/período.
+
+    **Perda Esperada / Estágio 3 (%):** Mesmo indicador anterior, exibido em formato percentual quando aplicável.
 
     **Desp Captação / Captação (%):** Desp. Captação anualizada dividida por Captações. Fórmula: (Desp. Captação * (12 / meses_do_período)) / Captações.
     """)
