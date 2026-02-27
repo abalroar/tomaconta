@@ -5405,9 +5405,37 @@ def _snapshot_bloprud_stage3_pdd_por_periodo(
         base_txt = df_blop[col_data_base].astype(str).str.replace(r"\D", "", regex=True).str[:6]
         df_blop["Período"] = base_txt.str[4:6] + "/" + base_txt.str[:4]
 
-    banco_norm = _normalizar_label_peers(str(banco))
+    def _snapshot_nome_variants(valor: str) -> set[str]:
+        base = _normalizar_label_peers(valor)
+        if not base:
+            return set()
+        variantes = {base}
+        txt = base
+        for suffix in [" - prudencial", " prudencial", " s.a.", " s a", " sa"]:
+            if txt.endswith(suffix):
+                txt = txt[: -len(suffix)].strip()
+        if txt:
+            variantes.add(txt)
+        if " - " in base:
+            variantes.add(base.split(" - ", 1)[0].strip())
+        return {v for v in variantes if v}
+
+    banco_variants = _snapshot_nome_variants(str(banco))
     inst_norm = df_blop[col_inst].astype(str).map(_normalizar_label_peers)
-    df_blop = df_blop.loc[inst_norm == banco_norm].copy()
+    df_blop["_inst_norm"] = inst_norm
+    df_blop = df_blop.loc[df_blop["_inst_norm"].isin(banco_variants)].copy()
+    if df_blop.empty and banco_variants:
+        # fallback único e determinístico: comparação por inclusão para acomodar pequenas variações de nome
+        banco_alvo = next(iter(banco_variants))
+        mask_like = inst_norm.astype(str).str.contains(banco_alvo, regex=False) | pd.Series(
+            [banco_alvo in v for v in inst_norm.astype(str)], index=inst_norm.index
+        )
+        df_blop = cache_bloprudencial.loc[mask_like].copy()
+        if not df_blop.empty:
+            if "Período" not in df_blop.columns and "Período" in cache_bloprudencial.columns:
+                df_blop["Período"] = cache_bloprudencial.loc[df_blop.index, "Período"]
+            df_blop["_conta"] = df_blop[col_conta].astype(str).str.replace(r"\D", "", regex=True)
+            df_blop["_saldo"] = pd.to_numeric(df_blop[col_saldo], errors="coerce")
     if df_blop.empty:
         return stage3_map, pdd_map
 
@@ -5602,8 +5630,8 @@ def pagina_snapshot():
         {
             "section": "Qualidade de carteira",
             "rows": [
-                {"label": "Stage 3 / Carteira", "format_key": "Perda Esperada / Estágio 3", "higher_is_better": False, "serie": {p: _calcular_ratio_peers(stage3_map.get(p), carteira_map.get(p)) for p in periodos_snapshot}},
-                {"label": "PDD / Stage 3", "format_key": "PDD / Estágio 3", "higher_is_better": True, "serie": {p: _calcular_ratio_peers(pdd_map.get(p), stage3_map.get(p)) for p in periodos_snapshot}},
+                {"label": "Estágio 3 / Carteira", "format_key": "Perda Esperada / Estágio 3", "higher_is_better": False, "serie": {p: _calcular_ratio_peers(stage3_map.get(p), carteira_map.get(p)) for p in periodos_snapshot}},
+                {"label": "PDD / Estágio 3", "format_key": "PDD / Estágio 3", "higher_is_better": True, "serie": {p: _calcular_ratio_peers(pdd_map.get(p), stage3_map.get(p)) for p in periodos_snapshot}},
             ],
         },
         {
@@ -5664,6 +5692,22 @@ def pagina_snapshot():
         "Semáforo Snapshot: 🟢 melhora | 🔴 piora | ⚪ sem base/estável. "
         "Ex.: Crédito/Captações: subir é pior (mais alavancagem de funding)."
     )
+
+    with st.expander("Mini-glossário técnico (lógica de melhora/piora)", expanded=False):
+        st.markdown(
+            """
+            - **Ativo Total (🟢 quando sobe):** crescimento de balanço indica ganho de escala e capacidade de geração de receita, desde que acompanhado de qualidade de ativos.
+            - **Carteira de Crédito (🟢 quando sobe):** expansão da carteira tende a elevar receitas de intermediação; risco aumenta se crescer sem funding/capital compatíveis.
+            - **Captações (🟢 quando sobe):** reforça base de funding para sustentar crédito e liquidez.
+            - **Patrimônio Líquido (🟢 quando sobe):** maior colchão de absorção de perdas, menor fragilidade a choques.
+            - **Crédito / Captações (🟢 quando cai):** queda reduz alavancagem de funding; alta pode sinalizar pressão de captação para sustentar carteira.
+            - **Desp. Captação / Captações (🟢 quando cai):** custo médio de funding menor melhora margem financeira e eficiência do passivo.
+            - **Estágio 3 / Carteira (🟢 quando cai):** menor proporção de ativos problemáticos, sinal de melhor qualidade de crédito.
+            - **PDD / Estágio 3 (🟢 quando sobe):** maior cobertura prudencial para perdas esperadas no book deteriorado.
+            - **Lucro Líquido Trimestral e YTD (🟢 quando sobem):** melhora de performance recorrente e geração interna de capital.
+            - **CET1 e Basileia (🟢 quando sobem):** maior folga regulatória e resiliência de capital frente ao risco ponderado.
+            """
+        )
 
     tempo_render = time.perf_counter() - t_render
     tempo_total = time.perf_counter() - t0
