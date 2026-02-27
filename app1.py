@@ -7336,7 +7336,7 @@ elif False and menu == "Painel":
                             font=dict(family='IBM Plex Sans')
                         )
 
-                        st.plotly_chart(fig_resumo, width='stretch', config={'displayModeBar': False})
+                        st.plotly_chart(fig_resumo, width='stretch', config={'displayModeBar': 'hover', 'displaylogo': False})
 
                         df_componentes['ranking'] = df_componentes['total'].rank(method='first', ascending=False).astype(int)
                         # Merge com df_selecionado para ter acesso às colunas de peso
@@ -9302,7 +9302,7 @@ elif menu == "Rankings":
                                 font=dict(family='IBM Plex Sans')
                             )
 
-                            st.plotly_chart(fig_basileia, width='stretch', config={'displayModeBar': False})
+                            st.plotly_chart(fig_basileia, width='stretch', config={'displayModeBar': 'hover', 'displaylogo': False})
 
                             df_export_capital = df_selecionado_cap[[
                                 'Instituição', 'CET1 (%)', 'AT1 (%)', 'T2 (%)',
@@ -9463,7 +9463,7 @@ elif menu == "Rankings":
                             font=dict(family='IBM Plex Sans')
                         )
 
-                        st.plotly_chart(fig_resumo, width='stretch', config={'displayModeBar': False})
+                        st.plotly_chart(fig_resumo, width='stretch', config={'displayModeBar': 'hover', 'displaylogo': False})
 
                         media_grupo_raw = calcular_media_ponderada(df_selecionado, indicador_col, coluna_peso_resumo)
                         df_export = df_selecionado.copy()
@@ -9752,7 +9752,7 @@ elif menu == "Rankings":
                         )
 
                         st.markdown(f"### {variavel}")
-                        st.plotly_chart(fig_barras, width='stretch', config={'displayModeBar': False})
+                        st.plotly_chart(fig_barras, width='stretch', config={'displayModeBar': 'hover', 'displaylogo': False})
 
                         if bancos_selecionados_delta:
                             idx_ini_hist = periodos_disponiveis.index(periodo_inicial_delta)
@@ -9848,7 +9848,7 @@ elif menu == "Rankings":
                                     barmode='group' if variavel == 'Lucro Líquido Acumulado YTD' else ('overlay' if variavel == 'Lucro Líquido Trimestral' else None)
                                 )
 
-                                st.plotly_chart(fig_hist, width='stretch', config={'displayModeBar': False})
+                                st.plotly_chart(fig_hist, width='stretch', config={'displayModeBar': 'hover', 'displaylogo': False})
 
                                 df_export_hist = df_hist.pivot_table(
                                     index='Instituição',
