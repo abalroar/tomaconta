@@ -7336,7 +7336,7 @@ elif False and menu == "Painel":
                             font=dict(family='IBM Plex Sans')
                         )
 
-                        st.plotly_chart(fig_resumo, width='stretch', config={'displayModeBar': False})
+                        st.plotly_chart(fig_resumo, width='stretch', config={'displayModeBar': 'hover', 'displaylogo': False})
 
                         df_componentes['ranking'] = df_componentes['total'].rank(method='first', ascending=False).astype(int)
                         # Merge com df_selecionado para ter acesso às colunas de peso
@@ -9302,7 +9302,7 @@ elif menu == "Rankings":
                                 font=dict(family='IBM Plex Sans')
                             )
 
-                            st.plotly_chart(fig_basileia, width='stretch', config={'displayModeBar': False})
+                            st.plotly_chart(fig_basileia, width='stretch', config={'displayModeBar': 'hover', 'displaylogo': False})
 
                             df_export_capital = df_selecionado_cap[[
                                 'Instituição', 'CET1 (%)', 'AT1 (%)', 'T2 (%)',
@@ -9463,7 +9463,7 @@ elif menu == "Rankings":
                             font=dict(family='IBM Plex Sans')
                         )
 
-                        st.plotly_chart(fig_resumo, width='stretch', config={'displayModeBar': False})
+                        st.plotly_chart(fig_resumo, width='stretch', config={'displayModeBar': 'hover', 'displaylogo': False})
 
                         media_grupo_raw = calcular_media_ponderada(df_selecionado, indicador_col, coluna_peso_resumo)
                         df_export = df_selecionado.copy()
@@ -9752,7 +9752,7 @@ elif menu == "Rankings":
                         )
 
                         st.markdown(f"### {variavel}")
-                        st.plotly_chart(fig_barras, width='stretch', config={'displayModeBar': False})
+                        st.plotly_chart(fig_barras, width='stretch', config={'displayModeBar': 'hover', 'displaylogo': False})
 
                         if bancos_selecionados_delta:
                             idx_ini_hist = periodos_disponiveis.index(periodo_inicial_delta)
@@ -9848,7 +9848,7 @@ elif menu == "Rankings":
                                     barmode='group' if variavel == 'Lucro Líquido Acumulado YTD' else ('overlay' if variavel == 'Lucro Líquido Trimestral' else None)
                                 )
 
-                                st.plotly_chart(fig_hist, width='stretch', config={'displayModeBar': False})
+                                st.plotly_chart(fig_hist, width='stretch', config={'displayModeBar': 'hover', 'displaylogo': False})
 
                                 df_export_hist = df_hist.pivot_table(
                                     index='Instituição',
@@ -13944,6 +13944,12 @@ elif menu == "Glossário":
 
     **Depósitos Totais:** Depósitos do Relatório de Passivo (Rel. 3). Quando a linha agregada não está disponível, usa a soma dos subtipos de depósitos.
 
+    **`Carteira de Crédito*`**: Na aba Peers (Tabela), corresponde à Carteira de Crédito Bruta.
+
+    **Perda Esperada:** Soma de perdas esperadas e ajustes de valor justo das bases e/f/g/h no Relatório de Ativo (Rel. 2).
+
+    **Depósitos Totais:** Depósitos do Relatório de Passivo (Rel. 3), com fallback para soma dos subtipos quando necessário.
+
     **Títulos e Valores Mobiliários:** Títulos de Renda Fixa + Aplicação em COEs + Cotas de Fundos de Curto Prazo e Fundos de Investimentos, já descontados de Perda Incorrida, Perda Esperada e Ajuste a Valor Justo.
 
     **Passivo Exigível:** Passivo Total, incluindo Depósitos, Compromissadas, Outros Instrumentos de Dívida, Relações Interfinanceiras, Relações Interdependências, Derivativos, Provisões (Cíveis, Fiscais, Trabalhistas) e Outras Obrigações.
@@ -13953,6 +13959,10 @@ elif menu == "Glossário":
     **Core Funding:** Na Peers, usa Captações (e) até 2024; a partir de 2025, usa Captações (e) + Instrumentos de Dívida Elegíveis a Capital (h), no Relatório de Passivo.
 
     **Core Funding*:** Na aba Peers (Tabela), é o mesmo valor de Core Funding.
+
+    **Core Funding:** Até 2024, usa Captações (e) no Rel. 3. A partir de 2025, soma Captações (e) e Dívida Subordinada (h).
+
+    **`Core Funding*`**: Na aba Peers (Tabela), corresponde ao Core Funding.
 
     **Patrimônio Líquido:** Padrão COSIF.
 
