@@ -5270,6 +5270,406 @@ def _render_peers_table_html(
     return html
 
 
+def _periodo_trimestre_anterior(periodo: Optional[str], periodos_disponiveis: list[str]) -> Optional[str]:
+    """Retorna o período imediatamente anterior (QoQ) respeitando o formato disponível."""
+    if not periodo:
+        return None
+    parsed = _parse_periodo(str(periodo))
+    if not parsed:
+        return None
+    parte, ano, _ = parsed
+    tri_idx = _parte_periodo_para_trimestre_idx(parte)
+    if tri_idx is None:
+        return None
+
+    if tri_idx > 1:
+        ano_prev = ano
+        tri_prev = tri_idx - 1
+    else:
+        ano_prev = ano - 1
+        tri_prev = 4
+
+    candidatos = [
+        f"{tri_prev}/{ano_prev}",
+        f"{tri_prev}/{str(ano_prev)[-2:]}",
+        f"{tri_prev * 3:02d}/{ano_prev}",
+        f"{tri_prev * 3:02d}/{str(ano_prev)[-2:]}",
+    ]
+    for candidato in candidatos:
+        encontrado = next((p for p in periodos_disponiveis if _periodos_equivalentes(p, candidato)), None)
+        if encontrado:
+            return encontrado
+    return None
+
+
+def _obter_valor_snapshot(
+    df_base: pd.DataFrame,
+    banco: str,
+    periodo: str,
+    metrica_cfg: dict,
+    extra_values: Optional[dict] = None,
+):
+    """Obtém valor bruto para Snapshot reutilizando o padrão da aba Peers."""
+    extra_key = metrica_cfg.get("extra_key")
+    if extra_key:
+        return (extra_values or {}).get(extra_key, {}).get((banco, periodo))
+
+    for coluna in metrica_cfg.get("data_keys", []):
+        col_resolvida = _resolver_coluna_peers(df_base, [coluna])
+        if not col_resolvida:
+            continue
+        val = _obter_valor_peers(df_base, banco, periodo, col_resolvida)
+        if val is not None and not pd.isna(val):
+            return val
+    return None
+
+
+def _formatar_valor_snapshot(metrica_cfg: dict, valor) -> str:
+    return _formatar_valor_peers(valor, metrica_cfg.get("format_key", ""), coluna_origem=metrica_cfg.get("coluna_origem"))
+
+
+def _snapshot_pick_col(df: Optional[pd.DataFrame], candidatos: list[str]) -> Optional[str]:
+    return _resolver_coluna_peers(df, candidatos)
+
+
+def _snapshot_carteira_bruta_por_periodo(
+    cache_ativo: Optional[pd.DataFrame],
+    banco: str,
+    periodos: list[str],
+) -> dict[str, Optional[float]]:
+    """Calcula Carteira de Crédito Bruta para poucos períodos (Snapshot)."""
+    out = {p: None for p in periodos}
+    if cache_ativo is None or cache_ativo.empty:
+        return out
+
+    col_e1 = _snapshot_pick_col(cache_ativo, ["Valor Contábil Bruto (e1)", "Valor Contabil Bruto (e1)"])
+    col_f1 = _snapshot_pick_col(cache_ativo, ["Valor Contábil Bruto (f1)", "Valor Contabil Bruto (f1)"])
+    col_g1 = _snapshot_pick_col(cache_ativo, ["Valor Contábil Bruto (g1)", "Valor Contabil Bruto (g1)"])
+    col_h1 = _snapshot_pick_col(cache_ativo, ["Valor Contábil Bruto (h1)", "Valor Contabil Bruto (h1)"])
+    col_d1 = _snapshot_pick_col(cache_ativo, ["Operações de Crédito (d1)", "Operacoes de Credito (d1)"])
+    col_e1_alt = _snapshot_pick_col(cache_ativo, ["Arrendamento Mercantil a Receber (e1)", "Arrendamento Mercantil a Receber"])
+    col_f_old = _snapshot_pick_col(cache_ativo, ["Outros Créditos - Líquido de Provisão (f)", "Outros Creditos - Liquido de Provisao (f)"])
+    col_e = _snapshot_pick_col(cache_ativo, ["Operações de Crédito (e)", "Operacoes de Credito (e)"])
+    col_f = _snapshot_pick_col(cache_ativo, ["Operações de Arrendamento Financeiro (f)", "Operacoes de Arrendamento Financeiro (f)"])
+    col_g = _snapshot_pick_col(cache_ativo, ["Outras Operações com Características de Concessão de Crédito (g)", "Outras Operacoes com Caracteristicas de Concessao de Credito (g)"])
+    col_h = _snapshot_pick_col(cache_ativo, ["Valores a Receber de Transações de Pagamentos - Usuários Finais (Pós-pago) (h)", "Valores a Receber de Transacoes de Pagamentos - Usuarios Finais (Pos-pago) (h)"])
+
+    for periodo in periodos:
+        ano_ref = _periodo_ano_int(periodo)
+        if ano_ref is not None and ano_ref <= 2024:
+            valor = _somar_valores([
+                _obter_valor_peers(cache_ativo, banco, periodo, col_d1),
+                _obter_valor_peers(cache_ativo, banco, periodo, col_e1_alt),
+                _obter_valor_peers(cache_ativo, banco, periodo, col_f_old),
+            ])
+        else:
+            valor = _somar_valores([
+                _obter_valor_peers(cache_ativo, banco, periodo, col_e1),
+                _obter_valor_peers(cache_ativo, banco, periodo, col_f1),
+                _obter_valor_peers(cache_ativo, banco, periodo, col_g1),
+                _obter_valor_peers(cache_ativo, banco, periodo, col_h1),
+            ])
+        if valor is None:
+            valor = _somar_valores([
+                _obter_valor_peers(cache_ativo, banco, periodo, col_e),
+                _obter_valor_peers(cache_ativo, banco, periodo, col_f),
+                _obter_valor_peers(cache_ativo, banco, periodo, col_g),
+                _obter_valor_peers(cache_ativo, banco, periodo, col_h),
+            ])
+        out[periodo] = valor
+    return out
+
+
+def _snapshot_bloprud_stage3_pdd_por_periodo(
+    cache_bloprudencial: Optional[pd.DataFrame],
+    banco: str,
+    periodos: list[str],
+) -> tuple[dict[str, Optional[float]], dict[str, Optional[float]]]:
+    """Extrai Ativos Estágio 3 e PDD Total 4060 por período para um banco."""
+    stage3_map = {p: None for p in periodos}
+    pdd_map = {p: None for p in periodos}
+    if cache_bloprudencial is None or cache_bloprudencial.empty:
+        return stage3_map, pdd_map
+
+    col_inst = _snapshot_pick_col(cache_bloprudencial, ["NOME_INSTITUICAO", "Instituição", "Instituicao", "NOME_CONGL", "Nome_Congl"])
+    col_conta = _snapshot_pick_col(cache_bloprudencial, ["CONTA", "Conta", "codigo_conta", "COD_CONTA"])
+    col_saldo = _snapshot_pick_col(cache_bloprudencial, ["SALDO", "Saldo", "VALOR", "Valor"])
+    if not col_inst or not col_conta or not col_saldo:
+        return stage3_map, pdd_map
+
+    df_blop = cache_bloprudencial.copy()
+    if "Período" not in df_blop.columns:
+        col_data_base = _snapshot_pick_col(df_blop, ["DATA_BASE", "Data_Base", "data_base"])
+        if not col_data_base:
+            return stage3_map, pdd_map
+        base_txt = df_blop[col_data_base].astype(str).str.replace(r"\D", "", regex=True).str[:6]
+        df_blop["Período"] = base_txt.str[4:6] + "/" + base_txt.str[:4]
+
+    banco_norm = _normalizar_label_peers(str(banco))
+    inst_norm = df_blop[col_inst].astype(str).map(_normalizar_label_peers)
+    df_blop = df_blop.loc[inst_norm == banco_norm].copy()
+    if df_blop.empty:
+        return stage3_map, pdd_map
+
+    df_blop["_conta"] = df_blop[col_conta].astype(str).str.replace(r"\D", "", regex=True)
+    df_blop["_saldo"] = pd.to_numeric(df_blop[col_saldo], errors="coerce")
+
+    for periodo in periodos:
+        per_mask = df_blop["Período"].astype(str).apply(lambda p: _periodos_equivalentes(p, periodo))
+        recorte = df_blop.loc[per_mask]
+        if recorte.empty:
+            continue
+        stage3_val = recorte.loc[recorte["_conta"] == "3313000000", "_saldo"].sum(min_count=1)
+        pdd_credito = recorte.loc[recorte["_conta"] == "1490000004", "_saldo"].sum(min_count=1)
+        pdd_outros = recorte.loc[recorte["_conta"] == "1890000006", "_saldo"].sum(min_count=1)
+        stage3_map[periodo] = None if pd.isna(stage3_val) else float(stage3_val)
+        pdd_map[periodo] = _somar_valores([pdd_credito, pdd_outros])
+    return stage3_map, pdd_map
+
+
+def _snapshot_capital_indices_por_periodo(
+    cache_capital: Optional[pd.DataFrame],
+    banco: str,
+    periodos: list[str],
+) -> tuple[dict[str, Optional[float]], dict[str, Optional[float]]]:
+    cet1 = {p: None for p in periodos}
+    basileia = {p: None for p in periodos}
+    if cache_capital is None or cache_capital.empty:
+        return cet1, basileia
+
+    col_cp = _snapshot_pick_col(cache_capital, ["Capital Principal", "Capital Principal para Comparação com RWA (a)"])
+    col_cc = _snapshot_pick_col(cache_capital, ["Capital Complementar", "Capital Complementar (b)"])
+    col_n2 = _snapshot_pick_col(cache_capital, ["Capital Nível II", "Capital Nível II (d)", "Capital Nivel II"])
+    col_rwa = _snapshot_pick_col(cache_capital, ["RWA Total", "Ativos Ponderados pelo Risco (RWA) (j)", "RWA"])
+    col_cet1_pre = _snapshot_pick_col(cache_capital, ["Índice de Capital Principal", "Índice de Capital Principal (l) = (a) / (j)"])
+    col_bas_pre = _snapshot_pick_col(cache_capital, ["Índice de Basileia", "Índice de Basileia Capital", "Índice de Basileia (n) = (e) / (j)"])
+
+    for periodo in periodos:
+        val_cet1 = None
+        if col_cp and col_rwa:
+            cp = _coerce_numeric_value(_obter_valor_peers(cache_capital, banco, periodo, col_cp))
+            rwa = _coerce_numeric_value(_obter_valor_peers(cache_capital, banco, periodo, col_rwa))
+            val_cet1 = _calcular_ratio_peers(cp, rwa)
+        if val_cet1 is None and col_cet1_pre:
+            pre = _coerce_numeric_value(_obter_valor_peers(cache_capital, banco, periodo, col_cet1_pre))
+            if pre is not None and not pd.isna(pre):
+                val_cet1 = float(pre) / 100 if abs(float(pre)) > 1 else float(pre)
+        cet1[periodo] = val_cet1
+
+        val_bas = None
+        if col_cp and col_cc and col_n2 and col_rwa:
+            cp = _coerce_numeric_value(_obter_valor_peers(cache_capital, banco, periodo, col_cp))
+            cc = _coerce_numeric_value(_obter_valor_peers(cache_capital, banco, periodo, col_cc))
+            n2 = _coerce_numeric_value(_obter_valor_peers(cache_capital, banco, periodo, col_n2))
+            rwa = _coerce_numeric_value(_obter_valor_peers(cache_capital, banco, periodo, col_rwa))
+            if all(v is not None and not pd.isna(v) for v in (cp, cc, n2, rwa)) and float(rwa) != 0:
+                val_bas = (float(cp) + float(cc) + float(n2)) / float(rwa)
+        if val_bas is None and col_bas_pre:
+            pre = _coerce_numeric_value(_obter_valor_peers(cache_capital, banco, periodo, col_bas_pre))
+            if pre is not None and not pd.isna(pre):
+                val_bas = float(pre) / 100 if abs(float(pre)) > 1 else float(pre)
+        basileia[periodo] = val_bas
+    return cet1, basileia
+
+
+def _snapshot_delta_ui(metrica_cfg: dict, valor_atual, valor_base) -> tuple[str, str]:
+    """Retorna direção (▲/▼/•) e semáforo visual (🟢/🔴/⚪) conforme regra da métrica."""
+    if (
+        valor_atual is None or valor_base is None
+        or pd.isna(valor_atual) or pd.isna(valor_base)
+    ):
+        return "•", "⚪"
+
+    atual_f = float(valor_atual)
+    base_f = float(valor_base)
+    if atual_f > base_f:
+        seta = "▲"
+    elif atual_f < base_f:
+        seta = "▼"
+    else:
+        seta = "•"
+
+    if seta == "•":
+        return seta, "⚪"
+
+    regra_sobe_bom = bool(metrica_cfg.get("higher_is_better", True))
+    melhorou = (seta == "▲" and regra_sobe_bom) or (seta == "▼" and not regra_sobe_bom)
+    return seta, ("🟢" if melhorou else "🔴")
+
+
+def pagina_snapshot():
+    t0 = time.perf_counter()
+    if not _garantir_dados_principais("Snapshot"):
+        st.info("carregando dados automaticamente do github...")
+        return
+
+    st.markdown("### Snapshot")
+    st.caption("briefing executivo de 60–90 segundos com os principais indicadores.")
+
+    df_base = get_analise_base_df()
+    if df_base is None or df_base.empty or "Instituição" not in df_base.columns:
+        st.warning("base indisponível para Snapshot.")
+        return
+
+    bancos = ordenar_bancos_com_alias(df_base["Instituição"].dropna().unique().tolist(), st.session_state.get("dict_aliases", {}))
+    banco = st.selectbox("Instituição", bancos, key="snapshot_banco")
+
+    periodos_banco = ordenar_periodos(df_base.loc[df_base["Instituição"] == banco, "Período"].dropna().unique().tolist(), reverso=True)
+    if not periodos_banco:
+        st.warning("sem períodos disponíveis para a instituição selecionada.")
+        return
+
+    periodo_atual = periodos_banco[0]
+    periodo_anterior_qoq = _periodo_trimestre_anterior(periodo_atual, periodos_banco)
+    periodo_anterior_yoy = _periodo_ano_anterior(periodo_atual)
+    periodo_yoy_existente = next((p for p in periodos_banco if periodo_anterior_yoy and _periodos_equivalentes(p, periodo_anterior_yoy)), None)
+
+    periodos_snapshot = [p for p in [periodo_atual, periodo_anterior_qoq, periodo_yoy_existente] if p]
+    periodos_snapshot = list(dict.fromkeys(periodos_snapshot))
+
+    bancos_tuple = (banco,)
+    periodos_tuple = tuple(periodos_snapshot)
+    t_dados = time.perf_counter()
+    cache_ativo = _carregar_cache_relatorio_slice("ativo", _cache_version_token("ativo"), periodos_tuple, bancos_tuple)
+    cache_capital = _carregar_cache_relatorio_slice("capital", _cache_version_token("capital"), periodos_tuple, bancos_tuple)
+    cache_bloprud = _carregar_cache_relatorio_slice("bloprudencial", _cache_version_token("bloprudencial"), periodos_tuple, bancos_tuple)
+    df_deriv = carregar_metricas_derivadas_slice(
+        periodos=periodos_snapshot,
+        instituicoes=[banco],
+        metricas=["Desp Captação / Captação"],
+    )
+
+    tempo_dados = time.perf_counter() - t_dados
+
+    df_inst = df_base[(df_base["Instituição"] == banco) & (df_base["Período"].isin(periodos_snapshot))].copy()
+    col_carteira_df = _snapshot_pick_col(df_inst, ["Carteira de Crédito Bruta", "Carteira de Crédito", "Carteira de Crédito*"])
+    carteira_map = {
+        p: _coerce_numeric_value(_obter_valor_peers(df_inst, banco, p, col_carteira_df)) if col_carteira_df else None
+        for p in periodos_snapshot
+    }
+    if all(v is None or pd.isna(v) for v in carteira_map.values()):
+        carteira_map = _snapshot_carteira_bruta_por_periodo(cache_ativo, banco, periodos_snapshot)
+
+    col_ativo = _snapshot_pick_col(df_inst, ["Ativo Total"])
+    ativo_map = {p: _coerce_numeric_value(_obter_valor_peers(df_inst, banco, p, col_ativo)) if col_ativo else None for p in periodos_snapshot}
+
+    col_capt = _snapshot_pick_col(df_inst, ["Captações", "Core Funding"])
+    capt_map = {p: _coerce_numeric_value(_obter_valor_peers(df_inst, banco, p, col_capt)) if col_capt else None for p in periodos_snapshot}
+
+    col_pl = _snapshot_pick_col(df_inst, ["Patrimônio Líquido"])
+    pl_map = {p: _coerce_numeric_value(_obter_valor_peers(df_inst, banco, p, col_pl)) if col_pl else None for p in periodos_snapshot}
+
+    col_credito_capt = _snapshot_pick_col(df_inst, ["Carteira de Crédito/Core Funding (%)", "Crédito/Captações (%)"])
+    credito_capt_map = {
+        p: _coerce_numeric_value(_obter_valor_peers(df_inst, banco, p, col_credito_capt)) if col_credito_capt else None
+        for p in periodos_snapshot
+    }
+
+    desp_capt_map = {}
+    if df_deriv is not None and not df_deriv.empty:
+        rec = df_deriv[df_deriv["Métrica"] == "Desp Captação / Captação"]
+        desp_capt_map = {str(r["Período"]): _coerce_numeric_value(r["Valor"]) for _, r in rec.iterrows()}
+    desp_capt_map = {p: next((v for per, v in desp_capt_map.items() if _periodos_equivalentes(per, p)), None) for p in periodos_snapshot}
+
+    col_ll_tri = _snapshot_pick_col(df_inst, ["Lucro Líquido Trimestral"])
+    ll_tri_map = {p: _coerce_numeric_value(_obter_valor_peers(df_inst, banco, p, col_ll_tri)) if col_ll_tri else None for p in periodos_snapshot}
+
+    col_ll_ytd = _snapshot_pick_col(df_inst, ["Lucro Líquido Acumulado YTD"])
+    ll_ytd_map = {p: _coerce_numeric_value(_obter_valor_peers(df_inst, banco, p, col_ll_ytd)) if col_ll_ytd else None for p in periodos_snapshot}
+
+    stage3_map, pdd_map = _snapshot_bloprud_stage3_pdd_por_periodo(cache_bloprud, banco, periodos_snapshot)
+    cet1_map, bas_map = _snapshot_capital_indices_por_periodo(cache_capital, banco, periodos_snapshot)
+
+    t_render = time.perf_counter()
+
+    snapshot_layout = [
+        {
+            "section": "Balanço",
+            "rows": [
+                {"label": "Ativo Total", "format_key": "Ativo Total", "higher_is_better": True, "serie": ativo_map},
+                {"label": "Carteira de Crédito", "format_key": "Carteira de Crédito Bruta", "higher_is_better": True, "serie": carteira_map},
+                {"label": "Captações", "format_key": "Captações", "higher_is_better": True, "serie": capt_map},
+                {"label": "Patrimônio Líquido", "format_key": "Patrimônio Líquido", "higher_is_better": True, "serie": pl_map},
+            ],
+        },
+        {
+            "section": "Funding",
+            "rows": [
+                {"label": "Crédito / Captações", "format_key": "Carteira de Crédito/Core Funding (%)", "higher_is_better": False, "serie": credito_capt_map},
+                {"label": "Desp. Captação / Captações", "format_key": "Desp Captação / Captação", "higher_is_better": False, "serie": desp_capt_map},
+            ],
+        },
+        {
+            "section": "Qualidade de carteira",
+            "rows": [
+                {"label": "Stage 3 / Carteira", "format_key": "Perda Esperada / Estágio 3", "higher_is_better": False, "serie": {p: _calcular_ratio_peers(stage3_map.get(p), carteira_map.get(p)) for p in periodos_snapshot}},
+                {"label": "PDD / Stage 3", "format_key": "PDD / Estágio 3", "higher_is_better": True, "serie": {p: _calcular_ratio_peers(pdd_map.get(p), stage3_map.get(p)) for p in periodos_snapshot}},
+            ],
+        },
+        {
+            "section": "Desempenho",
+            "rows": [
+                {"label": "Lucro Líquido Trimestral", "format_key": "Lucro Líquido Trimestral", "higher_is_better": True, "serie": ll_tri_map},
+                {"label": "Lucro Líquido Acumulado YTD", "format_key": "Lucro Líquido Acumulado YTD", "higher_is_better": True, "comparison": "yoy", "serie": ll_ytd_map},
+            ],
+        },
+        {
+            "section": "Capital",
+            "rows": [
+                {"label": "CET1", "format_key": "Índice de Capital Principal", "higher_is_better": True, "serie": cet1_map},
+                {"label": "Índice de Basileia", "format_key": "Índice de Basileia", "higher_is_better": True, "serie": bas_map},
+            ],
+        },
+    ]
+
+    for sec in snapshot_layout:
+        st.markdown(f"#### {sec['section']}")
+        row_cols = []
+        chunk = []
+        for row in sec["rows"]:
+            chunk.append(row)
+            if len(chunk) == 2:
+                row_cols.append(chunk)
+                chunk = []
+        if chunk:
+            row_cols.append(chunk)
+
+        for dupla in row_cols:
+            cols = st.columns(2)
+            for idx, row in enumerate(dupla):
+                col = cols[idx]
+                with col:
+                    periodo_base = periodo_yoy_existente if row.get("comparison") == "yoy" else periodo_anterior_qoq
+                    serie = row.get("serie", {})
+                    valor_atual = serie.get(periodo_atual)
+                    valor_base = serie.get(periodo_base) if periodo_base else None
+
+                    valor_atual_fmt = _formatar_valor_snapshot(row, valor_atual)
+                    valor_base_fmt = _formatar_valor_snapshot(row, valor_base)
+                    seta, semaforo = _snapshot_delta_ui(row, valor_atual, valor_base)
+
+                    periodo_base_txt = periodo_para_exibicao(periodo_base) if periodo_base else "--"
+                    base_txt = valor_base_fmt if (valor_base is not None and not pd.isna(valor_base)) else "--"
+                    delta_txt = f"{semaforo} {seta} {periodo_base_txt}: {base_txt}"
+
+                    st.metric(
+                        label=row.get("label", "Métrica"),
+                        value=valor_atual_fmt,
+                        delta=delta_txt,
+                        delta_color="off",
+                    )
+                    st.caption(f"Atual: {periodo_para_exibicao(periodo_atual)}")
+
+    st.caption(
+        "Semáforo Snapshot: 🟢 melhora | 🔴 piora | ⚪ sem base/estável. "
+        "Ex.: Crédito/Captações: subir é pior (mais alavancagem de funding)."
+    )
+
+    tempo_render = time.perf_counter() - t_render
+    tempo_total = time.perf_counter() - t0
+    st.caption(f"Snapshot carregado em {tempo_total:.2f}s (dados: {tempo_dados:.2f}s | render: {tempo_render:.2f}s)")
+
+
 def _gerar_imagem_peers_tabela(
     bancos: list,
     periodos: list,
@@ -6674,6 +7074,7 @@ with col_header:
 
 # Lista de opções do menu principal (análise)
 MENU_PRINCIPAL = [
+    "Snapshot",
     "Rankings",
     "Peers (Tabela)",
     "Conselho e Diretoria",
@@ -7474,6 +7875,9 @@ elif False and menu == "Painel":
         else:
             st.info("carregando dados automaticamente do github...")
             st.markdown("por favor, aguarde alguns segundos e recarregue a página")
+
+elif menu == "Snapshot":
+    pagina_snapshot()
 
 elif menu == "Peers (Tabela)":
     if _garantir_dados_principais("Peers (Tabela)"):
