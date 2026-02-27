@@ -5472,37 +5472,32 @@ def _snapshot_capital_indices_por_periodo(
     return cet1, basileia
 
 
-def _render_snapshot_card(metrica_cfg: dict, periodo_atual: str, valor_atual, periodo_base: Optional[str], valor_base) -> str:
-    valor_atual_fmt = _formatar_valor_snapshot(metrica_cfg, valor_atual)
-    valor_base_fmt = _formatar_valor_snapshot(metrica_cfg, valor_base)
-    setinha = "•"
-    cor = "#6c757d"
+def _snapshot_delta_ui(metrica_cfg: dict, valor_atual, valor_base) -> tuple[str, Optional[str], str]:
+    """Retorna seta, modo de cor do st.metric e fallback textual."""
     if (
-        valor_atual is not None and valor_base is not None
-        and not pd.isna(valor_atual) and not pd.isna(valor_base)
+        valor_atual is None or valor_base is None
+        or pd.isna(valor_atual) or pd.isna(valor_base)
     ):
-        if float(valor_atual) > float(valor_base):
-            setinha = "▲"
-        elif float(valor_atual) < float(valor_base):
-            setinha = "▼"
-        regra_sobe_bom = bool(metrica_cfg.get("higher_is_better", True))
-        if setinha != "•":
-            melhorou = (setinha == "▲" and regra_sobe_bom) or (setinha == "▼" and not regra_sobe_bom)
-            cor = "#2e7d32" if melhorou else "#c62828"
-    periodo_base_txt = periodo_para_exibicao(periodo_base) if periodo_base else "--"
-    valor_base_txt = valor_base_fmt if (valor_base is not None and not pd.isna(valor_base)) else "--"
+        return "•", None, "--"
 
-    return f"""
-    <div class="snapshot-card">
-        <div class="snapshot-label">{_html_mod.escape(metrica_cfg.get('label', 'Métrica'))}</div>
-        <div class="snapshot-valor">{_html_mod.escape(valor_atual_fmt)}</div>
-        <div class="snapshot-sub">
-            ({_html_mod.escape(periodo_base_txt)}: {_html_mod.escape(valor_base_txt)})
-            <span style="color:{cor};font-weight:700;margin-left:6px;">{setinha}</span>
-        </div>
-        <div class="snapshot-periodo">Atual: {_html_mod.escape(periodo_para_exibicao(periodo_atual))}</div>
-    </div>
-    """
+    atual_f = float(valor_atual)
+    base_f = float(valor_base)
+    if atual_f > base_f:
+        seta = "▲"
+    elif atual_f < base_f:
+        seta = "▼"
+    else:
+        seta = "•"
+
+    if seta == "•":
+        return seta, None, "0"
+
+    regra_sobe_bom = bool(metrica_cfg.get("higher_is_better", True))
+    # st.metric: normal => verde quando delta positivo; inverse => verde quando delta negativo
+    delta_mode = "normal" if regra_sobe_bom else "inverse"
+    magnitude = atual_f - base_f
+    sinal = "+" if magnitude > 0 else ""
+    return seta, delta_mode, f"{sinal}{magnitude:.6f}"
 
 
 def pagina_snapshot():
@@ -5626,32 +5621,43 @@ def pagina_snapshot():
         },
     ]
 
-    st.markdown(
-        """
-        <style>
-        .snapshot-section-title { margin: 10px 0 8px 0; font-size: 1rem; font-weight: 600; color: #111827; }
-        .snapshot-grid { display:grid; grid-template-columns: 1fr; gap: 10px; margin: 4px 0 12px 0; }
-        @media (min-width: 900px) { .snapshot-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-        .snapshot-card { box-sizing: border-box; min-width: 0; width: 100%; border: 1px solid #e6e8eb; border-radius: 10px; padding: 10px 12px; background: #fff; }
-        .snapshot-label { font-size: 0.82rem; color: #6b7280; line-height: 1.2; margin-bottom: 4px; }
-        .snapshot-valor { font-size: 1.2rem; font-weight: 650; color: #111827; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .snapshot-sub { font-size: 0.78rem; color: #6b7280; margin-top: 5px; word-break: break-word; }
-        .snapshot-periodo { font-size: 0.72rem; color: #9ca3af; margin-top: 3px; }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
     for sec in snapshot_layout:
-        st.markdown(f"<div class='snapshot-section-title'>{_html_mod.escape(sec['section'])}</div>", unsafe_allow_html=True)
-        cards_html = []
+        st.markdown(f"#### {sec['section']}")
+        row_cols = []
+        chunk = []
         for row in sec["rows"]:
-            periodo_base = periodo_yoy_existente if row.get("comparison") == "yoy" else periodo_anterior_qoq
-            serie = row.get("serie", {})
-            valor_atual = serie.get(periodo_atual)
-            valor_base = serie.get(periodo_base) if periodo_base else None
-            cards_html.append(_render_snapshot_card(row, periodo_atual, valor_atual, periodo_base, valor_base))
-        st.markdown(f"<div class='snapshot-grid'>{''.join(cards_html)}</div>", unsafe_allow_html=True)
+            chunk.append(row)
+            if len(chunk) == 2:
+                row_cols.append(chunk)
+                chunk = []
+        if chunk:
+            row_cols.append(chunk)
+
+        for dupla in row_cols:
+            cols = st.columns(2)
+            for idx, row in enumerate(dupla):
+                col = cols[idx]
+                with col:
+                    periodo_base = periodo_yoy_existente if row.get("comparison") == "yoy" else periodo_anterior_qoq
+                    serie = row.get("serie", {})
+                    valor_atual = serie.get(periodo_atual)
+                    valor_base = serie.get(periodo_base) if periodo_base else None
+
+                    valor_atual_fmt = _formatar_valor_snapshot(row, valor_atual)
+                    valor_base_fmt = _formatar_valor_snapshot(row, valor_base)
+                    seta, delta_mode, _ = _snapshot_delta_ui(row, valor_atual, valor_base)
+
+                    periodo_base_txt = periodo_para_exibicao(periodo_base) if periodo_base else "--"
+                    base_txt = valor_base_fmt if (valor_base is not None and not pd.isna(valor_base)) else "--"
+                    delta_txt = f"{seta} {periodo_base_txt}: {base_txt}"
+
+                    st.metric(
+                        label=row.get("label", "Métrica"),
+                        value=valor_atual_fmt,
+                        delta=delta_txt,
+                        delta_color=delta_mode if delta_mode else "off",
+                    )
+                    st.caption(f"Atual: {periodo_para_exibicao(periodo_atual)}")
 
     tempo_render = time.perf_counter() - t_render
     tempo_total = time.perf_counter() - t0
