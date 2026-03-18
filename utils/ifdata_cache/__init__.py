@@ -56,7 +56,7 @@ from .manager import (
     gerar_periodos_trimestrais as gerar_periodos_trimestrais_cache,
 )
 
-from .principal import PrincipalCache
+from .principal import PrincipalCache, PrincipalIndividualCache
 from .capital import CapitalCache, CAMPOS_CAPITAL
 from .bloprudencial_cache import BloprudencialCache
 
@@ -65,6 +65,7 @@ from .relatorios_completos import (
     AtivoCache,
     PassivoCache,
     DRECache,
+    DREIndividualCache,
     CarteiraPFCache,
     CarteiraPJCache,
     CarteiraInstrumentosCache,
@@ -110,6 +111,7 @@ from .metric_registry import (
 
 from .derived_metrics import (
     DerivedMetricsCache,
+    DerivedMetricsIndividualCache,
     DERIVED_METRICS,
     DERIVED_METRICS_FORMAT,
     DERIVED_METRICS_FORMULAS,
@@ -225,6 +227,7 @@ __all__ = [
     "CACHES_INFO",
     # Implementacoes - principais
     "PrincipalCache",
+    "PrincipalIndividualCache",
     "CapitalCache",
     "CAMPOS_CAPITAL",
     "BloprudencialCache",
@@ -232,6 +235,7 @@ __all__ = [
     "AtivoCache",
     "PassivoCache",
     "DRECache",
+    "DREIndividualCache",
     "CarteiraPFCache",
     "CarteiraPJCache",
     "CarteiraInstrumentosCache",
@@ -268,6 +272,7 @@ __all__ = [
     "get_derived_metric_format_map",
     "get_derived_metric_formula_map",
     "DerivedMetricsCache",
+    "DerivedMetricsIndividualCache",
     "DERIVED_METRICS",
     "DERIVED_METRICS_FORMAT",
     "DERIVED_METRICS_FORMULAS",

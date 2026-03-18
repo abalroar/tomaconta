@@ -31,6 +31,19 @@ PRINCIPAL_CONFIG = CacheConfig(
     relatorio_tipo=1,
 )
 
+PRINCIPAL_INDIVIDUAL_CONFIG = CacheConfig(
+    nome="principal_individual",
+    descricao="Dados gerais das instituições individuais (Relatório 1 - Resumo)",
+    subdir="principal_individual",
+    arquivo_dados="dados.parquet",
+    arquivo_metadata="metadata.json",
+    github_url_base="https://github.com/abalroar/tomaconta/releases/download/v1.0-cache",
+    max_idade_horas=168.0,
+    colunas_obrigatorias=["Período"],
+    api_url="https://olinda.bcb.gov.br/olinda/servico/IFDATA/versao/v1/odata",
+    relatorio_tipo=1,
+)
+
 
 class PrincipalCache(BaseCache):
     """Cache de dados principais do IFData (Resumo).
@@ -41,19 +54,29 @@ class PrincipalCache(BaseCache):
     - Métricas financeiras no formato esperado pelos gráficos
     """
 
-    def __init__(self, base_dir: Path):
-        super().__init__(PRINCIPAL_CONFIG, base_dir)
+    def __init__(
+        self,
+        base_dir: Path,
+        config: CacheConfig = PRINCIPAL_CONFIG,
+        repo_prefix: str = "principal",
+        tipo_instituicao: int = 1,
+        manter_codinst: bool = False,
+    ):
+        super().__init__(config, base_dir)
+        self.repo_prefix = repo_prefix
+        self.tipo_instituicao = tipo_instituicao
+        self.manter_codinst = manter_codinst
         release_repo = os.getenv("TOMACONTA_RELEASE_REPO", "abalroar/tomaconta")
         raw_repo = os.getenv("TOMACONTA_RAW_REPO", "abalroar/tomaconta-dev")
         release_base = f"https://github.com/{release_repo}/releases/download/v1.0-cache"
 
         # URLs em ordem de prioridade:
         # 1. Parquet do repositório raw (configurável)
-        self.github_raw_url = f"https://raw.githubusercontent.com/{raw_repo}/main/data/cache/principal/dados.parquet"
+        self.github_raw_url = f"https://raw.githubusercontent.com/{raw_repo}/main/data/cache/{repo_prefix}/dados.parquet"
         # 2. Parquet dos releases (prod por padrão)
-        self.github_release_parquet_url = f"{release_base}/principal_dados.parquet"
+        self.github_release_parquet_url = f"{release_base}/{repo_prefix}_dados.parquet"
         # 3. Pickle dos releases (compat legado)
-        self.github_release_url = f"{release_base}/dados_cache.pkl"
+        self.github_release_url = f"{release_base}/{repo_prefix}_cache.pkl"
 
     def baixar_remoto(self) -> CacheResult:
         """Baixa dados do GitHub (tenta múltiplas fontes em ordem de prioridade)."""
@@ -224,7 +247,12 @@ class PrincipalCache(BaseCache):
             # Usar extrator autônomo
             from .extractor import extrair_resumo
 
-            df = extrair_resumo(periodo, dict_aliases)
+            df = extrair_resumo(
+                periodo,
+                dict_aliases,
+                tipo_instituicao=self.tipo_instituicao,
+                manter_codinst=self.manter_codinst,
+            )
 
             if df is None or df.empty:
                 return CacheResult(
@@ -309,3 +337,16 @@ class PrincipalCache(BaseCache):
 
         df_final = pd.concat(dfs, ignore_index=True)
         return self.salvar_local(df_final, fonte=fonte, info_extra=info_extra)
+
+
+class PrincipalIndividualCache(PrincipalCache):
+    """Cache de dados principais do IFData para instituições individuais."""
+
+    def __init__(self, base_dir: Path):
+        super().__init__(
+            base_dir,
+            config=PRINCIPAL_INDIVIDUAL_CONFIG,
+            repo_prefix="principal_individual",
+            tipo_instituicao=2,
+            manter_codinst=True,
+        )
