@@ -14962,7 +14962,7 @@ elif menu == "Atualizar Base":
                 modo_lotes = st.checkbox(
                     "executar em lotes menores (recomendado para intervalos longos)",
                     value=True,
-                    help="reduz risco de travamento na sessão. após um lote, você pode continuar.",
+                    help="reduz risco de travamento na sessão. cada lote usa o mesmo N configurado em 'salvar a cada N períodos'.",
                     key="modo_lotes_unificado",
                 )
 
@@ -14998,9 +14998,10 @@ elif menu == "Atualizar Base":
                     else:
                         periodos_exec = [p for p in periodos_extrair if p not in concluidos]
 
-                    if modo_lotes and len(periodos_exec) > 6:
-                        periodos_lote = periodos_exec[:6]
-                        periodos_restantes = periodos_exec[6:]
+                    tamanho_lote = max(int(intervalo_save), 1)
+                    if modo_lotes and len(periodos_exec) > tamanho_lote:
+                        periodos_lote = periodos_exec[:tamanho_lote]
+                        periodos_restantes = periodos_exec[tamanho_lote:]
                     else:
                         periodos_lote = periodos_exec
                         periodos_restantes = []
@@ -15208,7 +15209,10 @@ elif menu == "Atualizar Base":
                         with error_container:
                             st.warning(f"Erro em {periodo[4:6]}/{periodo[:4]}: {mensagem[:100]}...")
 
-                    st.info(f"iniciando extração de {len(periodos_lote)} períodos para '{cache_selecionado}'. Salvamento a cada {intervalo_save} períodos.")
+                    st.info(
+                        f"iniciando extração de {len(periodos_lote)} períodos para '{cache_selecionado}'. "
+                        f"Salvamento a cada {intervalo_save} períodos."
+                    )
 
                     try:
                         if modo_bg:
