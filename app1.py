@@ -2496,6 +2496,47 @@ def _limpar_status_atualizacao() -> None:
     except Exception:
         pass
 
+
+def _ordenar_opcoes_cache_atualizacao(cache_keys: list[str], caches_info: dict) -> list[str]:
+    """Ordena caches da aba de atualização por relatório e nome de exibição."""
+    ordenacao_manual = {
+        "principal": 1,
+        "principal_individual": 2,
+        "ativo": 3,
+        "passivo": 4,
+        "dre": 5,
+        "dre_individual": 6,
+        "capital": 7,
+        "carteira_pf": 8,
+        "carteira_pj": 9,
+        "carteira_instrumentos": 10,
+        "taxas_juros": 11,
+        "bloprudencial": 12,
+    }
+
+    def _sort_key(cache_key: str):
+        info = caches_info.get(cache_key, {})
+        relatorio = info.get("relatorio")
+        nome = info.get("nome_exibicao", cache_key)
+        return (
+            ordenacao_manual.get(cache_key, 999),
+            relatorio if relatorio is not None else 999,
+            nome,
+        )
+
+    return sorted(cache_keys, key=_sort_key)
+
+
+def _status_cache_atualizacao(info_local: dict, info_github: dict) -> str:
+    """Resume o status operacional do cache sem depender de emojis."""
+    existe_local = info_local.get("existe", False)
+    existe_github = info_github.get("existe", False)
+    if existe_github:
+        return "Publicado"
+    if existe_local:
+        return "Somente local"
+    return "Ausente"
+
 def _periodo_exibicao_para_api_local(periodo_exib: str) -> str:
     """Converte período T/YYYY para YYYYMM (local, sem depender do extrator)."""
     if not periodo_exib or "/" not in str(periodo_exib):
@@ -14542,89 +14583,64 @@ elif menu == "Atualizar Base":
     else:
         st.error("aliases não encontrados")
 
-    # =============================================================
-    # STATUS DE TODOS OS CACHES (LOCAL + GITHUB)
-    # =============================================================
+    st.markdown("### Extração de Dados (Admin)")
+
+    senha_input = st.text_input("senha de administrador", type="password", key="senha_admin_atualizacao_nova")
+
+    st.markdown("---")
     st.markdown("### Status dos Caches")
 
     # Verificar status no GitHub Releases
     github_status = verificar_caches_github()
     gh_caches = github_status.get('caches', {})
+    caches_info = CACHES_INFO
+    caches_disponiveis = _ordenar_opcoes_cache_atualizacao(cache_manager.listar_caches(), caches_info)
 
-    with st.expander("ver status de todos os caches", expanded=True):
-        caches_disponiveis = cache_manager.listar_caches()
-        caches_info = CACHES_INFO
+    status_data = []
+    for tipo_cache in caches_disponiveis:
+        info = cache_manager.info(tipo_cache)
+        cache_info = caches_info.get(tipo_cache, {})
+        gh_info = gh_caches.get(tipo_cache, {})
+        existe_local = info.get("existe", False)
+        existe_github = gh_info.get("existe", False)
 
-        # Criar tabela UNIFICADA de status (Local + GitHub + Persistência)
-        status_data = []
-        for tipo_cache in caches_disponiveis:
-            info = cache_manager.info(tipo_cache)
-            cache_info = caches_info.get(tipo_cache, {})
-            gh_info = gh_caches.get(tipo_cache, {})
+        status_data.append({
+            "Cache": cache_info.get("nome_exibicao", tipo_cache),
+            "Status": _status_cache_atualizacao(info, gh_info),
+            "Local": "Sim" if existe_local else "Não",
+            "GitHub": "Sim" if existe_github else "Não",
+            "Períodos": str(info.get("total_periodos", 0)) if existe_local else "-",
+            "Registros": str(info.get("total_registros", 0)) if existe_local else "-",
+            "Tamanho GH": gh_info.get("tamanho_fmt", "-") if existe_github else "-",
+        })
 
-            existe_local = info.get("existe", False)
-            existe_github = gh_info.get("existe", False)
+    total_local = sum(1 for s in status_data if s["Local"] == "Sim")
+    total_github = sum(1 for s in status_data if s["GitHub"] == "Sim")
+    total_efemero = sum(1 for s in status_data if s["Status"] == "Somente local")
 
-            # Determinar situação de PERSISTÊNCIA (o que importa no Streamlit Cloud)
-            if existe_github:
-                persistencia = "☁️ Persistido"  # Vai sobreviver ao restart
-            elif existe_local:
-                persistencia = "⚠️ Efêmero"  # Vai sumir no restart
-            else:
-                persistencia = "❌ Ausente"
+    col_r1, col_r2, col_r3 = st.columns(3)
+    with col_r1:
+        st.metric("Caches locais", f"{total_local}/{len(status_data)}")
+    with col_r2:
+        st.metric("Caches publicados", f"{total_github}/{len(status_data)}")
+    with col_r3:
+        st.metric("Somente local", total_efemero)
 
-            status_data.append({
-                "Cache": cache_info.get("nome_exibicao", tipo_cache),
-                "Local": "✅" if existe_local else "❌",
-                "GitHub": "☁️" if existe_github else "❌",
-                "Persistência": persistencia,
-                "Períodos": str(info.get("total_periodos", 0)) if existe_local else "-",
-                "Registros": str(info.get("total_registros", 0)) if existe_local else "-",
-                "Tamanho GH": gh_info.get("tamanho_fmt", "-") if existe_github else "-",
-            })
+    if total_efemero > 0:
+        caches_efemeros = [s["Cache"] for s in status_data if s["Status"] == "Somente local"]
+        st.warning(
+            "Caches salvos apenas localmente serão perdidos em restart do Streamlit Cloud. "
+            f"Pendentes de publicação: {', '.join(caches_efemeros)}."
+        )
 
+    with st.expander("ver detalhes dos caches", expanded=False):
         df_status = pd.DataFrame(status_data)
         st.dataframe(df_status, width='stretch', hide_index=True)
-
-        # Legenda
-        st.caption("""
-        **Legenda:**
-        - **Local**: Existe no filesystem (efêmero no Streamlit Cloud)
-        - **GitHub**: Publicado no GitHub Releases (persistente)
-        - **☁️ Persistido**: Dados seguros, serão recuperados após restart
-        - **⚠️ Efêmero**: Só existe local, será perdido no restart - PUBLIQUE!
-        """)
-
-        # Resumo e alertas
-        total_local = sum(1 for s in status_data if s["Local"] == "✅")
-        total_github = sum(1 for s in status_data if s["GitHub"] == "☁️")
-        total_efemero = sum(1 for s in status_data if s["Persistência"] == "⚠️ Efêmero")
-
-        st.markdown("---")
-        col_r1, col_r2, col_r3 = st.columns(3)
-        with col_r1:
-            st.metric("Cache Local", f"{total_local}/{len(status_data)}")
-        with col_r2:
-            st.metric("GitHub Releases", f"{total_github}/{len(status_data)}")
-        with col_r3:
-            if total_efemero > 0:
-                st.metric("⚠️ Efêmeros", f"{total_efemero}", delta="Publicar!", delta_color="inverse")
-            else:
-                st.metric("✅ Efêmeros", "0")
-
-        if total_efemero > 0:
-            caches_efemeros = [s["Cache"] for s in status_data if s["Persistência"] == "⚠️ Efêmero"]
-            st.warning(f"⚠️ **Atenção:** Os caches a seguir existem apenas localmente e serão perdidos no restart: **{', '.join(caches_efemeros)}**. Publique-os no GitHub!")
-
+        st.caption("Status publicado = persistido em GitHub Releases. Status somente local = efêmero no Streamlit Cloud.")
         if not github_status.get('release_existe'):
-            st.error(f"❌ Release não acessível: {github_status.get('erro', 'erro desconhecido')}")
+            st.error(f"Release não acessível: {github_status.get('erro', 'erro desconhecido')}")
         else:
-            st.caption(f"📦 Repositório: `{github_status.get('repo')}` | Tag: `{github_status.get('tag')}`")
-
-    st.markdown("---")
-    st.markdown("### Extração de Dados (Admin)")
-
-    senha_input = st.text_input("senha de administrador", type="password", key="senha_admin_atualizacao_nova")
+            st.caption(f"Repositório: `{github_status.get('repo')}` | Tag: `{github_status.get('tag')}`")
 
     if senha_input == SENHA_ADMIN:
 
@@ -14633,25 +14649,26 @@ elif menu == "Atualizar Base":
         # =============================================================
         st.markdown("#### 1. Selecione o cache a atualizar")
 
-        # Opções de cache com descrição
+        # Opções de cache com descrição em ordem racional
         opcoes_cache = {
-            "principal": "Resumo (Rel. 1) - variáveis selecionadas",
-            "capital": "Capital Regulatório (Rel. 5) - variáveis selecionadas",
-            "ativo": "Ativo (Rel. 2) - TODAS as variáveis",
-            "passivo": "Passivo (Rel. 3) - TODAS as variáveis",
-            "dre": "DRE (Rel. 4) - TODAS as variáveis",
-            "principal_individual": "Resumo Individual (Rel. 1) - variáveis selecionadas",
-            "dre_individual": "DRE Individual (Rel. 4) - TODAS as variáveis",
-            "carteira_pf": "Carteira PF (Rel. 11) - TODAS as variáveis",
-            "carteira_pj": "Carteira PJ (Rel. 13) - TODAS as variáveis",
-            "carteira_instrumentos": "Carteira Instrumentos 4.966 (Rel. 16) - TODAS as variáveis",
-            "taxas_juros": "Taxas de Juros (API BCB) - TODOS produtos/instituições",
-            "bloprudencial": "Conglomerados Prudenciais (BLOPRUDENCIAL) - CSV mensal",
+            "principal": "Rel. 1 · Resumo - variáveis selecionadas",
+            "principal_individual": "Rel. 1 · Resumo Individual - variáveis selecionadas",
+            "ativo": "Rel. 2 · Ativo - todas as variáveis",
+            "passivo": "Rel. 3 · Passivo - todas as variáveis",
+            "dre": "Rel. 4 · DRE - todas as variáveis",
+            "dre_individual": "Rel. 4 · DRE Individual - todas as variáveis",
+            "capital": "Rel. 5 · Capital Regulatório - variáveis selecionadas",
+            "carteira_pf": "Rel. 11 · Carteira PF - todas as variáveis",
+            "carteira_pj": "Rel. 13 · Carteira PJ - todas as variáveis",
+            "carteira_instrumentos": "Rel. 16 · Carteira Instrumentos 4.966 - todas as variáveis",
+            "taxas_juros": "Taxas de Juros (API BCB) - todos produtos e instituições",
+            "bloprudencial": "BLOPRUDENCIAL - CSV mensal",
         }
+        caches_dropdown = [cache for cache in caches_disponiveis if cache in opcoes_cache]
 
         cache_selecionado = st.selectbox(
             "cache para atualizar",
-            options=list(opcoes_cache.keys()),
+            options=caches_dropdown,
             format_func=lambda x: opcoes_cache[x],
             key="cache_selecionado"
         )
@@ -14771,13 +14788,6 @@ elif menu == "Atualizar Base":
                 )
 
         else:
-            col1, col2 = st.columns(2)
-            with col1:
-                ano_i = st.selectbox("ano inicial", range(2015, 2029), index=8, key="ano_i_unificado")
-                mes_i = st.selectbox("trimestre inicial", ['03', '06', '09', '12'], key="mes_i_unificado")
-            with col2:
-                ano_f = st.selectbox("ano final", range(2015, 2029), index=10, key="ano_f_unificado")
-                mes_f = st.selectbox("trimestre final", ['03', '06', '09', '12'], index=2, key="mes_f_unificado")
             info_cache_local = cache_manager.info(cache_selecionado)
             ultimo_periodo_local = None
             if info_cache_local.get("periodos"):
@@ -14789,23 +14799,40 @@ elif menu == "Atualizar Base":
                 except Exception:
                     ultimo_periodo_local = None
 
-            usar_proximo = False
-            if ultimo_periodo_local:
-                usar_proximo = st.checkbox(
-                    f"atualizar somente o próximo período após {periodo_para_exibicao(ultimo_periodo_local)} (recomendado)",
-                    value=True,
-                    key="usar_proximo_periodo",
+            prox_periodo_sugerido = _prox_periodo_api(ultimo_periodo_local) if ultimo_periodo_local else ""
+            anos_trimestrais = list(range(2015, 2029))
+            trimestres = ['03', '06', '09', '12']
+
+            ano_i_default = 2023
+            mes_i_default = '03'
+            ano_f_default = 2025
+            mes_f_default = '09'
+            if prox_periodo_sugerido:
+                try:
+                    ano_sugerido = int(prox_periodo_sugerido[:4])
+                    mes_sugerido = prox_periodo_sugerido[4:6]
+                    if ano_sugerido in anos_trimestrais and mes_sugerido in trimestres:
+                        ano_i_default = ano_f_default = ano_sugerido
+                        mes_i_default = mes_f_default = mes_sugerido
+                except Exception:
+                    pass
+
+            col1, col2 = st.columns(2)
+            with col1:
+                ano_i = st.selectbox("ano inicial", anos_trimestrais, index=anos_trimestrais.index(ano_i_default), key="ano_i_unificado")
+                mes_i = st.selectbox("trimestre inicial", trimestres, index=trimestres.index(mes_i_default), key="mes_i_unificado")
+            with col2:
+                ano_f = st.selectbox("ano final", anos_trimestrais, index=anos_trimestrais.index(ano_f_default), key="ano_f_unificado")
+                mes_f = st.selectbox("trimestre final", trimestres, index=trimestres.index(mes_f_default), key="mes_f_unificado")
+
+            if prox_periodo_sugerido:
+                st.caption(
+                    f"Sugestão com base no cache local: próximo período após {periodo_para_exibicao(ultimo_periodo_local)} = "
+                    f"{prox_periodo_sugerido[4:6]}/{prox_periodo_sugerido[:4]}."
                 )
 
-            if usar_proximo and ultimo_periodo_local:
-                prox_periodo = _prox_periodo_api(ultimo_periodo_local)
-                periodos_extrair = [prox_periodo] if prox_periodo else []
-                if periodos_extrair:
-                    st.caption(f"Período automático: {periodos_extrair[0][4:6]}/{periodos_extrair[0][:4]}")
-                else:
-                    st.warning("Não foi possível calcular o próximo período automático.")
-            else:
-                periodos_extrair = gerar_periodos_cache(ano_i, mes_i, ano_f, mes_f)
+            periodos_extrair = gerar_periodos_cache(ano_i, mes_i, ano_f, mes_f)
+            if periodos_extrair:
                 st.caption(f"Serão extraídos {len(periodos_extrair)} períodos: {periodos_extrair[0][4:6]}/{periodos_extrair[0][:4]} até {periodos_extrair[-1][4:6]}/{periodos_extrair[-1][:4]}")
 
         # =============================================================
@@ -14832,7 +14859,7 @@ elif menu == "Atualizar Base":
         # =============================================================
         # CONFIGURAÇÃO DO TOKEN GITHUB (para publicação)
         # =============================================================
-        st.markdown("#### Token GitHub (para publicação)")
+        st.markdown("#### Publicação no GitHub")
 
         # Verificar se há token nos secrets do Streamlit
         token_from_secrets = None
@@ -14842,10 +14869,10 @@ elif menu == "Atualizar Base":
             pass
 
         if token_from_secrets:
-            st.success("✅ Token GitHub configurado via Streamlit Secrets")
+            st.success("Token GitHub configurado via Streamlit Secrets")
             gh_token_final = token_from_secrets
         else:
-            st.info("💡 Configure `GITHUB_TOKEN` nos Secrets do Streamlit Cloud para upload automático")
+            st.info("Configure `GITHUB_TOKEN` nos Secrets do Streamlit Cloud para upload automático.")
             gh_token_manual = st.text_input(
                 "ou insira token manualmente (permissão 'repo')",
                 type="password",
@@ -14877,15 +14904,16 @@ elif menu == "Atualizar Base":
 
         if pode_extrair:
             checkpoint = _carregar_checkpoint_atualizacao()
-            checkpoint_periodos = checkpoint.get("periodos") if checkpoint else None
             checkpoint_pendentes = checkpoint.get("pendentes") if checkpoint else None
             checkpoint_cache = checkpoint.get("cache_tipo")
+            checkpoint_mesmo_cache = checkpoint_cache == cache_selecionado and bool(checkpoint_pendentes)
+            retomar_checkpoint_inline = st.session_state.pop("_retomar_checkpoint_inline", None) == cache_selecionado
 
             status_job = _carregar_status_atualizacao()
             job_running = bool(status_job.get("running")) and status_job.get("cache_tipo") == cache_selecionado
 
-            if checkpoint_cache == cache_selecionado and checkpoint_periodos == periodos_extrair and checkpoint_pendentes:
-                st.caption(f"↩️ extração interrompida detectada: {len(checkpoint_pendentes)} período(s) pendente(s).")
+            if checkpoint_mesmo_cache:
+                st.info(f"Extração interrompida detectada para este cache: {len(checkpoint_pendentes)} período(s) pendente(s).")
                 col_chk1, col_chk2 = st.columns(2)
                 with col_chk1:
                     retomar = st.button("retomar extração", width='stretch', key="retomar_unificado")
@@ -14899,8 +14927,29 @@ elif menu == "Atualizar Base":
             else:
                 retomar = False
 
+            if retomar_checkpoint_inline and checkpoint_mesmo_cache:
+                retomar = True
+
+            status_encerrado_mesmo_cache = bool(status_job) and not job_running and status_job.get("cache_tipo") == cache_selecionado
+            if status_encerrado_mesmo_cache:
+                current_status = status_job.get("current", "-")
+                if current_status == "concluído":
+                    st.success("Última execução em background concluída.")
+                elif current_status == "parcial":
+                    st.warning("Última execução em background concluiu apenas o lote atual. Use retomar para continuar.")
+                    if st.button("retomar agora", width='stretch', key="retomar_bg_inline"):
+                        st.session_state["_retomar_checkpoint_inline"] = cache_selecionado
+                        st.rerun()
+                elif str(current_status).startswith("erro:"):
+                    st.error(f"Última execução em background falhou: {current_status}")
+                else:
+                    st.info(f"Último status em background: {current_status}")
+                st.caption(f"Última atualização registrada: {status_job.get('last_update', '-')}")
+                if status_job.get("publish_message"):
+                    st.caption(f"Publicação GitHub: {status_job.get('publish_message')}")
+
             if job_running:
-                st.info("⏳ extração em background em andamento.")
+                st.info("Extração em background em andamento.")
                 if status_job:
                     st.caption(
                         f"progresso: {status_job.get('progress', 0):.1%} | "
@@ -14917,16 +14966,22 @@ elif menu == "Atualizar Base":
                 modo_lotes = st.checkbox(
                     "executar em lotes menores (recomendado para intervalos longos)",
                     value=True,
-                    help="reduz risco de travamento na sessão. após um lote, você pode continuar.",
+                    help="reduz risco de travamento na sessão. cada lote usa o mesmo N configurado em 'salvar a cada N períodos'.",
                     key="modo_lotes_unificado",
                 )
 
             modo_bg = st.checkbox(
-                "executar em background (recomendado online)",
+                "executar em background (melhor esforço)",
                 value=True if (periodos_extrair and len(periodos_extrair) > 12) else False,
-                help="mantém a extração rodando mesmo se a página recarregar.",
+                help="pode sobreviver a recarregamentos simples da página, mas não substitui um job persistente do servidor.",
                 key="modo_bg_unificado",
             )
+
+            if modo_bg:
+                st.caption(
+                    "Diagnóstico: este modo usa thread local do Streamlit. É útil para recarregamentos simples da página, "
+                    "mas não garante continuidade após restart, deploy ou queda do processo."
+                )
 
             if st.button(f"Extrair dados de {opcoes_cache[cache_selecionado]}", type="primary", width='stretch', key="btn_extrair_unificado") or retomar:
 
@@ -14947,9 +15002,10 @@ elif menu == "Atualizar Base":
                     else:
                         periodos_exec = [p for p in periodos_extrair if p not in concluidos]
 
-                    if modo_lotes and len(periodos_exec) > 6:
-                        periodos_lote = periodos_exec[:6]
-                        periodos_restantes = periodos_exec[6:]
+                    tamanho_lote = max(int(intervalo_save), 1)
+                    if modo_lotes and len(periodos_exec) > tamanho_lote:
+                        periodos_lote = periodos_exec[:tamanho_lote]
+                        periodos_restantes = periodos_exec[tamanho_lote:]
                     else:
                         periodos_lote = periodos_exec
                         periodos_restantes = []
@@ -15157,12 +15213,24 @@ elif menu == "Atualizar Base":
                         with error_container:
                             st.warning(f"Erro em {periodo[4:6]}/{periodo[:4]}: {mensagem[:100]}...")
 
-                    st.info(f"iniciando extração de {len(periodos_lote)} períodos para '{cache_selecionado}'. Salvamento a cada {intervalo_save} períodos.")
+                    st.info(
+                        f"iniciando extração de {len(periodos_lote)} períodos para '{cache_selecionado}'. "
+                        f"Salvamento a cada {intervalo_save} períodos."
+                    )
 
                     try:
                         if modo_bg:
                             dict_aliases_bg = dict(st.session_state.get('dict_aliases', {}))
-                            def _run_bg_unificado(periodos_lote_bg, periodos_restantes_bg, periodos_totais_bg, cache_tipo_bg, modo_bg_local, dict_aliases_local):
+                            def _run_bg_unificado(
+                                periodos_lote_bg,
+                                periodos_restantes_bg,
+                                periodos_totais_bg,
+                                cache_tipo_bg,
+                                modo_bg_local,
+                                dict_aliases_local,
+                                publicar_auto_bg,
+                                gh_token_bg,
+                            ):
                                 total_bg = len(periodos_lote_bg)
                                 _salvar_status_atualizacao({
                                     "running": True,
@@ -15238,6 +15306,18 @@ elif menu == "Atualizar Base":
                                             "cache_tipo": cache_tipo_bg,
                                             "last_update": datetime.now().isoformat(),
                                         })
+
+                                    if publicar_auto_bg and gh_token_bg and not pendentes_final_bg:
+                                        sucesso_pub_bg, msg_pub_bg = upload_cache_github(cache_manager, cache_tipo_bg, gh_token_bg)
+                                        _salvar_status_atualizacao({
+                                            "running": False,
+                                            "progress": 1.0,
+                                            "current": "concluído" if sucesso_pub_bg else "publicação com falha",
+                                            "total": total_bg,
+                                            "cache_tipo": cache_tipo_bg,
+                                            "last_update": datetime.now().isoformat(),
+                                            "publish_message": msg_pub_bg,
+                                        })
                                 else:
                                     _salvar_status_atualizacao({
                                         "running": False,
@@ -15248,10 +15328,19 @@ elif menu == "Atualizar Base":
                                         "last_update": datetime.now().isoformat(),
                                     })
 
-                            st.info("🟢 extração iniciada em background. você pode recarregar a página.")
+                            st.info("Extração iniciada em background. Você pode recarregar a página para acompanhar o status.")
                             th = threading.Thread(
                                 target=_run_bg_unificado,
-                                args=(periodos_lote, periodos_restantes, periodos_totais, cache_selecionado, modo_atualizacao, dict_aliases_bg),
+                                args=(
+                                    periodos_lote,
+                                    periodos_restantes,
+                                    periodos_totais,
+                                    cache_selecionado,
+                                    modo_atualizacao,
+                                    dict_aliases_bg,
+                                    publicar_auto,
+                                    gh_token_final,
+                                ),
                                 daemon=True,
                             )
                             th.start()
@@ -15364,6 +15453,9 @@ elif menu == "Atualizar Base":
                                         "timestamp": datetime.now().isoformat(),
                                     })
                                     st.warning(f"extração parcial concluída. pendentes: {len(pendentes_final)}. clique em retomar para continuar.")
+                                    if st.button("retomar agora", type="primary", width='stretch', key="retomar_inline_pos_parcial"):
+                                        st.session_state["_retomar_checkpoint_inline"] = cache_selecionado
+                                        st.rerun()
 
                             if publicar_auto and gh_token_final:
                                 with st.spinner("publicando cache no GitHub Releases..."):
@@ -15400,32 +15492,31 @@ elif menu == "Atualizar Base":
         # =============================================================
         # SEÇÃO: PUBLICAR NO GITHUB
         # =============================================================
-        st.markdown("---")
-        st.markdown("### Publicar cache no GitHub")
-        st.caption("Envia o cache local para GitHub Releases (tag v1.0-cache) para uso permanente")
+        with st.expander("publicação manual no GitHub", expanded=False):
+            st.caption("Use esta ação apenas quando você não quiser depender da publicação automática.")
 
-        # Recuperar token do session_state
-        token_para_upload = st.session_state.get('_gh_token_unificado')
+            # Recuperar token do session_state
+            token_para_upload = st.session_state.get('_gh_token_unificado')
 
-        if not token_para_upload:
-            st.warning("⚠️ Nenhum token GitHub disponível. Configure nos Secrets ou insira manualmente acima.")
+            if not token_para_upload:
+                st.warning("Nenhum token GitHub disponível. Configure nos Secrets ou insira manualmente acima.")
 
-        col_pub1, col_pub2 = st.columns([3, 1])
-        with col_pub1:
-            if st.button(f"📤 Enviar '{cache_selecionado}' para GitHub", width='stretch', key="btn_enviar_github_unificado", disabled=not token_para_upload):
-                with st.spinner(f"enviando cache '{cache_selecionado}' para github releases..."):
-                    sucesso, mensagem = upload_cache_github(
-                        cache_manager,
-                        cache_selecionado,
-                        token_para_upload
-                    )
-                    if sucesso:
-                        st.toast(f"✅ {mensagem}", icon="🚀")
-                        st.balloons()
-                    else:
-                        st.toast(f"❌ {mensagem}", icon="⚠️")
-        with col_pub2:
-            st.caption(f"Token: {'✅' if token_para_upload else '❌'}")
+            col_pub1, col_pub2 = st.columns([3, 1])
+            with col_pub1:
+                if st.button(f"Enviar '{cache_selecionado}' para GitHub", width='stretch', key="btn_enviar_github_unificado", disabled=not token_para_upload):
+                    with st.spinner(f"enviando cache '{cache_selecionado}' para github releases..."):
+                        sucesso, mensagem = upload_cache_github(
+                            cache_manager,
+                            cache_selecionado,
+                            token_para_upload
+                        )
+                        if sucesso:
+                            st.toast(mensagem, icon="🚀")
+                            st.balloons()
+                        else:
+                            st.toast(mensagem, icon="⚠️")
+            with col_pub2:
+                st.caption(f"Token: {'OK' if token_para_upload else 'Não'}")
 
     elif senha_input:
         st.error("senha incorreta")
