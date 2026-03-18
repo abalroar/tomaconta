@@ -1635,10 +1635,46 @@ def aplicar_alias_overrides(df_aliases: Optional[pd.DataFrame]) -> pd.DataFrame:
 
 # FIX PROBLEMA 3: Normalização de nomes de instituições
 def normalizar_nome_instituicao(nome):
-    """Normaliza nome removendo espaços extras e convertendo para uppercase"""
+    """Normaliza nome removendo espaços extras e convertendo para uppercase."""
     if pd.isna(nome):
         return ""
     return " ".join(str(nome).split()).upper()
+
+
+def normalizar_nome_instituicao_match(nome):
+    """Gera chave determinística para conciliação de instituições.
+
+    Regras:
+    - remove acentos;
+    - converte para uppercase;
+    - remove pontuação;
+    - remove sufixos societários/prudenciais recorrentes;
+    - colapsa espaços.
+    """
+    if pd.isna(nome):
+        return ""
+
+    txt = _normalizar_texto_sem_acento(nome)
+    txt = re.sub(r"[^A-Z0-9\s]", " ", txt)
+    txt = re.sub(r"\s+", " ", txt).strip()
+    txt = re.sub(r"\bS\s*A\b$", "", txt).strip()
+
+    sufixos = [
+        " PRUDENCIAL",
+        " HOLDING",
+        " BANCO MULTIPLO",
+        " BANCO COMERCIAL",
+        " CONGLOMERADO",
+    ]
+    alterado = True
+    while alterado and txt:
+        alterado = False
+        for sufixo in sufixos:
+            if txt.endswith(sufixo):
+                txt = txt[: -len(sufixo)].strip()
+                alterado = True
+
+    return re.sub(r"\s+", " ", txt).strip()
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def construir_dict_aliases_normalizado(_df_aliases_hash: str, df_aliases_data: tuple):
@@ -12554,7 +12590,7 @@ elif menu == "DRE Individual":
     mapa_codinst = {int(row.CodInst): row for row in catalogo.itertuples(index=False)}
     mapa_nome = {}
     for row in catalogo.itertuples(index=False):
-        chave_nome = normalizar_nome_instituicao(str(row.Instituição))
+        chave_nome = normalizar_nome_instituicao_match(row.Instituição)
         mapa_nome.setdefault(chave_nome, []).append(int(row.CodInst))
 
     try:
@@ -12580,20 +12616,30 @@ elif menu == "DRE Individual":
 
     instituicoes_match = []
     vistos_codinst = set()
+    falhas_conciliacao = []
     for part in conglomerado_obj.get("participacoes", []) or []:
         codinst_match = None
+        motivo_match = None
         id_bacen = re.sub(r"\D", "", str(part.get("idBacen") or "").strip())
         if id_bacen:
             cod_candidate = int(id_bacen)
             if cod_candidate in mapa_codinst:
                 codinst_match = cod_candidate
+                motivo_match = "idBacen"
         if codinst_match is None:
             nome_part = str(part.get("nome") or "").strip()
-            chave_nome = normalizar_nome_instituicao(nome_part)
+            chave_nome = normalizar_nome_instituicao_match(nome_part)
             cods = mapa_nome.get(chave_nome, [])
             if len(cods) == 1:
                 codinst_match = cods[0]
-        if codinst_match is None or codinst_match in vistos_codinst:
+                motivo_match = "nome"
+        if codinst_match is None:
+            falhas_conciliacao.append({
+                "nome": str(part.get("nome") or "").strip() or "SEM NOME",
+                "id_bacen": id_bacen or "—",
+            })
+            continue
+        if codinst_match in vistos_codinst:
             continue
         vistos_codinst.add(codinst_match)
         row = mapa_codinst.get(codinst_match)
@@ -12602,10 +12648,21 @@ elif menu == "DRE Individual":
             "nome": str(row.Instituição),
             "nome_exib": str(row.InstituicaoExib),
             "condicao": _normalizar_texto_sem_acento(part.get("condicao", "")) or "PARTICIPANTE",
+            "origem_match": motivo_match or "desconhecida",
         })
 
     if not instituicoes_match:
-        st.warning("Nenhuma instituição individual do conglomerado foi conciliada com o cache DRE individual.")
+        detalhes = ""
+        if falhas_conciliacao:
+            exemplos = "; ".join(
+                f"{item['nome']} (idBacen: {item['id_bacen']})"
+                for item in falhas_conciliacao[:5]
+            )
+            detalhes = f" Exemplos sem match: {exemplos}."
+        st.warning(
+            "Nenhuma instituição individual do conglomerado foi conciliada com o cache DRE individual."
+            + detalhes
+        )
         st.stop()
 
     labels_instituicoes = [f"{item['condicao']} • {item['nome_exib']} [{item['codinst']}]" for item in instituicoes_match]
