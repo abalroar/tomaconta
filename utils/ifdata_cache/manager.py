@@ -35,6 +35,12 @@ CACHES_INFO = {
         "relatorio": 1,
         "todas_variaveis": False,
     },
+    "principal_individual": {
+        "nome_exibicao": "Resumo Individual (Relatório 1)",
+        "descricao": "Dados gerais das instituições individuais - variáveis selecionadas",
+        "relatorio": 1,
+        "todas_variaveis": False,
+    },
     "capital": {
         "nome_exibicao": "Capital Regulatório (Relatório 5)",
         "descricao": "Informações de capital - variáveis selecionadas",
@@ -56,6 +62,12 @@ CACHES_INFO = {
     "dre": {
         "nome_exibicao": "DRE (Relatório 4)",
         "descricao": "Demonstração de Resultado - TODAS as variáveis",
+        "relatorio": 4,
+        "todas_variaveis": True,
+    },
+    "dre_individual": {
+        "nome_exibicao": "DRE Individual (Relatório 4)",
+        "descricao": "Demonstração de Resultado - instituições individuais - TODAS as variáveis",
         "relatorio": 4,
         "todas_variaveis": True,
     },
@@ -87,6 +99,12 @@ CACHES_INFO = {
     "derived_metrics": {
         "nome_exibicao": "Métricas Derivadas",
         "descricao": "Indicadores derivados (DRE + Resumo)",
+        "relatorio": None,
+        "todas_variaveis": False,
+    },
+    "derived_metrics_individual": {
+        "nome_exibicao": "Métricas Derivadas Individual",
+        "descricao": "Indicadores derivados (DRE individual + Resumo individual)",
         "relatorio": None,
         "todas_variaveis": False,
     },
@@ -126,29 +144,32 @@ class CacheManager:
     def _registrar_caches_padrao(self):
         """Registra os caches padrao do sistema."""
         # Importar aqui para evitar dependencia circular
-        from .principal import PrincipalCache
+        from .principal import PrincipalCache, PrincipalIndividualCache
         from .capital import CapitalCache
         from .relatorios_completos import (
             AtivoCache,
             PassivoCache,
             DRECache,
+            DREIndividualCache,
             CarteiraPFCache,
             CarteiraPJCache,
             CarteiraInstrumentosCache,
         )
         from .taxas_juros import TaxasJurosCache
-        from .derived_metrics import DerivedMetricsCache
+        from .derived_metrics import DerivedMetricsCache, DerivedMetricsIndividualCache
         from .balancetes import BalancetesCache
         from .bloprudencial_cache import BloprudencialCache
 
         # Caches principais (variáveis selecionadas)
         self.registrar(PrincipalCache(self.base_dir))
+        self.registrar(PrincipalIndividualCache(self.base_dir))
         self.registrar(CapitalCache(self.base_dir))
 
         # Caches de relatórios completos (todas as variáveis)
         self.registrar(AtivoCache(self.base_dir))
         self.registrar(PassivoCache(self.base_dir))
         self.registrar(DRECache(self.base_dir))
+        self.registrar(DREIndividualCache(self.base_dir))
         self.registrar(CarteiraPFCache(self.base_dir))
         self.registrar(CarteiraPJCache(self.base_dir))
         self.registrar(CarteiraInstrumentosCache(self.base_dir))
@@ -157,6 +178,7 @@ class CacheManager:
         self.registrar(TaxasJurosCache(self.base_dir))
         # Cache de métricas derivadas (DRE + Resumo)
         self.registrar(DerivedMetricsCache(self.base_dir))
+        self.registrar(DerivedMetricsIndividualCache(self.base_dir))
         # Cache de balancetes COSIF (API REST BCB)
         self.registrar(BalancetesCache(self.base_dir))
         # Cache BLOPRUDENCIAL mensal (arquivo estático BCB)
