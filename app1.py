@@ -14583,9 +14583,11 @@ elif menu == "Atualizar Base":
     else:
         st.error("aliases não encontrados")
 
-    # =============================================================
-    # STATUS DE TODOS OS CACHES (LOCAL + GITHUB)
-    # =============================================================
+    st.markdown("### Extração de Dados (Admin)")
+
+    senha_input = st.text_input("senha de administrador", type="password", key="senha_admin_atualizacao_nova")
+
+    st.markdown("---")
     st.markdown("### Status dos Caches")
 
     # Verificar status no GitHub Releases
@@ -14639,11 +14641,6 @@ elif menu == "Atualizar Base":
             st.error(f"Release não acessível: {github_status.get('erro', 'erro desconhecido')}")
         else:
             st.caption(f"Repositório: `{github_status.get('repo')}` | Tag: `{github_status.get('tag')}`")
-
-    st.markdown("---")
-    st.markdown("### Extração de Dados (Admin)")
-
-    senha_input = st.text_input("senha de administrador", type="password", key="senha_admin_atualizacao_nova")
 
     if senha_input == SENHA_ADMIN:
 
@@ -14910,6 +14907,7 @@ elif menu == "Atualizar Base":
             checkpoint_pendentes = checkpoint.get("pendentes") if checkpoint else None
             checkpoint_cache = checkpoint.get("cache_tipo")
             checkpoint_mesmo_cache = checkpoint_cache == cache_selecionado and bool(checkpoint_pendentes)
+            retomar_checkpoint_inline = st.session_state.pop("_retomar_checkpoint_inline", None) == cache_selecionado
 
             status_job = _carregar_status_atualizacao()
             job_running = bool(status_job.get("running")) and status_job.get("cache_tipo") == cache_selecionado
@@ -14929,6 +14927,9 @@ elif menu == "Atualizar Base":
             else:
                 retomar = False
 
+            if retomar_checkpoint_inline and checkpoint_mesmo_cache:
+                retomar = True
+
             status_encerrado_mesmo_cache = bool(status_job) and not job_running and status_job.get("cache_tipo") == cache_selecionado
             if status_encerrado_mesmo_cache:
                 current_status = status_job.get("current", "-")
@@ -14936,6 +14937,9 @@ elif menu == "Atualizar Base":
                     st.success("Última execução em background concluída.")
                 elif current_status == "parcial":
                     st.warning("Última execução em background concluiu apenas o lote atual. Use retomar para continuar.")
+                    if st.button("retomar agora", width='stretch', key="retomar_bg_inline"):
+                        st.session_state["_retomar_checkpoint_inline"] = cache_selecionado
+                        st.rerun()
                 elif str(current_status).startswith("erro:"):
                     st.error(f"Última execução em background falhou: {current_status}")
                 else:
@@ -15449,6 +15453,9 @@ elif menu == "Atualizar Base":
                                         "timestamp": datetime.now().isoformat(),
                                     })
                                     st.warning(f"extração parcial concluída. pendentes: {len(pendentes_final)}. clique em retomar para continuar.")
+                                    if st.button("retomar agora", type="primary", width='stretch', key="retomar_inline_pos_parcial"):
+                                        st.session_state["_retomar_checkpoint_inline"] = cache_selecionado
+                                        st.rerun()
 
                             if publicar_auto and gh_token_final:
                                 with st.spinner("publicando cache no GitHub Releases..."):
