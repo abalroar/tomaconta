@@ -21,11 +21,16 @@ IMPORTANTE: Este extrator produz dados no formato exato que os gráficos esperam
 """
 
 import logging
+import re
 import time
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import pandas as pd
 import requests
+from utils.ifdata_extractor import (
+    construir_mapa_codinst_multiperiodo as _construir_mapa_codinst_multiperiodo_legado,
+    resolver_nome_instituicao as _resolver_nome_instituicao_legado,
+)
 
 # Configuração de logging
 logger = logging.getLogger("ifdata_extractor")
@@ -117,6 +122,52 @@ def _normalizar_nome_coluna(nome: str) -> str:
     # Remover espaços extras
     nome = ' '.join(nome.split())
     return nome
+
+
+def _periodo_api_anterior(periodo: str) -> Optional[str]:
+    """Retorna o trimestre anterior no formato YYYYMM."""
+    texto = str(periodo or "").strip()
+    if len(texto) != 6 or not texto.isdigit():
+        return None
+
+    ano = int(texto[:4])
+    mes = int(texto[4:6])
+    mapa_anterior = {3: (ano - 1, 12), 6: (ano, 3), 9: (ano, 6), 12: (ano, 9)}
+    if mes not in mapa_anterior:
+        return None
+    ano_ant, mes_ant = mapa_anterior[mes]
+    return f"{ano_ant}{mes_ant:02d}"
+
+
+def _resolver_nomes_instituicoes(df_pivot: pd.DataFrame, periodo: str) -> pd.DataFrame:
+    """Resolve placeholders [IF ...] usando o resolvedor legado por CodInst."""
+    if df_pivot.empty or "CodInst" not in df_pivot.columns:
+        return df_pivot
+
+    df_out = df_pivot.copy()
+    if "Instituição" not in df_out.columns:
+        df_out["Instituição"] = pd.NA
+
+    serie_nomes = df_out["Instituição"].astype(str)
+    possui_placeholders = serie_nomes.str.match(r"^\[IF\s+[A-Za-z0-9]+\]$", na=False).any()
+    possui_faltantes = df_out["Instituição"].isna().any()
+
+    if possui_placeholders or possui_faltantes:
+        periodos_ref = [p for p in [_periodo_api_anterior(periodo), periodo] if p]
+        try:
+            _construir_mapa_codinst_multiperiodo_legado(periodos_ref)
+        except Exception as exc:
+            logger.debug("Falha ao reforçar mapa legado de nomes para %s: %s", periodo, exc)
+
+    df_out["Instituição"] = df_out.apply(
+        lambda row: _resolver_nome_instituicao_legado(
+            row.get("CodInst"),
+            row.get("Instituição"),
+            periodo,
+        ),
+        axis=1,
+    )
+    return df_out
 
 
 # =============================================================================
@@ -372,6 +423,7 @@ def extrair_resumo(
             else f"[IF {row['CodInst']}]",
             axis=1
         )
+    df_pivot = _resolver_nomes_instituicoes(df_pivot, periodo)
 
     # 7. Aplicar aliases
     if dict_aliases:
@@ -542,6 +594,7 @@ def extrair_capital(
 
     if "Instituição" not in df_pivot.columns:
         df_pivot["Instituição"] = df_pivot["CodInst"].apply(lambda x: f"[IF {x}]")
+    df_pivot = _resolver_nomes_instituicoes(df_pivot, periodo)
 
     # Aplicar aliases
     if dict_aliases:
@@ -634,6 +687,7 @@ def extrair_relatorio_completo(
 
     if "Instituição" not in df_pivot.columns:
         df_pivot["Instituição"] = df_pivot["CodInst"].apply(lambda x: f"[IF {x}]")
+    df_pivot = _resolver_nomes_instituicoes(df_pivot, periodo)
 
     # Aplicar aliases
     if dict_aliases:
