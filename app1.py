@@ -7612,37 +7612,6 @@ if menu == "Sobre":
     </div>
     """, unsafe_allow_html=True)
 
-    # Acesso rápido — botões nativos que navegam diretamente ao módulo
-    st.markdown("""
-    <p style="font-size:0.85rem; color:#5f6b7a; font-weight:300; margin:0.25rem 0 0.5rem 0;">
-        clique em qualquer módulo para abrir diretamente.
-    </p>
-    """, unsafe_allow_html=True)
-
-    _modulos_nav = [
-        ("Rankings", "Rankings"),
-        ("Peers (Tabela)", "Peers (Tabela)"),
-        ("Evolução", "Evolução"),
-        ("Scatter Plot", "Scatter Plot"),
-        ("DRE", "DRE"),
-        ("DRE Individual", "DRE Individual"),
-        ("Carteira 4.966", "Carteira 4.966"),
-        ("Taxas de Juros por Produto", "Taxas de Juros por Produto"),
-        ("Conselho e Diretoria", "Conselho e Diretoria"),
-        ("Crie sua métrica!", "Crie sua métrica!"),
-        ("Glossário", "Glossário"),
-    ]
-    _nav_cols = st.columns(5)
-    for _i, (_label, _menu_dest) in enumerate(_modulos_nav):
-        with _nav_cols[_i % 5]:
-            st.button(
-                _label,
-                key=f"nav_sobre_{_i}",
-                use_container_width=True,
-                on_click=_nav_para_menu,
-                args=(_menu_dest,),
-            )
-
     st.markdown("---")
 
     st.markdown("""
