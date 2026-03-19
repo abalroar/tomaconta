@@ -1635,7 +1635,7 @@ def aplicar_alias_overrides(df_aliases: Optional[pd.DataFrame]) -> pd.DataFrame:
 
 # FIX PROBLEMA 3: Normalização de nomes de instituições
 def normalizar_nome_instituicao(nome):
-    """Normaliza nome removendo espaços extras e convertendo para uppercase"""
+    """Normaliza nome removendo espaços extras e convertendo para uppercase."""
     if pd.isna(nome):
         return ""
     return " ".join(str(nome).split()).upper()
@@ -6597,15 +6597,19 @@ def _load_cache_metadata(cache_obj) -> dict:
         return {}
 
 
-def ensure_derived_metrics_cache() -> Tuple[Optional[object], Optional[str], dict]:
+def ensure_derived_metrics_cache(
+    derived_cache_name: str = "derived_metrics",
+    dre_cache_name: str = "dre",
+    principal_cache_name: str = "principal",
+) -> Tuple[Optional[object], Optional[str], dict]:
     manager = get_cache_manager()
-    cache_derivado = manager.get_cache("derived_metrics") if manager else None
+    cache_derivado = manager.get_cache(derived_cache_name) if manager else None
     if cache_derivado is None:
         return None, "cache de métricas derivadas não configurado", {}
 
     mtime_derivado = _get_cache_data_mtime(cache_derivado)
-    dre_cache = manager.get_cache("dre")
-    principal_cache = manager.get_cache("principal")
+    dre_cache = manager.get_cache(dre_cache_name)
+    principal_cache = manager.get_cache(principal_cache_name)
     mtime_dre = _get_cache_data_mtime(dre_cache)
     mtime_principal = _get_cache_data_mtime(principal_cache)
 
@@ -6618,12 +6622,12 @@ def ensure_derived_metrics_cache() -> Tuple[Optional[object], Optional[str], dic
     if not precisa_recalcular:
         return cache_derivado, None, _load_cache_metadata(cache_derivado)
 
-    resultado_dre = manager.carregar("dre") if manager else None
+    resultado_dre = manager.carregar(dre_cache_name) if manager else None
     if not resultado_dre or not resultado_dre.sucesso or resultado_dre.dados is None:
         msg = resultado_dre.mensagem if resultado_dre else "falha ao carregar DRE"
         return cache_derivado, msg, {}
 
-    resultado_principal = manager.carregar("principal") if manager else None
+    resultado_principal = manager.carregar(principal_cache_name) if manager else None
     if not resultado_principal or not resultado_principal.sucesso or resultado_principal.dados is None:
         msg = resultado_principal.mensagem if resultado_principal else "falha ao carregar principal"
         return cache_derivado, msg, {}
@@ -6644,6 +6648,22 @@ def ensure_derived_metrics_cache() -> Tuple[Optional[object], Optional[str], dic
 
 def carregar_metricas_derivadas_slice(periodos=None, instituicoes=None, metricas=None) -> pd.DataFrame:
     cache_derivado, erro, _ = ensure_derived_metrics_cache()
+    if cache_derivado is None or erro:
+        return pd.DataFrame()
+    return load_derived_metrics_slice(
+        cache_derivado,
+        periodos=periodos,
+        instituicoes=instituicoes,
+        metricas=metricas,
+    )
+
+
+def carregar_metricas_derivadas_individual_slice(periodos=None, instituicoes=None, metricas=None) -> pd.DataFrame:
+    cache_derivado, erro, _ = ensure_derived_metrics_cache(
+        derived_cache_name="derived_metrics_individual",
+        dre_cache_name="dre_individual",
+        principal_cache_name="principal_individual",
+    )
     if cache_derivado is None or erro:
         return pd.DataFrame()
     return load_derived_metrics_slice(
@@ -7125,6 +7145,7 @@ MENU_PRINCIPAL = [
     "Evolução",
     "Scatter Plot",
     "DRE",
+    "DRE Individual",
     "Carteira 4.966",
     "Taxas de Juros por Produto",
     "Crie sua métrica!",
@@ -7429,6 +7450,7 @@ if menu == "Sobre":
         ("Evolução", "Evolução"),
         ("Scatter Plot", "Scatter Plot"),
         ("DRE", "DRE"),
+        ("DRE Individual", "DRE Individual"),
         ("Carteira 4.966", "Carteira 4.966"),
         ("Taxas de Juros por Produto", "Taxas de Juros por Produto"),
         ("Conselho e Diretoria", "Conselho e Diretoria"),
@@ -12012,6 +12034,976 @@ elif menu == "DRE":
                 unsafe_allow_html=True,
             )
 
+elif menu == "DRE Individual":
+    st.markdown("### Demonstração de Resultado (DRE Individual)")
+    st.caption("Visão por instituições individuais do IFData, com seleção direta por instituição e análise de soma das partes.")
+
+    DRE_ANO_EXIBICAO_INICIAL = 2025
+    DRE_MES_EXIBICAO_INICIAL = 3
+
+    @st.cache_data(ttl=3600, show_spinner=False)
+    def load_dre_individual_data():
+        manager = get_cache_manager()
+        resultado = manager.carregar("dre_individual")
+        if resultado.sucesso and resultado.dados is not None:
+            return resultado.dados, None
+        return None, resultado.mensagem
+
+    @st.cache_data(ttl=3600, show_spinner=False)
+    def load_principal_individual_data():
+        manager = get_cache_manager()
+        resultado = manager.carregar("principal_individual")
+        if resultado.sucesso and resultado.dados is not None:
+            return resultado.dados, None
+        return pd.DataFrame(), resultado.mensagem
+
+    def normalize_sources(value):
+        if value is None:
+            return []
+        if isinstance(value, list):
+            return [v for v in value if isinstance(v, str) and v.strip()]
+        if isinstance(value, str):
+            parts = [p.strip() for p in value.replace("|", ";").split(";")]
+            return [p for p in parts if p]
+        return []
+
+    @st.cache_data(ttl=3600, show_spinner=False)
+    def load_dre_cosif_mapping():
+        caminho = Path("data/dre_cosif_mapping.json")
+        if not caminho.exists():
+            return {}
+        try:
+            payload = json.loads(caminho.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+
+        mappings = payload.get("mappings", []) if isinstance(payload, dict) else []
+        mapa = {}
+        for item in mappings:
+            if not isinstance(item, dict):
+                continue
+            label = str(item.get("label") or "").strip()
+            if not label:
+                continue
+            contas = [
+                str(c).strip() for c in item.get("cosif_accounts", [])
+                if str(c).strip()
+            ]
+            depara = []
+            for linha in item.get("cosif_depara", []) if isinstance(item.get("cosif_depara", []), list) else []:
+                if not isinstance(linha, dict):
+                    continue
+                conta = str(linha.get("account") or "").strip()
+                desc = str(linha.get("description") or "").strip()
+                if not conta:
+                    continue
+                depara.append({"account": conta, "description": desc})
+            if not depara and contas:
+                depara = [{"account": c, "description": ""} for c in contas]
+            mapa[label] = {
+                "ifdata_label": str(item.get("ifdata_label") or "").strip(),
+                "contas": contas,
+                "depara": depara,
+                "formula": str(item.get("cosif_formula") or "").strip(),
+                "status": str(item.get("status") or "").strip(),
+                "source": str(item.get("source") or "").strip(),
+            }
+        return mapa
+
+    @st.cache_data(ttl=3600, show_spinner=False)
+    def load_cosif_pdf_description_map():
+        try:
+            return get_cosif_description_map_cached()
+        except Exception:
+            return {}
+
+    @st.cache_data(ttl=86400, show_spinner=False)
+    def load_cosif_metadata_batch_cached(accounts_tuple):
+        try:
+            return get_cosif_metadata_for_accounts(list(accounts_tuple), force_refresh=False)
+        except Exception:
+            return {}
+
+    def load_dre_mapping_individual():
+        caminho = Path("data/dre_mapping.json")
+        if not caminho.exists():
+            return []
+        try:
+            payload = json.loads(caminho.read_text(encoding="utf-8"))
+        except Exception:
+            return []
+
+        payload_map = {str(item.get("label") or "").strip(): item for item in payload if isinstance(item, dict)}
+        ordered_labels = [
+            "Resultado de Intermediação Financeira Bruto",
+            "Rec. Aplicações Interfinanceiras Liquidez",
+            "Rec. TVMs",
+            "Rec. Crédito",
+            "Rec. Arrendamento Financeiro",
+            "Rec. Outras Operações c/ Características de Crédito",
+            "Desp. PDD",
+            "Desp. Captação",
+            "Desp. Dívida Elegível a Capital",
+            "Res. Derivativos",
+            "Outros Res. Intermediação Financeira",
+            "Resultado Int. Financeira Líquido",
+            "Resultado Transações Pgto",
+            "Renda Tarifas Bancárias",
+            "Outras Prestações de Serviços",
+            "Desp. Pessoal",
+            "Desp. Adm",
+            "Desp. PDD Outras Operações",
+            "Desp. JSCP Cooperativas",
+            "Desp. Tributárias",
+            "Res. Participação Controladas",
+            "Outras Receitas",
+            "Outras Despesas",
+            "IR/CSLL",
+            "Res. Participação Lucro",
+            "Lucro Líquido Período Acumulado",
+        ]
+        child_labels = {
+            "Rec. Aplicações Interfinanceiras Liquidez",
+            "Rec. TVMs",
+            "Rec. Crédito",
+            "Rec. Arrendamento Financeiro",
+            "Rec. Outras Operações c/ Características de Crédito",
+        }
+        alias_lookup = {
+            "Lucro Líquido Período Acumulado": "Lucro Líquido Período",
+        }
+        entries = []
+        for label in ordered_labels:
+            lookup = alias_lookup.get(label, label)
+            base_item = payload_map.get(lookup, {})
+            sources = base_item.get("sources_new") or []
+            entries.append({
+                "label": label,
+                "sources": sources,
+                "concept": str(base_item.get("concept") or "").strip(),
+                "original_label": sources[0] if sources else lookup,
+                "is_child": label in child_labels,
+            })
+
+        entries.extend([
+            {
+                "label": "Desp PDD / Resultado Intermediação Fin. Bruto",
+                "derived_metric": "Desp PDD / Resultado Intermediação Fin. Bruto",
+                "format": "pct",
+                "concept": "Desp. PDD dividido pelo Resultado de Intermediação Financeira Bruto.",
+            },
+            {
+                "label": "Desp Captação / Captação",
+                "derived_metric": "Desp Captação / Captação",
+                "format": "pct",
+                "concept": "Desp. Captação anualizada dividida por Captações.",
+            },
+        ])
+        return entries
+
+    def find_column(df, source_name: str):
+        if source_name in df.columns:
+            return source_name
+        target = source_name.strip().lower()
+        for col in df.columns:
+            if str(col).strip().lower() == target:
+                return col
+        for col in df.columns:
+            if target in str(col).strip().lower():
+                return col
+        return None
+
+    def coerce_numeric(series: pd.Series) -> pd.Series:
+        if series is None:
+            return series
+        if series.dtype == object:
+            cleaned = (
+                series.astype(str)
+                .str.replace(".", "", regex=False)
+                .str.replace(",", ".", regex=False)
+            )
+            return pd.to_numeric(cleaned, errors="coerce")
+        return pd.to_numeric(series, errors="coerce")
+
+    def detectar_colunas_basicas(df: pd.DataFrame):
+        col_periodo = None
+        for candidato in ["Período", "Periodo", "PERIODO", "PERÍODO"]:
+            if candidato in df.columns:
+                col_periodo = candidato
+                break
+        if col_periodo is None:
+            for col in df.columns:
+                if "period" in str(col).lower():
+                    col_periodo = col
+                    break
+        col_inst = None
+        for candidato in ["Instituição", "Instituicao", "INSTITUICAO", "INSTITUIÇÃO"]:
+            if candidato in df.columns:
+                col_inst = candidato
+                break
+        if col_inst is None:
+            for col in df.columns:
+                if "institu" in str(col).lower():
+                    col_inst = col
+                    break
+        col_cod = None
+        for candidato in ["CodInst", "CODINST", "codinst"]:
+            if candidato in df.columns:
+                col_cod = candidato
+                break
+        return col_periodo, col_inst, col_cod
+
+    def parse_periodo(periodo_val):
+        if periodo_val is None:
+            return None, None
+        texto = str(periodo_val).strip()
+        if "/" in texto:
+            partes = texto.split("/")
+            if len(partes) >= 2 and partes[0].isdigit() and partes[1].isdigit():
+                parte1 = int(partes[0])
+                ano = int(partes[1])
+                if 1 <= parte1 <= 4:
+                    mes = {1: 3, 2: 6, 3: 9, 4: 12}.get(parte1)
+                else:
+                    mes = parte1
+                return ano, mes
+        if texto.isdigit():
+            if len(texto) == 6:
+                return int(texto[:4]), int(texto[4:])
+            if len(texto) == 8:
+                return int(texto[:4]), int(texto[4:6])
+        return None, None
+
+    def extrair_ano_mes_periodo(serie_periodo: pd.Series) -> pd.DataFrame:
+        parsed = serie_periodo.apply(parse_periodo)
+        return pd.DataFrame(parsed.tolist(), columns=["ano", "mes"], index=serie_periodo.index)
+
+    def compute_ytd_irregular(df: pd.DataFrame) -> pd.DataFrame:
+        if df.empty:
+            return df.copy()
+        out = df.copy()
+        out[["ano", "mes"]] = extrair_ano_mes_periodo(out["Periodo"])
+        out = out.sort_values(["Instituicao", "Label", "ano", "mes", "Periodo"], na_position="last")
+        out["ytd"] = out["valor"]
+        mask = out["mes"].isin([9, 12])
+        if mask.any():
+            prev = (
+                out[out["mes"] == 6][["Instituicao", "Label", "ano", "ytd"]]
+                .rename(columns={"ytd": "ytd_jun"})
+                .drop_duplicates(subset=["Instituicao", "Label", "ano"], keep="last")
+            )
+            out = out.merge(prev, on=["Instituicao", "Label", "ano"], how="left")
+            out.loc[mask, "ytd"] = out.loc[mask, "valor"] + out.loc[mask, "ytd_jun"].fillna(0)
+            out = out.drop(columns=["ytd_jun"])
+        return out
+
+    def anualizar_ytd_por_mes(df: pd.DataFrame, labels: list[str]) -> pd.DataFrame:
+        if df.empty:
+            return df.copy()
+        out = df.copy()
+        mask = out["Label"].isin(labels) & out["mes"].notna() & (out["mes"] > 0)
+        out.loc[mask, "ytd"] = out.loc[mask, "ytd"] * (12 / out.loc[mask, "mes"])
+        return out
+
+    def compute_yoy(df: pd.DataFrame) -> pd.DataFrame:
+        if df.empty:
+            return df.copy()
+        prev = df[["Instituicao", "Label", "ano", "mes", "ytd"]].copy()
+        prev["ano"] = prev["ano"] + 1
+        prev = prev.rename(columns={"ytd": "ytd_prev"})
+        df = df.merge(prev, on=["Instituicao", "Label", "mes", "ano"], how="left")
+        df["yoy"] = (df["ytd"] / df["ytd_prev"]) - 1
+        df.loc[df["ytd_prev"].isna() | (df["ytd_prev"] == 0), "yoy"] = np.nan
+        return df.drop(columns=["ytd_prev"])
+
+    def formatar_valor_br(valor, decimais=0):
+        if pd.isna(valor) or valor is None:
+            return "—"
+        try:
+            if decimais == 0:
+                return f"{valor:,.0f}".replace(",", "X").replace(".", ",").replace("X", ".")
+            return f"{valor:,.{decimais}f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        except Exception:
+            return "—"
+
+    def formatar_percentual(valor, decimais=1):
+        if pd.isna(valor) or valor is None:
+            return "—"
+        try:
+            return f"{valor * 100:.{decimais}f}%".replace(".", ",")
+        except Exception:
+            return "—"
+
+    def render_table_like_carteira_4966(
+        df_linhas: pd.DataFrame,
+        entradas: list,
+        periodos: list,
+        formato_por_label: dict,
+        tooltip_por_label: dict,
+        tooltip_celula: Optional[dict] = None,
+    ):
+        html_tabela = """
+        <style>
+        .carteira-table {width: max-content; max-width: 100%; margin: 10px auto 0 auto; border-collapse: collapse; font-size: 14px; table-layout: auto;}
+        .carteira-table th, .carteira-table td {border: 1px solid #ddd; padding: 6px 10px; text-align: right; vertical-align: top;}
+        .carteira-table th {background-color: #f5f5f5; font-weight: 600;}
+        .carteira-table td:first-child {text-align: left; font-weight: 500; white-space: nowrap; width: 1%; padding-right: 8px;}
+        .carteira-table thead tr:first-child th {background-color: #111111; color: white; text-align: center;}
+        .carteira-table thead tr:nth-child(2) th {background-color: #6E6E6E; color: white;}
+        .dre-info {font-size: 12px; color: #666; margin-left: 6px; cursor: help;}
+        .dre-cell.has-tip {position: relative; cursor: help;}
+        .dre-cell .tip-text {display: none; position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); background: #333; color: #fff; padding: 8px 10px; border-radius: 4px; font-size: 11px; white-space: normal; z-index: 9999; min-width: 220px; max-width: 360px; text-align: left; box-shadow: 0 2px 8px rgba(0,0,0,0.25); pointer-events: none; line-height: 1.5;}
+        .dre-cell.has-tip:hover .tip-text {display: block;}
+        .dre-subitem {font-size: 12px;}
+        .dre-subitem td:first-child {padding-left: 18px;}
+        .dre-negative {color: #7a1e2b; font-weight: 600;}
+        .dre-delta-up {color: #28a745; margin-left: 4px; font-weight: 600;}
+        .dre-delta-down {color: #dc3545; margin-left: 4px; font-weight: 600;}
+        </style>
+        <div style="width:100%;overflow-x:auto;"><table class="carteira-table"><thead><tr><th rowspan="2">Item</th>
+        """
+        for periodo in periodos:
+            html_tabela += f'<th>{periodo}</th>'
+        html_tabela += "</tr><tr>" + "".join(["<th>YTD</th>" for _ in periodos]) + "</tr></thead><tbody>"
+        for entry in entradas:
+            label = entry["label"]
+            label_exib = entry.get("label_exib", label)
+            tooltip = tooltip_por_label.get(label, "")
+            if tooltip:
+                tip_html = _html_mod.escape(str(tooltip)).replace("\n", "<br>")
+                info_html = f'<span class="dre-info">ⓘ</span><span class="tip-text">{tip_html}</span>'
+            else:
+                info_html = ""
+            row_class = "dre-subitem" if entry.get("is_child") else ""
+            label_cell_class = "dre-cell has-tip" if tooltip else "dre-cell"
+            html_tabela += f'<tr class="{row_class}"><td class="{label_cell_class}">{label_exib} {info_html}</td>'
+            linha = df_linhas[df_linhas["Label"] == label]
+            for periodo in periodos:
+                cell = linha[linha["PeriodoExib"] == periodo]
+                if not cell.empty:
+                    ytd_val = cell["ytd"].iloc[0]
+                    yoy_val = pd.to_numeric(cell["yoy"].iloc[0], errors="coerce")
+                else:
+                    ytd_val = pd.NA
+                    yoy_val = pd.NA
+                formato = formato_por_label.get(label, "num")
+                if formato == "pct":
+                    ytd_fmt = formatar_percentual(ytd_val, decimais=2)
+                    ytd_neg = False
+                else:
+                    ytd_fmt = formatar_valor_br(ytd_val)
+                    ytd_neg = pd.notna(ytd_val) and ytd_val < 0
+                ytd_span = f'<span class="dre-negative">{ytd_fmt}</span>' if ytd_neg else ytd_fmt
+                marcador = ''
+                if pd.notna(yoy_val):
+                    if yoy_val > 0:
+                        marcador = '<span class="dre-delta-up">▲</span>'
+                    elif yoy_val < 0:
+                        marcador = '<span class="dre-delta-down">▼</span>'
+                tip_celula = (tooltip_celula or {}).get((label, periodo), '') if tooltip_celula else ''
+                if tip_celula:
+                    tip_celula_html = _html_mod.escape(str(tip_celula)).replace("\n", "<br>")
+                    html_tabela += f'<td class="dre-cell has-tip">{ytd_span}{marcador}<span class="tip-text">{tip_celula_html}</span></td>'
+                else:
+                    html_tabela += f'<td>{ytd_span}{marcador}</td>'
+            html_tabela += "</tr>"
+        html_tabela += "</tbody></table></div>"
+        st.markdown(html_tabela, unsafe_allow_html=True)
+
+    def _agrupar_instituicoes(df_raw: pd.DataFrame, codinsts: list[int], nome_visao: str) -> pd.DataFrame:
+        if df_raw is None or df_raw.empty:
+            return pd.DataFrame()
+        if "CodInst" not in df_raw.columns:
+            return pd.DataFrame()
+        codinsts_norm = {int(str(c)) for c in codinsts}
+        recorte = df_raw[df_raw["CodInst"].astype(str).str.extract(r"(\d+)")[0].fillna("0").astype(int).isin(codinsts_norm)].copy()
+        if recorte.empty:
+            return recorte
+        if len(codinsts_norm) == 1:
+            return recorte
+        col_periodo = find_column(recorte, "Período") or find_column(recorte, "Periodo")
+        col_inst = find_column(recorte, "Instituição") or find_column(recorte, "Instituicao")
+        if not col_periodo or not col_inst:
+            return pd.DataFrame()
+        base = recorte[[col_periodo]].copy()
+        numeric_cols = []
+        for col in recorte.columns:
+            if col in {"CodInst", col_periodo, col_inst}:
+                continue
+            serie = coerce_numeric(recorte[col])
+            if serie.notna().any():
+                base[col] = serie
+                numeric_cols.append(col)
+        if not numeric_cols:
+            return pd.DataFrame()
+        agrupado = base.groupby(col_periodo, as_index=False).sum(min_count=1)
+        agrupado.insert(0, "CodInst", -1)
+        agrupado.insert(1, "Instituição", nome_visao)
+        agrupado = agrupado.rename(columns={col_periodo: "Período"})
+        return agrupado
+
+    def _build_dre_base_from_df(df_dre_raw: pd.DataFrame) -> tuple[pd.DataFrame, str, pd.DataFrame, pd.DataFrame]:
+        if df_dre_raw is None or df_dre_raw.empty:
+            return pd.DataFrame(), "Sem dados DRE para a visão selecionada.", pd.DataFrame(), pd.DataFrame()
+        col_periodo, col_inst, col_cod = detectar_colunas_basicas(df_dre_raw)
+        if col_periodo is None:
+            return pd.DataFrame(), "Coluna de período não encontrada nos dados DRE.", pd.DataFrame(), pd.DataFrame()
+        mapping_entries = load_dre_mapping_individual()
+        if not mapping_entries:
+            return pd.DataFrame(), "Mapeamento DRE não encontrado ou vazio.", pd.DataFrame(), pd.DataFrame()
+        colunas_necessarias = {col_periodo}
+        if col_inst:
+            colunas_necessarias.add(col_inst)
+        if col_cod:
+            colunas_necessarias.add(col_cod)
+        fonte_para_coluna = {}
+        for entry in mapping_entries:
+            for fonte in entry.get("sources", []):
+                if fonte in fonte_para_coluna:
+                    continue
+                col_encontrada = find_column(df_dre_raw, fonte)
+                if col_encontrada:
+                    fonte_para_coluna[fonte] = col_encontrada
+                    colunas_necessarias.add(col_encontrada)
+        colunas_necessarias = [c for c in df_dre_raw.columns if c in colunas_necessarias]
+        df_base = df_dre_raw[colunas_necessarias].copy() if colunas_necessarias else df_dre_raw.copy()
+        if col_inst is None:
+            df_base["Instituicao"] = df_base.get("CodInst", "Instituição")
+        else:
+            df_base = df_base.rename(columns={col_inst: "Instituicao"})
+        if col_cod and col_cod in df_base.columns:
+            df_base = df_base.rename(columns={col_cod: "CodInst"})
+        df_base = df_base.rename(columns={col_periodo: "Periodo"})
+        df_base[["ano", "mes"]] = extrair_ano_mes_periodo(df_base["Periodo"])
+        df_new = df_base[df_base["ano"].fillna(0) >= (DRE_ANO_EXIBICAO_INICIAL - 1)].copy()
+        numericas = {col: coerce_numeric(df_new[col]) for col in set(fonte_para_coluna.values())}
+        df_values = []
+        for entry in mapping_entries:
+            if entry.get("derived_metric"):
+                continue
+            colunas = [fonte_para_coluna[f] for f in normalize_sources(entry.get("sources", [])) if f in fonte_para_coluna]
+            if not colunas:
+                continue
+            valores = pd.concat([numericas[col] for col in colunas], axis=1).sum(axis=1, min_count=1)
+            cols_saida = [c for c in ["CodInst", "Instituicao", "Periodo"] if c in df_new.columns]
+            df_entry = df_new[cols_saida].copy()
+            df_entry["Label"] = entry["label"]
+            df_entry["valor"] = valores
+            df_values.append(df_entry)
+        if not df_values:
+            return pd.DataFrame(), "Nenhuma linha DRE foi encontrada com o mapeamento atual.", df_base, pd.DataFrame()
+        df_valores = pd.concat(df_values, ignore_index=True)
+        if "CodInst" not in df_valores.columns:
+            df_valores["CodInst"] = pd.NA
+        df_ytd = compute_ytd_irregular(df_valores)
+        df_ytd = anualizar_ytd_por_mes(df_ytd, ["Resultado de Intermediação Financeira Bruto"])
+        df_ytd = compute_yoy(df_ytd)
+        df_ytd["PeriodoExib"] = df_ytd["Periodo"].apply(periodo_para_exibicao)
+        return df_ytd, None, df_base, df_valores
+
+    df_dre_individual_raw, dre_msg = load_dre_individual_data()
+    df_principal_individual_raw, principal_msg = load_principal_individual_data()
+    if df_dre_individual_raw is None or df_dre_individual_raw.empty:
+        detalhe = f" ({dre_msg})" if dre_msg else ""
+        st.warning(f"Dados DRE individual não disponíveis no cache. Atualize 'dre_individual' e 'principal_individual' no menu 'Atualizar Base'.{detalhe}")
+        st.stop()
+
+    if df_principal_individual_raw.empty:
+        detalhe = f" ({principal_msg})" if principal_msg else ""
+        st.warning(f"Dados do resumo individual não disponíveis no cache. Atualize 'principal_individual' no menu 'Atualizar Base'.{detalhe}")
+        st.stop()
+
+    df_dre_individual_raw = df_dre_individual_raw.copy()
+    df_principal_individual_raw = df_principal_individual_raw.copy()
+    col_periodo_dre, col_inst_dre, col_cod_dre = detectar_colunas_basicas(df_dre_individual_raw)
+    col_periodo_pr, col_inst_pr, col_cod_pr = detectar_colunas_basicas(df_principal_individual_raw)
+    if not col_cod_dre or not col_periodo_dre or not col_inst_dre:
+        st.warning("O cache dre_individual precisa conter CodInst, Instituição e Período para esta aba.")
+        st.stop()
+    if not col_cod_pr or not col_periodo_pr or not col_inst_pr:
+        st.warning("O cache principal_individual precisa conter CodInst, Instituição e Período para esta aba.")
+        st.stop()
+
+    df_dre_individual_raw = df_dre_individual_raw.rename(columns={col_cod_dre: "CodInst", col_inst_dre: "Instituição", col_periodo_dre: "Período"})
+    df_principal_individual_raw = df_principal_individual_raw.rename(columns={col_cod_pr: "CodInst", col_inst_pr: "Instituição", col_periodo_pr: "Período"})
+    df_dre_individual_raw["CodInst"] = pd.to_numeric(df_dre_individual_raw["CodInst"], errors="coerce").astype("Int64")
+    df_principal_individual_raw["CodInst"] = pd.to_numeric(df_principal_individual_raw["CodInst"], errors="coerce").astype("Int64")
+    df_dre_individual_raw["Instituição"] = df_dre_individual_raw["Instituição"].astype(str).str.strip()
+    df_principal_individual_raw["Instituição"] = df_principal_individual_raw["Instituição"].astype(str).str.strip()
+    df_dre_individual_raw[["ano", "mes"]] = extrair_ano_mes_periodo(df_dre_individual_raw["Período"])
+    df_principal_individual_raw[["ano", "mes"]] = extrair_ano_mes_periodo(df_principal_individual_raw["Período"])
+
+    anos_dre_cache = sorted(df_dre_individual_raw["ano"].dropna().astype(int).unique().tolist())
+    anos_principal_cache = sorted(df_principal_individual_raw["ano"].dropna().astype(int).unique().tolist())
+    ano_max_dre_cache = max(anos_dre_cache) if anos_dre_cache else None
+    ano_max_principal_cache = max(anos_principal_cache) if anos_principal_cache else None
+    if ano_max_dre_cache is None:
+        st.warning("O cache dre_individual não possui anos válidos após o parse de período.")
+        st.stop()
+    if ano_max_dre_cache < DRE_ANO_EXIBICAO_INICIAL:
+        detalhe_principal = (
+            f" O cache principal_individual vai até {ano_max_principal_cache}."
+            if ano_max_principal_cache is not None
+            else ""
+        )
+        st.warning(
+            f"O cache dre_individual está desatualizado para esta aba: último ano disponível {ano_max_dre_cache}, "
+            f"mas a visão exige dados a partir de {DRE_ANO_EXIBICAO_INICIAL}.{detalhe_principal} "
+            "Reextraia 'dre_individual' antes de usar esta tela."
+        )
+        st.stop()
+
+    _dict_aliases_dre = st.session_state.get('dict_aliases', {})
+    def _alias_instituicao_dre(nome):
+        if pd.isna(nome):
+            return nome
+        nome_str = str(nome).strip()
+        if not _dict_aliases_dre:
+            return nome_str
+        nome_norm = normalizar_nome_instituicao(nome_str)
+        return _dict_aliases_dre.get(nome_str, _dict_aliases_dre.get(nome_norm, nome_str))
+
+    catalogo = (
+        df_dre_individual_raw[["CodInst", "Instituição"]]
+        .dropna(subset=["CodInst"])
+        .drop_duplicates(subset=["CodInst", "Instituição"])
+        .sort_values(["Instituição", "CodInst"])
+    )
+    catalogo["CodInst"] = catalogo["CodInst"].astype(int)
+    catalogo["InstituicaoExib"] = catalogo["Instituição"].apply(_alias_instituicao_dre)
+    ultimo_ano_por_codinst = (
+        df_dre_individual_raw.dropna(subset=["CodInst", "ano"])
+        .groupby("CodInst", as_index=False)["ano"]
+        .max()
+        .rename(columns={"ano": "UltimoAnoDRE"})
+    )
+    ultimo_ano_por_codinst["CodInst"] = ultimo_ano_por_codinst["CodInst"].astype(int)
+    catalogo = catalogo.merge(ultimo_ano_por_codinst, on="CodInst", how="left")
+    catalogo = catalogo.sort_values(["UltimoAnoDRE", "InstituicaoExib", "CodInst"], ascending=[False, True, True])
+
+    def _label_instituicao_dre(nome_exib: str, codinst: int) -> str:
+        nome_str = str(nome_exib or "").strip()
+        match_if = re.fullmatch(r"\[IF\s+([A-Za-z0-9]+)\]", nome_str)
+        if match_if:
+            codigo_label = match_if.group(1)
+            codigo_sem_zero = re.sub(r"^0+", "", codigo_label) or "0"
+            if codigo_sem_zero == str(int(codinst)):
+                return f"CodInst {codigo_label}"
+        return f"{nome_str} [{codinst}]"
+
+    instituicoes_disponiveis = [
+        {
+            "codinst": int(row.CodInst),
+            "nome": str(row.Instituição),
+            "nome_exib": str(row.InstituicaoExib),
+            "ultimo_ano_dre": int(row.UltimoAnoDRE) if pd.notna(row.UltimoAnoDRE) else None,
+        }
+        for row in catalogo.itertuples(index=False)
+    ]
+    labels_instituicoes = [
+        _label_instituicao_dre(item["nome_exib"], item["codinst"])
+        for item in instituicoes_disponiveis
+    ]
+    mapa_label_instituicao = {
+        label: item for label, item in zip(labels_instituicoes, instituicoes_disponiveis)
+    }
+    default_labels = labels_instituicoes[:1]
+    selecionadas_labels = st.multiselect(
+        "Instituições individuais",
+        options=labels_instituicoes,
+        default=default_labels,
+        key="dre_individual_instituicoes",
+    )
+    if not selecionadas_labels:
+        st.warning("Selecione ao menos uma instituição individual.")
+        st.stop()
+
+    codinsts_selecionados = [mapa_label_instituicao[label]["codinst"] for label in selecionadas_labels]
+    recorte_anos = df_dre_individual_raw[df_dre_individual_raw["CodInst"].isin(codinsts_selecionados)].copy()
+    anos_disponiveis = sorted([ano for ano in recorte_anos["ano"].dropna().astype(int).unique().tolist() if ano >= DRE_ANO_EXIBICAO_INICIAL])
+    if not anos_disponiveis:
+        ano_max_selecao = None
+        if not recorte_anos.empty and recorte_anos["ano"].notna().any():
+            ano_max_selecao = int(recorte_anos["ano"].dropna().astype(int).max())
+        detalhe = (
+            f" Último ano disponível para a seleção: {ano_max_selecao}."
+            if ano_max_selecao is not None
+            else ""
+        )
+        st.warning(
+            "Não há anos publicados para as instituições selecionadas dentro da janela mínima desta aba."
+            + detalhe
+        )
+        st.stop()
+
+    visoes = ["Soma das Partes"] + selecionadas_labels
+    col_ano, col_visao = st.columns([1, 2])
+    with col_ano:
+        ano_selecionado = st.selectbox("Ano", anos_disponiveis[::-1], index=0, key="dre_individual_ano")
+    with col_visao:
+        visao_sel = st.selectbox("Visão exibida", options=visoes, index=0, key="dre_individual_visao")
+
+    if visao_sel == "Soma das Partes":
+        nome_visao = "Soma das Partes — Seleção Atual"
+        df_dre_visao = _agrupar_instituicoes(df_dre_individual_raw, codinsts_selecionados, nome_visao)
+        df_principal_visao = _agrupar_instituicoes(df_principal_individual_raw, codinsts_selecionados, nome_visao)
+        st.caption(f"Agregando {len(codinsts_selecionados)} instituições individuais selecionadas.")
+    else:
+        inst_sel = mapa_label_instituicao[visao_sel]
+        nome_visao = inst_sel["nome_exib"]
+        cod_sel = inst_sel["codinst"]
+        df_dre_visao = df_dre_individual_raw[df_dre_individual_raw["CodInst"] == cod_sel].copy()
+        df_principal_visao = df_principal_individual_raw[df_principal_individual_raw["CodInst"] == cod_sel].copy()
+        st.caption(f"Instituição individual: {inst_sel['nome']} (CodInst {cod_sel}).")
+
+    df_ytd_base, dre_msg_visao, df_base, df_valores = _build_dre_base_from_df(df_dre_visao)
+    if df_ytd_base.empty:
+        detalhe = f" ({dre_msg_visao})" if dre_msg_visao else ""
+        st.warning(f"Não foi possível montar a DRE para a visão selecionada.{detalhe}")
+        st.stop()
+
+    mapping_entries = load_dre_mapping_individual()
+    _labels_ratio_dre = {
+        "Desp PDD / Resultado Intermediação Fin. Bruto",
+        "Desp Captação / Captação",
+    }
+    mapping_entries_ordenado = [e for e in mapping_entries if e.get("label") not in _labels_ratio_dre] + [e for e in mapping_entries if e.get("label") in _labels_ratio_dre]
+    for _entry in mapping_entries_ordenado:
+        if _entry.get("label") in _labels_ratio_dre:
+            _entry["is_ratio_footer"] = True
+    formato_por_label = {entry["label"]: entry.get("format", "num") for entry in mapping_entries_ordenado}
+    dre_cosif_map = load_dre_cosif_mapping()
+    cosif_desc_pdf_map = load_cosif_pdf_description_map()
+    tooltip_por_label = {}
+    entradas_com_label = []
+    for entry in mapping_entries_ordenado:
+        fonte_original = entry.get("original_label")
+        fontes = [fonte_original] if fonte_original else entry.get("sources", [])
+        fontes_fmt = ", ".join([f for f in fontes if f])
+        tooltip_parts = []
+        if entry.get("concept"):
+            tooltip_parts.append(entry["concept"])
+        if entry.get("derived_metric"):
+            formula = DERIVED_METRICS_FORMULAS.get(entry["label"])
+            if formula:
+                tooltip_parts.append(f"Fórmula: {formula}")
+        if fontes_fmt:
+            tooltip_parts.append(f"Denominação IFData: {fontes_fmt}")
+            tooltip_parts.append(f"Fontes: {fontes_fmt}")
+        cosif_info = dre_cosif_map.get(entry["label"])
+        if cosif_info:
+            if cosif_info.get("ifdata_label"):
+                tooltip_parts.append(f"IFData (reconciliação): {cosif_info['ifdata_label']}")
+            depara = cosif_info.get("depara") or []
+            if depara:
+                tooltip_parts.append("De-para COSIF (conta → descrição):")
+                for item_depara in depara:
+                    conta = str(item_depara.get("account") or "").strip()
+                    desc = str(item_depara.get("description") or "").strip()
+                    desc_pdf = cosif_desc_pdf_map.get(normalize_cosif_code_digits(conta), "") if conta else ""
+                    desc_final = desc_pdf or desc
+                    if conta and desc_final:
+                        tooltip_parts.append(f"[{conta}] {desc_final}")
+                    elif conta:
+                        tooltip_parts.append(f"[{conta}]")
+            if cosif_info.get("formula"):
+                tooltip_parts.append(cosif_info["formula"])
+            if cosif_info.get("status"):
+                tooltip_parts.append(f"Status do mapeamento: {cosif_info['status']}")
+        tooltip_por_label[entry["label"]] = "\n".join(tooltip_parts)
+        entrada_copy = entry.copy()
+        entrada_copy["label_exib"] = entry["label"]
+        entradas_com_label.append(entrada_copy)
+
+    df_filtrado = df_ytd_base[df_ytd_base["ano"] == int(ano_selecionado)].copy()
+    if df_filtrado.empty:
+        st.warning("Não há dados DRE para o ano selecionado.")
+        st.stop()
+    df_filtrado_base = df_filtrado.copy()
+
+    tooltip_celula = {}
+    try:
+        df_derived_view, _ = build_derived_metrics(df_dre_visao.copy(), df_principal_visao.copy())
+    except Exception:
+        df_derived_view = pd.DataFrame()
+    if not df_derived_view.empty:
+        df_derived_view = df_derived_view.rename(columns={"Métrica": "Label", "Valor": "valor", "Instituição": "Instituicao", "Período": "Periodo"})
+        df_derived_view["Periodo"] = df_derived_view["Periodo"].astype(str)
+        df_derived_view[["ano", "mes"]] = extrair_ano_mes_periodo(df_derived_view["Periodo"])
+        df_derived_view["ytd"] = pd.to_numeric(df_derived_view["valor"], errors="coerce")
+        df_derived_view = compute_yoy(df_derived_view)
+        df_derived_view["PeriodoExib"] = df_derived_view["Periodo"].apply(periodo_para_exibicao)
+        df_derived_view = (
+            df_derived_view[df_derived_view["ano"] == int(ano_selecionado)]
+            .sort_values(["Label", "ano", "mes", "Periodo"], na_position="last")
+            .drop_duplicates(subset=["Label", "Periodo"], keep="last")
+        )
+        df_filtrado = pd.concat([df_filtrado, df_derived_view], ignore_index=True)
+
+        if not df_base.empty:
+            _df_calc_base = df_base[df_base["ano"] == int(ano_selecionado)].copy()
+            if not _df_calc_base.empty:
+                _df_calc_base["Periodo"] = _df_calc_base["Periodo"].astype(str)
+                _df_calc_base["PeriodoExib"] = _df_calc_base["Periodo"].apply(periodo_para_exibicao)
+                _colunas_calculo = [
+                    "Resultado com Perda Esperada (f)",
+                    "Rendas de Operações de Crédito (c)",
+                    "Rendas de Arrendamento Financeiro (d)",
+                    "Rendas de Outras Operações com Características de Concessão de Crédito (e)",
+                    "Rendas de Aplicações Interfinanceiras de Liquidez (a)",
+                    "Rendas de Títulos e Valores Mobiliários (b)",
+                    "Despesas de Captações (g)",
+                ]
+                for _col in [c for c in _colunas_calculo if c in _df_calc_base.columns]:
+                    _df_calc_base[_col] = pd.to_numeric(_df_calc_base[_col], errors="coerce")
+                df_principal_calc = df_principal_visao.copy()
+                if "Captações" in df_principal_calc.columns:
+                    df_principal_calc["Captações"] = pd.to_numeric(df_principal_calc["Captações"], errors="coerce")
+                def _fmt_mm_tip(_v):
+                    if pd.isna(_v):
+                        return "—"
+                    return formatar_valor_br(_v)
+                for _, _r in _df_calc_base.iterrows():
+                    _periodo_exib = _r.get("PeriodoExib")
+                    if not _periodo_exib:
+                        continue
+                    _mes_periodo = _r.get("mes", pd.NA)
+                    _mes_periodo = int(_mes_periodo) if pd.notna(_mes_periodo) and _mes_periodo else None
+                    _fator_anual = (12 / _mes_periodo) if _mes_periodo else None
+                    _desp_pdd = pd.to_numeric(_r.get("Resultado com Perda Esperada (f)"), errors="coerce")
+                    _rec_cred = pd.to_numeric(_r.get("Rendas de Operações de Crédito (c)"), errors="coerce")
+                    _rec_arr = pd.to_numeric(_r.get("Rendas de Arrendamento Financeiro (d)"), errors="coerce")
+                    _rec_out = pd.to_numeric(_r.get("Rendas de Outras Operações com Características de Concessão de Crédito (e)"), errors="coerce")
+                    _rec_liq = pd.to_numeric(_r.get("Rendas de Aplicações Interfinanceiras de Liquidez (a)"), errors="coerce")
+                    _rec_tvm = pd.to_numeric(_r.get("Rendas de Títulos e Valores Mobiliários (b)"), errors="coerce")
+                    _desp_capt_periodo = pd.to_numeric(_r.get("Despesas de Captações (g)"), errors="coerce")
+                    _desp_capt = _desp_capt_periodo
+                    _desp_capt_jun = pd.NA
+                    if _mes_periodo in (9, 12):
+                        _jun_series = pd.to_numeric(_df_calc_base.loc[_df_calc_base["mes"] == 6, "Despesas de Captações (g)"], errors="coerce")
+                        _desp_capt_jun = _jun_series.iloc[-1] if not _jun_series.empty else pd.NA
+                        if pd.notna(_desp_capt_jun) and pd.notna(_desp_capt_periodo):
+                            _desp_capt = _desp_capt_jun + _desp_capt_periodo
+                    _interm = _rec_liq + _rec_tvm + _rec_cred + _rec_arr + _rec_out if all(pd.notna(v) for v in [_rec_liq, _rec_tvm, _rec_cred, _rec_arr, _rec_out]) else pd.NA
+                    _desp_capt_anual = _desp_capt * _fator_anual if pd.notna(_desp_capt) and _fator_anual else pd.NA
+                    _cap = pd.NA
+                    _per = str(_r.get("Periodo") or "").strip()
+                    if _per and not df_principal_calc.empty:
+                        _m_cap = df_principal_calc[df_principal_calc["Período"].astype(str) == _per]
+                        if not _m_cap.empty and "Captações" in _m_cap.columns:
+                            _cap = _m_cap["Captações"].iloc[0]
+                    _ratio_pdd_interm = (_desp_pdd / _interm) if pd.notna(_desp_pdd) and pd.notna(_interm) and _interm != 0 else pd.NA
+                    _ratio_capt = (_desp_capt_anual / _cap) if pd.notna(_desp_capt_anual) and pd.notna(_cap) and _cap != 0 else pd.NA
+                    tooltip_celula[("Desp PDD / Resultado Intermediação Fin. Bruto", _periodo_exib)] = (
+                        f"Memória de cálculo\n"
+                        f"Desp. PDD: {_fmt_mm_tip(_desp_pdd)}\n"
+                        f"Resultado Interm. Fin. Bruto = Rec. AIL ({_fmt_mm_tip(_rec_liq)}) + Rec. TVM ({_fmt_mm_tip(_rec_tvm)}) + Rec. Crédito ({_fmt_mm_tip(_rec_cred)}) + Rec. Arrendamento ({_fmt_mm_tip(_rec_arr)}) + Rec. Outras Op. Crédito ({_fmt_mm_tip(_rec_out)}) = {_fmt_mm_tip(_interm)}\n"
+                        f"Desp PDD / Resultado Interm. Fin. Bruto = {_fmt_mm_tip(_desp_pdd)} ÷ {_fmt_mm_tip(_interm)} = {formatar_percentual(_ratio_pdd_interm, decimais=2)}"
+                    )
+                    _fator_txt = f"12/{_mes_periodo}" if _mes_periodo else "12/mes"
+                    _desp_capt_memoria = _fmt_mm_tip(_desp_capt)
+                    if _mes_periodo in (9, 12):
+                        _desp_capt_memoria = f"{_fmt_mm_tip(_desp_capt_jun)} + {_fmt_mm_tip(_desp_capt_periodo)} = {_fmt_mm_tip(_desp_capt)}"
+                    tooltip_celula[("Desp Captação / Captação", _periodo_exib)] = (
+                        f"Memória de cálculo\n"
+                        f"Desp. Captação (YTD): {_desp_capt_memoria}\n"
+                        f"Desp. Captação anualizada = {_fmt_mm_tip(_desp_capt)} × ({_fator_txt}) = {_fmt_mm_tip(_desp_capt_anual)}\n"
+                        f"Captações: {_fmt_mm_tip(_cap)}\n"
+                        f"Desp Captação / Captação = {_fmt_mm_tip(_desp_capt_anual)} ÷ {_fmt_mm_tip(_cap)} = {formatar_percentual(_ratio_capt, decimais=2)}"
+                    )
+
+    meses_com_publicacao = (
+        df_filtrado_base.loc[df_filtrado_base["ytd"].notna(), "mes"]
+        .dropna()
+        .astype(int)
+        .unique()
+        .tolist()
+    )
+    if int(ano_selecionado) == DRE_ANO_EXIBICAO_INICIAL:
+        meses_com_publicacao = [m for m in meses_com_publicacao if m >= DRE_MES_EXIBICAO_INICIAL]
+    meses_ordenados = sorted([m for m in meses_com_publicacao if m in [3, 6, 9, 12]], reverse=True)
+    periodos_disponiveis = [periodo_para_exibicao(f"{int(mes/3)}/{ano_selecionado}") for mes in meses_ordenados]
+    if not periodos_disponiveis:
+        st.warning("Não há períodos publicados para os filtros selecionados.")
+        st.stop()
+
+    render_table_like_carteira_4966(df_filtrado, entradas_com_label, periodos_disponiveis, formato_por_label, tooltip_por_label, tooltip_celula)
+
+    st.markdown("#### Exportar DRE Individual (layout da tabela)")
+    DRE_GLOSSARIO_LABEL_ALIAS = {"Lucro Líquido Período Acumulado": "Lucro Líquido Período"}
+    def _montar_glossario_export_rows():
+        rows = []
+        mapa_entries = {e.get("label"): e for e in mapping_entries_ordenado if e.get("label")}
+        all_accounts = []
+        for entry in mapping_entries_ordenado:
+            label_export = entry["label"]
+            label_lookup = DRE_GLOSSARIO_LABEL_ALIAS.get(label_export, label_export)
+            cosif_info = dre_cosif_map.get(label_lookup, {})
+            for item_depara in (cosif_info.get("depara") or []):
+                conta = str(item_depara.get("account") or "").strip()
+                if conta:
+                    all_accounts.append(conta)
+        cosif_metadata_map = load_cosif_metadata_batch_cached(tuple(sorted(set(all_accounts))))
+        for ordem, entry in enumerate(mapping_entries_ordenado, start=1):
+            label_export = entry["label"]
+            label_lookup = DRE_GLOSSARIO_LABEL_ALIAS.get(label_export, label_export)
+            cosif_info = dre_cosif_map.get(label_lookup, {})
+            depara = cosif_info.get("depara") or []
+            contas = []
+            descricoes = []
+            for item_depara in depara:
+                conta = str(item_depara.get("account") or "").strip()
+                desc = str(item_depara.get("description") or "").strip()
+                desc_pdf = cosif_desc_pdf_map.get(normalize_cosif_code_digits(conta), "") if conta else ""
+                desc_final = desc_pdf or desc
+                if conta:
+                    contas.append(f"[{conta}]")
+                if desc_final:
+                    descricoes.append(desc_final)
+            ifdata_ref = str(cosif_info.get("ifdata_label") or "").strip() or str(entry.get("original_label") or "").strip() or "N/D"
+            nivel = "Principal"
+            if entry.get("is_child"):
+                nivel = "Filho"
+            elif entry.get("is_ratio_footer"):
+                nivel = "Rodapé (ratio)"
+            status_mapeamento = str(cosif_info.get("status") or "").strip() or ("mapeado" if depara else "não mapeado")
+            rows.append({
+                "Ordem": ordem,
+                "Nível": nivel,
+                "Linha DRE": label_export,
+                "Referência IFData": ifdata_ref,
+                "Contas COSIF": " | ".join(contas) if contas else "N/D",
+                "Descrição COSIF": " | ".join(descricoes) if descricoes else "N/D",
+                "Fórmula COSIF": str(cosif_info.get("formula") or "").strip() or "N/D",
+                "Título": "",
+                "Função": "",
+                "Base normativa": "",
+                "Status Mapeamento": status_mapeamento,
+            })
+            for item_depara in depara:
+                conta = str(item_depara.get("account") or "").strip()
+                if not conta:
+                    continue
+                desc = str(item_depara.get("description") or "").strip()
+                desc_pdf = cosif_desc_pdf_map.get(normalize_cosif_code_digits(conta), "") if conta else ""
+                desc_final = desc_pdf or desc
+                meta = cosif_metadata_map.get(normalize_cosif_code_digits(conta), {}) if cosif_metadata_map else {}
+                conta_cosif_formatada = ""
+                try:
+                    conta_cosif_formatada = ifdata_to_cosif_code(conta)
+                except Exception:
+                    conta_cosif_formatada = ""
+                rows.append({
+                    "Ordem": ordem,
+                    "Nível": "Filho COSIF",
+                    "Linha DRE": f"↳ [{conta}]",
+                    "Referência IFData": ifdata_ref,
+                    "Contas COSIF": f"[{conta}]" + (f" ({conta_cosif_formatada})" if conta_cosif_formatada else ""),
+                    "Descrição COSIF": desc_final or "N/D",
+                    "Fórmula COSIF": "N/D",
+                    "Título": str(meta.get("titulo") or "").strip() or (desc_final or "N/D"),
+                    "Função": str(meta.get("funcao") or "").strip() or "N/D",
+                    "Base normativa": str(meta.get("base_normativa") or "").strip(),
+                    "Status Mapeamento": "metadata_ok" if str(meta.get("source_status") or "") == "ok" else "metadata_pendente",
+                })
+        return rows
+
+    buffer_excel = BytesIO()
+    with pd.ExcelWriter(buffer_excel, engine="xlsxwriter") as writer:
+        workbook = writer.book
+        worksheet = workbook.add_worksheet("DRE Individual")
+        writer.sheets["DRE Individual"] = worksheet
+        fmt_head_dark = workbook.add_format({"bold": True, "font_color": "white", "bg_color": "#111111", "align": "center", "valign": "vcenter", "border": 1})
+        fmt_head_mid = workbook.add_format({"bold": True, "font_color": "white", "bg_color": "#6E6E6E", "align": "center", "valign": "vcenter", "border": 1})
+        fmt_item = workbook.add_format({"align": "left", "valign": "vcenter", "border": 1})
+        fmt_item_child = workbook.add_format({"align": "left", "valign": "vcenter", "border": 1, "indent": 1})
+        fmt_num = workbook.add_format({"align": "right", "valign": "vcenter", "border": 1, "num_format": "#,##0"})
+        fmt_pct = workbook.add_format({"align": "right", "valign": "vcenter", "border": 1, "num_format": "0.00%"})
+        worksheet.merge_range(0, 0, 1, 0, "Item", fmt_head_dark)
+        for idx, periodo in enumerate(periodos_disponiveis):
+            col_idx = 1 + idx
+            worksheet.write(0, col_idx, periodo, fmt_head_dark)
+            worksheet.write(1, col_idx, "YTD", fmt_head_mid)
+        row_idx = 2
+        for entry in entradas_com_label:
+            label = entry["label"]
+            worksheet.write(row_idx, 0, entry.get("label_exib", label), fmt_item_child if entry.get("is_child") else fmt_item)
+            for idx, periodo in enumerate(periodos_disponiveis):
+                cell = df_filtrado[(df_filtrado["Label"] == label) & (df_filtrado["PeriodoExib"] == periodo)]
+                valor = pd.NA
+                yoy_val = pd.NA
+                if not cell.empty:
+                    valor = cell["ytd"].iloc[0]
+                    yoy_val = pd.to_numeric(cell["yoy"].iloc[0], errors="coerce")
+                if pd.isna(valor):
+                    worksheet.write_blank(row_idx, 1 + idx, None, fmt_num)
+                    continue
+                formato = formato_por_label.get(label, "num")
+                base_fmt = fmt_pct if formato == "pct" else fmt_num
+                if pd.notna(yoy_val):
+                    marcador = "▲" if yoy_val > 0 else "▼" if yoy_val < 0 else ""
+                    valor_exib = formatar_percentual(valor, decimais=2) if formato == "pct" else formatar_valor_br(valor)
+                    worksheet.write(row_idx, 1 + idx, f"{valor_exib} {marcador}".strip(), base_fmt)
+                else:
+                    worksheet.write_number(row_idx, 1 + idx, float(valor), base_fmt)
+            row_idx += 1
+        worksheet.set_column(0, 0, 52)
+        worksheet.set_column(1, len(periodos_disponiveis), 16)
+        worksheet.freeze_panes(2, 1)
+        ws_gloss = workbook.add_worksheet("Glossário COSIF")
+        writer.sheets["Glossário COSIF"] = ws_gloss
+        gloss_headers = ["Ordem", "Nível", "Linha DRE", "Referência IFData", "Contas COSIF", "Descrição COSIF", "Fórmula COSIF", "Título", "Função", "Base normativa", "Status Mapeamento"]
+        for col_idx, head in enumerate(gloss_headers):
+            ws_gloss.write(0, col_idx, head, fmt_head_dark)
+        gloss_rows = _montar_glossario_export_rows()
+        for row_idx_gl, row_data in enumerate(gloss_rows, start=1):
+            ws_gloss.write_number(row_idx_gl, 0, int(row_data["Ordem"]))
+            ws_gloss.write(row_idx_gl, 1, row_data["Nível"])
+            ws_gloss.write(row_idx_gl, 2, row_data["Linha DRE"])
+            ws_gloss.write(row_idx_gl, 3, row_data["Referência IFData"])
+            ws_gloss.write(row_idx_gl, 4, row_data["Contas COSIF"])
+            ws_gloss.write(row_idx_gl, 5, row_data["Descrição COSIF"])
+            ws_gloss.write(row_idx_gl, 6, row_data["Fórmula COSIF"])
+            ws_gloss.write(row_idx_gl, 7, row_data["Título"])
+            ws_gloss.write(row_idx_gl, 8, row_data["Função"])
+            ws_gloss.write(row_idx_gl, 9, row_data["Base normativa"])
+            ws_gloss.write(row_idx_gl, 10, row_data["Status Mapeamento"])
+        ws_gloss.set_column(0, 0, 8)
+        ws_gloss.set_column(1, 1, 18)
+        ws_gloss.set_column(2, 2, 50)
+        ws_gloss.set_column(3, 3, 50)
+        ws_gloss.set_column(4, 4, 45)
+        ws_gloss.set_column(5, 5, 90)
+        ws_gloss.set_column(6, 6, 55)
+        ws_gloss.set_column(7, 7, 45)
+        ws_gloss.set_column(8, 8, 80)
+        ws_gloss.set_column(9, 9, 22)
+        ws_gloss.set_column(10, 10, 22)
+        ws_gloss.freeze_panes(1, 0)
+        ws_gloss.autofilter(0, 0, max(1, len(gloss_rows)), len(gloss_headers) - 1)
+    buffer_excel.seek(0)
+    nome_arquivo = re.sub(r"[^A-Za-z0-9_\-]+", "_", nome_visao)[:80]
+    st.download_button(
+        label="Download Excel",
+        data=buffer_excel,
+        file_name=f"DRE_Individual_{nome_arquivo}_{ano_selecionado}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        key="dre_individual_download_excel"
+    )
+
+    with st.expander("Mini-glossário", expanded=False):
+        st.markdown(
+            f"""
+            <div style="font-size: 12px; color: #666; margin-top: 6px;">
+                <strong>Base BC (Rel. 4 individual):</strong> a visão de instituições individuais também é tratada aqui em acumulado do ano (YTD), recompondo set/dez com a base de junho quando necessário.<br>
+                <strong>Seleção de instituições:</strong> a seleção superior usa diretamente as instituições disponíveis no cache individual, identificadas por nome exibido e CodInst.<br>
+                <strong>Soma das Partes:</strong> a visão agregada soma as instituições individuais selecionadas antes do cálculo de YTD/YoY e das métricas derivadas.<br>
+                <strong>Cobertura COSIF atual:</strong> {len(dre_cosif_map)} linha(s) com mapeamento explícito no arquivo versionado.<br>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
 elif menu == "Carteira 4.966":
     # =========================================================================
     # ABA CARTEIRA 4.966 - Classificação de Instrumentos Financeiros (Res. 4.966)
@@ -13600,6 +14592,8 @@ elif menu == "Atualizar Base":
             "ativo": "Ativo (Rel. 2) - TODAS as variáveis",
             "passivo": "Passivo (Rel. 3) - TODAS as variáveis",
             "dre": "DRE (Rel. 4) - TODAS as variáveis",
+            "principal_individual": "Resumo Individual (Rel. 1) - variáveis selecionadas",
+            "dre_individual": "DRE Individual (Rel. 4) - TODAS as variáveis",
             "carteira_pf": "Carteira PF (Rel. 11) - TODAS as variáveis",
             "carteira_pj": "Carteira PJ (Rel. 13) - TODAS as variáveis",
             "carteira_instrumentos": "Carteira Instrumentos 4.966 (Rel. 16) - TODAS as variáveis",

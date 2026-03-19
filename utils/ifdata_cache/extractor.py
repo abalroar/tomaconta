@@ -21,11 +21,16 @@ IMPORTANTE: Este extrator produz dados no formato exato que os gráficos esperam
 """
 
 import logging
+import re
 import time
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import pandas as pd
 import requests
+from utils.ifdata_extractor import (
+    construir_mapa_codinst_multiperiodo as _construir_mapa_codinst_multiperiodo_legado,
+    resolver_nome_instituicao as _resolver_nome_instituicao_legado,
+)
 
 # Configuração de logging
 logger = logging.getLogger("ifdata_extractor")
@@ -34,7 +39,9 @@ logger = logging.getLogger("ifdata_extractor")
 # CONSTANTES DA API
 # =============================================================================
 BASE_URL = "https://olinda.bcb.gov.br/olinda/servico/IFDATA/versao/v1/odata"
-TIPO_INSTITUICAO = 1  # Conglomerados Prudenciais e Instituições Independentes
+TIPO_INSTITUICAO_PRUDENCIAL = 1
+TIPO_INSTITUICAO_INDIVIDUAL = 2
+TIPO_INSTITUICAO = TIPO_INSTITUICAO_PRUDENCIAL
 
 # Timeout e retry
 DEFAULT_TIMEOUT = 120
@@ -115,6 +122,52 @@ def _normalizar_nome_coluna(nome: str) -> str:
     # Remover espaços extras
     nome = ' '.join(nome.split())
     return nome
+
+
+def _periodo_api_anterior(periodo: str) -> Optional[str]:
+    """Retorna o trimestre anterior no formato YYYYMM."""
+    texto = str(periodo or "").strip()
+    if len(texto) != 6 or not texto.isdigit():
+        return None
+
+    ano = int(texto[:4])
+    mes = int(texto[4:6])
+    mapa_anterior = {3: (ano - 1, 12), 6: (ano, 3), 9: (ano, 6), 12: (ano, 9)}
+    if mes not in mapa_anterior:
+        return None
+    ano_ant, mes_ant = mapa_anterior[mes]
+    return f"{ano_ant}{mes_ant:02d}"
+
+
+def _resolver_nomes_instituicoes(df_pivot: pd.DataFrame, periodo: str) -> pd.DataFrame:
+    """Resolve placeholders [IF ...] usando o resolvedor legado por CodInst."""
+    if df_pivot.empty or "CodInst" not in df_pivot.columns:
+        return df_pivot
+
+    df_out = df_pivot.copy()
+    if "Instituição" not in df_out.columns:
+        df_out["Instituição"] = pd.NA
+
+    serie_nomes = df_out["Instituição"].astype(str)
+    possui_placeholders = serie_nomes.str.match(r"^\[IF\s+[A-Za-z0-9]+\]$", na=False).any()
+    possui_faltantes = df_out["Instituição"].isna().any()
+
+    if possui_placeholders or possui_faltantes:
+        periodos_ref = [p for p in [_periodo_api_anterior(periodo), periodo] if p]
+        try:
+            _construir_mapa_codinst_multiperiodo_legado(periodos_ref)
+        except Exception as exc:
+            logger.debug("Falha ao reforçar mapa legado de nomes para %s: %s", periodo, exc)
+
+    df_out["Instituição"] = df_out.apply(
+        lambda row: _resolver_nome_instituicao_legado(
+            row.get("CodInst"),
+            row.get("Instituição"),
+            periodo,
+        ),
+        axis=1,
+    )
+    return df_out
 
 
 # =============================================================================
@@ -215,7 +268,11 @@ def extrair_cadastro(periodo: str) -> pd.DataFrame:
     return df
 
 
-def extrair_valores(periodo: str, relatorio: int) -> pd.DataFrame:
+def extrair_valores(
+    periodo: str,
+    relatorio: int,
+    tipo_instituicao: int = TIPO_INSTITUICAO,
+) -> pd.DataFrame:
     """Extrai valores de um relatório específico.
 
     Args:
@@ -228,7 +285,7 @@ def extrair_valores(periodo: str, relatorio: int) -> pd.DataFrame:
     url = (
         f"{BASE_URL}/IfDataValores("
         f"AnoMes={int(periodo)},"
-        f"TipoInstituicao={TIPO_INSTITUICAO},"
+        f"TipoInstituicao={int(tipo_instituicao)},"
         f"Relatorio='{relatorio}'"
         f")?$format=json&$top=500000"
     )
@@ -290,7 +347,9 @@ def periodo_exibicao_para_api(periodo_exib: str) -> str:
 # =============================================================================
 def extrair_resumo(
     periodo: str,
-    dict_aliases: Optional[Dict[str, str]] = None
+    dict_aliases: Optional[Dict[str, str]] = None,
+    tipo_instituicao: int = TIPO_INSTITUICAO,
+    manter_codinst: bool = False,
 ) -> Optional[pd.DataFrame]:
     """Extrai dados do Relatório 1 (Resumo) no formato dos gráficos.
 
@@ -310,7 +369,7 @@ def extrair_resumo(
 
     # 1. Extrair cadastro e valores
     df_cad = extrair_cadastro(periodo)
-    df_val = extrair_valores(periodo, relatorio=1)
+    df_val = extrair_valores(periodo, relatorio=1, tipo_instituicao=tipo_instituicao)
 
     if df_val.empty:
         logger.warning(f"Sem dados para Resumo {periodo}")
@@ -364,6 +423,7 @@ def extrair_resumo(
             else f"[IF {row['CodInst']}]",
             axis=1
         )
+    df_pivot = _resolver_nomes_instituicoes(df_pivot, periodo)
 
     # 7. Aplicar aliases
     if dict_aliases:
@@ -377,12 +437,14 @@ def extrair_resumo(
     # 9. Calcular métricas derivadas
     df_pivot = _calcular_metricas_derivadas(df_pivot, periodo)
 
-    # 10. Remover CodInst (não usado nos gráficos)
-    if "CodInst" in df_pivot.columns:
+    # 10. Remover CodInst quando não for necessário preservar chave estável
+    if not manter_codinst and "CodInst" in df_pivot.columns:
         df_pivot = df_pivot.drop(columns=["CodInst"])
 
     # 11. Reordenar colunas
     cols_inicio = ["Instituição", "Período"]
+    if "CodInst" in df_pivot.columns:
+        cols_inicio = ["CodInst"] + cols_inicio
     outras_cols = sorted([c for c in df_pivot.columns if c not in cols_inicio])
     df_pivot = df_pivot[cols_inicio + outras_cols]
 
@@ -532,6 +594,7 @@ def extrair_capital(
 
     if "Instituição" not in df_pivot.columns:
         df_pivot["Instituição"] = df_pivot["CodInst"].apply(lambda x: f"[IF {x}]")
+    df_pivot = _resolver_nomes_instituicoes(df_pivot, periodo)
 
     # Aplicar aliases
     if dict_aliases:
@@ -572,7 +635,9 @@ def extrair_capital(
 def extrair_relatorio_completo(
     periodo: str,
     relatorio: int,
-    dict_aliases: Optional[Dict[str, str]] = None
+    dict_aliases: Optional[Dict[str, str]] = None,
+    tipo_instituicao: int = TIPO_INSTITUICAO,
+    manter_codinst: bool = False,
 ) -> Optional[pd.DataFrame]:
     """Extrai TODAS as variáveis de um relatório.
 
@@ -589,7 +654,7 @@ def extrair_relatorio_completo(
     logger.info(f"Extraindo {nome_rel.get(relatorio, f'Rel.{relatorio}')} para {periodo}...")
 
     df_cad = extrair_cadastro(periodo)
-    df_val = extrair_valores(periodo, relatorio)
+    df_val = extrair_valores(periodo, relatorio, tipo_instituicao=tipo_instituicao)
 
     if df_val.empty:
         logger.warning(f"Sem dados para relatório {relatorio}, período {periodo}")
@@ -622,6 +687,7 @@ def extrair_relatorio_completo(
 
     if "Instituição" not in df_pivot.columns:
         df_pivot["Instituição"] = df_pivot["CodInst"].apply(lambda x: f"[IF {x}]")
+    df_pivot = _resolver_nomes_instituicoes(df_pivot, periodo)
 
     # Aplicar aliases
     if dict_aliases:
@@ -632,12 +698,14 @@ def extrair_relatorio_completo(
     # Adicionar período
     df_pivot["Período"] = periodo_api_para_exibicao(periodo)
 
-    # Remover CodInst
-    if "CodInst" in df_pivot.columns:
+    # Remover CodInst quando não for necessário preservar chave estável
+    if not manter_codinst and "CodInst" in df_pivot.columns:
         df_pivot = df_pivot.drop(columns=["CodInst"])
 
     # Reordenar
     cols_inicio = ["Instituição", "Período"]
+    if "CodInst" in df_pivot.columns:
+        cols_inicio = ["CodInst"] + cols_inicio
     outras_cols = sorted([c for c in df_pivot.columns if c not in cols_inicio])
     df_pivot = df_pivot[cols_inicio + outras_cols]
 

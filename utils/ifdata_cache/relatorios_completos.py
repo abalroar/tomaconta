@@ -42,9 +42,18 @@ class RelatorioCompletoCache(BaseCache):
     - Todas as variáveis do relatório
     """
 
-    def __init__(self, config: CacheConfig, base_dir: Path, relatorio_num: int):
+    def __init__(
+        self,
+        config: CacheConfig,
+        base_dir: Path,
+        relatorio_num: int,
+        tipo_instituicao: int = 1,
+        manter_codinst: bool = False,
+    ):
         super().__init__(config, base_dir)
         self.relatorio_num = relatorio_num
+        self.tipo_instituicao = tipo_instituicao
+        self.manter_codinst = manter_codinst
 
         release_repo = os.getenv("TOMACONTA_RELEASE_REPO", "abalroar/tomaconta")
         raw_repo = os.getenv("TOMACONTA_RAW_REPO", "abalroar/tomaconta-dev")
@@ -229,7 +238,13 @@ class RelatorioCompletoCache(BaseCache):
             # Usar extrator autônomo
             from .extractor import extrair_relatorio_completo
 
-            df = extrair_relatorio_completo(periodo, self.relatorio_num, dict_aliases)
+            df = extrair_relatorio_completo(
+                periodo,
+                self.relatorio_num,
+                dict_aliases,
+                tipo_instituicao=self.tipo_instituicao,
+                manter_codinst=self.manter_codinst,
+            )
 
             if df is None or df.empty:
                 return CacheResult(
@@ -374,6 +389,19 @@ DRE_CONFIG = CacheConfig(
     relatorio_tipo=4,
 )
 
+DRE_INDIVIDUAL_CONFIG = CacheConfig(
+    nome="dre_individual",
+    descricao="Demonstração de Resultado do Exercício - instituições individuais (Relatório 4)",
+    subdir="dre_individual",
+    arquivo_dados="dados.parquet",
+    arquivo_metadata="metadata.json",
+    github_url_base="https://github.com/abalroar/tomaconta/releases/download/v1.0-cache",
+    max_idade_horas=168.0,
+    colunas_obrigatorias=["Período"],
+    api_url="https://olinda.bcb.gov.br/olinda/servico/IFDATA/versao/v1/odata",
+    relatorio_tipo=4,
+)
+
 # Relatório 11: Carteira PF
 CARTEIRA_PF_CONFIG = CacheConfig(
     nome="carteira_pf",
@@ -440,6 +468,19 @@ class DRECache(RelatorioCompletoCache):
 
     def __init__(self, base_dir: Path):
         super().__init__(DRE_CONFIG, base_dir, relatorio_num=4)
+
+
+class DREIndividualCache(RelatorioCompletoCache):
+    """Cache de DRE para instituições individuais (Relatório 4)."""
+
+    def __init__(self, base_dir: Path):
+        super().__init__(
+            DRE_INDIVIDUAL_CONFIG,
+            base_dir,
+            relatorio_num=4,
+            tipo_instituicao=2,
+            manter_codinst=True,
+        )
 
 
 class CarteiraPFCache(RelatorioCompletoCache):
