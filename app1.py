@@ -5577,32 +5577,131 @@ def _snapshot_capital_indices_por_periodo(
     return cet1, basileia
 
 
-def _snapshot_delta_ui(metrica_cfg: dict, valor_atual, valor_base) -> tuple[str, str]:
-    """Retorna direção (▲/▼/•) e semáforo visual (🟢/🔴/⚪) conforme regra da métrica."""
+def _snapshot_delta_ui(metrica_cfg: dict, valor_atual, valor_base) -> str:
+    """Retorna o indicador visual HTML de melhora/piora/estabilidade da métrica."""
     if (
         valor_atual is None or valor_base is None
         or pd.isna(valor_atual) or pd.isna(valor_base)
     ):
-        return "•", "⚪"
+        return '<span class="snapshot-direction snapshot-direction--neutral">—</span>'
 
     atual_f = float(valor_atual)
     base_f = float(valor_base)
     if atual_f > base_f:
-        seta = "▲"
+        direcao = "up"
     elif atual_f < base_f:
-        seta = "▼"
+        direcao = "down"
     else:
-        seta = "•"
+        direcao = "neutral"
 
-    if seta == "•":
-        return seta, "⚪"
+    if direcao == "neutral":
+        return '<span class="snapshot-direction snapshot-direction--neutral">—</span>'
 
     regra_sobe_bom = bool(metrica_cfg.get("higher_is_better", True))
-    melhorou = (seta == "▲" and regra_sobe_bom) or (seta == "▼" and not regra_sobe_bom)
-    return seta, ("🟢" if melhorou else "🔴")
+    melhorou = (direcao == "up" and regra_sobe_bom) or (direcao == "down" and not regra_sobe_bom)
+    classe = "snapshot-direction--positive" if melhorou else "snapshot-direction--negative"
+    simbolo = "↑" if melhorou else "↓"
+    return f'<span class="snapshot-direction {classe}">{simbolo}</span>'
 
 
 def pagina_snapshot():
+    st.markdown(
+        """
+        <style>
+        .snapshot-section-label {
+            margin: 0 0 0.35rem 0;
+            color: #1f77b4;
+            font-size: 0.7rem;
+            font-weight: 500 !important;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .snapshot-divider {
+            border: 0;
+            border-top: 1px solid #e9ecef;
+            margin: 0 0 1rem 0;
+        }
+
+        .snapshot-direction-wrap {
+            margin: 0.45rem 0 0.9rem 0;
+            line-height: 1;
+        }
+
+        .snapshot-direction {
+            display: inline-block;
+            font-size: 1rem;
+            font-weight: 500 !important;
+        }
+
+        .snapshot-direction--positive {
+            color: #28a745;
+        }
+
+        .snapshot-direction--negative {
+            color: #dc3545;
+        }
+
+        .snapshot-direction--neutral {
+            color: #adb5bd;
+        }
+
+        .snapshot-section-spacer {
+            margin-bottom: 1.5rem;
+        }
+
+        div[data-testid="stMetric"] {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 10px;
+            border: 1px solid #e9ecef;
+            border-top: 2px solid #1f77b4;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+        }
+
+        [data-testid="stHorizontalBlock"] {
+            gap: 0.75rem;
+        }
+
+        [data-testid="stMetricLabel"] p,
+        [data-testid="stMetricValue"] {
+            font-family: 'IBM Plex Sans', sans-serif !important;
+        }
+
+        @media (max-width: 640px) {
+            [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
+                flex: 1 1 100% !important;
+                min-width: 100% !important;
+            }
+
+            div[data-baseweb="select"] {
+                width: 100% !important;
+            }
+
+            .stSelectbox {
+                width: 100% !important;
+            }
+
+            div[data-testid="stMetricValue"] {
+                font-size: 1.6rem !important;
+            }
+
+            div[data-testid="stMetric"] {
+                padding: 10px !important;
+            }
+
+            [data-testid="stMetricLabel"] p,
+            [data-testid="stMetricValue"] {
+                min-height: 44px;
+                display: flex;
+                align-items: center;
+            }
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
     t0 = time.perf_counter()
     if not _garantir_dados_principais("Snapshot"):
         st.info("carregando dados automaticamente do github...")
@@ -5628,6 +5727,14 @@ def pagina_snapshot():
     periodo_anterior_qoq = _periodo_trimestre_anterior(periodo_atual, periodos_banco)
     periodo_anterior_yoy = _periodo_ano_anterior(periodo_atual)
     periodo_yoy_existente = next((p for p in periodos_banco if periodo_anterior_yoy and _periodos_equivalentes(p, periodo_anterior_yoy)), None)
+
+    periodo_contexto = [
+        f"Período atual: {periodo_para_exibicao(periodo_atual)}",
+        f"QoQ: {periodo_para_exibicao(periodo_anterior_qoq) if periodo_anterior_qoq else '—'}",
+    ]
+    if periodo_yoy_existente:
+        periodo_contexto.append(f"YoY: {periodo_para_exibicao(periodo_yoy_existente)}")
+    st.caption(" · ".join(periodo_contexto))
 
     periodos_snapshot = [p for p in [periodo_atual, periodo_anterior_qoq, periodo_yoy_existente] if p]
     periodos_snapshot = list(dict.fromkeys(periodos_snapshot))
@@ -5728,7 +5835,13 @@ def pagina_snapshot():
     ]
 
     for sec in snapshot_layout:
-        st.markdown(f"#### {sec['section']}")
+        st.markdown(
+            f"""
+            <div class="snapshot-section-label">{sec['section']}</div>
+            <hr class="snapshot-divider">
+            """,
+            unsafe_allow_html=True,
+        )
         row_cols = []
         chunk = []
         for row in sec["rows"]:
@@ -5751,11 +5864,11 @@ def pagina_snapshot():
 
                     valor_atual_fmt = _formatar_valor_snapshot(row, valor_atual)
                     valor_base_fmt = _formatar_valor_snapshot(row, valor_base)
-                    seta, semaforo = _snapshot_delta_ui(row, valor_atual, valor_base)
+                    indicador_html = _snapshot_delta_ui(row, valor_atual, valor_base)
 
-                    periodo_base_txt = periodo_para_exibicao(periodo_base) if periodo_base else "--"
-                    base_txt = valor_base_fmt if (valor_base is not None and not pd.isna(valor_base)) else "--"
-                    delta_txt = f"{semaforo} {seta} {periodo_base_txt}: {base_txt}"
+                    periodo_base_txt = periodo_para_exibicao(periodo_base) if periodo_base else "—"
+                    base_txt = valor_base_fmt if (valor_base is not None and not pd.isna(valor_base)) else "—"
+                    delta_txt = f"{periodo_base_txt}: {base_txt}"
 
                     st.metric(
                         label=row.get("label", "Métrica"),
@@ -5763,32 +5876,17 @@ def pagina_snapshot():
                         delta=delta_txt,
                         delta_color="off",
                     )
-                    st.caption(f"Atual: {periodo_para_exibicao(periodo_atual)}")
+                    st.markdown(
+                        f'<div class="snapshot-direction-wrap">{indicador_html}</div>',
+                        unsafe_allow_html=True,
+                    )
 
-    st.caption(
-        "Semáforo Snapshot: 🟢 melhora | 🔴 piora | ⚪ sem base/estável. "
-        "Ex.: Crédito/Captações: subir é pior (mais alavancagem de funding)."
-    )
+        st.markdown('<div class="snapshot-section-spacer"></div>', unsafe_allow_html=True)
 
-    with st.expander("Mini-glossário técnico (lógica de melhora/piora)", expanded=False):
-        st.markdown(
-            """
-            - **Ativo Total (🟢 quando sobe):** crescimento de balanço indica ganho de escala e capacidade de geração de receita, desde que acompanhado de qualidade de ativos.
-            - **Carteira de Crédito (🟢 quando sobe):** expansão da carteira tende a elevar receitas de intermediação; risco aumenta se crescer sem funding/capital compatíveis.
-            - **Captações (🟢 quando sobe):** reforça base de funding para sustentar crédito e liquidez.
-            - **Patrimônio Líquido (🟢 quando sobe):** maior colchão de absorção de perdas, menor fragilidade a choques.
-            - **Crédito / Captações (🟢 quando cai):** queda reduz alavancagem de funding; alta pode sinalizar pressão de captação para sustentar carteira.
-            - **Desp. Captação / Captações (🟢 quando cai):** custo médio de funding menor melhora margem financeira e eficiência do passivo.
-            - **Estágio 3 / Carteira (🟢 quando cai):** menor proporção de ativos problemáticos, sinal de melhor qualidade de crédito.
-            - **PDD / Estágio 3 (🟢 quando sobe):** maior cobertura prudencial para perdas esperadas no book deteriorado.
-            - **Lucro Líquido Trimestral e YTD (🟢 quando sobem):** melhora de performance recorrente e geração interna de capital.
-            - **CET1 e Basileia (🟢 quando sobem):** maior folga regulatória e resiliência de capital frente ao risco ponderado.
-            """
-        )
+    st.caption("Lógica de melhora/piora disponível no Glossário.")
 
     tempo_render = time.perf_counter() - t_render
     tempo_total = time.perf_counter() - t0
-    st.caption(f"Snapshot carregado em {tempo_total:.2f}s (dados: {tempo_dados:.2f}s | render: {tempo_render:.2f}s)")
 
 
 def _gerar_imagem_peers_tabela(
