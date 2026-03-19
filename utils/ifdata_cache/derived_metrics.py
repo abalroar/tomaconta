@@ -76,6 +76,17 @@ DERIVED_CACHE_CONFIG = CacheConfig(
     colunas_obrigatorias=["Instituição", "Período", "Métrica", "Valor"],
 )
 
+DERIVED_INDIVIDUAL_CACHE_CONFIG = CacheConfig(
+    nome="derived_metrics_individual",
+    descricao="Métricas derivadas (DRE individual + Resumo individual)",
+    subdir="derived_metrics_individual",
+    arquivo_dados="dados.parquet",
+    arquivo_metadata="metadata.json",
+    github_url_base=None,
+    max_idade_horas=None,
+    colunas_obrigatorias=["Instituição", "Período", "Métrica", "Valor"],
+)
+
 
 class DerivedMetricsCache(BaseCache):
     """Cache dedicado para métricas derivadas."""
@@ -93,6 +104,13 @@ class DerivedMetricsCache(BaseCache):
         from .base import CacheResult
 
         return CacheResult(sucesso=False, mensagem=mensagem, fonte="nenhum")
+
+
+class DerivedMetricsIndividualCache(DerivedMetricsCache):
+    """Cache dedicado para métricas derivadas da base individual."""
+
+    def __init__(self, base_dir: Path):
+        BaseCache.__init__(self, DERIVED_INDIVIDUAL_CACHE_CONFIG, base_dir)
 
 
 @dataclass

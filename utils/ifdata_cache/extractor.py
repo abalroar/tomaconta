@@ -34,7 +34,9 @@ logger = logging.getLogger("ifdata_extractor")
 # CONSTANTES DA API
 # =============================================================================
 BASE_URL = "https://olinda.bcb.gov.br/olinda/servico/IFDATA/versao/v1/odata"
-TIPO_INSTITUICAO = 1  # Conglomerados Prudenciais e Instituições Independentes
+TIPO_INSTITUICAO_PRUDENCIAL = 1
+TIPO_INSTITUICAO_INDIVIDUAL = 2
+TIPO_INSTITUICAO = TIPO_INSTITUICAO_PRUDENCIAL
 
 # Timeout e retry
 DEFAULT_TIMEOUT = 120
@@ -215,7 +217,11 @@ def extrair_cadastro(periodo: str) -> pd.DataFrame:
     return df
 
 
-def extrair_valores(periodo: str, relatorio: int) -> pd.DataFrame:
+def extrair_valores(
+    periodo: str,
+    relatorio: int,
+    tipo_instituicao: int = TIPO_INSTITUICAO,
+) -> pd.DataFrame:
     """Extrai valores de um relatório específico.
 
     Args:
@@ -228,7 +234,7 @@ def extrair_valores(periodo: str, relatorio: int) -> pd.DataFrame:
     url = (
         f"{BASE_URL}/IfDataValores("
         f"AnoMes={int(periodo)},"
-        f"TipoInstituicao={TIPO_INSTITUICAO},"
+        f"TipoInstituicao={int(tipo_instituicao)},"
         f"Relatorio='{relatorio}'"
         f")?$format=json&$top=500000"
     )
@@ -290,7 +296,9 @@ def periodo_exibicao_para_api(periodo_exib: str) -> str:
 # =============================================================================
 def extrair_resumo(
     periodo: str,
-    dict_aliases: Optional[Dict[str, str]] = None
+    dict_aliases: Optional[Dict[str, str]] = None,
+    tipo_instituicao: int = TIPO_INSTITUICAO,
+    manter_codinst: bool = False,
 ) -> Optional[pd.DataFrame]:
     """Extrai dados do Relatório 1 (Resumo) no formato dos gráficos.
 
@@ -310,7 +318,7 @@ def extrair_resumo(
 
     # 1. Extrair cadastro e valores
     df_cad = extrair_cadastro(periodo)
-    df_val = extrair_valores(periodo, relatorio=1)
+    df_val = extrair_valores(periodo, relatorio=1, tipo_instituicao=tipo_instituicao)
 
     if df_val.empty:
         logger.warning(f"Sem dados para Resumo {periodo}")
@@ -377,12 +385,14 @@ def extrair_resumo(
     # 9. Calcular métricas derivadas
     df_pivot = _calcular_metricas_derivadas(df_pivot, periodo)
 
-    # 10. Remover CodInst (não usado nos gráficos)
-    if "CodInst" in df_pivot.columns:
+    # 10. Remover CodInst quando não for necessário preservar chave estável
+    if not manter_codinst and "CodInst" in df_pivot.columns:
         df_pivot = df_pivot.drop(columns=["CodInst"])
 
     # 11. Reordenar colunas
     cols_inicio = ["Instituição", "Período"]
+    if "CodInst" in df_pivot.columns:
+        cols_inicio = ["CodInst"] + cols_inicio
     outras_cols = sorted([c for c in df_pivot.columns if c not in cols_inicio])
     df_pivot = df_pivot[cols_inicio + outras_cols]
 
@@ -572,7 +582,9 @@ def extrair_capital(
 def extrair_relatorio_completo(
     periodo: str,
     relatorio: int,
-    dict_aliases: Optional[Dict[str, str]] = None
+    dict_aliases: Optional[Dict[str, str]] = None,
+    tipo_instituicao: int = TIPO_INSTITUICAO,
+    manter_codinst: bool = False,
 ) -> Optional[pd.DataFrame]:
     """Extrai TODAS as variáveis de um relatório.
 
@@ -589,7 +601,7 @@ def extrair_relatorio_completo(
     logger.info(f"Extraindo {nome_rel.get(relatorio, f'Rel.{relatorio}')} para {periodo}...")
 
     df_cad = extrair_cadastro(periodo)
-    df_val = extrair_valores(periodo, relatorio)
+    df_val = extrair_valores(periodo, relatorio, tipo_instituicao=tipo_instituicao)
 
     if df_val.empty:
         logger.warning(f"Sem dados para relatório {relatorio}, período {periodo}")
@@ -632,12 +644,14 @@ def extrair_relatorio_completo(
     # Adicionar período
     df_pivot["Período"] = periodo_api_para_exibicao(periodo)
 
-    # Remover CodInst
-    if "CodInst" in df_pivot.columns:
+    # Remover CodInst quando não for necessário preservar chave estável
+    if not manter_codinst and "CodInst" in df_pivot.columns:
         df_pivot = df_pivot.drop(columns=["CodInst"])
 
     # Reordenar
     cols_inicio = ["Instituição", "Período"]
+    if "CodInst" in df_pivot.columns:
+        cols_inicio = ["CodInst"] + cols_inicio
     outras_cols = sorted([c for c in df_pivot.columns if c not in cols_inicio])
     df_pivot = df_pivot[cols_inicio + outras_cols]
 
