@@ -7321,6 +7321,7 @@ MENU_PRINCIPAL = [
     "Scatter Plot",
     "DRE",
     "DRE Individual",
+    "DRE (Ind. e Congl.)",
     "Carteira 4.966",
     "Taxas de Juros por Produto",
     "Crie sua métrica!",
@@ -7537,6 +7538,19 @@ with st.sidebar:
             on_click=_nav_para_menu,
             args=("Atualizar Base",),
         )
+
+if "dre_consolidada_tipo_visualizacao" not in st.session_state:
+    st.session_state["dre_consolidada_tipo_visualizacao"] = "Conglomerado prudencial"
+dre_consolidada_tipo = st.session_state.get("dre_consolidada_tipo_visualizacao", "Conglomerado prudencial")
+if menu == "DRE (Ind. e Congl.)":
+    st.markdown("### DRE (Ind. e Congl.)")
+    st.caption("Selecione a visualização abaixo para acessar exatamente a experiência atual de conglomerado prudencial ou DRE individual.")
+    dre_consolidada_tipo = st.segmented_control(
+        "Tipo de visualização",
+        options=["Conglomerado prudencial", "DRE Individual"],
+        key="dre_consolidada_tipo_visualizacao",
+    )
+    st.markdown("---")
 
 if menu == "Sobre":
     st.markdown("""
@@ -10850,7 +10864,7 @@ elif menu == "Contribuições FGC/FGCoop":
                             use_container_width=True,
                         )
 
-elif menu == "DRE":
+elif menu == "DRE" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo == "Conglomerado prudencial"):
     st.markdown("### Demonstração de Resultado (DRE)")
     st.caption("Tabela DRE a partir de Mar/25, com marcadores ▲/▼ (quando há base comparável no ano anterior) em relação ao mesmo período acumulado")
 
@@ -12209,7 +12223,7 @@ elif menu == "DRE":
                 unsafe_allow_html=True,
             )
 
-elif menu == "DRE Individual":
+elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo == "DRE Individual"):
     st.markdown("### Demonstração de Resultado (DRE Individual)")
     st.caption("Visão por instituições individuais do IFData, com seleção direta por instituição e análise de soma das partes.")
 
