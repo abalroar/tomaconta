@@ -6972,6 +6972,29 @@ def obter_cor_banco(instituicao):
             return st.session_state['dict_cores_personalizadas'][instituicao_norm]
     return None
 
+
+ITAU_BBA_COLOR_SEQUENCE = [
+    "#111111",  # preto
+    "#ff5a00",  # laranja
+    "#6E6E6E",  # cinza
+    "#3F3F3F",  # grafite suave
+    "#C9864A",  # laranja queimado discreto
+    "#9B9B9B",  # cinza claro
+    "#595959",  # chumbo intermediário
+    "#E2A06C",  # laranja claro discreto
+]
+
+
+def _mapear_cores_itau_bba(chaves: list[str]) -> dict[str, str]:
+    """Mapeia uma lista ordenada de chaves para a paleta Itaú BBA."""
+    chaves_validas = [str(chave) for chave in chaves if chave is not None]
+    if not chaves_validas:
+        return {}
+    return {
+        chave: ITAU_BBA_COLOR_SEQUENCE[idx % len(ITAU_BBA_COLOR_SEQUENCE)]
+        for idx, chave in enumerate(chaves_validas)
+    }
+
 def criar_mini_grafico(df_banco, variavel, titulo, tipo='linha'):
     df_sorted = df_banco.copy()
     if 'ano' not in df_sorted.columns:
@@ -10050,6 +10073,9 @@ elif menu == "Rankings":
                                     'Instituição': ordem_instituicoes,
                                     'Período Label': [periodo_para_exibicao(p) for p in periodos_resumo],
                                 },
+                                color_discrete_map=_mapear_cores_itau_bba(
+                                    [periodo_para_exibicao(p) for p in periodos_resumo]
+                                ),
                                 custom_data=['Período Label', 'Ranking', 'Valor'],
                             )
                             fig_resumo.update_traces(
@@ -10339,7 +10365,8 @@ elif menu == "Rankings":
 
                         insts = [d['instituicao'] for d in dados_grafico]
                         valores_plot = [d['valor_plot'] for d in dados_grafico]
-                        cores_barras = ['#2E7D32' if d['delta'] > 0 else '#7B1E3A' for d in dados_grafico]
+                        cores_delta_map = _mapear_cores_itau_bba(insts)
+                        cores_barras = [cores_delta_map.get(inst, ITAU_BBA_COLOR_SEQUENCE[0]) for inst in insts]
 
                         if tipo_variacao == "Δ %":
                             if _delta_percentual_em_bps(coluna_variavel):
@@ -10427,6 +10454,7 @@ elif menu == "Rankings":
                             if not df_hist.empty and variavel in df_hist.columns:
                                 format_hist = get_axis_format(variavel)
                                 fig_hist = go.Figure()
+                                cores_hist_map = _mapear_cores_itau_bba(bancos_selecionados_delta)
                                 for instituicao in bancos_selecionados_delta:
                                     df_banco = df_hist[df_hist['Instituição'] == instituicao].copy()
                                     if df_banco.empty:
@@ -10435,7 +10463,7 @@ elif menu == "Rankings":
                                     df_banco['trimestre'] = df_banco['Período'].str.split('/').str[0].astype(int)
                                     df_banco = df_banco.sort_values(['ano', 'trimestre'])
                                     y_values = df_banco[variavel] * format_hist['multiplicador']
-                                    cor_banco = obter_cor_banco(instituicao) or None
+                                    cor_banco = cores_hist_map.get(instituicao, ITAU_BBA_COLOR_SEQUENCE[0])
 
                                     if variavel == 'Lucro Líquido Acumulado YTD':
                                         fig_hist.add_trace(go.Bar(
@@ -10461,9 +10489,9 @@ elif menu == "Rankings":
                                                 y=y_vals,
                                                 measure=medida,
                                                 name=instituicao,
-                                                increasing={'marker': {'color': '#2E7D32'}},
-                                                decreasing={'marker': {'color': '#C62828'}},
-                                                totals={'marker': {'color': '#1f77b4'}},
+                                                increasing={'marker': {'color': cor_banco}},
+                                                decreasing={'marker': {'color': cor_banco}},
+                                                totals={'marker': {'color': cor_banco}},
                                                 customdata=[[instituicao]] * len(x_w),
                                                 hovertemplate='<b>%{customdata[0]}</b><br>%{x}<br>%{y:,.0f}MM<extra></extra>'
                                             ))
