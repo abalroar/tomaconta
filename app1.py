@@ -9968,6 +9968,12 @@ elif menu == "Rankings":
                         format_info = get_axis_format(indicador_col)
                         if indicador_label == "Índice de Capital Principal (CET1)":
                             format_info = {**format_info, 'tickformat': '.2f'}
+                        usar_data_labels = st.toggle(
+                            "ligar data labels",
+                            value=False,
+                            key="ranking_abs_data_labels_toggle",
+                            help="Mostra rótulos fixos nas barras com formatação de unidade adequada.",
+                        )
 
                         def formatar_numero(valor, fmt_info, incluir_sinal=False, variavel_ref: Optional[str] = None):
                             _ = variavel_ref
@@ -9981,6 +9987,27 @@ elif menu == "Rankings":
                             if incluir_sinal and valor_display > 0:
                                 valor_formatado = f"+{valor_formatado}"
                             return f"{valor_formatado}{fmt_info['ticksuffix']}"
+
+                        def formatar_data_label(valor_display: float, variavel_ref: str, fmt_info: dict) -> str:
+                            if valor_display is None or pd.isna(valor_display):
+                                return ""
+                            valor = float(valor_display)
+                            suffix = fmt_info.get("ticksuffix", "")
+                            if variavel_ref in VARS_MOEDAS:
+                                abs_mm = abs(valor)
+                                if abs_mm >= 1000:
+                                    return f"R$ {valor/1000:.1f} bi"
+                                if abs_mm >= 100:
+                                    return f"R$ {valor:,.0f} MM".replace(",", ".")
+                                return f"R$ {valor:,.1f} MM".replace(",", ".")
+                            if suffix == "%":
+                                casas = 1 if abs(valor) >= 10 else 2
+                                return f"{valor:.{casas}f}%"
+                            if suffix == "x":
+                                return f"{valor:.2f}x"
+                            if suffix:
+                                return f"{valor:{fmt_info['tickformat']}}{suffix}"
+                            return f"{valor:{fmt_info['tickformat']}}"
 
                         df_ranking_plot = pd.DataFrame()
 
@@ -10037,6 +10064,9 @@ elif menu == "Rankings":
                             df_ranking_plot['Valor'] = df_ranking_plot['valor_display'].map(
                                 lambda v: formatar_numero(v, format_info, variavel_ref=indicador_col)
                             )
+                            df_ranking_plot['Data Label'] = df_ranking_plot['valor_display'].map(
+                                lambda v: formatar_data_label(v, indicador_col, format_info)
+                            )
                             df_ranking_plot['Período Label'] = pd.Categorical(
                                 df_ranking_plot['Período'].map(periodo_para_exibicao),
                                 categories=[periodo_para_exibicao(p) for p in periodos_resumo],
@@ -10076,6 +10106,7 @@ elif menu == "Rankings":
                                 color_discrete_map=_mapear_cores_itau_bba(
                                     [periodo_para_exibicao(p) for p in periodos_resumo]
                                 ),
+                                text='Data Label' if usar_data_labels else None,
                                 custom_data=['Período Label', 'Ranking', 'Valor'],
                             )
                             fig_resumo.update_traces(
@@ -10086,6 +10117,69 @@ elif menu == "Rankings":
                                     "Ranking no período: %{customdata[1]}<extra></extra>"
                                 )
                             )
+                            if usar_data_labels:
+                                fig_resumo.update_traces(
+                                    textposition="outside",
+                                    cliponaxis=False,
+                                    textfont=dict(size=10, color="#2a2a2a"),
+                                )
+
+                            # Médias de referência: sempre período mais recente selecionado.
+                            df_ref_sel = df_ranking_plot[df_ranking_plot['Período'] == periodo_referencia_ranking].copy()
+                            media_sel = pd.to_numeric(df_ref_sel["valor_display"], errors="coerce").dropna().mean()
+
+                            if indicador_label == "Índice de Basileia (%)":
+                                media_sfn = np.nan
+                                df_capital_base_media = _preparar_df_capital_base()
+                                if not df_capital_base_media.empty and periodo_referencia_ranking:
+                                    colunas_cap_media, _, _, _ = _mapear_colunas_capital(df_capital_base_media)
+                                    df_cap_media_ref, _ = _calcular_basileia_periodo(
+                                        df_capital_base_media,
+                                        periodo_referencia_ranking,
+                                        colunas_cap_media,
+                                    )
+                                    if not df_cap_media_ref.empty:
+                                        serie_sfn = _calcular_valores_display(
+                                            pd.to_numeric(df_cap_media_ref['Índice de Basileia Total (%)'], errors='coerce'),
+                                            indicador_col,
+                                            format_info,
+                                        )
+                                        media_sfn = pd.to_numeric(serie_sfn, errors="coerce").dropna().mean()
+                            else:
+                                df_sfn_ref = df[df['Período'] == periodo_referencia_ranking].copy()
+                                serie_raw_sfn = (
+                                    pd.to_numeric(df_sfn_ref[indicador_col], errors="coerce")
+                                    if indicador_col in df_sfn_ref.columns
+                                    else pd.Series(dtype="float64")
+                                )
+                                serie_sfn = _calcular_valores_display(serie_raw_sfn, indicador_col, format_info)
+                                media_sfn = pd.to_numeric(serie_sfn, errors="coerce").dropna().mean()
+
+                            categorias_x = ordem_instituicoes
+                            if pd.notna(media_sel):
+                                fig_resumo.add_trace(go.Scatter(
+                                    x=categorias_x,
+                                    y=[float(media_sel)] * len(categorias_x),
+                                    mode='lines',
+                                    name=f"Média nomes selecionados ({periodo_para_exibicao(periodo_referencia_ranking)})",
+                                    line=dict(color='#111111', width=2, dash='dash'),
+                                    hovertemplate=f"Média nomes selecionados: {formatar_numero(media_sel, format_info, variavel_ref=indicador_col)}<extra></extra>",
+                                ))
+                            if pd.notna(media_sfn):
+                                fig_resumo.add_trace(go.Scatter(
+                                    x=categorias_x,
+                                    y=[float(media_sfn)] * len(categorias_x),
+                                    mode='lines',
+                                    name=f"Média total SFN ({periodo_para_exibicao(periodo_referencia_ranking)})",
+                                    line=dict(color='#ff5a00', width=2, dash='dash'),
+                                    hovertemplate=f"Média total SFN: {formatar_numero(media_sfn, format_info, variavel_ref=indicador_col)}<extra></extra>",
+                                ))
+
+                            if usar_data_labels:
+                                y_max = pd.to_numeric(df_ranking_plot['valor_display'], errors='coerce').max()
+                                if pd.notna(y_max):
+                                    fig_resumo.update_yaxes(range=[None, float(y_max) * 1.14 if y_max > 0 else None])
+
                             fig_resumo.update_layout(
                                 title=(
                                     f"{indicador_label} - {periodo_para_exibicao(periodo_referencia_ranking)}"
@@ -10112,6 +10206,21 @@ elif menu == "Rankings":
                                 config={'displayModeBar': 'hover', 'displaylogo': False}
                             )
 
+                            df_medias_ref = pd.DataFrame([
+                                {
+                                    "Período de Referência": periodo_para_exibicao(periodo_referencia_ranking),
+                                    "Métrica": "Média nomes selecionados",
+                                    "Valor": formatar_numero(media_sel, format_info, variavel_ref=indicador_col) if pd.notna(media_sel) else "N/A",
+                                },
+                                {
+                                    "Período de Referência": periodo_para_exibicao(periodo_referencia_ranking),
+                                    "Métrica": "Média total SFN",
+                                    "Valor": formatar_numero(media_sfn, format_info, variavel_ref=indicador_col) if pd.notna(media_sfn) else "N/A",
+                                },
+                            ])
+                            st.markdown("#### médias de referência (período mais recente)")
+                            st.dataframe(df_medias_ref, use_container_width=True, hide_index=True)
+
                             df_tabela = pd.DataFrame({'Instituição': ordem_instituicoes})
                             for periodo_sel in periodos_resumo:
                                 periodo_label = periodo_para_exibicao(periodo_sel)
@@ -10130,6 +10239,7 @@ elif menu == "Rankings":
                             buffer_excel = BytesIO()
                             with pd.ExcelWriter(buffer_excel, engine='xlsxwriter') as writer:
                                 df_tabela.to_excel(writer, index=False, sheet_name='ranking_absoluto')
+                                df_medias_ref.to_excel(writer, index=False, sheet_name='medias_referencia')
                             buffer_excel.seek(0)
 
                             col_export_a, col_export_b = st.columns(2)
