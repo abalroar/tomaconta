@@ -9917,8 +9917,8 @@ elif menu == "Rankings":
                     bancos_todos = ordenar_bancos_com_alias(bancos_todos, dict_aliases)
 
                     pool_label = st.radio(
-                        "pool pré-definido",
-                        ["Top 10", "Top 5", "Top 20", "Manual"],
+                        "Top N Bancos",
+                        ["Top 5", "Top 10", "Top 20", "Manual"],
                         index=0,
                         key="ranking_pool_resumo",
                     )
