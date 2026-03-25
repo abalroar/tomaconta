@@ -9919,7 +9919,7 @@ elif menu == "Rankings":
                 pool_base = st.selectbox(
                     "pool base",
                     ["Top 5", "Top 10", "Top 20", "Manual"],
-                    index=0,
+                    index=1,
                     key="ranking_pool_base_v2"
                 )
                 top_map = {"Top 5": 5, "Top 10": 10, "Top 20": 20}
