@@ -9391,7 +9391,7 @@ elif menu == "Scatter Plot":
         st.markdown("---")
         st.markdown("#### Scatter Plot t=2")
         st.caption("Visualize a movimentação dos bancos entre dois períodos")
-        mostrar_labels_scatter_n2 = st.toggle("data labels t=2", value=False, key="scatter_labels_t2")
+        mostrar_labels_scatter_n2 = st.toggle("data labels", value=False, key="scatter_labels_t2")
 
         # Seletores para os dois períodos
         col_p1, col_p2, col_p3, col_p4 = st.columns(4)
@@ -9787,7 +9787,7 @@ elif menu == "Rankings":
                 'ROE Ac. Anualizado (%)': '(LL YTD × fator de anualização) ÷ PL Médio.\nPL Médio = (PL período + PL Dez anterior) / 2.\nFatores: Mar=4×, Jun=2×, Set≈1,33×, Dez=1×.',
             }
 
-            col_periodo, col_indicador, col_info, col_media = st.columns([1.2, 2, 0.25, 1.8])
+            col_periodo, col_indicador, col_media = st.columns([1.2, 1.9, 1.5])
             with col_periodo:
                 _idx_periodo_rank = 0
                 _p_set25 = _encontrar_periodo(periodos, 3, 2025)
@@ -9806,15 +9806,6 @@ elif menu == "Rankings":
                     indicadores_ordenados,
                     key="indicador_resumo"
                 )
-            with col_info:
-                st.markdown("<div style='margin-top:1.65rem'></div>", unsafe_allow_html=True)
-                with st.popover("ℹ️", use_container_width=True):
-                    _def = _RANKINGS_GLOSSARIO.get(indicador_label)
-                    if _def:
-                        st.markdown(f"**{indicador_label}**")
-                        st.markdown(_def)
-                    else:
-                        st.caption("definição não disponível — consulte o Glossário.")
             with col_media:
                 tipo_media_label = st.selectbox(
                     "ponderar média por",
@@ -9823,8 +9814,11 @@ elif menu == "Rankings":
                     key="tipo_media_resumo"
                 )
                 coluna_peso_resumo = VARIAVEIS_PONDERACAO[tipo_media_label]
-
-            col_bancos = st.columns([1])[0]
+            _def = _RANKINGS_GLOSSARIO.get(indicador_label)
+            if _def:
+                st.caption(f"info — {indicador_label}: {_def}")
+            else:
+                st.caption("info — definição não disponível; consulte o Glossário.")
 
             df_periodo = df[df['Período'] == periodo_resumo].copy()
 
@@ -9835,6 +9829,7 @@ elif menu == "Rankings":
             indicador_col = indicadores_disponiveis[indicador_label]
 
             _default_bancos_rank = _encontrar_bancos_default(bancos_todos)
+            col_bancos, col_ordem, col_sort = st.columns([2.2, 1.15, 1.45])
             with col_bancos:
                 bancos_selecionados = st.multiselect(
                     "selecionar instituições (até 40)",
@@ -9843,8 +9838,6 @@ elif menu == "Rankings":
                     key="bancos_resumo",
                     max_selections=40
                 )
-
-            col_ordem, col_sort = st.columns([1.4, 1.8])
             with col_ordem:
                 direcao_top = st.radio(
                     "ordem",
@@ -10120,7 +10113,7 @@ elif menu == "Rankings":
 
                         n_bancos = len(df_selecionado)
                         orientacao_horizontal = n_bancos > 15
-                        altura_grafico = max(650, n_bancos * 24) if orientacao_horizontal else 650
+                        altura_grafico = max(760, n_bancos * 30) if orientacao_horizontal else 760
 
                         cores_plotly = px.colors.qualitative.Plotly
                         cores_barras = []
@@ -10191,7 +10184,8 @@ elif menu == "Rankings":
                                 tickformat=format_info['tickformat'] if not orientacao_horizontal else None,
                                 ticksuffix=format_info['ticksuffix'] if not orientacao_horizontal else None
                             ),
-                            font=dict(family='IBM Plex Sans')
+                            font=dict(family='IBM Plex Sans'),
+                            margin=dict(l=40, r=20, t=90, b=120 if not orientacao_horizontal else 60)
                         )
 
                         st.plotly_chart(fig_resumo, width='stretch', config={'displayModeBar': 'hover', 'displaylogo': False})
