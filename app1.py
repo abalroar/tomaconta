@@ -9871,7 +9871,7 @@ elif menu == "Rankings":
                 'ROE Ac. Anualizado (%)': '(LL YTD × fator de anualização) ÷ PL Médio.\nPL Médio = (PL período + PL Dez anterior) / 2.\nFatores: Mar=4×, Jun=2×, Set≈1,33×, Dez=1×.',
             }
 
-            col_periodo, col_indicador, col_media, col_info = st.columns([1.15, 1.7, 1.5, 0.4])
+            col_periodo, col_indicador, col_media = st.columns([1.2, 1.9, 1.5])
             with col_periodo:
                 _idx_periodo_rank = 0
                 _p_set25 = _encontrar_periodo(periodos, 3, 2025)
@@ -9898,16 +9898,11 @@ elif menu == "Rankings":
                     key="tipo_media_resumo"
                 )
                 coluna_peso_resumo = VARIAVEIS_PONDERACAO[tipo_media_label]
-            # Mantém popover exatamente no bloco da coluna para evitar erro de indentação em deploy.
-            with col_info:
-                st.markdown("<div style='margin-top:1.65rem'></div>", unsafe_allow_html=True)
-                with st.popover("ℹ️ definição do indicador", use_container_width=True):
-                    _def = _RANKINGS_GLOSSARIO.get(indicador_label)
-                    if _def:
-                        st.markdown(f"**{indicador_label}**")
-                        st.markdown(_def)
-                    else:
-                        st.caption("definição não disponível — consulte o Glossário.")
+            _def = _RANKINGS_GLOSSARIO.get(indicador_label)
+            if _def:
+                st.caption(f"info — {indicador_label}: {_def}")
+            else:
+                st.caption("info — definição não disponível; consulte o Glossário.")
 
             df_periodo = df[df['Período'] == periodo_resumo].copy()
 
