@@ -10224,15 +10224,22 @@ elif menu == "Rankings":
                                 df_plot = df_plot.sort_values(["Instituição", "Período"])
 
                             fig_resumo = go.Figure()
+                            casas_labels = _casas_decimais_unicas(df_plot["valor_display"].tolist(), casas_iniciais=1)
+                            sufixo = format_info.get('ticksuffix', '')
                             for idx_p, p in enumerate(periodo_resumo):
                                 dfx = df_plot[df_plot["Período"] == p].copy()
                                 if dfx.empty:
                                     continue
+                                textos_labels = dfx["valor_display"].apply(
+                                    lambda v: _formatar_br(v, casas_labels, sufixo)
+                                )
                                 fig_resumo.add_trace(go.Bar(
                                     x=dfx["Instituição"],
                                     y=dfx["valor_display"],
                                     name=periodo_para_exibicao(p),
                                     marker=dict(color=paleta_itau_bba[idx_p % len(paleta_itau_bba)], opacity=0.88),
+                                    text=textos_labels if mostrar_data_labels else None,
+                                    textposition='auto',
                                     hovertemplate="<b>%{x}</b><br>Período: " + f"{periodo_para_exibicao(p)}" + "<br>Valor: %{y:,.2f}<extra></extra>"
                                 ))
 
@@ -10257,7 +10264,6 @@ elif menu == "Rankings":
                             colunas_periodo = [c for c in tabela_wide.columns if c != "Instituição"]
                             mapa_colunas = {c: formatar_periodo_mm_yyyy(c) for c in colunas_periodo}
                             tabela_wide = tabela_wide.rename(columns=mapa_colunas)
-                            casas_labels = _casas_decimais_unicas(df_plot["valor_display"].tolist(), casas_iniciais=1)
                             for col_fmt in [c for c in tabela_wide.columns if c != "Instituição"]:
                                 tabela_wide[col_fmt] = tabela_wide[col_fmt].apply(
                                     lambda v: _formatar_br(v, casas_labels, format_info.get('ticksuffix', ''))
