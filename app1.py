@@ -9890,6 +9890,7 @@ elif menu == "Rankings":
                     indicadores_ordenados,
                     key="indicador_resumo"
                 )
+            # Mantém popover no mesmo nível de indentação das colunas para evitar erro de parsing em deploy.
             with col_info:
                 st.markdown("<div style='margin-top:1.65rem'></div>", unsafe_allow_html=True)
                 with st.popover("ℹ️", use_container_width=True):
