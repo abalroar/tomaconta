@@ -9472,7 +9472,7 @@ elif menu == "Scatter Plot":
         st.markdown("---")
         st.markdown("#### Scatter Plot t=2")
         st.caption("Visualize a movimentação dos bancos entre dois períodos")
-        mostrar_labels_scatter_n2 = st.toggle("data labels t=2", value=False, key="scatter_labels_t2")
+        mostrar_labels_scatter_n2 = st.toggle("data labels", value=False, key="scatter_labels_t2")
 
         # Seletores para os dois períodos
         col_p1, col_p2, col_p3, col_p4 = st.columns(4)
@@ -9871,32 +9871,44 @@ elif menu == "Rankings":
                 'ROE Ac. Anualizado (%)': '(LL YTD × fator de anualização) ÷ PL Médio.\nPL Médio = (PL período + PL Dez anterior) / 2.\nFatores: Mar=4×, Jun=2×, Set≈1,33×, Dez=1×.',
             }
 
-            if grafico_base == "Ranking":
-                col_filtros, col_visualizacao = st.columns([1.15, 2.35], gap="large")
+            col_periodo, col_indicador, col_media, col_info = st.columns([1.15, 1.7, 1.5, 0.25])
+            with col_periodo:
+                _idx_periodo_rank = 0
+                _p_set25 = _encontrar_periodo(periodos, 3, 2025)
+                if _p_set25 and _p_set25 in periodos:
+                    _idx_periodo_rank = periodos.index(_p_set25)
+                periodo_resumo = st.selectbox(
+                    "período",
+                    periodos,
+                    index=_idx_periodo_rank,
+                    key="periodo_resumo",
+                    format_func=periodo_para_exibicao
+                )
+            with col_indicador:
+                indicador_label = st.selectbox(
+                    "indicador",
+                    indicadores_ordenados,
+                    key="indicador_resumo"
+                )
+            with col_info:
+                st.markdown("<div style='margin-top:1.65rem'></div>", unsafe_allow_html=True)
+                with st.popover("ℹ️", use_container_width=True):
+                    _def = _RANKINGS_GLOSSARIO.get(indicador_label)
+                    if _def:
+                        st.markdown(f"**{indicador_label}**")
+                        st.markdown(_def)
+                    else:
+                        st.caption("definição não disponível — consulte o Glossário.")
+            with col_media:
+                tipo_media_label = st.selectbox(
+                    "ponderar média por",
+                    list(VARIAVEIS_PONDERACAO.keys()),
+                    index=0,
+                    key="tipo_media_resumo"
+                )
+                coluna_peso_resumo = VARIAVEIS_PONDERACAO[tipo_media_label]
 
-                with col_filtros:
-                    st.markdown("#### filtros")
-                    _p_set25 = _encontrar_periodo(periodos, 3, 2025)
-                    _default_periodos_rank = []
-                    if _p_set25 and _p_set25 in periodos:
-                        _default_periodos_rank = [_p_set25]
-                    elif periodos:
-                        _default_periodos_rank = [periodos[0]]
-
-                    periodos_resumo = st.multiselect(
-                        "períodos",
-                        periodos,
-                        default=_default_periodos_rank,
-                        key="periodos_resumo_mult",
-                        format_func=periodo_para_exibicao,
-                    )
-                    periodos_resumo = ordenar_periodos(periodos_resumo, reverso=True)
-
-                    indicador_label = st.selectbox(
-                        "indicador",
-                        indicadores_ordenados,
-                        key="indicador_resumo_abs"
-                    )
+            df_periodo = df[df['Período'] == periodo_resumo].copy()
 
                     with st.popover("ℹ️ definição do indicador", use_container_width=True):
                         _def = _RANKINGS_GLOSSARIO.get(indicador_label)
@@ -9923,26 +9935,30 @@ elif menu == "Rankings":
                         key="ranking_pool_resumo",
                     )
 
-                    top_n_pool = {"Top 5": 5, "Top 10": 10, "Top 20": 20}.get(pool_label)
-                    bancos_pool = (
-                        _obter_top_instituicoes_por_ativo(df_periodo_referencia, top_n_pool)
-                        if top_n_pool is not None
-                        else []
-                    )
-                    bancos_pool = ordenar_bancos_com_alias(bancos_pool, dict_aliases)
-
-                    pool_signature = (
-                        pool_label,
-                        periodo_referencia_ranking,
-                        tuple(bancos_todos),
-                    )
-                    if st.session_state.get("_ranking_pool_signature") != pool_signature:
-                        if pool_label == "Manual":
-                            bancos_default = _encontrar_bancos_default(bancos_todos)
-                        else:
-                            bancos_default = bancos_pool
-                        st.session_state["bancos_resumo"] = bancos_default
-                        st.session_state["_ranking_pool_signature"] = pool_signature
+            _default_bancos_rank = _encontrar_bancos_default(bancos_todos)
+            col_bancos, col_ordem, col_sort = st.columns([2.2, 1.15, 1.45])
+            with col_bancos:
+                bancos_selecionados = st.multiselect(
+                    "selecionar instituições (até 40)",
+                    bancos_todos,
+                    default=_default_bancos_rank,
+                    key="bancos_resumo",
+                    max_selections=40
+                )
+            with col_ordem:
+                direcao_top = st.radio(
+                    "ordem",
+                    ["Maior → Menor", "Menor → Maior"],
+                    horizontal=True,
+                    key="ordem_resumo"
+                )
+            with col_sort:
+                modo_ordenacao = st.radio(
+                    "ordenação",
+                    ["Ordenar por valor", "Manter ordem de seleção"],
+                    horizontal=True,
+                    key="ordenacao_resumo"
+                )
 
                     bancos_selecionados = st.multiselect(
                         "selecionar instituições",
@@ -10268,40 +10284,115 @@ elif menu == "Rankings":
                                         key="exportar_grafico_png_ranking_abs",
                                         use_container_width=True,
                                     )
-            else:
-                col_periodo, col_indicador, col_info, col_media = st.columns([1.2, 2, 0.25, 1.8])
-                with col_periodo:
-                    _idx_periodo_rank = 0
-                    _p_set25 = _encontrar_periodo(periodos, 3, 2025)
-                    if _p_set25 and _p_set25 in periodos:
-                        _idx_periodo_rank = periodos.index(_p_set25)
-                    periodo_resumo = st.selectbox(
-                        "período",
-                        periodos,
-                        index=_idx_periodo_rank,
-                        key="periodo_resumo",
-                        format_func=periodo_para_exibicao
-                    )
-                with col_indicador:
-                    indicador_label = st.selectbox(
-                        "indicador",
-                        indicadores_ordenados,
-                        key="indicador_resumo"
-                    )
-                with col_info:
-                    st.markdown("<div style='margin-top:1.65rem'></div>", unsafe_allow_html=True)
-                    with st.popover("ℹ️", use_container_width=True):
-                        _def = _RANKINGS_GLOSSARIO.get(indicador_label)
-                        if _def:
-                            st.markdown(f"**{indicador_label}**")
-                            st.markdown(_def)
+                else:
+                    if df_selecionado.empty:
+                        st.info("selecione instituições ou ajuste os filtros para visualizar o ranking.")
+                    else:
+                        df_selecionado['valor_display'] = _calcular_valores_display(
+                            df_selecionado[indicador_col],
+                            indicador_col,
+                            format_info,
+                        )
+                        media_display = calcular_media_ponderada(df_selecionado, 'valor_display', coluna_peso_resumo)
+                        label_media = get_label_media(coluna_peso_resumo)
+
+                        if modo_ordenacao == "Ordenar por valor":
+                            ordenar_asc = direcao_top == "Menor → Maior"
+                            df_selecionado = df_selecionado.sort_values('valor_display', ascending=ordenar_asc)
+                        elif bancos_selecionados:
+                            ordem = bancos_selecionados
+                            df_selecionado['ordem'] = pd.Categorical(df_selecionado['Instituição'], categories=ordem, ordered=True)
+                            df_selecionado = df_selecionado.sort_values('ordem')
+
+                        df_selecionado['ranking'] = df_selecionado['valor_display'].rank(method='first', ascending=False).astype(int)
+                        df_selecionado['diff_media'] = df_selecionado['valor_display'] - media_display
+
+                        if media_display and media_display != 0:
+                            df_selecionado['diff_pct'] = (df_selecionado['valor_display'] / media_display - 1) * 100
+                            df_selecionado['diff_pct_text'] = df_selecionado['diff_pct'].map(lambda v: f"{v:.1f}%")
+                        else:
+                            df_selecionado['diff_pct_text'] = "N/A"
+
+                        df_selecionado['valor_text'] = df_selecionado['valor_display'].map(
+                            lambda v: formatar_numero(v, format_info, variavel_ref=indicador_col)
+                        )
+                        df_selecionado['diff_text'] = df_selecionado['diff_media'].map(
+                            lambda v: formatar_numero(v, format_info, incluir_sinal=True, variavel_ref=indicador_col)
+                        )
+
+                        n_bancos = len(df_selecionado)
+                        orientacao_horizontal = n_bancos > 15
+                        altura_grafico = max(760, n_bancos * 30) if orientacao_horizontal else 760
+
+                        cores_plotly = px.colors.qualitative.Plotly
+                        cores_barras = []
+                        idx_cor = 0
+                        for banco in df_selecionado['Instituição']:
+                            cor = obter_cor_banco(banco)
+                            if not cor:
+                                cor = cores_plotly[idx_cor % len(cores_plotly)]
+                                idx_cor += 1
+                            cores_barras.append(cor)
+
+                        fig_resumo = go.Figure()
+                        banco_hover = "%{y}" if orientacao_horizontal else "%{x}"
+                        fig_resumo.add_trace(go.Bar(
+                            x=df_selecionado['valor_display'] if orientacao_horizontal else df_selecionado['Instituição'],
+                            y=df_selecionado['Instituição'] if orientacao_horizontal else df_selecionado['valor_display'],
+                            marker=dict(color=cores_barras, opacity=0.85),
+                            name=indicador_label,
+                            orientation='h' if orientacao_horizontal else 'v',
+                            customdata=np.stack([
+                                df_selecionado['ranking'],
+                                df_selecionado['diff_text'],
+                                df_selecionado['diff_pct_text'],
+                                df_selecionado['valor_text'],
+                            ], axis=-1),
+                            hovertemplate=(
+                                f"<b>{banco_hover}</b><br>"
+                                f"{indicador_label}: %{{customdata[3]}}<br>"
+                                "Ranking: %{customdata[0]}<br>"
+                                "Diferença vs média: %{customdata[1]}<br>"
+                                "Diferença vs média (%): %{customdata[2]}"
+                                "<extra></extra>"
+                            )
+                        ))
+
+                        if orientacao_horizontal:
+                            fig_resumo.add_trace(go.Scatter(
+                                x=[media_display] * len(df_selecionado),
+                                y=df_selecionado['Instituição'],
+                                mode='lines',
+                                name=label_media,
+                                line=dict(color='#1f77b4', dash='dash')
+                            ))
                         else:
                             st.caption("definição não disponível — consulte o Glossário.")
                 with col_media:
                     st.markdown("<div style='margin-top:1.85rem'></div>", unsafe_allow_html=True)
                     st.caption("visão de deltas usa o período base selecionado ao lado.")
 
-                col_bancos = st.columns([1])[0]
+                        fig_resumo.update_layout(
+                            title=f"{indicador_label} - {periodo_resumo} ({len(df_selecionado)} instituições)",
+                            xaxis_title=indicador_label if orientacao_horizontal else "instituições",
+                            yaxis_title="instituições" if orientacao_horizontal else indicador_label,
+                            plot_bgcolor='#f8f9fa',
+                            paper_bgcolor='white',
+                            height=altura_grafico,
+                            showlegend=True,
+                            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+                            xaxis=dict(
+                                tickangle=-45 if not orientacao_horizontal else 0,
+                                tickformat=format_info['tickformat'] if orientacao_horizontal else None,
+                                ticksuffix=format_info['ticksuffix'] if orientacao_horizontal else None
+                            ),
+                            yaxis=dict(
+                                tickformat=format_info['tickformat'] if not orientacao_horizontal else None,
+                                ticksuffix=format_info['ticksuffix'] if not orientacao_horizontal else None
+                            ),
+                            font=dict(family='IBM Plex Sans'),
+                            margin=dict(l=40, r=20, t=90, b=120 if not orientacao_horizontal else 60)
+                        )
 
                 df_periodo = df[df['Período'] == periodo_resumo].copy()
 
