@@ -9898,6 +9898,7 @@ elif menu == "Rankings":
                     key="tipo_media_resumo"
                 )
                 coluna_peso_resumo = VARIAVEIS_PONDERACAO[tipo_media_label]
+            # Evita regressão de parsing em deploy: manter ajuda inline (sem st.popover neste bloco).
             _def = _RANKINGS_GLOSSARIO.get(indicador_label)
             if _def:
                 st.caption(f"info — {indicador_label}: {_def}")
