@@ -9877,13 +9877,15 @@ elif menu == "Rankings":
                 _p_set25 = _encontrar_periodo(periodos, 3, 2025)
                 if _p_set25 and _p_set25 in periodos:
                     _idx_periodo_rank = periodos.index(_p_set25)
-                periodo_resumo = st.selectbox(
-                    "período",
+                periodo_resumo = st.multiselect(
+                    "períodos",
                     periodos,
-                    index=_idx_periodo_rank,
-                    key="periodo_resumo",
+                    default=[periodos[_idx_periodo_rank]] if periodos else [],
+                    key="periodos_resumo_v2",
                     format_func=periodo_para_exibicao
                 )
+                if not periodo_resumo:
+                    periodo_resumo = [periodos[0]] if periodos else []
             with col_indicador:
                 indicador_label = st.selectbox(
                     "indicador",
@@ -9900,7 +9902,9 @@ elif menu == "Rankings":
             else:
                 st.caption("info — definição não disponível; consulte o Glossário.")
 
-            df_periodo = df[df['Período'] == periodo_resumo].copy()
+            periodo_pool_ref = periodo_resumo[0] if periodo_resumo else None
+            df_periodo = df[df['Período'] == periodo_pool_ref].copy() if periodo_pool_ref else pd.DataFrame()
+            periodo_resumo_base = periodo_pool_ref
 
             bancos_todos = df_periodo['Instituição'].dropna().unique().tolist()
             dict_aliases = st.session_state.get('dict_aliases', {})
@@ -9928,6 +9932,9 @@ elif menu == "Rankings":
                     max_selections=40
                 )
                 bancos_selecionados = list(dict.fromkeys((bancos_pool or []) + (bancos_manualmente_adicionados or [])))
+                if len(bancos_selecionados) > 5 and len(periodo_resumo) > 4:
+                    st.warning("com mais de 5 IFs, limite de 4 períodos aplicado para legibilidade.")
+                    periodo_resumo = periodo_resumo[:4]
             with col_ordem:
                 direcao_top = st.radio(
                     "ordem",
@@ -9943,14 +9950,15 @@ elif menu == "Rankings":
             def formatar_numero(valor, fmt_info, incluir_sinal=False, variavel_ref: Optional[str] = None):
                 _ = variavel_ref
                 if valor is None or pd.isna(valor):
-                    return "N/A"
+                    return "N/D"
                 try:
                     valor_display = float(valor)
                 except Exception:
-                    return "N/A"
+                    return "N/D"
                 valor_formatado = format(valor_display, fmt_info['tickformat'])
                 if incluir_sinal and valor_display > 0:
                     valor_formatado = f"+{valor_formatado}"
+                valor_formatado = valor_formatado.replace(",", "X").replace(".", ",").replace("X", ".")
                 return f"{valor_formatado}{fmt_info['ticksuffix']}"
 
             if bancos_selecionados:
@@ -9972,7 +9980,7 @@ elif menu == "Rankings":
                         colunas_encontradas_cap, _, _, _ = _mapear_colunas_capital(df_capital_base)
                         df_periodo_cap, basileia_info = _calcular_basileia_periodo(
                             df_capital_base,
-                            periodo_resumo,
+                            periodo_resumo_base,
                             colunas_encontradas_cap,
                         )
                         if basileia_info.get("mensagem") and basileia_info.get("usou_precalc"):
@@ -10095,7 +10103,7 @@ elif menu == "Rankings":
                             ))
 
                             fig_basileia.update_layout(
-                                title=f"Índice de Basileia (%) - {periodo_resumo} ({n_bancos} instituições)",
+                                title=f"Índice de Basileia (%) - {periodo_resumo_base} ({n_bancos} instituições)",
                                 xaxis_title="instituições",
                                 yaxis_title="índice (%)",
                                 plot_bgcolor='#f8f9fa',
@@ -10115,7 +10123,7 @@ elif menu == "Rankings":
                                 'Instituição', 'CET1 (%)', 'AT1 (%)', 'T2 (%)',
                                 'Índice de Basileia Total (%)', 'Ranking', 'Diferença vs Média (%)'
                             ]].copy()
-                            df_export_capital.insert(0, 'Período', periodo_resumo)
+                            df_export_capital.insert(0, 'Período', periodo_resumo_base)
                             df_export_capital['Tipo de Média'] = tipo_media_label
                             df_export_capital['Média CET1 (%)'] = round(media_cet1, 2)
                             df_export_capital['Média AT1 (%)'] = round(media_at1, 2)
@@ -10128,8 +10136,8 @@ elif menu == "Rankings":
                                     lambda x: round(x, 2) if pd.notna(x) else None
                                 )
 
-                            st.markdown("#### Tabela dos dados do gráfico")
-                            st.dataframe(df_export_capital, use_container_width=True, hide_index=True)
+                            with st.expander("Tabela dos dados do gráfico", expanded=False):
+                                st.dataframe(df_export_capital, use_container_width=True, hide_index=True)
 
                             st.markdown("#### Exportar")
                             buffer_excel = BytesIO()
@@ -10142,7 +10150,7 @@ elif menu == "Rankings":
                                 st.download_button(
                                     label="Download Excel",
                                     data=buffer_excel,
-                                    file_name=f"indice_basileia_{periodo_resumo.replace('/', '-')}.xlsx",
+                                    file_name=f"indice_basileia_{periodo_resumo_base.replace('/', '-')}.xlsx",
                                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                     key="exportar_resumo_excel_basileia",
                                     use_container_width=False,
@@ -10153,7 +10161,7 @@ elif menu == "Rankings":
                                     st.download_button(
                                         label="exportar gráfico PNG",
                                         data=png_bytes,
-                                        file_name=f"indice_basileia_{periodo_resumo.replace('/', '-')}.png",
+                                        file_name=f"indice_basileia_{periodo_resumo_base.replace('/', '-')}.png",
                                         mime="image/png",
                                         key="exportar_grafico_png_basileia",
                                         use_container_width=True,
@@ -10162,178 +10170,222 @@ elif menu == "Rankings":
                     if df_selecionado.empty:
                         st.info("selecione instituições ou ajuste os filtros para visualizar o ranking.")
                     else:
-                        df_selecionado['valor_display'] = _calcular_valores_display(
-                            df_selecionado[indicador_col],
+                        df_multiperiodo = df[
+                            (df["Período"].isin(periodo_resumo))
+                            & (df["Instituição"].isin(bancos_selecionados))
+                        ].copy()
+                        df_multiperiodo = df_multiperiodo.dropna(subset=[indicador_col])
+                        df_multiperiodo["valor_display"] = _calcular_valores_display(
+                            df_multiperiodo[indicador_col],
                             indicador_col,
                             format_info,
                         )
-                        media_display = calcular_media_ponderada(df_selecionado, 'valor_display', coluna_peso_resumo)
-                        label_media = get_label_media(coluna_peso_resumo)
 
-                        if modo_ordenacao == "Ordenar por valor":
-                            ordenar_asc = direcao_top == "Menor → Maior"
-                            df_selecionado = df_selecionado.sort_values('valor_display', ascending=ordenar_asc)
-                        elif bancos_selecionados:
-                            ordem = bancos_selecionados
-                            df_selecionado['ordem'] = pd.Categorical(df_selecionado['Instituição'], categories=ordem, ordered=True)
-                            df_selecionado = df_selecionado.sort_values('ordem')
+                        palette_bba = ["#111111", "#FF5A00", "#D9D9D9", "#444444", "#FF8A4C"]
 
-                        df_selecionado['ranking'] = df_selecionado['valor_display'].rank(method='first', ascending=False).astype(int)
-                        df_selecionado['diff_media'] = df_selecionado['valor_display'] - media_display
-
-                        if media_display and media_display != 0:
-                            df_selecionado['diff_pct'] = (df_selecionado['valor_display'] / media_display - 1) * 100
-                            df_selecionado['diff_pct_text'] = df_selecionado['diff_pct'].map(lambda v: f"{v:.1f}%")
-                        else:
-                            df_selecionado['diff_pct_text'] = "N/A"
-
-                        df_selecionado['valor_text'] = df_selecionado['valor_display'].map(
-                            lambda v: formatar_numero(v, format_info, variavel_ref=indicador_col)
-                        )
-                        df_selecionado['diff_text'] = df_selecionado['diff_media'].map(
-                            lambda v: formatar_numero(v, format_info, incluir_sinal=True, variavel_ref=indicador_col)
-                        )
-
-                        n_bancos = len(df_selecionado)
-                        orientacao_horizontal = n_bancos > 15
-                        altura_grafico = max(760, n_bancos * 30) if orientacao_horizontal else 760
-
-                        cores_plotly = px.colors.qualitative.Plotly
-                        cores_barras = []
-                        idx_cor = 0
-                        for banco in df_selecionado['Instituição']:
-                            cor = obter_cor_banco(banco)
-                            if not cor:
-                                cor = cores_plotly[idx_cor % len(cores_plotly)]
-                                idx_cor += 1
-                            cores_barras.append(cor)
-
-                        fig_resumo = go.Figure()
-                        banco_hover = "%{y}" if orientacao_horizontal else "%{x}"
-                        fig_resumo.add_trace(go.Bar(
-                            x=df_selecionado['valor_display'] if orientacao_horizontal else df_selecionado['Instituição'],
-                            y=df_selecionado['Instituição'] if orientacao_horizontal else df_selecionado['valor_display'],
-                            marker=dict(color=cores_barras, opacity=0.85),
-                            name=indicador_label,
-                            orientation='h' if orientacao_horizontal else 'v',
-                            customdata=np.stack([
-                                df_selecionado['ranking'],
-                                df_selecionado['diff_text'],
-                                df_selecionado['diff_pct_text'],
-                                df_selecionado['valor_text'],
-                            ], axis=-1),
-                            hovertemplate=(
-                                f"<b>{banco_hover}</b><br>"
-                                f"{indicador_label}: %{{customdata[3]}}<br>"
-                                "Ranking: %{customdata[0]}<br>"
-                                "Diferença vs média: %{customdata[1]}<br>"
-                                "Diferença vs média (%): %{customdata[2]}"
-                                "<extra></extra>"
+                        if len(periodo_resumo) > 1:
+                            df_plot = df_multiperiodo.copy()
+                            ordem_base = (
+                                df_plot[df_plot["Período"] == periodo_resumo_base]
+                                .sort_values("valor_display", ascending=(direcao_top == "Menor → Maior"))["Instituição"]
+                                .tolist()
                             )
-                        ))
+                            if ordem_base:
+                                df_plot["Instituição"] = pd.Categorical(df_plot["Instituição"], categories=ordem_base, ordered=True)
+                                df_plot = df_plot.sort_values(["Instituição", "Período"])
 
-                        if orientacao_horizontal:
-                            fig_resumo.add_trace(go.Scatter(
-                                x=[media_display] * len(df_selecionado),
-                                y=df_selecionado['Instituição'],
-                                mode='lines',
-                                name=label_media,
-                                line=dict(color='#1f77b4', dash='dash')
-                            ))
-                        else:
-                            fig_resumo.add_trace(go.Scatter(
-                                x=df_selecionado['Instituição'],
-                                y=[media_display] * len(df_selecionado),
-                                mode='lines',
-                                name=label_media,
-                                line=dict(color='#1f77b4', dash='dash')
-                            ))
+                            fig_resumo = go.Figure()
+                            for idx_p, p in enumerate(periodo_resumo):
+                                dfx = df_plot[df_plot["Período"] == p].copy()
+                                if dfx.empty:
+                                    continue
+                                fig_resumo.add_trace(go.Bar(
+                                    x=dfx["Instituição"],
+                                    y=dfx["valor_display"],
+                                    name=periodo_para_exibicao(p),
+                                    marker=dict(color=palette_bba[idx_p % len(palette_bba)], opacity=0.88),
+                                    hovertemplate="<b>%{x}</b><br>Período: " + f"{periodo_para_exibicao(p)}" + "<br>Valor: %{y:,.2f}<extra></extra>"
+                                ))
 
-                        fig_resumo.update_layout(
-                            title=f"{indicador_label} - {periodo_resumo} ({len(df_selecionado)} instituições)",
-                            xaxis_title=indicador_label if orientacao_horizontal else "instituições",
-                            yaxis_title="instituições" if orientacao_horizontal else indicador_label,
-                            plot_bgcolor='#f8f9fa',
-                            paper_bgcolor='white',
-                            height=altura_grafico,
-                            showlegend=True,
-                            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
-                            xaxis=dict(
-                                tickangle=-45 if not orientacao_horizontal else 0,
-                                tickformat=format_info['tickformat'] if orientacao_horizontal else None,
-                                ticksuffix=format_info['ticksuffix'] if orientacao_horizontal else None
-                            ),
-                            yaxis=dict(
-                                tickformat=format_info['tickformat'] if not orientacao_horizontal else None,
-                                ticksuffix=format_info['ticksuffix'] if not orientacao_horizontal else None
-                            ),
-                            font=dict(family='IBM Plex Sans'),
-                            margin=dict(l=40, r=20, t=90, b=120 if not orientacao_horizontal else 60)
-                        )
-
-                        st.plotly_chart(fig_resumo, width='stretch', config={'displayModeBar': 'hover', 'displaylogo': False})
-
-                        media_grupo_raw = calcular_media_ponderada(df_selecionado, indicador_col, coluna_peso_resumo)
-                        df_export = df_selecionado.copy()
-                        df_export['Período'] = periodo_resumo
-                        df_export['Indicador'] = indicador_label
-                        df_export['Valor'] = df_export[indicador_col]
-                        df_export['Média do Grupo'] = media_grupo_raw
-                        df_export['Tipo de Média'] = tipo_media_label
-                        df_export['Diferença vs Média'] = df_export['Valor'] - media_grupo_raw
-                        df_export = df_export[[
-                            'Período',
-                            'Instituição',
-                            'Indicador',
-                            'Valor',
-                            'ranking',
-                            'Média do Grupo',
-                            'Tipo de Média',
-                            'Diferença vs Média'
-                        ]].rename(columns={'ranking': 'Ranking'})
-
-                        df_plotado = df_selecionado[[
-                            'Instituição',
-                            'ranking',
-                            'valor_display',
-                            'diff_media',
-                            'diff_pct_text',
-                        ]].rename(columns={
-                            'ranking': 'Ranking',
-                            'valor_display': 'Valor Plotado',
-                            'diff_media': 'Diferença vs Média',
-                            'diff_pct_text': 'Diferença vs Média (%)',
-                        })
-                        st.markdown("#### Tabela dos dados do gráfico")
-                        st.dataframe(df_plotado, use_container_width=True, hide_index=True)
-
-                        st.markdown("#### Exportar")
-                        buffer_excel = BytesIO()
-                        with pd.ExcelWriter(buffer_excel, engine='xlsxwriter') as writer:
-                            df_export.to_excel(writer, index=False, sheet_name='ranking')
-                        buffer_excel.seek(0)
-
-                        col_export_a, col_export_b = st.columns(2)
-                        with col_export_a:
-                            st.download_button(
-                                label="Download Excel",
-                                data=buffer_excel,
-                                file_name=f"ranking_{periodo_resumo.replace('/', '-')}.xlsx",
-                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                key="exportar_resumo_excel",
-                                use_container_width=False,
+                            fig_resumo.update_layout(
+                                title=f"{indicador_label} - comparação por períodos",
+                                barmode="group",
+                                xaxis_title="instituições",
+                                yaxis_title=indicador_label,
+                                plot_bgcolor="#f8f9fa",
+                                paper_bgcolor="white",
+                                xaxis=dict(tickangle=-35),
+                                font=dict(family="IBM Plex Sans"),
+                                yaxis=dict(tickformat=format_info['tickformat'], ticksuffix=format_info['ticksuffix']),
                             )
-                        with col_export_b:
-                            png_bytes = _plotly_fig_to_png_bytes(fig_resumo)
-                            if png_bytes:
-                                st.download_button(
-                                    label="exportar gráfico PNG",
-                                    data=png_bytes,
-                                    file_name=f"ranking_{periodo_resumo.replace('/', '-')}.png",
-                                    mime="image/png",
-                                    key="exportar_grafico_png_ranking",
+                            st.plotly_chart(fig_resumo, width='stretch', config={'displayModeBar': 'hover', 'displaylogo': False})
+                            with st.expander("Tabela dos dados do gráfico", expanded=False):
+                                st.dataframe(
+                                    df_plot[["Período", "Instituição", indicador_col]].sort_values(["Instituição", "Período"]),
                                     use_container_width=True,
+                                    hide_index=True
                                 )
+                        else:
+                            df_selecionado = df_multiperiodo.copy()
+                            media_display = calcular_media_ponderada(df_selecionado, 'valor_display', coluna_peso_resumo)
+                            label_media = get_label_media(coluna_peso_resumo)
+
+                            if modo_ordenacao == "Ordenar por valor":
+                                ordenar_asc = direcao_top == "Menor → Maior"
+                                df_selecionado = df_selecionado.sort_values('valor_display', ascending=ordenar_asc)
+                            elif bancos_selecionados:
+                                ordem = bancos_selecionados
+                                df_selecionado['ordem'] = pd.Categorical(df_selecionado['Instituição'], categories=ordem, ordered=True)
+                                df_selecionado = df_selecionado.sort_values('ordem')
+
+                            df_selecionado['ranking'] = df_selecionado['valor_display'].rank(method='first', ascending=False).astype(int)
+                            df_selecionado['diff_media'] = df_selecionado['valor_display'] - media_display
+
+                            if media_display and media_display != 0:
+                                df_selecionado['diff_pct'] = (df_selecionado['valor_display'] / media_display - 1) * 100
+                                df_selecionado['diff_pct_text'] = df_selecionado['diff_pct'].map(lambda v: f"{v:,.1f}%".replace(",", "X").replace(".", ",").replace("X", "."))
+                            else:
+                                df_selecionado['diff_pct_text'] = "N/D"
+
+                            df_selecionado['valor_text'] = df_selecionado['valor_display'].map(
+                                lambda v: formatar_numero(v, format_info, variavel_ref=indicador_col)
+                            )
+                            df_selecionado['diff_text'] = df_selecionado['diff_media'].map(
+                                lambda v: formatar_numero(v, format_info, incluir_sinal=True, variavel_ref=indicador_col)
+                            )
+
+                            n_bancos = len(df_selecionado)
+                            orientacao_horizontal = n_bancos > 15
+                            altura_grafico = max(760, n_bancos * 30) if orientacao_horizontal else 760
+
+                            cores_barras = [palette_bba[idx % len(palette_bba)] for idx, _ in enumerate(df_selecionado['Instituição'])]
+
+                            fig_resumo = go.Figure()
+                            banco_hover = "%{y}" if orientacao_horizontal else "%{x}"
+                            fig_resumo.add_trace(go.Bar(
+                                x=df_selecionado['valor_display'] if orientacao_horizontal else df_selecionado['Instituição'],
+                                y=df_selecionado['Instituição'] if orientacao_horizontal else df_selecionado['valor_display'],
+                                marker=dict(color=cores_barras, opacity=0.85),
+                                name=indicador_label,
+                                orientation='h' if orientacao_horizontal else 'v',
+                                customdata=np.stack([
+                                    df_selecionado['ranking'],
+                                    df_selecionado['diff_text'],
+                                    df_selecionado['diff_pct_text'],
+                                    df_selecionado['valor_text'],
+                                ], axis=-1),
+                                hovertemplate=(
+                                    f"<b>{banco_hover}</b><br>"
+                                    f"{indicador_label}: %{{customdata[3]}}<br>"
+                                    "Ranking: %{customdata[0]}<br>"
+                                    "Diferença vs média: %{customdata[1]}<br>"
+                                    "Diferença vs média (%): %{customdata[2]}"
+                                    "<extra></extra>"
+                                )
+                            ))
+
+                            if orientacao_horizontal:
+                                fig_resumo.add_trace(go.Scatter(
+                                    x=[media_display] * len(df_selecionado),
+                                    y=df_selecionado['Instituição'],
+                                    mode='lines',
+                                    name=label_media,
+                                    line=dict(color='#111111', dash='dash')
+                                ))
+                            else:
+                                fig_resumo.add_trace(go.Scatter(
+                                    x=df_selecionado['Instituição'],
+                                    y=[media_display] * len(df_selecionado),
+                                    mode='lines',
+                                    name=label_media,
+                                    line=dict(color='#111111', dash='dash')
+                                ))
+
+                            fig_resumo.update_layout(
+                                title=f"{indicador_label} - {', '.join(periodo_resumo)} ({len(df_selecionado)} instituições)",
+                                xaxis_title=indicador_label if orientacao_horizontal else "instituições",
+                                yaxis_title="instituições" if orientacao_horizontal else indicador_label,
+                                plot_bgcolor='#f8f9fa',
+                                paper_bgcolor='white',
+                                height=altura_grafico,
+                                showlegend=True,
+                                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+                                xaxis=dict(
+                                    tickangle=-45 if not orientacao_horizontal else 0,
+                                    tickformat=format_info['tickformat'] if orientacao_horizontal else None,
+                                    ticksuffix=format_info['ticksuffix'] if orientacao_horizontal else None
+                                ),
+                                yaxis=dict(
+                                    tickformat=format_info['tickformat'] if not orientacao_horizontal else None,
+                                    ticksuffix=format_info['ticksuffix'] if not orientacao_horizontal else None
+                                ),
+                                font=dict(family='IBM Plex Sans'),
+                                margin=dict(l=40, r=20, t=90, b=120 if not orientacao_horizontal else 60)
+                            )
+
+                            st.plotly_chart(fig_resumo, width='stretch', config={'displayModeBar': 'hover', 'displaylogo': False})
+
+                            media_grupo_raw = calcular_media_ponderada(df_selecionado, indicador_col, coluna_peso_resumo)
+                            df_export = df_selecionado.copy()
+                            df_export['Período'] = ", ".join(periodo_resumo)
+                            df_export['Indicador'] = indicador_label
+                            df_export['Valor'] = df_export[indicador_col]
+                            df_export['Média do Grupo'] = media_grupo_raw
+                            df_export['Tipo de Média'] = tipo_media_label
+                            df_export['Diferença vs Média'] = df_export['Valor'] - media_grupo_raw
+                            df_export = df_export[[
+                                'Período',
+                                'Instituição',
+                                'Indicador',
+                                'Valor',
+                                'ranking',
+                                'Média do Grupo',
+                                'Tipo de Média',
+                                'Diferença vs Média'
+                            ]].rename(columns={'ranking': 'Ranking'})
+
+                            df_plotado = df_selecionado[[
+                                'Instituição',
+                                'ranking',
+                                'valor_display',
+                                'diff_media',
+                                'diff_pct_text',
+                            ]].rename(columns={
+                                'ranking': 'Ranking',
+                                'valor_display': 'Valor Plotado',
+                                'diff_media': 'Diferença vs Média',
+                                'diff_pct_text': 'Diferença vs Média (%)',
+                            })
+                            with st.expander("Tabela dos dados do gráfico", expanded=False):
+                                st.dataframe(df_plotado, use_container_width=True, hide_index=True)
+
+                            st.markdown("#### Exportar")
+                            buffer_excel = BytesIO()
+                            with pd.ExcelWriter(buffer_excel, engine='xlsxwriter') as writer:
+                                df_export.to_excel(writer, index=False, sheet_name='ranking')
+                            buffer_excel.seek(0)
+
+                            col_export_a, col_export_b = st.columns(2)
+                            with col_export_a:
+                                st.download_button(
+                                    label="Download Excel",
+                                    data=buffer_excel,
+                                    file_name=f"ranking_{periodo_resumo_base.replace('/', '-')}.xlsx",
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                    key="exportar_resumo_excel",
+                                    use_container_width=False,
+                                )
+                            with col_export_b:
+                                png_bytes = _plotly_fig_to_png_bytes(fig_resumo)
+                                if png_bytes:
+                                    st.download_button(
+                                        label="exportar gráfico PNG",
+                                        data=png_bytes,
+                                        file_name=f"ranking_{periodo_resumo_base.replace('/', '-')}.png",
+                                        mime="image/png",
+                                        key="exportar_grafico_png_ranking",
+                                        use_container_width=True,
+                                    )
 
             if grafico_base == "Deltas (antes e depois)":
                 st.markdown("---")
@@ -10342,7 +10394,7 @@ elif menu == "Rankings":
                 variaveis_selecionadas_delta = [indicador_label]
                 delta_colunas_map = {label: col for label, col in indicadores_disponiveis.items()}
 
-                periodo_inicial_delta = periodo_resumo
+                periodo_inicial_delta = periodo_resumo_base
                 idx_inicial_delta = periodos_dropdown.index(periodo_inicial_delta)
                 # Seleção livre: o período subsequente não precisa ser do mesmo trimestre.
                 # Regra única: deve ser mais recente (superior) ao período inicial.
@@ -10668,7 +10720,8 @@ elif menu == "Rankings":
                             'variacao_texto': 'Variação %'
                         })
                         df_resumo = df_resumo[['Instituição', periodo_inicial_delta, periodo_subsequente_delta, 'Delta', 'Variação %']]
-                        st.dataframe(df_resumo, use_container_width=True)
+                        with st.expander("Tabela de dados brutos (delta)", expanded=False):
+                            st.dataframe(df_resumo, use_container_width=True)
                         st.caption("exportação disponível apenas na visão tabela.")
                 elif not periodo_valido:
                     pass  # Já exibiu warning acima
