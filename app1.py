@@ -9942,10 +9942,39 @@ elif menu == "Rankings":
                     horizontal=True,
                     key="ordem_resumo"
                 )
+                mostrar_data_labels = st.toggle(
+                    "Data labels",
+                    value=st.session_state.get("ranking_data_labels_toggle", False),
+                    key="ranking_data_labels_toggle",
+                    help="Mostra/oculta os valores diretamente nas barras do gráfico.",
+                )
 
             format_info = get_axis_format(indicador_col)
             if indicador_label == "Índice de Capital Principal (CET1)":
                 format_info = {**format_info, 'tickformat': '.2f'}
+
+            paleta_itau_bba = ["#1A1A1A", "#EE7203", "#6D6E71", "#B0B0B0", "#D9C8A9"]
+            cor_unica_cross_section = "#EE7203"
+
+            def _casas_decimais_unicas(valores: list[float], casas_iniciais: int = 1, max_casas: int = 6) -> int:
+                valores_validos = [float(v) for v in valores if pd.notna(v)]
+                if len(valores_validos) <= 1:
+                    return casas_iniciais
+                distintos = sorted(set(valores_validos))
+                if len(distintos) <= 1:
+                    return casas_iniciais
+                for casas in range(casas_iniciais, max_casas + 1):
+                    formatados = [f"{v:.{casas}f}" for v in distintos]
+                    if len(formatados) == len(set(formatados)):
+                        return casas
+                return max_casas
+
+            def _formatar_br(valor: float, casas: int, sufixo: str = "", incluir_sinal: bool = False) -> str:
+                if valor is None or pd.isna(valor):
+                    return "N/D"
+                base = f"{float(valor):+,.{casas}f}" if incluir_sinal else f"{float(valor):,.{casas}f}"
+                base = base.replace(",", "X").replace(".", ",").replace("X", ".")
+                return f"{base}{sufixo}"
 
             def formatar_numero(valor, fmt_info, incluir_sinal=False, variavel_ref: Optional[str] = None):
                 _ = variavel_ref
@@ -10181,8 +10210,6 @@ elif menu == "Rankings":
                             format_info,
                         )
 
-                        palette_bba = ["#111111", "#FF5A00", "#D9D9D9", "#444444", "#FF8A4C"]
-
                         if len(periodo_resumo) > 1:
                             df_plot = df_multiperiodo.copy()
                             ordem_base = (
@@ -10203,7 +10230,7 @@ elif menu == "Rankings":
                                     x=dfx["Instituição"],
                                     y=dfx["valor_display"],
                                     name=periodo_para_exibicao(p),
-                                    marker=dict(color=palette_bba[idx_p % len(palette_bba)], opacity=0.88),
+                                    marker=dict(color=paleta_itau_bba[idx_p % len(paleta_itau_bba)], opacity=0.88),
                                     hovertemplate="<b>%{x}</b><br>Período: " + f"{periodo_para_exibicao(p)}" + "<br>Valor: %{y:,.2f}<extra></extra>"
                                 ))
 
@@ -10219,15 +10246,30 @@ elif menu == "Rankings":
                                 yaxis=dict(tickformat=format_info['tickformat'], ticksuffix=format_info['ticksuffix']),
                             )
                             st.plotly_chart(fig_resumo, width='stretch', config={'displayModeBar': 'hover', 'displaylogo': False})
-                            with st.expander("Tabela dos dados do gráfico", expanded=False):
-                                st.dataframe(
-                                    df_plot[["Período", "Instituição", indicador_col]].sort_values(["Instituição", "Período"]),
-                                    use_container_width=True,
-                                    hide_index=True
+                            tabela_wide = (
+                                df_plot[["Período", "Instituição", "valor_display"]]
+                                .pivot_table(index="Instituição", columns="Período", values="valor_display", aggfunc="first")
+                                .reset_index()
+                            )
+                            colunas_periodo = [c for c in tabela_wide.columns if c != "Instituição"]
+                            mapa_colunas = {c: pd.to_datetime(c, format="%Y-%m").strftime("%m/%Y") for c in colunas_periodo}
+                            tabela_wide = tabela_wide.rename(columns=mapa_colunas)
+                            casas_labels = _casas_decimais_unicas(df_plot["valor_display"].tolist(), casas_iniciais=1)
+                            for col_fmt in [c for c in tabela_wide.columns if c != "Instituição"]:
+                                tabela_wide[col_fmt] = tabela_wide[col_fmt].apply(
+                                    lambda v: _formatar_br(v, casas_labels, format_info.get('ticksuffix', ''))
                                 )
+                            with st.expander("📊 Dados do gráfico", expanded=False):
+                                st.dataframe(tabela_wide, use_container_width=True, hide_index=True)
                         else:
                             df_selecionado = df_multiperiodo.copy()
                             media_display = calcular_media_ponderada(df_selecionado, 'valor_display', coluna_peso_resumo)
+                            media_sfn_display = (
+                                df_periodo.assign(
+                                    valor_display=_calcular_valores_display(df_periodo[indicador_col], indicador_col, format_info)
+                                )["valor_display"].dropna().mean()
+                                if indicador_col in df_periodo.columns else None
+                            )
                             label_media = get_label_media(coluna_peso_resumo)
 
                             if modo_ordenacao == "Ordenar por valor":
@@ -10257,22 +10299,33 @@ elif menu == "Rankings":
                             n_bancos = len(df_selecionado)
                             orientacao_horizontal = n_bancos > 15
                             altura_grafico = max(760, n_bancos * 30) if orientacao_horizontal else 760
-
-                            cores_barras = [palette_bba[idx % len(palette_bba)] for idx, _ in enumerate(df_selecionado['Instituição'])]
+                            df_plot_chart = df_selecionado.iloc[::-1].copy() if orientacao_horizontal else df_selecionado.copy()
+                            casas_labels = _casas_decimais_unicas(df_selecionado["valor_display"].tolist(), casas_iniciais=1)
+                            sufixo = format_info.get('ticksuffix', '')
+                            cores_barras = (
+                                [cor_unica_cross_section] * len(df_plot_chart)
+                                if len(periodo_resumo) == 1
+                                else [paleta_itau_bba[idx % len(paleta_itau_bba)] for idx, _ in enumerate(df_plot_chart['Instituição'])]
+                            )
+                            textos_labels = df_plot_chart['valor_display'].apply(
+                                lambda v: _formatar_br(v, casas_labels, sufixo)
+                            )
 
                             fig_resumo = go.Figure()
                             banco_hover = "%{y}" if orientacao_horizontal else "%{x}"
                             fig_resumo.add_trace(go.Bar(
-                                x=df_selecionado['valor_display'] if orientacao_horizontal else df_selecionado['Instituição'],
-                                y=df_selecionado['Instituição'] if orientacao_horizontal else df_selecionado['valor_display'],
+                                x=df_plot_chart['valor_display'] if orientacao_horizontal else df_plot_chart['Instituição'],
+                                y=df_plot_chart['Instituição'] if orientacao_horizontal else df_plot_chart['valor_display'],
                                 marker=dict(color=cores_barras, opacity=0.85),
                                 name=indicador_label,
                                 orientation='h' if orientacao_horizontal else 'v',
+                                text=textos_labels if mostrar_data_labels else None,
+                                textposition='auto',
                                 customdata=np.stack([
-                                    df_selecionado['ranking'],
-                                    df_selecionado['diff_text'],
-                                    df_selecionado['diff_pct_text'],
-                                    df_selecionado['valor_text'],
+                                    df_plot_chart['ranking'],
+                                    df_plot_chart['diff_text'],
+                                    df_plot_chart['diff_pct_text'],
+                                    df_plot_chart['valor_text'],
                                 ], axis=-1),
                                 hovertemplate=(
                                     f"<b>{banco_hover}</b><br>"
@@ -10287,19 +10340,35 @@ elif menu == "Rankings":
                             if orientacao_horizontal:
                                 fig_resumo.add_trace(go.Scatter(
                                     x=[media_display] * len(df_selecionado),
-                                    y=df_selecionado['Instituição'],
+                                    y=df_plot_chart['Instituição'],
                                     mode='lines',
-                                    name=label_media,
-                                    line=dict(color='#111111', dash='dash')
+                                    name="Média seleção",
+                                    line=dict(color='#1A1A1A', dash='5px,3px')
                                 ))
+                                if media_sfn_display is not None and pd.notna(media_sfn_display):
+                                    fig_resumo.add_trace(go.Scatter(
+                                        x=[media_sfn_display] * len(df_selecionado),
+                                        y=df_plot_chart['Instituição'],
+                                        mode='lines',
+                                        name="Média SFN",
+                                        line=dict(color='#EE7203', dash='5px,3px')
+                                    ))
                             else:
                                 fig_resumo.add_trace(go.Scatter(
-                                    x=df_selecionado['Instituição'],
+                                    x=df_plot_chart['Instituição'],
                                     y=[media_display] * len(df_selecionado),
                                     mode='lines',
-                                    name=label_media,
-                                    line=dict(color='#111111', dash='dash')
+                                    name="Média seleção",
+                                    line=dict(color='#1A1A1A', dash='5px,3px')
                                 ))
+                                if media_sfn_display is not None and pd.notna(media_sfn_display):
+                                    fig_resumo.add_trace(go.Scatter(
+                                        x=df_plot_chart['Instituição'],
+                                        y=[media_sfn_display] * len(df_selecionado),
+                                        mode='lines',
+                                        name="Média SFN",
+                                        line=dict(color='#EE7203', dash='5px,3px')
+                                    ))
 
                             fig_resumo.update_layout(
                                 title=f"{indicador_label} - {', '.join(periodo_resumo)} ({len(df_selecionado)} instituições)",
@@ -10356,8 +10425,28 @@ elif menu == "Rankings":
                                 'diff_media': 'Diferença vs Média',
                                 'diff_pct_text': 'Diferença vs Média (%)',
                             })
-                            with st.expander("Tabela dos dados do gráfico", expanded=False):
-                                st.dataframe(df_plotado, use_container_width=True, hide_index=True)
+                            tabela_wide = (
+                                df_multiperiodo[["Período", "Instituição", "valor_display"]]
+                                .pivot_table(index="Instituição", columns="Período", values="valor_display", aggfunc="first")
+                                .reset_index()
+                            )
+                            colunas_periodo = [c for c in tabela_wide.columns if c != "Instituição"]
+                            mapa_colunas = {c: pd.to_datetime(c, format="%Y-%m").strftime("%m/%Y") for c in colunas_periodo}
+                            tabela_wide = tabela_wide.rename(columns=mapa_colunas)
+                            for col_fmt in [c for c in tabela_wide.columns if c != "Instituição"]:
+                                tabela_wide[col_fmt] = tabela_wide[col_fmt].apply(
+                                    lambda v: _formatar_br(v, casas_labels, sufixo)
+                                )
+                            with st.expander("📊 Dados do gráfico", expanded=False):
+                                st.dataframe(tabela_wide, use_container_width=True, hide_index=True)
+
+                            st.caption(
+                                "Nota metodológica:\n"
+                                "Média seleção: média aritmética simples dos valores das instituições atualmente selecionadas no filtro, "
+                                "para a variável e período exibidos.\n"
+                                "Média SFN: média aritmética simples dos valores de todas as instituições disponíveis no dataset para a "
+                                "variável e período exibidos. Não considera ponderação por ativo total ou qualquer outro critério de escala."
+                            )
 
                             st.markdown("#### Exportar")
                             buffer_excel = BytesIO()
