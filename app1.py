@@ -2428,6 +2428,38 @@ def periodo_para_exibicao(periodo_trimestre: str) -> str:
         return str(periodo_trimestre)
 
 
+
+
+def formatar_periodo_mm_yyyy(periodo_val: object) -> str:
+    """Normaliza rótulos de período para MM/YYYY (ex.: 03/2025)."""
+    if periodo_val is None:
+        return ""
+    periodo_str = str(periodo_val).strip()
+    if not periodo_str:
+        return ""
+
+    m_iso = re.fullmatch(r"(\d{4})-(\d{1,2})", periodo_str)
+    if m_iso:
+        ano, mes = m_iso.group(1), int(m_iso.group(2))
+        if 1 <= mes <= 12:
+            return f"{mes:02d}/{ano}"
+
+    m_br = re.fullmatch(r"(\d{1,2})/(\d{4})", periodo_str)
+    if m_br:
+        mes, ano = int(m_br.group(1)), m_br.group(2)
+        if 1 <= mes <= 12:
+            return f"{mes:02d}/{ano}"
+
+    yyyymm = _validar_yyyymm_str(periodo_str)
+    if yyyymm:
+        return f"{yyyymm[4:6]}/{yyyymm[:4]}"
+
+    dt = pd.to_datetime(periodo_str, errors="coerce")
+    if not pd.isna(dt):
+        return dt.strftime("%m/%Y")
+
+    return periodo_str
+
 def formatar_periodos_lista(periodos: list) -> list:
     """Converte lista de períodos para formato de exibição (Mar/25).
 
@@ -9923,7 +9955,7 @@ elif menu == "Rankings":
                 format_info = {**format_info, 'tickformat': '.2f'}
 
             paleta_itau_bba = ["#1A1A1A", "#EE7203", "#6D6E71", "#B0B0B0", "#D9C8A9"]
-            cor_unica_cross_section = "#EE7203"
+            cor_unica_cross_section = "#1A1A1A"
 
             def _casas_decimais_unicas(valores: list[float], casas_iniciais: int = 1, max_casas: int = 6) -> int:
                 valores_validos = [float(v) for v in valores if pd.notna(v)]
@@ -10221,7 +10253,7 @@ elif menu == "Rankings":
                                 .reset_index()
                             )
                             colunas_periodo = [c for c in tabela_wide.columns if c != "Instituição"]
-                            mapa_colunas = {c: pd.to_datetime(c, format="%Y-%m").strftime("%m/%Y") for c in colunas_periodo}
+                            mapa_colunas = {c: formatar_periodo_mm_yyyy(c) for c in colunas_periodo}
                             tabela_wide = tabela_wide.rename(columns=mapa_colunas)
                             casas_labels = _casas_decimais_unicas(df_plot["valor_display"].tolist(), casas_iniciais=1)
                             for col_fmt in [c for c in tabela_wide.columns if c != "Instituição"]:
@@ -10400,7 +10432,7 @@ elif menu == "Rankings":
                                 .reset_index()
                             )
                             colunas_periodo = [c for c in tabela_wide.columns if c != "Instituição"]
-                            mapa_colunas = {c: pd.to_datetime(c, format="%Y-%m").strftime("%m/%Y") for c in colunas_periodo}
+                            mapa_colunas = {c: formatar_periodo_mm_yyyy(c) for c in colunas_periodo}
                             tabela_wide = tabela_wide.rename(columns=mapa_colunas)
                             for col_fmt in [c for c in tabela_wide.columns if c != "Instituição"]:
                                 tabela_wide[col_fmt] = tabela_wide[col_fmt].apply(
