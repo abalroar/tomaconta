@@ -10144,6 +10144,7 @@ elif menu == "Rankings":
                                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
                                 xaxis=dict(tickangle=-45),
                                 yaxis=dict(tickformat='.2f', ticksuffix='%'),
+                                separators=',.',
                                 font=dict(family='IBM Plex Sans')
                             )
 
@@ -10244,6 +10245,7 @@ elif menu == "Rankings":
                                 paper_bgcolor="white",
                                 xaxis=dict(tickangle=-35),
                                 font=dict(family="IBM Plex Sans"),
+                                separators=',.',
                                 yaxis=dict(tickformat=format_info['tickformat'], ticksuffix=format_info['ticksuffix']),
                             )
                             st.plotly_chart(fig_resumo, width='stretch', config={'displayModeBar': 'hover', 'displaylogo': False})
@@ -10260,7 +10262,7 @@ elif menu == "Rankings":
                                 tabela_wide[col_fmt] = tabela_wide[col_fmt].apply(
                                     lambda v: _formatar_br(v, casas_labels, format_info.get('ticksuffix', ''))
                                 )
-                            with st.expander("📊 Dados do gráfico", expanded=False):
+                            with st.expander("Dados do gráfico", expanded=False):
                                 st.dataframe(tabela_wide, use_container_width=True, hide_index=True)
                         else:
                             df_selecionado = df_multiperiodo.copy()
@@ -10389,6 +10391,7 @@ elif menu == "Rankings":
                                     tickformat=format_info['tickformat'] if not orientacao_horizontal else None,
                                     ticksuffix=format_info['ticksuffix'] if not orientacao_horizontal else None
                                 ),
+                                separators=',.',
                                 font=dict(family='IBM Plex Sans'),
                                 margin=dict(l=40, r=20, t=90, b=120 if not orientacao_horizontal else 60)
                             )
@@ -10438,7 +10441,7 @@ elif menu == "Rankings":
                                 tabela_wide[col_fmt] = tabela_wide[col_fmt].apply(
                                     lambda v: _formatar_br(v, casas_labels, sufixo)
                                 )
-                            with st.expander("📊 Dados do gráfico", expanded=False):
+                            with st.expander("Dados do gráfico", expanded=False):
                                 st.dataframe(tabela_wide, use_container_width=True, hide_index=True)
 
                             st.caption(
@@ -10695,6 +10698,7 @@ elif menu == "Rankings":
                                 ticksuffix=eixo_ticksuffix if not orientacao_horizontal else None,
                                 title=eixo_titulo if not orientacao_horizontal else None
                             ),
+                            separators=',.',
                             font=dict(family='IBM Plex Sans'),
                             margin=dict(l=60, r=20, t=80, b=100)
                         )
@@ -10810,8 +10814,13 @@ elif menu == "Rankings":
                             'variacao_texto': 'Variação %'
                         })
                         df_resumo = df_resumo[['Instituição', periodo_inicial_delta, periodo_subsequente_delta, 'Delta', 'Variação %']]
+                        df_resumo_exibicao = df_resumo.copy()
+                        for col_periodo in [periodo_inicial_delta, periodo_subsequente_delta]:
+                            df_resumo_exibicao[col_periodo] = df_resumo_exibicao[col_periodo].apply(
+                                lambda v: _formatar_br(v, 2)
+                            )
                         with st.expander("Tabela de dados brutos (delta)", expanded=False):
-                            st.dataframe(df_resumo, use_container_width=True)
+                            st.dataframe(df_resumo_exibicao, use_container_width=True)
                         st.caption("exportação disponível apenas na visão tabela.")
                 elif not periodo_valido:
                     pass  # Já exibiu warning acima
