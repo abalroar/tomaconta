@@ -9827,6 +9827,7 @@ elif menu == "Rankings":
             'Índice de Basileia (%)': ['Índice de Basileia'],
             'Lucro Líquido Acumulado YTD': ['Lucro Líquido Acumulado YTD'],
             'Lucro Líquido Trimestral': ['Lucro Líquido Trimestral'],
+            'ROE Trimestral (%)': ['ROE Trimestral (%)'],
             'ROE Ac. Anualizado (%)': ['ROE Ac. Anualizado (%)', 'ROE Ac. YTD an. (%)'],
         }
 
@@ -9849,6 +9850,7 @@ elif menu == "Rankings":
                 'Índice de Basileia (%)',
                 'Lucro Líquido Acumulado YTD',
                 'Lucro Líquido Trimestral',
+                'ROE Trimestral (%)',
                 'ROE Ac. Anualizado (%)',
             ]
             indicadores_ordenados = [i for i in ordem_prioritaria if i in indicadores_disponiveis]
@@ -9865,10 +9867,11 @@ elif menu == "Rankings":
                 'Índice de Basileia (%)': 'Patrimônio de Referência ÷ RWA Total. Índice global de adequação de capital.',
                 'Lucro Líquido Acumulado YTD': 'Lucro líquido acumulado no ano-calendário até o final do período (Jan–Set, Jan–Jun etc.).',
                 'Lucro Líquido Trimestral': 'Lucro líquido do trimestre de referência (isolado).',
+                'ROE Trimestral (%)': 'ROE do trimestre. Denominador segue PL médio do período e dezembro do ano anterior.',
                 'ROE Ac. Anualizado (%)': '(LL YTD × fator de anualização) ÷ PL Médio.\nPL Médio = (PL período + PL Dez anterior) / 2.\nFatores: Mar=4×, Jun=2×, Set≈1,33×, Dez=1×.',
             }
 
-            col_periodo, col_indicador, col_media = st.columns([1.2, 1.9, 1.5])
+            col_periodo, col_indicador = st.columns([1.2, 1.9])
             with col_periodo:
                 _idx_periodo_rank = 0
                 _p_set25 = _encontrar_periodo(periodos, 3, 2025)
@@ -9887,14 +9890,9 @@ elif menu == "Rankings":
                     indicadores_ordenados,
                     key="indicador_resumo"
                 )
-            with col_media:
-                tipo_media_label = st.selectbox(
-                    "ponderar média por",
-                    list(VARIAVEIS_PONDERACAO.keys()),
-                    index=0,
-                    key="tipo_media_resumo"
-                )
-                coluna_peso_resumo = VARIAVEIS_PONDERACAO[tipo_media_label]
+            coluna_peso_resumo = None
+            tipo_media_label = "Média simples"
+            modo_ordenacao = "Ordenar por valor"
             # Evita regressão de parsing em deploy: manter ajuda inline (sem st.popover neste bloco).
             _def = _RANKINGS_GLOSSARIO.get(indicador_label)
             if _def:
@@ -9911,28 +9909,31 @@ elif menu == "Rankings":
             indicador_col = indicadores_disponiveis[indicador_label]
 
             _default_bancos_rank = _encontrar_bancos_default(bancos_todos)
-            col_bancos, col_ordem, col_sort = st.columns([2.2, 1.15, 1.45])
+            col_pool, col_bancos, col_ordem = st.columns([1.1, 2.2, 1.2])
+            with col_pool:
+                pool_base = st.selectbox(
+                    "pool base",
+                    ["Top 5", "Top 10", "Top 20", "Manual"],
+                    index=0,
+                    key="ranking_pool_base_v2"
+                )
+                top_map = {"Top 5": 5, "Top 10": 10, "Top 20": 20}
+                bancos_pool = _obter_top_instituicoes_por_ativo(df_periodo, top_map.get(pool_base, 0)) if pool_base != "Manual" else []
             with col_bancos:
-                bancos_selecionados = st.multiselect(
-                    "selecionar instituições (até 40)",
+                bancos_manualmente_adicionados = st.multiselect(
+                    "adicionar instituições (manual)",
                     bancos_todos,
-                    default=_default_bancos_rank,
-                    key="bancos_resumo",
+                    default=[] if pool_base != "Manual" else _default_bancos_rank,
+                    key="bancos_resumo_v2",
                     max_selections=40
                 )
+                bancos_selecionados = list(dict.fromkeys((bancos_pool or []) + (bancos_manualmente_adicionados or [])))
             with col_ordem:
                 direcao_top = st.radio(
                     "ordem",
                     ["Maior → Menor", "Menor → Maior"],
                     horizontal=True,
                     key="ordem_resumo"
-                )
-            with col_sort:
-                modo_ordenacao = st.radio(
-                    "ordenação",
-                    ["Ordenar por valor", "Manter ordem de seleção"],
-                    horizontal=True,
-                    key="ordenacao_resumo"
                 )
 
             format_info = get_axis_format(indicador_col)
@@ -10351,7 +10352,7 @@ elif menu == "Rankings":
                 ]
 
                 # ===== LINHA 2: Seleção de período subsequente e tipo de variação =====
-                col_p2, col_tipo_var = st.columns([2, 1])
+                col_p2, col_tipo_comp, col_tipo_var = st.columns([1.6, 1.2, 1.0])
                 with col_p2:
                     if not periodos_subsequentes:
                         periodo_subsequente_delta = None
@@ -10369,6 +10370,14 @@ elif menu == "Rankings":
                         periodo_valido = idx_subsequente_delta < idx_inicial_delta
                         if not periodo_valido:
                             st.warning("o período subsequente deve ser mais recente que o período inicial.")
+                with col_tipo_comp:
+                    tipo_comparacao_delta = st.radio(
+                        "comparação",
+                        ["Tri vs tri anterior", "Acumulado vs acumulado anterior"],
+                        index=0,
+                        key="tipo_comparacao_delta_v2",
+                        horizontal=False
+                    )
                 with col_tipo_var:
                     tipo_variacao = st.radio(
                         "ordenar por",
@@ -10386,6 +10395,12 @@ elif menu == "Rankings":
 
                     for variavel in variaveis_selecionadas_delta:
                         coluna_variavel = delta_colunas_map.get(variavel, variavel)
+                        if tipo_comparacao_delta == "Acumulado vs acumulado anterior":
+                            mapa_acumulado = {
+                                "Lucro Líquido Trimestral": "Lucro Líquido Acumulado YTD",
+                                "ROE Trimestral (%)": "ROE Ac. Anualizado (%)",
+                            }
+                            coluna_variavel = mapa_acumulado.get(coluna_variavel, coluna_variavel)
                         if coluna_variavel not in df.columns:
                             st.warning(f"variável '{variavel}' não encontrada nos dados")
                             continue
@@ -10403,11 +10418,7 @@ elif menu == "Rankings":
                             delta_absoluto = v_sub - v_ini
 
                             if _is_variavel_percentual(coluna_variavel):
-                                if _delta_percentual_em_bps(coluna_variavel):
-                                    delta_bps = delta_absoluto * 10000
-                                    delta_texto = f"{delta_bps:+.0f} bps"
-                                else:
-                                    delta_texto = f"{delta_absoluto * 100:+.2f}%"
+                                delta_texto = f"{delta_absoluto * 100:+.1f} p.p."
                             elif coluna_variavel in VARS_MOEDAS:
                                 delta_texto = f"R$ {delta_absoluto/1e6:+,.0f}MM".replace(",", ".")
                             else:
@@ -10474,12 +10485,10 @@ elif menu == "Rankings":
                                     dado['valor_plot'] = dado['variacao_pct']
                                 else:
                                     dado['valor_plot'] = cap_visual if dado['variacao_pct'] > 0 else -cap_visual
-                                if _delta_percentual_em_bps(coluna_variavel):
-                                    dado['valor_plot'] = dado['valor_plot'] * 100
                             else:
                                 delta_plot = _normalizar_valor_indicador(dado['delta'], coluna_variavel)
-                                if _delta_percentual_em_bps(coluna_variavel):
-                                    dado['valor_plot'] = delta_plot * 10000
+                                if _is_variavel_percentual(coluna_variavel):
+                                    dado['valor_plot'] = delta_plot * 100
                                 else:
                                     dado['valor_plot'] = delta_plot * format_info['multiplicador']
 
@@ -10491,23 +10500,13 @@ elif menu == "Rankings":
                         cores_barras = ['#2E7D32' if d['delta'] > 0 else '#7B1E3A' for d in dados_grafico]
 
                         if tipo_variacao == "Δ %":
-                            if _delta_percentual_em_bps(coluna_variavel):
-                                eixo_tickformat = ',.0f'
-                                eixo_ticksuffix = ' bps'
-                                eixo_titulo = "Δ (bps)"
-                            else:
-                                eixo_tickformat = '.1f'
-                                eixo_ticksuffix = '%'
-                                eixo_titulo = "Δ %"
+                            eixo_tickformat = '.1f'
+                            eixo_ticksuffix = '%'
+                            eixo_titulo = "Δ %"
                         elif _is_variavel_percentual(coluna_variavel):
-                            if _delta_percentual_em_bps(coluna_variavel):
-                                eixo_tickformat = ',.0f'
-                                eixo_ticksuffix = ' bps'
-                                eixo_titulo = "Δ absoluto (bps)"
-                            else:
-                                eixo_tickformat = '.2f'
-                                eixo_ticksuffix = '%'
-                                eixo_titulo = "Δ absoluto (%)"
+                            eixo_tickformat = '.1f'
+                            eixo_ticksuffix = ' p.p.'
+                            eixo_titulo = "Δ absoluto (p.p.)"
                         else:
                             eixo_tickformat = format_info['tickformat']
                             eixo_ticksuffix = format_info['ticksuffix']
@@ -10657,44 +10656,9 @@ elif menu == "Rankings":
 
                                 st.plotly_chart(fig_hist, width='stretch', config={'displayModeBar': 'hover', 'displaylogo': False})
 
-                                df_export_hist = df_hist.pivot_table(
-                                    index='Instituição',
-                                    columns='Período',
-                                    values=variavel,
-                                    aggfunc='first',
-                                    observed=False,
-                                ).reset_index()
-                                colunas_ordenadas = ['Instituição'] + periodos_hist
-                                df_export_hist = df_export_hist.reindex(columns=colunas_ordenadas)
+                                st.caption("histórico exibido apenas para conferência visual (sem exportação nesta seção).")
 
-                                buffer_excel_hist = BytesIO()
-                                with pd.ExcelWriter(buffer_excel_hist, engine='xlsxwriter') as writer:
-                                    df_export_hist.to_excel(writer, index=False, sheet_name='historico')
-                                buffer_excel_hist.seek(0)
-
-                                col_hist_excel, col_hist_png = st.columns(2)
-                                with col_hist_excel:
-                                    st.download_button(
-                                        label="Download Excel",
-                                        data=buffer_excel_hist,
-                                        file_name=f"Historico_{variavel}_{periodo_inicial_delta.replace('/', '-')}_{periodo_subsequente_delta.replace('/', '-')}.xlsx",
-                                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                        key=f"exportar_historico_delta_{variavel}",
-                                        use_container_width=True,
-                                    )
-                                with col_hist_png:
-                                    png_hist = _plotly_fig_to_png_bytes(fig_hist)
-                                    if png_hist:
-                                        st.download_button(
-                                            label="exportar histórico PNG",
-                                            data=png_hist,
-                                            file_name=f"Historico_{variavel}_{periodo_inicial_delta.replace('/', '-')}_{periodo_subsequente_delta.replace('/', '-')}.png",
-                                            mime="image/png",
-                                            key=f"exportar_historico_delta_png_{variavel}",
-                                            use_container_width=True,
-                                        )
-
-                        st.markdown("#### Exportar")
+                        st.markdown("#### dados brutos comparados")
                         df_resumo = pd.DataFrame(dados_grafico)
                         df_resumo = df_resumo.rename(columns={
                             'instituicao': 'Instituição',
@@ -10705,34 +10669,7 @@ elif menu == "Rankings":
                         })
                         df_resumo = df_resumo[['Instituição', periodo_inicial_delta, periodo_subsequente_delta, 'Delta', 'Variação %']]
                         st.dataframe(df_resumo, use_container_width=True)
-
-                        buffer_excel = BytesIO()
-                        with pd.ExcelWriter(buffer_excel, engine='xlsxwriter') as writer:
-                            df_resumo.to_excel(writer, index=False, sheet_name='deltas')
-                        buffer_excel.seek(0)
-
-                        nome_variavel = variavel.replace(' ', '_').replace('/', '_')
-                        col_delta_excel, col_delta_png = st.columns(2)
-                        with col_delta_excel:
-                            st.download_button(
-                                label="Download Excel",
-                                data=buffer_excel,
-                                file_name=f"Deltas_{variavel}_{periodo_inicial_delta.replace('/', '-')}_{periodo_subsequente_delta.replace('/', '-')}.xlsx",
-                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                key=f"exportar_excel_delta_{variavel}",
-                                use_container_width=True,
-                            )
-                        with col_delta_png:
-                            png_delta = _plotly_fig_to_png_bytes(fig_barras)
-                            if png_delta:
-                                st.download_button(
-                                    label="exportar gráfico PNG",
-                                    data=png_delta,
-                                    file_name=f"Deltas_{variavel}_{periodo_inicial_delta.replace('/', '-')}_{periodo_subsequente_delta.replace('/', '-')}.png",
-                                    mime="image/png",
-                                    key=f"exportar_png_delta_{variavel}",
-                                    use_container_width=True,
-                                )
+                        st.caption("exportação disponível apenas na visão tabela.")
                 elif not periodo_valido:
                     pass  # Já exibiu warning acima
                 elif not variaveis_selecionadas_delta:
