@@ -2430,13 +2430,25 @@ def periodo_para_exibicao(periodo_trimestre: str) -> str:
 
 
 
-def formatar_periodo_mm_yyyy(periodo_val: object) -> str:
-    """Normaliza rótulos de período para MM/YYYY (ex.: 03/2025)."""
+def formatar_periodo_mm_yyyy(periodo_val: object, trimestral_para_mes_final: bool = True) -> str:
+    """Normaliza rótulos de período para MM/YYYY (ex.: 03/2025).
+
+    Quando `trimestral_para_mes_final=True`, entradas no formato trimestre/ano
+    (ex.: 1/2025, 2/2025, 3/2025, 4/2025) são convertidas para mês final do
+    trimestre (03/2025, 06/2025, 09/2025, 12/2025).
+    """
     if periodo_val is None:
         return ""
     periodo_str = str(periodo_val).strip()
     if not periodo_str:
         return ""
+
+    if trimestral_para_mes_final:
+        m_tri = re.fullmatch(r"([1-4])(?:\s*[Tt])?/(\d{4})", periodo_str)
+        if m_tri:
+            trimestre = int(m_tri.group(1))
+            ano = m_tri.group(2)
+            return f"{trimestre * 3:02d}/{ano}"
 
     m_iso = re.fullmatch(r"(\d{4})-(\d{1,2})", periodo_str)
     if m_iso:
@@ -8128,7 +8140,7 @@ elif False and menu == "Painel":
                             ))
 
                         fig_resumo.update_layout(
-                            title=f"{indicador_label} - {periodo_resumo} ({len(df_percent)} instituições)",
+                            title=f"{indicador_label} - {formatar_periodo_mm_yyyy(periodo_resumo)} ({len(df_percent)} instituições)",
                             xaxis_title="instituições",
                             yaxis_title="participação (%)",
                             plot_bgcolor='#f8f9fa',
@@ -10194,7 +10206,7 @@ elif menu == "Rankings":
                                 title=(
                                     f"Índice de Basileia (%) - comparação por períodos ({n_bancos} instituições)"
                                     if comparar_periodos_basileia
-                                    else f"Índice de Basileia (%) - {periodo_resumo_base} ({n_bancos} instituições)"
+                                    else f"Índice de Basileia (%) - {formatar_periodo_mm_yyyy(periodo_resumo_base)} ({n_bancos} instituições)"
                                 ),
                                 xaxis_title="instituições",
                                 yaxis_title="índice (%)",

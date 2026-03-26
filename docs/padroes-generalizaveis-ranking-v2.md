@@ -51,3 +51,8 @@
 - **Filename:** `append-only-conhecimento.md`
 - **Tags:** #product #scope
 - **Regra:** Atualizações do repositório de padrões devem ser somente por append, preservando histórico.
+
+### Header de Período Trimestral em MM/AAAA (Mês de Fechamento)
+- **Filename:** `header-periodo-trimestral-mm-aaaa.md`
+- **Tags:** #formatting #ux #data #scope
+- **Regra:** Sempre que o período de origem estiver em trimestre/ano (`1/AAAA` a `4/AAAA`), exibir em cabeçalhos e títulos como mês final do trimestre (`03/AAAA`, `06/AAAA`, `09/AAAA`, `12/AAAA`) para remover ambiguidade.
