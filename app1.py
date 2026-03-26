@@ -10239,40 +10239,55 @@ elif menu == "Rankings":
                 mostrar_cet1: bool = True,
                 mostrar_total: bool = True,
             ) -> None:
-                """Data labels v2: total acima e CET1 dentro; AT1/T2 apenas no hover/tabela."""
+                """Data labels em trilhos fixos para CET1/AT1/T2/Total no gráfico empilhado."""
                 if df_labels.empty:
                     return
+
+                label_size = 12
+                trilho_inferior = -22
+                trilho_superior = 22
+
                 for _, row in df_labels.iterrows():
                     inst = row.get("Instituição")
                     cet1 = pd.to_numeric(row.get("CET1 (%)"), errors="coerce")
+                    at1 = pd.to_numeric(row.get("AT1 (%)"), errors="coerce")
+                    t2 = pd.to_numeric(row.get("T2 (%)"), errors="coerce")
                     total = pd.to_numeric(row.get("Índice de Basileia Total (%)"), errors="coerce")
-                    if pd.isna(inst) or any(pd.isna(v) for v in (cet1, total)):
+                    if pd.isna(inst) or any(pd.isna(v) for v in (cet1, at1, t2, total)):
                         continue
 
                     if mostrar_cet1:
-                        if float(cet1) >= 5:
-                            fig.add_annotation(
-                                x=inst,
-                                y=float(cet1) / 2,
-                                text=_formatar_br(cet1, 1, "%"),
-                                showarrow=False,
-                                font=dict(size=11, color="#FFFFFF"),
-                                xanchor="center",
-                                yanchor="middle",
-                                cliponaxis=False,
-                            )
-                        else:
-                            fig.add_annotation(
-                                x=inst,
-                                y=float(cet1),
-                                text=_formatar_br(cet1, 1, "%"),
-                                showarrow=False,
-                                font=dict(size=11, color="#2C2C2A"),
-                                yshift=8,
-                                xanchor="center",
-                                yanchor="bottom",
-                                cliponaxis=False,
-                            )
+                        fig.add_annotation(
+                            x=inst,
+                            y=float(cet1) / 2,
+                            text=_formatar_br(cet1, 1, "%"),
+                            showarrow=False,
+                            font=dict(size=label_size, color="#2C2C2A"),
+                            yshift=trilho_inferior,
+                            xanchor="center",
+                            yanchor="middle",
+                        )
+
+                        fig.add_annotation(
+                            x=inst,
+                            y=float(cet1) + (float(at1) / 2),
+                            text=_formatar_br(at1, 1, "%"),
+                            showarrow=False,
+                            font=dict(size=label_size, color="#FFFFFF"),
+                            xanchor="center",
+                            yanchor="middle",
+                        )
+
+                        fig.add_annotation(
+                            x=inst,
+                            y=float(cet1) + float(at1) + (float(t2) / 2),
+                            text=_formatar_br(t2, 1, "%"),
+                            showarrow=False,
+                            font=dict(size=label_size, color="#2C2C2A"),
+                            yshift=trilho_superior,
+                            xanchor="center",
+                            yanchor="middle",
+                        )
 
                     if mostrar_total:
                         fig.add_annotation(
@@ -10280,11 +10295,10 @@ elif menu == "Rankings":
                             y=float(total),
                             text=f"<b>{_formatar_br(total, 1, '%')}</b>",
                             showarrow=False,
-                            font=dict(size=11, color="#2C2C2A"),
-                            yshift=8,
+                            font=dict(size=label_size, color="#185FA5"),
+                            yshift=trilho_inferior,
                             xanchor="center",
-                            yanchor="bottom",
-                            cliponaxis=False,
+                            yanchor="middle",
                             name=(periodo_ref or ""),
                         )
 
@@ -10674,6 +10688,13 @@ elif menu == "Rankings":
                                 df_plot = df_plot.sort_values(["Instituição", "Período"])
 
                             fig_resumo = go.Figure()
+                            media_display = calcular_media_ponderada(df_multiperiodo, 'valor_display', coluna_peso_resumo)
+                            media_sfn_display = (
+                                df_periodo.assign(
+                                    valor_display=_calcular_valores_display(df_periodo[indicador_col], indicador_col, format_info)
+                                )["valor_display"].replace(0, np.nan).dropna().mean()
+                                if indicador_col in df_periodo.columns else None
+                            )
                             casas_labels = _casas_decimais_unicas(df_plot["valor_display"].tolist(), casas_iniciais=1)
                             sufixo = format_info.get('ticksuffix', '')
                             for idx_p, p in enumerate(periodo_resumo):
@@ -10692,6 +10713,22 @@ elif menu == "Rankings":
                                     textposition='auto',
                                     hovertemplate="<b>%{x}</b><br>Período: " + f"{periodo_para_exibicao(p)}" + "<br>Valor: %{y:,.2f}<extra></extra>"
                                 ))
+
+                            fig_resumo.add_hline(
+                                y=media_display,
+                                line_dash='dash',
+                                line_color='#555555',
+                                annotation_text=f"Média selecionadas: {formatar_numero(media_display, format_info, variavel_ref=indicador_col)}",
+                                annotation_position='top right'
+                            )
+                            if media_sfn_display is not None and pd.notna(media_sfn_display):
+                                fig_resumo.add_hline(
+                                    y=media_sfn_display,
+                                    line_dash='dash',
+                                    line_color='#1f77b4',
+                                    annotation_text=f"Média SFN: {formatar_numero(media_sfn_display, format_info, variavel_ref=indicador_col)}",
+                                    annotation_position='bottom right'
+                                )
 
                             fig_resumo.update_layout(
                                 title=f"{indicador_label} - comparação por períodos",
