@@ -2459,6 +2459,8 @@ def formatar_periodo_mm_yyyy(periodo_val: object, trimestral_para_mes_final: boo
     m_br = re.fullmatch(r"(\d{1,2})/(\d{4})", periodo_str)
     if m_br:
         mes, ano = int(m_br.group(1)), m_br.group(2)
+        if trimestral_para_mes_final and mes in (1, 2, 4) and periodo_str.startswith("0"):
+            return f"{mes * 3:02d}/{ano}"
         if 1 <= mes <= 12:
             return f"{mes:02d}/{ano}"
 
@@ -10171,7 +10173,23 @@ elif menu == "Rankings":
                                         )
                                     ))
 
-                            if not comparar_periodos_basileia:
+                            if comparar_periodos_basileia:
+                                for p in periodo_resumo:
+                                    df_total = df_selecionado_cap[df_selecionado_cap["Período"] == p].copy()
+                                    if df_total.empty:
+                                        continue
+                                    fig_basileia.add_trace(go.Bar(
+                                        x=df_total['Instituição'],
+                                        y=df_total['Índice de Basileia Total (%)'],
+                                        offsetgroup=p,
+                                        marker=dict(color='rgba(0,0,0,0)'),
+                                        text=df_total['Índice de Basileia Total (%)'].apply(lambda x: _formatar_br(x, 2, "%")),
+                                        textposition='outside',
+                                        textfont=dict(size=12, color='#222'),
+                                        showlegend=False,
+                                        hoverinfo='skip'
+                                    ))
+                            else:
                                 fig_basileia.add_trace(go.Scatter(
                                     x=df_selecionado_cap['Instituição'],
                                     y=df_selecionado_cap['Índice de Basileia Total (%)'],
@@ -10219,7 +10237,42 @@ elif menu == "Rankings":
                                 xaxis=dict(tickangle=-45),
                                 yaxis=dict(tickformat='.2f', ticksuffix='%'),
                                 separators=',.',
-                                font=dict(family='IBM Plex Sans')
+                                font=dict(family='IBM Plex Sans'),
+                                uniformtext_minsize=12,
+                                uniformtext_mode='show'
+                            )
+
+                            media_texto = _formatar_br(media_basileia, 2, "%")
+                            minimo_texto = _formatar_br(MINIMO_REGULATORIO, 2, "%")
+                            fig_basileia.add_annotation(
+                                x=0.98,
+                                y=0.98,
+                                xref="paper",
+                                yref="paper",
+                                text=f"{label_media}: {media_texto}",
+                                showarrow=False,
+                                xanchor="right",
+                                yanchor="top",
+                                align="right",
+                                font=dict(color="#3498db", size=12),
+                                bgcolor="rgba(255,255,255,0.82)",
+                                bordercolor="rgba(52,152,219,0.30)",
+                                borderwidth=1,
+                            )
+                            fig_basileia.add_annotation(
+                                x=0.98,
+                                y=0.92,
+                                xref="paper",
+                                yref="paper",
+                                text=f"Mínimo regulatório: {minimo_texto}",
+                                showarrow=False,
+                                xanchor="right",
+                                yanchor="top",
+                                align="right",
+                                font=dict(color="#e74c3c", size=12),
+                                bgcolor="rgba(255,255,255,0.82)",
+                                bordercolor="rgba(231,76,60,0.30)",
+                                borderwidth=1,
                             )
 
                             st.plotly_chart(fig_basileia, width='stretch', config={'displayModeBar': 'hover', 'displaylogo': False})
