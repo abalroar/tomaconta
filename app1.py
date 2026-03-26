@@ -11192,12 +11192,21 @@ elif menu == "Rankings":
                             eixo_ticksuffix = format_info['ticksuffix']
                             eixo_titulo = "Δ absoluto"
 
+                        labels_barras_delta = [
+                            d['variacao_texto'] if tipo_variacao == "Δ %" else d['delta_texto']
+                            for d in dados_grafico
+                        ]
+
                         fig_barras = go.Figure()
                         fig_barras.add_trace(go.Bar(
                             x=valores_plot if orientacao_horizontal else insts,
                             y=insts if orientacao_horizontal else valores_plot,
                             orientation='h' if orientacao_horizontal else 'v',
                             marker=dict(color=cores_barras, opacity=0.9),
+                            text=labels_barras_delta if mostrar_data_labels else None,
+                            textposition='outside' if mostrar_data_labels else 'none',
+                            textfont=dict(size=12, color='#1A1A1A'),
+                            cliponaxis=False,
                             customdata=np.stack([
                                 [d['delta_texto'] for d in dados_grafico],
                                 [d['variacao_texto'] for d in dados_grafico],
