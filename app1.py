@@ -10014,6 +10014,60 @@ elif menu == "Rankings":
                 valor_formatado = valor_formatado.replace(",", "X").replace(".", ",").replace("X", ".")
                 return f"{valor_formatado}{fmt_info['ticksuffix']}"
 
+            def _adicionar_labels_basileia_trilhos(fig: go.Figure, df_labels: pd.DataFrame) -> None:
+                """Posiciona labels do Basileia em trilhos fixos (CET1/AT1/T2/Total)."""
+                if df_labels.empty:
+                    return
+                for _, row in df_labels.iterrows():
+                    inst = row.get("Instituição")
+                    cet1 = pd.to_numeric(row.get("CET1 (%)"), errors="coerce")
+                    at1 = pd.to_numeric(row.get("AT1 (%)"), errors="coerce")
+                    t2 = pd.to_numeric(row.get("T2 (%)"), errors="coerce")
+                    total = pd.to_numeric(row.get("Índice de Basileia Total (%)"), errors="coerce")
+                    if pd.isna(inst) or any(pd.isna(v) for v in (cet1, at1, t2, total)):
+                        continue
+
+                    fig.add_annotation(
+                        x=inst,
+                        y=float(cet1) / 2,
+                        text=_formatar_br(cet1, 1, "%"),
+                        showarrow=False,
+                        font=dict(size=12, color="#1A1A1A"),
+                        yshift=-22,
+                        xanchor="center",
+                        yanchor="middle",
+                    )
+                    fig.add_annotation(
+                        x=inst,
+                        y=float(cet1) + float(at1) / 2,
+                        text=_formatar_br(at1, 1, "%"),
+                        showarrow=False,
+                        font=dict(size=12, color="#FFFFFF"),
+                        xanchor="center",
+                        yanchor="middle",
+                    )
+                    fig.add_annotation(
+                        x=inst,
+                        y=float(cet1) + float(at1) + float(t2) / 2,
+                        text=_formatar_br(t2, 1, "%"),
+                        showarrow=False,
+                        font=dict(size=12, color="#1A1A1A"),
+                        yshift=22,
+                        xanchor="center",
+                        yanchor="middle",
+                    )
+                    fig.add_annotation(
+                        x=inst,
+                        y=float(total),
+                        text=f"<b>{_formatar_br(total, 1, '%')}</b>",
+                        showarrow=False,
+                        font=dict(size=12, color="#185FA5"),
+                        yshift=-22,
+                        xshift=8,
+                        xanchor="left",
+                        yanchor="middle",
+                    )
+
             if bancos_selecionados:
                 df_selecionado = df_periodo[df_periodo['Instituição'].isin(bancos_selecionados)].copy()
             else:
@@ -10185,8 +10239,8 @@ elif menu == "Rankings":
                                         y=df_selecionado_cap[componente],
                                         name=nome_display,
                                         marker_color=cor,
-                                        text=df_selecionado_cap[componente].apply(lambda x: _formatar_br(x, 2, "%")) if mostrar_data_labels else None,
-                                        textposition='inside' if mostrar_data_labels else 'none',
+                                        text=None,
+                                        textposition='none',
                                         textfont=dict(size=12, color=cores_label_componentes.get(componente, '#111111')),
                                         hovertemplate=(
                                             "<b>%{x}</b><br>"
@@ -10210,19 +10264,6 @@ elif menu == "Rankings":
                                         showlegend=False,
                                         hoverinfo='skip'
                                     ))
-                            else:
-                                if mostrar_data_labels:
-                                    fig_basileia.add_trace(go.Scatter(
-                                        x=df_selecionado_cap['Instituição'],
-                                        y=df_selecionado_cap['Índice de Basileia Total (%)'],
-                                        mode='text',
-                                        text=df_selecionado_cap['Índice de Basileia Total (%)'].apply(lambda x: _formatar_br(x, 2, "%")),
-                                        textposition='top center',
-                                        textfont=dict(size=12, color='#222'),
-                                        showlegend=False,
-                                        hoverinfo='skip'
-                                    ))
-
                             fig_basileia.add_trace(go.Scatter(
                                 x=eixo_instituicoes,
                                 y=[media_basileia] * n_bancos,
@@ -10272,6 +10313,9 @@ elif menu == "Rankings":
                                 uniformtext_minsize=12,
                                 uniformtext_mode='show'
                             )
+                            fig_basileia.update_traces(cliponaxis=False, selector=dict(type='bar'))
+                            if mostrar_data_labels and not comparar_periodos_basileia:
+                                _adicionar_labels_basileia_trilhos(fig_basileia, df_selecionado_cap)
 
                             media_texto = _formatar_br(media_basileia, 2, "%")
                             minimo_texto = _formatar_br(MINIMO_REGULATORIO, 2, "%")
@@ -10527,7 +10571,7 @@ elif menu == "Rankings":
                                 x=media_display,
                                 line_dash='dash',
                                 line_color='#555555',
-                                annotation_text='Média selecionadas',
+                                annotation_text=f"Média selecionadas: {formatar_numero(media_display, format_info, variavel_ref=indicador_col)}",
                                 annotation_position='top'
                             )
                             if media_sfn_display is not None and pd.notna(media_sfn_display):
@@ -10535,7 +10579,7 @@ elif menu == "Rankings":
                                     x=media_sfn_display,
                                     line_dash='dash',
                                     line_color='#1f77b4',
-                                    annotation_text='Média SFN',
+                                    annotation_text=f"Média SFN: {formatar_numero(media_sfn_display, format_info, variavel_ref=indicador_col)}",
                                     annotation_position='bottom'
                                 )
 
