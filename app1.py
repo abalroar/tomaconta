@@ -9953,9 +9953,13 @@ elif menu == "Rankings":
                     horizontal=True,
                     key="ordem_resumo"
                 )
+                _indicador_toggle_key = "ranking_data_labels_last_indicator"
+                if st.session_state.get(_indicador_toggle_key) != indicador_label:
+                    st.session_state["ranking_data_labels_toggle"] = True
+                    st.session_state[_indicador_toggle_key] = indicador_label
                 mostrar_data_labels = st.toggle(
-                    "Data labels",
-                    value=st.session_state.get("ranking_data_labels_toggle", False),
+                    "Exibir valores",
+                    value=st.session_state.get("ranking_data_labels_toggle", True),
                     key="ranking_data_labels_toggle",
                     help="Mostra/oculta os valores diretamente nas barras do gráfico.",
                 )
@@ -10093,6 +10097,14 @@ elif menu == "Rankings":
                             media_basileia = calcular_media_ponderada(
                                 df_selecionado_cap, 'Índice de Basileia Total (%)', coluna_peso_resumo
                             )
+                            media_sfn_basileia = (
+                                df_periodo_cap['Índice de Basileia Total (%)']
+                                .replace(0, np.nan)
+                                .dropna()
+                                .mean()
+                                if 'Índice de Basileia Total (%)' in df_periodo_cap.columns
+                                else None
+                            )
                             media_cet1 = calcular_media_ponderada(
                                 df_selecionado_cap, 'CET1 (%)', coluna_peso_resumo
                             )
@@ -10149,8 +10161,8 @@ elif menu == "Rankings":
                                             showlegend=(idx_p == 0),
                                             offsetgroup=p,
                                             marker_color=cor,
-                                            text=df_comp[componente].apply(lambda x: _formatar_br(x, 2, "%")),
-                                            textposition='inside',
+                                            text=df_comp[componente].apply(lambda x: _formatar_br(x, 2, "%")) if mostrar_data_labels else None,
+                                            textposition='inside' if mostrar_data_labels else 'none',
                                             textfont=dict(size=12, color=cores_label_componentes.get(componente, '#111111')),
                                             hovertemplate=(
                                                 "<b>%{x}</b><br>"
@@ -10164,8 +10176,8 @@ elif menu == "Rankings":
                                         y=df_selecionado_cap[componente],
                                         name=nome_display,
                                         marker_color=cor,
-                                        text=df_selecionado_cap[componente].apply(lambda x: _formatar_br(x, 2, "%")),
-                                        textposition='inside',
+                                        text=df_selecionado_cap[componente].apply(lambda x: _formatar_br(x, 2, "%")) if mostrar_data_labels else None,
+                                        textposition='inside' if mostrar_data_labels else 'none',
                                         textfont=dict(size=12, color=cores_label_componentes.get(componente, '#111111')),
                                         hovertemplate=(
                                             "<b>%{x}</b><br>"
@@ -10183,32 +10195,42 @@ elif menu == "Rankings":
                                         y=df_total['Índice de Basileia Total (%)'],
                                         offsetgroup=p,
                                         marker=dict(color='rgba(0,0,0,0)'),
-                                        text=df_total['Índice de Basileia Total (%)'].apply(lambda x: _formatar_br(x, 2, "%")),
-                                        textposition='outside',
+                                        text=df_total['Índice de Basileia Total (%)'].apply(lambda x: _formatar_br(x, 2, "%")) if mostrar_data_labels else None,
+                                        textposition='outside' if mostrar_data_labels else 'none',
                                         textfont=dict(size=12, color='#222'),
                                         showlegend=False,
                                         hoverinfo='skip'
                                     ))
                             else:
-                                fig_basileia.add_trace(go.Scatter(
-                                    x=df_selecionado_cap['Instituição'],
-                                    y=df_selecionado_cap['Índice de Basileia Total (%)'],
-                                    mode='text',
-                                    text=df_selecionado_cap['Índice de Basileia Total (%)'].apply(lambda x: _formatar_br(x, 2, "%")),
-                                    textposition='top center',
-                                    textfont=dict(size=12, color='#222'),
-                                    showlegend=False,
-                                    hoverinfo='skip'
-                                ))
+                                if mostrar_data_labels:
+                                    fig_basileia.add_trace(go.Scatter(
+                                        x=df_selecionado_cap['Instituição'],
+                                        y=df_selecionado_cap['Índice de Basileia Total (%)'],
+                                        mode='text',
+                                        text=df_selecionado_cap['Índice de Basileia Total (%)'].apply(lambda x: _formatar_br(x, 2, "%")),
+                                        textposition='top center',
+                                        textfont=dict(size=12, color='#222'),
+                                        showlegend=False,
+                                        hoverinfo='skip'
+                                    ))
 
                             fig_basileia.add_trace(go.Scatter(
                                 x=eixo_instituicoes,
                                 y=[media_basileia] * n_bancos,
                                 mode='lines',
-                                name=f'{label_media} ({media_basileia:.2f}%)',
-                                line=dict(color='#3498db', dash='dash', width=2),
+                                name=f'Média selecionadas ({media_basileia:.2f}%)',
+                                line=dict(color='#555555', dash='dash', width=2),
                                 hovertemplate=f"{label_media}: {media_basileia:.2f}%<extra></extra>"
                             ))
+                            if media_sfn_basileia is not None and pd.notna(media_sfn_basileia):
+                                fig_basileia.add_trace(go.Scatter(
+                                    x=eixo_instituicoes,
+                                    y=[media_sfn_basileia] * n_bancos,
+                                    mode='lines',
+                                    name=f'Média SFN ({media_sfn_basileia:.2f}%)',
+                                    line=dict(color='#1f77b4', dash='dash', width=2),
+                                    hovertemplate=f"Média SFN: {media_sfn_basileia:.2f}%<extra></extra>"
+                                ))
 
                             MINIMO_REGULATORIO = 10.5
                             fig_basileia.add_trace(go.Scatter(
@@ -10412,7 +10434,7 @@ elif menu == "Rankings":
                             media_sfn_display = (
                                 df_periodo.assign(
                                     valor_display=_calcular_valores_display(df_periodo[indicador_col], indicador_col, format_info)
-                                )["valor_display"].dropna().mean()
+                                )["valor_display"].replace(0, np.nan).dropna().mean()
                                 if indicador_col in df_periodo.columns else None
                             )
                             label_media = get_label_media(coluna_peso_resumo)
@@ -10442,9 +10464,9 @@ elif menu == "Rankings":
                             )
 
                             n_bancos = len(df_selecionado)
-                            orientacao_horizontal = n_bancos > 15
-                            altura_grafico = max(760, n_bancos * 30) if orientacao_horizontal else 760
-                            df_plot_chart = df_selecionado.iloc[::-1].copy() if orientacao_horizontal else df_selecionado.copy()
+                            orientacao_horizontal = True
+                            altura_grafico = max(760, n_bancos * 30)
+                            df_plot_chart = df_selecionado.iloc[::-1].copy()
                             casas_labels = _casas_decimais_unicas(df_selecionado["valor_display"].tolist(), casas_iniciais=1)
                             sufixo = format_info.get('ticksuffix', '')
                             cores_barras = (
@@ -10458,6 +10480,12 @@ elif menu == "Rankings":
 
                             fig_resumo = go.Figure()
                             banco_hover = "%{y}" if orientacao_horizontal else "%{x}"
+                            max_valor_abs = float(df_plot_chart['valor_display'].abs().max()) if not df_plot_chart.empty else 0.0
+                            limiar_label_interno = max_valor_abs * 0.15
+                            posicoes_labels = [
+                                'inside' if abs(v) >= limiar_label_interno else 'outside'
+                                for v in df_plot_chart['valor_display']
+                            ]
                             fig_resumo.add_trace(go.Bar(
                                 x=df_plot_chart['valor_display'] if orientacao_horizontal else df_plot_chart['Instituição'],
                                 y=df_plot_chart['Instituição'] if orientacao_horizontal else df_plot_chart['valor_display'],
@@ -10465,7 +10493,11 @@ elif menu == "Rankings":
                                 name=indicador_label,
                                 orientation='h' if orientacao_horizontal else 'v',
                                 text=textos_labels if mostrar_data_labels else None,
-                                textposition='auto',
+                                textposition=posicoes_labels if mostrar_data_labels else 'none',
+                                textfont=dict(size=12),
+                                insidetextfont=dict(color='#FFFFFF', size=12),
+                                outsidetextfont=dict(color='#1A1A1A', size=12),
+                                cliponaxis=False,
                                 customdata=np.stack([
                                     df_plot_chart['ranking'],
                                     df_plot_chart['diff_text'],
@@ -10482,38 +10514,21 @@ elif menu == "Rankings":
                                 )
                             ))
 
-                            if orientacao_horizontal:
-                                fig_resumo.add_trace(go.Scatter(
-                                    x=[media_display] * len(df_selecionado),
-                                    y=df_plot_chart['Instituição'],
-                                    mode='lines',
-                                    name="Média seleção",
-                                    line=dict(color='#1A1A1A', dash='5px,3px')
-                                ))
-                                if media_sfn_display is not None and pd.notna(media_sfn_display):
-                                    fig_resumo.add_trace(go.Scatter(
-                                        x=[media_sfn_display] * len(df_selecionado),
-                                        y=df_plot_chart['Instituição'],
-                                        mode='lines',
-                                        name="Média SFN",
-                                        line=dict(color='#EE7203', dash='5px,3px')
-                                    ))
-                            else:
-                                fig_resumo.add_trace(go.Scatter(
-                                    x=df_plot_chart['Instituição'],
-                                    y=[media_display] * len(df_selecionado),
-                                    mode='lines',
-                                    name="Média seleção",
-                                    line=dict(color='#1A1A1A', dash='5px,3px')
-                                ))
-                                if media_sfn_display is not None and pd.notna(media_sfn_display):
-                                    fig_resumo.add_trace(go.Scatter(
-                                        x=df_plot_chart['Instituição'],
-                                        y=[media_sfn_display] * len(df_selecionado),
-                                        mode='lines',
-                                        name="Média SFN",
-                                        line=dict(color='#EE7203', dash='5px,3px')
-                                    ))
+                            fig_resumo.add_vline(
+                                x=media_display,
+                                line_dash='dash',
+                                line_color='#555555',
+                                annotation_text='Média selecionadas',
+                                annotation_position='top'
+                            )
+                            if media_sfn_display is not None and pd.notna(media_sfn_display):
+                                fig_resumo.add_vline(
+                                    x=media_sfn_display,
+                                    line_dash='dash',
+                                    line_color='#1f77b4',
+                                    annotation_text='Média SFN',
+                                    annotation_position='bottom'
+                                )
 
                             media_sel_text = _formatar_br(media_display, casas_labels, sufixo)
                             media_sfn_text = (
@@ -10553,9 +10568,9 @@ elif menu == "Rankings":
                                     xanchor="right",
                                     yanchor="top",
                                     align="right",
-                                    font=dict(color="#EE7203", size=12),
+                                    font=dict(color="#1f77b4", size=12),
                                     bgcolor="rgba(255,255,255,0.82)",
-                                    bordercolor="rgba(238,114,3,0.30)",
+                                    bordercolor="rgba(31,119,180,0.30)",
                                     borderwidth=1,
                                 )
 
