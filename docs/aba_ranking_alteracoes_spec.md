@@ -106,6 +106,11 @@ Disponibilizar tabela pronta para uso analítico e exportável sem fricção.
 
 ### Estrutura de dados para export
 - Formato preferencial de período: **MM/AAAA** (ex.: `03/2025`).
+- Para origem trimestral (`1/AAAA`, `2/AAAA`, `3/AAAA`, `4/AAAA`), converter para mês de fechamento:
+  - `1T` → `03/AAAA`
+  - `2T` → `06/AAAA`
+  - `3T` → `09/AAAA`
+  - `4T` → `12/AAAA`
 - Layout da planilha:
   - **uma instituição por linha**;
   - **um período por coluna**;
