@@ -11059,9 +11059,11 @@ elif menu == "Rankings":
                         horizontal=True
                     )
                 if periodo_subsequente_delta and periodo_inicial_delta:
+                    periodo_inicial_delta_fmt = formatar_periodo_mm_yyyy(periodo_inicial_delta)
+                    periodo_subsequente_delta_fmt = formatar_periodo_mm_yyyy(periodo_subsequente_delta)
                     st.caption(
-                        f"comparação automática: {periodo_para_exibicao(periodo_inicial_delta)} → "
-                        f"{periodo_para_exibicao(periodo_subsequente_delta)} "
+                        f"comparação automática: {periodo_inicial_delta_fmt} → "
+                        f"{periodo_subsequente_delta_fmt} "
                         "(mais antigo vs mais recente da multisseleção)"
                     )
                 bancos_selecionados_delta = bancos_selecionados
@@ -11208,7 +11210,11 @@ elif menu == "Rankings":
 
                         fig_barras.update_layout(
                             title=dict(
-                                text=f"{variavel}: {periodo_inicial_delta} → {periodo_subsequente_delta}",
+                                text=(
+                                    f"{variavel}: "
+                                    f"{formatar_periodo_mm_yyyy(periodo_inicial_delta)} → "
+                                    f"{formatar_periodo_mm_yyyy(periodo_subsequente_delta)}"
+                                ),
                                 font=dict(size=16, family='IBM Plex Sans')
                             ),
                             height=max(450, len(dados_grafico) * 25 + 160),
