@@ -10244,8 +10244,6 @@ elif menu == "Rankings":
                     return
 
                 label_size = 12
-                trilho_inferior = -22
-                trilho_superior = 22
 
                 for _, row in df_labels.iterrows():
                     inst = row.get("Instituição")
@@ -10257,17 +10255,19 @@ elif menu == "Rankings":
                         continue
 
                     if mostrar_cet1:
+                        # CET1 — label abaixo da barra (junto ao eixo X)
                         fig.add_annotation(
                             x=inst,
-                            y=float(cet1) / 2,
+                            y=0,
                             text=_formatar_br(cet1, 1, "%"),
                             showarrow=False,
                             font=dict(size=label_size, color="#2C2C2A"),
-                            yshift=trilho_inferior,
+                            yshift=-18,
                             xanchor="center",
-                            yanchor="middle",
+                            yanchor="top",
                         )
 
+                        # AT1 — label no centro do segmento
                         fig.add_annotation(
                             x=inst,
                             y=float(cet1) + (float(at1) / 2),
@@ -10278,27 +10278,29 @@ elif menu == "Rankings":
                             yanchor="middle",
                         )
 
+                        # T2 — label acima da barra (topo do segmento T2)
                         fig.add_annotation(
                             x=inst,
-                            y=float(cet1) + float(at1) + (float(t2) / 2),
+                            y=float(cet1) + float(at1) + float(t2),
                             text=_formatar_br(t2, 1, "%"),
                             showarrow=False,
                             font=dict(size=label_size, color="#2C2C2A"),
-                            yshift=trilho_superior,
+                            yshift=18,
                             xanchor="center",
-                            yanchor="middle",
+                            yanchor="bottom",
                         )
 
                     if mostrar_total:
+                        # Total — label acima do T2, no topo da barra
                         fig.add_annotation(
                             x=inst,
                             y=float(total),
                             text=f"<b>{_formatar_br(total, 1, '%')}</b>",
                             showarrow=False,
                             font=dict(size=label_size, color="#185FA5"),
-                            yshift=trilho_inferior,
+                            yshift=38,
                             xanchor="center",
-                            yanchor="middle",
+                            yanchor="bottom",
                             name=(periodo_ref or ""),
                         )
 
@@ -10396,7 +10398,6 @@ elif menu == "Rankings":
                             )
                             media_sfn_basileia = (
                                 df_periodo_cap['Índice de Basileia Total (%)']
-                                .replace(0, np.nan)
                                 .dropna()
                                 .mean()
                                 if 'Índice de Basileia Total (%)' in df_periodo_cap.columns
@@ -10563,7 +10564,7 @@ elif menu == "Rankings":
                                 uniformtext_mode='show'
                             )
                             fig_basileia.update_traces(cliponaxis=False, selector=dict(type='bar'))
-                            y_max_raw = pd.to_numeric(df_selecionado_cap['Índice de Basileia Total (%)'], errors='coerce').max() * 1.15
+                            y_max_raw = pd.to_numeric(df_selecionado_cap['Índice de Basileia Total (%)'], errors='coerce').max() * 1.25
                             y_max = int(math.ceil((y_max_raw if pd.notna(y_max_raw) else 0) / 5.0) * 5.0)
                             y_max = max(y_max, 15)
                             fig_basileia.update_yaxes(range=[0, y_max])
@@ -10692,7 +10693,7 @@ elif menu == "Rankings":
                             media_sfn_display = (
                                 df_periodo.assign(
                                     valor_display=_calcular_valores_display(df_periodo[indicador_col], indicador_col, format_info)
-                                )["valor_display"].replace(0, np.nan).dropna().mean()
+                                )["valor_display"].dropna().mean()
                                 if indicador_col in df_periodo.columns else None
                             )
                             casas_labels = _casas_decimais_unicas(df_plot["valor_display"].tolist(), casas_iniciais=1)
@@ -10769,7 +10770,7 @@ elif menu == "Rankings":
                             media_sfn_display = (
                                 df_periodo.assign(
                                     valor_display=_calcular_valores_display(df_periodo[indicador_col], indicador_col, format_info)
-                                )["valor_display"].replace(0, np.nan).dropna().mean()
+                                )["valor_display"].dropna().mean()
                                 if indicador_col in df_periodo.columns else None
                             )
                             label_media = get_label_media(coluna_peso_resumo)
