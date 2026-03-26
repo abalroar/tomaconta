@@ -3526,6 +3526,31 @@ def _normalizar_lucro_liquido(df: pd.DataFrame) -> pd.DataFrame:
       - Q3 (Set): LL_trimestral = LL(09)
       - Q4 (Dez): LL_trimestral = LL(12) - LL(09)
     """
+    def _calcular_ll_ytd(raw_map: dict[int, float], tri_idx: int) -> float:
+        ll_db = raw_map.get(tri_idx)
+        if pd.isna(ll_db):
+            return np.nan
+        if tri_idx in (1, 2):
+            return ll_db
+        if tri_idx in (3, 4):
+            ll_jun = raw_map.get(2)
+            return ll_jun + ll_db if pd.notna(ll_jun) else np.nan
+        return np.nan
+
+    def _calcular_ll_trimestral(raw_map: dict[int, float], tri_idx: int) -> float:
+        ll_db = raw_map.get(tri_idx)
+        if pd.isna(ll_db):
+            return np.nan
+        if tri_idx in (1, 3):
+            return ll_db
+        if tri_idx == 2:
+            ll_mar = raw_map.get(1)
+            return ll_db - ll_mar if pd.notna(ll_mar) else np.nan
+        if tri_idx == 4:
+            ll_set = raw_map.get(3)
+            return ll_db - ll_set if pd.notna(ll_set) else np.nan
+        return np.nan
+
     col_ll = "Lucro Líquido Acumulado YTD"
     if df is None or df.empty or col_ll not in df.columns:
         return df
@@ -3544,28 +3569,14 @@ def _normalizar_lucro_liquido(df: pd.DataFrame) -> pd.DataFrame:
         raw_map = g.set_index("_tri_idx_tmp")[col_ll].to_dict()
 
         for row_idx, tri in zip(g.index, g["_tri_idx_tmp"]):
-            raw_val = out.at[row_idx, col_ll]
-            if pd.isna(raw_val):
+            tri_int = int(tri) if pd.notna(tri) else None
+            if tri_int is None:
+                out.at[row_idx, "Lucro Líquido Trimestral"] = np.nan
+                ll_ytd_ajustado.at[row_idx] = out.at[row_idx, col_ll]
                 continue
 
-            tri_int = int(tri) if pd.notna(tri) else None
-            if tri_int == 1:
-                out.at[row_idx, "Lucro Líquido Trimestral"] = raw_val
-                ll_ytd_ajustado.at[row_idx] = raw_val
-            elif tri_int == 2:
-                mar = raw_map.get(1)
-                out.at[row_idx, "Lucro Líquido Trimestral"] = raw_val - mar if pd.notna(mar) else np.nan
-                ll_ytd_ajustado.at[row_idx] = raw_val
-            elif tri_int == 3:
-                out.at[row_idx, "Lucro Líquido Trimestral"] = raw_val
-                ll_ytd_ajustado.at[row_idx] = raw_val
-            elif tri_int == 4:
-                set_val = raw_map.get(3)
-                out.at[row_idx, "Lucro Líquido Trimestral"] = raw_val - set_val if pd.notna(set_val) else np.nan
-                ll_ytd_ajustado.at[row_idx] = raw_val
-            else:
-                out.at[row_idx, "Lucro Líquido Trimestral"] = np.nan
-                ll_ytd_ajustado.at[row_idx] = raw_val
+            out.at[row_idx, "Lucro Líquido Trimestral"] = _calcular_ll_trimestral(raw_map, tri_int)
+            ll_ytd_ajustado.at[row_idx] = _calcular_ll_ytd(raw_map, tri_int)
 
     out[col_ll] = ll_ytd_ajustado.where(ll_ytd_ajustado.notna(), out[col_ll])
     out = out.drop(columns=["_tri_tmp", "_tri_idx_tmp", "_ano_tmp"], errors="ignore")
