@@ -11031,34 +11031,17 @@ elif menu == "Rankings":
                 variaveis_selecionadas_delta = [indicador_label]
                 delta_colunas_map = {label: col for label, col in indicadores_disponiveis.items()}
 
-                periodo_inicial_delta = periodo_resumo_base
-                idx_inicial_delta = periodos_dropdown.index(periodo_inicial_delta)
-                # Seleção livre: o período subsequente não precisa ser do mesmo trimestre.
-                # Regra única: deve ser mais recente (superior) ao período inicial.
-                periodos_subsequentes = [
-                    periodo for i, periodo in enumerate(periodos_dropdown)
-                    if i < idx_inicial_delta
-                ]
+                periodos_delta_ordenados = ordenar_periodos(periodo_resumo, reverso=True)
+                periodo_subsequente_delta = periodos_delta_ordenados[0] if periodos_delta_ordenados else None
+                periodo_inicial_delta = periodos_delta_ordenados[-1] if periodos_delta_ordenados else None
+                periodo_valido = (
+                    bool(periodo_inicial_delta)
+                    and bool(periodo_subsequente_delta)
+                    and periodo_inicial_delta != periodo_subsequente_delta
+                )
 
                 # ===== LINHA 2: Seleção de período subsequente e tipo de variação =====
-                col_p2, col_tipo_comp, col_tipo_var = st.columns([1.6, 1.2, 1.0])
-                with col_p2:
-                    if not periodos_subsequentes:
-                        periodo_subsequente_delta = None
-                        periodo_valido = False
-                        st.warning("não há período mais recente que o período inicial selecionado.")
-                    else:
-                        periodo_subsequente_delta = st.selectbox(
-                            "período subsequente",
-                            periodos_subsequentes,
-                            index=0,
-                            key="periodo_subsequente_delta",
-                            format_func=periodo_para_exibicao
-                        )
-                        idx_subsequente_delta = periodos_dropdown.index(periodo_subsequente_delta)
-                        periodo_valido = idx_subsequente_delta < idx_inicial_delta
-                        if not periodo_valido:
-                            st.warning("o período subsequente deve ser mais recente que o período inicial.")
+                col_tipo_comp, col_tipo_var = st.columns([1.2, 1.0])
                 with col_tipo_comp:
                     tipo_comparacao_delta = st.radio(
                         "comparação",
@@ -11074,6 +11057,12 @@ elif menu == "Rankings":
                         index=1,
                         key="tipo_variacao_delta",
                         horizontal=True
+                    )
+                if periodo_subsequente_delta and periodo_inicial_delta:
+                    st.caption(
+                        f"comparação automática: {periodo_para_exibicao(periodo_inicial_delta)} → "
+                        f"{periodo_para_exibicao(periodo_subsequente_delta)} "
+                        "(mais antigo vs mais recente da multisseleção)"
                     )
                 bancos_selecionados_delta = bancos_selecionados
 
