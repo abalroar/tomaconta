@@ -3657,6 +3657,126 @@ def _recalcular_roe_trimestral_df(df: pd.DataFrame) -> pd.DataFrame:
     return out.drop(columns=["_tri_tmp", "_tri_idx_tmp", "_ano_tmp"], errors="ignore")
 
 
+def _formatar_ptbr_memoria_roe(valor, tipo: str = "monetario") -> str:
+    """Formata valores da memória de cálculo em padrão pt-BR."""
+    if valor is None or pd.isna(valor):
+        return "—"
+    try:
+        valor_f = float(valor)
+    except Exception:
+        return "—"
+
+    base = ""
+    if tipo == "percentual":
+        base = f"{valor_f:,.1f}%"
+    else:
+        base = f"{valor_f:,.0f}"
+    return base.replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def _build_memoria_calculo_roe_rankings(df_base: pd.DataFrame, instituicoes: list[str], periodos: list[str]) -> pd.DataFrame:
+    """Monta memória de cálculo do ROE trimestral por IF e período."""
+    if df_base is None or df_base.empty:
+        return pd.DataFrame()
+
+    cols_req = {"Instituição", "Período", "Lucro Líquido Acumulado YTD", "Patrimônio Líquido"}
+    if not cols_req.issubset(df_base.columns):
+        return pd.DataFrame()
+
+    recorte = df_base[
+        (df_base["Instituição"].isin(instituicoes))
+        & (df_base["Período"].isin(periodos))
+    ].copy()
+    if recorte.empty:
+        return pd.DataFrame()
+
+    periodo_split = recorte["Período"].astype(str).str.split("/", expand=True)
+    recorte["_tri_idx"] = pd.to_numeric(periodo_split[0], errors="coerce").map(_parte_periodo_para_trimestre_idx)
+    recorte["_ano"] = pd.to_numeric(periodo_split[1], errors="coerce")
+    recorte = recorte.dropna(subset=["_tri_idx", "_ano"]).copy()
+    if recorte.empty:
+        return pd.DataFrame()
+
+    recorte["_tri_idx"] = recorte["_tri_idx"].astype(int)
+    recorte["_ano"] = recorte["_ano"].astype(int)
+    recorte["ll_reportado"] = pd.to_numeric(recorte["Lucro Líquido Acumulado YTD"], errors="coerce")
+    recorte["pl_db"] = pd.to_numeric(recorte["Patrimônio Líquido"], errors="coerce")
+
+    idx_last = recorte.groupby(["Instituição", "_ano", "_tri_idx"], observed=False).tail(1).index
+    recorte = recorte.loc[idx_last].copy()
+
+    lookup = recorte.set_index(["Instituição", "_ano", "_tri_idx"])
+
+    componentes_ordem = [
+        "LL reportado (R$ MM)",
+        "LL trimestral (R$ MM)",
+        "LL × 4 (R$ MM)",
+        "PL data-base (R$ MM)",
+        "PL dez/anterior (R$ MM)",
+        "PL médio (R$ MM)",
+        "= (LL trim × 4) / PL médio",
+    ]
+    rows = []
+    for instituicao in instituicoes:
+        for periodo in periodos:
+            partes = str(periodo).split("/")
+            if len(partes) != 2:
+                continue
+            tri = _parte_periodo_para_trimestre_idx(partes[0])
+            ano = pd.to_numeric(partes[1], errors="coerce")
+            if tri is None or pd.isna(ano):
+                continue
+            ano = int(ano)
+
+            if (instituicao, ano, tri) in lookup.index:
+                base = lookup.loc[(instituicao, ano, tri)]
+                ll_reportado = pd.to_numeric(base.get("ll_reportado"), errors="coerce")
+                pl_db = pd.to_numeric(base.get("pl_db"), errors="coerce")
+            else:
+                ll_reportado = np.nan
+                pl_db = np.nan
+
+            ll_tri = np.nan
+            if pd.notna(ll_reportado):
+                if tri in (1, 3):
+                    ll_tri = ll_reportado
+                elif tri == 2:
+                    ll_mar = pd.to_numeric(lookup["ll_reportado"].get((instituicao, ano, 1), np.nan), errors="coerce")
+                    ll_tri = ll_reportado - ll_mar if pd.notna(ll_mar) else np.nan
+                elif tri == 4:
+                    ll_set = pd.to_numeric(lookup["ll_reportado"].get((instituicao, ano, 3), np.nan), errors="coerce")
+                    ll_tri = ll_reportado - ll_set if pd.notna(ll_set) else np.nan
+
+            ll_x4 = ll_tri * 4 if pd.notna(ll_tri) else np.nan
+            pl_dez_ant = pd.to_numeric(lookup["pl_db"].get((instituicao, ano - 1, 4), np.nan), errors="coerce")
+            pl_medio = (pl_dez_ant + pl_db) / 2 if pd.notna(pl_dez_ant) and pd.notna(pl_db) else np.nan
+            roe_formula = np.nan
+            if pd.notna(pl_medio) and pl_medio > 0 and pd.notna(ll_x4):
+                roe_formula = (ll_x4 / pl_medio) * 100
+
+            valores = [
+                ll_reportado,
+                ll_tri,
+                ll_x4,
+                pl_db,
+                pl_dez_ant,
+                pl_medio,
+                roe_formula,
+            ]
+            for ordem, (comp, valor) in enumerate(zip(componentes_ordem, valores), start=1):
+                rows.append(
+                    {
+                        "Instituição": instituicao,
+                        "Período": periodo,
+                        "componente": comp,
+                        "valor": valor,
+                        "ordem": ordem,
+                    }
+                )
+
+    return pd.DataFrame(rows)
+
+
 def _calcular_roe_alinhado_peers_para_instituicao(df_base: pd.DataFrame, instituicao: str) -> pd.DataFrame:
     """Retorna ROE (critério Peers) por Ano/Tri para uma instituição."""
     if df_base is None or df_base.empty:
@@ -10014,6 +10134,103 @@ elif menu == "Rankings":
                 valor_formatado = valor_formatado.replace(",", "X").replace(".", ",").replace("X", ".")
                 return f"{valor_formatado}{fmt_info['ticksuffix']}"
 
+            def _renderizar_memoria_roe_rankings(
+                df_base_rankings: pd.DataFrame,
+                bancos_alvo: list[str],
+                periodos_alvo: list[str],
+                indicador_atual: str,
+            ) -> None:
+                if indicador_atual != "ROE Trimestral (%)":
+                    return
+                if not bancos_alvo or not periodos_alvo:
+                    return
+
+                df_memoria = _build_memoria_calculo_roe_rankings(df_base_rankings, bancos_alvo, periodos_alvo)
+                if df_memoria.empty:
+                    st.info("memória de cálculo indisponível para os filtros atuais.")
+                    return
+
+                ordem_componentes = [
+                    "LL reportado (R$ MM)",
+                    "LL trimestral (R$ MM)",
+                    "LL × 4 (R$ MM)",
+                    "PL data-base (R$ MM)",
+                    "PL dez/anterior (R$ MM)",
+                    "PL médio (R$ MM)",
+                    "= (LL trim × 4) / PL médio",
+                ]
+
+                for banco in bancos_alvo:
+                    with st.expander(f"Memória de cálculo — {banco}", expanded=False):
+                        df_inst = df_memoria[df_memoria["Instituição"] == banco].copy()
+                        if df_inst.empty:
+                            st.caption("sem dados para esta instituição nos períodos selecionados.")
+                            continue
+
+                        pivot = (
+                            df_inst.pivot_table(
+                                index="componente",
+                                columns="Período",
+                                values="valor",
+                                aggfunc="first",
+                            )
+                            .reindex(ordem_componentes)
+                            .reset_index()
+                        )
+                        colunas_periodo = [p for p in periodos_alvo if p in pivot.columns]
+                        mapa_periodos = {p: formatar_periodo_mm_yyyy(p) for p in colunas_periodo}
+                        pivot = pivot.rename(columns=mapa_periodos)
+                        colunas_fmt = [mapa_periodos[p] for p in colunas_periodo]
+
+                        for col_fmt in colunas_fmt:
+                            pivot[col_fmt] = pivot.apply(
+                                lambda row: _formatar_ptbr_memoria_roe(
+                                    row[col_fmt],
+                                    "percentual" if row["componente"] == "= (LL trim × 4) / PL médio" else "monetario",
+                                ),
+                                axis=1,
+                            )
+
+                        linhas_negativas = set(
+                            df_inst[
+                                (df_inst["componente"] == "LL trimestral (R$ MM)")
+                                & (pd.to_numeric(df_inst["valor"], errors="coerce") < 0)
+                            ]["Período"].tolist()
+                        )
+                        colunas_negativas = {mapa_periodos[p] for p in linhas_negativas if p in mapa_periodos}
+
+                        def _style_memoria_row(row):
+                            estilos = [""] * len(row)
+                            componente = row.iloc[0]
+                            for i, col in enumerate(row.index):
+                                if col == "componente":
+                                    if componente == "= (LL trim × 4) / PL médio":
+                                        estilos[i] = "font-family: monospace; color: #666666; border-bottom: 2px solid #D9D9D9;"
+                                    else:
+                                        estilos[i] = "padding-left: 24px; font-style: italic; color: #666666; background-color: #f7f7f7;"
+                                    continue
+                                valor_txt = row[col]
+                                style_parts = []
+                                if isinstance(valor_txt, str) and valor_txt.startswith("-"):
+                                    style_parts.append("color: #B42318;")
+                                if componente == "LL trimestral (R$ MM)" and col in colunas_negativas:
+                                    style_parts.append("background-color: #FFF4CE;")
+                                if componente == "= (LL trim × 4) / PL médio":
+                                    style_parts.append("font-weight: 600;")
+                                    style_parts.append("border-bottom: 2px solid #D9D9D9;")
+                                elif not style_parts:
+                                    style_parts.append("background-color: #f7f7f7;")
+                                estilos[i] = " ".join(style_parts)
+                            return estilos
+
+                        st.dataframe(
+                            pivot.style.apply(_style_memoria_row, axis=1),
+                            use_container_width=True,
+                            hide_index=True,
+                        )
+
+                        st.caption("= (LL trim × 4) / PL médio")
+
             def _adicionar_labels_basileia_trilhos(fig: go.Figure, df_labels: pd.DataFrame) -> None:
                 """Posiciona labels do Basileia em trilhos fixos (CET1/AT1/T2/Total)."""
                 if df_labels.empty:
@@ -10481,6 +10698,12 @@ elif menu == "Rankings":
                                 )
                             with st.expander("Dados do gráfico", expanded=False):
                                 st.dataframe(tabela_wide, use_container_width=True, hide_index=True)
+                            _renderizar_memoria_roe_rankings(
+                                df,
+                                bancos_selecionados,
+                                periodo_resumo,
+                                indicador_label,
+                            )
                         else:
                             df_selecionado = df_multiperiodo.copy()
                             media_display = calcular_media_ponderada(df_selecionado, 'valor_display', coluna_peso_resumo)
@@ -10698,6 +10921,12 @@ elif menu == "Rankings":
                                 )
                             with st.expander("Dados do gráfico", expanded=False):
                                 st.dataframe(tabela_wide, use_container_width=True, hide_index=True)
+                            _renderizar_memoria_roe_rankings(
+                                df,
+                                bancos_selecionados,
+                                periodo_resumo,
+                                indicador_label,
+                            )
 
                             st.markdown(
                                 "**Nota metodológica:**\n\n"
