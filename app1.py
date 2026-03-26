@@ -3719,6 +3719,44 @@ def _build_memoria_calculo_roe_rankings(df_base: pd.DataFrame, instituicoes: lis
 
     lookup = recorte.set_index(["Instituição", "_ano", "_tri_idx"])
 
+    # --- Lookup auxiliar: incluir períodos de dezembro do ano anterior e trimestres
+    # anteriores necessários para decomposição do LL trimestral, buscando de df_base
+    # (sem filtro de período) para que pl_dez_ant e ll de trimestres prévios não fiquem NaN.
+    periodos_auxiliares: set[str] = set()
+    for _per in periodos:
+        per_dez = _periodo_dez_ano_anterior(_per)
+        if per_dez:
+            periodos_auxiliares.add(per_dez)
+        _partes = str(_per).split("/")
+        if len(_partes) == 2:
+            _tri = _parte_periodo_para_trimestre_idx(_partes[0])
+            _ano_p = _partes[1]
+            if _tri == 2 and _ano_p:
+                periodos_auxiliares.add(f"1/{_ano_p}")
+            elif _tri == 4 and _ano_p:
+                periodos_auxiliares.add(f"3/{_ano_p}")
+    periodos_auxiliares -= set(periodos)
+
+    if periodos_auxiliares:
+        _aux = df_base[
+            df_base["Instituição"].isin(instituicoes)
+            & df_base["Período"].isin(periodos_auxiliares)
+        ].copy()
+        if not _aux.empty:
+            _ps = _aux["Período"].astype(str).str.split("/", expand=True)
+            _aux["_tri_idx"] = pd.to_numeric(_ps[0], errors="coerce").map(_parte_periodo_para_trimestre_idx)
+            _aux["_ano"] = pd.to_numeric(_ps[1], errors="coerce")
+            _aux = _aux.dropna(subset=["_tri_idx", "_ano"]).copy()
+            _aux["_tri_idx"] = _aux["_tri_idx"].astype(int)
+            _aux["_ano"] = _aux["_ano"].astype(int)
+            _aux["ll_reportado"] = pd.to_numeric(_aux.get("Lucro Líquido Acumulado YTD"), errors="coerce")
+            _aux["pl_db"] = pd.to_numeric(_aux["Patrimônio Líquido"], errors="coerce")
+            _idx_last_aux = _aux.groupby(["Instituição", "_ano", "_tri_idx"], observed=False).tail(1).index
+            _aux = _aux.loc[_idx_last_aux].copy()
+            _lookup_aux = _aux.set_index(["Instituição", "_ano", "_tri_idx"])
+            lookup = pd.concat([_lookup_aux, lookup])
+            lookup = lookup[~lookup.index.duplicated(keep="last")]
+
     componentes_ordem = [
         "LL reportado (R$ MM)",
         "LL trimestral (R$ MM)",
@@ -10172,76 +10210,78 @@ elif menu == "Rankings":
                     "= (LL trim × 4) / PL médio",
                 ]
 
-                for banco in bancos_alvo:
-                    with st.expander(f"Memória de cálculo — {banco}", expanded=False):
-                        df_inst = df_memoria[df_memoria["Instituição"] == banco].copy()
-                        if df_inst.empty:
-                            st.caption("sem dados para esta instituição nos períodos selecionados.")
-                            continue
+                with st.expander("Memória de cálculo — ROE Trimestral", expanded=False):
+                    _mem_tabs = st.tabs(bancos_alvo)
+                    for _mem_tab, banco in zip(_mem_tabs, bancos_alvo):
+                        with _mem_tab:
+                            df_inst = df_memoria[df_memoria["Instituição"] == banco].copy()
+                            if df_inst.empty:
+                                st.caption("sem dados para esta instituição nos períodos selecionados.")
+                                continue
 
-                        pivot = (
-                            df_inst.pivot_table(
-                                index="componente",
-                                columns="Período",
-                                values="valor",
-                                aggfunc="first",
+                            pivot = (
+                                df_inst.pivot_table(
+                                    index="componente",
+                                    columns="Período",
+                                    values="valor",
+                                    aggfunc="first",
+                                )
+                                .reindex(ordem_componentes)
+                                .reset_index()
                             )
-                            .reindex(ordem_componentes)
-                            .reset_index()
-                        )
-                        colunas_periodo = [p for p in periodos_alvo if p in pivot.columns]
-                        mapa_periodos = {p: formatar_periodo_mm_yyyy(p) for p in colunas_periodo}
-                        pivot = pivot.rename(columns=mapa_periodos)
-                        colunas_fmt = [mapa_periodos[p] for p in colunas_periodo]
+                            colunas_periodo = [p for p in periodos_alvo if p in pivot.columns]
+                            mapa_periodos = {p: formatar_periodo_mm_yyyy(p) for p in colunas_periodo}
+                            pivot = pivot.rename(columns=mapa_periodos)
+                            colunas_fmt = [mapa_periodos[p] for p in colunas_periodo]
 
-                        for col_fmt in colunas_fmt:
-                            pivot[col_fmt] = pivot.apply(
-                                lambda row: _formatar_ptbr_memoria_roe(
-                                    row[col_fmt],
-                                    "percentual" if row["componente"] == "= (LL trim × 4) / PL médio" else "monetario",
-                                ),
-                                axis=1,
+                            for col_fmt in colunas_fmt:
+                                pivot[col_fmt] = pivot.apply(
+                                    lambda row: _formatar_ptbr_memoria_roe(
+                                        row[col_fmt],
+                                        "percentual" if row["componente"] == "= (LL trim × 4) / PL médio" else "monetario",
+                                    ),
+                                    axis=1,
+                                )
+
+                            linhas_negativas = set(
+                                df_inst[
+                                    (df_inst["componente"] == "LL trimestral (R$ MM)")
+                                    & (pd.to_numeric(df_inst["valor"], errors="coerce") < 0)
+                                ]["Período"].tolist()
                             )
+                            colunas_negativas = {mapa_periodos[p] for p in linhas_negativas if p in mapa_periodos}
 
-                        linhas_negativas = set(
-                            df_inst[
-                                (df_inst["componente"] == "LL trimestral (R$ MM)")
-                                & (pd.to_numeric(df_inst["valor"], errors="coerce") < 0)
-                            ]["Período"].tolist()
-                        )
-                        colunas_negativas = {mapa_periodos[p] for p in linhas_negativas if p in mapa_periodos}
-
-                        def _style_memoria_row(row):
-                            estilos = [""] * len(row)
-                            componente = row.iloc[0]
-                            for i, col in enumerate(row.index):
-                                if col == "componente":
+                            def _style_memoria_row(row):
+                                estilos = [""] * len(row)
+                                componente = row.iloc[0]
+                                for i, col in enumerate(row.index):
+                                    if col == "componente":
+                                        if componente == "= (LL trim × 4) / PL médio":
+                                            estilos[i] = "font-family: monospace; color: #666666; border-bottom: 2px solid #D9D9D9;"
+                                        else:
+                                            estilos[i] = "padding-left: 24px; font-style: italic; color: #666666; background-color: #f7f7f7;"
+                                        continue
+                                    valor_txt = row[col]
+                                    style_parts = []
+                                    if isinstance(valor_txt, str) and valor_txt.startswith("-"):
+                                        style_parts.append("color: #B42318;")
+                                    if componente == "LL trimestral (R$ MM)" and col in colunas_negativas:
+                                        style_parts.append("background-color: #FFF4CE;")
                                     if componente == "= (LL trim × 4) / PL médio":
-                                        estilos[i] = "font-family: monospace; color: #666666; border-bottom: 2px solid #D9D9D9;"
-                                    else:
-                                        estilos[i] = "padding-left: 24px; font-style: italic; color: #666666; background-color: #f7f7f7;"
-                                    continue
-                                valor_txt = row[col]
-                                style_parts = []
-                                if isinstance(valor_txt, str) and valor_txt.startswith("-"):
-                                    style_parts.append("color: #B42318;")
-                                if componente == "LL trimestral (R$ MM)" and col in colunas_negativas:
-                                    style_parts.append("background-color: #FFF4CE;")
-                                if componente == "= (LL trim × 4) / PL médio":
-                                    style_parts.append("font-weight: 600;")
-                                    style_parts.append("border-bottom: 2px solid #D9D9D9;")
-                                elif not style_parts:
-                                    style_parts.append("background-color: #f7f7f7;")
-                                estilos[i] = " ".join(style_parts)
-                            return estilos
+                                        style_parts.append("font-weight: 600;")
+                                        style_parts.append("border-bottom: 2px solid #D9D9D9;")
+                                    elif not style_parts:
+                                        style_parts.append("background-color: #f7f7f7;")
+                                    estilos[i] = " ".join(style_parts)
+                                return estilos
 
-                        st.dataframe(
-                            pivot.style.apply(_style_memoria_row, axis=1),
-                            use_container_width=True,
-                            hide_index=True,
-                        )
+                            st.dataframe(
+                                pivot.style.apply(_style_memoria_row, axis=1),
+                                use_container_width=True,
+                                hide_index=True,
+                            )
 
-                        st.caption("= (LL trim × 4) / PL médio")
+                            st.caption("= (LL trim × 4) / PL médio")
 
             def _adicionar_labels_basileia_v2(
                 fig: go.Figure,
