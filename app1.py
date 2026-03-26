@@ -5886,103 +5886,495 @@ def _snapshot_delta_ui(metrica_cfg: dict, valor_atual, valor_base) -> str:
     return f'<span class="snapshot-direction {classe}">{simbolo}</span>'
 
 
-def pagina_snapshot():
-    st.markdown(
-        """
-        <style>
-        .snapshot-section-label {
-            margin: 0 0 0.35rem 0;
-            color: #1f77b4;
-            font-size: 0.7rem;
-            font-weight: 500 !important;
-            letter-spacing: 0.08em;
-            text-transform: uppercase;
-        }
+# ---------------------------------------------------------------------------
+# Snapshot V2 – helpers
+# ---------------------------------------------------------------------------
 
-        .snapshot-divider {
-            border: 0;
-            border-top: 1px solid #e9ecef;
-            margin: 0 0 1rem 0;
-        }
+def _snap_pct_change(valor_atual, valor_base) -> Optional[float]:
+    """Variação percentual entre dois valores."""
+    if valor_atual is None or valor_base is None:
+        return None
+    try:
+        a, b = float(valor_atual), float(valor_base)
+        if pd.isna(a) or pd.isna(b) or b == 0:
+            return None
+        return ((a - b) / abs(b)) * 100
+    except (TypeError, ValueError):
+        return None
 
-        .snapshot-direction-wrap {
-            margin: 0.45rem 0 0.9rem 0;
-            line-height: 1;
-        }
 
-        .snapshot-direction {
-            display: inline-block;
-            font-size: 1rem;
-            font-weight: 500 !important;
-        }
+def _snap_pp_change(valor_atual, valor_base) -> Optional[float]:
+    """Diferença em pontos percentuais (para métricas já em decimal 0-1)."""
+    if valor_atual is None or valor_base is None:
+        return None
+    try:
+        a, b = float(valor_atual), float(valor_base)
+        if pd.isna(a) or pd.isna(b):
+            return None
+        return (a - b) * 100  # decimal → p.p.
+    except (TypeError, ValueError):
+        return None
 
-        .snapshot-direction--positive {
-            color: #28a745;
-        }
 
-        .snapshot-direction--negative {
-            color: #dc3545;
-        }
-
-        .snapshot-direction--neutral {
-            color: #adb5bd;
-        }
-
-        .snapshot-section-spacer {
-            margin-bottom: 1.5rem;
-        }
-
-        div[data-testid="stMetric"] {
-            background-color: #f8f9fa;
-            padding: 15px;
-            border-radius: 10px;
-            border: 1px solid #e9ecef;
-            border-top: 2px solid #1f77b4;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.06);
-        }
-
-        [data-testid="stHorizontalBlock"] {
-            gap: 0.75rem;
-        }
-
-        [data-testid="stMetricLabel"] p,
-        [data-testid="stMetricValue"] {
-            font-family: 'IBM Plex Sans', sans-serif !important;
-        }
-
-        @media (max-width: 640px) {
-            [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
-                flex: 1 1 100% !important;
-                min-width: 100% !important;
-            }
-
-            div[data-baseweb="select"] {
-                width: 100% !important;
-            }
-
-            .stSelectbox {
-                width: 100% !important;
-            }
-
-            div[data-testid="stMetricValue"] {
-                font-size: 1.6rem !important;
-            }
-
-            div[data-testid="stMetric"] {
-                padding: 10px !important;
-            }
-
-            [data-testid="stMetricLabel"] p,
-            [data-testid="stMetricValue"] {
-                min-height: 44px;
-                display: flex;
-                align-items: center;
-            }
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
+def _snap_sparkline_svg(
+    values: list,
+    width: int = 80,
+    height: int = 24,
+    color: str = "#1f77b4",
+) -> str:
+    """Gera SVG inline de sparkline a partir de uma lista de valores numéricos."""
+    nums = []
+    for v in values:
+        try:
+            f = float(v)
+            if not pd.isna(f):
+                nums.append(f)
+        except (TypeError, ValueError):
+            continue
+    if len(nums) < 2:
+        return ""
+    min_v, max_v = min(nums), max(nums)
+    rng = max_v - min_v or 1
+    points = []
+    for i, v in enumerate(nums):
+        x = i / (len(nums) - 1) * width
+        y = height - ((v - min_v) / rng * (height - 4) + 2)
+        points.append(f"{x:.1f},{y:.1f}")
+    polyline = " ".join(points)
+    last_x, last_y = points[-1].split(",")
+    return (
+        f'<svg class="snap-sparkline" width="{width}" height="{height}" '
+        f'viewBox="0 0 {width} {height}" style="vertical-align:middle">'
+        f'<polyline points="{polyline}" fill="none" stroke="{color}" '
+        f'stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>'
+        f'<circle cx="{last_x}" cy="{last_y}" r="2" fill="{color}"/>'
+        f"</svg>"
     )
+
+
+def _snap_delta_html(
+    valor_atual,
+    valor_base,
+    label: str,
+    higher_is_better: bool = True,
+    is_pct_metric: bool = False,
+) -> str:
+    """Gera HTML de um delta (QoQ ou YoY) para o card V2."""
+    if valor_atual is None or valor_base is None:
+        return (
+            f'<span class="snap-card__delta snap-card__delta--neutral">'
+            f'<span class="snap-card__delta-label">{label}</span> —</span>'
+        )
+    try:
+        a, b = float(valor_atual), float(valor_base)
+        if pd.isna(a) or pd.isna(b):
+            return (
+                f'<span class="snap-card__delta snap-card__delta--neutral">'
+                f'<span class="snap-card__delta-label">{label}</span> —</span>'
+            )
+    except (TypeError, ValueError):
+        return (
+            f'<span class="snap-card__delta snap-card__delta--neutral">'
+            f'<span class="snap-card__delta-label">{label}</span> —</span>'
+        )
+
+    if is_pct_metric:
+        diff = _snap_pp_change(valor_atual, valor_base)
+        if diff is None:
+            suffix = "—"
+        else:
+            sinal = "+" if diff > 0 else ""
+            suffix = f"{sinal}{diff:,.1f} p.p.".replace(",", "X").replace(".", ",").replace("X", ".")
+    else:
+        diff = _snap_pct_change(valor_atual, valor_base)
+        if diff is None:
+            suffix = "—"
+        else:
+            sinal = "+" if diff > 0 else ""
+            suffix = f"{sinal}{diff:,.1f}%".replace(",", "X").replace(".", ",").replace("X", ".")
+
+    # Direção e cor
+    if a > b:
+        direcao = "up"
+    elif a < b:
+        direcao = "down"
+    else:
+        direcao = "neutral"
+
+    if direcao == "neutral":
+        css_mod = "snap-card__delta--neutral"
+        arrow = "—"
+    else:
+        melhorou = (direcao == "up" and higher_is_better) or (direcao == "down" and not higher_is_better)
+        css_mod = "snap-card__delta--positive" if melhorou else "snap-card__delta--negative"
+        arrow = "↑" if direcao == "up" else "↓"
+
+    return (
+        f'<span class="snap-card__delta {css_mod}">'
+        f'{arrow} <span class="snap-card__delta-label">{label}</span> {suffix}</span>'
+    )
+
+
+def _snap_card_status(valor_atual, valor_base, higher_is_better: bool) -> str:
+    """Retorna classe CSS para borda esquerda do card hero."""
+    if valor_atual is None or valor_base is None:
+        return ""
+    try:
+        a, b = float(valor_atual), float(valor_base)
+        if pd.isna(a) or pd.isna(b):
+            return ""
+    except (TypeError, ValueError):
+        return ""
+    if a == b:
+        return ""
+    melhorou = (a > b and higher_is_better) or (a < b and not higher_is_better)
+    return "snap-card--improved" if melhorou else "snap-card--worsened"
+
+
+def _render_snap_card(
+    metric_cfg: dict,
+    periodo_atual: str,
+    periodo_qoq: Optional[str],
+    periodo_yoy: Optional[str],
+    sparkline_values: Optional[list] = None,
+    is_hero: bool = False,
+) -> str:
+    """Monta HTML completo de um card Snapshot V2."""
+    serie = metric_cfg.get("serie", {})
+    label = metric_cfg.get("label", "Métrica")
+    higher_is_better = metric_cfg.get("higher_is_better", True)
+    source = metric_cfg.get("source", "")
+    is_pct = metric_cfg.get("is_pct", False)
+    comparison = metric_cfg.get("comparison", "qoq")
+
+    valor_atual = serie.get(periodo_atual)
+    valor_fmt = _formatar_valor_snapshot(metric_cfg, valor_atual)
+
+    # Períodos base
+    periodo_base_qoq = periodo_qoq
+    periodo_base_yoy = periodo_yoy
+
+    valor_qoq = serie.get(periodo_base_qoq) if periodo_base_qoq else None
+    valor_yoy = serie.get(periodo_base_yoy) if periodo_base_yoy else None
+
+    # Para métricas YTD, QoQ não faz sentido; comparação principal é YoY
+    if comparison == "yoy":
+        delta_1 = _snap_delta_html(valor_atual, valor_yoy, "YoY", higher_is_better, is_pct)
+        delta_2 = ""
+    else:
+        delta_1 = _snap_delta_html(valor_atual, valor_qoq, "QoQ", higher_is_better, is_pct)
+        delta_2 = _snap_delta_html(valor_atual, valor_yoy, "YoY", higher_is_better, is_pct)
+
+    # Borda esquerda (status) — usa QoQ como base primária
+    base_for_status = valor_yoy if comparison == "yoy" else valor_qoq
+    status_cls = _snap_card_status(valor_atual, base_for_status, higher_is_better)
+    hero_cls = "snap-card--hero" if is_hero else ""
+
+    # Sparkline
+    spark_html = ""
+    if sparkline_values and is_hero:
+        spark_html = _snap_sparkline_svg(sparkline_values, width=80, height=24)
+
+    # Info tooltip
+    info_html = ""
+    if source:
+        safe_source = source.replace('"', '&quot;').replace("'", "&#39;")
+        info_html = (
+            f'<span class="snap-card__info">i'
+            f'<span class="snap-tip">{safe_source}</span></span>'
+        )
+
+    return f"""<div class="snap-card {status_cls} {hero_cls}">
+  <div class="snap-card__header">
+    <span class="snap-card__label">{label}</span>{info_html}
+  </div>
+  <div class="snap-card__spark-row">
+    <span class="snap-card__value">{valor_fmt}</span>
+    {spark_html}
+  </div>
+  <div class="snap-card__comparisons">
+    {delta_1}{delta_2}
+  </div>
+</div>"""
+
+
+def _render_snap_grid(cards_html: list, grid_class: str) -> str:
+    """Wrapa lista de cards HTML em um CSS Grid container."""
+    inner = "\n".join(cards_html)
+    return f'<div class="snap-grid {grid_class}">{inner}</div>'
+
+
+_SNAPSHOT_PROVENANCE = [
+    ("Ativo Total", "BCB IFData Rel. 1 — Balanço Patrimonial", "Valor direto", "↑ = melhora (maior porte)"),
+    ("Carteira de Crédito", "BCB IFData Rel. 2 — Ativo Detalhado", "Soma Valor Contábil Bruto (e1+f1+g1+h1)", "↑ = melhora (maior carteira)"),
+    ("Patrimônio Líquido", "BCB IFData Rel. 1 — Balanço Patrimonial", "Valor direto", "↑ = melhora (maior solidez)"),
+    ("Índice de Basileia", "BCB IFData Rel. 5 — Patrimônio de Referência", "(CP + CC + N2) ÷ RWA Total", "↑ = melhora (maior folga de capital)"),
+    ("Lucro Líquido Trimestral", "BCB IFData Rel. 1 + decomposição semestral", "LL_YTD(t) − LL_YTD(t−1) conforme regime Bacen", "↑ = melhora"),
+    ("Lucro Líquido Acum. YTD", "BCB IFData Rel. 1", "Acumulado no ano normalizado", "↑ = melhora"),
+    ("ROE Trimestral An.", "Calculado", "(LL_Trimestral × 4) ÷ PL Médio × 100", "↑ = melhora (maior retorno)"),
+    ("ROE Ac. Anualizado", "Calculado", "(LL_YTD × Fator Anualização) ÷ PL Médio × 100", "↑ = melhora (maior retorno)"),
+    ("Crédito / Captações", "BCB IFData Rel. 2 ÷ Rel. 3", "Carteira de Crédito ÷ Core Funding", "↓ = melhora (menor alavancagem)"),
+    ("Desp. Captação / Captações", "Métricas derivadas (DRE ÷ Passivo)", "Despesas de captação ÷ Captações totais", "↓ = melhora (menor custo de funding)"),
+    ("Estágio 3 / Carteira", "BLOPrudencial (Cadoc 4060) ÷ Rel. 2", "Conta 3313000000 ÷ Carteira Bruta", "↓ = melhora (menor inadimplência)"),
+    ("PDD / Estágio 3", "BLOPrudencial (Cadoc 4060)", "(PDD Crédito + PDD Outros) ÷ Estágio 3", "↑ = melhora (maior cobertura)"),
+    ("CET1", "BCB IFData Rel. 5 — Patrimônio de Referência", "Capital Principal ÷ RWA Total", "↑ = melhora (maior folga de capital)"),
+]
+
+
+def _build_provenance_html() -> str:
+    """Gera tabela HTML com origem dos dados e critérios de cálculo."""
+    rows = ""
+    for label, fonte, formula, interpretacao in _SNAPSHOT_PROVENANCE:
+        rows += (
+            f"<tr>"
+            f"<td style='font-weight:500;white-space:nowrap;padding:6px 10px;border-bottom:1px solid #eee'>{label}</td>"
+            f"<td style='padding:6px 10px;border-bottom:1px solid #eee;color:#555'>{fonte}</td>"
+            f"<td style='padding:6px 10px;border-bottom:1px solid #eee;color:#555;font-size:0.82rem'>{formula}</td>"
+            f"<td style='padding:6px 10px;border-bottom:1px solid #eee;color:#555;font-size:0.82rem'>{interpretacao}</td>"
+            f"</tr>"
+        )
+    return (
+        "<table style='width:100%;border-collapse:collapse;font-family:IBM Plex Sans,sans-serif;font-size:0.85rem'>"
+        "<thead><tr style='border-bottom:2px solid #1f77b4'>"
+        "<th style='text-align:left;padding:6px 10px;color:#1f77b4'>Indicador</th>"
+        "<th style='text-align:left;padding:6px 10px;color:#1f77b4'>Fonte</th>"
+        "<th style='text-align:left;padding:6px 10px;color:#1f77b4'>Cálculo</th>"
+        "<th style='text-align:left;padding:6px 10px;color:#1f77b4'>Interpretação</th>"
+        "</tr></thead><tbody>"
+        f"{rows}"
+        "</tbody></table>"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Snapshot V2 – CSS
+# ---------------------------------------------------------------------------
+
+_SNAPSHOT_V2_CSS = """
+<style>
+/* ===== SNAPSHOT V2 ===== */
+
+.snap-grid {
+    display: grid;
+    gap: 12px;
+    margin: 0.5rem 0;
+}
+
+.snap-grid--hero {
+    grid-template-columns: repeat(4, 1fr);
+}
+
+.snap-grid--profit,
+.snap-grid--supporting {
+    grid-template-columns: repeat(2, 1fr);
+}
+
+.snap-card {
+    background: #ffffff;
+    border: 1px solid #e9ecef;
+    border-radius: 10px;
+    padding: 16px;
+    border-left: 3px solid #e9ecef;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    position: relative;
+    font-family: 'IBM Plex Sans', sans-serif;
+}
+
+.snap-card--improved { border-left-color: #28a745; }
+.snap-card--worsened { border-left-color: #dc3545; }
+
+.snap-card__header {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-bottom: 4px;
+}
+
+.snap-card__label {
+    font-size: 0.7rem;
+    font-weight: 500;
+    color: #6c757d;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    line-height: 1.2;
+}
+
+.snap-card__value {
+    font-size: 1.5rem;
+    font-weight: 400;
+    color: #212529;
+    line-height: 1.1;
+}
+
+.snap-card--hero .snap-card__value {
+    font-size: 1.8rem;
+}
+
+.snap-card__spark-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    margin: 6px 0 10px 0;
+}
+
+.snap-sparkline {
+    opacity: 0.7;
+    flex-shrink: 0;
+}
+
+.snap-card__comparisons {
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+}
+
+.snap-card__delta {
+    font-size: 0.78rem;
+    font-weight: 400;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+}
+
+.snap-card__delta--positive { color: #28a745; }
+.snap-card__delta--negative { color: #dc3545; }
+.snap-card__delta--neutral { color: #adb5bd; }
+
+.snap-card__delta-label {
+    color: #adb5bd;
+    font-size: 0.65rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    margin-right: 2px;
+}
+
+.snap-card__info {
+    display: inline-flex;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    justify-content: center;
+    align-items: center;
+    font-size: 9px;
+    font-weight: 600;
+    color: #adb5bd;
+    border: 1px solid #dee2e6;
+    cursor: help;
+    position: relative;
+    flex-shrink: 0;
+}
+
+.snap-card__info .snap-tip {
+    display: none;
+    position: absolute;
+    bottom: 120%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #333;
+    color: #fff;
+    font-size: 11px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    white-space: normal;
+    min-width: 200px;
+    max-width: 280px;
+    z-index: 1000;
+    font-weight: 300;
+    text-transform: none;
+    letter-spacing: normal;
+    line-height: 1.4;
+}
+
+.snap-card__info:hover .snap-tip,
+.snap-card__info:focus .snap-tip {
+    display: block;
+}
+
+.snap-section {
+    color: #1f77b4;
+    font-size: 0.7rem;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin: 1.5rem 0 0.35rem 0;
+    padding-bottom: 0.35rem;
+    border-bottom: 1px solid #e9ecef;
+    font-family: 'IBM Plex Sans', sans-serif;
+}
+
+.snap-period-bar {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: 0.78rem;
+    color: #6c757d;
+    margin-bottom: 0.75rem;
+    padding: 8px 12px;
+    background: #f8f9fa;
+    border-radius: 8px;
+    border-left: 3px solid #1f77b4;
+}
+
+.snap-period-bar span {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.snap-period-bar strong {
+    color: #212529;
+    font-weight: 500;
+}
+
+/* ===== MOBILE ===== */
+@media (max-width: 640px) {
+    .snap-grid--hero {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    .snap-grid--profit,
+    .snap-grid--supporting {
+        grid-template-columns: 1fr;
+    }
+    .snap-card {
+        padding: 12px;
+    }
+    .snap-card__value {
+        font-size: 1.3rem !important;
+    }
+    .snap-card--hero .snap-card__value {
+        font-size: 1.5rem !important;
+    }
+    .snap-card__label {
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+    }
+    .snap-card__comparisons {
+        gap: 10px;
+    }
+    .snap-period-bar {
+        font-size: 0.72rem;
+        gap: 10px;
+        padding: 6px 10px;
+    }
+}
+
+/* iPhone SE / small screens */
+@media (max-width: 375px) {
+    .snap-grid--hero {
+        grid-template-columns: 1fr;
+    }
+    .snap-card--hero .snap-card__value {
+        font-size: 1.6rem !important;
+    }
+}
+</style>
+"""
+
+
+def pagina_snapshot():
+    st.markdown(_SNAPSHOT_V2_CSS, unsafe_allow_html=True)
 
     t0 = time.perf_counter()
     if not _garantir_dados_principais("Snapshot"):
@@ -5990,7 +6382,7 @@ def pagina_snapshot():
         return
 
     st.markdown("### Snapshot")
-    st.caption("briefing executivo de 60–90 segundos com os principais indicadores.")
+    st.caption("briefing executivo rápido com os principais indicadores da instituição.")
 
     df_base = get_analise_base_df()
     if df_base is None or df_base.empty or "Instituição" not in df_base.columns:
@@ -6010,13 +6402,18 @@ def pagina_snapshot():
     periodo_anterior_yoy = _periodo_ano_anterior(periodo_atual)
     periodo_yoy_existente = next((p for p in periodos_banco if periodo_anterior_yoy and _periodos_equivalentes(p, periodo_anterior_yoy)), None)
 
-    periodo_contexto = [
-        f"Período atual: {periodo_para_exibicao(periodo_atual)}",
-        f"QoQ: {periodo_para_exibicao(periodo_anterior_qoq) if periodo_anterior_qoq else '—'}",
-    ]
-    if periodo_yoy_existente:
-        periodo_contexto.append(f"YoY: {periodo_para_exibicao(periodo_yoy_existente)}")
-    st.caption(" · ".join(periodo_contexto))
+    # Barra de contexto de períodos
+    _lbl_atual = periodo_para_exibicao(periodo_atual)
+    _lbl_qoq = periodo_para_exibicao(periodo_anterior_qoq) if periodo_anterior_qoq else "—"
+    _lbl_yoy = periodo_para_exibicao(periodo_yoy_existente) if periodo_yoy_existente else "—"
+    st.markdown(
+        f'<div class="snap-period-bar">'
+        f'<span><strong>Período:</strong> {_lbl_atual}</span>'
+        f'<span><strong>QoQ:</strong> {_lbl_qoq}</span>'
+        f'<span><strong>YoY:</strong> {_lbl_yoy}</span>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
 
     periodos_snapshot = [p for p in [periodo_atual, periodo_anterior_qoq, periodo_yoy_existente] if p]
     periodos_snapshot = list(dict.fromkeys(periodos_snapshot))
@@ -6036,6 +6433,8 @@ def pagina_snapshot():
     tempo_dados = time.perf_counter() - t_dados
 
     df_inst = df_base[(df_base["Instituição"] == banco) & (df_base["Período"].isin(periodos_snapshot))].copy()
+
+    # --- Data maps (existing) ---
     col_carteira_df = _snapshot_pick_col(df_inst, ["Carteira de Crédito Bruta", "Carteira de Crédito", "Carteira de Crédito*"])
     carteira_map = {
         p: _coerce_numeric_value(_obter_valor_peers(df_inst, banco, p, col_carteira_df)) if col_carteira_df else None
@@ -6074,98 +6473,141 @@ def pagina_snapshot():
     stage3_map, pdd_map = _snapshot_bloprud_stage3_pdd_por_periodo(cache_bloprud, banco, periodos_snapshot)
     cet1_map, bas_map = _snapshot_capital_indices_por_periodo(cache_capital, banco, periodos_snapshot)
 
+    # --- New data maps: ROE ---
+    col_roe_tri = _snapshot_pick_col(df_inst, ["ROE Trimestral (%)"])
+    roe_tri_map = {p: _coerce_numeric_value(_obter_valor_peers(df_inst, banco, p, col_roe_tri)) if col_roe_tri else None for p in periodos_snapshot}
+
+    col_roe_ac = _snapshot_pick_col(df_inst, ["ROE Ac. Anualizado (%)", "ROE Ac. YTD an. (%)"])
+    roe_ac_map = {p: _coerce_numeric_value(_obter_valor_peers(df_inst, banco, p, col_roe_ac)) if col_roe_ac else None for p in periodos_snapshot}
+
+    # --- Sparkline data (last 8 quarters) ---
+    periodos_sparkline = periodos_banco[:8]
+    df_spark = df_base[
+        (df_base["Instituição"] == banco) & (df_base["Período"].isin(periodos_sparkline))
+    ].copy()
+    # Sort chronologically (oldest first) for sparkline rendering
+    df_spark_sorted = df_spark.copy()
+    if not df_spark_sorted.empty and "Período" in df_spark_sorted.columns:
+        try:
+            periodos_spark_ordered = ordenar_periodos(periodos_sparkline, reverso=False)
+            df_spark_sorted["_ord"] = df_spark_sorted["Período"].map(
+                {p: i for i, p in enumerate(periodos_spark_ordered)}
+            )
+            df_spark_sorted = df_spark_sorted.sort_values("_ord")
+        except Exception:
+            pass
+
+    def _spark_series(col_candidates):
+        col = _snapshot_pick_col(df_spark_sorted, col_candidates) if not df_spark_sorted.empty else None
+        if not col:
+            return []
+        return [_coerce_numeric_value(v) for v in df_spark_sorted[col].tolist()]
+
+    spark_ativo = _spark_series(["Ativo Total"])
+    spark_carteira = _spark_series(["Carteira de Crédito Bruta", "Carteira de Crédito", "Carteira de Crédito*"])
+    spark_pl = _spark_series(["Patrimônio Líquido"])
+    # For Basileia sparkline, use df_base values if available
+    spark_basileia = _spark_series(["Índice de Basileia"])
+
     t_render = time.perf_counter()
 
-    snapshot_layout = [
-        {
-            "section": "Balanço",
-            "rows": [
-                {"label": "Ativo Total", "format_key": "Ativo Total", "higher_is_better": True, "serie": ativo_map},
-                {"label": "Carteira de Crédito", "format_key": "Carteira de Crédito Bruta", "higher_is_better": True, "serie": carteira_map},
-                {"label": "Captações", "format_key": "Captações", "higher_is_better": True, "serie": capt_map},
-                {"label": "Patrimônio Líquido", "format_key": "Patrimônio Líquido", "higher_is_better": True, "serie": pl_map},
-            ],
-        },
+    # ===================================================================
+    # TIER 1: Hero KPIs
+    # ===================================================================
+    hero_metrics = [
+        {"label": "Ativo Total", "format_key": "Ativo Total", "higher_is_better": True,
+         "serie": ativo_map, "source": "BCB IFData Rel. 1 — Balanço Patrimonial"},
+        {"label": "Carteira de Crédito", "format_key": "Carteira de Crédito Bruta", "higher_is_better": True,
+         "serie": carteira_map, "source": "BCB IFData Rel. 2 — Soma Valor Contábil Bruto (e1+f1+g1+h1)"},
+        {"label": "Patrimônio Líquido", "format_key": "Patrimônio Líquido", "higher_is_better": True,
+         "serie": pl_map, "source": "BCB IFData Rel. 1 — Balanço Patrimonial"},
+        {"label": "Índice de Basileia", "format_key": "Índice de Basileia", "higher_is_better": True,
+         "serie": bas_map, "is_pct": True, "source": "BCB IFData Rel. 5 — (CP+CC+N2) ÷ RWA Total"},
+    ]
+    hero_sparklines = [spark_ativo, spark_carteira, spark_pl, spark_basileia]
+
+    hero_cards = [
+        _render_snap_card(cfg, periodo_atual, periodo_anterior_qoq, periodo_yoy_existente,
+                          sparkline_values=hero_sparklines[i], is_hero=True)
+        for i, cfg in enumerate(hero_metrics)
+    ]
+    st.markdown(_render_snap_grid(hero_cards, "snap-grid--hero"), unsafe_allow_html=True)
+
+    # ===================================================================
+    # TIER 2: Rentabilidade
+    # ===================================================================
+    st.markdown('<div class="snap-section">Rentabilidade</div>', unsafe_allow_html=True)
+
+    profit_metrics = [
+        {"label": "Lucro Líquido Trimestral", "format_key": "Lucro Líquido Trimestral", "higher_is_better": True,
+         "serie": ll_tri_map, "source": "Rel. 1 + decomposição semestral Bacen"},
+        {"label": "Lucro Líquido Acum. YTD", "format_key": "Lucro Líquido Acumulado YTD", "higher_is_better": True,
+         "comparison": "yoy", "serie": ll_ytd_map, "source": "Rel. 1 — acumulado normalizado no ano"},
+        {"label": "ROE Trimestral An.", "format_key": "ROE Trimestral (%)", "higher_is_better": True,
+         "serie": roe_tri_map, "is_pct": True, "coluna_origem": "ROE Trimestral (%)",
+         "source": "(LL Trimestral × 4) ÷ PL Médio × 100"},
+        {"label": "ROE Ac. Anualizado", "format_key": "ROE Ac. Anualizado (%)", "higher_is_better": True,
+         "comparison": "yoy", "serie": roe_ac_map, "is_pct": True, "coluna_origem": "ROE Ac. Anualizado (%)",
+         "source": "(LL YTD × Fator Anualização) ÷ PL Médio × 100"},
+    ]
+
+    profit_cards = [
+        _render_snap_card(cfg, periodo_atual, periodo_anterior_qoq, periodo_yoy_existente)
+        for cfg in profit_metrics
+    ]
+    st.markdown(_render_snap_grid(profit_cards, "snap-grid--profit"), unsafe_allow_html=True)
+
+    # ===================================================================
+    # TIER 3: Métricas de suporte
+    # ===================================================================
+    supporting_sections = [
         {
             "section": "Funding",
             "rows": [
-                {"label": "Crédito / Captações", "format_key": "Carteira de Crédito/Core Funding (%)", "higher_is_better": False, "serie": credito_capt_map},
-                {"label": "Desp. Captação / Captações", "format_key": "Desp Captação / Captação", "higher_is_better": False, "serie": desp_capt_map},
+                {"label": "Crédito / Captações", "format_key": "Carteira de Crédito/Core Funding (%)",
+                 "higher_is_better": False, "serie": credito_capt_map, "is_pct": True,
+                 "source": "Carteira Bruta ÷ Core Funding (Rel. 2 / Rel. 3)"},
+                {"label": "Desp. Captação / Captações", "format_key": "Desp Captação / Captação",
+                 "higher_is_better": False, "serie": desp_capt_map, "is_pct": True,
+                 "source": "DRE (Rel. 4) ÷ Passivo (Rel. 3)"},
             ],
         },
         {
-            "section": "Qualidade de carteira",
+            "section": "Qualidade de Carteira",
             "rows": [
-                {"label": "Estágio 3 / Carteira", "format_key": "Perda Esperada / Estágio 3", "higher_is_better": False, "serie": {p: _calcular_ratio_peers(stage3_map.get(p), carteira_map.get(p)) for p in periodos_snapshot}},
-                {"label": "PDD / Estágio 3", "format_key": "PDD / Estágio 3", "higher_is_better": True, "serie": {p: _calcular_ratio_peers(pdd_map.get(p), stage3_map.get(p)) for p in periodos_snapshot}},
-            ],
-        },
-        {
-            "section": "Desempenho",
-            "rows": [
-                {"label": "Lucro Líquido Trimestral", "format_key": "Lucro Líquido Trimestral", "higher_is_better": True, "serie": ll_tri_map},
-                {"label": "Lucro Líquido Acumulado YTD", "format_key": "Lucro Líquido Acumulado YTD", "higher_is_better": True, "comparison": "yoy", "serie": ll_ytd_map},
+                {"label": "Estágio 3 / Carteira", "format_key": "Perda Esperada / Estágio 3",
+                 "higher_is_better": False, "is_pct": True,
+                 "serie": {p: _calcular_ratio_peers(stage3_map.get(p), carteira_map.get(p)) for p in periodos_snapshot},
+                 "source": "BLOPrudencial (Cadoc 4060 — conta 3313000000) ÷ Carteira Bruta"},
+                {"label": "PDD / Estágio 3", "format_key": "PDD / Estágio 3",
+                 "higher_is_better": True, "is_pct": True,
+                 "serie": {p: _calcular_ratio_peers(pdd_map.get(p), stage3_map.get(p)) for p in periodos_snapshot},
+                 "source": "BLOPrudencial (PDD Crédito + PDD Outros) ÷ Estágio 3"},
             ],
         },
         {
             "section": "Capital",
             "rows": [
-                {"label": "CET1", "format_key": "Índice de Capital Principal", "higher_is_better": True, "serie": cet1_map},
-                {"label": "Índice de Basileia", "format_key": "Índice de Basileia", "higher_is_better": True, "serie": bas_map},
+                {"label": "CET1", "format_key": "Índice de Capital Principal",
+                 "higher_is_better": True, "serie": cet1_map, "is_pct": True,
+                 "source": "BCB IFData Rel. 5 — Capital Principal ÷ RWA Total"},
             ],
         },
     ]
 
-    for sec in snapshot_layout:
-        st.markdown(
-            f"""
-            <div class="snapshot-section-label">{sec['section']}</div>
-            <hr class="snapshot-divider">
-            """,
-            unsafe_allow_html=True,
-        )
-        row_cols = []
-        chunk = []
-        for row in sec["rows"]:
-            chunk.append(row)
-            if len(chunk) == 2:
-                row_cols.append(chunk)
-                chunk = []
-        if chunk:
-            row_cols.append(chunk)
+    for sec in supporting_sections:
+        st.markdown(f'<div class="snap-section">{sec["section"]}</div>', unsafe_allow_html=True)
+        cards = [
+            _render_snap_card(cfg, periodo_atual, periodo_anterior_qoq, periodo_yoy_existente)
+            for cfg in sec["rows"]
+        ]
+        st.markdown(_render_snap_grid(cards, "snap-grid--supporting"), unsafe_allow_html=True)
 
-        for dupla in row_cols:
-            cols = st.columns(2)
-            for idx, row in enumerate(dupla):
-                col = cols[idx]
-                with col:
-                    periodo_base = periodo_yoy_existente if row.get("comparison") == "yoy" else periodo_anterior_qoq
-                    serie = row.get("serie", {})
-                    valor_atual = serie.get(periodo_atual)
-                    valor_base = serie.get(periodo_base) if periodo_base else None
-
-                    valor_atual_fmt = _formatar_valor_snapshot(row, valor_atual)
-                    valor_base_fmt = _formatar_valor_snapshot(row, valor_base)
-                    indicador_html = _snapshot_delta_ui(row, valor_atual, valor_base)
-
-                    periodo_base_txt = periodo_para_exibicao(periodo_base) if periodo_base else "—"
-                    base_txt = valor_base_fmt if (valor_base is not None and not pd.isna(valor_base)) else "—"
-                    delta_txt = f"{periodo_base_txt}: {base_txt}"
-
-                    st.metric(
-                        label=row.get("label", "Métrica"),
-                        value=valor_atual_fmt,
-                        delta=delta_txt,
-                        delta_color="off",
-                    )
-                    st.markdown(
-                        f'<div class="snapshot-direction-wrap">{indicador_html}</div>',
-                        unsafe_allow_html=True,
-                    )
-
-        st.markdown('<div class="snapshot-section-spacer"></div>', unsafe_allow_html=True)
-
-    st.caption("Lógica de melhora/piora disponível no Glossário.")
+    # ===================================================================
+    # Origem dos dados
+    # ===================================================================
+    with st.expander("Origem dos dados e critérios de cálculo", expanded=False):
+        st.markdown(_build_provenance_html(), unsafe_allow_html=True)
 
     tempo_render = time.perf_counter() - t_render
     tempo_total = time.perf_counter() - t0
