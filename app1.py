@@ -10255,16 +10255,15 @@ elif menu == "Rankings":
                         continue
 
                     if mostrar_cet1:
-                        # CET1 — label abaixo da barra (junto ao eixo X)
+                        # CET1 — label no centro do segmento (barra laranja)
                         fig.add_annotation(
                             x=inst,
-                            y=0,
+                            y=float(cet1) / 2,
                             text=_formatar_br(cet1, 1, "%"),
                             showarrow=False,
-                            font=dict(size=label_size, color="#2C2C2A"),
-                            yshift=-18,
+                            font=dict(size=label_size, color="#FFFFFF"),
                             xanchor="center",
-                            yanchor="top",
+                            yanchor="middle",
                         )
 
                         # AT1 — label no centro do segmento
