@@ -6539,10 +6539,6 @@ def _calcular_basileia_periodo(
             df_periodo_cap.loc[mask_preencher, 'Índice de Basileia Total (%)'] = valores_fill
             df_periodo_cap.loc[mask_preencher, 'RWA_valido'] = True
             info["usou_precalc"] = True
-            if pode_calcular_composicao:
-                info["mensagem"] = "ℹ️ Alguns bancos usam Índice de Basileia pré-calculado (composição CET1/AT1/T2 não disponível)"
-            else:
-                info["mensagem"] = "ℹ️ Usando Índice de Basileia pré-calculado (composição CET1/AT1/T2 não disponível)"
         return df_periodo_cap, info
 
     info["mensagem"] = "Não foi possível calcular o Índice de Basileia. Verifique se o cache possui as colunas necessárias."
@@ -10008,16 +10004,27 @@ elif menu == "Rankings":
                         st.info("dados de capital não disponíveis para o ranking.")
                     else:
                         colunas_encontradas_cap, _, _, _ = _mapear_colunas_capital(df_capital_base)
-                        df_periodo_cap, basileia_info = _calcular_basileia_periodo(
-                            df_capital_base,
-                            periodo_resumo_base,
-                            colunas_encontradas_cap,
+                        periodos_capital = periodo_resumo if len(periodo_resumo) > 1 else [periodo_resumo_base]
+                        lista_df_capital = []
+                        for periodo_cap in periodos_capital:
+                            df_periodo_cap_i, basileia_info = _calcular_basileia_periodo(
+                                df_capital_base,
+                                periodo_cap,
+                                colunas_encontradas_cap,
+                            )
+                            if basileia_info.get("mensagem") and df_periodo_cap_i.empty:
+                                st.error(basileia_info["mensagem"])
+                                continue
+                            if not df_periodo_cap_i.empty:
+                                df_periodo_cap_i = df_periodo_cap_i.copy()
+                                df_periodo_cap_i["Período"] = periodo_cap
+                                lista_df_capital.append(df_periodo_cap_i)
+
+                        df_periodo_cap = (
+                            pd.concat(lista_df_capital, ignore_index=True)
+                            if lista_df_capital
+                            else pd.DataFrame()
                         )
-                        if basileia_info.get("mensagem") and basileia_info.get("usou_precalc"):
-                            st.caption(basileia_info["mensagem"])
-                        elif basileia_info.get("mensagem") and df_periodo_cap.empty:
-                            st.error(basileia_info["mensagem"])
-                            df_periodo_cap = pd.DataFrame()
 
                         if not df_periodo_cap.empty:
                             colunas_peso_possiveis = [v for v in VARIAVEIS_PONDERACAO.values() if v is not None]
@@ -10039,17 +10046,35 @@ elif menu == "Rankings":
                         if df_selecionado_cap.empty:
                             st.info("selecione instituições ou ajuste os filtros para visualizar o ranking.")
                         else:
-                            if modo_ordenacao == "Ordenar por valor":
-                                ordenar_asc = direcao_top == "Menor → Maior"
-                                df_selecionado_cap = df_selecionado_cap.sort_values(
-                                    'Índice de Basileia Total (%)', ascending=ordenar_asc
+                            comparar_periodos_basileia = len(periodo_resumo) > 1
+                            if comparar_periodos_basileia:
+                                ordem_base = (
+                                    df_selecionado_cap[df_selecionado_cap["Período"] == periodo_resumo_base]
+                                    .sort_values(
+                                        "Índice de Basileia Total (%)",
+                                        ascending=(direcao_top == "Menor → Maior")
+                                    )["Instituição"]
+                                    .tolist()
                                 )
-                            elif bancos_selecionados:
-                                ordem = bancos_selecionados
-                                df_selecionado_cap['ordem'] = pd.Categorical(
-                                    df_selecionado_cap['Instituição'], categories=ordem, ordered=True
-                                )
-                                df_selecionado_cap = df_selecionado_cap.sort_values('ordem')
+                                if not ordem_base and bancos_selecionados:
+                                    ordem_base = bancos_selecionados
+                                if ordem_base:
+                                    df_selecionado_cap["Instituição"] = pd.Categorical(
+                                        df_selecionado_cap["Instituição"], categories=ordem_base, ordered=True
+                                    )
+                                    df_selecionado_cap = df_selecionado_cap.sort_values(["Instituição", "Período"])
+                            else:
+                                if modo_ordenacao == "Ordenar por valor":
+                                    ordenar_asc = direcao_top == "Menor → Maior"
+                                    df_selecionado_cap = df_selecionado_cap.sort_values(
+                                        'Índice de Basileia Total (%)', ascending=ordenar_asc
+                                    )
+                                elif bancos_selecionados:
+                                    ordem = bancos_selecionados
+                                    df_selecionado_cap['ordem'] = pd.Categorical(
+                                        df_selecionado_cap['Instituição'], categories=ordem, ordered=True
+                                    )
+                                    df_selecionado_cap = df_selecionado_cap.sort_values('ordem')
 
                             media_basileia = calcular_media_ponderada(
                                 df_selecionado_cap, 'Índice de Basileia Total (%)', coluna_peso_resumo
@@ -10065,14 +10090,23 @@ elif menu == "Rankings":
                             )
                             label_media = get_label_media(coluna_peso_resumo)
 
-                            df_selecionado_cap['Ranking'] = df_selecionado_cap['Índice de Basileia Total (%)'].rank(
-                                method='first', ascending=False
-                            ).astype(int)
+                            if comparar_periodos_basileia:
+                                df_selecionado_cap['Ranking'] = (
+                                    df_selecionado_cap
+                                    .groupby('Período')['Índice de Basileia Total (%)']
+                                    .rank(method='first', ascending=False)
+                                    .astype(int)
+                                )
+                            else:
+                                df_selecionado_cap['Ranking'] = df_selecionado_cap['Índice de Basileia Total (%)'].rank(
+                                    method='first', ascending=False
+                                ).astype(int)
                             df_selecionado_cap['Diferença vs Média (%)'] = (
                                 df_selecionado_cap['Índice de Basileia Total (%)'] - media_basileia
                             )
 
-                            n_bancos = len(df_selecionado_cap)
+                            n_bancos = df_selecionado_cap['Instituição'].nunique()
+                            eixo_instituicoes = df_selecionado_cap['Instituição'].drop_duplicates()
                             # Paleta inspirada no Itaú BBA: laranja, preto/grafite e cinza.
                             cores_componentes = {
                                 'CET1 (%)': '#ff5a00',  # laranja base
@@ -10088,33 +10122,57 @@ elif menu == "Rankings":
                             }
                             for componente, cor in cores_componentes.items():
                                 nome_display = componente.replace(' (%)', '')
-                                fig_basileia.add_trace(go.Bar(
+                                if comparar_periodos_basileia:
+                                    for idx_p, p in enumerate(periodo_resumo):
+                                        df_comp = df_selecionado_cap[df_selecionado_cap["Período"] == p].copy()
+                                        if df_comp.empty:
+                                            continue
+                                        fig_basileia.add_trace(go.Bar(
+                                            x=df_comp['Instituição'],
+                                            y=df_comp[componente],
+                                            name=nome_display,
+                                            legendgroup=componente,
+                                            showlegend=(idx_p == 0),
+                                            offsetgroup=p,
+                                            marker_color=cor,
+                                            text=df_comp[componente].apply(lambda x: _formatar_br(x, 2, "%")),
+                                            textposition='inside',
+                                            textfont=dict(size=12, color=cores_label_componentes.get(componente, '#111111')),
+                                            hovertemplate=(
+                                                "<b>%{x}</b><br>"
+                                                f"Período: {periodo_para_exibicao(p)}<br>"
+                                                f"{nome_display}: %{{y:.2f}}%<extra></extra>"
+                                            )
+                                        ))
+                                else:
+                                    fig_basileia.add_trace(go.Bar(
+                                        x=df_selecionado_cap['Instituição'],
+                                        y=df_selecionado_cap[componente],
+                                        name=nome_display,
+                                        marker_color=cor,
+                                        text=df_selecionado_cap[componente].apply(lambda x: _formatar_br(x, 2, "%")),
+                                        textposition='inside',
+                                        textfont=dict(size=12, color=cores_label_componentes.get(componente, '#111111')),
+                                        hovertemplate=(
+                                            "<b>%{x}</b><br>"
+                                            f"{nome_display}: %{{y:.2f}}%<extra></extra>"
+                                        )
+                                    ))
+
+                            if not comparar_periodos_basileia:
+                                fig_basileia.add_trace(go.Scatter(
                                     x=df_selecionado_cap['Instituição'],
-                                    y=df_selecionado_cap[componente],
-                                    name=nome_display,
-                                    marker_color=cor,
-                                    text=df_selecionado_cap[componente].apply(lambda x: f"{x:.2f}%"),
-                                    textposition='inside',
-                                    textfont=dict(size=12, color=cores_label_componentes.get(componente, '#111111')),
-                                    hovertemplate=(
-                                        "<b>%{x}</b><br>"
-                                        f"{nome_display}: %{{y:.2f}}%<extra></extra>"
-                                    )
+                                    y=df_selecionado_cap['Índice de Basileia Total (%)'],
+                                    mode='text',
+                                    text=df_selecionado_cap['Índice de Basileia Total (%)'].apply(lambda x: _formatar_br(x, 2, "%")),
+                                    textposition='top center',
+                                    textfont=dict(size=12, color='#222'),
+                                    showlegend=False,
+                                    hoverinfo='skip'
                                 ))
 
                             fig_basileia.add_trace(go.Scatter(
-                                x=df_selecionado_cap['Instituição'],
-                                y=df_selecionado_cap['Índice de Basileia Total (%)'],
-                                mode='text',
-                                text=df_selecionado_cap['Índice de Basileia Total (%)'].apply(lambda x: f"{x:.2f}%"),
-                                textposition='top center',
-                                textfont=dict(size=12, color='#222'),
-                                showlegend=False,
-                                hoverinfo='skip'
-                            ))
-
-                            fig_basileia.add_trace(go.Scatter(
-                                x=df_selecionado_cap['Instituição'],
+                                x=eixo_instituicoes,
                                 y=[media_basileia] * n_bancos,
                                 mode='lines',
                                 name=f'{label_media} ({media_basileia:.2f}%)',
@@ -10124,7 +10182,7 @@ elif menu == "Rankings":
 
                             MINIMO_REGULATORIO = 10.5
                             fig_basileia.add_trace(go.Scatter(
-                                x=df_selecionado_cap['Instituição'],
+                                x=eixo_instituicoes,
                                 y=[MINIMO_REGULATORIO] * n_bancos,
                                 mode='lines',
                                 name=f'Mínimo Regulatório ({MINIMO_REGULATORIO:.1f}%)',
@@ -10133,13 +10191,17 @@ elif menu == "Rankings":
                             ))
 
                             fig_basileia.update_layout(
-                                title=f"Índice de Basileia (%) - {periodo_resumo_base} ({n_bancos} instituições)",
+                                title=(
+                                    f"Índice de Basileia (%) - comparação por períodos ({n_bancos} instituições)"
+                                    if comparar_periodos_basileia
+                                    else f"Índice de Basileia (%) - {periodo_resumo_base} ({n_bancos} instituições)"
+                                ),
                                 xaxis_title="instituições",
                                 yaxis_title="índice (%)",
                                 plot_bgcolor='#f8f9fa',
                                 paper_bgcolor='white',
                                 height=max(650, n_bancos * 24),
-                                barmode='stack',
+                                barmode='relative' if comparar_periodos_basileia else 'stack',
                                 showlegend=True,
                                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
                                 xaxis=dict(tickangle=-45),
@@ -10151,10 +10213,11 @@ elif menu == "Rankings":
                             st.plotly_chart(fig_basileia, width='stretch', config={'displayModeBar': 'hover', 'displaylogo': False})
 
                             df_export_capital = df_selecionado_cap[[
+                                'Período',
                                 'Instituição', 'CET1 (%)', 'AT1 (%)', 'T2 (%)',
                                 'Índice de Basileia Total (%)', 'Ranking', 'Diferença vs Média (%)'
                             ]].copy()
-                            df_export_capital.insert(0, 'Período', periodo_resumo_base)
+                            df_export_capital['Período'] = df_export_capital['Período'].fillna(periodo_resumo_base)
                             df_export_capital['Tipo de Média'] = tipo_media_label
                             df_export_capital['Média CET1 (%)'] = round(media_cet1, 2)
                             df_export_capital['Média AT1 (%)'] = round(media_at1, 2)
@@ -10168,7 +10231,15 @@ elif menu == "Rankings":
                                 )
 
                             with st.expander("Tabela dos dados do gráfico", expanded=False):
-                                st.dataframe(df_export_capital, use_container_width=True, hide_index=True)
+                                df_tabela_capital = df_export_capital.copy()
+                                if "Período" in df_tabela_capital.columns:
+                                    df_tabela_capital["Período"] = df_tabela_capital["Período"].apply(formatar_periodo_mm_yyyy)
+                                for col_fmt in ['CET1 (%)', 'AT1 (%)', 'T2 (%)', 'Índice de Basileia Total (%)', 'Diferença vs Média (%)', 'Média CET1 (%)', 'Média AT1 (%)', 'Média T2 (%)', 'Média Basileia (%)', 'Mínimo Regulatório (%)']:
+                                    if col_fmt in df_tabela_capital.columns:
+                                        df_tabela_capital[col_fmt] = df_tabela_capital[col_fmt].apply(
+                                            lambda v: _formatar_br(v, 2, "%") if pd.notna(v) else "N/D"
+                                        )
+                                st.dataframe(df_tabela_capital, use_container_width=True, hide_index=True)
 
                             st.markdown("#### Exportar")
                             buffer_excel = BytesIO()
