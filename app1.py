@@ -10390,58 +10390,38 @@ elif menu == "Rankings":
                                 valores_media.append(float(media_sfn_display))
                             amplit = max(df_plot_chart["valor_display"]) - min(df_plot_chart["valor_display"]) if not df_plot_chart.empty else 0
                             proximas = len(valores_media) == 2 and abs(valores_media[0] - valores_media[1]) <= max(abs(amplit) * 0.03, 1e-9)
-                            if orientacao_horizontal:
+                            # Renderiza labels das médias dentro da área útil do gráfico para evitar corte na borda direita.
+                            fig_resumo.add_annotation(
+                                x=0.98,
+                                y=0.98,
+                                xref="paper",
+                                yref="paper",
+                                text=f"Média seleção: {media_sel_text}",
+                                showarrow=False,
+                                xanchor="right",
+                                yanchor="top",
+                                align="right",
+                                font=dict(color="#1A1A1A", size=12),
+                                bgcolor="rgba(255,255,255,0.82)",
+                                bordercolor="rgba(26,26,26,0.25)",
+                                borderwidth=1,
+                            )
+                            if media_sfn_text is not None:
                                 fig_resumo.add_annotation(
-                                    x=float(media_display),
-                                    y=1.02 if not proximas else 1.02,
-                                    xref="x",
-                                    yref="paper",
-                                    text=f"Média seleção: {media_sel_text}",
-                                    showarrow=False,
-                                    xanchor="left",
-                                    yanchor="bottom",
-                                    font=dict(color="#1A1A1A", size=12),
-                                    bgcolor="rgba(255,255,255,0.75)",
-                                )
-                                if media_sfn_text is not None:
-                                    fig_resumo.add_annotation(
-                                        x=float(media_sfn_display),
-                                        y=1.02 if not proximas else 1.10,
-                                        xref="x",
-                                        yref="paper",
-                                        text=f"Média SFN: {media_sfn_text}",
-                                        showarrow=False,
-                                        xanchor="left",
-                                        yanchor="bottom",
-                                        font=dict(color="#EE7203", size=12),
-                                        bgcolor="rgba(255,255,255,0.75)",
-                                    )
-                            else:
-                                fig_resumo.add_annotation(
-                                    x=1.01,
-                                    y=float(media_display),
+                                    x=0.98,
+                                    y=0.92 if not proximas else 0.88,
                                     xref="paper",
-                                    yref="y",
-                                    text=f"Média seleção: {media_sel_text}",
+                                    yref="paper",
+                                    text=f"Média SFN: {media_sfn_text}",
                                     showarrow=False,
-                                    xanchor="left",
-                                    yanchor="middle",
-                                    font=dict(color="#1A1A1A", size=12),
-                                    bgcolor="rgba(255,255,255,0.75)",
+                                    xanchor="right",
+                                    yanchor="top",
+                                    align="right",
+                                    font=dict(color="#EE7203", size=12),
+                                    bgcolor="rgba(255,255,255,0.82)",
+                                    bordercolor="rgba(238,114,3,0.30)",
+                                    borderwidth=1,
                                 )
-                                if media_sfn_text is not None:
-                                    fig_resumo.add_annotation(
-                                        x=1.01 if not proximas else 1.08,
-                                        y=float(media_sfn_display),
-                                        xref="paper",
-                                        yref="y",
-                                        text=f"Média SFN: {media_sfn_text}",
-                                        showarrow=False,
-                                        xanchor="left",
-                                        yanchor="middle",
-                                        font=dict(color="#EE7203", size=12),
-                                        bgcolor="rgba(255,255,255,0.75)",
-                                    )
 
                             periodos_header = ", ".join(formatar_periodo_mm_yyyy(p) for p in periodo_resumo)
                             fig_resumo.update_layout(
