@@ -10231,59 +10231,61 @@ elif menu == "Rankings":
 
                         st.caption("= (LL trim × 4) / PL médio")
 
-            def _adicionar_labels_basileia_trilhos(fig: go.Figure, df_labels: pd.DataFrame) -> None:
-                """Posiciona labels do Basileia em trilhos fixos (CET1/AT1/T2/Total)."""
+            def _adicionar_labels_basileia_v2(
+                fig: go.Figure,
+                df_labels: pd.DataFrame,
+                periodo_ref: str | None = None,
+                mostrar_cet1: bool = True,
+                mostrar_total: bool = True,
+            ) -> None:
+                """Data labels v2: total acima e CET1 dentro; AT1/T2 apenas no hover/tabela."""
                 if df_labels.empty:
                     return
                 for _, row in df_labels.iterrows():
                     inst = row.get("Instituição")
                     cet1 = pd.to_numeric(row.get("CET1 (%)"), errors="coerce")
-                    at1 = pd.to_numeric(row.get("AT1 (%)"), errors="coerce")
-                    t2 = pd.to_numeric(row.get("T2 (%)"), errors="coerce")
                     total = pd.to_numeric(row.get("Índice de Basileia Total (%)"), errors="coerce")
-                    if pd.isna(inst) or any(pd.isna(v) for v in (cet1, at1, t2, total)):
+                    if pd.isna(inst) or any(pd.isna(v) for v in (cet1, total)):
                         continue
 
-                    fig.add_annotation(
-                        x=inst,
-                        y=float(cet1) / 2,
-                        text=_formatar_br(cet1, 1, "%"),
-                        showarrow=False,
-                        font=dict(size=12, color="#1A1A1A"),
-                        yshift=-22,
-                        xanchor="center",
-                        yanchor="middle",
-                    )
-                    fig.add_annotation(
-                        x=inst,
-                        y=float(cet1) + float(at1) / 2,
-                        text=_formatar_br(at1, 1, "%"),
-                        showarrow=False,
-                        font=dict(size=12, color="#FFFFFF"),
-                        xanchor="center",
-                        yanchor="middle",
-                    )
-                    fig.add_annotation(
-                        x=inst,
-                        y=float(cet1) + float(at1) + float(t2) / 2,
-                        text=_formatar_br(t2, 1, "%"),
-                        showarrow=False,
-                        font=dict(size=12, color="#1A1A1A"),
-                        yshift=22,
-                        xanchor="center",
-                        yanchor="middle",
-                    )
-                    fig.add_annotation(
-                        x=inst,
-                        y=float(total),
-                        text=f"<b>{_formatar_br(total, 1, '%')}</b>",
-                        showarrow=False,
-                        font=dict(size=12, color="#185FA5"),
-                        yshift=-22,
-                        xshift=8,
-                        xanchor="left",
-                        yanchor="middle",
-                    )
+                    if mostrar_cet1:
+                        if float(cet1) >= 5:
+                            fig.add_annotation(
+                                x=inst,
+                                y=float(cet1) / 2,
+                                text=_formatar_br(cet1, 1, "%"),
+                                showarrow=False,
+                                font=dict(size=11, color="#FFFFFF"),
+                                xanchor="center",
+                                yanchor="middle",
+                                cliponaxis=False,
+                            )
+                        else:
+                            fig.add_annotation(
+                                x=inst,
+                                y=float(cet1),
+                                text=_formatar_br(cet1, 1, "%"),
+                                showarrow=False,
+                                font=dict(size=11, color="#2C2C2A"),
+                                yshift=8,
+                                xanchor="center",
+                                yanchor="bottom",
+                                cliponaxis=False,
+                            )
+
+                    if mostrar_total:
+                        fig.add_annotation(
+                            x=inst,
+                            y=float(total),
+                            text=f"<b>{_formatar_br(total, 1, '%')}</b>",
+                            showarrow=False,
+                            font=dict(size=11, color="#2C2C2A"),
+                            yshift=8,
+                            xanchor="center",
+                            yanchor="bottom",
+                            cliponaxis=False,
+                            name=(periodo_ref or ""),
+                        )
 
             if bancos_selecionados:
                 df_selecionado = df_periodo[df_periodo['Instituição'].isin(bancos_selecionados)].copy()
@@ -10433,6 +10435,16 @@ elif menu == "Rankings":
                                         df_comp = df_selecionado_cap[df_selecionado_cap["Período"] == p].copy()
                                         if df_comp.empty:
                                             continue
+                                        customdata_comp = np.stack(
+                                            [
+                                                df_comp["Período"].apply(periodo_para_exibicao).values,
+                                                df_comp["CET1 (%)"].round(2).values,
+                                                df_comp["AT1 (%)"].round(2).values,
+                                                df_comp["T2 (%)"].round(2).values,
+                                                df_comp["Índice de Basileia Total (%)"].round(2).values,
+                                            ],
+                                            axis=-1,
+                                        )
                                         fig_basileia.add_trace(go.Bar(
                                             x=df_comp['Instituição'],
                                             y=df_comp[componente],
@@ -10441,16 +10453,31 @@ elif menu == "Rankings":
                                             showlegend=(idx_p == 0),
                                             offsetgroup=p,
                                             marker_color=cor,
-                                            text=df_comp[componente].apply(lambda x: _formatar_br(x, 2, "%")) if mostrar_data_labels else None,
-                                            textposition='inside' if mostrar_data_labels else 'none',
-                                            textfont=dict(size=12, color=cores_label_componentes.get(componente, '#111111')),
+                                            text=None,
+                                            textposition='none',
+                                            textfont=dict(size=11, color=cores_label_componentes.get(componente, '#111111')),
+                                            customdata=customdata_comp,
+                                            meta={"periodo": p, "componente": componente},
                                             hovertemplate=(
                                                 "<b>%{x}</b><br>"
-                                                f"Período: {periodo_para_exibicao(p)}<br>"
-                                                f"{nome_display}: %{{y:.2f}}%<extra></extra>"
+                                                "Período: %{customdata[0]}<br>"
+                                                "CET1: %{customdata[1]:.2f}%<br>"
+                                                "AT1: %{customdata[2]:.2f}%<br>"
+                                                "T2: %{customdata[3]:.2f}%<br>"
+                                                "Total: %{customdata[4]:.2f}%<extra></extra>"
                                             )
                                         ))
                                 else:
+                                    customdata_comp = np.stack(
+                                        [
+                                            df_selecionado_cap["Período"].fillna(periodo_resumo_base).apply(formatar_periodo_mm_yyyy).values,
+                                            df_selecionado_cap["CET1 (%)"].round(2).values,
+                                            df_selecionado_cap["AT1 (%)"].round(2).values,
+                                            df_selecionado_cap["T2 (%)"].round(2).values,
+                                            df_selecionado_cap["Índice de Basileia Total (%)"].round(2).values,
+                                        ],
+                                        axis=-1,
+                                    )
                                     fig_basileia.add_trace(go.Bar(
                                         x=df_selecionado_cap['Instituição'],
                                         y=df_selecionado_cap[componente],
@@ -10458,56 +10485,46 @@ elif menu == "Rankings":
                                         marker_color=cor,
                                         text=None,
                                         textposition='none',
-                                        textfont=dict(size=12, color=cores_label_componentes.get(componente, '#111111')),
+                                        textfont=dict(size=11, color=cores_label_componentes.get(componente, '#111111')),
+                                        customdata=customdata_comp,
+                                        meta={"periodo": periodo_resumo_base, "componente": componente},
                                         hovertemplate=(
                                             "<b>%{x}</b><br>"
-                                            f"{nome_display}: %{{y:.2f}}%<extra></extra>"
+                                            "Período: %{customdata[0]}<br>"
+                                            "CET1: %{customdata[1]:.2f}%<br>"
+                                            "AT1: %{customdata[2]:.2f}%<br>"
+                                            "T2: %{customdata[3]:.2f}%<br>"
+                                            "Total: %{customdata[4]:.2f}%<extra></extra>"
                                         )
                                     ))
 
                             if comparar_periodos_basileia:
-                                for p in periodo_resumo:
-                                    df_total = df_selecionado_cap[df_selecionado_cap["Período"] == p].copy()
-                                    if df_total.empty:
-                                        continue
-                                    fig_basileia.add_trace(go.Bar(
-                                        x=df_total['Instituição'],
-                                        y=df_total['Índice de Basileia Total (%)'],
-                                        offsetgroup=p,
-                                        marker=dict(color='rgba(0,0,0,0)'),
-                                        text=df_total['Índice de Basileia Total (%)'].apply(lambda x: _formatar_br(x, 2, "%")) if mostrar_data_labels else None,
-                                        textposition='outside' if mostrar_data_labels else 'none',
-                                        textfont=dict(size=12, color='#222'),
-                                        showlegend=False,
-                                        hoverinfo='skip'
-                                    ))
-                            fig_basileia.add_trace(go.Scatter(
-                                x=eixo_instituicoes,
-                                y=[media_basileia] * n_bancos,
-                                mode='lines',
-                                name=f'Média selecionadas ({media_basileia:.2f}%)',
-                                line=dict(color='#555555', dash='dash', width=2),
-                                hovertemplate=f"{label_media}: {media_basileia:.2f}%<extra></extra>"
-                            ))
-                            if media_sfn_basileia is not None and pd.notna(media_sfn_basileia):
-                                fig_basileia.add_trace(go.Scatter(
-                                    x=eixo_instituicoes,
-                                    y=[media_sfn_basileia] * n_bancos,
-                                    mode='lines',
-                                    name=f'Média SFN ({media_sfn_basileia:.2f}%)',
-                                    line=dict(color='#1f77b4', dash='dash', width=2),
-                                    hovertemplate=f"Média SFN: {media_sfn_basileia:.2f}%<extra></extra>"
-                                ))
+                                periodos_ordenados = ordenar_periodos(periodo_resumo)
+                                periodo_mais_recente = periodos_ordenados[-1] if periodos_ordenados else None
+                                mostrar_total_periodo = set(periodo_resumo)
+                                mostrar_cet1_periodo = set()
+                                if len(periodo_resumo) >= 3 and periodo_mais_recente:
+                                    mostrar_total_periodo = {periodo_mais_recente}
+                                    mostrar_cet1_periodo = set()
+                                elif len(periodo_resumo) == 2:
+                                    mostrar_cet1_periodo = set(periodo_resumo) if n_bancos <= 8 else set()
+                                else:
+                                    mostrar_cet1_periodo = set(periodo_resumo)
+
+                                if mostrar_data_labels:
+                                    for p in periodo_resumo:
+                                        df_total = df_selecionado_cap[df_selecionado_cap["Período"] == p].copy()
+                                        if df_total.empty:
+                                            continue
+                                        _adicionar_labels_basileia_v2(
+                                            fig_basileia,
+                                            df_total,
+                                            periodo_ref=p,
+                                            mostrar_cet1=(p in mostrar_cet1_periodo),
+                                            mostrar_total=(p in mostrar_total_periodo),
+                                        )
 
                             MINIMO_REGULATORIO = 10.5
-                            fig_basileia.add_trace(go.Scatter(
-                                x=eixo_instituicoes,
-                                y=[MINIMO_REGULATORIO] * n_bancos,
-                                mode='lines',
-                                name=f'Mínimo Regulatório ({MINIMO_REGULATORIO:.1f}%)',
-                                line=dict(color='#e74c3c', dash='solid', width=2),
-                                hovertemplate=f"Mínimo Regulatório: {MINIMO_REGULATORIO:.1f}%<extra></extra>"
-                            ))
 
                             fig_basileia.update_layout(
                                 title=(
@@ -10524,47 +10541,51 @@ elif menu == "Rankings":
                                 showlegend=True,
                                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
                                 xaxis=dict(tickangle=-45),
-                                yaxis=dict(tickformat='.2f', ticksuffix='%'),
+                                yaxis=dict(tickformat='.0f', ticksuffix='%'),
                                 separators=',.',
                                 font=dict(family='IBM Plex Sans'),
                                 uniformtext_minsize=12,
                                 uniformtext_mode='show'
                             )
                             fig_basileia.update_traces(cliponaxis=False, selector=dict(type='bar'))
-                            if mostrar_data_labels and not comparar_periodos_basileia:
-                                _adicionar_labels_basileia_trilhos(fig_basileia, df_selecionado_cap)
+                            y_max_raw = pd.to_numeric(df_selecionado_cap['Índice de Basileia Total (%)'], errors='coerce').max() * 1.15
+                            y_max = int(math.ceil((y_max_raw if pd.notna(y_max_raw) else 0) / 5.0) * 5.0)
+                            y_max = max(y_max, 15)
+                            fig_basileia.update_yaxes(range=[0, y_max])
 
-                            media_texto = _formatar_br(media_basileia, 2, "%")
-                            minimo_texto = _formatar_br(MINIMO_REGULATORIO, 2, "%")
-                            fig_basileia.add_annotation(
-                                x=0.98,
-                                y=0.98,
-                                xref="paper",
-                                yref="paper",
-                                text=f"{label_media}: {media_texto}",
-                                showarrow=False,
-                                xanchor="right",
-                                yanchor="top",
-                                align="right",
-                                font=dict(color="#3498db", size=12),
-                                bgcolor="rgba(255,255,255,0.82)",
-                                bordercolor="rgba(52,152,219,0.30)",
-                                borderwidth=1,
+                            if mostrar_data_labels and not comparar_periodos_basileia:
+                                _adicionar_labels_basileia_v2(
+                                    fig_basileia,
+                                    df_selecionado_cap,
+                                    periodo_ref=periodo_resumo_base,
+                                    mostrar_cet1=True,
+                                    mostrar_total=True,
+                                )
+
+                            fig_basileia.add_hline(
+                                y=media_basileia,
+                                line_dash='dash',
+                                line_color='#555555',
+                                line_width=1,
+                                annotation_text=f"{label_media}: {_formatar_br(media_basileia, 1, '%')}",
+                                annotation_position='right',
                             )
-                            fig_basileia.add_annotation(
-                                x=0.98,
-                                y=0.92,
-                                xref="paper",
-                                yref="paper",
-                                text=f"Mínimo regulatório: {minimo_texto}",
-                                showarrow=False,
-                                xanchor="right",
-                                yanchor="top",
-                                align="right",
-                                font=dict(color="#e74c3c", size=12),
-                                bgcolor="rgba(255,255,255,0.82)",
-                                bordercolor="rgba(231,76,60,0.30)",
-                                borderwidth=1,
+                            if media_sfn_basileia is not None and pd.notna(media_sfn_basileia):
+                                fig_basileia.add_hline(
+                                    y=media_sfn_basileia,
+                                    line_dash='dash',
+                                    line_color='#1f77b4',
+                                    line_width=1,
+                                    annotation_text=f"Média SFN: {_formatar_br(media_sfn_basileia, 1, '%')}",
+                                    annotation_position='right',
+                                )
+                            fig_basileia.add_hline(
+                                y=MINIMO_REGULATORIO,
+                                line_dash='solid',
+                                line_color='#E24B4A',
+                                line_width=1,
+                                annotation_text=f"Mín. reg.: {_formatar_br(MINIMO_REGULATORIO, 1, '%')}",
+                                annotation_position='right',
                             )
 
                             st.plotly_chart(fig_basileia, width='stretch', config={'displayModeBar': 'hover', 'displaylogo': False})
