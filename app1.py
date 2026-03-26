@@ -3519,10 +3519,10 @@ def _periodo_dez_ano_anterior(periodo: str) -> Optional[str]:
 def _normalizar_lucro_liquido(df: pd.DataFrame) -> pd.DataFrame:
     """Normaliza LL para YTD consistente e calcula LL Trimestral.
 
-    Regras (a partir do dado raw por trimestre no cache):
+    Regras (IF.data com acumulação semestral):
       - Q1 (Mar): LL_trimestral = LL(03)
       - Q2 (Jun): LL_trimestral = LL(06) - LL(03)
-      - Q3 (Set): LL_trimestral = LL(09) - LL(06)
+      - Q3 (Set): LL_trimestral = LL(09)
       - Q4 (Dez): LL_trimestral = LL(12) - LL(09)
     """
     col_ll = "Lucro Líquido Acumulado YTD"
@@ -3556,8 +3556,7 @@ def _normalizar_lucro_liquido(df: pd.DataFrame) -> pd.DataFrame:
                 out.at[row_idx, "Lucro Líquido Trimestral"] = raw_val - mar if pd.notna(mar) else np.nan
                 ll_ytd_ajustado.at[row_idx] = raw_val
             elif tri_int == 3:
-                jun = raw_map.get(2)
-                out.at[row_idx, "Lucro Líquido Trimestral"] = raw_val - jun if pd.notna(jun) else np.nan
+                out.at[row_idx, "Lucro Líquido Trimestral"] = raw_val
                 ll_ytd_ajustado.at[row_idx] = raw_val
             elif tri_int == 4:
                 set_val = raw_map.get(3)
@@ -3619,7 +3618,7 @@ def _recalcular_roe_anualizado_df(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _recalcular_roe_trimestral_df(df: pd.DataFrame) -> pd.DataFrame:
-    """Calcula ROE trimestral anualizado com PL médio entre trimestres consecutivos."""
+    """Calcula ROE trimestral anualizado com PL médio (Dez ano anterior vs período)."""
     if df is None or df.empty:
         return df
     cols_obrig = {"Instituição", "Período", "Lucro Líquido Trimestral", "Patrimônio Líquido"}
@@ -3638,9 +3637,19 @@ def _recalcular_roe_trimestral_df(df: pd.DataFrame) -> pd.DataFrame:
         _ = instituicao
         g = out.loc[idx].copy().sort_values(["_ano_tmp", "_tri_idx_tmp", "Período"])
         pl_atual = pd.to_numeric(g["Patrimônio Líquido"], errors="coerce")
-        pl_anterior = pl_atual.shift(1)
+
+        pl_dez_por_ano = (
+            g[g["_tri_idx_tmp"] == 4]
+            .dropna(subset=["_ano_tmp"])
+            .sort_values(["_ano_tmp", "Período"])
+            .drop_duplicates(subset=["_ano_tmp"], keep="last")
+            .set_index("_ano_tmp")["Patrimônio Líquido"]
+        )
+        idx_prev_ano = (g["_ano_tmp"] - 1).values
+        pl_dez_anterior = pd.to_numeric(pl_dez_por_ano.reindex(idx_prev_ano).to_numpy(), errors="coerce")
+
         ll_trimestral = pd.to_numeric(g["Lucro Líquido Trimestral"], errors="coerce")
-        pl_medio = (pl_atual + pl_anterior) / 2
+        pl_medio = (pl_atual + pl_dez_anterior) / 2
         ll_anualizado = ll_trimestral * 4
         roe_tri = ll_anualizado / pl_medio.where(pl_medio > 0, np.nan) * 100
         out.loc[g.index, "ROE Trimestral (%)"] = roe_tri.to_numpy()
