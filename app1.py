@@ -3506,10 +3506,10 @@ def _normalizar_lucro_liquido(df: pd.DataFrame) -> pd.DataFrame:
     """Normaliza LL para YTD consistente e calcula LL Trimestral.
 
     Regras (a partir do dado raw por trimestre no cache):
-      - Q1 (Mar): raw já trimestral e YTD
-      - Q2 (Jun): raw é Jan-Jun (YTD); trimestral = Jun - Mar
-      - Q3 (Set): raw já trimestral; YTD = Jun + Set
-      - Q4 (Dez): raw é Jul-Dez (semestral); trimestral = Dez - Set; YTD = Jun + Dez
+      - Q1 (Mar): LL_trimestral = LL(03)
+      - Q2 (Jun): LL_trimestral = LL(06) - LL(03)
+      - Q3 (Set): LL_trimestral = LL(09) - LL(06)
+      - Q4 (Dez): LL_trimestral = LL(12) - LL(09)
     """
     col_ll = "Lucro Líquido Acumulado YTD"
     if df is None or df.empty or col_ll not in df.columns:
@@ -3543,13 +3543,12 @@ def _normalizar_lucro_liquido(df: pd.DataFrame) -> pd.DataFrame:
                 ll_ytd_ajustado.at[row_idx] = raw_val
             elif tri_int == 3:
                 jun = raw_map.get(2)
-                out.at[row_idx, "Lucro Líquido Trimestral"] = raw_val
-                ll_ytd_ajustado.at[row_idx] = (jun + raw_val) if pd.notna(jun) else raw_val
+                out.at[row_idx, "Lucro Líquido Trimestral"] = raw_val - jun if pd.notna(jun) else np.nan
+                ll_ytd_ajustado.at[row_idx] = raw_val
             elif tri_int == 4:
                 set_val = raw_map.get(3)
-                jun = raw_map.get(2)
                 out.at[row_idx, "Lucro Líquido Trimestral"] = raw_val - set_val if pd.notna(set_val) else np.nan
-                ll_ytd_ajustado.at[row_idx] = (jun + raw_val) if pd.notna(jun) else raw_val
+                ll_ytd_ajustado.at[row_idx] = raw_val
             else:
                 out.at[row_idx, "Lucro Líquido Trimestral"] = np.nan
                 ll_ytd_ajustado.at[row_idx] = raw_val
@@ -3606,7 +3605,7 @@ def _recalcular_roe_anualizado_df(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _recalcular_roe_trimestral_df(df: pd.DataFrame) -> pd.DataFrame:
-    """Calcula ROE trimestral sem anualização com PL médio entre trimestres consecutivos."""
+    """Calcula ROE trimestral anualizado com PL médio entre trimestres consecutivos."""
     if df is None or df.empty:
         return df
     cols_obrig = {"Instituição", "Período", "Lucro Líquido Trimestral", "Patrimônio Líquido"}
@@ -3628,7 +3627,8 @@ def _recalcular_roe_trimestral_df(df: pd.DataFrame) -> pd.DataFrame:
         pl_anterior = pl_atual.shift(1)
         ll_trimestral = pd.to_numeric(g["Lucro Líquido Trimestral"], errors="coerce")
         pl_medio = (pl_atual + pl_anterior) / 2
-        roe_tri = ll_trimestral / pl_medio.where(pl_medio > 0, np.nan)
+        ll_anualizado = ll_trimestral * 4
+        roe_tri = ll_anualizado / pl_medio.where(pl_medio > 0, np.nan) * 100
         out.loc[g.index, "ROE Trimestral (%)"] = roe_tri.to_numpy()
 
     return out.drop(columns=["_tri_tmp", "_tri_idx_tmp", "_ano_tmp"], errors="ignore")
@@ -10379,8 +10379,73 @@ elif menu == "Rankings":
                                         line=dict(color='#EE7203', dash='5px,3px')
                                     ))
 
+                            media_sel_text = _formatar_br(media_display, casas_labels, sufixo)
+                            media_sfn_text = (
+                                _formatar_br(media_sfn_display, casas_labels, sufixo)
+                                if media_sfn_display is not None and pd.notna(media_sfn_display)
+                                else None
+                            )
+                            valores_media = [float(media_display)]
+                            if media_sfn_display is not None and pd.notna(media_sfn_display):
+                                valores_media.append(float(media_sfn_display))
+                            amplit = max(df_plot_chart["valor_display"]) - min(df_plot_chart["valor_display"]) if not df_plot_chart.empty else 0
+                            proximas = len(valores_media) == 2 and abs(valores_media[0] - valores_media[1]) <= max(abs(amplit) * 0.03, 1e-9)
+                            if orientacao_horizontal:
+                                fig_resumo.add_annotation(
+                                    x=float(media_display),
+                                    y=1.02 if not proximas else 1.02,
+                                    xref="x",
+                                    yref="paper",
+                                    text=f"Média seleção: {media_sel_text}",
+                                    showarrow=False,
+                                    xanchor="left",
+                                    yanchor="bottom",
+                                    font=dict(color="#1A1A1A", size=12),
+                                    bgcolor="rgba(255,255,255,0.75)",
+                                )
+                                if media_sfn_text is not None:
+                                    fig_resumo.add_annotation(
+                                        x=float(media_sfn_display),
+                                        y=1.02 if not proximas else 1.10,
+                                        xref="x",
+                                        yref="paper",
+                                        text=f"Média SFN: {media_sfn_text}",
+                                        showarrow=False,
+                                        xanchor="left",
+                                        yanchor="bottom",
+                                        font=dict(color="#EE7203", size=12),
+                                        bgcolor="rgba(255,255,255,0.75)",
+                                    )
+                            else:
+                                fig_resumo.add_annotation(
+                                    x=1.01,
+                                    y=float(media_display),
+                                    xref="paper",
+                                    yref="y",
+                                    text=f"Média seleção: {media_sel_text}",
+                                    showarrow=False,
+                                    xanchor="left",
+                                    yanchor="middle",
+                                    font=dict(color="#1A1A1A", size=12),
+                                    bgcolor="rgba(255,255,255,0.75)",
+                                )
+                                if media_sfn_text is not None:
+                                    fig_resumo.add_annotation(
+                                        x=1.01 if not proximas else 1.08,
+                                        y=float(media_sfn_display),
+                                        xref="paper",
+                                        yref="y",
+                                        text=f"Média SFN: {media_sfn_text}",
+                                        showarrow=False,
+                                        xanchor="left",
+                                        yanchor="middle",
+                                        font=dict(color="#EE7203", size=12),
+                                        bgcolor="rgba(255,255,255,0.75)",
+                                    )
+
+                            periodos_header = ", ".join(formatar_periodo_mm_yyyy(p) for p in periodo_resumo)
                             fig_resumo.update_layout(
-                                title=f"{indicador_label} - {', '.join(periodo_resumo)} ({len(df_selecionado)} instituições)",
+                                title=f"{indicador_label} - {periodos_header} ({len(df_selecionado)} instituições)",
                                 xaxis_title=indicador_label if orientacao_horizontal else "instituições",
                                 yaxis_title="instituições" if orientacao_horizontal else indicador_label,
                                 plot_bgcolor='#f8f9fa',
@@ -10450,12 +10515,13 @@ elif menu == "Rankings":
                             with st.expander("Dados do gráfico", expanded=False):
                                 st.dataframe(tabela_wide, use_container_width=True, hide_index=True)
 
-                            st.caption(
-                                "Nota metodológica:\n"
-                                "Média seleção: média aritmética simples dos valores das instituições atualmente selecionadas no filtro, "
-                                "para a variável e período exibidos.\n"
-                                "Média SFN: média aritmética simples dos valores de todas as instituições disponíveis no dataset para a "
-                                "variável e período exibidos. Não considera ponderação por ativo total ou qualquer outro critério de escala."
+                            st.markdown(
+                                "**Nota metodológica:**\n\n"
+                                "**Média seleção:** média aritmética simples dos valores das instituições "
+                                "atualmente selecionadas no filtro, para a variável e período exibidos.\n\n"
+                                "**Média SFN:** média aritmética simples dos valores de todas as instituições "
+                                "disponíveis no dataset para a variável e período exibidos. Não considera "
+                                "ponderação por ativo total ou qualquer outro critério de escala."
                             )
 
                             st.markdown("#### Exportar")
