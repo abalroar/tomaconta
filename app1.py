@@ -744,7 +744,7 @@ SENHA_ADMIN = "m4th3u$987"
 VARS_PERCENTUAL = [
     'ROE Ac. Anualizado (%)',
     'ROE Ac. YTD an. (%)',
-    'ROE Trimestral (%)',
+    'ROE trimestral anualizado (%)',
     'Índice de Basileia',
     'Índice de CET1',
     'Carteira de Crédito/Core Funding (%)',
@@ -3643,7 +3643,7 @@ def _recalcular_roe_trimestral_df(df: pd.DataFrame) -> pd.DataFrame:
     out["_tri_idx_tmp"] = out["_tri_tmp"].map(_parte_periodo_para_trimestre_idx)
     out["_ano_tmp"] = pd.to_numeric(periodo_split[1], errors="coerce")
 
-    out["ROE Trimestral (%)"] = np.nan
+    out["ROE trimestral anualizado (%)"] = np.nan
 
     for instituicao, idx in out.groupby("Instituição", dropna=False, observed=False).groups.items():
         _ = instituicao
@@ -3664,7 +3664,7 @@ def _recalcular_roe_trimestral_df(df: pd.DataFrame) -> pd.DataFrame:
         pl_medio = (pl_atual + pl_dez_anterior) / 2
         ll_anualizado = ll_trimestral * 4
         roe_tri = ll_anualizado / pl_medio.where(pl_medio > 0, np.nan) * 100
-        out.loc[g.index, "ROE Trimestral (%)"] = roe_tri.to_numpy()
+        out.loc[g.index, "ROE trimestral anualizado (%)"] = roe_tri.to_numpy()
 
     return out.drop(columns=["_tri_tmp", "_tri_idx_tmp", "_ano_tmp"], errors="ignore")
 
@@ -3712,6 +3712,7 @@ def _build_memoria_calculo_roe_rankings(df_base: pd.DataFrame, instituicoes: lis
     recorte["_tri_idx"] = recorte["_tri_idx"].astype(int)
     recorte["_ano"] = recorte["_ano"].astype(int)
     recorte["ll_reportado"] = pd.to_numeric(recorte["Lucro Líquido Acumulado YTD"], errors="coerce")
+    recorte["ll_trimestral"] = pd.to_numeric(recorte.get("Lucro Líquido Trimestral"), errors="coerce") if "Lucro Líquido Trimestral" in recorte.columns else np.nan
     recorte["pl_db"] = pd.to_numeric(recorte["Patrimônio Líquido"], errors="coerce")
 
     idx_last = recorte.groupby(["Instituição", "_ano", "_tri_idx"], observed=False).tail(1).index
@@ -3719,22 +3720,13 @@ def _build_memoria_calculo_roe_rankings(df_base: pd.DataFrame, instituicoes: lis
 
     lookup = recorte.set_index(["Instituição", "_ano", "_tri_idx"])
 
-    # --- Lookup auxiliar: incluir períodos de dezembro do ano anterior e trimestres
-    # anteriores necessários para decomposição do LL trimestral, buscando de df_base
-    # (sem filtro de período) para que pl_dez_ant e ll de trimestres prévios não fiquem NaN.
+    # --- Lookup auxiliar: incluir períodos de dezembro do ano anterior, buscando de
+    # df_base (sem filtro de período) para que pl_dez_ant não fique NaN.
     periodos_auxiliares: set[str] = set()
     for _per in periodos:
         per_dez = _periodo_dez_ano_anterior(_per)
         if per_dez:
             periodos_auxiliares.add(per_dez)
-        _partes = str(_per).split("/")
-        if len(_partes) == 2:
-            _tri = _parte_periodo_para_trimestre_idx(_partes[0])
-            _ano_p = _partes[1]
-            if _tri == 2 and _ano_p:
-                periodos_auxiliares.add(f"1/{_ano_p}")
-            elif _tri == 4 and _ano_p:
-                periodos_auxiliares.add(f"3/{_ano_p}")
     periodos_auxiliares -= set(periodos)
 
     if periodos_auxiliares:
@@ -3750,6 +3742,7 @@ def _build_memoria_calculo_roe_rankings(df_base: pd.DataFrame, instituicoes: lis
             _aux["_tri_idx"] = _aux["_tri_idx"].astype(int)
             _aux["_ano"] = _aux["_ano"].astype(int)
             _aux["ll_reportado"] = pd.to_numeric(_aux.get("Lucro Líquido Acumulado YTD"), errors="coerce")
+            _aux["ll_trimestral"] = pd.to_numeric(_aux.get("Lucro Líquido Trimestral"), errors="coerce") if "Lucro Líquido Trimestral" in _aux.columns else np.nan
             _aux["pl_db"] = pd.to_numeric(_aux["Patrimônio Líquido"], errors="coerce")
             _idx_last_aux = _aux.groupby(["Instituição", "_ano", "_tri_idx"], observed=False).tail(1).index
             _aux = _aux.loc[_idx_last_aux].copy()
@@ -3758,9 +3751,9 @@ def _build_memoria_calculo_roe_rankings(df_base: pd.DataFrame, instituicoes: lis
             lookup = lookup[~lookup.index.duplicated(keep="last")]
 
     componentes_ordem = [
-        "LL reportado (R$ MM)",
+        "LL acumulado YTD (R$ MM)",
         "LL trimestral (R$ MM)",
-        "LL × 4 (R$ MM)",
+        "LL trimestral × 4 (R$ MM)",
         "PL data-base (R$ MM)",
         "PL dez/anterior (R$ MM)",
         "PL médio (R$ MM)",
@@ -3781,21 +3774,12 @@ def _build_memoria_calculo_roe_rankings(df_base: pd.DataFrame, instituicoes: lis
             if (instituicao, ano, tri) in lookup.index:
                 base = lookup.loc[(instituicao, ano, tri)]
                 ll_reportado = pd.to_numeric(base.get("ll_reportado"), errors="coerce")
+                ll_tri = pd.to_numeric(base.get("ll_trimestral"), errors="coerce") if "ll_trimestral" in lookup.columns else np.nan
                 pl_db = pd.to_numeric(base.get("pl_db"), errors="coerce")
             else:
                 ll_reportado = np.nan
+                ll_tri = np.nan
                 pl_db = np.nan
-
-            ll_tri = np.nan
-            if pd.notna(ll_reportado):
-                if tri in (1, 3):
-                    ll_tri = ll_reportado
-                elif tri == 2:
-                    ll_mar = pd.to_numeric(lookup["ll_reportado"].get((instituicao, ano, 1), np.nan), errors="coerce")
-                    ll_tri = ll_reportado - ll_mar if pd.notna(ll_mar) else np.nan
-                elif tri == 4:
-                    ll_set = pd.to_numeric(lookup["ll_reportado"].get((instituicao, ano, 3), np.nan), errors="coerce")
-                    ll_tri = ll_reportado - ll_set if pd.notna(ll_set) else np.nan
 
             ll_x4 = ll_tri * 4 if pd.notna(ll_tri) else np.nan
             pl_dez_ant = pd.to_numeric(lookup["pl_db"].get((instituicao, ano - 1, 4), np.nan), errors="coerce")
@@ -6111,7 +6095,7 @@ _SNAPSHOT_PROVENANCE = [
     ("Índice de Basileia", "BCB IFData Rel. 5 — Patrimônio de Referência", "(CP + CC + N2) ÷ RWA Total", "↑ = melhora (maior folga de capital)"),
     ("Lucro Líquido Trimestral", "BCB IFData Rel. 1 + decomposição semestral", "LL_YTD(t) − LL_YTD(t−1) conforme regime Bacen", "↑ = melhora"),
     ("Lucro Líquido Acum. YTD", "BCB IFData Rel. 1", "Acumulado no ano normalizado", "↑ = melhora"),
-    ("ROE Trimestral An.", "Calculado", "(LL_Trimestral × 4) ÷ PL Médio × 100", "↑ = melhora (maior retorno)"),
+    ("ROE trim. anualizado", "Calculado", "(LL_Trimestral × 4) ÷ PL Médio × 100", "↑ = melhora (maior retorno)"),
     ("ROE Ac. Anualizado", "Calculado", "(LL_YTD × Fator Anualização) ÷ PL Médio × 100", "↑ = melhora (maior retorno)"),
     ("Crédito / Captações", "BCB IFData Rel. 2 ÷ Rel. 3", "Carteira de Crédito ÷ Core Funding", "↓ = melhora (menor alavancagem)"),
     ("Desp. Captação / Captações", "Métricas derivadas (DRE ÷ Passivo)", "Despesas de captação ÷ Captações totais", "↓ = melhora (menor custo de funding)"),
@@ -6474,7 +6458,7 @@ def pagina_snapshot():
     cet1_map, bas_map = _snapshot_capital_indices_por_periodo(cache_capital, banco, periodos_snapshot)
 
     # --- New data maps: ROE ---
-    col_roe_tri = _snapshot_pick_col(df_inst, ["ROE Trimestral (%)"])
+    col_roe_tri = _snapshot_pick_col(df_inst, ["ROE trimestral anualizado (%)"])
     roe_tri_map = {p: _coerce_numeric_value(_obter_valor_peers(df_inst, banco, p, col_roe_tri)) if col_roe_tri else None for p in periodos_snapshot}
 
     col_roe_ac = _snapshot_pick_col(df_inst, ["ROE Ac. Anualizado (%)", "ROE Ac. YTD an. (%)"])
@@ -6543,8 +6527,8 @@ def pagina_snapshot():
          "serie": ll_tri_map, "source": "Rel. 1 + decomposição semestral Bacen"},
         {"label": "Lucro Líquido Acum. YTD", "format_key": "Lucro Líquido Acumulado YTD", "higher_is_better": True,
          "comparison": "yoy", "serie": ll_ytd_map, "source": "Rel. 1 — acumulado normalizado no ano"},
-        {"label": "ROE Trimestral An.", "format_key": "ROE Trimestral (%)", "higher_is_better": True,
-         "serie": roe_tri_map, "is_pct": True, "coluna_origem": "ROE Trimestral (%)",
+        {"label": "ROE trim. anualizado", "format_key": "ROE trimestral anualizado (%)", "higher_is_better": True,
+         "serie": roe_tri_map, "is_pct": True, "coluna_origem": "ROE trimestral anualizado (%)",
          "source": "(LL Trimestral × 4) ÷ PL Médio × 100"},
         {"label": "ROE Ac. Anualizado", "format_key": "ROE Ac. Anualizado (%)", "higher_is_better": True,
          "comparison": "yoy", "serie": roe_ac_map, "is_pct": True, "coluna_origem": "ROE Ac. Anualizado (%)",
@@ -10459,7 +10443,7 @@ elif menu == "Rankings":
             'Índice de Basileia (%)': ['Índice de Basileia'],
             'Lucro Líquido Acumulado YTD': ['Lucro Líquido Acumulado YTD'],
             'Lucro Líquido Trimestral': ['Lucro Líquido Trimestral'],
-            'ROE Trimestral (%)': ['ROE Trimestral (%)'],
+            'ROE trimestral anualizado (%)': ['ROE trimestral anualizado (%)'],
             'ROE Ac. Anualizado (%)': ['ROE Ac. Anualizado (%)', 'ROE Ac. YTD an. (%)'],
         }
 
@@ -10482,7 +10466,7 @@ elif menu == "Rankings":
                 'Índice de Basileia (%)',
                 'Lucro Líquido Acumulado YTD',
                 'Lucro Líquido Trimestral',
-                'ROE Trimestral (%)',
+                'ROE trimestral anualizado (%)',
                 'ROE Ac. Anualizado (%)',
             ]
             indicadores_ordenados = [i for i in ordem_prioritaria if i in indicadores_disponiveis]
@@ -10499,7 +10483,7 @@ elif menu == "Rankings":
                 'Índice de Basileia (%)': 'Patrimônio de Referência ÷ RWA Total. Índice global de adequação de capital.',
                 'Lucro Líquido Acumulado YTD': 'Lucro líquido acumulado no ano-calendário até o final do período (Jan–Set, Jan–Jun etc.).',
                 'Lucro Líquido Trimestral': 'Lucro líquido do trimestre de referência (isolado).',
-                'ROE Trimestral (%)': 'ROE do trimestre. Denominador segue PL médio do período e dezembro do ano anterior.',
+                'ROE trimestral anualizado (%)': 'ROE trimestral anualizado: (LL Trimestral × 4) ÷ PL Médio × 100. PL Médio = (PL período + PL Dez anterior) / 2.',
                 'ROE Ac. Anualizado (%)': '(LL YTD × fator de anualização) ÷ PL Médio.\nPL Médio = (PL período + PL Dez anterior) / 2.\nFatores: Mar=4×, Jun=2×, Set≈1,33×, Dez=1×.',
             }
 
@@ -10632,7 +10616,7 @@ elif menu == "Rankings":
                 periodos_alvo: list[str],
                 indicador_atual: str,
             ) -> None:
-                if indicador_atual != "ROE Trimestral (%)":
+                if indicador_atual != "ROE trimestral anualizado (%)":
                     return
                 if not bancos_alvo or not periodos_alvo:
                     return
@@ -10643,16 +10627,16 @@ elif menu == "Rankings":
                     return
 
                 ordem_componentes = [
-                    "LL reportado (R$ MM)",
+                    "LL acumulado YTD (R$ MM)",
                     "LL trimestral (R$ MM)",
-                    "LL × 4 (R$ MM)",
+                    "LL trimestral × 4 (R$ MM)",
                     "PL data-base (R$ MM)",
                     "PL dez/anterior (R$ MM)",
                     "PL médio (R$ MM)",
                     "= (LL trim × 4) / PL médio",
                 ]
 
-                with st.expander("Memória de cálculo — ROE Trimestral", expanded=False):
+                with st.expander("Memória de cálculo — ROE trimestral anualizado", expanded=False):
                     _mem_tabs = st.tabs(bancos_alvo)
                     for _mem_tab, banco in zip(_mem_tabs, bancos_alvo):
                         with _mem_tab:
@@ -11571,7 +11555,7 @@ elif menu == "Rankings":
                         if tipo_comparacao_delta == "Acumulado vs acumulado anterior":
                             mapa_acumulado = {
                                 "Lucro Líquido Trimestral": "Lucro Líquido Acumulado YTD",
-                                "ROE Trimestral (%)": "ROE Ac. Anualizado (%)",
+                                "ROE trimestral anualizado (%)": "ROE Ac. Anualizado (%)",
                             }
                             coluna_variavel = mapa_acumulado.get(coluna_variavel, coluna_variavel)
                         if coluna_variavel not in df.columns:
