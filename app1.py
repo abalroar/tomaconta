@@ -6013,6 +6013,7 @@ def _snap_delta_html(
     label: str,
     higher_is_better: bool = True,
     is_pct_metric: bool = False,
+    show_bps: bool = False,
 ) -> str:
     """Gera HTML de um delta (QoQ ou YoY) para o card V2."""
     if valor_atual is None or valor_base is None:
@@ -6037,6 +6038,10 @@ def _snap_delta_html(
         diff = _snap_pp_change(valor_atual, valor_base)
         if diff is None:
             suffix = "—"
+        elif show_bps:
+            diff_bps = int(round(diff * 100))
+            sinal = "+" if diff_bps > 0 else ""
+            suffix = f"{sinal}{diff_bps} bps"
         else:
             sinal = "+" if diff > 0 else ""
             suffix = f"{sinal}{diff:,.1f} p.p.".replace(",", "X").replace(".", ",").replace("X", ".")
@@ -6101,6 +6106,7 @@ def _render_snap_card(
     higher_is_better = metric_cfg.get("higher_is_better", True)
     source = metric_cfg.get("source", "")
     is_pct = metric_cfg.get("is_pct", False)
+    show_bps = metric_cfg.get("show_bps", False)
     comparison = metric_cfg.get("comparison", "qoq")
 
     valor_atual = serie.get(periodo_atual)
@@ -6115,11 +6121,11 @@ def _render_snap_card(
 
     # Para métricas YTD, QoQ não faz sentido; comparação principal é YoY
     if comparison == "yoy":
-        delta_1 = _snap_delta_html(valor_atual, valor_yoy, "YoY", higher_is_better, is_pct)
+        delta_1 = _snap_delta_html(valor_atual, valor_yoy, "YoY", higher_is_better, is_pct, show_bps)
         delta_2 = ""
     else:
-        delta_1 = _snap_delta_html(valor_atual, valor_qoq, "QoQ", higher_is_better, is_pct)
-        delta_2 = _snap_delta_html(valor_atual, valor_yoy, "YoY", higher_is_better, is_pct)
+        delta_1 = _snap_delta_html(valor_atual, valor_qoq, "QoQ", higher_is_better, is_pct, show_bps)
+        delta_2 = _snap_delta_html(valor_atual, valor_yoy, "YoY", higher_is_better, is_pct, show_bps)
 
     # Borda esquerda (status) — usa QoQ como base primária
     base_for_status = valor_yoy if comparison == "yoy" else valor_qoq
@@ -6665,10 +6671,10 @@ def pagina_snapshot():
             "section": "Capital",
             "rows": [
                 {"label": "CET1", "format_key": "Índice de Capital Principal",
-                 "higher_is_better": True, "serie": cet1_map, "is_pct": True,
+                 "higher_is_better": True, "serie": cet1_map, "is_pct": True, "show_bps": True,
                  "source": "BCB IFData Rel. 5 — Capital Principal ÷ RWA Total"},
                 {"label": "Índice de Basileia", "format_key": "Índice de Basileia",
-                 "higher_is_better": True, "serie": bas_map, "is_pct": True,
+                 "higher_is_better": True, "serie": bas_map, "is_pct": True, "show_bps": True,
                  "source": "BCB IFData Rel. 5 — (CP+CC+N2) ÷ RWA Total"},
             ],
         },
