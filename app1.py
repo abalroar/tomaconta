@@ -5684,7 +5684,31 @@ def _obter_valor_snapshot(
 
 
 def _formatar_valor_snapshot(metrica_cfg: dict, valor) -> str:
-    return _formatar_valor_peers(valor, metrica_cfg.get("format_key", ""), coluna_origem=metrica_cfg.get("coluna_origem"))
+    if valor is None or pd.isna(valor):
+        return "—"
+
+    format_key = metrica_cfg.get("format_key", "")
+    coluna_origem = metrica_cfg.get("coluna_origem")
+    monetarios_auto = {
+        "Ativo Total",
+        "Carteira de Crédito Bruta",
+        "Patrimônio Líquido",
+        "Lucro Líquido Trimestral",
+        "Lucro Líquido Acumulado YTD",
+    }
+    if format_key in monetarios_auto:
+        try:
+            v = float(valor)
+            v_mm = v / 1e6
+            if abs(v_mm) >= 1000:
+                txt = f"R$ {v / 1e9:,.1f} bi"
+            else:
+                txt = f"R$ {v_mm:,.0f}MM"
+            return txt.replace(",", "X").replace(".", ",").replace("X", ".")
+        except (TypeError, ValueError):
+            return "—"
+
+    return _formatar_valor_peers(valor, format_key, coluna_origem=coluna_origem)
 
 
 def _snapshot_pick_col(df: Optional[pd.DataFrame], candidatos: list[str]) -> Optional[str]:
@@ -5952,6 +5976,46 @@ def _snap_sparkline_svg(
     )
 
 
+def _snap_sparkbars_svg(
+    values: list,
+    width: int = 80,
+    height: int = 24,
+    color: str = "#1f77b4",
+) -> str:
+    """Gera mini barras SVG para cards de rentabilidade/capital."""
+    nums = []
+    for v in values:
+        try:
+            f = float(v)
+            if not pd.isna(f):
+                nums.append(f)
+        except (TypeError, ValueError):
+            continue
+    if len(nums) < 2:
+        return ""
+
+    min_v, max_v = min(nums), max(nums)
+    rng = max_v - min_v or 1
+    bar_gap = 2
+    bar_w = max((width - (len(nums) - 1) * bar_gap) / len(nums), 2)
+    x = 0.0
+    rects = []
+    for v in nums:
+        h = ((v - min_v) / rng) * (height - 4) + 2
+        y = height - h
+        rects.append(
+            f'<rect x="{x:.1f}" y="{y:.1f}" width="{bar_w:.1f}" height="{h:.1f}" '
+            f'rx="1.2" ry="1.2" fill="{color}" opacity="0.72" />'
+        )
+        x += bar_w + bar_gap
+    return (
+        f'<svg class="snap-sparkline" width="{width}" height="{height}" '
+        f'viewBox="0 0 {width} {height}" style="vertical-align:middle">'
+        f'{"".join(rects)}'
+        f"</svg>"
+    )
+
+
 def _snap_delta_html(
     valor_atual,
     valor_base,
@@ -6037,6 +6101,7 @@ def _render_snap_card(
     periodo_qoq: Optional[str],
     periodo_yoy: Optional[str],
     sparkline_values: Optional[list] = None,
+    sparkline_type: str = "line",
     is_hero: bool = False,
 ) -> str:
     """Monta HTML completo de um card Snapshot V2."""
@@ -6072,8 +6137,11 @@ def _render_snap_card(
 
     # Sparkline
     spark_html = ""
-    if sparkline_values and is_hero:
-        spark_html = _snap_sparkline_svg(sparkline_values, width=80, height=24)
+    if sparkline_values:
+        if sparkline_type == "bars":
+            spark_html = _snap_sparkbars_svg(sparkline_values, width=80, height=24)
+        else:
+            spark_html = _snap_sparkline_svg(sparkline_values, width=80, height=24)
 
     # Info tooltip
     info_html = ""
@@ -6327,10 +6395,10 @@ _SNAPSHOT_V2_CSS = """
     font-weight: 500;
 }
 
-/* ===== MOBILE ===== */
-@media (max-width: 640px) {
+/* ===== MOBILE / TABLET ===== */
+@media (max-width: 768px) {
     .snap-grid--hero {
-        grid-template-columns: repeat(2, 1fr);
+        grid-template-columns: 1fr;
     }
     .snap-grid--profit,
     .snap-grid--supporting {
@@ -6362,9 +6430,6 @@ _SNAPSHOT_V2_CSS = """
 
 /* iPhone SE / small screens */
 @media (max-width: 375px) {
-    .snap-grid--hero {
-        grid-template-columns: 1fr;
-    }
     .snap-card--hero .snap-card__value {
         font-size: 1.6rem !important;
     }
@@ -6474,7 +6539,7 @@ def pagina_snapshot():
     cet1_map, bas_map = _snapshot_capital_indices_por_periodo(cache_capital, banco, periodos_snapshot)
 
     # --- New data maps: ROE ---
-    col_roe_tri = _snapshot_pick_col(df_inst, ["ROE Trimestral (%)"])
+    col_roe_tri = _snapshot_pick_col(df_inst, ["ROE Trimestral An. (%)", "ROE Trimestral (%)"])
     roe_tri_map = {p: _coerce_numeric_value(_obter_valor_peers(df_inst, banco, p, col_roe_tri)) if col_roe_tri else None for p in periodos_snapshot}
 
     col_roe_ac = _snapshot_pick_col(df_inst, ["ROE Ac. Anualizado (%)", "ROE Ac. YTD an. (%)"])
@@ -6503,11 +6568,25 @@ def pagina_snapshot():
             return []
         return [_coerce_numeric_value(v) for v in df_spark_sorted[col].tolist()]
 
+    def _spark_from_map(serie_map: dict) -> list:
+        vals = []
+        for per in ordenar_periodos(periodos_sparkline, reverso=False):
+            vals.append(_coerce_numeric_value(serie_map.get(per)))
+        return vals
+
     spark_ativo = _spark_series(["Ativo Total"])
     spark_carteira = _spark_series(["Carteira de Crédito Bruta", "Carteira de Crédito", "Carteira de Crédito*"])
     spark_pl = _spark_series(["Patrimônio Líquido"])
-    # For Basileia sparkline, use df_base values if available
-    spark_basileia = _spark_series(["Índice de Basileia"])
+    spark_lucro_tri = _spark_from_map(ll_tri_map)
+    spark_lucro_ytd = _spark_from_map(ll_ytd_map)
+    spark_roe_tri = _spark_from_map(roe_tri_map)
+    spark_roe_ac = _spark_from_map(roe_ac_map)
+    spark_credito_capt = _spark_from_map(credito_capt_map)
+    spark_desp_capt = _spark_from_map(desp_capt_map)
+    spark_estagio3 = _spark_from_map({p: _calcular_ratio_peers(stage3_map.get(p), carteira_map.get(p)) for p in periodos_sparkline})
+    spark_pdd_estagio3 = _spark_from_map({p: _calcular_ratio_peers(pdd_map.get(p), stage3_map.get(p)) for p in periodos_sparkline})
+    spark_cet1 = _spark_from_map(cet1_map)
+    spark_basileia = _spark_from_map(bas_map)
 
     t_render = time.perf_counter()
 
@@ -6521,10 +6600,8 @@ def pagina_snapshot():
          "serie": carteira_map, "source": "BCB IFData Rel. 2 — Soma Valor Contábil Bruto (e1+f1+g1+h1)"},
         {"label": "Patrimônio Líquido", "format_key": "Patrimônio Líquido", "higher_is_better": True,
          "serie": pl_map, "source": "BCB IFData Rel. 1 — Balanço Patrimonial"},
-        {"label": "Índice de Basileia", "format_key": "Índice de Basileia", "higher_is_better": True,
-         "serie": bas_map, "is_pct": True, "source": "BCB IFData Rel. 5 — (CP+CC+N2) ÷ RWA Total"},
     ]
-    hero_sparklines = [spark_ativo, spark_carteira, spark_pl, spark_basileia]
+    hero_sparklines = [spark_ativo, spark_carteira, spark_pl]
 
     hero_cards = [
         _render_snap_card(cfg, periodo_atual, periodo_anterior_qoq, periodo_yoy_existente,
@@ -6543,17 +6620,25 @@ def pagina_snapshot():
          "serie": ll_tri_map, "source": "Rel. 1 + decomposição semestral Bacen"},
         {"label": "Lucro Líquido Acum. YTD", "format_key": "Lucro Líquido Acumulado YTD", "higher_is_better": True,
          "comparison": "yoy", "serie": ll_ytd_map, "source": "Rel. 1 — acumulado normalizado no ano"},
-        {"label": "ROE Trimestral An.", "format_key": "ROE Trimestral (%)", "higher_is_better": True,
-         "serie": roe_tri_map, "is_pct": True, "coluna_origem": "ROE Trimestral (%)",
+        {"label": "ROE Trimestral An.", "format_key": "ROE Trimestral An. (%)", "higher_is_better": True,
+         "serie": roe_tri_map, "is_pct": True, "coluna_origem": "ROE Trimestral An. (%)",
          "source": "(LL Trimestral × 4) ÷ PL Médio × 100"},
         {"label": "ROE Ac. Anualizado", "format_key": "ROE Ac. Anualizado (%)", "higher_is_better": True,
          "comparison": "yoy", "serie": roe_ac_map, "is_pct": True, "coluna_origem": "ROE Ac. Anualizado (%)",
          "source": "(LL YTD × Fator Anualização) ÷ PL Médio × 100"},
     ]
 
+    profit_sparklines = [spark_lucro_tri, spark_lucro_ytd, spark_roe_tri, spark_roe_ac]
     profit_cards = [
-        _render_snap_card(cfg, periodo_atual, periodo_anterior_qoq, periodo_yoy_existente)
-        for cfg in profit_metrics
+        _render_snap_card(
+            cfg,
+            periodo_atual,
+            periodo_anterior_qoq,
+            periodo_yoy_existente,
+            sparkline_values=profit_sparklines[i],
+            sparkline_type="bars",
+        )
+        for i, cfg in enumerate(profit_metrics)
     ]
     st.markdown(_render_snap_grid(profit_cards, "snap-grid--profit"), unsafe_allow_html=True)
 
@@ -6591,15 +6676,36 @@ def pagina_snapshot():
                 {"label": "CET1", "format_key": "Índice de Capital Principal",
                  "higher_is_better": True, "serie": cet1_map, "is_pct": True,
                  "source": "BCB IFData Rel. 5 — Capital Principal ÷ RWA Total"},
+                {"label": "Índice de Basileia", "format_key": "Índice de Basileia",
+                 "higher_is_better": True, "serie": bas_map, "is_pct": True,
+                 "source": "BCB IFData Rel. 5 — (CP+CC+N2) ÷ RWA Total"},
             ],
         },
     ]
 
+    section_sparklines = {
+        "Funding": [spark_credito_capt, spark_desp_capt],
+        "Qualidade de Carteira": [spark_estagio3, spark_pdd_estagio3],
+        "Capital": [spark_cet1, spark_basileia],
+    }
+    section_spark_types = {
+        "Funding": "line",
+        "Qualidade de Carteira": "line",
+        "Capital": "bars",
+    }
+
     for sec in supporting_sections:
         st.markdown(f'<div class="snap-section">{sec["section"]}</div>', unsafe_allow_html=True)
         cards = [
-            _render_snap_card(cfg, periodo_atual, periodo_anterior_qoq, periodo_yoy_existente)
-            for cfg in sec["rows"]
+            _render_snap_card(
+                cfg,
+                periodo_atual,
+                periodo_anterior_qoq,
+                periodo_yoy_existente,
+                sparkline_values=section_sparklines.get(sec["section"], [])[i] if i < len(section_sparklines.get(sec["section"], [])) else None,
+                sparkline_type=section_spark_types.get(sec["section"], "line"),
+            )
+            for i, cfg in enumerate(sec["rows"])
         ]
         st.markdown(_render_snap_grid(cards, "snap-grid--supporting"), unsafe_allow_html=True)
 
