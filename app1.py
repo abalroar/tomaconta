@@ -3818,6 +3818,199 @@ def _build_memoria_calculo_roe_rankings(df_base: pd.DataFrame, instituicoes: lis
     return pd.DataFrame(rows)
 
 
+def _build_memoria_calculo_cet1_rankings(
+    df_base: pd.DataFrame, instituicoes: list[str], periodos: list[str]
+) -> pd.DataFrame:
+    """Monta memória de cálculo do CET1 (Capital Principal / RWA Total) por IF e período."""
+    if df_base is None or df_base.empty:
+        return pd.DataFrame()
+    cols_req = {"Instituição", "Período", "Capital Principal", "RWA Total"}
+    if not cols_req.issubset(df_base.columns):
+        return pd.DataFrame()
+
+    recorte = df_base[
+        (df_base["Instituição"].isin(instituicoes)) & (df_base["Período"].isin(periodos))
+    ].drop_duplicates(subset=["Instituição", "Período"], keep="last").copy()
+    if recorte.empty:
+        return pd.DataFrame()
+
+    componentes_ordem = [
+        "Capital Principal (R$ MM)",
+        "RWA Total (R$ MM)",
+        "= Capital Principal ÷ RWA Total",
+    ]
+    rows = []
+    for _, row in recorte.iterrows():
+        inst = row["Instituição"]
+        per = row["Período"]
+        cp = pd.to_numeric(row.get("Capital Principal"), errors="coerce")
+        rwa = pd.to_numeric(row.get("RWA Total"), errors="coerce")
+        cet1 = (cp / rwa * 100) if pd.notna(cp) and pd.notna(rwa) and rwa > 0 else np.nan
+        valores = [cp, rwa, cet1]
+        for ordem, (comp, val) in enumerate(zip(componentes_ordem, valores), start=1):
+            rows.append({"Instituição": inst, "Período": per, "componente": comp, "valor": val, "ordem": ordem})
+    return pd.DataFrame(rows)
+
+
+def _build_memoria_calculo_basileia_rankings(
+    df_base: pd.DataFrame, instituicoes: list[str], periodos: list[str]
+) -> pd.DataFrame:
+    """Monta memória de cálculo do Índice de Basileia por IF e período."""
+    if df_base is None or df_base.empty:
+        return pd.DataFrame()
+    if "Instituição" not in df_base.columns or "Período" not in df_base.columns:
+        return pd.DataFrame()
+    cols_capital = {"Capital Principal", "RWA Total"}
+    if not cols_capital.issubset(df_base.columns):
+        return pd.DataFrame()
+
+    recorte = df_base[
+        (df_base["Instituição"].isin(instituicoes)) & (df_base["Período"].isin(periodos))
+    ].drop_duplicates(subset=["Instituição", "Período"], keep="last").copy()
+    if recorte.empty:
+        return pd.DataFrame()
+
+    componentes_ordem = [
+        "Capital Principal (R$ MM)",
+        "Capital Complementar (R$ MM)",
+        "Capital Nível II (R$ MM)",
+        "PR = CP + CC + N2 (R$ MM)",
+        "RWA Total (R$ MM)",
+        "= PR ÷ RWA Total",
+    ]
+    rows = []
+    for _, row in recorte.iterrows():
+        inst = row["Instituição"]
+        per = row["Período"]
+        cp = pd.to_numeric(row.get("Capital Principal"), errors="coerce")
+        cc = pd.to_numeric(row.get("Capital Complementar", 0), errors="coerce")
+        n2 = pd.to_numeric(row.get("Capital Nível II", 0), errors="coerce")
+        rwa = pd.to_numeric(row.get("RWA Total"), errors="coerce")
+        if pd.isna(cc):
+            cc = 0.0
+        if pd.isna(n2):
+            n2 = 0.0
+        pr = (cp + cc + n2) if pd.notna(cp) else np.nan
+        basileia = (pr / rwa * 100) if pd.notna(pr) and pd.notna(rwa) and rwa > 0 else np.nan
+        valores = [cp, cc, n2, pr, rwa, basileia]
+        for ordem, (comp, val) in enumerate(zip(componentes_ordem, valores), start=1):
+            rows.append({"Instituição": inst, "Período": per, "componente": comp, "valor": val, "ordem": ordem})
+    return pd.DataFrame(rows)
+
+
+def _build_memoria_calculo_roe_ac_rankings(
+    df_base: pd.DataFrame, instituicoes: list[str], periodos: list[str]
+) -> pd.DataFrame:
+    """Monta memória de cálculo do ROE Ac. Anualizado por IF e período."""
+    if df_base is None or df_base.empty:
+        return pd.DataFrame()
+    cols_req = {"Instituição", "Período", "Lucro Líquido Acumulado YTD", "Patrimônio Líquido"}
+    if not cols_req.issubset(df_base.columns):
+        return pd.DataFrame()
+
+    recorte = df_base[
+        (df_base["Instituição"].isin(instituicoes)) & (df_base["Período"].isin(periodos))
+    ].copy()
+    if recorte.empty:
+        return pd.DataFrame()
+
+    periodo_split = recorte["Período"].astype(str).str.split("/", expand=True)
+    recorte["_tri_idx"] = pd.to_numeric(periodo_split[0], errors="coerce").map(_parte_periodo_para_trimestre_idx)
+    recorte["_ano"] = pd.to_numeric(periodo_split[1], errors="coerce")
+    recorte = recorte.dropna(subset=["_tri_idx", "_ano"]).copy()
+    if recorte.empty:
+        return pd.DataFrame()
+
+    recorte["_tri_idx"] = recorte["_tri_idx"].astype(int)
+    recorte["_ano"] = recorte["_ano"].astype(int)
+    recorte["ll_ytd"] = pd.to_numeric(recorte["Lucro Líquido Acumulado YTD"], errors="coerce")
+    recorte["pl_db"] = pd.to_numeric(recorte["Patrimônio Líquido"], errors="coerce")
+
+    idx_last = recorte.groupby(["Instituição", "_ano", "_tri_idx"], observed=False).tail(1).index
+    recorte = recorte.loc[idx_last].copy()
+    lookup = recorte.set_index(["Instituição", "_ano", "_tri_idx"])
+
+    # Lookup auxiliar: incluir dezembro do ano anterior
+    periodos_auxiliares: set[str] = set()
+    for _per in periodos:
+        per_dez = _periodo_dez_ano_anterior(_per)
+        if per_dez:
+            periodos_auxiliares.add(per_dez)
+    periodos_auxiliares -= set(periodos)
+
+    if periodos_auxiliares:
+        _aux = df_base[
+            df_base["Instituição"].isin(instituicoes) & df_base["Período"].isin(periodos_auxiliares)
+        ].copy()
+        if not _aux.empty:
+            _ps = _aux["Período"].astype(str).str.split("/", expand=True)
+            _aux["_tri_idx"] = pd.to_numeric(_ps[0], errors="coerce").map(_parte_periodo_para_trimestre_idx)
+            _aux["_ano"] = pd.to_numeric(_ps[1], errors="coerce")
+            _aux = _aux.dropna(subset=["_tri_idx", "_ano"]).copy()
+            _aux["_tri_idx"] = _aux["_tri_idx"].astype(int)
+            _aux["_ano"] = _aux["_ano"].astype(int)
+            _aux["ll_ytd"] = pd.to_numeric(_aux.get("Lucro Líquido Acumulado YTD"), errors="coerce")
+            _aux["pl_db"] = pd.to_numeric(_aux["Patrimônio Líquido"], errors="coerce")
+            _idx_last_aux = _aux.groupby(["Instituição", "_ano", "_tri_idx"], observed=False).tail(1).index
+            _aux = _aux.loc[_idx_last_aux].copy()
+            _lookup_aux = _aux.set_index(["Instituição", "_ano", "_tri_idx"])
+            lookup = pd.concat([_lookup_aux, lookup])
+            lookup = lookup[~lookup.index.duplicated(keep="last")]
+
+    _mes_map = {1: 3, 2: 6, 3: 9, 4: 12}
+    componentes_ordem = [
+        "LL acumulado YTD (R$ MM)",
+        "Fator de anualização",
+        "LL YTD × fator (R$ MM)",
+        "PL data-base (R$ MM)",
+        "PL dez/anterior (R$ MM)",
+        "PL médio (R$ MM)",
+        "= (LL YTD × fator) / PL médio",
+    ]
+    rows = []
+    for instituicao in instituicoes:
+        for periodo in periodos:
+            partes = str(periodo).split("/")
+            if len(partes) != 2:
+                continue
+            tri = _parte_periodo_para_trimestre_idx(partes[0])
+            ano = pd.to_numeric(partes[1], errors="coerce")
+            if tri is None or pd.isna(ano):
+                continue
+            ano = int(ano)
+            mes = _mes_map.get(tri, 12)
+
+            if (instituicao, ano, tri) in lookup.index:
+                base = lookup.loc[(instituicao, ano, tri)]
+                ll_ytd = pd.to_numeric(base.get("ll_ytd"), errors="coerce")
+                pl_db = pd.to_numeric(base.get("pl_db"), errors="coerce")
+            else:
+                ll_ytd = np.nan
+                pl_db = np.nan
+
+            fator = _fator_anualizacao(mes)
+            ll_anualizado = ll_ytd * fator if pd.notna(ll_ytd) else np.nan
+            pl_dez_ant = pd.to_numeric(lookup["pl_db"].get((instituicao, ano - 1, 4), np.nan), errors="coerce")
+            pl_medio = (pl_dez_ant + pl_db) / 2 if pd.notna(pl_dez_ant) and pd.notna(pl_db) else np.nan
+            roe_formula = np.nan
+            if pd.notna(pl_medio) and pl_medio > 0 and pd.notna(ll_anualizado):
+                roe_formula = (ll_anualizado / pl_medio) * 100
+
+            # Fator formatado como texto (e.g. "4× (12/3)")
+            fator_val = fator
+
+            valores = [ll_ytd, fator_val, ll_anualizado, pl_db, pl_dez_ant, pl_medio, roe_formula]
+            for ordem, (comp, val) in enumerate(zip(componentes_ordem, valores), start=1):
+                rows.append({
+                    "Instituição": instituicao,
+                    "Período": periodo,
+                    "componente": comp,
+                    "valor": val,
+                    "ordem": ordem,
+                })
+    return pd.DataFrame(rows)
+
+
 def _calcular_roe_alinhado_peers_para_instituicao(df_base: pd.DataFrame, instituicao: str) -> pd.DataFrame:
     """Retorna ROE (critério Peers) por Ano/Tri para uma instituição."""
     if df_base is None or df_base.empty:
@@ -7568,6 +7761,7 @@ def _get_analise_base_df(principal_token: str, alias_sig: tuple, capital_mesclad
 
     df = _normalizar_lucro_liquido(df.copy())
     df = _recalcular_roe_anualizado_df(df)
+    df = _recalcular_roe_trimestral_df(df)
     return df
 
 
@@ -10858,6 +11052,90 @@ elif menu == "Rankings":
 
                             st.caption("= (LL trim × 4) / PL médio")
 
+            def _renderizar_memoria_detalhada_pivot(
+                df_memoria: pd.DataFrame,
+                bancos_alvo: list[str],
+                periodos_alvo: list[str],
+                titulo: str,
+                ordem_componentes: list[str],
+                componente_formula: str,
+                componente_fator: str | None = None,
+            ) -> None:
+                """Renderiza memória de cálculo detalhada no formato pivot (componente × período).
+
+                Mesmo padrão visual do ROE Trim. Anualizado.
+                """
+                with st.expander(f"Memória de cálculo — {titulo}", expanded=False):
+                    _mem_tabs = st.tabs(bancos_alvo)
+                    for _mem_tab, banco in zip(_mem_tabs, bancos_alvo):
+                        with _mem_tab:
+                            df_inst = df_memoria[df_memoria["Instituição"] == banco].copy()
+                            if df_inst.empty:
+                                st.caption("sem dados para esta instituição nos períodos selecionados.")
+                                continue
+
+                            pivot = (
+                                df_inst.pivot_table(
+                                    index="componente",
+                                    columns="Período",
+                                    values="valor",
+                                    aggfunc="first",
+                                )
+                                .reindex(ordem_componentes)
+                                .reset_index()
+                            )
+                            colunas_periodo = [p for p in periodos_alvo if p in pivot.columns]
+                            mapa_periodos = {p: formatar_periodo_mm_yyyy(p) for p in colunas_periodo}
+                            pivot = pivot.rename(columns=mapa_periodos)
+                            colunas_fmt = [mapa_periodos[p] for p in colunas_periodo]
+
+                            _comp_formula = componente_formula
+                            _comp_fator = componente_fator
+
+                            for col_fmt in colunas_fmt:
+                                pivot[col_fmt] = pivot.apply(
+                                    lambda row, _cf=col_fmt: (
+                                        _formatar_ptbr_memoria_roe(row[_cf], "percentual")
+                                        if row["componente"] == _comp_formula
+                                        else (
+                                            f"{float(row[_cf]):.2f}×".replace(".", ",")
+                                            if _comp_fator and row["componente"] == _comp_fator and pd.notna(row[_cf])
+                                            else _formatar_ptbr_memoria_roe(row[_cf], "monetario")
+                                        )
+                                    ),
+                                    axis=1,
+                                )
+
+                            def _style_memoria_detail(row):
+                                estilos = [""] * len(row)
+                                componente = row.iloc[0]
+                                for i, col in enumerate(row.index):
+                                    if col == "componente":
+                                        if componente == _comp_formula:
+                                            estilos[i] = "font-family: monospace; color: #666666; border-bottom: 2px solid #D9D9D9;"
+                                        else:
+                                            estilos[i] = "padding-left: 24px; font-style: italic; color: #666666; background-color: #f7f7f7;"
+                                        continue
+                                    valor_txt = row[col]
+                                    style_parts = []
+                                    if isinstance(valor_txt, str) and valor_txt.startswith("-"):
+                                        style_parts.append("color: #B42318;")
+                                    if componente == _comp_formula:
+                                        style_parts.append("font-weight: 600;")
+                                        style_parts.append("border-bottom: 2px solid #D9D9D9;")
+                                    elif not style_parts:
+                                        style_parts.append("background-color: #f7f7f7;")
+                                    estilos[i] = " ".join(style_parts)
+                                return estilos
+
+                            st.dataframe(
+                                pivot.style.apply(_style_memoria_detail, axis=1),
+                                use_container_width=True,
+                                hide_index=True,
+                            )
+
+                            st.caption(componente_formula)
+
             def _renderizar_memoria_indicador_rankings(
                 df_base_rankings: pd.DataFrame,
                 bancos_alvo: list[str],
@@ -10868,6 +11146,63 @@ elif menu == "Rankings":
             ) -> None:
                 if not bancos_alvo or not periodos_alvo:
                     return
+
+                # --- Indicadores com memória detalhada (pivot componente × período) ---
+
+                if indicador_atual == "Índice de Capital Principal (CET1)":
+                    df_memoria = _build_memoria_calculo_cet1_rankings(df_base_rankings, bancos_alvo, periodos_alvo)
+                    if not df_memoria.empty:
+                        _renderizar_memoria_detalhada_pivot(
+                            df_memoria, bancos_alvo, periodos_alvo,
+                            titulo=indicador_atual,
+                            ordem_componentes=[
+                                "Capital Principal (R$ MM)",
+                                "RWA Total (R$ MM)",
+                                "= Capital Principal ÷ RWA Total",
+                            ],
+                            componente_formula="= Capital Principal ÷ RWA Total",
+                        )
+                        return
+
+                if indicador_atual == "Índice de Basileia (%)":
+                    df_memoria = _build_memoria_calculo_basileia_rankings(df_base_rankings, bancos_alvo, periodos_alvo)
+                    if not df_memoria.empty:
+                        _renderizar_memoria_detalhada_pivot(
+                            df_memoria, bancos_alvo, periodos_alvo,
+                            titulo=indicador_atual,
+                            ordem_componentes=[
+                                "Capital Principal (R$ MM)",
+                                "Capital Complementar (R$ MM)",
+                                "Capital Nível II (R$ MM)",
+                                "PR = CP + CC + N2 (R$ MM)",
+                                "RWA Total (R$ MM)",
+                                "= PR ÷ RWA Total",
+                            ],
+                            componente_formula="= PR ÷ RWA Total",
+                        )
+                        return
+
+                if indicador_atual == "ROE Ac. Anualizado (%)":
+                    df_memoria = _build_memoria_calculo_roe_ac_rankings(df_base_rankings, bancos_alvo, periodos_alvo)
+                    if not df_memoria.empty:
+                        _renderizar_memoria_detalhada_pivot(
+                            df_memoria, bancos_alvo, periodos_alvo,
+                            titulo=indicador_atual,
+                            ordem_componentes=[
+                                "LL acumulado YTD (R$ MM)",
+                                "Fator de anualização",
+                                "LL YTD × fator (R$ MM)",
+                                "PL data-base (R$ MM)",
+                                "PL dez/anterior (R$ MM)",
+                                "PL médio (R$ MM)",
+                                "= (LL YTD × fator) / PL médio",
+                            ],
+                            componente_formula="= (LL YTD × fator) / PL médio",
+                            componente_fator="Fator de anualização",
+                        )
+                        return
+
+                # --- Fallback: indicadores simples (valor final + regra) ---
                 df_mem = df_base_rankings[
                     (df_base_rankings["Instituição"].isin(bancos_alvo))
                     & (df_base_rankings["Período"].isin(periodos_alvo))
@@ -10904,12 +11239,14 @@ elif menu == "Rankings":
                 indicador_atual: str,
                 periodo_inicial: str,
                 periodo_subsequente: str,
+                coluna_variavel_delta: str | None = None,
             ) -> None:
                 if not dados_delta:
                     return
                 bancos_delta = [d.get("instituicao") for d in dados_delta if d.get("instituicao")]
                 if not bancos_delta:
                     return
+                _col_ref = coluna_variavel_delta or indicador_col
                 with st.expander(f"Memória de cálculo — Deltas ({indicador_atual})", expanded=False):
                     tabs_delta = st.tabs(bancos_delta)
                     for tab_delta, banco_delta in zip(tabs_delta, bancos_delta):
@@ -10927,7 +11264,7 @@ elif menu == "Rankings":
                                 ]
                             )
                             mem_df["Valor"] = mem_df["Valor"].apply(
-                                lambda v: _formatar_valor_ranking(v, indicador_col) if isinstance(v, (int, float, np.number)) else v
+                                lambda v: _formatar_valor_ranking(v, _col_ref) if isinstance(v, (int, float, np.number)) else v
                             )
                             st.dataframe(mem_df, use_container_width=True, hide_index=True)
 
@@ -11971,6 +12308,7 @@ elif menu == "Rankings":
                             variavel,
                             periodo_inicial_delta,
                             periodo_subsequente_delta,
+                            coluna_variavel_delta=coluna_variavel,
                         )
 
                         if bancos_selecionados_delta:
