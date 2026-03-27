@@ -6246,7 +6246,7 @@ def _snap_delta_html(
             suffix = f"{sinal}{diff_bps} bps"
         else:
             sinal = "+" if diff > 0 else ""
-            suffix = f"{sinal}{diff:,.1f} p.p.".replace(",", "X").replace(".", ",").replace("X", ".")
+            suffix = f"{sinal}{diff:,.1f}%".replace(",", "X").replace(".", ",").replace("X", ".")
     else:
         diff = _snap_pct_change(valor_atual, valor_base)
         if diff is None:
