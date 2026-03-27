@@ -10948,6 +10948,23 @@ elif menu == "Rankings":
                     return f"R$ {_formatar_br(float(valor) / div, 2, f' {unidade}', incluir_sinal=incluir_sinal)}"
                 return _formatar_br(valor, 2, incluir_sinal=incluir_sinal)
 
+            def _usar_escala_dinamica_memoria(indicador_ref: str | None, coluna_ref: str | None = None) -> bool:
+                texto = " ".join([str(indicador_ref or ""), str(coluna_ref or "")]).lower()
+                if not texto:
+                    return False
+                alvos = (
+                    "ativo total",
+                    "carteira de crédito",
+                    "crowdfunding",
+                    "patrimônio líquido",
+                    "lucro líquido acumulado ytd",
+                    "lucro líquido trimestral",
+                    "roe ac. anualizado",
+                    "roe acumulado anualizado",
+                    "roi ac anualizado",
+                )
+                return any(chave in texto for chave in alvos)
+
             def formatar_numero(valor, fmt_info, incluir_sinal=False, variavel_ref: Optional[str] = None):
                 if valor is None or pd.isna(valor):
                     return "N/D"
@@ -11230,8 +11247,13 @@ elif menu == "Rankings":
                                 continue
                             rec["valor_num"] = pd.to_numeric(rec[coluna_indicador], errors="coerce")
                             valores_ctx = rec["valor_num"].dropna().tolist()
+                            usar_escala_dinamica = _usar_escala_dinamica_memoria(indicador_atual, coluna_indicador)
                             rec["valor_formatado"] = rec["valor_num"].apply(
-                                lambda v: _formatar_valor_ranking(v, coluna_indicador, valores_ctx)
+                                lambda v: (
+                                    _formatar_ptbr_memoria_roe(v, "monetario")
+                                    if usar_escala_dinamica
+                                    else _formatar_valor_ranking(v, coluna_indicador, valores_ctx)
+                                )
                             )
                             rec["Período"] = rec["Período"].map(formatar_periodo_mm_yyyy)
                             rec["Passo"] = "Valor final do indicador"
@@ -11273,8 +11295,13 @@ elif menu == "Rankings":
                                     {"Passo": "Δ %", "Valor": linha.get("variacao_texto")},
                                 ]
                             )
+                            usar_escala_dinamica = _usar_escala_dinamica_memoria(indicador_atual, _col_ref)
                             mem_df["Valor"] = mem_df["Valor"].apply(
-                                lambda v: _formatar_valor_ranking(v, _col_ref) if isinstance(v, (int, float, np.number)) else v
+                                lambda v: (
+                                    _formatar_ptbr_memoria_roe(v, "monetario")
+                                    if (usar_escala_dinamica and isinstance(v, (int, float, np.number)))
+                                    else (_formatar_valor_ranking(v, _col_ref) if isinstance(v, (int, float, np.number)) else v)
+                                )
                             )
                             st.dataframe(mem_df, use_container_width=True, hide_index=True)
 
