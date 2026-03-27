@@ -3687,18 +3687,19 @@ def _formatar_ptbr_memoria_roe(valor, tipo: str = "monetario") -> str:
     except Exception:
         return "—"
 
-    base = ""
     if tipo == "percentual":
         base = f"{valor_f:,.2f}%"
         return base.replace(",", "X").replace(".", ",").replace("X", ".")
 
     abs_v = abs(valor_f)
-    if abs_v >= 1_000_000:
-        base = f"{valor_f / 1_000_000:,.2f} tri"
-    elif abs_v >= 1_000:
-        base = f"{valor_f / 1_000:,.2f} bi"
+    if abs_v >= 1_000_000_000_000:
+        base = f"R$ {valor_f / 1_000_000_000_000:,.2f} tri"
+    elif abs_v >= 1_000_000_000:
+        base = f"R$ {valor_f / 1_000_000_000:,.2f} bi"
+    elif abs_v >= 1_000_000:
+        base = f"R$ {valor_f / 1_000_000:,.2f} MM"
     else:
-        base = f"{valor_f:,.2f} MM"
+        base = f"R$ {valor_f:,.2f}"
     return base.replace(",", "X").replace(".", ",").replace("X", ".")
 
 
@@ -3767,12 +3768,12 @@ def _build_memoria_calculo_roe_rankings(df_base: pd.DataFrame, instituicoes: lis
             lookup = lookup[~lookup.index.duplicated(keep="last")]
 
     componentes_ordem = [
-        "LL acumulado YTD (R$ MM)",
-        "LL trimestral (R$ MM)",
-        "LL trimestral × 4 (R$ MM)",
-        "PL data-base (R$ MM)",
-        "PL dez/anterior (R$ MM)",
-        "PL médio (R$ MM)",
+        "LL acumulado YTD (R$)",
+        "LL trimestral (R$)",
+        "LL trimestral × 4 (R$)",
+        "PL data-base (R$)",
+        "PL dez/anterior (R$)",
+        "PL médio (R$)",
         "= (LL trim × 4) / PL médio",
     ]
     rows = []
@@ -3968,12 +3969,12 @@ def _build_memoria_calculo_roe_ac_rankings(
 
     _mes_map = {1: 3, 2: 6, 3: 9, 4: 12}
     componentes_ordem = [
-        "LL acumulado YTD (R$ MM)",
+        "LL acumulado YTD (R$)",
         "Fator de anualização",
-        "LL YTD × fator (R$ MM)",
-        "PL data-base (R$ MM)",
-        "PL dez/anterior (R$ MM)",
-        "PL médio (R$ MM)",
+        "LL YTD × fator (R$)",
+        "PL data-base (R$)",
+        "PL dez/anterior (R$)",
+        "PL médio (R$)",
         "= (LL YTD × fator) / PL médio",
     ]
     rows = []
@@ -10947,6 +10948,23 @@ elif menu == "Rankings":
                     return f"R$ {_formatar_br(float(valor) / div, 2, f' {unidade}', incluir_sinal=incluir_sinal)}"
                 return _formatar_br(valor, 2, incluir_sinal=incluir_sinal)
 
+            def _usar_escala_dinamica_memoria(indicador_ref: str | None, coluna_ref: str | None = None) -> bool:
+                texto = " ".join([str(indicador_ref or ""), str(coluna_ref or "")]).lower()
+                if not texto:
+                    return False
+                alvos = (
+                    "ativo total",
+                    "carteira de crédito",
+                    "crowdfunding",
+                    "patrimônio líquido",
+                    "lucro líquido acumulado ytd",
+                    "lucro líquido trimestral",
+                    "roe ac. anualizado",
+                    "roe acumulado anualizado",
+                    "roi ac anualizado",
+                )
+                return any(chave in texto for chave in alvos)
+
             def formatar_numero(valor, fmt_info, incluir_sinal=False, variavel_ref: Optional[str] = None):
                 if valor is None or pd.isna(valor):
                     return "N/D"
@@ -10979,12 +10997,12 @@ elif menu == "Rankings":
                     return
 
                 ordem_componentes = [
-                    "LL acumulado YTD (R$ MM)",
-                    "LL trimestral (R$ MM)",
-                    "LL trimestral × 4 (R$ MM)",
-                    "PL data-base (R$ MM)",
-                    "PL dez/anterior (R$ MM)",
-                    "PL médio (R$ MM)",
+                    "LL acumulado YTD (R$)",
+                    "LL trimestral (R$)",
+                    "LL trimestral × 4 (R$)",
+                    "PL data-base (R$)",
+                    "PL dez/anterior (R$)",
+                    "PL médio (R$)",
                     "= (LL trim × 4) / PL médio",
                 ]
 
@@ -11023,7 +11041,7 @@ elif menu == "Rankings":
 
                             linhas_negativas = set(
                                 df_inst[
-                                    (df_inst["componente"] == "LL trimestral (R$ MM)")
+                                    (df_inst["componente"] == "LL trimestral (R$)")
                                     & (pd.to_numeric(df_inst["valor"], errors="coerce") < 0)
                                 ]["Período"].tolist()
                             )
@@ -11043,7 +11061,7 @@ elif menu == "Rankings":
                                     style_parts = []
                                     if isinstance(valor_txt, str) and valor_txt.startswith("-"):
                                         style_parts.append("color: #B42318;")
-                                    if componente == "LL trimestral (R$ MM)" and col in colunas_negativas:
+                                    if componente == "LL trimestral (R$)" and col in colunas_negativas:
                                         style_parts.append("background-color: #FFF4CE;")
                                     if componente == "= (LL trim × 4) / PL médio":
                                         style_parts.append("font-weight: 600;")
@@ -11198,12 +11216,12 @@ elif menu == "Rankings":
                             df_memoria, bancos_alvo, periodos_alvo,
                             titulo=indicador_atual,
                             ordem_componentes=[
-                                "LL acumulado YTD (R$ MM)",
+                                "LL acumulado YTD (R$)",
                                 "Fator de anualização",
-                                "LL YTD × fator (R$ MM)",
-                                "PL data-base (R$ MM)",
-                                "PL dez/anterior (R$ MM)",
-                                "PL médio (R$ MM)",
+                                "LL YTD × fator (R$)",
+                                "PL data-base (R$)",
+                                "PL dez/anterior (R$)",
+                                "PL médio (R$)",
                                 "= (LL YTD × fator) / PL médio",
                             ],
                             componente_formula="= (LL YTD × fator) / PL médio",
@@ -11229,8 +11247,13 @@ elif menu == "Rankings":
                                 continue
                             rec["valor_num"] = pd.to_numeric(rec[coluna_indicador], errors="coerce")
                             valores_ctx = rec["valor_num"].dropna().tolist()
+                            usar_escala_dinamica = _usar_escala_dinamica_memoria(indicador_atual, coluna_indicador)
                             rec["valor_formatado"] = rec["valor_num"].apply(
-                                lambda v: _formatar_valor_ranking(v, coluna_indicador, valores_ctx)
+                                lambda v: (
+                                    _formatar_ptbr_memoria_roe(v, "monetario")
+                                    if usar_escala_dinamica
+                                    else _formatar_valor_ranking(v, coluna_indicador, valores_ctx)
+                                )
                             )
                             rec["Período"] = rec["Período"].map(formatar_periodo_mm_yyyy)
                             rec["Passo"] = "Valor final do indicador"
@@ -11272,8 +11295,13 @@ elif menu == "Rankings":
                                     {"Passo": "Δ %", "Valor": linha.get("variacao_texto")},
                                 ]
                             )
+                            usar_escala_dinamica = _usar_escala_dinamica_memoria(indicador_atual, _col_ref)
                             mem_df["Valor"] = mem_df["Valor"].apply(
-                                lambda v: _formatar_valor_ranking(v, _col_ref) if isinstance(v, (int, float, np.number)) else v
+                                lambda v: (
+                                    _formatar_ptbr_memoria_roe(v, "monetario")
+                                    if (usar_escala_dinamica and isinstance(v, (int, float, np.number)))
+                                    else (_formatar_valor_ranking(v, _col_ref) if isinstance(v, (int, float, np.number)) else v)
+                                )
                             )
                             st.dataframe(mem_df, use_container_width=True, hide_index=True)
 
