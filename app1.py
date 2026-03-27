@@ -3680,9 +3680,16 @@ def _formatar_ptbr_memoria_roe(valor, tipo: str = "monetario") -> str:
 
     base = ""
     if tipo == "percentual":
-        base = f"{valor_f:,.1f}%"
+        base = f"{valor_f:,.2f}%"
+        return base.replace(",", "X").replace(".", ",").replace("X", ".")
+
+    abs_v = abs(valor_f)
+    if abs_v >= 1_000_000:
+        base = f"{valor_f / 1_000_000:,.2f} tri"
+    elif abs_v >= 1_000:
+        base = f"{valor_f / 1_000:,.2f} bi"
     else:
-        base = f"{valor_f:,.0f}"
+        base = f"{valor_f:,.2f} MM"
     return base.replace(",", "X").replace(".", ",").replace("X", ".")
 
 
@@ -6604,7 +6611,7 @@ def pagina_snapshot():
          "serie": ll_tri_map, "source": "Rel. 1 + decomposição semestral Bacen"},
         {"label": "Lucro Líquido Acum. YTD", "format_key": "Lucro Líquido Acumulado YTD", "higher_is_better": True,
          "comparison": "yoy", "serie": ll_ytd_map, "source": "Rel. 1 — acumulado normalizado no ano"},
-        {"label": "ROE trim. anualizado", "format_key": "ROE trimestral anualizado (%)", "higher_is_better": True,
+        {"label": "ROE Trimestral An. (%)", "format_key": "ROE trimestral anualizado (%)", "higher_is_better": True,
          "serie": roe_tri_map, "is_pct": True, "coluna_origem": "ROE trimestral anualizado (%)",
          "source": "(LL Trimestral × 4) ÷ PL Médio × 100"},
         {"label": "ROE Ac. Anualizado", "format_key": "ROE Ac. Anualizado (%)", "higher_is_better": True,
@@ -10549,7 +10556,7 @@ elif menu == "Rankings":
             'Índice de Basileia (%)': ['Índice de Basileia'],
             'Lucro Líquido Acumulado YTD': ['Lucro Líquido Acumulado YTD'],
             'Lucro Líquido Trimestral': ['Lucro Líquido Trimestral'],
-            'ROE trimestral anualizado (%)': ['ROE trimestral anualizado (%)'],
+            'ROE Trimestral An. (%)': ['ROE trimestral anualizado (%)'],
             'ROE Ac. Anualizado (%)': ['ROE Ac. Anualizado (%)', 'ROE Ac. YTD an. (%)'],
         }
 
@@ -10572,7 +10579,7 @@ elif menu == "Rankings":
                 'Índice de Basileia (%)',
                 'Lucro Líquido Acumulado YTD',
                 'Lucro Líquido Trimestral',
-                'ROE trimestral anualizado (%)',
+                'ROE Trimestral An. (%)',
                 'ROE Ac. Anualizado (%)',
             ]
             indicadores_ordenados = [i for i in ordem_prioritaria if i in indicadores_disponiveis]
@@ -10589,7 +10596,7 @@ elif menu == "Rankings":
                 'Índice de Basileia (%)': 'Patrimônio de Referência ÷ RWA Total. Índice global de adequação de capital.',
                 'Lucro Líquido Acumulado YTD': 'Lucro líquido acumulado no ano-calendário até o final do período (Jan–Set, Jan–Jun etc.).',
                 'Lucro Líquido Trimestral': 'Lucro líquido do trimestre de referência (isolado).',
-                'ROE trimestral anualizado (%)': 'ROE trimestral anualizado: (LL Trimestral × 4) ÷ PL Médio × 100. PL Médio = (PL período + PL Dez anterior) / 2.',
+                'ROE Trimestral An. (%)': 'ROE trimestral anualizado: (LL Trimestral × 4) ÷ PL Médio × 100. PL Médio = (PL período + PL Dez anterior) / 2.',
                 'ROE Ac. Anualizado (%)': '(LL YTD × fator de anualização) ÷ PL Médio.\nPL Médio = (PL período + PL Dez anterior) / 2.\nFatores: Mar=4×, Jun=2×, Set≈1,33×, Dez=1×.',
             }
 
@@ -10702,14 +10709,36 @@ elif menu == "Rankings":
                 base = base.replace(",", "X").replace(".", ",").replace("X", ".")
                 return f"{base}{sufixo}"
 
+            def _escala_monetaria_display(valores: list[float]) -> tuple[float, str]:
+                vals = [abs(float(v)) for v in valores if v is not None and pd.notna(v)]
+                if not vals:
+                    return 1.0, "MM"
+                vmax = max(vals)
+                if vmax >= 1_000_000:
+                    return 1_000_000.0, "tri"
+                if vmax >= 1_000:
+                    return 1_000.0, "bi"
+                return 1.0, "MM"
+
+            def _formatar_valor_ranking(valor: float, variavel_ref: str, valores_contexto: Optional[list[float]] = None, incluir_sinal: bool = False) -> str:
+                if valor is None or pd.isna(valor):
+                    return "N/D"
+                if _is_variavel_percentual(variavel_ref):
+                    return _formatar_br(valor, 2, "%", incluir_sinal=incluir_sinal)
+                if variavel_ref in VARS_MOEDAS:
+                    div, unidade = _escala_monetaria_display(valores_contexto or [valor])
+                    return f"R$ {_formatar_br(float(valor) / div, 2, f' {unidade}', incluir_sinal=incluir_sinal)}"
+                return _formatar_br(valor, 2, incluir_sinal=incluir_sinal)
+
             def formatar_numero(valor, fmt_info, incluir_sinal=False, variavel_ref: Optional[str] = None):
-                _ = variavel_ref
                 if valor is None or pd.isna(valor):
                     return "N/D"
                 try:
                     valor_display = float(valor)
                 except Exception:
                     return "N/D"
+                if variavel_ref:
+                    return _formatar_valor_ranking(valor_display, variavel_ref, [valor_display], incluir_sinal=incluir_sinal)
                 valor_formatado = format(valor_display, fmt_info['tickformat'])
                 if incluir_sinal and valor_display > 0:
                     valor_formatado = f"+{valor_formatado}"
@@ -10722,7 +10751,7 @@ elif menu == "Rankings":
                 periodos_alvo: list[str],
                 indicador_atual: str,
             ) -> None:
-                if indicador_atual != "ROE trimestral anualizado (%)":
+                if indicador_atual != "ROE Trimestral An. (%)":
                     return
                 if not bancos_alvo or not periodos_alvo:
                     return
@@ -10742,7 +10771,7 @@ elif menu == "Rankings":
                     "= (LL trim × 4) / PL médio",
                 ]
 
-                with st.expander("Memória de cálculo — ROE trimestral anualizado", expanded=False):
+                with st.expander("Memória de cálculo — ROE Trimestral An. (%)", expanded=False):
                     _mem_tabs = st.tabs(bancos_alvo)
                     for _mem_tab, banco in zip(_mem_tabs, bancos_alvo):
                         with _mem_tab:
@@ -10814,6 +10843,79 @@ elif menu == "Rankings":
                             )
 
                             st.caption("= (LL trim × 4) / PL médio")
+
+            def _renderizar_memoria_indicador_rankings(
+                df_base_rankings: pd.DataFrame,
+                bancos_alvo: list[str],
+                periodos_alvo: list[str],
+                indicador_atual: str,
+                coluna_indicador: str,
+                mapa_glossario: dict[str, str],
+            ) -> None:
+                if not bancos_alvo or not periodos_alvo:
+                    return
+                df_mem = df_base_rankings[
+                    (df_base_rankings["Instituição"].isin(bancos_alvo))
+                    & (df_base_rankings["Período"].isin(periodos_alvo))
+                ].copy()
+                if df_mem.empty or coluna_indicador not in df_mem.columns:
+                    return
+
+                with st.expander(f"Memória de cálculo — {indicador_atual}", expanded=False):
+                    tabs_mem = st.tabs(bancos_alvo)
+                    for aba_mem, banco_mem in zip(tabs_mem, bancos_alvo):
+                        with aba_mem:
+                            rec = df_mem[df_mem["Instituição"] == banco_mem][["Período", coluna_indicador]].copy()
+                            if rec.empty:
+                                st.caption("sem dados para esta instituição nos períodos selecionados.")
+                                continue
+                            rec["valor_num"] = pd.to_numeric(rec[coluna_indicador], errors="coerce")
+                            valores_ctx = rec["valor_num"].dropna().tolist()
+                            rec["valor_formatado"] = rec["valor_num"].apply(
+                                lambda v: _formatar_valor_ranking(v, coluna_indicador, valores_ctx)
+                            )
+                            rec["Período"] = rec["Período"].map(formatar_periodo_mm_yyyy)
+                            rec["Passo"] = "Valor final do indicador"
+                            rec["Regra"] = mapa_glossario.get(indicador_atual, "Regra não disponível.")
+                            st.dataframe(
+                                rec[["Período", "Passo", "valor_formatado", "Regra"]].rename(
+                                    columns={"valor_formatado": "Valor"}
+                                ),
+                                use_container_width=True,
+                                hide_index=True,
+                            )
+
+            def _renderizar_memoria_delta_rankings(
+                dados_delta: list[dict],
+                indicador_atual: str,
+                periodo_inicial: str,
+                periodo_subsequente: str,
+            ) -> None:
+                if not dados_delta:
+                    return
+                bancos_delta = [d.get("instituicao") for d in dados_delta if d.get("instituicao")]
+                if not bancos_delta:
+                    return
+                with st.expander(f"Memória de cálculo — Deltas ({indicador_atual})", expanded=False):
+                    tabs_delta = st.tabs(bancos_delta)
+                    for tab_delta, banco_delta in zip(tabs_delta, bancos_delta):
+                        with tab_delta:
+                            linha = next((d for d in dados_delta if d.get("instituicao") == banco_delta), None)
+                            if not linha:
+                                st.caption("sem dados para esta instituição.")
+                                continue
+                            mem_df = pd.DataFrame(
+                                [
+                                    {"Passo": f"Valor {formatar_periodo_mm_yyyy(periodo_inicial)}", "Valor": linha.get("valor_ini")},
+                                    {"Passo": f"Valor {formatar_periodo_mm_yyyy(periodo_subsequente)}", "Valor": linha.get("valor_sub")},
+                                    {"Passo": "Δ absoluto", "Valor": linha.get("delta_texto")},
+                                    {"Passo": "Δ %", "Valor": linha.get("variacao_texto")},
+                                ]
+                            )
+                            mem_df["Valor"] = mem_df["Valor"].apply(
+                                lambda v: _formatar_valor_ranking(v, indicador_col) if isinstance(v, (int, float, np.number)) else v
+                            )
+                            st.dataframe(mem_df, use_container_width=True, hide_index=True)
 
             def _adicionar_labels_basileia_v2(
                 fig: go.Figure,
@@ -11278,14 +11380,15 @@ elif menu == "Rankings":
                                 )["valor_display"].dropna().mean()
                                 if indicador_col in df_periodo.columns else None
                             )
-                            casas_labels = _casas_decimais_unicas(df_plot["valor_display"].tolist(), casas_iniciais=1)
+                            casas_labels = 2
                             sufixo = format_info.get('ticksuffix', '')
                             for idx_p, p in enumerate(periodo_resumo):
                                 dfx = df_plot[df_plot["Período"] == p].copy()
                                 if dfx.empty:
                                     continue
+                                valores_contexto = dfx["valor_display"].dropna().tolist()
                                 textos_labels = dfx["valor_display"].apply(
-                                    lambda v: _formatar_br(v, casas_labels, sufixo)
+                                    lambda v: _formatar_valor_ranking(v, indicador_col, valores_contexto)
                                 )
                                 fig_resumo.add_trace(go.Bar(
                                     x=dfx["Instituição"],
@@ -11297,20 +11400,25 @@ elif menu == "Rankings":
                                     hovertemplate="<b>%{x}</b><br>Período: " + f"{periodo_para_exibicao(p)}" + "<br>Valor: %{y:,.2f}<extra></extra>"
                                 ))
 
-                            fig_resumo.add_hline(
-                                y=media_display,
-                                line_dash='dash',
-                                line_color='#555555',
-                                annotation_text=f"Média selecionadas: {formatar_numero(media_display, format_info, variavel_ref=indicador_col)}",
-                                annotation_position='top right'
+                            fig_resumo.add_hline(y=media_display, line_dash='dash', line_color='#555555')
+                            if media_sfn_display is not None and pd.notna(media_sfn_display):
+                                fig_resumo.add_hline(y=media_sfn_display, line_dash='dash', line_color='#1f77b4')
+                            media_sel_txt = _formatar_valor_ranking(media_display, indicador_col, df_plot["valor_display"].dropna().tolist())
+                            fig_resumo.add_annotation(
+                                x=0.98, y=0.06, xref="paper", yref="paper",
+                                text=f"Média seleção: {media_sel_txt}",
+                                showarrow=False, xanchor="right", yanchor="bottom",
+                                font=dict(color="#1A1A1A", size=14),
+                                bgcolor="rgba(255,255,255,0.82)", bordercolor="rgba(26,26,26,0.25)", borderwidth=1,
                             )
                             if media_sfn_display is not None and pd.notna(media_sfn_display):
-                                fig_resumo.add_hline(
-                                    y=media_sfn_display,
-                                    line_dash='dash',
-                                    line_color='#1f77b4',
-                                    annotation_text=f"Média SFN: {formatar_numero(media_sfn_display, format_info, variavel_ref=indicador_col)}",
-                                    annotation_position='bottom right'
+                                media_sfn_txt = _formatar_valor_ranking(media_sfn_display, indicador_col, df_plot["valor_display"].dropna().tolist())
+                                fig_resumo.add_annotation(
+                                    x=0.98, y=0.14, xref="paper", yref="paper",
+                                    text=f"Média SFN: {media_sfn_txt}",
+                                    showarrow=False, xanchor="right", yanchor="bottom",
+                                    font=dict(color="#1f77b4", size=14),
+                                    bgcolor="rgba(255,255,255,0.82)", bordercolor="rgba(31,119,180,0.30)", borderwidth=1,
                                 )
 
                             fig_resumo.update_layout(
@@ -11340,12 +11448,15 @@ elif menu == "Rankings":
                                 )
                             with st.expander("Dados do gráfico", expanded=False):
                                 st.dataframe(tabela_wide, use_container_width=True, hide_index=True)
-                            _renderizar_memoria_roe_rankings(
+                            _renderizar_memoria_indicador_rankings(
                                 df,
                                 bancos_selecionados,
                                 periodo_resumo,
                                 indicador_label,
+                                indicador_col,
+                                _RANKINGS_GLOSSARIO,
                             )
+                            _renderizar_memoria_roe_rankings(df, bancos_selecionados, periodo_resumo, indicador_label)
                         else:
                             df_selecionado = df_multiperiodo.copy()
                             media_display = calcular_media_ponderada(df_selecionado, 'valor_display', coluna_peso_resumo)
@@ -11385,15 +11496,16 @@ elif menu == "Rankings":
                             orientacao_horizontal = True
                             altura_grafico = max(760, n_bancos * 30)
                             df_plot_chart = df_selecionado.iloc[::-1].copy()
-                            casas_labels = _casas_decimais_unicas(df_selecionado["valor_display"].tolist(), casas_iniciais=1)
+                            casas_labels = 2
                             sufixo = format_info.get('ticksuffix', '')
                             cores_barras = (
                                 [cor_unica_cross_section] * len(df_plot_chart)
                                 if len(periodo_resumo) == 1
                                 else [paleta_itau_bba[idx % len(paleta_itau_bba)] for idx, _ in enumerate(df_plot_chart['Instituição'])]
                             )
+                            valores_contexto_labels = df_plot_chart["valor_display"].dropna().tolist()
                             textos_labels = df_plot_chart['valor_display'].apply(
-                                lambda v: _formatar_br(v, casas_labels, sufixo)
+                                lambda v: _formatar_valor_ranking(v, indicador_col, valores_contexto_labels)
                             )
 
                             fig_resumo = go.Figure()
@@ -11448,9 +11560,9 @@ elif menu == "Rankings":
                                     annotation_position='bottom'
                                 )
 
-                            media_sel_text = _formatar_br(media_display, casas_labels, sufixo)
+                            media_sel_text = _formatar_valor_ranking(media_display, indicador_col, valores_contexto_labels)
                             media_sfn_text = (
-                                _formatar_br(media_sfn_display, casas_labels, sufixo)
+                                _formatar_valor_ranking(media_sfn_display, indicador_col, valores_contexto_labels)
                                 if media_sfn_display is not None and pd.notna(media_sfn_display)
                                 else None
                             )
@@ -11459,18 +11571,18 @@ elif menu == "Rankings":
                                 valores_media.append(float(media_sfn_display))
                             amplit = max(df_plot_chart["valor_display"]) - min(df_plot_chart["valor_display"]) if not df_plot_chart.empty else 0
                             proximas = len(valores_media) == 2 and abs(valores_media[0] - valores_media[1]) <= max(abs(amplit) * 0.03, 1e-9)
-                            # Renderiza labels das médias dentro da área útil do gráfico para evitar corte na borda direita.
+                            # Renderiza labels das médias no canto inferior direito.
                             fig_resumo.add_annotation(
                                 x=0.98,
-                                y=0.98,
+                                y=0.06,
                                 xref="paper",
                                 yref="paper",
                                 text=f"Média seleção: {media_sel_text}",
                                 showarrow=False,
                                 xanchor="right",
-                                yanchor="top",
+                                yanchor="bottom",
                                 align="right",
-                                font=dict(color="#1A1A1A", size=12),
+                                font=dict(color="#1A1A1A", size=14),
                                 bgcolor="rgba(255,255,255,0.82)",
                                 bordercolor="rgba(26,26,26,0.25)",
                                 borderwidth=1,
@@ -11478,15 +11590,15 @@ elif menu == "Rankings":
                             if media_sfn_text is not None:
                                 fig_resumo.add_annotation(
                                     x=0.98,
-                                    y=0.92 if not proximas else 0.88,
+                                    y=0.14 if not proximas else 0.20,
                                     xref="paper",
                                     yref="paper",
                                     text=f"Média SFN: {media_sfn_text}",
                                     showarrow=False,
                                     xanchor="right",
-                                    yanchor="top",
+                                    yanchor="bottom",
                                     align="right",
-                                    font=dict(color="#1f77b4", size=12),
+                                    font=dict(color="#1f77b4", size=14),
                                     bgcolor="rgba(255,255,255,0.82)",
                                     bordercolor="rgba(31,119,180,0.30)",
                                     borderwidth=1,
@@ -11558,17 +11670,21 @@ elif menu == "Rankings":
                             mapa_colunas = {c: formatar_periodo_mm_yyyy(c) for c in colunas_periodo}
                             tabela_wide = tabela_wide.rename(columns=mapa_colunas)
                             for col_fmt in [c for c in tabela_wide.columns if c != "Instituição"]:
+                                contexto_col = pd.to_numeric(tabela_wide[col_fmt], errors="coerce").dropna().tolist()
                                 tabela_wide[col_fmt] = tabela_wide[col_fmt].apply(
-                                    lambda v: _formatar_br(v, casas_labels, sufixo)
+                                    lambda v: _formatar_valor_ranking(v, indicador_col, contexto_col)
                                 )
                             with st.expander("Dados do gráfico", expanded=False):
                                 st.dataframe(tabela_wide, use_container_width=True, hide_index=True)
-                            _renderizar_memoria_roe_rankings(
+                            _renderizar_memoria_indicador_rankings(
                                 df,
                                 bancos_selecionados,
                                 periodo_resumo,
                                 indicador_label,
+                                indicador_col,
+                                _RANKINGS_GLOSSARIO,
                             )
+                            _renderizar_memoria_roe_rankings(df, bancos_selecionados, periodo_resumo, indicador_label)
 
                             st.markdown(
                                 "**Nota metodológica:**\n\n"
@@ -11661,7 +11777,7 @@ elif menu == "Rankings":
                         if tipo_comparacao_delta == "Acumulado vs acumulado anterior":
                             mapa_acumulado = {
                                 "Lucro Líquido Trimestral": "Lucro Líquido Acumulado YTD",
-                                "ROE trimestral anualizado (%)": "ROE Ac. Anualizado (%)",
+                                "ROE Trimestral An. (%)": "ROE Ac. Anualizado (%)",
                             }
                             coluna_variavel = mapa_acumulado.get(coluna_variavel, coluna_variavel)
                         if coluna_variavel not in df.columns:
@@ -11836,6 +11952,12 @@ elif menu == "Rankings":
 
                         st.markdown(f"### {variavel}")
                         st.plotly_chart(fig_barras, width='stretch', config={'displayModeBar': 'hover', 'displaylogo': False})
+                        _renderizar_memoria_delta_rankings(
+                            dados_grafico,
+                            variavel,
+                            periodo_inicial_delta,
+                            periodo_subsequente_delta,
+                        )
 
                         if bancos_selecionados_delta:
                             idx_ini_hist = periodos_disponiveis.index(periodo_inicial_delta)
