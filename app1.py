@@ -2805,7 +2805,11 @@ def _formatar_percentual(valor, decimais: int = 2) -> str:
         valor_float = float(valor)
     except Exception:
         return "N/A"
-    valor_float *= 100
+    # Normalização estrutural de escala:
+    # - base decimal (0-1)  -> converte para 0-100
+    # - base percentual 0-100 -> preserva
+    if abs(valor_float) <= 1:
+        valor_float *= 100
     return f"{_formatar_numero_ptbr(valor_float, decimais)}%"
 
 
@@ -3190,7 +3194,12 @@ def _formatar_valor_peers(valor, format_key: str, coluna_origem: Optional[str] =
             return "—"
     if coluna_origem and "(%)" in coluna_origem:
         try:
-            return _formatar_percentual(float(valor))
+            valor_display = _calcular_valores_display(
+                pd.Series([float(valor)]),
+                coluna_origem,
+                get_axis_format(coluna_origem),
+            ).iloc[0]
+            return _formatar_numero_ptbr(valor_display, 2) + "%"
         except Exception:
             return "—"
     return formatar_valor(valor, format_key)
