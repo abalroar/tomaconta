@@ -37,7 +37,7 @@ def formatar_numero_br(valor: float, casas: int = 2, sufixo: str = "", com_sinal
 
 
 def formatar_monetario_br_auto_reais(valor_reais: float) -> str:
-    """Formata monetário em BR com escala automática (R$, mil, MM, bi)."""
+    """Formata monetário em BR com escala automática (R$, mil, MM, bi, tri)."""
     if valor_reais is None or pd.isna(valor_reais):
         return "N/D"
 
@@ -45,6 +45,8 @@ def formatar_monetario_br_auto_reais(valor_reais: float) -> str:
     sinal = "-" if valor < 0 else ""
     abs_val = abs(valor)
 
+    if abs_val >= 1_000_000_000_000:
+        return f"{sinal}R$ {_ptbr(f'{abs_val/1e12:,.1f}')} tri"
     if abs_val >= 1_000_000_000:
         return f"{sinal}R$ {_ptbr(f'{abs_val/1e9:,.1f}')} bi"
     if abs_val >= 1_000_000:

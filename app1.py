@@ -2963,6 +2963,35 @@ def _delta_percentual_em_bps(variavel: Optional[str]) -> bool:
     }
 
 
+def _classificar_par_periodos(p1: str, p2: str) -> str:
+    """Classifica par de períodos para lógica de comparação delta.
+
+    Retorna:
+        'coincidente' — mesmo trimestre, anos diferentes (ex: 3/2025 vs 3/2024)
+        'consecutivo' — trimestres consecutivos, exatamente 3 meses de distância
+        'nao_consecutivo' — trimestres não-consecutivos (> 3 meses, trimestres diferentes)
+    """
+    t1, a1 = int(p1.split('/')[0]), int(p1.split('/')[1])
+    t2, a2 = int(p2.split('/')[0]), int(p2.split('/')[1])
+
+    if t1 == t2 and a1 != a2:
+        return 'coincidente'
+
+    meses_map = {1: 3, 2: 6, 3: 9, 4: 12}
+    m1 = a1 * 12 + meses_map[t1]
+    m2 = a2 * 12 + meses_map[t2]
+    dist = abs(m1 - m2)
+
+    if dist == 3:
+        return 'consecutivo'
+    return 'nao_consecutivo'
+
+
+# Indicadores que variam conforme modo tri/acumulado
+_INDICADORES_SOMENTE_TRI = {'Lucro Líquido Trimestral', 'ROE Trim. Anualizado (%)'}
+_INDICADORES_SOMENTE_ACUM = {'Lucro Líquido Acumulado YTD', 'ROE Ac. Anualizado (%)'}
+
+
 def _calcular_valores_display(serie: pd.Series, variavel: str, format_info: dict) -> pd.Series:
     if variavel and "Basileia" in variavel:
         return _normalizar_basileia_display(serie)
@@ -10748,7 +10777,7 @@ elif menu == "Rankings":
         periodos_dropdown = ordenar_periodos(df['Período'].dropna().unique(), reverso=True)
 
         st.markdown("### ranking")
-        opcoes_grafico = ["Ranking (barras)", "Deltas (barras)"]
+        opcoes_grafico = ["Ranking (barras)", "Deltas (barras)", "Tabela"]
         if st.session_state.get("grafico_rankings_toggle_v2") not in opcoes_grafico:
             st.session_state["grafico_rankings_toggle_v2"] = opcoes_grafico[0]
         grafico_escolhido = st.radio(
@@ -10758,7 +10787,12 @@ elif menu == "Rankings":
             index=0,
             horizontal=True
         )
-        grafico_base = "Ranking" if grafico_escolhido.startswith("Ranking") else "Deltas (antes e depois)"
+        if grafico_escolhido.startswith("Ranking"):
+            grafico_base = "Ranking"
+        elif grafico_escolhido == "Tabela":
+            grafico_base = "Tabela"
+        else:
+            grafico_base = "Deltas (antes e depois)"
 
         indicadores_config = {
             'Ativo Total': ['Ativo Total'],
@@ -12127,16 +12161,45 @@ elif menu == "Rankings":
                     and periodo_inicial_delta != periodo_subsequente_delta
                 )
 
-                # ===== LINHA 2: Seleção de período subsequente e tipo de variação =====
+                # ===== Classificação inteligente do par de períodos =====
+                tipo_par = None
+                _indicador_incompativel = False
+                if periodo_valido:
+                    tipo_par = _classificar_par_periodos(periodo_inicial_delta, periodo_subsequente_delta)
+
                 col_tipo_comp, col_tipo_var = st.columns([1.2, 1.0])
                 with col_tipo_comp:
-                    tipo_comparacao_delta = st.radio(
-                        "comparação",
-                        ["Tri vs tri anterior", "Acumulado vs acumulado anterior"],
-                        index=0,
-                        key="tipo_comparacao_delta_v2",
-                        horizontal=False
+                    if tipo_par == 'consecutivo':
+                        tipo_comparacao_delta = "Tri vs tri anterior"
+                        st.info("períodos consecutivos — comparação trimestral")
+                    elif tipo_par == 'nao_consecutivo':
+                        tipo_comparacao_delta = "Acumulado vs acumulado anterior"
+                        st.info("períodos não-consecutivos — comparação acumulada")
+                    else:
+                        tipo_comparacao_delta = st.radio(
+                            "comparação",
+                            ["Tri vs tri anterior", "Acumulado vs acumulado anterior"],
+                            index=0,
+                            key="tipo_comparacao_delta_v2",
+                            horizontal=False
+                        )
+
+                # Verificar compatibilidade indicador × modo de comparação
+                _delta_modo_tri = tipo_comparacao_delta == "Tri vs tri anterior"
+                _indicador_incompativel = False
+                if _delta_modo_tri and indicador_label in _INDICADORES_SOMENTE_ACUM:
+                    _indicador_incompativel = True
+                    st.warning(
+                        f"⚠ O indicador **{indicador_label}** é acumulado e não é compatível com "
+                        f"comparação trimestral. Selecione um indicador trimestral ou altere os períodos."
                     )
+                elif not _delta_modo_tri and indicador_label in _INDICADORES_SOMENTE_TRI:
+                    _indicador_incompativel = True
+                    st.warning(
+                        f"⚠ O indicador **{indicador_label}** é trimestral e não é compatível com "
+                        f"comparação acumulada. Selecione um indicador acumulado ou altere os períodos."
+                    )
+
                 with col_tipo_var:
                     tipo_variacao = st.radio(
                         "ordenar por",
@@ -12155,7 +12218,7 @@ elif menu == "Rankings":
                     )
                 bancos_selecionados_delta = bancos_selecionados
 
-                if periodo_valido and variaveis_selecionadas_delta and bancos_selecionados_delta:
+                if periodo_valido and variaveis_selecionadas_delta and bancos_selecionados_delta and not _indicador_incompativel:
                     df_inicial = df[df['Período'] == periodo_inicial_delta].copy()
                     df_subsequente = df[df['Período'] == periodo_subsequente_delta].copy()
 
@@ -12185,13 +12248,17 @@ elif menu == "Rankings":
                             delta_absoluto = v_sub - v_ini
 
                             if _is_variavel_percentual(coluna_variavel):
-                                delta_texto = f"{delta_absoluto * 100:+.1f} p.p."
+                                delta_texto = f"{delta_absoluto * 100:+.2f} p.p.".replace(".", ",")
                             elif coluna_variavel in VARS_MOEDAS:
                                 delta_texto = f"R$ {delta_absoluto/1e6:+,.0f}MM".replace(",", ".")
                             else:
                                 delta_texto = f"{delta_absoluto:+.2f}"
 
-                            if v_ini == 0:
+                            # Para indicadores percentuais, variação é em p.p. (não % sobre %)
+                            if _is_variavel_percentual(coluna_variavel):
+                                variacao_pct = delta_absoluto * 100  # p.p.
+                                variacao_texto = delta_texto  # mesma representação em p.p.
+                            elif v_ini == 0:
                                 if delta_absoluto > 0:
                                     variacao_pct = float('inf')
                                     variacao_texto = "Valor Inicial 0 - ∞"
@@ -12200,7 +12267,7 @@ elif menu == "Rankings":
                                     variacao_texto = "Valor Inicial 0 - ∞"
                                 else:
                                     variacao_pct = 0
-                                    variacao_texto = "0.0%"
+                                    variacao_texto = "0,0%"
                             elif v_ini < 0 and v_sub > 0:
                                 variacao_pct = ((v_sub - v_ini) / abs(v_ini)) * 100
                                 variacao_texto = f"{variacao_pct:+.1f}% (inversão)"
@@ -12211,12 +12278,19 @@ elif menu == "Rankings":
                                 variacao_pct = ((v_sub - v_ini) / abs(v_ini)) * 100
                                 variacao_texto = f"{variacao_pct:+.1f}%"
 
-                            memoria_calculo = (
-                                f"{periodo_subsequente_delta}: R$ {v_sub/1e6:,.1f}MM\n"
-                                f"{periodo_inicial_delta}: R$ {v_ini/1e6:,.1f}MM\n"
-                                f"Δ abs: {delta_texto}\n"
-                                f"Δ %: {variacao_texto}"
-                            ).replace(',', '.')
+                            if _is_variavel_percentual(coluna_variavel):
+                                memoria_calculo = (
+                                    f"{periodo_subsequente_delta}: {v_sub * 100:.2f}%\n"
+                                    f"{periodo_inicial_delta}: {v_ini * 100:.2f}%\n"
+                                    f"Δ: {delta_texto}\n"
+                                ).replace(".", ",")
+                            else:
+                                memoria_calculo = (
+                                    f"{periodo_subsequente_delta}: R$ {v_sub/1e6:,.1f}MM\n"
+                                    f"{periodo_inicial_delta}: R$ {v_ini/1e6:,.1f}MM\n"
+                                    f"Δ abs: {delta_texto}\n"
+                                    f"Δ %: {variacao_texto}"
+                                ).replace(',', '.')
 
                             dados_grafico.append({
                                 'instituicao': instituicao,
@@ -12266,12 +12340,16 @@ elif menu == "Rankings":
                         valores_plot = [d['valor_plot'] for d in dados_grafico]
                         cores_barras = ['#2E7D32' if d['delta'] > 0 else '#7B1E3A' for d in dados_grafico]
 
-                        if tipo_variacao == "Δ %":
+                        if tipo_variacao == "Δ %" and _is_variavel_percentual(coluna_variavel):
+                            eixo_tickformat = '.2f'
+                            eixo_ticksuffix = ' p.p.'
+                            eixo_titulo = "Δ (p.p.)"
+                        elif tipo_variacao == "Δ %":
                             eixo_tickformat = '.1f'
                             eixo_ticksuffix = '%'
                             eixo_titulo = "Δ %"
                         elif _is_variavel_percentual(coluna_variavel):
-                            eixo_tickformat = '.1f'
+                            eixo_tickformat = '.2f'
                             eixo_ticksuffix = ' p.p.'
                             eixo_titulo = "Δ absoluto (p.p.)"
                         else:
@@ -12360,8 +12438,8 @@ elif menu == "Rankings":
                                 & df['Instituição'].isin(bancos_selecionados_delta)
                             ].copy()
 
-                            if not df_hist.empty and variavel in df_hist.columns:
-                                format_hist = get_axis_format(variavel)
+                            if not df_hist.empty and coluna_variavel in df_hist.columns:
+                                format_hist = get_axis_format(coluna_variavel)
                                 fig_hist = go.Figure()
                                 for instituicao in bancos_selecionados_delta:
                                     df_banco = df_hist[df_hist['Instituição'] == instituicao].copy()
@@ -12370,10 +12448,10 @@ elif menu == "Rankings":
                                     df_banco['ano'] = df_banco['Período'].str.split('/').str[1].astype(int)
                                     df_banco['trimestre'] = df_banco['Período'].str.split('/').str[0].astype(int)
                                     df_banco = df_banco.sort_values(['ano', 'trimestre'])
-                                    y_values = df_banco[variavel] * format_hist['multiplicador']
+                                    y_values = df_banco[coluna_variavel] * format_hist['multiplicador']
                                     cor_banco = obter_cor_banco(instituicao) or None
 
-                                    if variavel == 'Lucro Líquido Acumulado YTD':
+                                    if coluna_variavel == 'Lucro Líquido Acumulado YTD':
                                         fig_hist.add_trace(go.Bar(
                                             x=df_banco['Período'],
                                             y=y_values,
@@ -12384,10 +12462,10 @@ elif menu == "Rankings":
                                                 f'%{{y:{format_hist["tickformat"]}}}{format_hist["ticksuffix"]}<extra></extra>'
                                             )
                                         ))
-                                    elif variavel == 'Lucro Líquido Trimestral':
-                                        df_w = df_banco.dropna(subset=[variavel]).copy()
+                                    elif coluna_variavel == 'Lucro Líquido Trimestral':
+                                        df_w = df_banco.dropna(subset=[coluna_variavel]).copy()
                                         if not df_w.empty:
-                                            y_w = df_w[variavel] * format_hist['multiplicador']
+                                            y_w = df_w[coluna_variavel] * format_hist['multiplicador']
                                             medida = ['relative'] * len(df_w) + ['total']
                                             x_w = df_w['Período'].tolist() + ['Total Acumulado']
                                             y_total = y_w.sum()
@@ -12426,11 +12504,11 @@ elif menu == "Rankings":
                                     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
                                     xaxis=dict(
                                         showgrid=False,
-                                        tickmode='array' if variavel in ['Lucro Líquido Acumulado YTD', 'Lucro Líquido Trimestral'] else None,
-                                        tickvals=(periodos_hist + ['Total Acumulado']) if variavel == 'Lucro Líquido Trimestral' else (periodos_hist if variavel == 'Lucro Líquido Acumulado YTD' else None),
-                                        ticktext=(periodos_hist + ['Total']) if variavel == 'Lucro Líquido Trimestral' else (periodos_hist if variavel == 'Lucro Líquido Acumulado YTD' else None),
-                                        categoryorder='array' if variavel in ['Lucro Líquido Acumulado YTD', 'Lucro Líquido Trimestral'] else None,
-                                        categoryarray=(periodos_hist + ['Total Acumulado']) if variavel == 'Lucro Líquido Trimestral' else (periodos_hist if variavel == 'Lucro Líquido Acumulado YTD' else None)
+                                        tickmode='array' if coluna_variavel in ['Lucro Líquido Acumulado YTD', 'Lucro Líquido Trimestral'] else None,
+                                        tickvals=(periodos_hist + ['Total Acumulado']) if coluna_variavel == 'Lucro Líquido Trimestral' else (periodos_hist if coluna_variavel == 'Lucro Líquido Acumulado YTD' else None),
+                                        ticktext=(periodos_hist + ['Total']) if coluna_variavel == 'Lucro Líquido Trimestral' else (periodos_hist if coluna_variavel == 'Lucro Líquido Acumulado YTD' else None),
+                                        categoryorder='array' if coluna_variavel in ['Lucro Líquido Acumulado YTD', 'Lucro Líquido Trimestral'] else None,
+                                        categoryarray=(periodos_hist + ['Total Acumulado']) if coluna_variavel == 'Lucro Líquido Trimestral' else (periodos_hist if coluna_variavel == 'Lucro Líquido Acumulado YTD' else None)
                                     ),
                                     yaxis=dict(
                                         showgrid=True,
@@ -12439,7 +12517,7 @@ elif menu == "Rankings":
                                         ticksuffix=format_hist['ticksuffix']
                                     ),
                                     font=dict(family='IBM Plex Sans'),
-                                    barmode='group' if variavel == 'Lucro Líquido Acumulado YTD' else ('overlay' if variavel == 'Lucro Líquido Trimestral' else None)
+                                    barmode='group' if coluna_variavel == 'Lucro Líquido Acumulado YTD' else ('overlay' if coluna_variavel == 'Lucro Líquido Trimestral' else None)
                                 )
 
                                 st.plotly_chart(fig_hist, width='stretch', config={'displayModeBar': 'hover', 'displaylogo': False})
@@ -12464,12 +12542,209 @@ elif menu == "Rankings":
                         with st.expander("Tabela de dados brutos (delta)", expanded=False):
                             st.dataframe(df_resumo_exibicao, use_container_width=True)
                         st.caption("exportação disponível apenas na visão tabela.")
+                elif _indicador_incompativel:
+                    pass  # Warning já exibido acima
                 elif not periodo_valido:
                     pass  # Já exibiu warning acima
                 elif not variaveis_selecionadas_delta:
                     st.info("selecione ao menos uma variável para análise")
                 else:
                     st.info("selecione instituições para comparar")
+
+            # =====================================================================
+            # VISÃO TABELA — Posicionamento rápido por pool
+            # =====================================================================
+            if grafico_base == "Tabela":
+                st.markdown("---")
+                st.markdown("### visão tabela (posicionamento)")
+
+                # --- Controles ---
+                col_tab_periodo, col_tab_pool, col_tab_modo = st.columns([1.2, 1.0, 1.0])
+
+                with col_tab_periodo:
+                    periodo_tabela = st.selectbox(
+                        "período",
+                        periodos,
+                        index=0,
+                        key="periodo_tabela_v1",
+                        format_func=periodo_para_exibicao,
+                    )
+
+                with col_tab_pool:
+                    pool_tabela = st.selectbox(
+                        "pool",
+                        ["Top 5", "Top 10", "Top 15", "Top 20"],
+                        index=1,
+                        key="pool_tabela_v1",
+                    )
+
+                with col_tab_modo:
+                    modo_tabela = st.radio(
+                        "modo",
+                        ["Trimestral", "Acumulado"],
+                        index=0,
+                        key="modo_tabela_v1",
+                        horizontal=True,
+                    )
+
+                # Seleção individual de IFs adicionais
+                df_tab_periodo = df[df['Período'] == periodo_tabela].copy() if periodo_tabela else pd.DataFrame()
+                bancos_tab_todos = df_tab_periodo['Instituição'].dropna().unique().tolist() if not df_tab_periodo.empty else []
+                bancos_tab_todos = ordenar_bancos_com_alias(bancos_tab_todos, dict_aliases)
+
+                top_map_tab = {"Top 5": 5, "Top 10": 10, "Top 15": 15, "Top 20": 20}
+                bancos_pool_tab = _obter_top_instituicoes_por_ativo(df_tab_periodo, top_map_tab.get(pool_tabela, 10))
+
+                # Filtrar opções do multiselect para excluir IFs já no pool
+                bancos_fora_pool = [b for b in bancos_tab_todos if b not in bancos_pool_tab]
+                bancos_adicionados = st.multiselect(
+                    "adicionar instituições ao ranking",
+                    bancos_fora_pool,
+                    default=[],
+                    key="bancos_tabela_add_v1",
+                    help="Selecione instituições fora do pool para encaixá-las na posição real do ranking.",
+                )
+
+                # --- Definir colunas conforme modo ---
+                if modo_tabela == "Trimestral":
+                    colunas_tabela = {
+                        'Ativo Total': 'Ativo Total',
+                        'Carteira de Crédito': next((c for c in ['Carteira de Crédito*', 'Carteira de Crédito Bruta', 'Carteira de Crédito'] if c in df.columns), None),
+                        'Core Funding': next((c for c in ['Core Funding*', 'Core Funding', 'Captações'] if c in df.columns), None),
+                        'Patrimônio Líquido': 'Patrimônio Líquido' if 'Patrimônio Líquido' in df.columns else None,
+                        'CET1 (%)': next((c for c in ['Índice de Capital Principal (CET1)', 'Índice de Capital Principal'] if c in df.columns), None),
+                        'Basileia (%)': 'Índice de Basileia' if 'Índice de Basileia' in df.columns else None,
+                        'Lucro Líquido Tri.': 'Lucro Líquido Trimestral' if 'Lucro Líquido Trimestral' in df.columns else None,
+                        'ROE Tri. An. (%)': next((c for c in ['ROE Trim. Anualizado (%)', 'ROE trimestral anualizado (%)', 'ROE Trimestral An. (%)'] if c in df.columns), None),
+                    }
+                else:
+                    colunas_tabela = {
+                        'Ativo Total': 'Ativo Total',
+                        'Carteira de Crédito': next((c for c in ['Carteira de Crédito*', 'Carteira de Crédito Bruta', 'Carteira de Crédito'] if c in df.columns), None),
+                        'Core Funding': next((c for c in ['Core Funding*', 'Core Funding', 'Captações'] if c in df.columns), None),
+                        'Patrimônio Líquido': 'Patrimônio Líquido' if 'Patrimônio Líquido' in df.columns else None,
+                        'CET1 (%)': next((c for c in ['Índice de Capital Principal (CET1)', 'Índice de Capital Principal'] if c in df.columns), None),
+                        'Basileia (%)': 'Índice de Basileia' if 'Índice de Basileia' in df.columns else None,
+                        'Lucro Líquido Ac.': 'Lucro Líquido Acumulado YTD' if 'Lucro Líquido Acumulado YTD' in df.columns else None,
+                        'ROE Ac. An. (%)': next((c for c in ['ROE Ac. Anualizado (%)', 'ROE Ac. YTD an. (%)'] if c in df.columns), None),
+                    }
+
+                # Filtrar colunas disponíveis
+                colunas_tabela = {k: v for k, v in colunas_tabela.items() if v is not None and v in df.columns}
+
+                if not colunas_tabela or df_tab_periodo.empty:
+                    st.warning("dados insuficientes para montar a tabela neste período.")
+                else:
+                    # --- Calcular ranking global por ativo total ---
+                    col_ativo = 'Ativo Total'
+                    df_ranking_global = df_tab_periodo[['Instituição', col_ativo]].copy()
+                    df_ranking_global[col_ativo] = pd.to_numeric(df_ranking_global[col_ativo], errors='coerce')
+                    df_ranking_global = df_ranking_global.dropna(subset=[col_ativo])
+                    df_ranking_global = df_ranking_global.drop_duplicates(subset=['Instituição'], keep='first')
+                    df_ranking_global = df_ranking_global.sort_values(col_ativo, ascending=False).reset_index(drop=True)
+                    df_ranking_global['#'] = range(1, len(df_ranking_global) + 1)
+                    rank_map = dict(zip(df_ranking_global['Instituição'], df_ranking_global['#']))
+
+                    # --- Montar lista de IFs: pool + adicionados ---
+                    bancos_tabela = list(bancos_pool_tab or [])
+                    for b in (bancos_adicionados or []):
+                        if b not in bancos_tabela:
+                            bancos_tabela.append(b)
+
+                    if not bancos_tabela:
+                        st.info("nenhuma instituição selecionada.")
+                    else:
+                        # --- Filtrar dados ---
+                        df_tab = df_tab_periodo[df_tab_periodo['Instituição'].isin(bancos_tabela)].copy()
+                        df_tab = df_tab.drop_duplicates(subset=['Instituição'], keep='first')
+
+                        # --- Montar tabela de exibição ---
+                        linhas = []
+                        for inst in bancos_tabela:
+                            row_data = df_tab[df_tab['Instituição'] == inst]
+                            if row_data.empty:
+                                continue
+                            row = row_data.iloc[0]
+                            linha = {'#': rank_map.get(inst, '—'), 'Instituição': inst}
+                            for label_col, col_real in colunas_tabela.items():
+                                val_raw = row.get(col_real, None)
+                                if val_raw is not None:
+                                    val_raw = pd.to_numeric(val_raw, errors='coerce')
+                                linha[label_col] = val_raw
+                            linhas.append(linha)
+
+                        if not linhas:
+                            st.info("sem dados para as instituições selecionadas neste período.")
+                        else:
+                            df_display = pd.DataFrame(linhas)
+
+                            # Ordenar por Ativo Total desc
+                            if 'Ativo Total' in df_display.columns:
+                                df_display = df_display.sort_values('Ativo Total', ascending=False, na_position='last')
+                                df_display = df_display.reset_index(drop=True)
+
+                            # --- Criar versão formatada ---
+                            df_formatado = df_display.copy()
+                            for label_col, col_real in colunas_tabela.items():
+                                if label_col not in df_formatado.columns:
+                                    continue
+                                if _is_variavel_percentual(col_real):
+                                    df_formatado[label_col] = df_formatado[label_col].apply(
+                                        lambda v: formatar_percentual_br(v * 100, casas=2) if pd.notna(v) and abs(v) <= 1 else (
+                                            formatar_percentual_br(v, casas=2) if pd.notna(v) else "N/D"
+                                        )
+                                    )
+                                elif col_real in VARS_MOEDAS:
+                                    df_formatado[label_col] = df_formatado[label_col].apply(
+                                        lambda v: formatar_monetario_br_auto_reais(v) if pd.notna(v) else "N/D"
+                                    )
+                                else:
+                                    df_formatado[label_col] = df_formatado[label_col].apply(
+                                        lambda v: formatar_numero_br(v, casas=2) if pd.notna(v) else "N/D"
+                                    )
+
+                            # --- Destacar IFs adicionadas individualmente ---
+                            bancos_adicionados_set = set(bancos_adicionados or [])
+
+                            def _style_tabela(row):
+                                if row['Instituição'] in bancos_adicionados_set:
+                                    return ['background-color: #f5f5f0; font-style: italic'] * len(row)
+                                return [''] * len(row)
+
+                            st.caption(
+                                f"**{pool_tabela}** por Ativo Total — "
+                                f"período: {periodo_para_exibicao(periodo_tabela)} — "
+                                f"modo: {modo_tabela}"
+                            )
+
+                            styled_df = df_formatado.style.apply(_style_tabela, axis=1)
+                            st.dataframe(
+                                styled_df,
+                                use_container_width=True,
+                                hide_index=True,
+                            )
+
+                            if bancos_adicionados_set:
+                                st.caption("linhas em *itálico* = instituições adicionadas individualmente (fora do pool).")
+
+                            # --- Exportação ---
+                            st.markdown("#### exportar")
+                            df_export_tab = df_display.copy()
+                            df_export_tab.insert(0, 'Período', formatar_periodo_mm_yyyy(periodo_tabela))
+
+                            buffer_tab = BytesIO()
+                            with pd.ExcelWriter(buffer_tab, engine='xlsxwriter') as writer:
+                                df_export_tab.to_excel(writer, index=False, sheet_name='ranking_tabela')
+                            buffer_tab.seek(0)
+
+                            st.download_button(
+                                label="Download Excel",
+                                data=buffer_tab,
+                                file_name=f"ranking_tabela_{formatar_periodo_mm_yyyy(periodo_tabela).replace('/', '-')}.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                key="exportar_tabela_excel_v1",
+                                use_container_width=False,
+                            )
 
     else:
         st.info("carregando dados automaticamente do github...")
