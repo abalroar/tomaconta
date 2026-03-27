@@ -6597,8 +6597,11 @@ def pagina_snapshot():
          "serie": carteira_map, "source": "BCB IFData Rel. 2 — Soma Valor Contábil Bruto (e1+f1+g1+h1)"},
         {"label": "Patrimônio Líquido", "format_key": "Patrimônio Líquido", "higher_is_better": True,
          "serie": pl_map, "source": "BCB IFData Rel. 1 — Balanço Patrimonial"},
+        {"label": "Índice de Basileia", "format_key": "Índice de Basileia", "higher_is_better": True,
+         "serie": bas_map, "is_pct": True, "show_bps": True,
+         "source": "BCB IFData Rel. 5 — (CP+CC+N2) ÷ RWA Total"},
     ]
-    hero_sparklines = [spark_ativo, spark_carteira, spark_pl]
+    hero_sparklines = [spark_ativo, spark_carteira, spark_pl, spark_basileia]
 
     hero_cards = [
         _render_snap_card(cfg, periodo_atual, periodo_anterior_qoq, periodo_yoy_existente,
@@ -6673,9 +6676,6 @@ def pagina_snapshot():
                 {"label": "CET1", "format_key": "Índice de Capital Principal",
                  "higher_is_better": True, "serie": cet1_map, "is_pct": True, "show_bps": True,
                  "source": "BCB IFData Rel. 5 — Capital Principal ÷ RWA Total"},
-                {"label": "Índice de Basileia", "format_key": "Índice de Basileia",
-                 "higher_is_better": True, "serie": bas_map, "is_pct": True, "show_bps": True,
-                 "source": "BCB IFData Rel. 5 — (CP+CC+N2) ÷ RWA Total"},
             ],
         },
     ]
@@ -6683,7 +6683,7 @@ def pagina_snapshot():
     section_sparklines = {
         "Funding": [spark_credito_capt, spark_desp_capt],
         "Qualidade de Carteira": [spark_estagio3, spark_pdd_estagio3],
-        "Capital": [spark_cet1, spark_basileia],
+        "Capital": [spark_cet1],
     }
     section_spark_types = {
         "Funding": "line",
