@@ -6536,7 +6536,10 @@ def pagina_snapshot():
     cet1_map, bas_map = _snapshot_capital_indices_por_periodo(cache_capital, banco, periodos_snapshot)
 
     # --- New data maps: ROE ---
-    col_roe_tri = _snapshot_pick_col(df_inst, ["ROE trimestral anualizado (%)"])
+    col_roe_tri = _snapshot_pick_col(
+        df_inst,
+        ["ROE trimestral anualizado (%)", "ROE Trim. Anualizado (%)", "ROE Trimestral An. (%)"],
+    )
     roe_tri_map = {p: _coerce_numeric_value(_obter_valor_peers(df_inst, banco, p, col_roe_tri)) if col_roe_tri else None for p in periodos_snapshot}
 
     col_roe_ac = _snapshot_pick_col(df_inst, ["ROE Ac. Anualizado (%)", "ROE Ac. YTD an. (%)"])
@@ -6620,7 +6623,7 @@ def pagina_snapshot():
          "serie": ll_tri_map, "source": "Rel. 1 + decomposição semestral Bacen"},
         {"label": "Lucro Líquido Acum. YTD", "format_key": "Lucro Líquido Acumulado YTD", "higher_is_better": True,
          "comparison": "yoy", "serie": ll_ytd_map, "source": "Rel. 1 — acumulado normalizado no ano"},
-        {"label": "ROE Trimestral An. (%)", "format_key": "ROE trimestral anualizado (%)", "higher_is_better": True,
+        {"label": "ROE trim. anualizado", "format_key": "ROE trimestral anualizado (%)", "higher_is_better": True,
          "serie": roe_tri_map, "is_pct": True, "coluna_origem": "ROE trimestral anualizado (%)",
          "source": "(LL Trimestral × 4) ÷ PL Médio × 100"},
         {"label": "ROE Ac. Anualizado", "format_key": "ROE Ac. Anualizado (%)", "higher_is_better": True,
@@ -10562,7 +10565,7 @@ elif menu == "Rankings":
             'Índice de Basileia (%)': ['Índice de Basileia'],
             'Lucro Líquido Acumulado YTD': ['Lucro Líquido Acumulado YTD'],
             'Lucro Líquido Trimestral': ['Lucro Líquido Trimestral'],
-            'ROE Trimestral An. (%)': ['ROE trimestral anualizado (%)'],
+            'ROE Trim. Anualizado (%)': ['ROE trimestral anualizado (%)', 'ROE Trim. Anualizado (%)', 'ROE Trimestral An. (%)'],
             'ROE Ac. Anualizado (%)': ['ROE Ac. Anualizado (%)', 'ROE Ac. YTD an. (%)'],
         }
 
@@ -10585,7 +10588,7 @@ elif menu == "Rankings":
                 'Índice de Basileia (%)',
                 'Lucro Líquido Acumulado YTD',
                 'Lucro Líquido Trimestral',
-                'ROE Trimestral An. (%)',
+                'ROE Trim. Anualizado (%)',
                 'ROE Ac. Anualizado (%)',
             ]
             indicadores_ordenados = [i for i in ordem_prioritaria if i in indicadores_disponiveis]
@@ -10602,7 +10605,7 @@ elif menu == "Rankings":
                 'Índice de Basileia (%)': 'Patrimônio de Referência ÷ RWA Total. Índice global de adequação de capital.',
                 'Lucro Líquido Acumulado YTD': 'Lucro líquido acumulado no ano-calendário até o final do período (Jan–Set, Jan–Jun etc.).',
                 'Lucro Líquido Trimestral': 'Lucro líquido do trimestre de referência (isolado).',
-                'ROE Trimestral An. (%)': 'ROE trimestral anualizado: (LL Trimestral × 4) ÷ PL Médio × 100. PL Médio = (PL período + PL Dez anterior) / 2.',
+                'ROE Trim. Anualizado (%)': 'ROE trimestral anualizado: (LL Trimestral × 4) ÷ PL Médio × 100. PL Médio = (PL período + PL Dez anterior) / 2.',
                 'ROE Ac. Anualizado (%)': '(LL YTD × fator de anualização) ÷ PL Médio.\nPL Médio = (PL período + PL Dez anterior) / 2.\nFatores: Mar=4×, Jun=2×, Set≈1,33×, Dez=1×.',
             }
 
@@ -10730,7 +10733,12 @@ elif menu == "Rankings":
                 if valor is None or pd.isna(valor):
                     return "N/D"
                 if _is_variavel_percentual(variavel_ref):
-                    return _formatar_br(valor, 2, "%", incluir_sinal=incluir_sinal)
+                    valor_display = _calcular_valores_display(
+                        pd.Series([valor]),
+                        variavel_ref,
+                        get_axis_format(variavel_ref),
+                    ).iloc[0]
+                    return _formatar_br(valor_display, 2, "%", incluir_sinal=incluir_sinal)
                 if variavel_ref in VARS_MOEDAS:
                     div, unidade = _escala_monetaria_display(valores_contexto or [valor])
                     return f"R$ {_formatar_br(float(valor) / div, 2, f' {unidade}', incluir_sinal=incluir_sinal)}"
@@ -10757,7 +10765,7 @@ elif menu == "Rankings":
                 periodos_alvo: list[str],
                 indicador_atual: str,
             ) -> None:
-                if indicador_atual != "ROE Trimestral An. (%)":
+                if indicador_atual != "ROE Trim. Anualizado (%)":
                     return
                 if not bancos_alvo or not periodos_alvo:
                     return
@@ -10777,7 +10785,7 @@ elif menu == "Rankings":
                     "= (LL trim × 4) / PL médio",
                 ]
 
-                with st.expander("Memória de cálculo — ROE Trimestral An. (%)", expanded=False):
+                with st.expander("Memória de cálculo — ROE Trim. Anualizado (%)", expanded=False):
                     _mem_tabs = st.tabs(bancos_alvo)
                     for _mem_tab, banco in zip(_mem_tabs, bancos_alvo):
                         with _mem_tab:
@@ -11783,7 +11791,7 @@ elif menu == "Rankings":
                         if tipo_comparacao_delta == "Acumulado vs acumulado anterior":
                             mapa_acumulado = {
                                 "Lucro Líquido Trimestral": "Lucro Líquido Acumulado YTD",
-                                "ROE Trimestral An. (%)": "ROE Ac. Anualizado (%)",
+                                "ROE Trim. Anualizado (%)": "ROE Ac. Anualizado (%)",
                             }
                             coluna_variavel = mapa_acumulado.get(coluna_variavel, coluna_variavel)
                         if coluna_variavel not in df.columns:
