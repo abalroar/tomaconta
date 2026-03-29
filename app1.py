@@ -2813,6 +2813,32 @@ def _formatar_percentual(valor, decimais: int = 2) -> str:
     return f"{_formatar_numero_ptbr(valor_float, decimais)}%"
 
 
+def _formatar_monetario_br_inteligente(valor, decimais: int = 1, usar_sufixo_mm_maiusculo: bool = False) -> str:
+    """Formata valor monetário em pt-BR com unidade automática (MM/bi/tri)."""
+    if valor is None or pd.isna(valor):
+        return "N/D"
+    try:
+        valor_float = float(valor)
+    except Exception:
+        return "N/D"
+
+    abs_v = abs(valor_float)
+    sinal = "-" if valor_float < 0 else ""
+    sufixo_mm = "MM" if usar_sufixo_mm_maiusculo else "mm"
+
+    if abs_v >= 1_000_000_000_000:
+        base = _to_ptbr_decimal(f"{abs_v / 1_000_000_000_000:,.{decimais}f}")
+        return f"{sinal}R$ {base} tri"
+    if abs_v >= 1_000_000_000:
+        base = _to_ptbr_decimal(f"{abs_v / 1_000_000_000:,.{decimais}f}")
+        return f"{sinal}R$ {base} bi"
+    if abs_v >= 1_000_000:
+        base = _to_ptbr_decimal(f"{abs_v / 1_000_000:,.{decimais}f}")
+        return f"{sinal}R$ {base} {sufixo_mm}"
+    base = _to_ptbr_decimal(f"{abs_v:,.2f}")
+    return f"{sinal}R$ {base}"
+
+
 def formatar_valor(valor, variavel):
     if pd.isna(valor) or valor == 0:
         return "N/A"
@@ -2822,8 +2848,7 @@ def formatar_valor(valor, variavel):
     elif variavel in VARS_RAZAO:
         return f"{_formatar_numero_ptbr(valor)}x"
     elif variavel in VARS_MOEDAS:
-        valor_mm = valor / 1e6
-        return f"R$ {valor_mm:,.0f}MM".replace(",", ".")
+        return _formatar_monetario_br_inteligente(valor, decimais=1, usar_sufixo_mm_maiusculo=True)
     elif variavel in VARS_CONTAGEM:
         return f"{valor:,.0f}".replace(",", ".")
     else:
@@ -3210,17 +3235,17 @@ def _resolver_coluna_peers(df: pd.DataFrame, candidatos: list) -> Optional[str]:
 
 def _formatar_valor_peers(valor, format_key: str, coluna_origem: Optional[str] = None) -> str:
     if valor is None or pd.isna(valor):
-        return "—"
+        return "N/D"
     if format_key == "Ativo/PL":
         try:
-            return f"{float(valor):.2f}x"
+            return f"{_formatar_numero_ptbr(float(valor), 2)}x"
         except Exception:
-            return "—"
+            return "N/D"
     if format_key in ("Crédito/PL (%)", "Carteira de Crédito Bruta / PL"):
         try:
-            return f"{float(valor):.2f}x"
+            return f"{_formatar_numero_ptbr(float(valor), 2)}x"
         except Exception:
-            return "—"
+            return "N/D"
     if coluna_origem and "(%)" in coluna_origem:
         try:
             valor_display = _calcular_valores_display(
@@ -3230,19 +3255,19 @@ def _formatar_valor_peers(valor, format_key: str, coluna_origem: Optional[str] =
             ).iloc[0]
             return _formatar_numero_ptbr(valor_display, 2) + "%"
         except Exception:
-            return "—"
+            return "N/D"
     return formatar_valor(valor, format_key)
 
 
 def _fmt_tooltip_mm(valor) -> str:
-    """Formata valor numérico como R$ MM para tooltip."""
+    """Formata valor numérico em pt-BR com escala monetária automática para tooltip."""
     if valor is None:
         return "N/A"
     try:
         v = float(valor)
         if pd.isna(v):
             return "N/A"
-        return f"R$ {v / 1e6:,.0f} MM".replace(",", ".")
+        return _formatar_monetario_br_inteligente(v, decimais=2, usar_sufixo_mm_maiusculo=True)
     except Exception:
         return "N/A"
 
@@ -3784,16 +3809,7 @@ def _formatar_ptbr_memoria_roe(valor, tipo: str = "monetario") -> str:
         base = f"{valor_f:,.2f}%"
         return base.replace(",", "X").replace(".", ",").replace("X", ".")
 
-    abs_v = abs(valor_f)
-    if abs_v >= 1_000_000_000_000:
-        base = f"R$ {valor_f / 1_000_000_000_000:,.2f} tri"
-    elif abs_v >= 1_000_000_000:
-        base = f"R$ {valor_f / 1_000_000_000:,.2f} bi"
-    elif abs_v >= 1_000_000:
-        base = f"R$ {valor_f / 1_000_000:,.2f} MM"
-    else:
-        base = f"R$ {valor_f:,.2f}"
-    return base.replace(",", "X").replace(".", ",").replace("X", ".")
+    return _formatar_monetario_br_inteligente(valor_f, decimais=2, usar_sufixo_mm_maiusculo=True)
 
 
 def _build_memoria_calculo_roe_rankings(df_base: pd.DataFrame, instituicoes: list[str], periodos: list[str]) -> pd.DataFrame:
@@ -5798,17 +5814,17 @@ def _render_peers_table_html(
     .peer-zebra {
         background-color: #f8f9fa;
     }
-    .delta-pos { color: #28a745; margin-left: 4px; position: relative; cursor: help; }
-    .delta-neg { color: #dc3545; margin-left: 4px; position: relative; cursor: help; }
-    .delta-pos:hover .tip-text, .delta-neg:hover .tip-text { display: block; }
+    .delta-pos { color: #28a745; margin-left: 4px; }
+    .delta-neg { color: #dc3545; margin-left: 4px; }
     .peers-table td.has-tip {
         position: relative;
         cursor: help;
     }
     .peers-table .tip-text {
-        display: none;
+        visibility: hidden;
+        opacity: 0;
         position: absolute;
-        bottom: 100%;
+        top: calc(100% + 6px);
         left: 50%;
         transform: translateX(-50%);
         background: #333;
@@ -5824,9 +5840,12 @@ def _render_peers_table_html(
         box-shadow: 0 2px 8px rgba(0,0,0,0.25);
         pointer-events: none;
         line-height: 1.5;
+        transition: opacity .16s ease-in-out, visibility .16s ease-in-out, transform .16s ease-in-out;
     }
     .peers-table td.has-tip:hover .tip-text {
-        display: block;
+        visibility: visible;
+        opacity: 1;
+        transform: translateX(-50%) translateY(1px);
     }
     .peers-table .metric-with-info {
         display: inline-flex;
@@ -5849,15 +5868,19 @@ def _render_peers_table_html(
     }
     .peers-table .metric-info .tip-text {
         min-width: 220px;
+        left: 0;
+        transform: translateX(0);
     }
     .peers-table .metric-info:hover .tip-text {
-        display: block;
+        visibility: visible;
+        opacity: 1;
+        transform: translateY(1px);
     }
     </style>
     <div class="peers-table-wrap"><table class="peers-table">
     <thead>
     <tr>
-        <th rowspan="2">R$ MM e %</th>
+        <th rowspan="2">R$ (auto) e %</th>
     """
 
     for banco in bancos:
@@ -5883,7 +5906,7 @@ def _render_peers_table_html(
                 label_html = (
                     f'<span class="metric-with-info">{label_html}'
                     f'<span class="metric-info" aria-label="Informação da métrica" role="img">i'
-                    f'<span class="tip-text">{gloss_html}</span>'
+                    f'<span class="tip-text tip-metric">{gloss_html}</span>'
                     f'</span></span>'
                 )
             html += f'<tr class="peer-item {zebra_class}"><td>{label_html}</td>'
@@ -5899,18 +5922,13 @@ def _render_peers_table_html(
                     delta_flag = delta_flags.get(chave)
                     delta_tip = (delta_context or {}).get(chave, "")
                     if delta_flag == "up":
-                        if delta_tip:
-                            delta_tip_html = _html_mod.escape(delta_tip).replace("\n", "<br>")
-                            delta_html = f' <span class="delta-pos" aria-label="Variação positiva">▲<span class="tip-text">{delta_tip_html}</span></span>'
-                        else:
-                            delta_html = ' <span class="delta-pos" aria-label="Variação positiva">▲</span>'
+                        delta_html = ' <span class="delta-pos" aria-label="Variação positiva">▲</span>'
                     elif delta_flag == "down":
-                        if delta_tip:
-                            delta_tip_html = _html_mod.escape(delta_tip).replace("\n", "<br>")
-                            delta_html = f' <span class="delta-neg" aria-label="Variação negativa">▼<span class="tip-text">{delta_tip_html}</span></span>'
-                        else:
-                            delta_html = ' <span class="delta-neg" aria-label="Variação negativa">▼</span>'
-                    tip = (tooltips or {}).get(chave, "") if tooltips else ""
+                        delta_html = ' <span class="delta-neg" aria-label="Variação negativa">▼</span>'
+                    tip_base = (tooltips or {}).get(chave, "") if tooltips else ""
+                    tip = tip_base
+                    if delta_tip:
+                        tip = f"{tip_base}\n\n{delta_tip}".strip() if tip_base else delta_tip
                     if tip:
                         tip_html = _html_mod.escape(tip).replace("\n", "<br>")
                         html += f'<td class="has-tip">{valor_fmt}{delta_html}<span class="tip-text">{tip_html}</span></td>'
@@ -5921,6 +5939,84 @@ def _render_peers_table_html(
 
     html += "</tbody></table></div>"
     return html
+
+
+def _build_memoria_calculo_peers_tabela_metrica(
+    df_base: pd.DataFrame,
+    banco: str,
+    periodos: list[str],
+    metrica: str,
+    valores: dict,
+) -> pd.DataFrame:
+    """Monta memória de cálculo da Peers para uma métrica, no padrão componente × período."""
+    rows = []
+
+    if metrica == "ROE Acumulado YTD (%)":
+        df_mem = _build_memoria_calculo_roe_ac_rankings(df_base, [banco], periodos)
+        if df_mem.empty:
+            return pd.DataFrame()
+        return df_mem[df_mem["Instituição"] == banco].copy()
+
+    if metrica == "Índice de Capital Principal (CET1)":
+        df_mem = _build_memoria_calculo_cet1_rankings(df_base, [banco], periodos)
+        if df_mem.empty:
+            return pd.DataFrame()
+        return df_mem[df_mem["Instituição"] == banco].copy()
+
+    if metrica == "Índice de Basileia Total":
+        df_mem = _build_memoria_calculo_basileia_rankings(df_base, [banco], periodos)
+        if df_mem.empty:
+            return pd.DataFrame()
+        return df_mem[df_mem["Instituição"] == banco].copy()
+
+    for periodo in periodos:
+        valor_final = valores.get((metrica, banco, periodo))
+        if metrica == "Ativo Total / PL":
+            ativo = valores.get(("Ativo Total", banco, periodo))
+            pl = valores.get(("Patrimônio Líquido (PL)", banco, periodo))
+            rows.extend([
+                {"Instituição": banco, "Período": periodo, "componente": "Ativo Total", "valor": ativo, "ordem": 1},
+                {"Instituição": banco, "Período": periodo, "componente": "Patrimônio Líquido", "valor": pl, "ordem": 2},
+                {"Instituição": banco, "Período": periodo, "componente": "= Ativo Total ÷ PL", "valor": valor_final, "ordem": 3},
+            ])
+        elif metrica == "Carteira de Crédito* / PL":
+            carteira = valores.get(("Carteira de Crédito*", banco, periodo))
+            pl = valores.get(("Patrimônio Líquido (PL)", banco, periodo))
+            rows.extend([
+                {"Instituição": banco, "Período": periodo, "componente": "Carteira de Crédito*", "valor": carteira, "ordem": 1},
+                {"Instituição": banco, "Período": periodo, "componente": "Patrimônio Líquido", "valor": pl, "ordem": 2},
+                {"Instituição": banco, "Período": periodo, "componente": "= Carteira de Crédito* ÷ PL", "valor": valor_final, "ordem": 3},
+            ])
+        elif metrica == "Perda Esperada / Estágio 3":
+            pe = valores.get(("Perda Esperada", banco, periodo))
+            est3 = valores.get(("Ativos Estágio 3", banco, periodo))
+            rows.extend([
+                {"Instituição": banco, "Período": periodo, "componente": "Perda Esperada", "valor": pe, "ordem": 1},
+                {"Instituição": banco, "Período": periodo, "componente": "Ativos Estágio 3", "valor": est3, "ordem": 2},
+                {"Instituição": banco, "Período": periodo, "componente": "= Perda Esperada ÷ Estágio 3", "valor": valor_final, "ordem": 3},
+            ])
+        elif metrica == "Perda Esperada / Carteira de Crédito*":
+            pe = valores.get(("Perda Esperada", banco, periodo))
+            carteira = valores.get(("Carteira de Crédito*", banco, periodo))
+            rows.extend([
+                {"Instituição": banco, "Período": periodo, "componente": "Perda Esperada", "valor": pe, "ordem": 1},
+                {"Instituição": banco, "Período": periodo, "componente": "Carteira de Crédito*", "valor": carteira, "ordem": 2},
+                {"Instituição": banco, "Período": periodo, "componente": "= Perda Esperada ÷ Carteira de Crédito*", "valor": valor_final, "ordem": 3},
+            ])
+        else:
+            rows.append(
+                {
+                    "Instituição": banco,
+                    "Período": periodo,
+                    "componente": "Valor final",
+                    "valor": valor_final,
+                    "ordem": 1,
+                }
+            )
+
+    if not rows:
+        return pd.DataFrame()
+    return pd.DataFrame(rows)
 
 
 def _periodo_trimestre_anterior(periodo: Optional[str], periodos_disponiveis: list[str]) -> Optional[str]:
@@ -9548,12 +9644,78 @@ elif menu == "Peers (Tabela)":
                     print("[PEERS_PERF]", {k: round(v, 3) for k, v in sorted(peers_perf.items())})
                     _log_roe_trace(df, "peers_pos_render")
 
+                    with st.expander("Memória de cálculo — Peers (Tabela)", expanded=False):
+                        formatos_metrica = {
+                            row["label"]: row["format_key"]
+                            for section in PEERS_TABELA_LAYOUT
+                            for row in section["rows"]
+                        }
+                        metricas_memoria = list(formatos_metrica.keys())
+
+                        def _fmt_memoria_peers(metrica: str, componente: str, valor_ref):
+                            if valor_ref is None or pd.isna(valor_ref):
+                                return "N/D"
+                            comp_txt = str(componente)
+                            if "Fator de anualização" in comp_txt:
+                                return f"{float(valor_ref):.2f}x".replace(".", ",")
+                            if comp_txt.strip().startswith("="):
+                                return _formatar_valor_peers(valor_ref, formatos_metrica.get(metrica, metrica))
+                            return _formatar_monetario_br_inteligente(valor_ref, decimais=2, usar_sufixo_mm_maiusculo=True)
+
+                        tabs_mem_peers = st.tabs(bancos_selecionados)
+                        for tab_mem, banco_mem in zip(tabs_mem_peers, bancos_selecionados):
+                            with tab_mem:
+                                metrica_sel = st.selectbox(
+                                    "Métrica",
+                                    metricas_memoria,
+                                    key=f"peers_memoria_metrica_{banco_mem}",
+                                )
+                                df_metrica = _build_memoria_calculo_peers_tabela_metrica(
+                                    df_base=df,
+                                    banco=banco_mem,
+                                    periodos=periodos_selecionados,
+                                    metrica=metrica_sel,
+                                    valores=valores,
+                                )
+                                if df_metrica.empty:
+                                    st.caption("sem memória de cálculo para esta métrica nos períodos selecionados.")
+                                    continue
+
+                                pivot = (
+                                    df_metrica.pivot_table(
+                                        index="componente",
+                                        columns="Período",
+                                        values="valor",
+                                        aggfunc="first",
+                                    )
+                                    .reset_index()
+                                )
+                                colunas_periodo = [p for p in periodos_selecionados if p in pivot.columns]
+                                for col_per in colunas_periodo:
+                                    pivot[col_per] = pivot.apply(
+                                        lambda row: _fmt_memoria_peers(metrica_sel, row["componente"], row[col_per]),
+                                        axis=1,
+                                    )
+                                mapa_periodos = {p: periodo_para_exibicao(p) for p in colunas_periodo}
+                                pivot = pivot.rename(columns=mapa_periodos)
+
+                                ordem_comp = (
+                                    df_metrica[["componente", "ordem"]]
+                                    .drop_duplicates()
+                                    .sort_values("ordem")["componente"]
+                                    .tolist()
+                                )
+                                pivot["ordem"] = pivot["componente"].map({c: i for i, c in enumerate(ordem_comp)})
+                                pivot = pivot.sort_values("ordem").drop(columns=["ordem"])
+
+                                st.dataframe(pivot, width="stretch", hide_index=True)
+
                     with st.expander("Mini-glossário", expanded=False):
                         st.markdown(
                             """
                         <div style="font-size: 12px; color: #666; margin-top: 8px;">
                             <em>Balanço</em><br>
-                            <strong>Ativo Total</strong> = Ativo Total do balanço principal (Rel. 1).<br>
+                            <strong>Ativo Total</strong> = Ativo Total do balanço principal (Rel. 1, IFData).<br>
                             <strong>Ativos Líquidos</strong> = Disponibilidades (a) + Aplicações Interfinanceiras de Liquidez (b) + Títulos e Valores Mobiliários (c), no relatório de Ativo (Rel. 2).<br>
                             <strong>Carteira de Crédito*</strong> = Soma do Valor Contábil Bruto (e1+f1+g1+h1) no Relatório de Ativo (Rel. 2), onde:<br>
                             e = Operações de Crédito; f = Operações de Arrendamento Financeiro; g = Outras Operações com Características de Concessão de Crédito; h = Valores a Receber de Transações de Pagamentos - Usuários Finais (Pós-pago).<br>
@@ -10336,7 +10498,7 @@ elif menu == "Evolução":
                     label_html = (
                         f'<span class="metric-with-info">{label_html}'
                         f'<span class="metric-info" aria-label="Informação da métrica" role="img">i'
-                        f'<span class="tip-text">{gloss_html}</span>'
+                        f'<span class="tip-text tip-metric">{gloss_html}</span>'
                         f'</span></span>'
                     )
                 html += f'<tr class="{zebra}"><td>{label_html}</td>'
@@ -13952,7 +14114,7 @@ elif menu == "DRE" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo ==
             tooltip = tooltip_por_label.get(label, "")
             if tooltip:
                 tip_html = _html_mod.escape(str(tooltip)).replace("\n", "<br>")
-                info_html = f'<span class="dre-info">ⓘ</span><span class="tip-text">{tip_html}</span>'
+                info_html = f'<span class="dre-info">ⓘ</span><span class="tip-text tip-main">{tip_html}</span>'
             else:
                 info_html = ""
             row_class = "dre-subitem" if entry.get("is_child") else ""
@@ -14998,7 +15160,7 @@ elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolid
             tooltip = tooltip_por_label.get(label, "")
             if tooltip:
                 tip_html = _html_mod.escape(str(tooltip)).replace("\n", "<br>")
-                info_html = f'<span class="dre-info">ⓘ</span><span class="tip-text">{tip_html}</span>'
+                info_html = f'<span class="dre-info">ⓘ</span><span class="tip-text tip-main">{tip_html}</span>'
             else:
                 info_html = ""
             row_class = "dre-subitem" if entry.get("is_child") else ""
@@ -15988,7 +16150,7 @@ elif menu == "__deprecated__Carteira 4.966 (bloco legado DRE-1)":
             tooltip = tooltip_por_label.get(label, "")
             if tooltip:
                 tip_html = _html_mod.escape(str(tooltip)).replace("\n", "<br>")
-                info_html = f'<span class="dre-info">ⓘ</span><span class="tip-text">{tip_html}</span>'
+                info_html = f'<span class="dre-info">ⓘ</span><span class="tip-text tip-main">{tip_html}</span>'
             else:
                 info_html = ""
             row_class = "dre-subitem" if entry.get("is_child") else ""
@@ -16927,7 +17089,7 @@ elif menu == "__deprecated__Carteira 4.966 (bloco legado DRE-2)":
             tooltip = tooltip_por_label.get(label, "")
             if tooltip:
                 tip_html = _html_mod.escape(str(tooltip)).replace("\n", "<br>")
-                info_html = f'<span class="dre-info">ⓘ</span><span class="tip-text">{tip_html}</span>'
+                info_html = f'<span class="dre-info">ⓘ</span><span class="tip-text tip-main">{tip_html}</span>'
             else:
                 info_html = ""
             row_class = "dre-subitem" if entry.get("is_child") else ""
