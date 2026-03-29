@@ -9778,6 +9778,7 @@ elif menu == "Evolução":
 
         # Core Funding: Captações (e) + Instrumentos de Dívida Elegíveis a Capital (h) do Passivo (Rel. 3)
         core_funding_series = None
+        core_funding_memoria_map = {}
         try:
             periodos_evo = df_ano.get("Período", pd.Series(dtype="object")).dropna().unique().tolist()
             cache_passivo = _carregar_cache_relatorio_slice(
@@ -9809,6 +9810,12 @@ elif menu == "Evolução":
             if col_capt or col_instr:
                 core_map = {}
                 for periodo in periodos_evo:
+                    df_cap_per = cache_passivo[
+                        (cache_passivo.get("Instituição", pd.Series(dtype="object")).astype(str) == str(instituicao))
+                        & (cache_passivo.get("Período", pd.Series(dtype="object")).astype(str) == str(periodo))
+                    ].copy()
+                    cap_val = pd.to_numeric(df_cap_per.get(col_capt), errors="coerce").sum(min_count=1) if col_capt else np.nan
+                    ins_val = pd.to_numeric(df_cap_per.get(col_instr), errors="coerce").sum(min_count=1) if col_instr else np.nan
                     core_map[periodo] = _calcular_core_funding(
                         cache_passivo,
                         instituicao,
@@ -9816,16 +9823,19 @@ elif menu == "Evolução":
                         col_capt,
                         col_instr,
                     )
+                    core_funding_memoria_map[periodo] = {"captacoes": cap_val, "instr_capital": ins_val}
                 core_funding_series = df_ano.get("Período", pd.Series(index=df_ano.index)).map(core_map)
         except Exception:
             core_funding_series = None
 
         if core_funding_series is None:
             core_funding_series = _numeric_series(df_ano, "Captações")
+            core_funding_memoria_map = {}
         df_ano["Core Funding"] = core_funding_series
 
         # Carteira de Crédito Bruta: preferir cálculo direto do Rel. 2 (Ativo)
         carteira_bruta_series = None
+        carteira_memoria_map = {}
         try:
             periodos_evo = df_ano.get("Período", pd.Series(dtype="object")).dropna().unique().tolist()
 
@@ -9924,6 +9934,31 @@ elif menu == "Evolução":
                     .sum(min_count=1)
                     .to_dict()
                 )
+                comp_cols = [c for c in [col_d1, col_e1_alt, col_f_outros, col_e1, col_f1, col_g1, col_h1] if c]
+                if comp_cols:
+                    cache_ativo["_d1"] = pd.to_numeric(cache_ativo.get(col_d1), errors="coerce") if col_d1 else np.nan
+                    cache_ativo["_e1_alt"] = pd.to_numeric(cache_ativo.get(col_e1_alt), errors="coerce") if col_e1_alt else np.nan
+                    cache_ativo["_f_outros"] = pd.to_numeric(cache_ativo.get(col_f_outros), errors="coerce") if col_f_outros else np.nan
+                    cache_ativo["_e1"] = pd.to_numeric(cache_ativo.get(col_e1), errors="coerce") if col_e1 else np.nan
+                    cache_ativo["_f1"] = pd.to_numeric(cache_ativo.get(col_f1), errors="coerce") if col_f1 else np.nan
+                    cache_ativo["_g1"] = pd.to_numeric(cache_ativo.get(col_g1), errors="coerce") if col_g1 else np.nan
+                    cache_ativo["_h1"] = pd.to_numeric(cache_ativo.get(col_h1), errors="coerce") if col_h1 else np.nan
+                    comp_df = cache_ativo.groupby("_tri_key", dropna=True).agg(
+                        d1=("_d1", "sum"),
+                        e1_alt=("_e1_alt", "sum"),
+                        f_outros=("_f_outros", "sum"),
+                        e1=("_e1", "sum"),
+                        f1=("_f1", "sum"),
+                        g1=("_g1", "sum"),
+                        h1=("_h1", "sum"),
+                    ).reset_index()
+                    carteira_memoria_map = {
+                        str(r["_tri_key"]): {
+                            "d1": r["d1"], "e1_alt": r["e1_alt"], "f_outros": r["f_outros"],
+                            "e1": r["e1"], "f1": r["f1"], "g1": r["g1"], "h1": r["h1"],
+                        }
+                        for _, r in comp_df.iterrows()
+                    }
                 carteira_bruta_series = df_ano.get("Período", pd.Series(index=df_ano.index)).astype(str).map(_periodo_tri_key).map(bruta_map)
         except Exception:
             carteira_bruta_series = None
@@ -9959,9 +9994,15 @@ elif menu == "Evolução":
         )
         df_capital_idx = _construir_indices_capital_unificados(_cache_version_token("capital"), _alias_signature())
         if not df_capital_idx.empty:
+            # Merge por chave temporal robusta (Ano/Tri) para cobrir variações de formato de Período
+            # entre bases (ex.: "12/2021" vs "4/2021").
+            df_capital_idx = df_capital_idx.copy()
+            chave_cap = df_capital_idx["Período"].astype(str).apply(_parse_periodo)
+            df_capital_idx["Ano"] = chave_cap.apply(lambda x: x[1] if x else np.nan)
+            df_capital_idx["Tri"] = chave_cap.apply(lambda x: _parte_periodo_para_trimestre_idx(x[0]) if x else np.nan)
             df_ano = df_ano.merge(
                 df_capital_idx,
-                on=["Período", "Instituição"],
+                on=["Período", "Instituição", "Ano", "Tri"],
                 how="left",
                 suffixes=("", "_capital_idx"),
             )
@@ -9982,6 +10023,19 @@ elif menu == "Evolução":
             df_ano["Índice de Capital Principal (CET1)"] = np.nan
             df_ano["Índice de Capital T1 (%)"] = np.nan
             df_ano["Índice de Basileia Total (%)"] = np.nan
+
+        periodos_sem_capital = df_ano.loc[
+            df_ano["Índice de Capital Principal (CET1)"].isna()
+            & df_ano["Índice de Capital T1 (%)"].isna()
+            & df_ano["Índice de Basileia Total (%)"].isna(),
+            "LabelPeriodo",
+        ].dropna().tolist()
+        if periodos_sem_capital:
+            st.caption(
+                "Capital indisponível para: "
+                + ", ".join(periodos_sem_capital)
+                + ". Quando não há registro no Rel. 5 para a instituição/período, exibimos N/D."
+            )
 
         graf_cols = {
             "Lucro Líquido": "Lucro Líquido Acumulado YTD",
@@ -10009,7 +10063,7 @@ elif menu == "Evolução":
             go.Bar(
                 x=ano_labels,
                 y=df_graph["Lucro Líquido"],
-                name="Lucro Líquido",
+                name="Lucro Líquido Acumulado",
                 marker_color="#111111",
                 yaxis="y",
             )
@@ -10101,6 +10155,13 @@ elif menu == "Evolução":
                 "Índice de Basileia Total (%)",
             ]
         })
+        evolucao_glossario = {
+            "ROE Ac. Anualizado (%)": "Retorno sobre PL: (Lucro Líquido Acumulado YTD × fator de anualização) ÷ PL médio.",
+            "Carteira de Crédito* / PL": "Carteira de Crédito Bruta ÷ Patrimônio Líquido.",
+            "Índice de Capital Principal (CET1)": "Capital Principal ÷ RWA Total (Rel. 5).",
+            "Índice de Capital T1 (%)": "(Capital Principal + Capital Complementar) ÷ RWA Total (Rel. 5).",
+            "Índice de Basileia Total (%)": "(Capital Principal + Capital Complementar + Capital Nível II) ÷ RWA Total (Rel. 5).",
+        }
         for _, row in df_ano.iterrows():
             periodo_label = row.get("LabelPeriodo", str(int(row["Ano"])))
             df_metric[periodo_label] = [
@@ -10155,6 +10216,19 @@ elif menu == "Evolução":
             .evol-table td:first-child { text-align: left; font-weight: 500; }
             .evol-table td { text-align: right; }
             .evol-zebra { background-color: #f8f9fa; }
+            .evol-table .metric-with-info { display: inline-flex; align-items: center; gap: 6px; }
+            .evol-table .metric-info {
+                display: inline-flex; width: 16px; height: 16px; border-radius: 50%;
+                justify-content: center; align-items: center; background: #eceff1;
+                color: #333; font-size: 11px; font-weight: 700; cursor: help; position: relative;
+            }
+            .evol-table .metric-info .tip-text {
+                display: none; position: absolute; top: 20px; left: 0;
+                background: #333; color: #fff; padding: 8px 10px; border-radius: 4px;
+                font-size: 11px; white-space: normal; z-index: 9999; min-width: 220px; max-width: 340px;
+                text-align: left; box-shadow: 0 2px 8px rgba(0,0,0,0.25); pointer-events: none; line-height: 1.5;
+            }
+            .evol-table .metric-info:hover .tip-text { display: block; }
             </style>
             <div class="evol-table-wrap"><table class="evol-table"><thead><tr><th>Métrica</th>
             """
@@ -10164,7 +10238,18 @@ elif menu == "Evolução":
 
             for idx, row in df_show_local.iterrows():
                 zebra = "evol-zebra" if idx % 2 == 0 else ""
-                html += f'<tr class="{zebra}"><td>{_html_mod.escape(str(row["Métrica"]))}</td>'
+                metrica_label = str(row["Métrica"])
+                label_html = _html_mod.escape(metrica_label)
+                gloss = evolucao_glossario.get(metrica_label)
+                if gloss:
+                    gloss_html = _html_mod.escape(gloss)
+                    label_html = (
+                        f'<span class="metric-with-info">{label_html}'
+                        f'<span class="metric-info" aria-label="Informação da métrica" role="img">i'
+                        f'<span class="tip-text">{gloss_html}</span>'
+                        f'</span></span>'
+                    )
+                html += f'<tr class="{zebra}"><td>{label_html}</td>'
                 for p in periodos_local:
                     html += f"<td>{_html_mod.escape(str(row[p]))}</td>"
                 html += "</tr>"
@@ -10174,6 +10259,94 @@ elif menu == "Evolução":
 
         tabela_html = _render_evolucao_table_html(df_show, periodos_cols)
         st.markdown(tabela_html, unsafe_allow_html=True)
+
+        # Memória de cálculo: componentes de cada variável exibida na Evolução (por período/IF selecionados).
+        with st.expander("Memória de cálculo — Evolução", expanded=False):
+            memoria_rows = []
+            capital_base = _preparar_df_capital_base()
+            if not capital_base.empty and "Instituição" in capital_base.columns:
+                capital_base = capital_base[capital_base["Instituição"] == instituicao].copy()
+            for _, row in df_ano.iterrows():
+                periodo_ref = row.get("Período")
+                label_periodo = row.get("LabelPeriodo", periodo_ref)
+                tri_key_ref = None
+                _parsed_ref = _parse_periodo(periodo_ref) if periodo_ref else None
+                if _parsed_ref:
+                    _parte_ref, _ano_ref, _ = _parsed_ref
+                    _tri_ref = _parte_periodo_para_trimestre_idx(_parte_ref)
+                    if _tri_ref is not None:
+                        tri_key_ref = f"{_tri_ref}/{_ano_ref}"
+                ll = pd.to_numeric(pd.Series([row.get("Lucro Líquido Acumulado YTD")]), errors="coerce").iloc[0]
+                pl = pd.to_numeric(pd.Series([row.get("Patrimônio Líquido")]), errors="coerce").iloc[0]
+                cart = pd.to_numeric(pd.Series([row.get("Carteira de Crédito Bruta")]), errors="coerce").iloc[0]
+                core = pd.to_numeric(pd.Series([row.get("Core Funding")]), errors="coerce").iloc[0]
+                roe = pd.to_numeric(pd.Series([row.get("ROE Ac. Anualizado (%)")]), errors="coerce").iloc[0]
+                cart_pl = pd.to_numeric(pd.Series([row.get("Carteira de Crédito Bruta / PL")]), errors="coerce").iloc[0]
+                comp_cart = carteira_memoria_map.get(str(tri_key_ref), {}) if tri_key_ref else {}
+                comp_core = core_funding_memoria_map.get(periodo_ref, {})
+                cart_memoria = _fmt_mm_plot(cart)
+                if comp_cart and row.get("Ano", 0) >= 2025:
+                    cart_memoria = (
+                        f"{_fmt_mm_plot(comp_cart.get('e1'))} + {_fmt_mm_plot(comp_cart.get('f1'))} + "
+                        f"{_fmt_mm_plot(comp_cart.get('g1'))} + {_fmt_mm_plot(comp_cart.get('h1'))} = {_fmt_mm_plot(cart)}"
+                    )
+                elif comp_cart:
+                    cart_memoria = (
+                        f"{_fmt_mm_plot(comp_cart.get('d1'))} + {_fmt_mm_plot(comp_cart.get('e1_alt'))} + "
+                        f"{_fmt_mm_plot(comp_cart.get('f_outros'))} = {_fmt_mm_plot(cart)}"
+                    )
+                core_memoria = _fmt_mm_plot(core)
+                if comp_core:
+                    core_memoria = (
+                        f"{_fmt_mm_plot(comp_core.get('captacoes'))} + {_fmt_mm_plot(comp_core.get('instr_capital'))} = {_fmt_mm_plot(core)}"
+                    )
+
+                memoria_rows.extend([
+                    {"Período": label_periodo, "Métrica": "Lucro Líquido Acumulado", "Memória de cálculo": _fmt_mm_plot(ll)},
+                    {"Período": label_periodo, "Métrica": "Patrimônio Líquido", "Memória de cálculo": _fmt_mm_plot(pl)},
+                    {"Período": label_periodo, "Métrica": "Carteira de Crédito*", "Memória de cálculo": cart_memoria},
+                    {"Período": label_periodo, "Métrica": "Core Funding*", "Memória de cálculo": core_memoria},
+                    {
+                        "Período": label_periodo,
+                        "Métrica": "Carteira de Crédito* / PL",
+                        "Memória de cálculo": (
+                            f"{_fmt_mm_plot(cart)} ÷ {_fmt_mm_plot(pl)} = {f'{cart_pl:.2f}x'.replace('.', ',') if pd.notna(cart_pl) else 'N/D'}"
+                        ),
+                    },
+                    {
+                        "Período": label_periodo,
+                        "Métrica": "ROE Ac. Anualizado (%)",
+                        "Memória de cálculo": _fmt_pct(roe) if pd.notna(roe) else "N/D",
+                    },
+                ])
+
+                if capital_base.empty or periodo_ref not in capital_base.get("Período", pd.Series(dtype="object")).astype(str).values:
+                    memoria_rows.extend([
+                        {"Período": label_periodo, "Métrica": "Índice de Capital Principal (CET1)", "Memória de cálculo": "N/D (sem Rel. 5 no período/IF)"},
+                        {"Período": label_periodo, "Métrica": "Índice de Capital T1 (%)", "Memória de cálculo": "N/D (sem Rel. 5 no período/IF)"},
+                        {"Período": label_periodo, "Métrica": "Índice de Basileia Total (%)", "Memória de cálculo": "N/D (sem Rel. 5 no período/IF)"},
+                    ])
+                    continue
+
+                cap_per = capital_base[capital_base["Período"].astype(str) == str(periodo_ref)].copy().tail(1)
+                cols_cap, _, _, _ = _mapear_colunas_capital(cap_per)
+                c_princ = pd.to_numeric(cap_per.get(cols_cap.get("Capital Principal")), errors="coerce").iloc[0] if cols_cap.get("Capital Principal") else np.nan
+                c_comp = pd.to_numeric(cap_per.get(cols_cap.get("Capital Complementar")), errors="coerce").iloc[0] if cols_cap.get("Capital Complementar") else np.nan
+                c_n2 = pd.to_numeric(cap_per.get(cols_cap.get("Capital Nível II")), errors="coerce").iloc[0] if cols_cap.get("Capital Nível II") else np.nan
+                rwa = pd.to_numeric(cap_per.get(cols_cap.get("RWA Total")), errors="coerce").iloc[0] if cols_cap.get("RWA Total") else np.nan
+                cet1 = pd.to_numeric(pd.Series([row.get("Índice de Capital Principal (CET1)")]), errors="coerce").iloc[0]
+                t1 = pd.to_numeric(pd.Series([row.get("Índice de Capital T1 (%)")]), errors="coerce").iloc[0]
+                bas = pd.to_numeric(pd.Series([row.get("Índice de Basileia Total (%)")]), errors="coerce").iloc[0]
+                memoria_rows.extend([
+                    {"Período": label_periodo, "Métrica": "Índice de Capital Principal (CET1)", "Memória de cálculo": f"{_fmt_mm_plot(c_princ)} ÷ {_fmt_mm_plot(rwa)} = {_fmt_pct(cet1) if pd.notna(cet1) else 'N/D'}"},
+                    {"Período": label_periodo, "Métrica": "Índice de Capital T1 (%)", "Memória de cálculo": f"({_fmt_mm_plot(c_princ)} + {_fmt_mm_plot(c_comp)}) ÷ {_fmt_mm_plot(rwa)} = {_fmt_pct(t1) if pd.notna(t1) else 'N/D'}"},
+                    {"Período": label_periodo, "Métrica": "Índice de Basileia Total (%)", "Memória de cálculo": f"({_fmt_mm_plot(c_princ)} + {_fmt_mm_plot(c_comp)} + {_fmt_mm_plot(c_n2)}) ÷ {_fmt_mm_plot(rwa)} = {_fmt_pct(bas) if pd.notna(bas) else 'N/D'}"},
+                ])
+
+            if memoria_rows:
+                st.dataframe(pd.DataFrame(memoria_rows), width="stretch", hide_index=True)
+            else:
+                st.info("memória de cálculo indisponível para os filtros atuais.")
 
         col_export1, col_export2, col_export3, col_export4 = st.columns(4)
         buffer_excel_visual = _gerar_excel_evolucao_tabela_visual(
