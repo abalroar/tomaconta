@@ -6789,6 +6789,14 @@ def pagina_snapshot():
     cache_bloprud = None
     cache_ativo = _carregar_cache_relatorio_slice("ativo", _cache_version_token("ativo"), periodos_tuple, bancos_tuple)
     cache_capital = _carregar_cache_relatorio_slice("capital", _cache_version_token("capital"), periodos_tuple, bancos_tuple)
+    cache_bloprud = _carregar_cache_relatorio_slice("bloprudencial", _cache_version_token("bloprudencial"), periodos_tuple, bancos_tuple)
+
+    # Alinhamento com Peers (Tabela): aplicar os mesmos aliases de instituição
+    # antes de calcular métricas extras, evitando divergência de matching por nome.
+    dict_aliases_snapshot = st.session_state.get("dict_aliases", {})
+    cache_ativo = _aplicar_aliases_df(cache_ativo, dict_aliases_snapshot)
+    cache_capital = _aplicar_aliases_df(cache_capital, dict_aliases_snapshot)
+    cache_bloprud = _aplicar_aliases_df(cache_bloprud, dict_aliases_snapshot)
     df_deriv = carregar_metricas_derivadas_slice(
         periodos=periodos_snapshot,
         instituicoes=[banco],
