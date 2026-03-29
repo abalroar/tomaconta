@@ -9316,6 +9316,8 @@ elif False and menu == "Painel":
             st.info("carregando dados automaticamente do github...")
             st.markdown("por favor, aguarde alguns segundos e recarregue a página")
 
+# GUARDA DO DISPATCHER: cada rótulo de `menu` deve aparecer uma única vez
+# neste bloco `if/elif` para evitar branches mortos e comportamento inesperado.
 elif menu == "Snapshot":
     pagina_snapshot()
 
