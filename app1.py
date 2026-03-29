@@ -2835,7 +2835,7 @@ def get_axis_format(variavel, serie: Optional[pd.Series] = None):
     if _is_variavel_percentual(variavel):
         return {'tickformat': '.2f', 'ticksuffix': '%', 'multiplicador': 100}
     elif variavel in VARS_MOEDAS:
-        return {'tickformat': ',.0f', 'ticksuffix': 'M', 'multiplicador': 1/1e6}
+        return {'tickformat': ',.0f', 'tickprefix': 'R$ ', 'ticksuffix': ' MM', 'multiplicador': 1/1e6}
     elif variavel in VARS_CONTAGEM:
         return {'tickformat': ',.0f', 'ticksuffix': '', 'multiplicador': 1}
     else:
@@ -4321,6 +4321,8 @@ def _build_scatter_var_options(colunas: list) -> Tuple[list, Dict[str, str]]:
         "Patrimônio de Referência para Comparação com RWA",
     }
     opcoes_base = [c for c in colunas if c not in excluidas]
+    if "Lucro Líquido Trimestral" not in opcoes_base and "Lucro Líquido" in opcoes_base:
+        opcoes_base.append("Lucro Líquido Trimestral")
     display_to_internal = {c: c for c in opcoes_base}
 
     aliases_ui = {
@@ -4338,6 +4340,8 @@ def _build_scatter_var_options(colunas: list) -> Tuple[list, Dict[str, str]]:
 
     for label_ui, candidatos in aliases_ui.items():
         interno = next((c for c in candidatos if c in opcoes_base), None)
+        if label_ui == "Lucro Líquido Trimestral" and "Lucro Líquido Trimestral" in opcoes_base:
+            interno = "Lucro Líquido Trimestral"
         if not interno:
             continue
         display_to_internal[label_ui] = interno
@@ -4378,14 +4382,17 @@ def _format_scatter_label_value(valor, format_info: dict, usar_mm_numeral: bool 
     if valor is None or pd.isna(valor):
         return "N/A"
     tickformat = format_info.get('tickformat', '.2f')
+    tickprefix = format_info.get('tickprefix', '')
     ticksuffix = format_info.get('ticksuffix', '')
-    if usar_mm_numeral and ticksuffix == 'M':
-        ticksuffix = 'MM'
+    if usar_mm_numeral and ticksuffix.strip() == 'M':
+        ticksuffix = f" {ticksuffix}" if not ticksuffix.startswith(' ') else ticksuffix
+    if usar_mm_numeral and ticksuffix.strip() == 'MM' and not ticksuffix.startswith(' '):
+        ticksuffix = f" {ticksuffix}"
     try:
         valor_fmt = f"{valor:{tickformat}}"
-        if any(ch in tickformat for ch in ["f", "g", "%"]):
+        if any(ch in tickformat for ch in [",", "f", "g", "%"]):
             valor_fmt = _to_ptbr_decimal(valor_fmt)
-        return f"{valor_fmt}{ticksuffix}"
+        return f"{tickprefix}{valor_fmt}{ticksuffix}"
     except Exception:
         return str(valor)
 
@@ -7969,7 +7976,13 @@ def get_scatter_periodo_df(periodo: str, principal_token: str, derived_token: st
     df_periodo = df_base[df_base['Período'] == periodo].copy()
     df_periodo = _garantir_indice_basileia_coluna(df_periodo)
     df_periodo = _ajustar_basileia_para_scatter(df_periodo)
-    return anexar_metricas_derivadas_periodo(df_periodo, periodo)
+    df_periodo, diag = anexar_metricas_derivadas_periodo(df_periodo, periodo)
+    if 'Lucro Líquido Trimestral' not in df_periodo.columns:
+        if 'Lucro Líquido' in df_periodo.columns:
+            df_periodo['Lucro Líquido Trimestral'] = pd.to_numeric(df_periodo['Lucro Líquido'], errors='coerce')
+        else:
+            df_periodo['Lucro Líquido Trimestral'] = pd.NA
+    return df_periodo, diag
 
 
 # FIX PROBLEMA 3: Busca de cor com normalização
@@ -10437,8 +10450,16 @@ elif menu == "Scatter Plot":
             paper_bgcolor='white',
             showlegend=True,
             legend=dict(orientation="v", yanchor="top", y=1, xanchor="left", x=1.02),
-            xaxis=dict(tickformat=format_x['tickformat'], ticksuffix=format_x['ticksuffix']),
-            yaxis=dict(tickformat=format_y['tickformat'], ticksuffix=format_y['ticksuffix']),
+            xaxis=dict(
+                tickformat=format_x['tickformat'],
+                tickprefix=format_x.get('tickprefix', ''),
+                ticksuffix=format_x['ticksuffix'],
+            ),
+            yaxis=dict(
+                tickformat=format_y['tickformat'],
+                tickprefix=format_y.get('tickprefix', ''),
+                ticksuffix=format_y['ticksuffix'],
+            ),
             font=dict(family='IBM Plex Sans')
         )
 
@@ -10738,8 +10759,16 @@ elif menu == "Scatter Plot":
                     paper_bgcolor='white',
                     showlegend=True,
                     legend=dict(orientation="v", yanchor="top", y=1, xanchor="left", x=1.02),
-                    xaxis=dict(tickformat=format_x_n2['tickformat'], ticksuffix=format_x_n2['ticksuffix']),
-                    yaxis=dict(tickformat=format_y_n2['tickformat'], ticksuffix=format_y_n2['ticksuffix']),
+                    xaxis=dict(
+                        tickformat=format_x_n2['tickformat'],
+                        tickprefix=format_x_n2.get('tickprefix', ''),
+                        ticksuffix=format_x_n2['ticksuffix'],
+                    ),
+                    yaxis=dict(
+                        tickformat=format_y_n2['tickformat'],
+                        tickprefix=format_y_n2.get('tickprefix', ''),
+                        ticksuffix=format_y_n2['ticksuffix'],
+                    ),
                     font=dict(family='IBM Plex Sans')
                 )
 
