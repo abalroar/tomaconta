@@ -6788,7 +6788,6 @@ def pagina_snapshot():
     t_dados = time.perf_counter()
     cache_ativo = _carregar_cache_relatorio_slice("ativo", _cache_version_token("ativo"), periodos_tuple, bancos_tuple)
     cache_capital = _carregar_cache_relatorio_slice("capital", _cache_version_token("capital"), periodos_tuple, bancos_tuple)
-    cache_bloprud = _carregar_cache_relatorio_slice("bloprudencial", _cache_version_token("bloprudencial"), periodos_tuple, bancos_tuple)
     df_deriv = carregar_metricas_derivadas_slice(
         periodos=periodos_snapshot,
         instituicoes=[banco],
@@ -6835,8 +6834,22 @@ def pagina_snapshot():
     col_ll_ytd = _snapshot_pick_col(df_inst, ["Lucro Líquido Acumulado YTD"])
     ll_ytd_map = {p: _coerce_numeric_value(_obter_valor_peers(df_inst, banco, p, col_ll_ytd)) if col_ll_ytd else None for p in periodos_snapshot}
 
-    stage3_map, pdd_map = _snapshot_bloprud_stage3_pdd_por_periodo(cache_bloprud, banco, periodos_snapshot)
     cet1_map, bas_map = _snapshot_capital_indices_por_periodo(cache_capital, banco, periodos_snapshot)
+
+    col_perda_est3 = _snapshot_pick_col(df_inst, ["Perda Esperada / Estágio 3"])
+    perda_est3_map = {
+        p: _coerce_numeric_value(_obter_valor_peers(df_inst, banco, p, col_perda_est3)) if col_perda_est3 else None
+        for p in periodos_snapshot
+    }
+
+    col_perda_carteira = _snapshot_pick_col(
+        df_inst,
+        ["Perda Esperada / Carteira de Crédito*", "Perda Esperada / Carteira de Crédito"],
+    )
+    perda_carteira_map = {
+        p: _coerce_numeric_value(_obter_valor_peers(df_inst, banco, p, col_perda_carteira)) if col_perda_carteira else None
+        for p in periodos_snapshot
+    }
 
     # --- New data maps: ROE ---
     col_roe_tri = _snapshot_pick_col(
@@ -6886,8 +6899,8 @@ def pagina_snapshot():
     spark_roe_ac = _spark_from_map(roe_ac_map)
     spark_credito_capt = _spark_from_map(credito_capt_map)
     spark_desp_capt = _spark_from_map(desp_capt_map)
-    spark_estagio3 = _spark_from_map({p: _calcular_ratio_peers(stage3_map.get(p), carteira_map.get(p)) for p in periodos_sparkline})
-    spark_pdd_estagio3 = _spark_from_map({p: _calcular_ratio_peers(pdd_map.get(p), stage3_map.get(p)) for p in periodos_sparkline})
+    spark_perda_est3 = _spark_series(["Perda Esperada / Estágio 3"])
+    spark_perda_carteira = _spark_series(["Perda Esperada / Carteira de Crédito*", "Perda Esperada / Carteira de Crédito"])
     spark_cet1 = _spark_from_map(cet1_map)
     spark_basileia = _spark_from_map(bas_map)
 
@@ -6966,14 +6979,14 @@ def pagina_snapshot():
         {
             "section": "Qualidade de Carteira",
             "rows": [
-                {"label": "Estágio 3 / Carteira", "format_key": "Perda Esperada / Estágio 3",
+                {"label": "Perda Esperada / Estágio 3", "format_key": "Perda Esperada / Estágio 3",
                  "higher_is_better": False, "is_pct": True,
-                 "serie": {p: _calcular_ratio_peers(stage3_map.get(p), carteira_map.get(p)) for p in periodos_snapshot},
-                 "source": "BLOPrudencial (Cadoc 4060 — conta 3313000000) ÷ Carteira Bruta"},
-                {"label": "PDD / Estágio 3", "format_key": "PDD / Estágio 3",
-                 "higher_is_better": True, "is_pct": True,
-                 "serie": {p: _calcular_ratio_peers(pdd_map.get(p), stage3_map.get(p)) for p in periodos_snapshot},
-                 "source": "BLOPrudencial (PDD Crédito + PDD Outros) ÷ Estágio 3"},
+                 "serie": perda_est3_map,
+                 "source": "Peers (Tabela): Perda Esperada (Rel. 2) ÷ Ativos Estágio 3 (Cadoc 4060)"},
+                {"label": "Perda Esperada / Carteira", "format_key": "Perda Esperada / Carteira de Crédito*",
+                 "higher_is_better": False, "is_pct": True,
+                 "serie": perda_carteira_map,
+                 "source": "Peers (Tabela): Perda Esperada ÷ Carteira de Crédito Bruta"},
             ],
         },
         {
@@ -6988,7 +7001,7 @@ def pagina_snapshot():
 
     section_sparklines = {
         "Funding": [spark_credito_capt, spark_desp_capt],
-        "Qualidade de Carteira": [spark_estagio3, spark_pdd_estagio3],
+        "Qualidade de Carteira": [spark_perda_est3, spark_perda_carteira],
         "Capital": [spark_cet1],
     }
     section_spark_types = {
