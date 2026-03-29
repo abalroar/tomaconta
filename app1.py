@@ -13799,7 +13799,7 @@ elif menu == "DRE" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo ==
         _default_dre = _encontrar_bancos_default(instituicoes_label, [("itau", "itaú")])
         _idx_dre = instituicoes_label.index(_default_dre[0]) if _default_dre else 0
 
-        col_inst, col_ano = st.columns([1, 1])
+        col_inst, col_ano, col_base = st.columns([1, 1, 1])
         with col_inst:
             instituicao_selecionada_raw = st.selectbox(
                 "Instituição",
@@ -13814,6 +13814,13 @@ elif menu == "DRE" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo ==
                 anos_disponiveis[::-1],
                 index=0,
                 key="dre_ano"
+            )
+        with col_base:
+            base_comparacao = st.selectbox(
+                "Base lucro",
+                ["Lucro Líquido Acumulado", "Lucro Líquido Trimestral"],
+                index=0,
+                key="dre_base_comparacao_lucro",
             )
 
         instituicao_selecionada = _formatar_opcao_instituicao_dre(instituicao_selecionada_raw)
@@ -13882,6 +13889,15 @@ elif menu == "DRE" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo ==
             tooltip_por_label[entry["label"]] = "\n".join(tooltip_parts)
 
             label_exib = entry["label"]
+            if (
+                entry.get("label") == "Lucro Líquido Período Acumulado"
+                and base_comparacao == "Lucro Líquido Trimestral"
+            ):
+                label_exib = "Lucro Líquido Trimestral"
+                tooltip_por_label[entry["label"]] = (
+                    (tooltip_por_label.get(entry["label"], "") + "\n").strip()
+                    + "Exibição trimestral (Rel. 4): Lucro Líquido (aa) = (x) + (y) + (z)."
+                ).strip()
             entrada_copy = entry.copy()
             entrada_copy["label_exib"] = label_exib
             entradas_com_label.append(entrada_copy)
@@ -13901,6 +13917,8 @@ elif menu == "DRE" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo ==
                 _filtro_ano_ytd & (df_ytd_base["InstituicaoKey"] == _inst_key_sel)
             ].copy()
         df_filtrado_base = df_filtrado.copy()
+        lucro_label_dre = "Lucro Líquido Período Acumulado"
+        usar_lucro_trimestral = base_comparacao == "Lucro Líquido Trimestral"
 
         diag_info = {}
         if st.session_state.get("modo_diagnostico"):
@@ -14052,6 +14070,12 @@ elif menu == "DRE" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo ==
                 .drop_duplicates(subset=["Label", "Periodo"], keep="last")
             )
             df_filtrado = pd.concat([df_filtrado, df_derived_filtrado], ignore_index=True)
+            if usar_lucro_trimestral:
+                df_filtrado = df_filtrado[df_filtrado["Label"] != lucro_label_dre]
+                df_lucro_tri = df_derived_filtrado[df_derived_filtrado["Label"] == "Lucro Líquido Trimestral"].copy()
+                if not df_lucro_tri.empty:
+                    df_lucro_tri["Label"] = lucro_label_dre
+                    df_filtrado = pd.concat([df_filtrado, df_lucro_tri], ignore_index=True)
 
         if st.session_state.get("modo_diagnostico"):
             diag_info["derived_slice_mb"] = _df_mem_mb(df_derived_slice)
@@ -14949,11 +14973,18 @@ elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolid
         st.stop()
 
     visoes = ["Soma das Partes"] + selecionadas_labels
-    col_ano, col_visao = st.columns([1, 2])
+    col_ano, col_visao, col_base = st.columns([1, 2, 1])
     with col_ano:
         ano_selecionado = st.selectbox("Ano", anos_disponiveis[::-1], index=0, key="dre_individual_ano")
     with col_visao:
         visao_sel = st.selectbox("Visão exibida", options=visoes, index=0, key="dre_individual_visao")
+    with col_base:
+        base_comparacao = st.selectbox(
+            "Base lucro",
+            ["Lucro Líquido Acumulado", "Lucro Líquido Trimestral"],
+            index=0,
+            key="dre_individual_base_comparacao_lucro",
+        )
 
     if visao_sel == "Soma das Partes":
         nome_visao = "Soma das Partes — Seleção Atual"
@@ -15024,7 +15055,17 @@ elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolid
                 tooltip_parts.append(f"Status do mapeamento: {cosif_info['status']}")
         tooltip_por_label[entry["label"]] = "\n".join(tooltip_parts)
         entrada_copy = entry.copy()
-        entrada_copy["label_exib"] = entry["label"]
+        label_exib = entry["label"]
+        if (
+            entry.get("label") == "Lucro Líquido Período Acumulado"
+            and base_comparacao == "Lucro Líquido Trimestral"
+        ):
+            label_exib = "Lucro Líquido Trimestral"
+            tooltip_por_label[entry["label"]] = (
+                (tooltip_por_label.get(entry["label"], "") + "\n").strip()
+                + "Exibição trimestral (Rel. 4): Lucro Líquido (aa) = (x) + (y) + (z)."
+            ).strip()
+        entrada_copy["label_exib"] = label_exib
         entradas_com_label.append(entrada_copy)
 
     df_filtrado = df_ytd_base[df_ytd_base["ano"] == int(ano_selecionado)].copy()
@@ -15032,6 +15073,8 @@ elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolid
         st.warning("Não há dados DRE para o ano selecionado.")
         st.stop()
     df_filtrado_base = df_filtrado.copy()
+    lucro_label_dre = "Lucro Líquido Período Acumulado"
+    usar_lucro_trimestral = base_comparacao == "Lucro Líquido Trimestral"
 
     tooltip_celula = {}
     try:
@@ -15051,6 +15094,12 @@ elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolid
             .drop_duplicates(subset=["Label", "Periodo"], keep="last")
         )
         df_filtrado = pd.concat([df_filtrado, df_derived_view], ignore_index=True)
+        if usar_lucro_trimestral:
+            df_filtrado = df_filtrado[df_filtrado["Label"] != lucro_label_dre]
+            df_lucro_tri = df_derived_view[df_derived_view["Label"] == "Lucro Líquido Trimestral"].copy()
+            if not df_lucro_tri.empty:
+                df_lucro_tri["Label"] = lucro_label_dre
+                df_filtrado = pd.concat([df_filtrado, df_lucro_tri], ignore_index=True)
 
         if not df_base.empty:
             _df_calc_base = df_base[df_base["ano"] == int(ano_selecionado)].copy()
@@ -15866,11 +15915,18 @@ elif menu == "Carteira 4.966":
         st.stop()
 
     visoes = ["Soma das Partes"] + selecionadas_labels
-    col_ano, col_visao = st.columns([1, 2])
+    col_ano, col_visao, col_base = st.columns([1, 2, 1])
     with col_ano:
         ano_selecionado = st.selectbox("Ano", anos_disponiveis[::-1], index=0, key="dre_individual_ano")
     with col_visao:
         visao_sel = st.selectbox("Visão exibida", options=visoes, index=0, key="dre_individual_visao")
+    with col_base:
+        base_comparacao = st.selectbox(
+            "Base lucro",
+            ["Lucro Líquido Acumulado", "Lucro Líquido Trimestral"],
+            index=0,
+            key="dre_individual_base_comparacao_lucro",
+        )
 
     if visao_sel == "Soma das Partes":
         nome_visao = "Soma das Partes — Seleção Atual"
@@ -15941,7 +15997,17 @@ elif menu == "Carteira 4.966":
                 tooltip_parts.append(f"Status do mapeamento: {cosif_info['status']}")
         tooltip_por_label[entry["label"]] = "\n".join(tooltip_parts)
         entrada_copy = entry.copy()
-        entrada_copy["label_exib"] = entry["label"]
+        label_exib = entry["label"]
+        if (
+            entry.get("label") == "Lucro Líquido Período Acumulado"
+            and base_comparacao == "Lucro Líquido Trimestral"
+        ):
+            label_exib = "Lucro Líquido Trimestral"
+            tooltip_por_label[entry["label"]] = (
+                (tooltip_por_label.get(entry["label"], "") + "\n").strip()
+                + "Exibição trimestral (Rel. 4): Lucro Líquido (aa) = (x) + (y) + (z)."
+            ).strip()
+        entrada_copy["label_exib"] = label_exib
         entradas_com_label.append(entrada_copy)
 
     df_filtrado = df_ytd_base[df_ytd_base["ano"] == int(ano_selecionado)].copy()
@@ -15949,6 +16015,8 @@ elif menu == "Carteira 4.966":
         st.warning("Não há dados DRE para o ano selecionado.")
         st.stop()
     df_filtrado_base = df_filtrado.copy()
+    lucro_label_dre = "Lucro Líquido Período Acumulado"
+    usar_lucro_trimestral = base_comparacao == "Lucro Líquido Trimestral"
 
     tooltip_celula = {}
     try:
@@ -15968,6 +16036,12 @@ elif menu == "Carteira 4.966":
             .drop_duplicates(subset=["Label", "Periodo"], keep="last")
         )
         df_filtrado = pd.concat([df_filtrado, df_derived_view], ignore_index=True)
+        if usar_lucro_trimestral:
+            df_filtrado = df_filtrado[df_filtrado["Label"] != lucro_label_dre]
+            df_lucro_tri = df_derived_view[df_derived_view["Label"] == "Lucro Líquido Trimestral"].copy()
+            if not df_lucro_tri.empty:
+                df_lucro_tri["Label"] = lucro_label_dre
+                df_filtrado = pd.concat([df_filtrado, df_lucro_tri], ignore_index=True)
 
         if not df_base.empty:
             _df_calc_base = df_base[df_base["ano"] == int(ano_selecionado)].copy()
@@ -16846,11 +16920,18 @@ elif menu == "Carteira 4.966":
         st.stop()
 
     visoes = ["Soma das Partes"] + selecionadas_labels
-    col_ano, col_visao = st.columns([1, 2])
+    col_ano, col_visao, col_base = st.columns([1, 2, 1])
     with col_ano:
         ano_selecionado = st.selectbox("Ano", anos_disponiveis[::-1], index=0, key="dre_individual_ano")
     with col_visao:
         visao_sel = st.selectbox("Visão exibida", options=visoes, index=0, key="dre_individual_visao")
+    with col_base:
+        base_comparacao = st.selectbox(
+            "Base lucro",
+            ["Lucro Líquido Acumulado", "Lucro Líquido Trimestral"],
+            index=0,
+            key="dre_individual_base_comparacao_lucro",
+        )
 
     if visao_sel == "Soma das Partes":
         nome_visao = f"Soma das Partes — {conglomerado_sel}"
@@ -16921,7 +17002,17 @@ elif menu == "Carteira 4.966":
                 tooltip_parts.append(f"Status do mapeamento: {cosif_info['status']}")
         tooltip_por_label[entry["label"]] = "\n".join(tooltip_parts)
         entrada_copy = entry.copy()
-        entrada_copy["label_exib"] = entry["label"]
+        label_exib = entry["label"]
+        if (
+            entry.get("label") == "Lucro Líquido Período Acumulado"
+            and base_comparacao == "Lucro Líquido Trimestral"
+        ):
+            label_exib = "Lucro Líquido Trimestral"
+            tooltip_por_label[entry["label"]] = (
+                (tooltip_por_label.get(entry["label"], "") + "\n").strip()
+                + "Exibição trimestral (Rel. 4): Lucro Líquido (aa) = (x) + (y) + (z)."
+            ).strip()
+        entrada_copy["label_exib"] = label_exib
         entradas_com_label.append(entrada_copy)
 
     df_filtrado = df_ytd_base[df_ytd_base["ano"] == int(ano_selecionado)].copy()
@@ -16929,6 +17020,8 @@ elif menu == "Carteira 4.966":
         st.warning("Não há dados DRE para o ano selecionado.")
         st.stop()
     df_filtrado_base = df_filtrado.copy()
+    lucro_label_dre = "Lucro Líquido Período Acumulado"
+    usar_lucro_trimestral = base_comparacao == "Lucro Líquido Trimestral"
 
     tooltip_celula = {}
     try:
@@ -16948,6 +17041,12 @@ elif menu == "Carteira 4.966":
             .drop_duplicates(subset=["Label", "Periodo"], keep="last")
         )
         df_filtrado = pd.concat([df_filtrado, df_derived_view], ignore_index=True)
+        if usar_lucro_trimestral:
+            df_filtrado = df_filtrado[df_filtrado["Label"] != lucro_label_dre]
+            df_lucro_tri = df_derived_view[df_derived_view["Label"] == "Lucro Líquido Trimestral"].copy()
+            if not df_lucro_tri.empty:
+                df_lucro_tri["Label"] = lucro_label_dre
+                df_filtrado = pd.concat([df_filtrado, df_lucro_tri], ignore_index=True)
 
         if not df_base.empty:
             _df_calc_base = df_base[df_base["ano"] == int(ano_selecionado)].copy()
