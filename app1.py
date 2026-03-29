@@ -10285,20 +10285,17 @@ elif menu == "Scatter Plot":
         var_y = scatter_display_to_internal.get(var_y_ui, var_y_ui)
         var_size = scatter_display_to_internal.get(var_size_ui, var_size_ui) if var_size_ui != 'Tamanho Fixo' else 'Tamanho Fixo'
 
-        # Segunda linha: Top N e variável de ordenação
-        col_t1, col_t2, col_t3 = st.columns([1, 1, 2])
-
+        # Segunda linha: Pool Top N único (Ativo Total)
+        col_t1, col_t2 = st.columns([1, 2])
         with col_t1:
-            top_n_scatter = st.slider("top n", 5, 50, 5)
-        with col_t2:
-            prefer_credito = _prefer_carteira_bruta(colunas_numericas)
-            prefer_credito_ui = _scatter_preferred_ui_option(colunas_scatter, scatter_display_to_internal, prefer_credito)
-            var_top_n_ui = st.selectbox(
-                "top n por",
-                colunas_scatter,
-                index=colunas_scatter.index(prefer_credito_ui) if prefer_credito_ui in colunas_scatter else 0,
+            pool_scatter = st.selectbox(
+                "pool",
+                ["Top 5", "Top 10", "Top 15", "Top 20"],
+                index=1,
+                key="pool_scatter_top_n",
             )
-            var_top_n = scatter_display_to_internal.get(var_top_n_ui, var_top_n_ui)
+            top_map_scatter = {"Top 5": 5, "Top 10": 10, "Top 15": 15, "Top 20": 20}
+            top_n_scatter = top_map_scatter[pool_scatter]
 
         # Terceira linha: Seleção de bancos
         col_f = st.columns(1)[0]
@@ -10328,9 +10325,9 @@ elif menu == "Scatter Plot":
             # Usa os bancos selecionados no multiselect
             df_scatter = df_periodo[df_periodo['Instituição'].isin(bancos_selecionados)]
         else:
-            # Usa top N pela variável selecionada (remove NaN antes)
-            df_periodo_valid = df_periodo.dropna(subset=[var_top_n])
-            df_scatter = df_periodo_valid.nlargest(top_n_scatter, var_top_n)
+            # Usa Top N por Ativo Total no período selecionado
+            top_bancos_t1 = _obter_top_instituicoes_por_ativo(df_periodo, top_n_scatter)
+            df_scatter = df_periodo[df_periodo['Instituição'].isin(top_bancos_t1)]
 
         format_x = get_axis_format(var_x, df_scatter[var_x] if var_x in df_scatter.columns else None)
         format_y = get_axis_format(var_y, df_scatter[var_y] if var_y in df_scatter.columns else None)
@@ -10418,7 +10415,7 @@ elif menu == "Scatter Plot":
         if bancos_selecionados:
             titulo_scatter = f'{scatter_internal_to_display.get(var_y, var_y)} vs {scatter_internal_to_display.get(var_x, var_x)} - {periodo_scatter} ({len(df_scatter)} bancos)'
         else:
-            titulo_scatter = f'{scatter_internal_to_display.get(var_y, var_y)} vs {scatter_internal_to_display.get(var_x, var_x)} - {periodo_scatter} (top {top_n_scatter} por {scatter_internal_to_display.get(var_top_n, var_top_n)})'
+            titulo_scatter = f'{scatter_internal_to_display.get(var_y, var_y)} vs {scatter_internal_to_display.get(var_x, var_x)} - {periodo_scatter} ({pool_scatter})'
 
         fig_scatter.update_layout(
             title=titulo_scatter,
@@ -10495,22 +10492,9 @@ elif menu == "Scatter Plot":
         var_x_n2 = scatter_display_to_internal.get(var_x_n2, var_x_n2)
         var_y_n2 = scatter_display_to_internal.get(var_y_n2, var_y_n2)
 
-        # Segunda linha: Top N e tamanho
-        col_n2_t1, col_n2_t2, col_n2_t3 = st.columns([1, 1, 2])
-
+        # Segunda linha: tamanho
+        col_n2_t1 = st.columns(1)[0]
         with col_n2_t1:
-            top_n_scatter_n2 = st.slider("top n", 5, 50, 5, key="top_n_n2")
-        with col_n2_t2:
-            prefer_credito = _prefer_carteira_bruta(colunas_numericas)
-            prefer_credito_ui = _scatter_preferred_ui_option(colunas_scatter, scatter_display_to_internal, prefer_credito)
-            var_top_n_n2_ui = st.selectbox(
-                "top n por",
-                colunas_scatter,
-                index=colunas_scatter.index(prefer_credito_ui) if prefer_credito_ui in colunas_scatter else 0,
-                key="var_top_n_n2"
-            )
-            var_top_n_n2 = scatter_display_to_internal.get(var_top_n_n2_ui, var_top_n_n2_ui)
-        with col_n2_t3:
             opcoes_tamanho_n2 = ['Tamanho Fixo'] + colunas_scatter
             var_size_n2_ui = st.selectbox("tamanho", opcoes_tamanho_n2, index=0, key="var_size_n2")
             var_size_n2 = scatter_display_to_internal.get(var_size_n2_ui, var_size_n2_ui) if var_size_n2_ui != "Tamanho Fixo" else "Tamanho Fixo"
@@ -10550,9 +10534,16 @@ elif menu == "Scatter Plot":
                 df_p1 = df_p1[df_p1['Instituição'].isin(bancos_selecionados_n2)]
                 df_p2 = df_p2[df_p2['Instituição'].isin(bancos_selecionados_n2)]
             else:
-                # Usa top N do período subsequente (mais recente)
-                df_p2_valid = df_p2.dropna(subset=[var_top_n_n2])
-                top_bancos = df_p2_valid.nlargest(top_n_scatter_n2, var_top_n_n2)['Instituição'].tolist()
+                # Usa Top N por Ativo Total no período mais recente entre inicial e subsequente
+                periodo_ref_top_n2 = periodo_subseq
+                if periodo_inicial in periodos and periodo_subseq in periodos:
+                    periodo_ref_top_n2 = (
+                        periodo_inicial
+                        if periodos.index(periodo_inicial) < periodos.index(periodo_subseq)
+                        else periodo_subseq
+                    )
+                df_ref_top_n2 = df_p1 if periodo_ref_top_n2 == periodo_inicial else df_p2
+                top_bancos = _obter_top_instituicoes_por_ativo(df_ref_top_n2, top_n_scatter)
                 df_p1 = df_p1[df_p1['Instituição'].isin(top_bancos)]
                 df_p2 = df_p2[df_p2['Instituição'].isin(top_bancos)]
 
@@ -10725,7 +10716,7 @@ elif menu == "Scatter Plot":
                 if bancos_selecionados_n2:
                     titulo_scatter_n2 = f'{scatter_internal_to_display.get(var_y_n2, var_y_n2)} vs {scatter_internal_to_display.get(var_x_n2, var_x_n2)} - {periodo_inicial} → {periodo_subseq} ({len(bancos_comuns)} bancos)'
                 else:
-                    titulo_scatter_n2 = f'{scatter_internal_to_display.get(var_y_n2, var_y_n2)} vs {scatter_internal_to_display.get(var_x_n2, var_x_n2)} - {periodo_inicial} → {periodo_subseq} (top {top_n_scatter_n2} por {scatter_internal_to_display.get(var_top_n_n2, var_top_n_n2)})'
+                    titulo_scatter_n2 = f'{scatter_internal_to_display.get(var_y_n2, var_y_n2)} vs {scatter_internal_to_display.get(var_x_n2, var_x_n2)} - {periodo_inicial} → {periodo_subseq} ({pool_scatter})'
 
                 fig_scatter_n2.update_layout(
                     title=titulo_scatter_n2,
