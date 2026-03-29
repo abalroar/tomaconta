@@ -6836,20 +6836,22 @@ def pagina_snapshot():
 
     cet1_map, bas_map = _snapshot_capital_indices_por_periodo(cache_capital, banco, periodos_snapshot)
 
-    col_perda_est3 = _snapshot_pick_col(df_inst, ["Perda Esperada / Estágio 3"])
-    perda_est3_map = {
-        p: _coerce_numeric_value(_obter_valor_peers(df_inst, banco, p, col_perda_est3)) if col_perda_est3 else None
-        for p in periodos_snapshot
-    }
-
-    col_perda_carteira = _snapshot_pick_col(
-        df_inst,
-        ["Perda Esperada / Carteira de Crédito*", "Perda Esperada / Carteira de Crédito"],
+    extra_snapshot = _preparar_metricas_extra_peers(
+        bancos=[banco],
+        periodos=periodos_snapshot,
+        cache_ativo=cache_ativo,
+        cache_passivo=None,
+        cache_carteira_pf=None,
+        cache_carteira_pj=None,
+        cache_carteira_instr=None,
+        cache_dre=None,
+        cache_capital=cache_capital,
+        cache_bloprudencial=cache_bloprud,
     )
-    perda_carteira_map = {
-        p: _coerce_numeric_value(_obter_valor_peers(df_inst, banco, p, col_perda_carteira)) if col_perda_carteira else None
-        for p in periodos_snapshot
-    }
+    perda_est3_raw = (extra_snapshot or {}).get("Perda Esperada / Estágio 3", {})
+    perda_carteira_raw = (extra_snapshot or {}).get("Perda Esperada / Carteira de Crédito*", {})
+    perda_est3_map = {p: _coerce_numeric_value(perda_est3_raw.get((banco, p))) for p in periodos_snapshot}
+    perda_carteira_map = {p: _coerce_numeric_value(perda_carteira_raw.get((banco, p))) for p in periodos_snapshot}
 
     # --- New data maps: ROE ---
     col_roe_tri = _snapshot_pick_col(
@@ -6899,8 +6901,8 @@ def pagina_snapshot():
     spark_roe_ac = _spark_from_map(roe_ac_map)
     spark_credito_capt = _spark_from_map(credito_capt_map)
     spark_desp_capt = _spark_from_map(desp_capt_map)
-    spark_perda_est3 = _spark_series(["Perda Esperada / Estágio 3"])
-    spark_perda_carteira = _spark_series(["Perda Esperada / Carteira de Crédito*", "Perda Esperada / Carteira de Crédito"])
+    spark_perda_est3 = _spark_from_map({p: perda_est3_map.get(p) for p in periodos_sparkline})
+    spark_perda_carteira = _spark_from_map({p: perda_carteira_map.get(p) for p in periodos_sparkline})
     spark_cet1 = _spark_from_map(cet1_map)
     spark_basileia = _spark_from_map(bas_map)
 
