@@ -8483,8 +8483,6 @@ MENU_PRINCIPAL = [
     "Conselho e Diretoria",
     "Evolução",
     "Scatter Plot",
-    "DRE",
-    "DRE Individual",
     "DRE (Ind. e Congl.)",
     "Carteira 4.966",
     "Taxas de Juros por Produto",
@@ -8507,6 +8505,8 @@ if st.session_state['menu_atual'] not in TODOS_MENUS:
         st.session_state['menu_atual'] = "Rankings"
     elif st.session_state['menu_atual'] == "Contribuições FGC":
         st.session_state['menu_atual'] = "Contribuições FGC/FGCoop"
+    elif st.session_state['menu_atual'] in {"DRE", "DRE Individual"}:
+        st.session_state['menu_atual'] = "DRE (Ind. e Congl.)"
     else:
         st.session_state['menu_atual'] = "Sobre"
 
@@ -9938,7 +9938,7 @@ elif menu == "Evolução":
             "ROE Ac. YTD an. (%)" if "ROE Ac. YTD an. (%)" in df_ano.columns else None
         )
         if col_roe:
-            df_ano["ROE anualizado"] = pd.to_numeric(df_ano[col_roe], errors="coerce")
+            df_ano["ROE Ac. Anualizado (%)"] = pd.to_numeric(df_ano[col_roe], errors="coerce")
         else:
             # Fallback defensivo: recalcula com o mesmo critério da Peers se a coluna não existir.
             roe_peers_inst = _calcular_roe_alinhado_peers_para_instituicao(df_ev, instituicao)
@@ -9948,10 +9948,10 @@ elif menu == "Evolução":
                     on=["Ano", "Tri"],
                     how="left",
                 )
-                df_ano["ROE anualizado"] = pd.to_numeric(df_ano["_roe_peers"], errors="coerce")
+                df_ano["ROE Ac. Anualizado (%)"] = pd.to_numeric(df_ano["_roe_peers"], errors="coerce")
                 df_ano = df_ano.drop(columns=["_roe_peers"], errors="ignore")
             else:
-                df_ano["ROE anualizado"] = np.nan
+                df_ano["ROE Ac. Anualizado (%)"] = np.nan
         df_ano["Carteira de Crédito Bruta / PL"] = np.where(
             pd.to_numeric(df_ano.get("Patrimônio Líquido"), errors="coerce") != 0,
             pd.to_numeric(df_ano["Carteira de Crédito Bruta"], errors="coerce") / pd.to_numeric(df_ano.get("Patrimônio Líquido"), errors="coerce"),
@@ -10094,7 +10094,7 @@ elif menu == "Evolução":
 
         df_metric = pd.DataFrame({
             "Métrica": [
-                "ROE anualizado",
+                "ROE Ac. Anualizado (%)",
                 "Carteira de Crédito* / PL",
                 "Índice de Capital Principal (CET1)",
                 "Índice de Capital T1 (%)",
@@ -10104,7 +10104,7 @@ elif menu == "Evolução":
         for _, row in df_ano.iterrows():
             periodo_label = row.get("LabelPeriodo", str(int(row["Ano"])))
             df_metric[periodo_label] = [
-                row.get("ROE anualizado"),
+                row.get("ROE Ac. Anualizado (%)"),
                 row.get("Carteira de Crédito Bruta / PL"),
                 row.get("Índice de Capital Principal (CET1)"),
                 row.get("Índice de Capital T1 (%)"),
@@ -10132,7 +10132,7 @@ elif menu == "Evolução":
         def _fmt_evol(v, m):
             if pd.isna(v):
                 return "-"
-            if m in ("ROE anualizado", "Índice de Basileia Total (%)", "Índice de Capital Principal (CET1)", "Índice de Capital T1 (%)"):
+            if m in ("ROE Ac. Anualizado (%)", "Índice de Basileia Total (%)", "Índice de Capital Principal (CET1)", "Índice de Capital T1 (%)"):
                 return _fmt_pct(v)
             if m == "Carteira de Crédito* / PL":
                 return f"{float(v):.1f}x".replace(".", ",")
@@ -10254,7 +10254,7 @@ elif menu == "Evolução":
                     <strong>Carteira de Crédito*:</strong> Soma do Valor Contábil Bruto (e1+f1+g1+h1) no Relatório de Ativo (Rel. 2), onde: e = Operações de Crédito; f = Operações de Arrendamento Financeiro; g = Outras Operações com Características de Concessão; h = Valores de Transação de Pagamentos – Usuários Finais.<br>
                     <em>Nota:</em> Para 2000–2024, usamos Carteira de Crédito Bruta + Carteira de Arrendamento Bruta + Outros Créditos Líquidos de Provisão (Rel. 2). Isso significa que, em “Outros Créditos”, a base é líquida de provisão e não há detalhamento — logo, a comparação é imprecisa. A partir de 2025, usamos Valor Contábil Bruto (e1+f1+g1+h1).<br>
                     <br>
-                    <strong>ROE anualizado:</strong> Retorno sobre o patrimônio líquido. (Lucro Líquido acumulado no ano × fator de anualização) ÷ PL Médio, onde PL Médio = (PL no período + PL em Dez do ano anterior) / 2. Fator: Mar=4, Jun=2, Set=12/9, Dez=1. Se PL médio ≤ 0 ou dado faltante: N/A.<br>
+                    <strong>ROE Ac. Anualizado (%):</strong> Retorno sobre o patrimônio líquido. (Lucro Líquido acumulado no ano × fator de anualização) ÷ PL Médio, onde PL Médio = (PL no período + PL em Dez do ano anterior) / 2. Fator: Mar=4, Jun=2, Set=12/9, Dez=1. Se PL médio ≤ 0 ou dado faltante: N/A.<br>
                     <strong>Carteira de Crédito* / PL:</strong> Carteira de Crédito* (Rel. 2) ÷ Patrimônio Líquido (Rel. 1).<br>
                     <strong>Índice de Basileia Total (%):</strong> (Capital Principal + Capital Complementar + Capital Nível II) ÷ RWA Total (Rel. 5). Equivale à soma CET1 + AT1 + T2.<br>
                     <strong>Índice de Capital Principal (CET1):</strong> Capital Principal ÷ RWA Total, extraído do relatório de Informações de Capital (Rel. 5).<br>
