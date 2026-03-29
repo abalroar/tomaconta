@@ -2835,7 +2835,7 @@ def get_axis_format(variavel, serie: Optional[pd.Series] = None):
     if _is_variavel_percentual(variavel):
         return {'tickformat': '.2f', 'ticksuffix': '%', 'multiplicador': 100}
     elif variavel in VARS_MOEDAS:
-        return {'tickformat': ',.0f', 'ticksuffix': 'M', 'multiplicador': 1/1e6}
+        return {'tickformat': ',.0f', 'tickprefix': 'R$ ', 'ticksuffix': ' MM', 'multiplicador': 1/1e6}
     elif variavel in VARS_CONTAGEM:
         return {'tickformat': ',.0f', 'ticksuffix': '', 'multiplicador': 1}
     else:
@@ -4321,6 +4321,8 @@ def _build_scatter_var_options(colunas: list) -> Tuple[list, Dict[str, str]]:
         "Patrimônio de Referência para Comparação com RWA",
     }
     opcoes_base = [c for c in colunas if c not in excluidas]
+    if "Lucro Líquido Trimestral" not in opcoes_base and "Lucro Líquido" in opcoes_base:
+        opcoes_base.append("Lucro Líquido Trimestral")
     display_to_internal = {c: c for c in opcoes_base}
 
     aliases_ui = {
@@ -4338,6 +4340,8 @@ def _build_scatter_var_options(colunas: list) -> Tuple[list, Dict[str, str]]:
 
     for label_ui, candidatos in aliases_ui.items():
         interno = next((c for c in candidatos if c in opcoes_base), None)
+        if label_ui == "Lucro Líquido Trimestral" and "Lucro Líquido Trimestral" in opcoes_base:
+            interno = "Lucro Líquido Trimestral"
         if not interno:
             continue
         display_to_internal[label_ui] = interno
@@ -4378,14 +4382,17 @@ def _format_scatter_label_value(valor, format_info: dict, usar_mm_numeral: bool 
     if valor is None or pd.isna(valor):
         return "N/A"
     tickformat = format_info.get('tickformat', '.2f')
+    tickprefix = format_info.get('tickprefix', '')
     ticksuffix = format_info.get('ticksuffix', '')
-    if usar_mm_numeral and ticksuffix == 'M':
-        ticksuffix = 'MM'
+    if usar_mm_numeral and ticksuffix.strip() == 'M':
+        ticksuffix = f" {ticksuffix}" if not ticksuffix.startswith(' ') else ticksuffix
+    if usar_mm_numeral and ticksuffix.strip() == 'MM' and not ticksuffix.startswith(' '):
+        ticksuffix = f" {ticksuffix}"
     try:
         valor_fmt = f"{valor:{tickformat}}"
-        if any(ch in tickformat for ch in ["f", "g", "%"]):
+        if any(ch in tickformat for ch in [",", "f", "g", "%"]):
             valor_fmt = _to_ptbr_decimal(valor_fmt)
-        return f"{valor_fmt}{ticksuffix}"
+        return f"{tickprefix}{valor_fmt}{ticksuffix}"
     except Exception:
         return str(valor)
 
@@ -8025,7 +8032,13 @@ def get_scatter_periodo_df(periodo: str, principal_token: str, derived_token: st
     df_periodo = df_base[df_base['Período'] == periodo].copy()
     df_periodo = _garantir_indice_basileia_coluna(df_periodo)
     df_periodo = _ajustar_basileia_para_scatter(df_periodo)
-    return anexar_metricas_derivadas_periodo(df_periodo, periodo)
+    df_periodo, diag = anexar_metricas_derivadas_periodo(df_periodo, periodo)
+    if 'Lucro Líquido Trimestral' not in df_periodo.columns:
+        if 'Lucro Líquido' in df_periodo.columns:
+            df_periodo['Lucro Líquido Trimestral'] = pd.to_numeric(df_periodo['Lucro Líquido'], errors='coerce')
+        else:
+            df_periodo['Lucro Líquido Trimestral'] = pd.NA
+    return df_periodo, diag
 
 
 # FIX PROBLEMA 3: Busca de cor com normalização
@@ -10327,20 +10340,17 @@ elif menu == "Scatter Plot":
         var_y = scatter_display_to_internal.get(var_y_ui, var_y_ui)
         var_size = scatter_display_to_internal.get(var_size_ui, var_size_ui) if var_size_ui != 'Tamanho Fixo' else 'Tamanho Fixo'
 
-        # Segunda linha: Top N e variável de ordenação
-        col_t1, col_t2, col_t3 = st.columns([1, 1, 2])
-
+        # Segunda linha: Pool Top N único (Ativo Total)
+        col_t1, col_t2 = st.columns([1, 2])
         with col_t1:
-            top_n_scatter = st.slider("top n", 5, 50, 5)
-        with col_t2:
-            prefer_credito = _prefer_carteira_bruta(colunas_numericas)
-            prefer_credito_ui = _scatter_preferred_ui_option(colunas_scatter, scatter_display_to_internal, prefer_credito)
-            var_top_n_ui = st.selectbox(
-                "top n por",
-                colunas_scatter,
-                index=colunas_scatter.index(prefer_credito_ui) if prefer_credito_ui in colunas_scatter else 0,
+            pool_scatter = st.selectbox(
+                "pool",
+                ["Top 5", "Top 10", "Top 15", "Top 20"],
+                index=1,
+                key="pool_scatter_top_n",
             )
-            var_top_n = scatter_display_to_internal.get(var_top_n_ui, var_top_n_ui)
+            top_map_scatter = {"Top 5": 5, "Top 10": 10, "Top 15": 15, "Top 20": 20}
+            top_n_scatter = top_map_scatter[pool_scatter]
 
         # Terceira linha: Seleção de bancos
         col_f = st.columns(1)[0]
@@ -10370,9 +10380,9 @@ elif menu == "Scatter Plot":
             # Usa os bancos selecionados no multiselect
             df_scatter = df_periodo[df_periodo['Instituição'].isin(bancos_selecionados)]
         else:
-            # Usa top N pela variável selecionada (remove NaN antes)
-            df_periodo_valid = df_periodo.dropna(subset=[var_top_n])
-            df_scatter = df_periodo_valid.nlargest(top_n_scatter, var_top_n)
+            # Usa Top N por Ativo Total no período selecionado
+            top_bancos_t1 = _obter_top_instituicoes_por_ativo(df_periodo, top_n_scatter)
+            df_scatter = df_periodo[df_periodo['Instituição'].isin(top_bancos_t1)]
 
         format_x = get_axis_format(var_x, df_scatter[var_x] if var_x in df_scatter.columns else None)
         format_y = get_axis_format(var_y, df_scatter[var_y] if var_y in df_scatter.columns else None)
@@ -10460,7 +10470,7 @@ elif menu == "Scatter Plot":
         if bancos_selecionados:
             titulo_scatter = f'{scatter_internal_to_display.get(var_y, var_y)} vs {scatter_internal_to_display.get(var_x, var_x)} - {periodo_scatter} ({len(df_scatter)} bancos)'
         else:
-            titulo_scatter = f'{scatter_internal_to_display.get(var_y, var_y)} vs {scatter_internal_to_display.get(var_x, var_x)} - {periodo_scatter} (top {top_n_scatter} por {scatter_internal_to_display.get(var_top_n, var_top_n)})'
+            titulo_scatter = f'{scatter_internal_to_display.get(var_y, var_y)} vs {scatter_internal_to_display.get(var_x, var_x)} - {periodo_scatter} ({pool_scatter})'
 
         fig_scatter.update_layout(
             title=titulo_scatter,
@@ -10471,8 +10481,16 @@ elif menu == "Scatter Plot":
             paper_bgcolor='white',
             showlegend=True,
             legend=dict(orientation="v", yanchor="top", y=1, xanchor="left", x=1.02),
-            xaxis=dict(tickformat=format_x['tickformat'], ticksuffix=format_x['ticksuffix']),
-            yaxis=dict(tickformat=format_y['tickformat'], ticksuffix=format_y['ticksuffix']),
+            xaxis=dict(
+                tickformat=format_x['tickformat'],
+                tickprefix=format_x.get('tickprefix', ''),
+                ticksuffix=format_x['ticksuffix'],
+            ),
+            yaxis=dict(
+                tickformat=format_y['tickformat'],
+                tickprefix=format_y.get('tickprefix', ''),
+                ticksuffix=format_y['ticksuffix'],
+            ),
             font=dict(family='IBM Plex Sans')
         )
 
@@ -10537,22 +10555,9 @@ elif menu == "Scatter Plot":
         var_x_n2 = scatter_display_to_internal.get(var_x_n2, var_x_n2)
         var_y_n2 = scatter_display_to_internal.get(var_y_n2, var_y_n2)
 
-        # Segunda linha: Top N e tamanho
-        col_n2_t1, col_n2_t2, col_n2_t3 = st.columns([1, 1, 2])
-
+        # Segunda linha: tamanho
+        col_n2_t1 = st.columns(1)[0]
         with col_n2_t1:
-            top_n_scatter_n2 = st.slider("top n", 5, 50, 5, key="top_n_n2")
-        with col_n2_t2:
-            prefer_credito = _prefer_carteira_bruta(colunas_numericas)
-            prefer_credito_ui = _scatter_preferred_ui_option(colunas_scatter, scatter_display_to_internal, prefer_credito)
-            var_top_n_n2_ui = st.selectbox(
-                "top n por",
-                colunas_scatter,
-                index=colunas_scatter.index(prefer_credito_ui) if prefer_credito_ui in colunas_scatter else 0,
-                key="var_top_n_n2"
-            )
-            var_top_n_n2 = scatter_display_to_internal.get(var_top_n_n2_ui, var_top_n_n2_ui)
-        with col_n2_t3:
             opcoes_tamanho_n2 = ['Tamanho Fixo'] + colunas_scatter
             var_size_n2_ui = st.selectbox("tamanho", opcoes_tamanho_n2, index=0, key="var_size_n2")
             var_size_n2 = scatter_display_to_internal.get(var_size_n2_ui, var_size_n2_ui) if var_size_n2_ui != "Tamanho Fixo" else "Tamanho Fixo"
@@ -10592,9 +10597,16 @@ elif menu == "Scatter Plot":
                 df_p1 = df_p1[df_p1['Instituição'].isin(bancos_selecionados_n2)]
                 df_p2 = df_p2[df_p2['Instituição'].isin(bancos_selecionados_n2)]
             else:
-                # Usa top N do período subsequente (mais recente)
-                df_p2_valid = df_p2.dropna(subset=[var_top_n_n2])
-                top_bancos = df_p2_valid.nlargest(top_n_scatter_n2, var_top_n_n2)['Instituição'].tolist()
+                # Usa Top N por Ativo Total no período mais recente entre inicial e subsequente
+                periodo_ref_top_n2 = periodo_subseq
+                if periodo_inicial in periodos and periodo_subseq in periodos:
+                    periodo_ref_top_n2 = (
+                        periodo_inicial
+                        if periodos.index(periodo_inicial) < periodos.index(periodo_subseq)
+                        else periodo_subseq
+                    )
+                df_ref_top_n2 = df_p1 if periodo_ref_top_n2 == periodo_inicial else df_p2
+                top_bancos = _obter_top_instituicoes_por_ativo(df_ref_top_n2, top_n_scatter)
                 df_p1 = df_p1[df_p1['Instituição'].isin(top_bancos)]
                 df_p2 = df_p2[df_p2['Instituição'].isin(top_bancos)]
 
@@ -10767,7 +10779,7 @@ elif menu == "Scatter Plot":
                 if bancos_selecionados_n2:
                     titulo_scatter_n2 = f'{scatter_internal_to_display.get(var_y_n2, var_y_n2)} vs {scatter_internal_to_display.get(var_x_n2, var_x_n2)} - {periodo_inicial} → {periodo_subseq} ({len(bancos_comuns)} bancos)'
                 else:
-                    titulo_scatter_n2 = f'{scatter_internal_to_display.get(var_y_n2, var_y_n2)} vs {scatter_internal_to_display.get(var_x_n2, var_x_n2)} - {periodo_inicial} → {periodo_subseq} (top {top_n_scatter_n2} por {scatter_internal_to_display.get(var_top_n_n2, var_top_n_n2)})'
+                    titulo_scatter_n2 = f'{scatter_internal_to_display.get(var_y_n2, var_y_n2)} vs {scatter_internal_to_display.get(var_x_n2, var_x_n2)} - {periodo_inicial} → {periodo_subseq} ({pool_scatter})'
 
                 fig_scatter_n2.update_layout(
                     title=titulo_scatter_n2,
@@ -10778,8 +10790,16 @@ elif menu == "Scatter Plot":
                     paper_bgcolor='white',
                     showlegend=True,
                     legend=dict(orientation="v", yanchor="top", y=1, xanchor="left", x=1.02),
-                    xaxis=dict(tickformat=format_x_n2['tickformat'], ticksuffix=format_x_n2['ticksuffix']),
-                    yaxis=dict(tickformat=format_y_n2['tickformat'], ticksuffix=format_y_n2['ticksuffix']),
+                    xaxis=dict(
+                        tickformat=format_x_n2['tickformat'],
+                        tickprefix=format_x_n2.get('tickprefix', ''),
+                        ticksuffix=format_x_n2['ticksuffix'],
+                    ),
+                    yaxis=dict(
+                        tickformat=format_y_n2['tickformat'],
+                        tickprefix=format_y_n2.get('tickprefix', ''),
+                        ticksuffix=format_y_n2['ticksuffix'],
+                    ),
                     font=dict(family='IBM Plex Sans')
                 )
 
@@ -13810,7 +13830,7 @@ elif menu == "DRE" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo ==
         _default_dre = _encontrar_bancos_default(instituicoes_label, [("itau", "itaú")])
         _idx_dre = instituicoes_label.index(_default_dre[0]) if _default_dre else 0
 
-        col_inst, col_ano = st.columns([1, 1])
+        col_inst, col_ano, col_base = st.columns([1, 1, 1])
         with col_inst:
             instituicao_selecionada_raw = st.selectbox(
                 "Instituição",
@@ -13825,6 +13845,13 @@ elif menu == "DRE" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo ==
                 anos_disponiveis[::-1],
                 index=0,
                 key="dre_ano"
+            )
+        with col_base:
+            base_comparacao = st.selectbox(
+                "Base lucro",
+                ["Lucro Líquido Acumulado", "Lucro Líquido Trimestral"],
+                index=0,
+                key="dre_base_comparacao_lucro",
             )
 
         instituicao_selecionada = _formatar_opcao_instituicao_dre(instituicao_selecionada_raw)
@@ -13893,6 +13920,15 @@ elif menu == "DRE" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo ==
             tooltip_por_label[entry["label"]] = "\n".join(tooltip_parts)
 
             label_exib = entry["label"]
+            if (
+                entry.get("label") == "Lucro Líquido Período Acumulado"
+                and base_comparacao == "Lucro Líquido Trimestral"
+            ):
+                label_exib = "Lucro Líquido Trimestral"
+                tooltip_por_label[entry["label"]] = (
+                    (tooltip_por_label.get(entry["label"], "") + "\n").strip()
+                    + "Exibição trimestral (Rel. 4): Lucro Líquido (aa) = (x) + (y) + (z)."
+                ).strip()
             entrada_copy = entry.copy()
             entrada_copy["label_exib"] = label_exib
             entradas_com_label.append(entrada_copy)
@@ -13912,6 +13948,8 @@ elif menu == "DRE" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo ==
                 _filtro_ano_ytd & (df_ytd_base["InstituicaoKey"] == _inst_key_sel)
             ].copy()
         df_filtrado_base = df_filtrado.copy()
+        lucro_label_dre = "Lucro Líquido Período Acumulado"
+        usar_lucro_trimestral = base_comparacao == "Lucro Líquido Trimestral"
 
         diag_info = {}
         if st.session_state.get("modo_diagnostico"):
@@ -14063,6 +14101,12 @@ elif menu == "DRE" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo ==
                 .drop_duplicates(subset=["Label", "Periodo"], keep="last")
             )
             df_filtrado = pd.concat([df_filtrado, df_derived_filtrado], ignore_index=True)
+            if usar_lucro_trimestral:
+                df_filtrado = df_filtrado[df_filtrado["Label"] != lucro_label_dre]
+                df_lucro_tri = df_derived_filtrado[df_derived_filtrado["Label"] == "Lucro Líquido Trimestral"].copy()
+                if not df_lucro_tri.empty:
+                    df_lucro_tri["Label"] = lucro_label_dre
+                    df_filtrado = pd.concat([df_filtrado, df_lucro_tri], ignore_index=True)
 
         if st.session_state.get("modo_diagnostico"):
             diag_info["derived_slice_mb"] = _df_mem_mb(df_derived_slice)
@@ -14960,11 +15004,18 @@ elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolid
         st.stop()
 
     visoes = ["Soma das Partes"] + selecionadas_labels
-    col_ano, col_visao = st.columns([1, 2])
+    col_ano, col_visao, col_base = st.columns([1, 2, 1])
     with col_ano:
         ano_selecionado = st.selectbox("Ano", anos_disponiveis[::-1], index=0, key="dre_individual_ano")
     with col_visao:
         visao_sel = st.selectbox("Visão exibida", options=visoes, index=0, key="dre_individual_visao")
+    with col_base:
+        base_comparacao = st.selectbox(
+            "Base lucro",
+            ["Lucro Líquido Acumulado", "Lucro Líquido Trimestral"],
+            index=0,
+            key="dre_individual_base_comparacao_lucro",
+        )
 
     if visao_sel == "Soma das Partes":
         nome_visao = "Soma das Partes — Seleção Atual"
@@ -15035,7 +15086,17 @@ elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolid
                 tooltip_parts.append(f"Status do mapeamento: {cosif_info['status']}")
         tooltip_por_label[entry["label"]] = "\n".join(tooltip_parts)
         entrada_copy = entry.copy()
-        entrada_copy["label_exib"] = entry["label"]
+        label_exib = entry["label"]
+        if (
+            entry.get("label") == "Lucro Líquido Período Acumulado"
+            and base_comparacao == "Lucro Líquido Trimestral"
+        ):
+            label_exib = "Lucro Líquido Trimestral"
+            tooltip_por_label[entry["label"]] = (
+                (tooltip_por_label.get(entry["label"], "") + "\n").strip()
+                + "Exibição trimestral (Rel. 4): Lucro Líquido (aa) = (x) + (y) + (z)."
+            ).strip()
+        entrada_copy["label_exib"] = label_exib
         entradas_com_label.append(entrada_copy)
 
     df_filtrado = df_ytd_base[df_ytd_base["ano"] == int(ano_selecionado)].copy()
@@ -15043,6 +15104,8 @@ elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolid
         st.warning("Não há dados DRE para o ano selecionado.")
         st.stop()
     df_filtrado_base = df_filtrado.copy()
+    lucro_label_dre = "Lucro Líquido Período Acumulado"
+    usar_lucro_trimestral = base_comparacao == "Lucro Líquido Trimestral"
 
     tooltip_celula = {}
     try:
@@ -15062,6 +15125,12 @@ elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolid
             .drop_duplicates(subset=["Label", "Periodo"], keep="last")
         )
         df_filtrado = pd.concat([df_filtrado, df_derived_view], ignore_index=True)
+        if usar_lucro_trimestral:
+            df_filtrado = df_filtrado[df_filtrado["Label"] != lucro_label_dre]
+            df_lucro_tri = df_derived_view[df_derived_view["Label"] == "Lucro Líquido Trimestral"].copy()
+            if not df_lucro_tri.empty:
+                df_lucro_tri["Label"] = lucro_label_dre
+                df_filtrado = pd.concat([df_filtrado, df_lucro_tri], ignore_index=True)
 
         if not df_base.empty:
             _df_calc_base = df_base[df_base["ano"] == int(ano_selecionado)].copy()
@@ -15877,11 +15946,18 @@ elif menu == "Carteira 4.966":
         st.stop()
 
     visoes = ["Soma das Partes"] + selecionadas_labels
-    col_ano, col_visao = st.columns([1, 2])
+    col_ano, col_visao, col_base = st.columns([1, 2, 1])
     with col_ano:
         ano_selecionado = st.selectbox("Ano", anos_disponiveis[::-1], index=0, key="dre_individual_ano")
     with col_visao:
         visao_sel = st.selectbox("Visão exibida", options=visoes, index=0, key="dre_individual_visao")
+    with col_base:
+        base_comparacao = st.selectbox(
+            "Base lucro",
+            ["Lucro Líquido Acumulado", "Lucro Líquido Trimestral"],
+            index=0,
+            key="dre_individual_base_comparacao_lucro",
+        )
 
     if visao_sel == "Soma das Partes":
         nome_visao = "Soma das Partes — Seleção Atual"
@@ -15952,7 +16028,17 @@ elif menu == "Carteira 4.966":
                 tooltip_parts.append(f"Status do mapeamento: {cosif_info['status']}")
         tooltip_por_label[entry["label"]] = "\n".join(tooltip_parts)
         entrada_copy = entry.copy()
-        entrada_copy["label_exib"] = entry["label"]
+        label_exib = entry["label"]
+        if (
+            entry.get("label") == "Lucro Líquido Período Acumulado"
+            and base_comparacao == "Lucro Líquido Trimestral"
+        ):
+            label_exib = "Lucro Líquido Trimestral"
+            tooltip_por_label[entry["label"]] = (
+                (tooltip_por_label.get(entry["label"], "") + "\n").strip()
+                + "Exibição trimestral (Rel. 4): Lucro Líquido (aa) = (x) + (y) + (z)."
+            ).strip()
+        entrada_copy["label_exib"] = label_exib
         entradas_com_label.append(entrada_copy)
 
     df_filtrado = df_ytd_base[df_ytd_base["ano"] == int(ano_selecionado)].copy()
@@ -15960,6 +16046,8 @@ elif menu == "Carteira 4.966":
         st.warning("Não há dados DRE para o ano selecionado.")
         st.stop()
     df_filtrado_base = df_filtrado.copy()
+    lucro_label_dre = "Lucro Líquido Período Acumulado"
+    usar_lucro_trimestral = base_comparacao == "Lucro Líquido Trimestral"
 
     tooltip_celula = {}
     try:
@@ -15979,6 +16067,12 @@ elif menu == "Carteira 4.966":
             .drop_duplicates(subset=["Label", "Periodo"], keep="last")
         )
         df_filtrado = pd.concat([df_filtrado, df_derived_view], ignore_index=True)
+        if usar_lucro_trimestral:
+            df_filtrado = df_filtrado[df_filtrado["Label"] != lucro_label_dre]
+            df_lucro_tri = df_derived_view[df_derived_view["Label"] == "Lucro Líquido Trimestral"].copy()
+            if not df_lucro_tri.empty:
+                df_lucro_tri["Label"] = lucro_label_dre
+                df_filtrado = pd.concat([df_filtrado, df_lucro_tri], ignore_index=True)
 
         if not df_base.empty:
             _df_calc_base = df_base[df_base["ano"] == int(ano_selecionado)].copy()
@@ -16857,11 +16951,18 @@ elif menu == "Carteira 4.966":
         st.stop()
 
     visoes = ["Soma das Partes"] + selecionadas_labels
-    col_ano, col_visao = st.columns([1, 2])
+    col_ano, col_visao, col_base = st.columns([1, 2, 1])
     with col_ano:
         ano_selecionado = st.selectbox("Ano", anos_disponiveis[::-1], index=0, key="dre_individual_ano")
     with col_visao:
         visao_sel = st.selectbox("Visão exibida", options=visoes, index=0, key="dre_individual_visao")
+    with col_base:
+        base_comparacao = st.selectbox(
+            "Base lucro",
+            ["Lucro Líquido Acumulado", "Lucro Líquido Trimestral"],
+            index=0,
+            key="dre_individual_base_comparacao_lucro",
+        )
 
     if visao_sel == "Soma das Partes":
         nome_visao = f"Soma das Partes — {conglomerado_sel}"
@@ -16932,7 +17033,17 @@ elif menu == "Carteira 4.966":
                 tooltip_parts.append(f"Status do mapeamento: {cosif_info['status']}")
         tooltip_por_label[entry["label"]] = "\n".join(tooltip_parts)
         entrada_copy = entry.copy()
-        entrada_copy["label_exib"] = entry["label"]
+        label_exib = entry["label"]
+        if (
+            entry.get("label") == "Lucro Líquido Período Acumulado"
+            and base_comparacao == "Lucro Líquido Trimestral"
+        ):
+            label_exib = "Lucro Líquido Trimestral"
+            tooltip_por_label[entry["label"]] = (
+                (tooltip_por_label.get(entry["label"], "") + "\n").strip()
+                + "Exibição trimestral (Rel. 4): Lucro Líquido (aa) = (x) + (y) + (z)."
+            ).strip()
+        entrada_copy["label_exib"] = label_exib
         entradas_com_label.append(entrada_copy)
 
     df_filtrado = df_ytd_base[df_ytd_base["ano"] == int(ano_selecionado)].copy()
@@ -16940,6 +17051,8 @@ elif menu == "Carteira 4.966":
         st.warning("Não há dados DRE para o ano selecionado.")
         st.stop()
     df_filtrado_base = df_filtrado.copy()
+    lucro_label_dre = "Lucro Líquido Período Acumulado"
+    usar_lucro_trimestral = base_comparacao == "Lucro Líquido Trimestral"
 
     tooltip_celula = {}
     try:
@@ -16959,6 +17072,12 @@ elif menu == "Carteira 4.966":
             .drop_duplicates(subset=["Label", "Periodo"], keep="last")
         )
         df_filtrado = pd.concat([df_filtrado, df_derived_view], ignore_index=True)
+        if usar_lucro_trimestral:
+            df_filtrado = df_filtrado[df_filtrado["Label"] != lucro_label_dre]
+            df_lucro_tri = df_derived_view[df_derived_view["Label"] == "Lucro Líquido Trimestral"].copy()
+            if not df_lucro_tri.empty:
+                df_lucro_tri["Label"] = lucro_label_dre
+                df_filtrado = pd.concat([df_filtrado, df_lucro_tri], ignore_index=True)
 
         if not df_base.empty:
             _df_calc_base = df_base[df_base["ano"] == int(ano_selecionado)].copy()
