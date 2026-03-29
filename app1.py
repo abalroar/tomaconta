@@ -3555,6 +3555,58 @@ def _periodo_dez_ano_anterior(periodo: str) -> Optional[str]:
     return f"{parte_dez}/{ano_txt}"
 
 
+def _aplicar_lucro_trimestral_dre(df: pd.DataFrame, label_lucro: str = "Lucro Líquido Período Acumulado") -> pd.DataFrame:
+    """Converte a linha de lucro da DRE para exibição trimestral no padrão Rel. 4.
+
+    Regras de exibição (MM/AAAA):
+      - 03: usa o valor bruto do IFData
+      - 06: 06 - 03
+      - 09: usa o valor bruto do IFData
+      - 12: 12 - 06
+    """
+    if df is None or df.empty or "Label" not in df.columns:
+        return df
+
+    out = df.copy()
+    mask = out["Label"] == label_lucro
+    if not mask.any():
+        return out
+
+    out.loc[mask, "ytd"] = pd.to_numeric(out.loc[mask, "ytd"], errors="coerce")
+
+    group_cols = [c for c in ["InstituicaoRaw", "Instituicao", "InstituicaoExib", "InstituicaoKey", "ano"] if c in out.columns]
+    if "ano" not in group_cols and "ano" in out.columns:
+        group_cols.append("ano")
+    if not group_cols:
+        group_cols = ["Label"]
+
+    for _, idxs in out.loc[mask].groupby(group_cols, dropna=False, observed=False).groups.items():
+        g = out.loc[idxs]
+        by_mes = g.dropna(subset=["mes"]).copy()
+        if by_mes.empty:
+            continue
+        by_mes["mes"] = pd.to_numeric(by_mes["mes"], errors="coerce")
+        raw_map = by_mes.dropna(subset=["mes"]).set_index(by_mes["mes"].astype(int))["ytd"].to_dict()
+
+        for row_idx, mes in by_mes["mes"].items():
+            mes_int = int(mes) if pd.notna(mes) else None
+            if mes_int == 3:
+                novo = raw_map.get(3, np.nan)
+            elif mes_int == 6:
+                v6, v3 = raw_map.get(6), raw_map.get(3)
+                novo = (v6 - v3) if pd.notna(v6) and pd.notna(v3) else np.nan
+            elif mes_int == 9:
+                novo = raw_map.get(9, np.nan)
+            elif mes_int == 12:
+                v12, v6 = raw_map.get(12), raw_map.get(6)
+                novo = (v12 - v6) if pd.notna(v12) and pd.notna(v6) else np.nan
+            else:
+                novo = out.at[row_idx, "ytd"]
+            out.at[row_idx, "ytd"] = novo
+
+    return out
+
+
 def _normalizar_lucro_liquido(df: pd.DataFrame) -> pd.DataFrame:
     """Normaliza LL para YTD consistente e calcula LL Trimestral.
 
@@ -14274,17 +14326,14 @@ elif menu == "DRE" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo ==
                 .drop_duplicates(subset=["Label", "Periodo"], keep="last")
             )
             df_filtrado = pd.concat([df_filtrado, df_derived_filtrado], ignore_index=True)
-            if usar_lucro_trimestral:
-                df_filtrado = df_filtrado[df_filtrado["Label"] != lucro_label_dre]
-                df_lucro_tri = df_derived_filtrado[df_derived_filtrado["Label"] == "Lucro Líquido Trimestral"].copy()
-                if not df_lucro_tri.empty:
-                    df_lucro_tri["Label"] = lucro_label_dre
-                    df_filtrado = pd.concat([df_filtrado, df_lucro_tri], ignore_index=True)
 
         if st.session_state.get("modo_diagnostico"):
             diag_info["derived_slice_mb"] = _df_mem_mb(df_derived_slice)
             diag_info["derived_slice_rows"] = len(df_derived_slice)
             diag_info["derived_load_s"] = round(tempo_derived, 3)
+
+        if usar_lucro_trimestral:
+            df_filtrado = _aplicar_lucro_trimestral_dre(df_filtrado, label_lucro=lucro_label_dre)
 
         # Os períodos exibidos/baixados devem refletir apenas publicações da DRE-base,
         # sem ser "forçados" por métricas derivadas que possam existir no trimestre.
@@ -15298,12 +15347,6 @@ elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolid
             .drop_duplicates(subset=["Label", "Periodo"], keep="last")
         )
         df_filtrado = pd.concat([df_filtrado, df_derived_view], ignore_index=True)
-        if usar_lucro_trimestral:
-            df_filtrado = df_filtrado[df_filtrado["Label"] != lucro_label_dre]
-            df_lucro_tri = df_derived_view[df_derived_view["Label"] == "Lucro Líquido Trimestral"].copy()
-            if not df_lucro_tri.empty:
-                df_lucro_tri["Label"] = lucro_label_dre
-                df_filtrado = pd.concat([df_filtrado, df_lucro_tri], ignore_index=True)
 
         if not df_base.empty:
             _df_calc_base = df_base[df_base["ano"] == int(ano_selecionado)].copy()
@@ -15376,6 +15419,9 @@ elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolid
                         f"Captações: {_fmt_mm_tip(_cap)}\n"
                         f"Desp Captação / Captação = {_fmt_mm_tip(_desp_capt_anual)} ÷ {_fmt_mm_tip(_cap)} = {formatar_percentual(_ratio_capt, decimais=2)}"
                     )
+
+    if usar_lucro_trimestral:
+        df_filtrado = _aplicar_lucro_trimestral_dre(df_filtrado, label_lucro=lucro_label_dre)
 
     meses_com_publicacao = (
         df_filtrado_base.loc[df_filtrado_base["ytd"].notna(), "mes"]
@@ -16240,12 +16286,6 @@ elif menu == "Carteira 4.966":
             .drop_duplicates(subset=["Label", "Periodo"], keep="last")
         )
         df_filtrado = pd.concat([df_filtrado, df_derived_view], ignore_index=True)
-        if usar_lucro_trimestral:
-            df_filtrado = df_filtrado[df_filtrado["Label"] != lucro_label_dre]
-            df_lucro_tri = df_derived_view[df_derived_view["Label"] == "Lucro Líquido Trimestral"].copy()
-            if not df_lucro_tri.empty:
-                df_lucro_tri["Label"] = lucro_label_dre
-                df_filtrado = pd.concat([df_filtrado, df_lucro_tri], ignore_index=True)
 
         if not df_base.empty:
             _df_calc_base = df_base[df_base["ano"] == int(ano_selecionado)].copy()
@@ -16318,6 +16358,9 @@ elif menu == "Carteira 4.966":
                         f"Captações: {_fmt_mm_tip(_cap)}\n"
                         f"Desp Captação / Captação = {_fmt_mm_tip(_desp_capt_anual)} ÷ {_fmt_mm_tip(_cap)} = {formatar_percentual(_ratio_capt, decimais=2)}"
                     )
+
+    if usar_lucro_trimestral:
+        df_filtrado = _aplicar_lucro_trimestral_dre(df_filtrado, label_lucro=lucro_label_dre)
 
     meses_com_publicacao = (
         df_filtrado_base.loc[df_filtrado_base["ytd"].notna(), "mes"]
@@ -17245,12 +17288,6 @@ elif menu == "Carteira 4.966":
             .drop_duplicates(subset=["Label", "Periodo"], keep="last")
         )
         df_filtrado = pd.concat([df_filtrado, df_derived_view], ignore_index=True)
-        if usar_lucro_trimestral:
-            df_filtrado = df_filtrado[df_filtrado["Label"] != lucro_label_dre]
-            df_lucro_tri = df_derived_view[df_derived_view["Label"] == "Lucro Líquido Trimestral"].copy()
-            if not df_lucro_tri.empty:
-                df_lucro_tri["Label"] = lucro_label_dre
-                df_filtrado = pd.concat([df_filtrado, df_lucro_tri], ignore_index=True)
 
         if not df_base.empty:
             _df_calc_base = df_base[df_base["ano"] == int(ano_selecionado)].copy()
@@ -17323,6 +17360,9 @@ elif menu == "Carteira 4.966":
                         f"Captações: {_fmt_mm_tip(_cap)}\n"
                         f"Desp Captação / Captação = {_fmt_mm_tip(_desp_capt_anual)} ÷ {_fmt_mm_tip(_cap)} = {formatar_percentual(_ratio_capt, decimais=2)}"
                     )
+
+    if usar_lucro_trimestral:
+        df_filtrado = _aplicar_lucro_trimestral_dre(df_filtrado, label_lucro=lucro_label_dre)
 
     meses_com_publicacao = (
         df_filtrado_base.loc[df_filtrado_base["ytd"].notna(), "mes"]
