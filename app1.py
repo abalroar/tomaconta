@@ -5814,9 +5814,8 @@ def _render_peers_table_html(
     .peer-zebra {
         background-color: #f8f9fa;
     }
-    .delta-pos { color: #28a745; margin-left: 4px; position: relative; cursor: help; }
-    .delta-neg { color: #dc3545; margin-left: 4px; position: relative; cursor: help; }
-    .delta-pos:hover .tip-text.tip-delta, .delta-neg:hover .tip-text.tip-delta { visibility: visible; opacity: 1; }
+    .delta-pos { color: #28a745; margin-left: 4px; }
+    .delta-neg { color: #dc3545; margin-left: 4px; }
     .peers-table td.has-tip {
         position: relative;
         cursor: help;
@@ -5877,23 +5876,6 @@ def _render_peers_table_html(
         opacity: 1;
         transform: translateY(1px);
     }
-    .peers-table td.has-tip:hover > .tip-text.tip-main {
-        visibility: visible;
-        opacity: 1;
-    }
-    .peers-table td.has-tip:hover .delta-pos:hover ~ .tip-main,
-    .peers-table td.has-tip:hover .delta-neg:hover ~ .tip-main {
-        visibility: hidden;
-        opacity: 0;
-    }
-    .peers-table .tip-text.tip-delta {
-        left: auto;
-        right: 0;
-        top: calc(100% + 4px);
-        transform: translateX(0);
-        min-width: 180px;
-        max-width: 320px;
-    }
     </style>
     <div class="peers-table-wrap"><table class="peers-table">
     <thead>
@@ -5940,18 +5922,13 @@ def _render_peers_table_html(
                     delta_flag = delta_flags.get(chave)
                     delta_tip = (delta_context or {}).get(chave, "")
                     if delta_flag == "up":
-                        if delta_tip:
-                            delta_tip_html = _html_mod.escape(delta_tip).replace("\n", "<br>")
-                            delta_html = f' <span class="delta-pos" aria-label="Variação positiva">▲<span class="tip-text tip-delta">{delta_tip_html}</span></span>'
-                        else:
-                            delta_html = ' <span class="delta-pos" aria-label="Variação positiva">▲</span>'
+                        delta_html = ' <span class="delta-pos" aria-label="Variação positiva">▲</span>'
                     elif delta_flag == "down":
-                        if delta_tip:
-                            delta_tip_html = _html_mod.escape(delta_tip).replace("\n", "<br>")
-                            delta_html = f' <span class="delta-neg" aria-label="Variação negativa">▼<span class="tip-text tip-delta">{delta_tip_html}</span></span>'
-                        else:
-                            delta_html = ' <span class="delta-neg" aria-label="Variação negativa">▼</span>'
-                    tip = (tooltips or {}).get(chave, "") if tooltips else ""
+                        delta_html = ' <span class="delta-neg" aria-label="Variação negativa">▼</span>'
+                    tip_base = (tooltips or {}).get(chave, "") if tooltips else ""
+                    tip = tip_base
+                    if delta_tip:
+                        tip = f"{tip_base}\n\n{delta_tip}".strip() if tip_base else delta_tip
                     if tip:
                         tip_html = _html_mod.escape(tip).replace("\n", "<br>")
                         html += f'<td class="has-tip">{valor_fmt}{delta_html}<span class="tip-text tip-main">{tip_html}</span></td>'
@@ -5964,107 +5941,82 @@ def _render_peers_table_html(
     return html
 
 
-def _build_memoria_calculo_peers_tabela(
-    bancos: list[str],
+def _build_memoria_calculo_peers_tabela_metrica(
+    df_base: pd.DataFrame,
+    banco: str,
     periodos: list[str],
+    metrica: str,
     valores: dict,
 ) -> pd.DataFrame:
-    """Monta memória de cálculo da tabela Peers em formato pivotável (componente × período)."""
+    """Monta memória de cálculo da Peers para uma métrica, no padrão componente × período."""
     rows = []
-    metrica_formula = {
-        "Ativo Total": [("Ativo Total (Rel. 1)", "Ativo Total")],
-        "Ativos Líquidos": [("Disponibilidades + Aplicações Interfinanceiras + TVM", "Ativos Líquidos")],
-        "Carteira de Crédito*": [("VCB e1+f1+g1+h1 (Rel. 2, 2025+) / base histórica até 2024", "Carteira de Crédito*")],
-        "Perda Esperada": [("Perdas esperadas + ajustes e/f/g/h (Rel. 2)", "Perda Esperada")],
-        "Depósitos Totais": [("Depósitos (e) do Rel. 3", "Depósitos Totais")],
-        "Core Funding*": [("Captações (e) + Instr. dívida elegível (h, 2025+)", "Core Funding*")],
-        "Patrimônio Líquido (PL)": [("Patrimônio Líquido (Rel. 1)", "Patrimônio Líquido (PL)")],
-        "Ativos Estágio 2": [("Conta 3312000001 (Cadoc 4060)", "Ativos Estágio 2")],
-        "Ativos Estágio 3": [("Conta 3313000000 (Cadoc 4060)", "Ativos Estágio 3")],
-        "Índice de Capital Principal (CET1)": [("Capital Principal ÷ RWA Total (Rel. 5)", "Índice de Capital Principal (CET1)")],
-        "Índice de Basileia Total": [("(Capital Principal + Capital Complementar + Nível II) ÷ RWA Total", "Índice de Basileia Total")],
-        "Lucro Líquido Acumulado": [("Lucro Líquido Acumulado YTD (Rel. 1)", "Lucro Líquido Acumulado")],
-        "ROE Acumulado YTD (%)": [("(LL YTD × fator anualização) ÷ PL médio", "ROE Acumulado YTD (%)")],
-    }
 
-    metricas_layout = [row["label"] for section in PEERS_TABELA_LAYOUT for row in section["rows"]]
+    if metrica == "ROE Acumulado YTD (%)":
+        df_mem = _build_memoria_calculo_roe_ac_rankings(df_base, [banco], periodos)
+        if df_mem.empty:
+            return pd.DataFrame()
+        return df_mem[df_mem["Instituição"] == banco].copy()
 
-    for banco in bancos:
-        for periodo in periodos:
-            for metrica in metricas_layout:
-                componentes = metrica_formula.get(metrica, [])
-                valor_final = valores.get((metrica, banco, periodo))
-                ordem = 1
-                for componente_label, key_origem in componentes:
-                    rows.append(
-                        {
-                            "Instituição": banco,
-                            "Período": periodo,
-                            "Métrica": metrica,
-                            "componente": componente_label,
-                            "valor": valores.get((key_origem, banco, periodo)),
-                            "ordem": ordem,
-                        }
-                    )
-                    ordem += 1
+    if metrica == "Índice de Capital Principal (CET1)":
+        df_mem = _build_memoria_calculo_cet1_rankings(df_base, [banco], periodos)
+        if df_mem.empty:
+            return pd.DataFrame()
+        return df_mem[df_mem["Instituição"] == banco].copy()
 
-                if metrica == "Ativo Total / PL":
-                    ativo = valores.get(("Ativo Total", banco, periodo))
-                    pl = valores.get(("Patrimônio Líquido (PL)", banco, periodo))
-                    rows.extend(
-                        [
-                            {"Instituição": banco, "Período": periodo, "Métrica": metrica, "componente": "Ativo Total", "valor": ativo, "ordem": 1},
-                            {"Instituição": banco, "Período": periodo, "Métrica": metrica, "componente": "Patrimônio Líquido", "valor": pl, "ordem": 2},
-                            {"Instituição": banco, "Período": periodo, "Métrica": metrica, "componente": "= Ativo Total ÷ PL", "valor": valor_final, "ordem": 3},
-                        ]
-                    )
-                elif metrica == "Carteira de Crédito* / PL":
-                    carteira = valores.get(("Carteira de Crédito*", banco, periodo))
-                    pl = valores.get(("Patrimônio Líquido (PL)", banco, periodo))
-                    rows.extend(
-                        [
-                            {"Instituição": banco, "Período": periodo, "Métrica": metrica, "componente": "Carteira de Crédito*", "valor": carteira, "ordem": 1},
-                            {"Instituição": banco, "Período": periodo, "Métrica": metrica, "componente": "Patrimônio Líquido", "valor": pl, "ordem": 2},
-                            {"Instituição": banco, "Período": periodo, "Métrica": metrica, "componente": "= Carteira de Crédito* ÷ PL", "valor": valor_final, "ordem": 3},
-                        ]
-                    )
-                elif metrica == "Perda Esperada / Estágio 3":
-                    pe = valores.get(("Perda Esperada", banco, periodo))
-                    est3 = valores.get(("Ativos Estágio 3", banco, periodo))
-                    rows.extend(
-                        [
-                            {"Instituição": banco, "Período": periodo, "Métrica": metrica, "componente": "Perda Esperada", "valor": pe, "ordem": 1},
-                            {"Instituição": banco, "Período": periodo, "Métrica": metrica, "componente": "Ativos Estágio 3", "valor": est3, "ordem": 2},
-                            {"Instituição": banco, "Período": periodo, "Métrica": metrica, "componente": "= Perda Esperada ÷ Estágio 3", "valor": valor_final, "ordem": 3},
-                        ]
-                    )
-                elif metrica == "Perda Esperada / Carteira de Crédito*":
-                    pe = valores.get(("Perda Esperada", banco, periodo))
-                    carteira = valores.get(("Carteira de Crédito*", banco, periodo))
-                    rows.extend(
-                        [
-                            {"Instituição": banco, "Período": periodo, "Métrica": metrica, "componente": "Perda Esperada", "valor": pe, "ordem": 1},
-                            {"Instituição": banco, "Período": periodo, "Métrica": metrica, "componente": "Carteira de Crédito*", "valor": carteira, "ordem": 2},
-                            {"Instituição": banco, "Período": periodo, "Métrica": metrica, "componente": "= Perda Esperada ÷ Carteira de Crédito*", "valor": valor_final, "ordem": 3},
-                        ]
-                    )
-                elif metrica not in metrica_formula:
-                    rows.append(
-                        {
-                            "Instituição": banco,
-                            "Período": periodo,
-                            "Métrica": metrica,
-                            "componente": "Valor final",
-                            "valor": valor_final,
-                            "ordem": 1,
-                        }
-                    )
+    if metrica == "Índice de Basileia Total":
+        df_mem = _build_memoria_calculo_basileia_rankings(df_base, [banco], periodos)
+        if df_mem.empty:
+            return pd.DataFrame()
+        return df_mem[df_mem["Instituição"] == banco].copy()
+
+    for periodo in periodos:
+        valor_final = valores.get((metrica, banco, periodo))
+        if metrica == "Ativo Total / PL":
+            ativo = valores.get(("Ativo Total", banco, periodo))
+            pl = valores.get(("Patrimônio Líquido (PL)", banco, periodo))
+            rows.extend([
+                {"Instituição": banco, "Período": periodo, "componente": "Ativo Total", "valor": ativo, "ordem": 1},
+                {"Instituição": banco, "Período": periodo, "componente": "Patrimônio Líquido", "valor": pl, "ordem": 2},
+                {"Instituição": banco, "Período": periodo, "componente": "= Ativo Total ÷ PL", "valor": valor_final, "ordem": 3},
+            ])
+        elif metrica == "Carteira de Crédito* / PL":
+            carteira = valores.get(("Carteira de Crédito*", banco, periodo))
+            pl = valores.get(("Patrimônio Líquido (PL)", banco, periodo))
+            rows.extend([
+                {"Instituição": banco, "Período": periodo, "componente": "Carteira de Crédito*", "valor": carteira, "ordem": 1},
+                {"Instituição": banco, "Período": periodo, "componente": "Patrimônio Líquido", "valor": pl, "ordem": 2},
+                {"Instituição": banco, "Período": periodo, "componente": "= Carteira de Crédito* ÷ PL", "valor": valor_final, "ordem": 3},
+            ])
+        elif metrica == "Perda Esperada / Estágio 3":
+            pe = valores.get(("Perda Esperada", banco, periodo))
+            est3 = valores.get(("Ativos Estágio 3", banco, periodo))
+            rows.extend([
+                {"Instituição": banco, "Período": periodo, "componente": "Perda Esperada", "valor": pe, "ordem": 1},
+                {"Instituição": banco, "Período": periodo, "componente": "Ativos Estágio 3", "valor": est3, "ordem": 2},
+                {"Instituição": banco, "Período": periodo, "componente": "= Perda Esperada ÷ Estágio 3", "valor": valor_final, "ordem": 3},
+            ])
+        elif metrica == "Perda Esperada / Carteira de Crédito*":
+            pe = valores.get(("Perda Esperada", banco, periodo))
+            carteira = valores.get(("Carteira de Crédito*", banco, periodo))
+            rows.extend([
+                {"Instituição": banco, "Período": periodo, "componente": "Perda Esperada", "valor": pe, "ordem": 1},
+                {"Instituição": banco, "Período": periodo, "componente": "Carteira de Crédito*", "valor": carteira, "ordem": 2},
+                {"Instituição": banco, "Período": periodo, "componente": "= Perda Esperada ÷ Carteira de Crédito*", "valor": valor_final, "ordem": 3},
+            ])
+        else:
+            rows.append(
+                {
+                    "Instituição": banco,
+                    "Período": periodo,
+                    "componente": "Valor final",
+                    "valor": valor_final,
+                    "ordem": 1,
+                }
+            )
 
     if not rows:
         return pd.DataFrame()
-    out = pd.DataFrame(rows)
-    out = out.sort_values(["Instituição", "Métrica", "ordem", "Período"])
-    return out
+    return pd.DataFrame(rows)
 
 
 def _periodo_trimestre_anterior(periodo: Optional[str], periodos_disponiveis: list[str]) -> Optional[str]:
@@ -9693,46 +9645,70 @@ elif menu == "Peers (Tabela)":
                     _log_roe_trace(df, "peers_pos_render")
 
                     with st.expander("Memória de cálculo — Peers (Tabela)", expanded=False):
-                        df_mem_peers = _build_memoria_calculo_peers_tabela(
-                            bancos=bancos_selecionados,
-                            periodos=periodos_selecionados,
-                            valores=valores,
-                        )
-                        if df_mem_peers.empty:
-                            st.info("memória de cálculo indisponível para os filtros atuais.")
-                        else:
-                            formatos_metrica = {
-                                row["label"]: row["format_key"]
-                                for section in PEERS_TABELA_LAYOUT
-                                for row in section["rows"]
-                            }
+                        formatos_metrica = {
+                            row["label"]: row["format_key"]
+                            for section in PEERS_TABELA_LAYOUT
+                            for row in section["rows"]
+                        }
+                        metricas_memoria = list(formatos_metrica.keys())
 
-                            def _fmt_memoria_peers(metrica: str, componente: str, valor_ref):
-                                if valor_ref is None or pd.isna(valor_ref):
-                                    return "N/D"
-                                if str(componente).strip().startswith("="):
-                                    return _formatar_valor_peers(valor_ref, formatos_metrica.get(metrica, metrica))
-                                return _formatar_monetario_br_inteligente(valor_ref, decimais=2, usar_sufixo_mm_maiusculo=True)
+                        def _fmt_memoria_peers(metrica: str, componente: str, valor_ref):
+                            if valor_ref is None or pd.isna(valor_ref):
+                                return "N/D"
+                            comp_txt = str(componente)
+                            if "Fator de anualização" in comp_txt:
+                                return f"{float(valor_ref):.2f}x".replace(".", ",")
+                            if comp_txt.strip().startswith("="):
+                                return _formatar_valor_peers(valor_ref, formatos_metrica.get(metrica, metrica))
+                            return _formatar_monetario_br_inteligente(valor_ref, decimais=2, usar_sufixo_mm_maiusculo=True)
 
-                            tabs_mem_peers = st.tabs(bancos_selecionados)
-                            for tab_mem, banco_mem in zip(tabs_mem_peers, bancos_selecionados):
-                                with tab_mem:
-                                    df_inst = df_mem_peers[df_mem_peers["Instituição"] == banco_mem].copy()
-                                    if df_inst.empty:
-                                        st.caption("sem dados para esta instituição.")
-                                        continue
-                                    df_inst["Período"] = df_inst["Período"].map(periodo_para_exibicao)
-                                    df_inst["Valor"] = df_inst.apply(
-                                        lambda row: _fmt_memoria_peers(row["Métrica"], row["componente"], row["valor"]),
+                        tabs_mem_peers = st.tabs(bancos_selecionados)
+                        for tab_mem, banco_mem in zip(tabs_mem_peers, bancos_selecionados):
+                            with tab_mem:
+                                metrica_sel = st.selectbox(
+                                    "Métrica",
+                                    metricas_memoria,
+                                    key=f"peers_memoria_metrica_{banco_mem}",
+                                )
+                                df_metrica = _build_memoria_calculo_peers_tabela_metrica(
+                                    df_base=df,
+                                    banco=banco_mem,
+                                    periodos=periodos_selecionados,
+                                    metrica=metrica_sel,
+                                    valores=valores,
+                                )
+                                if df_metrica.empty:
+                                    st.caption("sem memória de cálculo para esta métrica nos períodos selecionados.")
+                                    continue
+
+                                pivot = (
+                                    df_metrica.pivot_table(
+                                        index="componente",
+                                        columns="Período",
+                                        values="valor",
+                                        aggfunc="first",
+                                    )
+                                    .reset_index()
+                                )
+                                colunas_periodo = [p for p in periodos_selecionados if p in pivot.columns]
+                                for col_per in colunas_periodo:
+                                    pivot[col_per] = pivot.apply(
+                                        lambda row: _fmt_memoria_peers(metrica_sel, row["componente"], row[col_per]),
                                         axis=1,
                                     )
-                                    st.dataframe(
-                                        df_inst[["Período", "Métrica", "componente", "Valor"]].rename(
-                                            columns={"componente": "Componente"}
-                                        ),
-                                        width="stretch",
-                                        hide_index=True,
-                                    )
+                                mapa_periodos = {p: periodo_para_exibicao(p) for p in colunas_periodo}
+                                pivot = pivot.rename(columns=mapa_periodos)
+
+                                ordem_comp = (
+                                    df_metrica[["componente", "ordem"]]
+                                    .drop_duplicates()
+                                    .sort_values("ordem")["componente"]
+                                    .tolist()
+                                )
+                                pivot["ordem"] = pivot["componente"].map({c: i for i, c in enumerate(ordem_comp)})
+                                pivot = pivot.sort_values("ordem").drop(columns=["ordem"])
+
+                                st.dataframe(pivot, width="stretch", hide_index=True)
 
                     with st.expander("Mini-glossário", expanded=False):
                         st.markdown(
