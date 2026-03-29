@@ -9922,10 +9922,21 @@ elif menu == "Evolução":
             # fallback único: usar coluna já mesclada em dados_periodos, se disponível
             cet1_fonte = _numeric_series(df_ano, "Índice de Capital Principal")
         df_ano["Índice de Capital Principal (CET1)"] = _normalizar_indice_para_decimal(cet1_fonte)
-        t1_fonte = _numeric_series(
-            df_ano,
-            ["Índice de Capital Nível I", "Índice Capital Nível I", "Índice de Capital Nivel I", "Índice de Capital T1", "Índice Capital T1"],
+        col_t1 = next(
+            (
+                c
+                for c in [
+                    "Índice de Capital Nível I",
+                    "Índice Capital Nível I",
+                    "Índice de Capital Nivel I",
+                    "Índice de Capital T1",
+                    "Índice Capital T1",
+                ]
+                if c in df_ano.columns
+            ),
+            None,
         )
+        t1_fonte = _numeric_series(df_ano, col_t1) if col_t1 else pd.Series(np.nan, index=df_ano.index, dtype="float64")
         df_ano["Índice de Capital T1"] = _normalizar_indice_para_decimal(t1_fonte)
 
         graf_cols = {
