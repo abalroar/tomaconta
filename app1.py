@@ -7540,6 +7540,62 @@ def adicionar_indice_cet1(df_base: pd.DataFrame) -> pd.DataFrame:
     return df_base
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def _construir_indices_capital_unificados(capital_token: str, alias_sig: tuple) -> pd.DataFrame:
+    """Fonte única de índices de capital (CET1, T1 e Basileia Total) para Evolução e Rankings."""
+    _ = (capital_token, alias_sig)
+    df_capital = _preparar_df_capital_base()
+    if df_capital is None or df_capital.empty:
+        return pd.DataFrame(columns=[
+            "Período",
+            "Instituição",
+            "Índice de Capital Principal (CET1)",
+            "Índice de Capital T1 (%)",
+            "Índice de Basileia Total (%)",
+        ])
+
+    colunas_encontradas, _, _, _ = _mapear_colunas_capital(df_capital)
+    col_capital_principal = colunas_encontradas.get("Capital Principal")
+    col_capital_complementar = colunas_encontradas.get("Capital Complementar")
+    col_capital_n2 = colunas_encontradas.get("Capital Nível II")
+    col_rwa = colunas_encontradas.get("RWA Total")
+    col_basileia_precalc = colunas_encontradas.get("Índice de Basileia Capital")
+
+    if not all([col_capital_principal, col_capital_complementar, col_capital_n2, col_rwa]):
+        return pd.DataFrame(columns=[
+            "Período",
+            "Instituição",
+            "Índice de Capital Principal (CET1)",
+            "Índice de Capital T1 (%)",
+            "Índice de Basileia Total (%)",
+        ])
+
+    principal = pd.to_numeric(df_capital[col_capital_principal], errors="coerce")
+    complementar = pd.to_numeric(df_capital[col_capital_complementar], errors="coerce")
+    capital_n2 = pd.to_numeric(df_capital[col_capital_n2], errors="coerce")
+    rwa = pd.to_numeric(df_capital[col_rwa], errors="coerce").replace(0, np.nan)
+
+    df_idx = df_capital[["Período", "Instituição"]].copy()
+    df_idx["Índice de Capital Principal (CET1)"] = principal / rwa
+    df_idx["Índice de Capital T1 (%)"] = (principal + complementar) / rwa
+    df_idx["Índice de Basileia Total (%)"] = (principal + complementar + capital_n2) / rwa
+
+    if col_basileia_precalc and col_basileia_precalc in df_capital.columns:
+        bas_pre = _normalizar_indice_para_decimal(pd.to_numeric(df_capital[col_basileia_precalc], errors="coerce"))
+        df_idx["Índice de Basileia Total (%)"] = df_idx["Índice de Basileia Total (%)"].combine_first(bas_pre)
+
+    df_idx = (
+        df_idx.sort_values(["Período", "Instituição"])
+        .groupby(["Período", "Instituição"], as_index=False)
+        .agg({
+            "Índice de Capital Principal (CET1)": "last",
+            "Índice de Capital T1 (%)": "last",
+            "Índice de Basileia Total (%)": "last",
+        })
+    )
+    return df_idx
+
+
 def normalizar_periodo_chave(periodo: str) -> str:
     if periodo is None:
         return ""
@@ -8260,32 +8316,14 @@ def _get_rankings_base_df(
     df = _normalizar_lucro_liquido(df.copy())
     df = _recalcular_roe_anualizado_df(df)
     df = _recalcular_roe_trimestral_df(df)
-    df = adicionar_indice_cet1(df)
-
-    precisa_enriquecer_cet1 = (
-        "Índice de CET1" not in df.columns
-        or df["Índice de CET1"].isna().any()
-    )
-
-    if precisa_enriquecer_cet1:
-        df_cet1 = construir_cet1_capital(
-            st.session_state.get("dados_capital", {}),
-            st.session_state.get("dict_aliases", {}),
-            st.session_state.get("df_aliases"),
-            st.session_state.get("dados_periodos"),
+    df_capital_idx = _construir_indices_capital_unificados(capital_token, alias_sig)
+    if not df_capital_idx.empty:
+        df = df.merge(
+            df_capital_idx,
+            on=["Período", "Instituição"],
+            how="left",
+            suffixes=("", "_capital_idx"),
         )
-        if not df_cet1.empty:
-            df = df.merge(
-                df_cet1,
-                on=["Período", "Instituição"],
-                how="left",
-                suffixes=("", "_cet1"),
-            )
-            if "Índice de CET1" not in df.columns and "Índice de CET1_cet1" in df.columns:
-                df = df.rename(columns={"Índice de CET1_cet1": "Índice de CET1"})
-            elif "Índice de CET1_cet1" in df.columns:
-                df["Índice de CET1"] = df["Índice de CET1"].fillna(df["Índice de CET1_cet1"])
-                df = df.drop(columns=["Índice de CET1_cet1"])
 
     return _normalizar_indicadores_rankings(df)
 
@@ -8323,6 +8361,36 @@ def _normalizar_indicadores_rankings(df: pd.DataFrame) -> pd.DataFrame:
     if serie_core is not None:
         df_out["Core Funding"] = serie_core
         df_out["Core Funding*"] = serie_core
+
+    serie_cet1 = _coalesce_colunas([
+        "Índice de Capital Principal (CET1)",
+        "Índice de Capital Principal (CET1)_capital_idx",
+        "Índice de Capital Principal",
+        "Índice de CET1",
+    ])
+    if serie_cet1 is not None:
+        df_out["Índice de Capital Principal (CET1)"] = _normalizar_indice_para_decimal(serie_cet1)
+
+    serie_t1 = _coalesce_colunas([
+        "Índice de Capital T1 (%)",
+        "Índice de Capital T1 (%)_capital_idx",
+        "Índice de Capital Nível I",
+        "Índice Capital Nível I",
+        "Índice de Capital Nivel I",
+        "Índice de Capital T1",
+        "Índice Capital T1",
+    ])
+    if serie_t1 is not None:
+        df_out["Índice de Capital T1 (%)"] = _normalizar_indice_para_decimal(serie_t1)
+
+    serie_basileia_total = _coalesce_colunas([
+        "Índice de Basileia Total (%)",
+        "Índice de Basileia Total (%)_capital_idx",
+        "Índice de Basileia",
+        "Índice de Basileia Total",
+    ])
+    if serie_basileia_total is not None:
+        df_out["Índice de Basileia Total (%)"] = _normalizar_indice_para_decimal(serie_basileia_total)
 
     return df_out
 
@@ -9889,68 +9957,31 @@ elif menu == "Evolução":
             pd.to_numeric(df_ano["Carteira de Crédito Bruta"], errors="coerce") / pd.to_numeric(df_ano.get("Patrimônio Líquido"), errors="coerce"),
             np.nan,
         )
-        basileia_fonte = _numeric_series(df_ano, "Índice de Basileia")
-        df_ano["Índice de Basileia (%)"] = _normalizar_basileia_display(basileia_fonte)
-
-        # CET1: usar a mesma fonte/lógica da Tabela (Peers), via relatório de Capital.
-        # Obtém Índice de CET1 por período (decimal 0-1) e só então converte para display.
-        cet1_map = {}
-        codinst_alvo = None
-        if "CodInst" in df_ano.columns:
-            codinst_vals = df_ano["CodInst"].dropna()
-            if not codinst_vals.empty:
-                codinst_alvo = str(codinst_vals.iloc[0]).strip()
-
-        for periodo in df_ano.get("Período", pd.Series(dtype="object")).dropna().unique():
-            df_cet1_periodo = obter_cet1_periodo(
-                periodo,
-                st.session_state.get("dados_capital", {}),
-                st.session_state.get("dict_aliases", {}),
-                st.session_state.get("df_aliases"),
-                st.session_state.get("dados_periodos"),
+        df_capital_idx = _construir_indices_capital_unificados(_cache_version_token("capital"), _alias_signature())
+        if not df_capital_idx.empty:
+            df_ano = df_ano.merge(
+                df_capital_idx,
+                on=["Período", "Instituição"],
+                how="left",
+                suffixes=("", "_capital_idx"),
             )
-            if df_cet1_periodo is None or df_cet1_periodo.empty:
-                continue
-
-            mask_inst = pd.Series(False, index=df_cet1_periodo.index)
-            if codinst_alvo and "CodInst" in df_cet1_periodo.columns:
-                codinst_series = df_cet1_periodo["CodInst"].astype(str).str.strip()
-                mask_inst = codinst_series == codinst_alvo
-
-            if not bool(mask_inst.any()):
-                mask_inst = df_cet1_periodo["Instituição"] == instituicao
-            if not bool(mask_inst.any()):
-                inst_norm = _normalizar_label_peers(str(instituicao))
-                mask_inst = df_cet1_periodo["Instituição"].astype(str).apply(_normalizar_label_peers) == inst_norm
-
-            serie_cet1_inst = pd.to_numeric(
-                df_cet1_periodo.loc[mask_inst, "Índice de CET1"],
-                errors="coerce",
-            ).dropna()
-            if not serie_cet1_inst.empty:
-                cet1_map[periodo] = float(serie_cet1_inst.iloc[0])
-
-        cet1_fonte = df_ano.get("Período", pd.Series(index=df_ano.index)).map(cet1_map)
-        if cet1_fonte.isna().all():
-            # fallback único: usar coluna já mesclada em dados_periodos, se disponível
-            cet1_fonte = _numeric_series(df_ano, "Índice de Capital Principal")
-        df_ano["Índice de Capital Principal (CET1)"] = _normalizar_indice_para_decimal(cet1_fonte)
-        col_t1 = next(
-            (
-                c
-                for c in [
-                    "Índice de Capital Nível I",
-                    "Índice Capital Nível I",
-                    "Índice de Capital Nivel I",
-                    "Índice de Capital T1",
-                    "Índice Capital T1",
-                ]
-                if c in df_ano.columns
-            ),
-            None,
-        )
-        t1_fonte = _numeric_series(df_ano, col_t1) if col_t1 else pd.Series(np.nan, index=df_ano.index, dtype="float64")
-        df_ano["Índice de Capital T1"] = _normalizar_indice_para_decimal(t1_fonte)
+            for col_cap in [
+                "Índice de Capital Principal (CET1)",
+                "Índice de Capital T1 (%)",
+                "Índice de Basileia Total (%)",
+            ]:
+                col_cap_idx = f"{col_cap}_capital_idx"
+                if col_cap_idx in df_ano.columns:
+                    if col_cap in df_ano.columns:
+                        df_ano[col_cap] = pd.to_numeric(df_ano[col_cap], errors="coerce").combine_first(
+                            pd.to_numeric(df_ano[col_cap_idx], errors="coerce")
+                        )
+                    else:
+                        df_ano[col_cap] = pd.to_numeric(df_ano[col_cap_idx], errors="coerce")
+        else:
+            df_ano["Índice de Capital Principal (CET1)"] = np.nan
+            df_ano["Índice de Capital T1 (%)"] = np.nan
+            df_ano["Índice de Basileia Total (%)"] = np.nan
 
         graf_cols = {
             "Lucro Líquido": "Lucro Líquido Acumulado YTD",
@@ -10053,8 +10084,8 @@ elif menu == "Evolução":
                 yaxis2=dict(title="Carteira* / Core Funding* (R$ mm)", overlaying="y", side="right", rangemode="tozero"),
             xaxis_title="Ano",
             xaxis=dict(type="category", categoryorder="array", categoryarray=ano_labels),
-            legend=dict(orientation="v", y=0.5, x=0.01),
-            margin=dict(t=30, b=20),
+            legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="left", x=0.0),
+            margin=dict(t=80, b=20),
             plot_bgcolor="#f2f2f2",
             paper_bgcolor="#f2f2f2",
             annotations=annotations_ev,
@@ -10066,8 +10097,8 @@ elif menu == "Evolução":
                 "ROE anualizado",
                 "Carteira de Crédito* / PL",
                 "Índice de Capital Principal (CET1)",
-                "Índice de Capital T1",
-                "Índice de Basileia (%)",
+                "Índice de Capital T1 (%)",
+                "Índice de Basileia Total (%)",
             ]
         })
         for _, row in df_ano.iterrows():
@@ -10076,8 +10107,8 @@ elif menu == "Evolução":
                 row.get("ROE anualizado"),
                 row.get("Carteira de Crédito Bruta / PL"),
                 row.get("Índice de Capital Principal (CET1)"),
-                row.get("Índice de Capital T1"),
-                row.get("Índice de Basileia (%)"),
+                row.get("Índice de Capital T1 (%)"),
+                row.get("Índice de Basileia Total (%)"),
             ]
 
         def _fmt_valor_br(v):
@@ -10101,7 +10132,7 @@ elif menu == "Evolução":
         def _fmt_evol(v, m):
             if pd.isna(v):
                 return "-"
-            if m in ("ROE anualizado", "Índice de Basileia (%)", "Índice de Capital Principal (CET1)", "Índice de Capital T1"):
+            if m in ("ROE anualizado", "Índice de Basileia Total (%)", "Índice de Capital Principal (CET1)", "Índice de Capital T1 (%)"):
                 return _fmt_pct(v)
             if m == "Carteira de Crédito* / PL":
                 return f"{float(v):.1f}x".replace(".", ",")
@@ -10225,7 +10256,7 @@ elif menu == "Evolução":
                     <br>
                     <strong>ROE anualizado:</strong> Retorno sobre o patrimônio líquido. (Lucro Líquido acumulado no ano × fator de anualização) ÷ PL Médio, onde PL Médio = (PL no período + PL em Dez do ano anterior) / 2. Fator: Mar=4, Jun=2, Set=12/9, Dez=1. Se PL médio ≤ 0 ou dado faltante: N/A.<br>
                     <strong>Carteira de Crédito* / PL:</strong> Carteira de Crédito* (Rel. 2) ÷ Patrimônio Líquido (Rel. 1).<br>
-                    <strong>Índice de Basileia (%):</strong> (Capital Principal + Capital Complementar + Capital Nível II) ÷ RWA Total (Rel. 5). Equivale à soma CET1 + AT1 + T2.<br>
+                    <strong>Índice de Basileia Total (%):</strong> (Capital Principal + Capital Complementar + Capital Nível II) ÷ RWA Total (Rel. 5). Equivale à soma CET1 + AT1 + T2.<br>
                     <strong>Índice de Capital Principal (CET1):</strong> Capital Principal ÷ RWA Total, extraído do relatório de Informações de Capital (Rel. 5).<br>
                 </div>
                 """,
@@ -10838,8 +10869,8 @@ elif menu == "Rankings":
             'Core Funding*': ['Core Funding*', 'Core Funding', 'Captações'],
             'Patrimônio Líquido': ['Patrimônio Líquido'],
             'Índice de Capital Principal (CET1)': ['Índice de Capital Principal (CET1)', 'Índice de Capital Principal'],
-            'Índice de Capital T1': ['Índice de Capital Nível I', 'Índice Capital Nível I', 'Índice de Capital Nivel I', 'Índice Capital T1', 'Índice de Capital T1'],
-            'Índice de Basileia (%)': ['Índice de Basileia'],
+            'Índice de Capital T1 (%)': ['Índice de Capital T1 (%)', 'Índice de Capital T1', 'Índice de Capital Nível I', 'Índice Capital Nível I', 'Índice de Capital Nivel I', 'Índice Capital T1'],
+            'Índice de Basileia Total (%)': ['Índice de Basileia Total (%)', 'Índice de Basileia', 'Índice de Basileia Total'],
             'Lucro Líquido Acumulado YTD': ['Lucro Líquido Acumulado YTD'],
             'Lucro Líquido Trimestral': ['Lucro Líquido Trimestral'],
             'ROE Trim. Anualizado (%)': ['ROE trimestral anualizado (%)', 'ROE Trim. Anualizado (%)', 'ROE Trimestral An. (%)'],
@@ -10862,8 +10893,8 @@ elif menu == "Rankings":
                 'Core Funding*',
                 'Patrimônio Líquido',
                 'Índice de Capital Principal (CET1)',
-                'Índice de Capital T1',
-                'Índice de Basileia (%)',
+                'Índice de Capital T1 (%)',
+                'Índice de Basileia Total (%)',
                 'Lucro Líquido Acumulado YTD',
                 'Lucro Líquido Trimestral',
                 'ROE Trim. Anualizado (%)',
@@ -10880,8 +10911,8 @@ elif menu == "Rankings":
                 'Core Funding*': 'Captações (e) no Relatório de Passivo; a partir de 2025, soma-se Dívida Subordinada (h).',
                 'Patrimônio Líquido': 'Padrão COSIF.',
                 'Índice de Capital Principal (CET1)': 'Capital Principal ÷ RWA Total. Indicador de solidez patrimonial regulatório (mínimo exigido: 4,5% + ACPs).',
-                'Índice de Capital T1': 'Patrimônio de Referência Nível I ÷ RWA Total. Equivale a (CET1 + AT1) ÷ RWA Total.',
-                'Índice de Basileia (%)': 'Patrimônio de Referência ÷ RWA Total. Índice global de adequação de capital.',
+                'Índice de Capital T1 (%)': 'Patrimônio de Referência Nível I ÷ RWA Total. Equivale a (CET1 + AT1) ÷ RWA Total.',
+                'Índice de Basileia Total (%)': 'Patrimônio de Referência ÷ RWA Total. Índice global de adequação de capital.',
                 'Lucro Líquido Acumulado YTD': 'Lucro líquido acumulado no ano-calendário até o final do período (Jan–Set, Jan–Jun etc.).',
                 'Lucro Líquido Trimestral': 'Lucro líquido do trimestre de referência (isolado).',
                 'ROE Trim. Anualizado (%)': 'ROE trimestral anualizado: (LL Trimestral × 4) ÷ PL Médio × 100. PL Médio = (PL período + PL Dez anterior) / 2.',
@@ -11266,7 +11297,7 @@ elif menu == "Rankings":
                         )
                         return
 
-                if indicador_atual == "Índice de Basileia (%)":
+                if indicador_atual == "Índice de Basileia Total (%)":
                     df_memoria = _build_memoria_calculo_basileia_rankings(df_base_rankings, bancos_alvo, periodos_alvo)
                     if not df_memoria.empty:
                         _renderizar_memoria_detalhada_pivot(
@@ -11462,7 +11493,7 @@ elif menu == "Rankings":
                 df_selecionado = pd.DataFrame()
 
             if grafico_base == "Ranking":
-                if indicador_label == "Índice de Basileia (%)":
+                if indicador_label == "Índice de Basileia Total (%)":
                     df_capital_base = _preparar_df_capital_base()
                     if df_capital_base.empty:
                         st.info("dados de capital não disponíveis para o ranking.")
@@ -11691,9 +11722,9 @@ elif menu == "Rankings":
 
                             fig_basileia.update_layout(
                                 title=(
-                                    f"Índice de Basileia (%) - comparação por períodos ({n_bancos} instituições)"
+                                    f"Índice de Basileia Total (%) - comparação por períodos ({n_bancos} instituições)"
                                     if comparar_periodos_basileia
-                                    else f"Índice de Basileia (%) - {formatar_periodo_mm_yyyy(periodo_resumo_base)} ({n_bancos} instituições)"
+                                    else f"Índice de Basileia Total (%) - {formatar_periodo_mm_yyyy(periodo_resumo_base)} ({n_bancos} instituições)"
                                 ),
                                 xaxis_title="instituições",
                                 yaxis_title="índice (%)",
