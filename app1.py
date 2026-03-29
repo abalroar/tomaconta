@@ -5931,7 +5931,7 @@ def _render_peers_table_html(
                         tip = f"{tip_base}\n\n{delta_tip}".strip() if tip_base else delta_tip
                     if tip:
                         tip_html = _html_mod.escape(tip).replace("\n", "<br>")
-                        html += f'<td class="has-tip">{valor_fmt}{delta_html}<span class="tip-text">{tip_html}</span></td>'
+                        html += f'<td class="has-tip">{valor_fmt}{delta_html}<span class="tip-text tip-main">{tip_html}</span></td>'
                     else:
                         html += f"<td>{valor_fmt}{delta_html}</td>"
 
