@@ -3505,8 +3505,20 @@ def _parte_periodo_para_trimestre_idx(valor) -> Optional[int]:
 
     Aceita formatos com trimestre (1/2/3/4) e mensal trimestral (03/06/09/12).
     """
+    parte_txt = str(valor).strip()
+
+    # Primeiro resolve formatos mensais trimestrais com zero à esquerda.
+    if parte_txt == "03":
+        return 1
+    if parte_txt == "06":
+        return 2
+    if parte_txt == "09":
+        return 3
+    if parte_txt == "12":
+        return 4
+
     try:
-        parte = int(str(valor).strip())
+        parte = int(parte_txt)
     except Exception:
         return None
 
