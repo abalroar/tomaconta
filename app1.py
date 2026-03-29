@@ -6994,7 +6994,7 @@ def pagina_snapshot():
                  "higher_is_better": False, "is_pct": True,
                  "serie": perda_est3_map,
                  "source": "Peers (Tabela): Perda Esperada (Rel. 2) ÷ Ativos Estágio 3 (Cadoc 4060)"},
-                {"label": "Perda Esperada / Carteira", "format_key": "Perda Esperada / Carteira de Crédito*",
+                {"label": "Perda Esperada / Carteira", "format_key": "Perda Esperada / Carteira de Crédito Bruta",
                  "higher_is_better": False, "is_pct": True,
                  "serie": perda_carteira_map,
                  "source": "Peers (Tabela): Perda Esperada ÷ Carteira de Crédito Bruta"},
