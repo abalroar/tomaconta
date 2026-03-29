@@ -15615,7 +15615,7 @@ elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolid
             unsafe_allow_html=True,
         )
 
-elif menu == "Carteira 4.966":
+elif menu == "__deprecated__Carteira 4.966 (bloco legado DRE-1)":
     # =========================================================================
     # ABA CARTEIRA 4.966 - Classificação de Instrumentos Financeiros (Res. 4.966)
     # =========================================================================
@@ -16554,7 +16554,7 @@ elif menu == "Carteira 4.966":
             unsafe_allow_html=True,
         )
 
-elif menu == "Carteira 4.966":
+elif menu == "__deprecated__Carteira 4.966 (bloco legado DRE-2)":
     # =========================================================================
     # ABA CARTEIRA 4.966 - Classificação de Instrumentos Financeiros (Res. 4.966)
     # =========================================================================
