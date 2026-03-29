@@ -6786,6 +6786,7 @@ def pagina_snapshot():
     bancos_tuple = (banco,)
     periodos_tuple = tuple(periodos_snapshot)
     t_dados = time.perf_counter()
+    cache_bloprud = None
     cache_ativo = _carregar_cache_relatorio_slice("ativo", _cache_version_token("ativo"), periodos_tuple, bancos_tuple)
     cache_capital = _carregar_cache_relatorio_slice("capital", _cache_version_token("capital"), periodos_tuple, bancos_tuple)
     df_deriv = carregar_metricas_derivadas_slice(
