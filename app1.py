@@ -3558,7 +3558,7 @@ def _periodo_dez_ano_anterior(periodo: str) -> Optional[str]:
 def _aplicar_lucro_trimestral_dre(df: pd.DataFrame, label_lucro: str = "Lucro Líquido Período Acumulado") -> pd.DataFrame:
     """Converte a linha de lucro da DRE para exibição trimestral no padrão Rel. 4.
 
-    Regras de exibição (MM/AAAA):
+    Regras de exibição (MM/AAAA, base semestral do IFData):
       - 03: usa o valor bruto do IFData
       - 06: 06 - 03
       - 09: usa o valor bruto do IFData
