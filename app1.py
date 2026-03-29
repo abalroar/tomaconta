@@ -3562,7 +3562,7 @@ def _aplicar_lucro_trimestral_dre(df: pd.DataFrame, label_lucro: str = "Lucro LÃ
       - 03: usa o valor bruto do IFData
       - 06: 06 - 03
       - 09: usa o valor bruto do IFData
-      - 12: 12 - 06
+      - 12: 12 - 09
     """
     if df is None or df.empty or "Label" not in df.columns:
         return df
@@ -3598,8 +3598,8 @@ def _aplicar_lucro_trimestral_dre(df: pd.DataFrame, label_lucro: str = "Lucro LÃ
             elif mes_int == 9:
                 novo = raw_map.get(9, np.nan)
             elif mes_int == 12:
-                v12, v6 = raw_map.get(12), raw_map.get(6)
-                novo = (v12 - v6) if pd.notna(v12) and pd.notna(v6) else np.nan
+                v12, v9 = raw_map.get(12), raw_map.get(9)
+                novo = (v12 - v9) if pd.notna(v12) and pd.notna(v9) else np.nan
             else:
                 novo = out.at[row_idx, "ytd"]
             out.at[row_idx, "ytd"] = novo
