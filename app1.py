@@ -9922,6 +9922,22 @@ elif menu == "Evolução":
             # fallback único: usar coluna já mesclada em dados_periodos, se disponível
             cet1_fonte = _numeric_series(df_ano, "Índice de Capital Principal")
         df_ano["Índice de Capital Principal (CET1)"] = _normalizar_indice_para_decimal(cet1_fonte)
+        col_t1 = next(
+            (
+                c
+                for c in [
+                    "Índice de Capital Nível I",
+                    "Índice Capital Nível I",
+                    "Índice de Capital Nivel I",
+                    "Índice de Capital T1",
+                    "Índice Capital T1",
+                ]
+                if c in df_ano.columns
+            ),
+            None,
+        )
+        t1_fonte = _numeric_series(df_ano, col_t1) if col_t1 else pd.Series(np.nan, index=df_ano.index, dtype="float64")
+        df_ano["Índice de Capital T1"] = _normalizar_indice_para_decimal(t1_fonte)
 
         graf_cols = {
             "Lucro Líquido": "Lucro Líquido Acumulado YTD",
@@ -10036,8 +10052,9 @@ elif menu == "Evolução":
             "Métrica": [
                 "ROE anualizado",
                 "Carteira de Crédito* / PL",
-                "Índice de Basileia (%)",
                 "Índice de Capital Principal (CET1)",
+                "Índice de Capital T1",
+                "Índice de Basileia (%)",
             ]
         })
         for _, row in df_ano.iterrows():
@@ -10045,8 +10062,9 @@ elif menu == "Evolução":
             df_metric[periodo_label] = [
                 row.get("ROE anualizado"),
                 row.get("Carteira de Crédito Bruta / PL"),
-                row.get("Índice de Basileia (%)"),
                 row.get("Índice de Capital Principal (CET1)"),
+                row.get("Índice de Capital T1"),
+                row.get("Índice de Basileia (%)"),
             ]
 
         def _fmt_valor_br(v):
@@ -10070,7 +10088,7 @@ elif menu == "Evolução":
         def _fmt_evol(v, m):
             if pd.isna(v):
                 return "-"
-            if m in ("ROE anualizado", "Índice de Basileia (%)", "Índice de Capital Principal (CET1)"):
+            if m in ("ROE anualizado", "Índice de Basileia (%)", "Índice de Capital Principal (CET1)", "Índice de Capital T1"):
                 return _fmt_pct(v)
             if m == "Carteira de Crédito* / PL":
                 return f"{float(v):.1f}x".replace(".", ",")
@@ -10800,6 +10818,7 @@ elif menu == "Rankings":
             'Core Funding*': ['Core Funding*', 'Core Funding', 'Captações'],
             'Patrimônio Líquido': ['Patrimônio Líquido'],
             'Índice de Capital Principal (CET1)': ['Índice de Capital Principal (CET1)', 'Índice de Capital Principal'],
+            'Índice de Capital T1': ['Índice de Capital Nível I', 'Índice Capital Nível I', 'Índice de Capital Nivel I', 'Índice Capital T1', 'Índice de Capital T1'],
             'Índice de Basileia (%)': ['Índice de Basileia'],
             'Lucro Líquido Acumulado YTD': ['Lucro Líquido Acumulado YTD'],
             'Lucro Líquido Trimestral': ['Lucro Líquido Trimestral'],
@@ -10823,6 +10842,7 @@ elif menu == "Rankings":
                 'Core Funding*',
                 'Patrimônio Líquido',
                 'Índice de Capital Principal (CET1)',
+                'Índice de Capital T1',
                 'Índice de Basileia (%)',
                 'Lucro Líquido Acumulado YTD',
                 'Lucro Líquido Trimestral',
@@ -10840,6 +10860,7 @@ elif menu == "Rankings":
                 'Core Funding*': 'Captações (e) no Relatório de Passivo; a partir de 2025, soma-se Dívida Subordinada (h).',
                 'Patrimônio Líquido': 'Padrão COSIF.',
                 'Índice de Capital Principal (CET1)': 'Capital Principal ÷ RWA Total. Indicador de solidez patrimonial regulatório (mínimo exigido: 4,5% + ACPs).',
+                'Índice de Capital T1': 'Patrimônio de Referência Nível I ÷ RWA Total. Equivale a (CET1 + AT1) ÷ RWA Total.',
                 'Índice de Basileia (%)': 'Patrimônio de Referência ÷ RWA Total. Índice global de adequação de capital.',
                 'Lucro Líquido Acumulado YTD': 'Lucro líquido acumulado no ano-calendário até o final do período (Jan–Set, Jan–Jun etc.).',
                 'Lucro Líquido Trimestral': 'Lucro líquido do trimestre de referência (isolado).',
