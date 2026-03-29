@@ -13889,6 +13889,15 @@ elif menu == "DRE" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo ==
             tooltip_por_label[entry["label"]] = "\n".join(tooltip_parts)
 
             label_exib = entry["label"]
+            if (
+                entry.get("label") == "Lucro Líquido Período Acumulado"
+                and base_comparacao == "Lucro Líquido Trimestral"
+            ):
+                label_exib = "Lucro Líquido Trimestral"
+                tooltip_por_label[entry["label"]] = (
+                    (tooltip_por_label.get(entry["label"], "") + "\n").strip()
+                    + "Exibição trimestral (Rel. 4): Lucro Líquido (aa) = (x) + (y) + (z)."
+                ).strip()
             entrada_copy = entry.copy()
             entrada_copy["label_exib"] = label_exib
             entradas_com_label.append(entrada_copy)
@@ -15046,7 +15055,17 @@ elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolid
                 tooltip_parts.append(f"Status do mapeamento: {cosif_info['status']}")
         tooltip_por_label[entry["label"]] = "\n".join(tooltip_parts)
         entrada_copy = entry.copy()
-        entrada_copy["label_exib"] = entry["label"]
+        label_exib = entry["label"]
+        if (
+            entry.get("label") == "Lucro Líquido Período Acumulado"
+            and base_comparacao == "Lucro Líquido Trimestral"
+        ):
+            label_exib = "Lucro Líquido Trimestral"
+            tooltip_por_label[entry["label"]] = (
+                (tooltip_por_label.get(entry["label"], "") + "\n").strip()
+                + "Exibição trimestral (Rel. 4): Lucro Líquido (aa) = (x) + (y) + (z)."
+            ).strip()
+        entrada_copy["label_exib"] = label_exib
         entradas_com_label.append(entrada_copy)
 
     df_filtrado = df_ytd_base[df_ytd_base["ano"] == int(ano_selecionado)].copy()
@@ -15978,7 +15997,17 @@ elif menu == "Carteira 4.966":
                 tooltip_parts.append(f"Status do mapeamento: {cosif_info['status']}")
         tooltip_por_label[entry["label"]] = "\n".join(tooltip_parts)
         entrada_copy = entry.copy()
-        entrada_copy["label_exib"] = entry["label"]
+        label_exib = entry["label"]
+        if (
+            entry.get("label") == "Lucro Líquido Período Acumulado"
+            and base_comparacao == "Lucro Líquido Trimestral"
+        ):
+            label_exib = "Lucro Líquido Trimestral"
+            tooltip_por_label[entry["label"]] = (
+                (tooltip_por_label.get(entry["label"], "") + "\n").strip()
+                + "Exibição trimestral (Rel. 4): Lucro Líquido (aa) = (x) + (y) + (z)."
+            ).strip()
+        entrada_copy["label_exib"] = label_exib
         entradas_com_label.append(entrada_copy)
 
     df_filtrado = df_ytd_base[df_ytd_base["ano"] == int(ano_selecionado)].copy()
@@ -16973,7 +17002,17 @@ elif menu == "Carteira 4.966":
                 tooltip_parts.append(f"Status do mapeamento: {cosif_info['status']}")
         tooltip_por_label[entry["label"]] = "\n".join(tooltip_parts)
         entrada_copy = entry.copy()
-        entrada_copy["label_exib"] = entry["label"]
+        label_exib = entry["label"]
+        if (
+            entry.get("label") == "Lucro Líquido Período Acumulado"
+            and base_comparacao == "Lucro Líquido Trimestral"
+        ):
+            label_exib = "Lucro Líquido Trimestral"
+            tooltip_por_label[entry["label"]] = (
+                (tooltip_por_label.get(entry["label"], "") + "\n").strip()
+                + "Exibição trimestral (Rel. 4): Lucro Líquido (aa) = (x) + (y) + (z)."
+            ).strip()
+        entrada_copy["label_exib"] = label_exib
         entradas_com_label.append(entrada_copy)
 
     df_filtrado = df_ytd_base[df_ytd_base["ano"] == int(ano_selecionado)].copy()
