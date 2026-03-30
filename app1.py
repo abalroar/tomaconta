@@ -6867,7 +6867,16 @@ def pagina_snapshot():
         return
 
     bancos = ordenar_bancos_com_alias(df_base["Instituição"].dropna().unique().tolist(), st.session_state.get("dict_aliases", {}))
-    banco = st.selectbox("Instituição", bancos, key="snapshot_banco")
+    banco_snapshot_default = next(
+        (
+            b
+            for b in bancos
+            if "itau" in normalize_text(b).lower() and "unibanco" in normalize_text(b).lower()
+        ),
+        None,
+    )
+    idx_snapshot_default = bancos.index(banco_snapshot_default) if banco_snapshot_default in bancos else 0
+    banco = st.selectbox("Instituição", bancos, index=idx_snapshot_default, key="snapshot_banco")
 
     periodos_banco = ordenar_periodos(df_base.loc[df_base["Instituição"] == banco, "Período"].dropna().unique().tolist(), reverso=True)
     if not periodos_banco:
