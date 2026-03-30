@@ -1795,11 +1795,13 @@ def resolver_nomes_instituicoes_capital(df_capital, dict_aliases, df_aliases=Non
                 break
 
         if col_codigo and 'Alias Banco' in df_aliases.columns:
-            for _, row in df_aliases.iterrows():
-                cod = row.get(col_codigo)
-                alias = row.get('Alias Banco')
-                if pd.notna(cod) and pd.notna(alias):
-                    mapa_codinst_nome[str(cod).strip()] = alias
+            df_aliases_validos = df_aliases[[col_codigo, 'Alias Banco']].dropna(subset=[col_codigo, 'Alias Banco'])
+            mapa_codinst_nome = dict(
+                zip(
+                    df_aliases_validos[col_codigo].astype(str).str.strip(),
+                    df_aliases_validos['Alias Banco']
+                )
+            )
 
     # Construir mapa adicional a partir do dados_periodos (cache principal) como fallback
     mapa_dados_periodos = {}
@@ -4593,7 +4595,14 @@ def _anexar_carteira_credito_bruta(dados_periodos: dict) -> dict:
         if sub.empty:
             dados_out[periodo] = df_out
             continue
-        df_out = df_out.merge(sub, on="Instituição", how="left", suffixes=("", "_bruta"))
+        if "Período" in df_out.columns:
+            sub = sub.copy()
+            sub["Período"] = periodo
+            left_df = df_out.set_index(["Período", "Instituição"])
+            right_df = sub.set_index(["Período", "Instituição"])
+            df_out = left_df.join(right_df, how="left", rsuffix="_bruta").reset_index()
+        else:
+            df_out = df_out.merge(sub, on="Instituição", how="left", suffixes=("", "_bruta"))
         if "Carteira de Crédito Bruta_bruta" in df_out.columns and "Carteira de Crédito Bruta" in df_out.columns:
             df_out["Carteira de Crédito Bruta"] = df_out["Carteira de Crédito Bruta_bruta"].combine_first(
                 df_out["Carteira de Crédito Bruta"]
@@ -4671,7 +4680,14 @@ def _anexar_core_funding(dados_periodos: dict) -> dict:
             dados_out[periodo] = df
             continue
         df_out = df.copy()
-        df_out = df_out.merge(sub, on="Instituição", how="left", suffixes=("", "_core"))
+        if "Período" in df_out.columns:
+            sub = sub.copy()
+            sub["Período"] = periodo
+            left_df = df_out.set_index(["Período", "Instituição"])
+            right_df = sub.set_index(["Período", "Instituição"])
+            df_out = left_df.join(right_df, how="left", rsuffix="_core").reset_index()
+        else:
+            df_out = df_out.merge(sub, on="Instituição", how="left", suffixes=("", "_core"))
         if "Core Funding_core" in df_out.columns and "Core Funding" in df_out.columns:
             df_out["Core Funding"] = df_out["Core Funding_core"].combine_first(df_out["Core Funding"])
             df_out = df_out.drop(columns=["Core Funding_core"])
@@ -7954,7 +7970,20 @@ def _get_dados_concatenados(periodos_hash: str, dados_keys: tuple) -> pd.DataFra
         print(_perf_log("concat_dados"))
         return pd.DataFrame()
 
+    cache_hash_key = '_dados_concatenados_hash'
+    cache_df_key = '_dados_concatenados_df'
+
+    if (
+        cache_hash_key in st.session_state
+        and cache_df_key in st.session_state
+        and st.session_state[cache_hash_key] == periodos_hash
+    ):
+        print(_perf_log("concat_dados"))
+        return st.session_state[cache_df_key]
+
     df = pd.concat(st.session_state['dados_periodos'].values(), ignore_index=True)
+    st.session_state[cache_hash_key] = periodos_hash
+    st.session_state[cache_df_key] = df
     print(_perf_log("concat_dados"))
     return df
 
@@ -8502,12 +8531,9 @@ def _get_rankings_base_df(
     df = _recalcular_roe_trimestral_df(df)
     df_capital_idx = _construir_indices_capital_unificados(capital_token, alias_sig)
     if not df_capital_idx.empty:
-        df = df.merge(
-            df_capital_idx,
-            on=["Período", "Instituição"],
-            how="left",
-            suffixes=("", "_capital_idx"),
-        )
+        left_df = df.set_index(["Período", "Instituição"])
+        right_df = df_capital_idx.set_index(["Período", "Instituição"])
+        df = left_df.join(right_df, how="left", rsuffix="_capital_idx").reset_index()
 
     return _normalizar_indicadores_rankings(df)
 
