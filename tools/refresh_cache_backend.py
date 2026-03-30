@@ -14,11 +14,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
 import shutil
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, Iterable, List
 
 from utils.ifdata_cache import CacheManager, gerar_periodos_trimestrais
 
@@ -72,6 +73,14 @@ def _save_manifest(path: Path, payload: Dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2, ensure_ascii=False)
+
+
+def _chunked(values: List[str], batch_size: int) -> Iterable[List[str]]:
+    if batch_size <= 0:
+        yield values
+        return
+    for i in range(0, len(values), batch_size):
+        yield values[i : i + batch_size]
 
 
 def _create_snapshot(base_dir: Path, label: str, reason: str, dry_run: bool = False) -> Path:
@@ -145,12 +154,13 @@ def _gerar_periodos_mensais(inicio: str, fim: str) -> List[str]:
 
 
 def _run_refresh(args: argparse.Namespace, base_dir: Path) -> int:
-    _create_snapshot(
+    pre_snapshot = _create_snapshot(
         base_dir=base_dir,
         label=args.snapshot_label,
         reason=args.reason,
         dry_run=args.dry_run,
     )
+    run_id = _version_name(f"run-{args.snapshot_label}")
 
     periodos_tri = gerar_periodos_trimestrais(
         args.ano_inicial,
@@ -165,42 +175,84 @@ def _run_refresh(args: argparse.Namespace, base_dir: Path) -> int:
 
     for tipo in DEFAULT_TIPOS:
         periodos = periodos_mensais if tipo == "bloprudencial" else periodos_tri
-        _print(f"[REFRESH] {tipo}: {len(periodos)} períodos (overwrite)")
+        _print(
+            f"[REFRESH] {tipo}: {len(periodos)} períodos "
+            f"(lotes={args.batch_size if args.batch_size > 0 else 'auto'} retries={args.retry_max})"
+        )
 
         if args.dry_run:
-            detalhes.append({"tipo": tipo, "periodos": len(periodos), "status": "dry-run"})
+            detalhes.append(
+                {
+                    "tipo": tipo,
+                    "periodos": len(periodos),
+                    "status": "dry-run",
+                    "lotes": len(list(_chunked(periodos, args.batch_size))),
+                }
+            )
             continue
 
-        kwargs = {}
+        kwargs = {"dict_aliases": {}}
         if tipo == "bloprudencial":
             kwargs["cache_dir"] = "data/cache/bcb_bloprudencial"
             kwargs["force_refresh"] = True
 
-        result = manager.extrair_periodos_com_salvamento(
-            tipo=tipo,
-            periodos=periodos,
-            modo="overwrite",
-            intervalo_salvamento=args.intervalo,
-            **kwargs,
-        )
+        total_lotes = 0
+        lotes_ok = 0
+        modo_lote = "overwrite"
+        erro_msg = None
+        for periodos_lote in _chunked(periodos, args.batch_size):
+            total_lotes += 1
+            tentativas = args.retry_max + 1
+            for tentativa in range(1, tentativas + 1):
+                _print(
+                    f"[LOTE] {tipo} {total_lotes}: períodos {periodos_lote[0]}..{periodos_lote[-1]} "
+                    f"(tentativa {tentativa}/{tentativas}, modo={modo_lote})"
+                )
+                result = manager.extrair_periodos_com_salvamento(
+                    tipo=tipo,
+                    periodos=periodos_lote,
+                    modo=modo_lote,
+                    intervalo_salvamento=args.intervalo,
+                    **kwargs,
+                )
+
+                if result.sucesso:
+                    lotes_ok += 1
+                    modo_lote = "incremental"
+                    erro_msg = None
+                    break
+
+                erro_msg = result.mensagem
+                _print(f"[ERRO] lote {tipo} {total_lotes}: {erro_msg}")
+                if tentativa < tentativas and args.retry_delay > 0:
+                    _print(f"[RETRY] aguardando {args.retry_delay}s para nova tentativa")
+                    time.sleep(args.retry_delay)
+
+            if erro_msg:
+                break
 
         detalhes.append(
             {
                 "tipo": tipo,
-                "status": "ok" if result.sucesso else "erro",
-                "mensagem": result.mensagem,
+                "status": "ok" if not erro_msg else "erro",
+                "mensagem": "concluído em lotes" if not erro_msg else erro_msg,
                 "periodos": len(periodos),
+                "lotes": total_lotes,
+                "lotes_ok": lotes_ok,
             }
         )
 
-        if not result.sucesso:
-            _print(f"[ERRO] {tipo}: {result.mensagem}")
-            return 1
+        if erro_msg:
+            _print(f"[ERRO] {tipo}: {erro_msg}")
+            break
 
     summary = {
+        "run_id": run_id,
         "executed_at_utc": datetime.now(timezone.utc).isoformat(),
         "git_head": _git_head(base_dir),
         "modo": "overwrite",
+        "snapshot_pre": pre_snapshot.name,
+        "snapshot_post": None,
         "tipos": DEFAULT_TIPOS,
         "periodo_trimestral": {
             "inicio": f"{args.ano_inicial}{args.mes_inicial}",
@@ -211,13 +263,29 @@ def _run_refresh(args: argparse.Namespace, base_dir: Path) -> int:
             "fim": args.mensal_fim,
         },
         "detalhes": detalhes,
+        "status": "ok" if all(d["status"] == "ok" or d["status"] == "dry-run" for d in detalhes) else "erro",
     }
 
     manifest_path = base_dir / "data" / "cache_versions" / "last_refresh_manifest.json"
+    run_manifest_path = base_dir / "data" / "cache_versions" / "runs" / f"{run_id}.json"
     if not args.dry_run:
+        if summary["status"] == "ok":
+            post_snapshot = _create_snapshot(
+                base_dir=base_dir,
+                label=f"post-{args.snapshot_label}",
+                reason=f"snapshot após refresh completo (run={run_id})",
+                dry_run=args.dry_run,
+            )
+            summary["snapshot_post"] = post_snapshot.name
         _save_manifest(manifest_path, summary)
-    _print(f"[OK] refresh completo finalizado. Manifest: {manifest_path}")
-    return 0
+        _save_manifest(run_manifest_path, summary)
+    if summary["status"] == "ok":
+        _print(f"[OK] refresh completo finalizado. Manifest: {manifest_path}")
+        _print(f"[OK] snapshot anterior: {summary['snapshot_pre']} | snapshot novo: {summary['snapshot_post']}")
+        return 0
+    _print(f"[ERRO] refresh terminou com falhas. Manifest: {manifest_path}")
+    _print(f"[ERRO] use --restore-snapshot {summary['snapshot_pre']} para rollback rápido")
+    return 1
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -237,6 +305,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mensal-fim", help="YYYYMM")
 
     parser.add_argument("--intervalo", type=int, default=4, help="salvar a cada N períodos")
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=6,
+        help="número de períodos por lote (0 para processar tudo de uma vez)",
+    )
+    parser.add_argument("--retry-max", type=int, default=2, help="repetições por lote em caso de erro")
+    parser.add_argument("--retry-delay", type=int, default=3, help="segundos entre tentativas")
     parser.add_argument("--dry-run", action="store_true", help="simula sem alterar arquivos")
     return parser
 

@@ -20,11 +20,16 @@ python tools/refresh_cache_backend.py \
   --reason "refresh completo antes da apresentação" \
   --ano-inicial 2021 --mes-inicial 03 \
   --ano-final 2025 --mes-final 12 \
-  --mensal-inicio 202101 --mensal-fim 202512
+  --mensal-inicio 202101 --mensal-fim 202512 \
+  --batch-size 4 \
+  --retry-max 3
 ```
 
 - O estado anterior é salvo em `data/cache_versions/<timestamp>_<label>` com `manifest.json`.
+- O cache novo aprovado também é salvo em `data/cache_versions/<timestamp>_post-<label>`.
 - O resumo da execução fica em `data/cache_versions/last_refresh_manifest.json`.
+- Cada execução ganha um manifesto próprio em `data/cache_versions/runs/<run_id>.json`.
+- Em caso de falha, o comando sugere automaticamente o `--restore-snapshot` da versão anterior.
 
 Listar snapshots disponíveis:
 
