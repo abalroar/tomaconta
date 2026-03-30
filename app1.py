@@ -2606,6 +2606,66 @@ def _periodo_exibicao_para_api_local(periodo_exib: str) -> str:
     except Exception:
         return ""
 
+
+def _normalizar_periodo_cache(periodo_raw) -> str:
+    """Normaliza período do metadata para formato YYYYMM."""
+    if periodo_raw is None:
+        return ""
+    texto = str(periodo_raw).strip()
+    if not texto:
+        return ""
+
+    if len(texto) == 6 and texto.isdigit():
+        return texto
+
+    if "/" in texto:
+        parte1, parte2 = texto.split("/", 1)
+        parte1 = parte1.strip()
+        parte2 = parte2.strip()
+
+        if len(parte1) == 4 and parte1.isdigit() and len(parte2) == 2 and parte2.isdigit():
+            return f"{parte1}{parte2}"
+
+        if len(parte2) == 4 and parte2.isdigit():
+            mes_map = {"1": "03", "2": "06", "3": "09", "4": "12"}
+            mes = mes_map.get(parte1, "")
+            if mes:
+                return f"{parte2}{mes}"
+
+    return ""
+
+
+def _periodo_yyyymm_para_exibicao(periodo_yyyymm: str) -> str:
+    """Converte YYYYMM para MM/YYYY."""
+    if not periodo_yyyymm or len(periodo_yyyymm) != 6 or not periodo_yyyymm.isdigit():
+        return "-"
+    return f"{periodo_yyyymm[4:6]}/{periodo_yyyymm[:4]}"
+
+
+def _intervalo_periodos_cache(info_local: dict) -> tuple[str, str]:
+    """Retorna período inicial/final disponível no cache local."""
+    periodos = info_local.get("periodos") or []
+    periodos_norm = sorted({p for p in (_normalizar_periodo_cache(x) for x in periodos) if p})
+    if not periodos_norm:
+        return "-", "-"
+    return (
+        _periodo_yyyymm_para_exibicao(periodos_norm[0]),
+        _periodo_yyyymm_para_exibicao(periodos_norm[-1]),
+    )
+
+
+def _versao_local_cache(info_local: dict) -> str:
+    """Retorna carimbo de versão local (timestamp do metadata)."""
+    ts = info_local.get("timestamp_salvamento")
+    if not ts:
+        return "-"
+    try:
+        dt = datetime.fromisoformat(str(ts))
+        return dt.strftime("%d/%m/%Y %H:%M")
+    except Exception:
+        return str(ts)
+
+
 def _inferir_periodo_api_padrao() -> str:
     """Infere um período YYYYMM padrão a partir do metadata do cache principal."""
     try:
@@ -19301,12 +19361,16 @@ elif menu == "Atualizar Base":
         gh_info = gh_caches.get(tipo_cache, {})
         existe_local = info.get("existe", False)
         existe_github = gh_info.get("existe", False)
+        periodo_inicial, periodo_final = _intervalo_periodos_cache(info) if existe_local else ("-", "-")
 
         status_data.append({
             "Cache": cache_info.get("nome_exibicao", tipo_cache),
             "Status": _status_cache_atualizacao(info, gh_info),
             "Local": "Sim" if existe_local else "Não",
             "GitHub": "Sim" if existe_github else "Não",
+            "Versão local": _versao_local_cache(info) if existe_local else "-",
+            "Período inicial": periodo_inicial,
+            "Período final": periodo_final,
             "Períodos": str(info.get("total_periodos", 0)) if existe_local else "-",
             "Registros": str(info.get("total_registros", 0)) if existe_local else "-",
             "Tamanho GH": gh_info.get("tamanho_fmt", "-") if existe_github else "-",
