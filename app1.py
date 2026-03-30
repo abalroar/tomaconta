@@ -5957,68 +5957,6 @@ def _render_peers_table_html(
     return html
 
 
-def _render_peers_table_dataframe(
-    bancos: list,
-    periodos: list,
-    valores: dict,
-    colunas_usadas: dict,
-    delta_flags: dict,
-):
-    """Renderiza a tabela de peers em DataFrame estilizado (mesmo instrumento visual dos Rankings/Tabela)."""
-    colunas = ["Métrica"]
-    for banco in bancos:
-        for periodo in periodos:
-            colunas.append(f"{banco} · {periodo_para_exibicao(periodo)}")
-
-    linhas = []
-    tipos_linha = []
-    zebra_idx = 0
-
-    for section in PEERS_TABELA_LAYOUT:
-        linha_secao = {"Métrica": section["section"]}
-        for col in colunas[1:]:
-            linha_secao[col] = ""
-        linhas.append(linha_secao)
-        tipos_linha.append("secao")
-
-        for row in section["rows"]:
-            linha = {"Métrica": row["label"]}
-            for banco in bancos:
-                for periodo in periodos:
-                    chave = (row["label"], banco, periodo)
-                    coluna = colunas_usadas.get(row["label"])
-                    valor = valores.get(chave)
-                    valor_fmt = _formatar_valor_peers(valor, row["format_key"], coluna_origem=coluna)
-                    delta = delta_flags.get(chave)
-                    if delta == "up":
-                        valor_fmt = f"{valor_fmt} ▲"
-                    elif delta == "down":
-                        valor_fmt = f"{valor_fmt} ▼"
-                    linha[f"{banco} · {periodo_para_exibicao(periodo)}"] = valor_fmt
-            linhas.append(linha)
-            tipos_linha.append("zebra" if zebra_idx % 2 == 0 else "normal")
-            zebra_idx += 1
-
-    df_render = pd.DataFrame(linhas, columns=colunas)
-
-    def _style_peers_df(row):
-        idx = row.name
-        tipo = tipos_linha[idx] if idx < len(tipos_linha) else "normal"
-        if tipo == "secao":
-            return ["background-color: #f2f2f2; font-weight: 700; color: #334155;"] * len(row)
-        if tipo == "zebra":
-            return ["background-color: #fafafa;"] * len(row)
-        return [""] * len(row)
-
-    styled_df = (
-        df_render.style
-        .apply(_style_peers_df, axis=1)
-        .set_properties(subset=["Métrica"], **{"text-align": "left", "font-weight": "500"})
-        .set_properties(subset=[c for c in colunas if c != "Métrica"], **{"text-align": "right"})
-    )
-    return styled_df
-
-
 def _build_memoria_calculo_peers_tabela_metrica(
     df_base: pd.DataFrame,
     banco: str,
@@ -9654,21 +9592,19 @@ elif menu == "Peers (Tabela)":
                     )
 
                     t_format = time.perf_counter()
-                    tabela_styled = _render_peers_table_dataframe(
+                    html_tabela = _render_peers_table_html(
                         bancos_selecionados,
                         periodos_selecionados,
                         valores,
                         colunas_usadas,
                         delta_flags,
+                        delta_context,
+                        tooltips,
                     )
                     _perf_peers_stage(peers_perf, "e_formatacao", t_format)
 
                     t_render = time.perf_counter()
-                    st.dataframe(
-                        tabela_styled,
-                        use_container_width=True,
-                        hide_index=True,
-                    )
+                    st.markdown(html_tabela, unsafe_allow_html=True)
                     _perf_peers_stage(peers_perf, "f_render_tabela", t_render)
 
                     st.markdown("#### Exportar")
