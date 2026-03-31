@@ -69,7 +69,7 @@ class CapitalCache(BaseCache):
     def __init__(self, base_dir: Path):
         super().__init__(CAPITAL_CONFIG, base_dir)
         release_repo = os.getenv("TOMACONTA_RELEASE_REPO", "abalroar/tomaconta")
-        raw_repo = os.getenv("TOMACONTA_RAW_REPO", "abalroar/tomaconta-dev")
+        raw_repo = os.getenv("TOMACONTA_RAW_REPO", "abalroar/tomaconta")
         release_base = f"https://github.com/{release_repo}/releases/download/v1.0-cache"
 
         # URLs em ordem de prioridade:

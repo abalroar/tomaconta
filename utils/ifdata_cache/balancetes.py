@@ -11,6 +11,7 @@ Endpoints utilizados:
 
 import json
 import logging
+import os
 import re
 import time
 from pathlib import Path
@@ -66,7 +67,7 @@ class BalancetesCache(BaseCache):
 
         # URLs remotas para fallback
         release_repo = "abalroar/tomaconta"
-        raw_repo = "abalroar/tomaconta-dev"
+        raw_repo = os.getenv("TOMACONTA_RAW_REPO", "abalroar/tomaconta")
         release_base = f"https://github.com/{release_repo}/releases/download/v1.0-cache"
 
         self.github_raw_url = f"https://raw.githubusercontent.com/{raw_repo}/main/data/cache/balancetes/dados.parquet"
