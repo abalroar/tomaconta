@@ -8994,6 +8994,50 @@ st.session_state['_menu_prev_rendered'] = menu
 
 st.markdown("---")
 
+CACHE_DEPENDENCIAS_POR_ABA = {
+    "Snapshot": ["principal", "ativo", "capital", "bloprudencial", "derived_metrics"],
+    "Rankings": ["principal", "capital"],
+    "Peers (Tabela)": [
+        "principal", "ativo", "passivo", "carteira_pf", "carteira_pj",
+        "carteira_instrumentos", "dre", "capital", "bloprudencial", "derived_metrics",
+    ],
+    "Evolução": ["principal", "passivo", "ativo", "capital"],
+    "Scatter Plot": ["principal", "capital", "derived_metrics"],
+    "DRE (Ind. e Congl.)": ["dre", "principal", "dre_individual", "principal_individual"],
+    "Carteira 4.966": ["carteira_instrumentos"],
+    "Contribuições FGC/FGCoop": ["bloprudencial"],
+    "Atualizar Base": [
+        "principal", "capital", "ativo", "passivo", "dre", "carteira_pf",
+        "carteira_pj", "carteira_instrumentos", "bloprudencial",
+        "derived_metrics", "derived_metrics_individual",
+    ],
+}
+
+
+def _nota_cache_dependencia(cache_nome: str) -> str:
+    if cache_nome == "derived_metrics":
+        return "calculado automaticamente (DRE + principal)"
+    if cache_nome == "derived_metrics_individual":
+        return "calculado automaticamente (DRE individual + principal individual)"
+    if cache_nome == "bloprudencial":
+        return "fonte mensal BLOPRUDENCIAL (BCB)"
+    return "extração/cache padrão"
+
+
+def _render_cache_status_por_aba(menu_nome: str) -> None:
+    caches = CACHE_DEPENDENCIAS_POR_ABA.get(menu_nome)
+    if not caches:
+        return
+    with st.expander("Cachês necessários para esta aba", expanded=False):
+        st.markdown(
+            "\n".join([f"- `{cache_nome}` — {_nota_cache_dependencia(cache_nome)}" for cache_nome in caches])
+        )
+        if any(c in {"derived_metrics", "derived_metrics_individual"} for c in caches):
+            st.caption("Métricas derivadas não possuem extração direta no BCB.")
+
+
+_render_cache_status_por_aba(menu)
+
 # Sidebar apenas para informações básicas
 with st.sidebar:
     st.markdown('<p class="sidebar-title">toma.conta</p>', unsafe_allow_html=True)
@@ -20409,6 +20453,16 @@ elif menu == "Atualizar Base":
         st.error("senha incorreta")
 
 elif menu == "Glossário":
+    st.markdown("## Mapeamento de cachês por aba")
+    _map_rows = []
+    for _aba, _caches in CACHE_DEPENDENCIAS_POR_ABA.items():
+        _map_rows.append({
+            "Aba": _aba,
+            "Cachês necessários": ", ".join(_caches),
+        })
+    st.dataframe(pd.DataFrame(_map_rows), width="stretch", hide_index=True)
+    st.caption("Obs.: `derived_metrics` e `derived_metrics_individual` são recalculados a partir de DRE + Principal.")
+
     st.markdown("""
     ## **Sobre os Dados Apresentados**
 
