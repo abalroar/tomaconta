@@ -67,7 +67,7 @@ class PrincipalCache(BaseCache):
         self.tipo_instituicao = tipo_instituicao
         self.manter_codinst = manter_codinst
         release_repo = os.getenv("TOMACONTA_RELEASE_REPO", "abalroar/tomaconta")
-        raw_repo = os.getenv("TOMACONTA_RAW_REPO", "abalroar/tomaconta-dev")
+        raw_repo = os.getenv("TOMACONTA_RAW_REPO", "abalroar/tomaconta")
         release_base = f"https://github.com/{release_repo}/releases/download/v1.0-cache"
 
         # URLs em ordem de prioridade:
