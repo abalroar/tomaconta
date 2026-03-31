@@ -1475,11 +1475,15 @@ def upload_cache_github(cache_manager: CacheManager, tipo_cache: str, gh_token: 
         return False, f"metadata.json não encontrada para '{tipo_cache}'"
 
     repo = _resolver_release_repo()
-    tag = "v1.0-cache"
+    tag = _resolver_release_tag()
     asset_data_name = f"{tipo_cache}_dados.parquet"
     asset_metadata_name = f"{tipo_cache}_metadata.json"
 
     cache_size = data_path.stat().st_size
+
+    ok_validacao, msg_validacao = _validar_token_release_github(repo, gh_token, tag=tag)
+    if not ok_validacao:
+        return False, msg_validacao
 
     try:
         result = subprocess.run(['gh', 'auth', 'status'], capture_output=True, text=True, timeout=10)
@@ -1507,7 +1511,7 @@ def upload_cache_github(cache_manager: CacheManager, tipo_cache: str, gh_token: 
                 capture_output=True, text=True, timeout=30
             )
 
-            return True, f"cache '{tipo_cache}' enviado ({cache_size / 1024 / 1024:.1f} MB)"
+            return True, f"cache '{tipo_cache}' enviado para {repo}@{tag} ({cache_size / 1024 / 1024:.1f} MB)"
 
     except FileNotFoundError:
         pass
@@ -1526,7 +1530,7 @@ def upload_cache_github(cache_manager: CacheManager, tipo_cache: str, gh_token: 
             release_url = f"https://api.github.com/repos/{repo}/releases/tags/{tag}"
             r = requests.get(release_url, headers=headers, timeout=30)
             if r.status_code != 200:
-                return False, f"release '{tag}' não encontrada no github"
+                return False, f"tag/release '{tag}' não encontrada em '{repo}'. Ação: crie a tag/release e tente novamente."
 
             release_data = r.json()
             upload_url = release_data['upload_url'].replace('{?name,label}', '')
@@ -1549,7 +1553,7 @@ def upload_cache_github(cache_manager: CacheManager, tipo_cache: str, gh_token: 
                     timeout=300
                 )
                 if r.status_code not in [200, 201]:
-                    return False, f"erro ao fazer upload do cache: {r.status_code}"
+                    return False, f"falha de upload do asset parquet ({r.status_code}) em {repo}@{tag}"
 
             with open(metadata_path, 'rb') as f:
                 r = requests.post(
@@ -1559,14 +1563,16 @@ def upload_cache_github(cache_manager: CacheManager, tipo_cache: str, gh_token: 
                     timeout=60
                 )
                 if r.status_code not in [200, 201]:
-                    return False, f"erro ao fazer upload da metadata: {r.status_code}"
+                    return False, f"falha de upload do asset metadata ({r.status_code}) em {repo}@{tag}"
 
-            return True, f"cache '{tipo_cache}' enviado ({cache_size / 1024 / 1024:.1f} MB)"
+            return True, f"cache '{tipo_cache}' enviado para {repo}@{tag} ({cache_size / 1024 / 1024:.1f} MB)"
 
+        except requests.exceptions.Timeout:
+            return False, "erro de rede/timeout ao publicar no GitHub. Ação: verifique conectividade e tente novamente."
         except Exception as e:
             return False, f"erro ao usar API do github: {str(e)}"
 
-    return False, "gh CLI não disponível e nenhum token fornecido"
+    return False, "token GitHub ausente. Ação: configure `GITHUB_TOKEN`, `GH_TOKEN` ou `GITHUB_PAT`."
 
 
 def preparar_download_cache_local(cache_manager: CacheManager, tipo_cache: str) -> Optional[dict]:
@@ -2331,7 +2337,7 @@ def verificar_caches_github() -> dict:
     Verifica todos os 8 tipos de cache disponíveis.
     """
     repo = _resolver_release_repo()
-    tag = "v1.0-cache"
+    tag = _resolver_release_tag()
 
     # Todos os tipos de cache
     tipos_cache = ['principal', 'capital', 'ativo', 'passivo', 'dre',
@@ -2411,6 +2417,22 @@ def _resolver_release_repo() -> str:
     return "abalroar/tomaconta"
 
 
+def _resolver_release_tag() -> str:
+    """Resolve tag de release com prioridade para env e fallback em secrets."""
+    tag_env = os.getenv("TOMACONTA_RELEASE_TAG")
+    if tag_env:
+        return tag_env.strip()
+
+    try:
+        tag_secret = st.secrets.get("TOMACONTA_RELEASE_TAG")
+        if tag_secret:
+            return str(tag_secret).strip()
+    except Exception:
+        pass
+
+    return "v1.0-cache"
+
+
 def _obter_token_github() -> Tuple[Optional[str], str]:
     """Obtém token GitHub com suporte a aliases usuais em secrets/env."""
     candidates = ["GITHUB_TOKEN", "GH_TOKEN", "GITHUB_PAT"]
@@ -2422,8 +2444,6 @@ def _obter_token_github() -> Tuple[Optional[str], str]:
                 return str(value), f"secret:{key}"
         except Exception:
             pass
-
-    for key in candidates:
         value = os.getenv(key)
         if value:
             return value, f"env:{key}"
@@ -2431,26 +2451,49 @@ def _obter_token_github() -> Tuple[Optional[str], str]:
     return None, ""
 
 
-def _validar_token_release_github(repo: str, token: str) -> Tuple[bool, str]:
+def _validar_token_release_github(repo: str, token: Optional[str], tag: Optional[str] = None) -> Tuple[bool, str]:
     """Valida acesso do token ao release de cache no repositório alvo."""
+    if not token:
+        return False, "token ausente. Ação: configure `GITHUB_TOKEN`, `GH_TOKEN` ou `GITHUB_PAT`."
+
     headers = {
         "Authorization": f"token {token}",
         "Accept": "application/vnd.github.v3+json",
     }
-    tag = "v1.0-cache"
+    tag = tag or _resolver_release_tag()
+    repo_url = f"https://api.github.com/repos/{repo}"
     release_url = f"https://api.github.com/repos/{repo}/releases/tags/{tag}"
 
     try:
+        repo_resp = requests.get(repo_url, headers=headers, timeout=20)
+        if repo_resp.status_code == 401:
+            return False, "token inválido/expirado (401). Ação: gere novo token e atualize o secret."
+        if repo_resp.status_code == 403:
+            return False, f"token sem acesso ao repositório '{repo}' (403). Ação: conceda escopo `repo`/`contents:write`."
+        if repo_resp.status_code == 404:
+            return False, f"repositório '{repo}' não encontrado/sem acesso (404). Ação: corrija `TOMACONTA_RELEASE_REPO`."
+        if repo_resp.status_code != 200:
+            return False, f"falha ao validar repositório ({repo_resp.status_code}) em '{repo}'."
+
+        repo_payload = repo_resp.json() if repo_resp.content else {}
+        permissions = repo_payload.get("permissions", {}) if isinstance(repo_payload, dict) else {}
+        if permissions and not (permissions.get("push") or permissions.get("admin") or permissions.get("maintain")):
+            return False, "token sem permissão de escrita no repo. Ação: habilite push/write em Contents."
+
         r = requests.get(release_url, headers=headers, timeout=20)
         if r.status_code == 200:
-            return True, f"token válido para {repo} (release {tag})"
-        if r.status_code in {401, 403}:
-            return False, "token sem permissão para releases (repo/content write)"
+            return True, f"pré-validação ok para {repo}@{tag}"
+        if r.status_code == 401:
+            return False, "token inválido ao acessar release (401). Ação: gere novo token."
+        if r.status_code == 403:
+            return False, "token sem escopo para releases (403). Ação: inclua `repo`/`contents:write`."
         if r.status_code == 404:
-            return False, f"release {tag} não encontrada em {repo}"
-        return False, f"falha ao validar token ({r.status_code})"
-    except Exception as exc:
-        return False, f"falha de conexão na validação: {exc}"
+            return False, f"tag/release '{tag}' inexistente em '{repo}'. Ação: crie a tag/release antes do upload."
+        return False, f"falha ao validar release/tag ({r.status_code}) em {repo}@{tag}"
+    except requests.exceptions.Timeout:
+        return False, "erro de rede/timeout na validação GitHub. Ação: tente novamente em alguns segundos."
+    except requests.exceptions.RequestException as exc:
+        return False, f"erro de rede na validação GitHub: {exc}"
 
 
 def ordenar_periodos(periodos, reverso=False):
@@ -19683,18 +19726,22 @@ elif menu == "Atualizar Base":
 
         token_auto, token_origem = _obter_token_github()
         release_repo = _resolver_release_repo()
-        st.caption(f"Repositório de publicação: `{release_repo}`")
+        release_tag = _resolver_release_tag()
+        token_validado = False
+        st.caption(f"Destino de publicação: repositório `{release_repo}` | tag `{release_tag}`")
+        st.caption(f"Ordem de detecção de token: `GITHUB_TOKEN` → `GH_TOKEN` → `GITHUB_PAT` (secrets/env)")
 
         if token_auto:
             st.success(f"Token GitHub configurado automaticamente ({token_origem})")
-            ok_token, msg_token = _validar_token_release_github(release_repo, token_auto)
+            ok_token, msg_token = _validar_token_release_github(release_repo, token_auto, tag=release_tag)
+            token_validado = ok_token
             if ok_token:
-                st.caption(f"Validação: {msg_token}")
+                st.success(f"Pré-validação de upload: {msg_token}")
             else:
-                st.warning(f"Validação do token: {msg_token}")
+                st.error(f"Pré-validação de upload: {msg_token}")
             gh_token_final = token_auto
         else:
-            st.info("Configure `GITHUB_TOKEN` (ou `GH_TOKEN`) nos Secrets do Streamlit Cloud para upload automático.")
+            st.info("Configure `GITHUB_TOKEN`, `GH_TOKEN` ou `GITHUB_PAT` nos Secrets do Streamlit Cloud para upload automático.")
             gh_token_manual = st.text_input(
                 "ou insira token manualmente (permissão 'repo')",
                 type="password",
@@ -19702,15 +19749,17 @@ elif menu == "Atualizar Base":
                 help="Token com permissão 'repo'. Configure nos Secrets para não precisar digitar."
             )
             if gh_token_manual:
-                ok_token, msg_token = _validar_token_release_github(release_repo, gh_token_manual)
+                ok_token, msg_token = _validar_token_release_github(release_repo, gh_token_manual, tag=release_tag)
+                token_validado = ok_token
                 if ok_token:
-                    st.caption(f"Validação: {msg_token}")
+                    st.success(f"Pré-validação de upload: {msg_token}")
                 else:
-                    st.warning(f"Validação do token: {msg_token}")
+                    st.error(f"Pré-validação de upload: {msg_token}")
             gh_token_final = gh_token_manual if gh_token_manual else None
 
         # Armazenar no session_state para usar em outras partes
         st.session_state['_gh_token_unificado'] = gh_token_final
+        st.session_state['_gh_token_unificado_validado'] = token_validado
 
         # =============================================================
         # BOTÃO DE EXTRAÇÃO
@@ -19719,7 +19768,7 @@ elif menu == "Atualizar Base":
 
         publicar_auto = st.checkbox(
             "publicar automaticamente no GitHub ao concluir (recomendado)",
-            value=True if gh_token_final else False,
+            value=True if (gh_token_final and token_validado) else False,
             key="publicar_auto",
             help="mantém o cache persistido no GitHub Releases.",
         )
@@ -20285,7 +20334,7 @@ elif menu == "Atualizar Base":
                                         st.session_state["_retomar_checkpoint_inline"] = cache_selecionado
                                         st.rerun()
 
-                            if publicar_auto and gh_token_final:
+                            if publicar_auto and gh_token_final and token_validado:
                                 with st.spinner("publicando cache no GitHub Releases..."):
                                     sucesso_pub, msg_pub = upload_cache_github(
                                         cache_manager,
@@ -20296,6 +20345,8 @@ elif menu == "Atualizar Base":
                                         st.success(f"✅ {msg_pub}")
                                     else:
                                         st.warning(f"⚠️ falha ao publicar: {msg_pub}")
+                            elif publicar_auto and gh_token_final and not token_validado:
+                                st.warning("Publicação automática ignorada: pré-validação do token falhou. Corrija o erro exibido acima.")
 
                         else:
                             st.error(f"Extração falhou: {resultado.mensagem}")
@@ -20325,13 +20376,21 @@ elif menu == "Atualizar Base":
 
             # Recuperar token do session_state
             token_para_upload = st.session_state.get('_gh_token_unificado')
+            token_para_upload_validado = bool(st.session_state.get('_gh_token_unificado_validado'))
 
             if not token_para_upload:
                 st.warning("Nenhum token GitHub disponível. Configure nos Secrets ou insira manualmente acima.")
+            elif not token_para_upload_validado:
+                st.warning("Token disponível, mas com pré-validação falha. Corrija antes do envio manual.")
 
             col_pub1, col_pub2 = st.columns([3, 1])
             with col_pub1:
-                if st.button(f"Enviar '{cache_selecionado}' para GitHub", width='stretch', key="btn_enviar_github_unificado", disabled=not token_para_upload):
+                if st.button(
+                    f"Enviar '{cache_selecionado}' para GitHub",
+                    width='stretch',
+                    key="btn_enviar_github_unificado",
+                    disabled=(not token_para_upload or not token_para_upload_validado)
+                ):
                     with st.spinner(f"enviando cache '{cache_selecionado}' para github releases..."):
                         sucesso, mensagem = upload_cache_github(
                             cache_manager,
@@ -20344,7 +20403,7 @@ elif menu == "Atualizar Base":
                         else:
                             st.toast(mensagem, icon="⚠️")
             with col_pub2:
-                st.caption(f"Token: {'OK' if token_para_upload else 'Não'}")
+                st.caption(f"Token: {'OK' if token_para_upload else 'Não'} | Pré-validação: {'OK' if token_para_upload_validado else 'Falhou'}")
 
     elif senha_input:
         st.error("senha incorreta")
