@@ -1474,7 +1474,7 @@ def upload_cache_github(cache_manager: CacheManager, tipo_cache: str, gh_token: 
     if not metadata_path.exists():
         return False, f"metadata.json não encontrada para '{tipo_cache}'"
 
-    repo = os.getenv("TOMACONTA_RELEASE_REPO", "abalroar/tomaconta")
+    repo = _resolver_release_repo()
     tag = "v1.0-cache"
     asset_data_name = f"{tipo_cache}_dados.parquet"
     asset_metadata_name = f"{tipo_cache}_metadata.json"
@@ -2330,7 +2330,7 @@ def verificar_caches_github() -> dict:
     Retorna dict com status de cada cache no GitHub (sem autenticação, apenas leitura pública).
     Verifica todos os 8 tipos de cache disponíveis.
     """
-    repo = os.getenv("TOMACONTA_RELEASE_REPO", "abalroar/tomaconta")
+    repo = _resolver_release_repo()
     tag = "v1.0-cache"
 
     # Todos os tipos de cache
@@ -2393,6 +2393,64 @@ def verificar_caches_github() -> dict:
         result['erro'] = str(e)
 
     return result
+
+
+def _resolver_release_repo() -> str:
+    """Resolve repositório de release com prioridade para env e fallback em secrets."""
+    repo_env = os.getenv("TOMACONTA_RELEASE_REPO")
+    if repo_env:
+        return repo_env.strip()
+
+    try:
+        repo_secret = st.secrets.get("TOMACONTA_RELEASE_REPO")
+        if repo_secret:
+            return str(repo_secret).strip()
+    except Exception:
+        pass
+
+    return "abalroar/tomaconta"
+
+
+def _obter_token_github() -> Tuple[Optional[str], str]:
+    """Obtém token GitHub com suporte a aliases usuais em secrets/env."""
+    candidates = ["GITHUB_TOKEN", "GH_TOKEN", "GITHUB_PAT"]
+
+    for key in candidates:
+        try:
+            value = st.secrets.get(key)
+            if value:
+                return str(value), f"secret:{key}"
+        except Exception:
+            pass
+
+    for key in candidates:
+        value = os.getenv(key)
+        if value:
+            return value, f"env:{key}"
+
+    return None, ""
+
+
+def _validar_token_release_github(repo: str, token: str) -> Tuple[bool, str]:
+    """Valida acesso do token ao release de cache no repositório alvo."""
+    headers = {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github.v3+json",
+    }
+    tag = "v1.0-cache"
+    release_url = f"https://api.github.com/repos/{repo}/releases/tags/{tag}"
+
+    try:
+        r = requests.get(release_url, headers=headers, timeout=20)
+        if r.status_code == 200:
+            return True, f"token válido para {repo} (release {tag})"
+        if r.status_code in {401, 403}:
+            return False, "token sem permissão para releases (repo/content write)"
+        if r.status_code == 404:
+            return False, f"release {tag} não encontrada em {repo}"
+        return False, f"falha ao validar token ({r.status_code})"
+    except Exception as exc:
+        return False, f"falha de conexão na validação: {exc}"
 
 
 def ordenar_periodos(periodos, reverso=False):
@@ -19623,24 +19681,32 @@ elif menu == "Atualizar Base":
         # =============================================================
         st.markdown("#### Publicação no GitHub")
 
-        # Verificar se há token nos secrets do Streamlit
-        token_from_secrets = None
-        try:
-            token_from_secrets = st.secrets.get("GITHUB_TOKEN")
-        except Exception:
-            pass
+        token_auto, token_origem = _obter_token_github()
+        release_repo = _resolver_release_repo()
+        st.caption(f"Repositório de publicação: `{release_repo}`")
 
-        if token_from_secrets:
-            st.success("Token GitHub configurado via Streamlit Secrets")
-            gh_token_final = token_from_secrets
+        if token_auto:
+            st.success(f"Token GitHub configurado automaticamente ({token_origem})")
+            ok_token, msg_token = _validar_token_release_github(release_repo, token_auto)
+            if ok_token:
+                st.caption(f"Validação: {msg_token}")
+            else:
+                st.warning(f"Validação do token: {msg_token}")
+            gh_token_final = token_auto
         else:
-            st.info("Configure `GITHUB_TOKEN` nos Secrets do Streamlit Cloud para upload automático.")
+            st.info("Configure `GITHUB_TOKEN` (ou `GH_TOKEN`) nos Secrets do Streamlit Cloud para upload automático.")
             gh_token_manual = st.text_input(
                 "ou insira token manualmente (permissão 'repo')",
                 type="password",
                 key="gh_token_unificado",
                 help="Token com permissão 'repo'. Configure nos Secrets para não precisar digitar."
             )
+            if gh_token_manual:
+                ok_token, msg_token = _validar_token_release_github(release_repo, gh_token_manual)
+                if ok_token:
+                    st.caption(f"Validação: {msg_token}")
+                else:
+                    st.warning(f"Validação do token: {msg_token}")
             gh_token_final = gh_token_manual if gh_token_manual else None
 
         # Armazenar no session_state para usar em outras partes
