@@ -1975,6 +1975,11 @@ def _normalizar_texto_sem_acento(valor: str) -> str:
     return re.sub(r"\s+", " ", txt).strip().upper()
 
 
+def normalize_text(valor: str) -> str:
+    """Compatibilidade retroativa para chamadas legadas de normalização de texto."""
+    return _normalizar_texto_sem_acento(valor)
+
+
 TZ_BRASILIA = ZoneInfo("America/Sao_Paulo")
 
 
@@ -7028,11 +7033,20 @@ def pagina_snapshot():
         return
 
     bancos = ordenar_bancos_com_alias(df_base["Instituição"].dropna().unique().tolist(), st.session_state.get("dict_aliases", {}))
+    if not bancos:
+        st.warning("não há instituições disponíveis para o Snapshot.")
+        return
+
+    def _snapshot_norm_nome(valor: str) -> str:
+        txt = unicodedata.normalize("NFKD", str(valor or ""))
+        txt = "".join(ch for ch in txt if not unicodedata.combining(ch))
+        return re.sub(r"\s+", " ", txt).strip().upper()
+
     banco_snapshot_default = next(
         (
             b
             for b in bancos
-            if "itau" in normalize_text(b).lower() and "unibanco" in normalize_text(b).lower()
+            if "ITAU" in _snapshot_norm_nome(b) and "UNIBANCO" in _snapshot_norm_nome(b)
         ),
         None,
     )
