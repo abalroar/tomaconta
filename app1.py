@@ -1975,6 +1975,11 @@ def _normalizar_texto_sem_acento(valor: str) -> str:
     return re.sub(r"\s+", " ", txt).strip().upper()
 
 
+def normalize_text(valor: str) -> str:
+    """Compatibilidade retroativa para chamadas legadas de normalização de texto."""
+    return _normalizar_texto_sem_acento(valor)
+
+
 TZ_BRASILIA = ZoneInfo("America/Sao_Paulo")
 
 
