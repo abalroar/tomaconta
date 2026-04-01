@@ -7032,7 +7032,7 @@ def pagina_snapshot():
         (
             b
             for b in bancos
-            if "itau" in normalize_text(b).lower() and "unibanco" in normalize_text(b).lower()
+            if "ITAU" in _normalizar_texto_sem_acento(b) and "UNIBANCO" in _normalizar_texto_sem_acento(b)
         ),
         None,
     )
