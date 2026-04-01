@@ -7028,11 +7028,20 @@ def pagina_snapshot():
         return
 
     bancos = ordenar_bancos_com_alias(df_base["Instituição"].dropna().unique().tolist(), st.session_state.get("dict_aliases", {}))
+    if not bancos:
+        st.warning("não há instituições disponíveis para o Snapshot.")
+        return
+
+    def _snapshot_norm_nome(valor: str) -> str:
+        txt = unicodedata.normalize("NFKD", str(valor or ""))
+        txt = "".join(ch for ch in txt if not unicodedata.combining(ch))
+        return re.sub(r"\s+", " ", txt).strip().upper()
+
     banco_snapshot_default = next(
         (
             b
             for b in bancos
-            if "ITAU" in _normalizar_texto_sem_acento(b) and "UNIBANCO" in _normalizar_texto_sem_acento(b)
+            if "ITAU" in _snapshot_norm_nome(b) and "UNIBANCO" in _snapshot_norm_nome(b)
         ),
         None,
     )
