@@ -6610,6 +6610,12 @@ def _snap_delta_html(
             f'<span class="snap-card__delta-label">{label}</span> —</span>'
         )
 
+    base_zero = False
+    try:
+        base_zero = abs(b) == 0
+    except Exception:
+        base_zero = False
+
     if is_pct_metric:
         diff = _snap_pp_change(valor_atual, valor_base)
         if diff is None:
@@ -6630,7 +6636,9 @@ def _snap_delta_html(
             suffix = f"{sinal}{diff:,.1f}%".replace(",", "X").replace(".", ",").replace("X", ".")
 
     # Direção e cor
-    if a > b:
+    if base_zero and a != 0:
+        direcao = "neutral"
+    elif a > b:
         direcao = "up"
     elif a < b:
         direcao = "down"
@@ -7072,6 +7080,7 @@ def pagina_snapshot():
     cache_ativo = _carregar_cache_relatorio_slice("ativo", _cache_version_token("ativo"), periodos_tuple, bancos_tuple)
     cache_capital = _carregar_cache_relatorio_slice("capital", _cache_version_token("capital"), periodos_tuple, bancos_tuple)
     cache_bloprud = _carregar_cache_relatorio_slice("bloprudencial", _cache_version_token("bloprudencial"), periodos_tuple, bancos_tuple)
+    cache_passivo = _carregar_cache_relatorio_slice("passivo", _cache_version_token("passivo"), periodos_tuple, bancos_tuple)
 
     # Alinhamento com Peers (Tabela): aplicar os mesmos aliases de instituição
     # antes de calcular métricas extras, evitando divergência de matching por nome.
@@ -7079,6 +7088,7 @@ def pagina_snapshot():
     cache_ativo = _aplicar_aliases_df(cache_ativo, dict_aliases_snapshot)
     cache_capital = _aplicar_aliases_df(cache_capital, dict_aliases_snapshot)
     cache_bloprud = _aplicar_aliases_df(cache_bloprud, dict_aliases_snapshot)
+    cache_passivo = _aplicar_aliases_df(cache_passivo, dict_aliases_snapshot)
     df_deriv = carregar_metricas_derivadas_slice(
         periodos=periodos_snapshot,
         instituicoes=[banco],
@@ -7131,7 +7141,7 @@ def pagina_snapshot():
         bancos=[banco],
         periodos=periodos_snapshot,
         cache_ativo=cache_ativo,
-        cache_passivo=None,
+        cache_passivo=cache_passivo,
         cache_carteira_pf=None,
         cache_carteira_pj=None,
         cache_carteira_instr=None,
@@ -7143,6 +7153,51 @@ def pagina_snapshot():
     perda_carteira_raw = (extra_snapshot or {}).get("Perda Esperada / Carteira de Crédito*", {})
     perda_est3_map = {p: _coerce_numeric_value(perda_est3_raw.get((banco, p))) for p in periodos_snapshot}
     perda_carteira_map = {p: _coerce_numeric_value(perda_carteira_raw.get((banco, p))) for p in periodos_snapshot}
+
+    diagnostico_snapshot = []
+    if cache_capital is None or cache_capital.empty:
+        diagnostico_snapshot.append("cache de capital vazio para os períodos selecionados")
+    else:
+        col_rwa_diag = _snapshot_pick_col(cache_capital, ["RWA Total", "Ativos Ponderados pelo Risco (RWA) (j)", "RWA"])
+        col_cp_diag = _snapshot_pick_col(cache_capital, ["Capital Principal", "Capital Principal para Comparação com RWA (a)"])
+        col_bas_diag = _snapshot_pick_col(cache_capital, ["Índice de Basileia", "Índice de Basileia Capital"])
+        if not (col_rwa_diag and (col_cp_diag or col_bas_diag)):
+            diagnostico_snapshot.append("cache de capital sem colunas suficientes para CET1/Basileia")
+
+    if cache_ativo is None or cache_ativo.empty:
+        diagnostico_snapshot.append("cache de ativo vazio para os períodos selecionados")
+    else:
+        perda_colunas_diag = [
+            _snapshot_pick_col(cache_ativo, ["Perda Esperada (e2)"]),
+            _snapshot_pick_col(cache_ativo, ["Perda Esperada (f2)"]),
+            _snapshot_pick_col(cache_ativo, ["Perda Esperada (g2)"]),
+            _snapshot_pick_col(cache_ativo, ["Perda Esperada (h2)"]),
+        ]
+        if all(col is None for col in perda_colunas_diag):
+            diagnostico_snapshot.append("cache de ativo sem colunas de Perda Esperada (e2/f2/g2/h2)")
+
+    if cache_bloprud is None or cache_bloprud.empty:
+        diagnostico_snapshot.append("cache BLOPRUDENCIAL vazio para os períodos selecionados")
+
+    if diagnostico_snapshot:
+        st.warning(
+            "Snapshot: dependências incompletas para Capital/Qualidade de Carteira. "
+            "Revise os caches antes de validar os cartões."
+        )
+        with st.expander("Como corrigir definitivamente (passo a passo)", expanded=False):
+            st.markdown(
+                "\n".join(
+                    [
+                        "1. Abra **Atualizar base** e rode atualização completa dos caches: `capital`, `ativo`, `passivo` e `bloprudencial`.",
+                        "2. Confirme que a instituição existe com o mesmo alias/nome nos quatro caches.",
+                        "3. Reabra a aba Snapshot e verifique se CET1/Basileia e métricas de qualidade aparecem no período atual e no YoY.",
+                        "4. Se persistir, execute `python tools/update_caches_cli.py --tipos capital ativo passivo bloprudencial` e recarregue o app.",
+                        "",
+                        "**Diagnóstico encontrado nesta execução:**",
+                    ]
+                    + [f"- {item}" for item in diagnostico_snapshot]
+                )
+            )
 
     # --- New data maps: ROE ---
     col_roe_tri = _snapshot_pick_col(
