@@ -258,6 +258,38 @@ def _anualizar_serie_por_periodo(serie_valor: pd.Series, periodos: pd.Series) ->
     return serie_valor * fator_anualizacao
 
 
+def _media_captacoes_ytd(
+    instituicoes: pd.Series,
+    periodos: pd.Series,
+    captacoes: pd.Series,
+) -> pd.Series:
+    """Calcula média simples YTD das captações por instituição/ano."""
+    df_aux = pd.DataFrame(
+        {
+            "Instituição": instituicoes,
+            "Período": periodos.astype(str),
+            "Captações": _coerce_numeric(captacoes),
+        }
+    )
+    ano_mes = df_aux["Período"].apply(_parse_periodo)
+    df_aux["Ano"] = ano_mes.str[0]
+    df_aux["Mes"] = ano_mes.str[1]
+    df_aux["_ord"] = range(len(df_aux))
+    df_aux["Captações_Média_YTD"] = pd.NA
+
+    mask_valid = df_aux["Ano"].notna() & df_aux["Mes"].notna()
+    if mask_valid.any():
+        df_valid = df_aux.loc[mask_valid].copy()
+        df_valid = df_valid.sort_values(["Instituição", "Ano", "Mes", "Período", "_ord"])
+        df_valid["Captações_Média_YTD"] = (
+            df_valid.groupby(["Instituição", "Ano"], dropna=False)["Captações"]
+            .transform(lambda s: s.expanding().mean())
+        )
+        df_aux.loc[df_valid.index, "Captações_Média_YTD"] = df_valid["Captações_Média_YTD"]
+
+    return pd.to_numeric(df_aux["Captações_Média_YTD"], errors="coerce")
+
+
 def _detect_period_type(periodos: Iterable[str]) -> str:
     for periodo in periodos:
         texto = str(periodo)
@@ -397,7 +429,7 @@ def build_derived_metrics(
 
     serie_metric_3 = _safe_ratio(
         desp_captacao_anualizada,
-        df_merge["Captações"],
+        _media_captacoes_ytd(df_merge["Instituição"], df_merge["Período"], df_merge["Captações"]),
         METRIC_DESP_CAPT,
         denominador_counts,
     )

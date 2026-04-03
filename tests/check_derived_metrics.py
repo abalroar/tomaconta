@@ -36,18 +36,16 @@ def test_metricas_derivadas_basico():
     )
 
     df_resultado, stats = build_derived_metrics(df_dre, df_principal)
-    assert stats.total_registros == 6
+    assert stats.total_registros == 4
 
     df_p1 = df_resultado[df_resultado["Período"] == "1/2025"]
     df_p2 = df_resultado[df_resultado["Período"] == "2/2025"]
 
-    p1_nim = df_p1.loc[df_p1["Métrica"] == "Desp PDD / NIM bruta", "Valor"].iloc[0]
     p1_intermed = df_p1.loc[df_p1["Métrica"] == "Desp PDD / Resultado Intermediação Fin. Bruto", "Valor"].iloc[0]
-    _assert_close(p1_nim, 0.10)
     _assert_close(p1_intermed, 10.0 / 150.0)
 
     p2_desp_capt = df_p2.loc[df_p2["Métrica"] == "Desp Captação / Captação", "Valor"].iloc[0]
-    _assert_close(p2_desp_capt, 0.2)
+    _assert_close(p2_desp_capt, 0.1)
 
 
 def test_anualizacao_desp_captacao():
@@ -113,19 +111,57 @@ def test_pdd_set_dez_acumulado_e_anualizado_nas_metricas():
 
     df_resultado, _ = build_derived_metrics(df_dre, df_principal)
 
-    # NIM bruta = 40 em todos os períodos. Para Set/Dez:
+    # Resultado Interm. Bruto = 60 em todos os períodos. Para Set/Dez:
     # desp_pdd_ytd = jun + periodo; anualização = ytd * (12/mes)
-    esperado_nim = {
-        "1/2025": 3.0 * (12 / 3) / 40.0,
-        "2/2025": 6.0 * (12 / 6) / 40.0,
-        "3/2025": (6.0 + 9.0) * (12 / 9) / 40.0,
-        "4/2025": (6.0 + 12.0) * (12 / 12) / 40.0,
+    esperado_intermed = {
+        "1/2025": 3.0 / 60.0,
+        "2/2025": 6.0 / 60.0,
+        "3/2025": (6.0 + 9.0) / (60.0 + 60.0),
+        "4/2025": (6.0 + 12.0) / (60.0 + 60.0),
     }
 
-    for periodo, valor in esperado_nim.items():
+    for periodo, valor in esperado_intermed.items():
         atual = df_resultado.loc[
             (df_resultado["Período"] == periodo)
-            & (df_resultado["Métrica"] == "Desp PDD / NIM bruta"),
+            & (df_resultado["Métrica"] == "Desp PDD / Resultado Intermediação Fin. Bruto"),
+            "Valor",
+        ].iloc[0]
+        _assert_close(atual, valor)
+
+
+def test_desp_captacao_usa_media_ytd_no_denominador():
+    df_dre = pd.DataFrame(
+        {
+            "Instituição": ["Banco A"] * 4,
+            "Período": ["1/2025", "2/2025", "3/2025", "4/2025"],
+            "Resultado com Perda Esperada (f)": [1.0, 1.0, 1.0, 1.0],
+            "Rendas de Operações de Crédito (c)": [10.0, 10.0, 10.0, 10.0],
+            "Rendas de Arrendamento Financeiro (d)": [10.0, 10.0, 10.0, 10.0],
+            "Rendas de Outras Operações com Características de Concessão de Crédito (e)": [10.0, 10.0, 10.0, 10.0],
+            "Rendas de Aplicações Interfinanceiras de Liquidez (a)": [5.0, 5.0, 5.0, 5.0],
+            "Rendas de Títulos e Valores Mobiliários (b)": [5.0, 5.0, 5.0, 5.0],
+            "Despesas de Captações (g)": [12.0, 12.0, 12.0, 12.0],
+        }
+    )
+    df_principal = pd.DataFrame(
+        {
+            "Instituição": ["Banco A"] * 4,
+            "Período": ["1/2025", "2/2025", "3/2025", "4/2025"],
+            "Captações": [100.0, 200.0, 300.0, 400.0],
+        }
+    )
+
+    df_resultado, _ = build_derived_metrics(df_dre, df_principal)
+    esperado = {
+        "1/2025": (12.0 * (12 / 3)) / 100.0,
+        "2/2025": (12.0 * (12 / 6)) / ((100.0 + 200.0) / 2),
+        "3/2025": ((12.0 + 12.0) * (12 / 9)) / ((100.0 + 200.0 + 300.0) / 3),
+        "4/2025": ((12.0 + 12.0) * (12 / 12)) / ((100.0 + 200.0 + 300.0 + 400.0) / 4),
+    }
+    for periodo, valor in esperado.items():
+        atual = df_resultado.loc[
+            (df_resultado["Período"] == periodo)
+            & (df_resultado["Métrica"] == "Desp Captação / Captação"),
             "Valor",
         ].iloc[0]
         _assert_close(atual, valor)
@@ -154,19 +190,19 @@ def test_denominador_zero_nan():
     )
 
     df_resultado, stats = build_derived_metrics(df_dre, df_principal)
-    valor_nim = df_resultado.loc[
+    valor_intermed = df_resultado.loc[
         (df_resultado["Período"] == "1/2025")
-        & (df_resultado["Métrica"] == "Desp PDD / NIM bruta"),
+        & (df_resultado["Métrica"] == "Desp PDD / Resultado Intermediação Fin. Bruto"),
         "Valor",
     ].iloc[0]
-    assert pd.isna(valor_nim)
+    assert pd.isna(valor_intermed)
     valor_capt = df_resultado.loc[
         (df_resultado["Período"] == "1/2025")
         & (df_resultado["Métrica"] == "Desp Captação / Captação"),
         "Valor",
     ].iloc[0]
     assert pd.isna(valor_capt)
-    assert stats.denominador_zero_ou_nan["Desp PDD / NIM bruta"] == 1
+    assert stats.denominador_zero_ou_nan["Desp PDD / Resultado Intermediação Fin. Bruto"] == 1
     assert stats.denominador_zero_ou_nan["Desp Captação / Captação"] == 1
 
 

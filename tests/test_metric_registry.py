@@ -61,6 +61,6 @@ def test_dataset_contract_validation_invalid_object():
 def test_derived_metric_helpers_are_consistent():
     labels = get_derived_metric_labels()
     formulas = get_derived_metric_formula_map()
-    assert "Desp PDD / NIM bruta" in labels
+    assert "Desp PDD / Resultado Intermediação Fin. Bruto" in labels
     assert "Desp Captação / Captação" in labels
     assert set(labels).issubset(set(formulas.keys()))
