@@ -6616,6 +6616,25 @@ def _snap_sparkbars_svg(
     )
 
 
+def _label_desp_captacao_por_denominador(coluna_denominador: Optional[str]) -> str:
+    texto = _normalizar_texto_sem_acento(str(coluna_denominador or ""))
+    if "captacao" in texto and "captacoes" not in texto:
+        return "Desp. Anualizada Captação / Volume Captação"
+    return "Desp. Anualizada Captações / Volume Captações"
+
+
+def _aliases_metrica_desp_captacao(label_exibicao: Optional[str] = None) -> list[str]:
+    aliases = [
+        "Desp Captação / Captação",
+        "Desp. Anualizada Captação / Volume Captação",
+        "Desp. Anualizada Captações / Volume Captações",
+    ]
+    if label_exibicao:
+        aliases = [label_exibicao] + aliases
+    # Remove duplicados preservando ordem.
+    return list(dict.fromkeys(aliases))
+
+
 def _snap_delta_html(
     valor_atual,
     valor_base,
@@ -7122,18 +7141,19 @@ def pagina_snapshot():
     cache_capital = _aplicar_aliases_df(cache_capital, dict_aliases_snapshot)
     cache_bloprud = _aplicar_aliases_df(cache_bloprud, dict_aliases_snapshot)
     cache_passivo = _aplicar_aliases_df(cache_passivo, dict_aliases_snapshot)
+    df_inst = df_base[(df_base["Instituição"] == banco) & (df_base["Período"].isin(periodos_snapshot))].copy()
+    col_capt = _snapshot_pick_col(df_inst, ["Captações", "Core Funding", "Captação"])
+    label_desp_captacao = _label_desp_captacao_por_denominador(col_capt)
     df_deriv = carregar_metricas_derivadas_slice(
         periodos=periodos_snapshot,
-        instituicoes=[banco],
-        metricas=["Desp Captação / Captação"],
+        instituicoes=list(bancos_tuple),
+        metricas=_aliases_metrica_desp_captacao(label_desp_captacao),
     )
     erro_derivadas_snapshot = st.session_state.get("derived_metrics_last_error")
     if (df_deriv is None or df_deriv.empty) and erro_derivadas_snapshot:
         st.warning(f"Métricas derivadas indisponíveis no Snapshot: {erro_derivadas_snapshot}")
 
     tempo_dados = time.perf_counter() - t_dados
-
-    df_inst = df_base[(df_base["Instituição"] == banco) & (df_base["Período"].isin(periodos_snapshot))].copy()
 
     # --- Data maps (existing) ---
     col_carteira_df = _snapshot_pick_col(df_inst, ["Carteira de Crédito Bruta", "Carteira de Crédito", "Carteira de Crédito*"])
@@ -7147,7 +7167,6 @@ def pagina_snapshot():
     col_ativo = _snapshot_pick_col(df_inst, ["Ativo Total"])
     ativo_map = {p: _coerce_numeric_value(_obter_valor_peers(df_inst, banco, p, col_ativo)) if col_ativo else None for p in periodos_snapshot}
 
-    col_capt = _snapshot_pick_col(df_inst, ["Captações", "Core Funding"])
     capt_map = {p: _coerce_numeric_value(_obter_valor_peers(df_inst, banco, p, col_capt)) if col_capt else None for p in periodos_snapshot}
 
     col_pl = _snapshot_pick_col(df_inst, ["Patrimônio Líquido"])
@@ -7161,7 +7180,7 @@ def pagina_snapshot():
 
     desp_capt_map = {}
     if df_deriv is not None and not df_deriv.empty:
-        rec = df_deriv[df_deriv["Métrica"] == "Desp Captação / Captação"]
+        rec = df_deriv[df_deriv["Métrica"].isin(_aliases_metrica_desp_captacao(label_desp_captacao))]
         desp_capt_map = {str(r["Período"]): _coerce_numeric_value(r["Valor"]) for _, r in rec.iterrows()}
     desp_capt_map = {p: next((v for per, v in desp_capt_map.items() if _periodos_equivalentes(per, p)), None) for p in periodos_snapshot}
 
@@ -7386,7 +7405,7 @@ def pagina_snapshot():
                 {"label": "Crédito / Captações", "format_key": "Carteira de Crédito/Core Funding (%)",
                  "higher_is_better": False, "serie": credito_capt_map, "is_pct": True,
                  "source": "Carteira Bruta ÷ Core Funding (Rel. 2 / Rel. 3)"},
-                {"label": "Desp. Captação / Captações", "format_key": "Desp Captação / Captação",
+                {"label": label_desp_captacao, "format_key": "Desp Captação / Captação",
                  "higher_is_better": False, "serie": desp_capt_map, "is_pct": True,
                  "source": "DRE (Rel. 4) ÷ Passivo (Rel. 3)"},
             ],
@@ -15824,10 +15843,21 @@ elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolid
         st.warning(f"Não foi possível montar a DRE para a visão selecionada.{detalhe}")
         st.stop()
 
+    col_den_dre = "Captação" if "Captação" in df_principal_visao.columns else ("Captações" if "Captações" in df_principal_visao.columns else None)
+    label_desp_capt_dre = _label_desp_captacao_por_denominador(col_den_dre)
+    aliases_desp_capt_dre = _aliases_metrica_desp_captacao(label_desp_capt_dre)
+
     mapping_entries = load_dre_mapping_individual()
+    for _entry in mapping_entries:
+        if _entry.get("label") in aliases_desp_capt_dre:
+            _entry["label"] = label_desp_capt_dre
+        if _entry.get("derived_metric") in aliases_desp_capt_dre:
+            _entry["derived_metric"] = label_desp_capt_dre
+        if _entry.get("concept") == "Desp. Captação anualizada dividida por Captações.":
+            _entry["concept"] = f"{label_desp_capt_dre}."
     _labels_ratio_dre = {
         "Desp PDD / Resultado Intermediação Fin. Bruto",
-        "Desp Captação / Captação",
+        label_desp_capt_dre,
     }
     mapping_entries_ordenado = [e for e in mapping_entries if e.get("label") not in _labels_ratio_dre] + [e for e in mapping_entries if e.get("label") in _labels_ratio_dre]
     for _entry in mapping_entries_ordenado:
@@ -15902,6 +15932,10 @@ elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolid
         df_derived_view = pd.DataFrame()
     if not df_derived_view.empty:
         df_derived_view = df_derived_view.rename(columns={"Métrica": "Label", "Valor": "valor", "Instituição": "Instituicao", "Período": "Periodo"})
+        df_derived_view["Label"] = df_derived_view["Label"].where(
+            ~df_derived_view["Label"].isin(aliases_desp_capt_dre),
+            label_desp_capt_dre,
+        )
         df_derived_view["Periodo"] = df_derived_view["Periodo"].astype(str)
         df_derived_view[["ano", "mes"]] = extrair_ano_mes_periodo(df_derived_view["Periodo"])
         df_derived_view["ytd"] = pd.to_numeric(df_derived_view["valor"], errors="coerce")
@@ -15931,8 +15965,9 @@ elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolid
                 for _col in [c for c in _colunas_calculo if c in _df_calc_base.columns]:
                     _df_calc_base[_col] = pd.to_numeric(_df_calc_base[_col], errors="coerce")
                 df_principal_calc = df_principal_visao.copy()
-                if "Captações" in df_principal_calc.columns:
-                    df_principal_calc["Captações"] = pd.to_numeric(df_principal_calc["Captações"], errors="coerce")
+                col_den_calc = "Captações" if "Captações" in df_principal_calc.columns else ("Captação" if "Captação" in df_principal_calc.columns else None)
+                if col_den_calc:
+                    df_principal_calc[col_den_calc] = pd.to_numeric(df_principal_calc[col_den_calc], errors="coerce")
                 def _fmt_mm_tip(_v):
                     if pd.isna(_v):
                         return "—"
@@ -15964,8 +15999,8 @@ elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolid
                     _per = str(_r.get("Periodo") or "").strip()
                     if _per and not df_principal_calc.empty:
                         _m_cap = df_principal_calc[df_principal_calc["Período"].astype(str) == _per]
-                        if not _m_cap.empty and "Captações" in _m_cap.columns:
-                            _cap = _m_cap["Captações"].iloc[0]
+                        if not _m_cap.empty and col_den_calc in _m_cap.columns:
+                            _cap = _m_cap[col_den_calc].iloc[0]
                     _ratio_pdd_interm = (_desp_pdd / _interm) if pd.notna(_desp_pdd) and pd.notna(_interm) and _interm != 0 else pd.NA
                     _ratio_capt = (_desp_capt_anual / _cap) if pd.notna(_desp_capt_anual) and pd.notna(_cap) and _cap != 0 else pd.NA
                     tooltip_celula[("Desp PDD / Resultado Intermediação Fin. Bruto", _periodo_exib)] = (
@@ -15978,12 +16013,12 @@ elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolid
                     _desp_capt_memoria = _fmt_mm_tip(_desp_capt)
                     if _mes_periodo in (9, 12):
                         _desp_capt_memoria = f"{_fmt_mm_tip(_desp_capt_jun)} + {_fmt_mm_tip(_desp_capt_periodo)} = {_fmt_mm_tip(_desp_capt)}"
-                    tooltip_celula[("Desp Captação / Captação", _periodo_exib)] = (
+                    tooltip_celula[(label_desp_capt_dre, _periodo_exib)] = (
                         f"Memória de cálculo\n"
                         f"Desp. Captação (YTD): {_desp_capt_memoria}\n"
                         f"Desp. Captação anualizada = {_fmt_mm_tip(_desp_capt)} × ({_fator_txt}) = {_fmt_mm_tip(_desp_capt_anual)}\n"
-                        f"Captações: {_fmt_mm_tip(_cap)}\n"
-                        f"Desp Captação / Captação = {_fmt_mm_tip(_desp_capt_anual)} ÷ {_fmt_mm_tip(_cap)} = {formatar_percentual(_ratio_capt, decimais=2)}"
+                        f"Volume captação: {_fmt_mm_tip(_cap)}\n"
+                        f"{label_desp_capt_dre} = {_fmt_mm_tip(_desp_capt_anual)} ÷ {_fmt_mm_tip(_cap)} = {formatar_percentual(_ratio_capt, decimais=2)}"
                     )
 
     if usar_lucro_trimestral:
@@ -16763,10 +16798,21 @@ elif menu == "__deprecated__Carteira 4.966 (bloco legado DRE-1)":
         st.warning(f"Não foi possível montar a DRE para a visão selecionada.{detalhe}")
         st.stop()
 
+    col_den_dre = "Captação" if "Captação" in df_principal_visao.columns else ("Captações" if "Captações" in df_principal_visao.columns else None)
+    label_desp_capt_dre = _label_desp_captacao_por_denominador(col_den_dre)
+    aliases_desp_capt_dre = _aliases_metrica_desp_captacao(label_desp_capt_dre)
+
     mapping_entries = load_dre_mapping_individual()
+    for _entry in mapping_entries:
+        if _entry.get("label") in aliases_desp_capt_dre:
+            _entry["label"] = label_desp_capt_dre
+        if _entry.get("derived_metric") in aliases_desp_capt_dre:
+            _entry["derived_metric"] = label_desp_capt_dre
+        if _entry.get("concept") == "Desp. Captação anualizada dividida por Captações.":
+            _entry["concept"] = f"{label_desp_capt_dre}."
     _labels_ratio_dre = {
         "Desp PDD / Resultado Intermediação Fin. Bruto",
-        "Desp Captação / Captação",
+        label_desp_capt_dre,
     }
     mapping_entries_ordenado = [e for e in mapping_entries if e.get("label") not in _labels_ratio_dre] + [e for e in mapping_entries if e.get("label") in _labels_ratio_dre]
     for _entry in mapping_entries_ordenado:
@@ -16841,6 +16887,10 @@ elif menu == "__deprecated__Carteira 4.966 (bloco legado DRE-1)":
         df_derived_view = pd.DataFrame()
     if not df_derived_view.empty:
         df_derived_view = df_derived_view.rename(columns={"Métrica": "Label", "Valor": "valor", "Instituição": "Instituicao", "Período": "Periodo"})
+        df_derived_view["Label"] = df_derived_view["Label"].where(
+            ~df_derived_view["Label"].isin(aliases_desp_capt_dre),
+            label_desp_capt_dre,
+        )
         df_derived_view["Periodo"] = df_derived_view["Periodo"].astype(str)
         df_derived_view[["ano", "mes"]] = extrair_ano_mes_periodo(df_derived_view["Periodo"])
         df_derived_view["ytd"] = pd.to_numeric(df_derived_view["valor"], errors="coerce")
@@ -16870,8 +16920,9 @@ elif menu == "__deprecated__Carteira 4.966 (bloco legado DRE-1)":
                 for _col in [c for c in _colunas_calculo if c in _df_calc_base.columns]:
                     _df_calc_base[_col] = pd.to_numeric(_df_calc_base[_col], errors="coerce")
                 df_principal_calc = df_principal_visao.copy()
-                if "Captações" in df_principal_calc.columns:
-                    df_principal_calc["Captações"] = pd.to_numeric(df_principal_calc["Captações"], errors="coerce")
+                col_den_calc = "Captações" if "Captações" in df_principal_calc.columns else ("Captação" if "Captação" in df_principal_calc.columns else None)
+                if col_den_calc:
+                    df_principal_calc[col_den_calc] = pd.to_numeric(df_principal_calc[col_den_calc], errors="coerce")
                 def _fmt_mm_tip(_v):
                     if pd.isna(_v):
                         return "—"
@@ -16903,8 +16954,8 @@ elif menu == "__deprecated__Carteira 4.966 (bloco legado DRE-1)":
                     _per = str(_r.get("Periodo") or "").strip()
                     if _per and not df_principal_calc.empty:
                         _m_cap = df_principal_calc[df_principal_calc["Período"].astype(str) == _per]
-                        if not _m_cap.empty and "Captações" in _m_cap.columns:
-                            _cap = _m_cap["Captações"].iloc[0]
+                        if not _m_cap.empty and col_den_calc in _m_cap.columns:
+                            _cap = _m_cap[col_den_calc].iloc[0]
                     _ratio_pdd_interm = (_desp_pdd / _interm) if pd.notna(_desp_pdd) and pd.notna(_interm) and _interm != 0 else pd.NA
                     _ratio_capt = (_desp_capt_anual / _cap) if pd.notna(_desp_capt_anual) and pd.notna(_cap) and _cap != 0 else pd.NA
                     tooltip_celula[("Desp PDD / Resultado Intermediação Fin. Bruto", _periodo_exib)] = (
@@ -16917,12 +16968,12 @@ elif menu == "__deprecated__Carteira 4.966 (bloco legado DRE-1)":
                     _desp_capt_memoria = _fmt_mm_tip(_desp_capt)
                     if _mes_periodo in (9, 12):
                         _desp_capt_memoria = f"{_fmt_mm_tip(_desp_capt_jun)} + {_fmt_mm_tip(_desp_capt_periodo)} = {_fmt_mm_tip(_desp_capt)}"
-                    tooltip_celula[("Desp Captação / Captação", _periodo_exib)] = (
+                    tooltip_celula[(label_desp_capt_dre, _periodo_exib)] = (
                         f"Memória de cálculo\n"
                         f"Desp. Captação (YTD): {_desp_capt_memoria}\n"
                         f"Desp. Captação anualizada = {_fmt_mm_tip(_desp_capt)} × ({_fator_txt}) = {_fmt_mm_tip(_desp_capt_anual)}\n"
-                        f"Captações: {_fmt_mm_tip(_cap)}\n"
-                        f"Desp Captação / Captação = {_fmt_mm_tip(_desp_capt_anual)} ÷ {_fmt_mm_tip(_cap)} = {formatar_percentual(_ratio_capt, decimais=2)}"
+                        f"Volume captação: {_fmt_mm_tip(_cap)}\n"
+                        f"{label_desp_capt_dre} = {_fmt_mm_tip(_desp_capt_anual)} ÷ {_fmt_mm_tip(_cap)} = {formatar_percentual(_ratio_capt, decimais=2)}"
                     )
 
     if usar_lucro_trimestral:
@@ -17765,10 +17816,21 @@ elif menu == "__deprecated__Carteira 4.966 (bloco legado DRE-2)":
         st.warning(f"Não foi possível montar a DRE para a visão selecionada.{detalhe}")
         st.stop()
 
+    col_den_dre = "Captação" if "Captação" in df_principal_visao.columns else ("Captações" if "Captações" in df_principal_visao.columns else None)
+    label_desp_capt_dre = _label_desp_captacao_por_denominador(col_den_dre)
+    aliases_desp_capt_dre = _aliases_metrica_desp_captacao(label_desp_capt_dre)
+
     mapping_entries = load_dre_mapping_individual()
+    for _entry in mapping_entries:
+        if _entry.get("label") in aliases_desp_capt_dre:
+            _entry["label"] = label_desp_capt_dre
+        if _entry.get("derived_metric") in aliases_desp_capt_dre:
+            _entry["derived_metric"] = label_desp_capt_dre
+        if _entry.get("concept") == "Desp. Captação anualizada dividida por Captações.":
+            _entry["concept"] = f"{label_desp_capt_dre}."
     _labels_ratio_dre = {
         "Desp PDD / Resultado Intermediação Fin. Bruto",
-        "Desp Captação / Captação",
+        label_desp_capt_dre,
     }
     mapping_entries_ordenado = [e for e in mapping_entries if e.get("label") not in _labels_ratio_dre] + [e for e in mapping_entries if e.get("label") in _labels_ratio_dre]
     for _entry in mapping_entries_ordenado:
@@ -17843,6 +17905,10 @@ elif menu == "__deprecated__Carteira 4.966 (bloco legado DRE-2)":
         df_derived_view = pd.DataFrame()
     if not df_derived_view.empty:
         df_derived_view = df_derived_view.rename(columns={"Métrica": "Label", "Valor": "valor", "Instituição": "Instituicao", "Período": "Periodo"})
+        df_derived_view["Label"] = df_derived_view["Label"].where(
+            ~df_derived_view["Label"].isin(aliases_desp_capt_dre),
+            label_desp_capt_dre,
+        )
         df_derived_view["Periodo"] = df_derived_view["Periodo"].astype(str)
         df_derived_view[["ano", "mes"]] = extrair_ano_mes_periodo(df_derived_view["Periodo"])
         df_derived_view["ytd"] = pd.to_numeric(df_derived_view["valor"], errors="coerce")
@@ -17872,8 +17938,9 @@ elif menu == "__deprecated__Carteira 4.966 (bloco legado DRE-2)":
                 for _col in [c for c in _colunas_calculo if c in _df_calc_base.columns]:
                     _df_calc_base[_col] = pd.to_numeric(_df_calc_base[_col], errors="coerce")
                 df_principal_calc = df_principal_visao.copy()
-                if "Captações" in df_principal_calc.columns:
-                    df_principal_calc["Captações"] = pd.to_numeric(df_principal_calc["Captações"], errors="coerce")
+                col_den_calc = "Captações" if "Captações" in df_principal_calc.columns else ("Captação" if "Captação" in df_principal_calc.columns else None)
+                if col_den_calc:
+                    df_principal_calc[col_den_calc] = pd.to_numeric(df_principal_calc[col_den_calc], errors="coerce")
                 def _fmt_mm_tip(_v):
                     if pd.isna(_v):
                         return "—"
@@ -17905,8 +17972,8 @@ elif menu == "__deprecated__Carteira 4.966 (bloco legado DRE-2)":
                     _per = str(_r.get("Periodo") or "").strip()
                     if _per and not df_principal_calc.empty:
                         _m_cap = df_principal_calc[df_principal_calc["Período"].astype(str) == _per]
-                        if not _m_cap.empty and "Captações" in _m_cap.columns:
-                            _cap = _m_cap["Captações"].iloc[0]
+                        if not _m_cap.empty and col_den_calc in _m_cap.columns:
+                            _cap = _m_cap[col_den_calc].iloc[0]
                     _ratio_pdd_interm = (_desp_pdd / _interm) if pd.notna(_desp_pdd) and pd.notna(_interm) and _interm != 0 else pd.NA
                     _ratio_capt = (_desp_capt_anual / _cap) if pd.notna(_desp_capt_anual) and pd.notna(_cap) and _cap != 0 else pd.NA
                     tooltip_celula[("Desp PDD / Resultado Intermediação Fin. Bruto", _periodo_exib)] = (
@@ -17919,12 +17986,12 @@ elif menu == "__deprecated__Carteira 4.966 (bloco legado DRE-2)":
                     _desp_capt_memoria = _fmt_mm_tip(_desp_capt)
                     if _mes_periodo in (9, 12):
                         _desp_capt_memoria = f"{_fmt_mm_tip(_desp_capt_jun)} + {_fmt_mm_tip(_desp_capt_periodo)} = {_fmt_mm_tip(_desp_capt)}"
-                    tooltip_celula[("Desp Captação / Captação", _periodo_exib)] = (
+                    tooltip_celula[(label_desp_capt_dre, _periodo_exib)] = (
                         f"Memória de cálculo\n"
                         f"Desp. Captação (YTD): {_desp_capt_memoria}\n"
                         f"Desp. Captação anualizada = {_fmt_mm_tip(_desp_capt)} × ({_fator_txt}) = {_fmt_mm_tip(_desp_capt_anual)}\n"
-                        f"Captações: {_fmt_mm_tip(_cap)}\n"
-                        f"Desp Captação / Captação = {_fmt_mm_tip(_desp_capt_anual)} ÷ {_fmt_mm_tip(_cap)} = {formatar_percentual(_ratio_capt, decimais=2)}"
+                        f"Volume captação: {_fmt_mm_tip(_cap)}\n"
+                        f"{label_desp_capt_dre} = {_fmt_mm_tip(_desp_capt_anual)} ÷ {_fmt_mm_tip(_cap)} = {formatar_percentual(_ratio_capt, decimais=2)}"
                     )
 
     if usar_lucro_trimestral:
