@@ -2502,6 +2502,195 @@ def _validar_token_release_github(repo: str, token: Optional[str], tag: Optional
         return False, f"erro de rede na validação GitHub: {exc}"
 
 
+DEV_HOURS_CONFIG_PATH = Path("data/dev_hours_config.json")
+DEV_HOURS_CACHE_PATH = Path("data/dev_hours_cache.json")
+DEV_HOURS_DEFAULT_CONFIG = {
+    "repositorios": ["abalroar/tomaconta-dev", "abalroar/tomaconta", "abalroar/ficadeolho"],
+    "limiar_sessao_min": 90,
+    "overhead_sessao_min": 30,
+    "incluir_merges": False,
+}
+
+
+def _ler_json_local(path: Path) -> Optional[dict]:
+    try:
+        if not path.exists():
+            return None
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def _salvar_json_local(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _carregar_config_estimativa_horas() -> dict:
+    data = _ler_json_local(DEV_HOURS_CONFIG_PATH) or {}
+    cfg = DEV_HOURS_DEFAULT_CONFIG.copy()
+    cfg.update({k: v for k, v in data.items() if v is not None})
+    if not isinstance(cfg.get("repositorios"), list) or not cfg["repositorios"]:
+        cfg["repositorios"] = DEV_HOURS_DEFAULT_CONFIG["repositorios"].copy()
+    return cfg
+
+
+def _eh_merge_commit(mensagem: str) -> bool:
+    msg = (mensagem or "").strip().lower()
+    return (
+        msg.startswith("merge pull request")
+        or msg.startswith("merge branch")
+        or msg.startswith("merge remote-tracking branch")
+    )
+
+
+def _listar_commits_github_repo(repo_full_name: str, headers: dict, incluir_merges: bool) -> list[dict]:
+    commits: list[dict] = []
+    page = 1
+    while True:
+        url = f"https://api.github.com/repos/{repo_full_name}/commits"
+        resp = requests.get(
+            url,
+            headers=headers,
+            params={"per_page": 100, "page": page},
+            timeout=30,
+        )
+        if resp.status_code != 200:
+            raise RuntimeError(f"erro ao consultar {repo_full_name}: HTTP {resp.status_code}")
+        lote = resp.json() if resp.content else []
+        if not isinstance(lote, list) or not lote:
+            break
+
+        for item in lote:
+            commit_data = item.get("commit", {}) if isinstance(item, dict) else {}
+            author_data = commit_data.get("author", {}) if isinstance(commit_data, dict) else {}
+            dt_raw = author_data.get("date")
+            msg = commit_data.get("message", "")
+            sha = item.get("sha")
+            if not dt_raw or not sha:
+                continue
+            if (not incluir_merges) and _eh_merge_commit(msg):
+                continue
+            dt = datetime.fromisoformat(str(dt_raw).replace("Z", "+00:00"))
+            commits.append(
+                {
+                    "repo": repo_full_name,
+                    "sha": sha,
+                    "mensagem": msg,
+                    "data": dt,
+                }
+            )
+
+        if len(lote) < 100:
+            break
+        page += 1
+
+    return commits
+
+
+def _calcular_estimativa_horas_dev(
+    repositorios: list[str],
+    limiar_sessao_min: int,
+    overhead_sessao_min: int,
+    incluir_merges: bool,
+) -> dict:
+    token, _ = _obter_token_github()
+    headers = {"Accept": "application/vnd.github+json"}
+    if token:
+        headers["Authorization"] = f"token {token}"
+
+    todos_commits: list[dict] = []
+    for repo in repositorios:
+        repo_limpo = str(repo).strip()
+        if not repo_limpo:
+            continue
+        todos_commits.extend(_listar_commits_github_repo(repo_limpo, headers, incluir_merges=incluir_merges))
+
+    todos_commits.sort(key=lambda c: c["data"])
+    total_commits = len(todos_commits)
+
+    if total_commits == 0:
+        return {
+            "calculado_em": datetime.now(ZoneInfo("America/Sao_Paulo")).isoformat(),
+            "total_horas": 0.0,
+            "total_sessoes": 0,
+            "sessao_media_horas": 0.0,
+            "total_commits": 0,
+            "primeiro_commit": None,
+            "ultimo_commit": None,
+            "repositorios": repositorios,
+            "parametros": {
+                "limiar_sessao_min": limiar_sessao_min,
+                "overhead_sessao_min": overhead_sessao_min,
+                "incluir_merges": incluir_merges,
+            },
+        }
+
+    limiar = timedelta(minutes=limiar_sessao_min)
+    sessoes: list[list[dict]] = []
+    sessao_atual: list[dict] = []
+
+    for commit in todos_commits:
+        if not sessao_atual:
+            sessao_atual = [commit]
+            continue
+        gap = commit["data"] - sessao_atual[-1]["data"]
+        if gap > limiar:
+            sessoes.append(sessao_atual)
+            sessao_atual = [commit]
+        else:
+            sessao_atual.append(commit)
+    if sessao_atual:
+        sessoes.append(sessao_atual)
+
+    total_horas = 0.0
+    for sessao in sessoes:
+        inicio = sessao[0]["data"]
+        fim = sessao[-1]["data"]
+        duracao_horas = max(0.0, (fim - inicio).total_seconds() / 3600.0)
+        total_horas += duracao_horas + (overhead_sessao_min / 60.0)
+
+    total_sessoes = len(sessoes)
+    sessao_media_horas = (total_horas / total_sessoes) if total_sessoes else 0.0
+
+    return {
+        "calculado_em": datetime.now(ZoneInfo("America/Sao_Paulo")).isoformat(),
+        "total_horas": round(total_horas, 2),
+        "total_sessoes": total_sessoes,
+        "sessao_media_horas": round(sessao_media_horas, 2),
+        "total_commits": total_commits,
+        "primeiro_commit": todos_commits[0]["data"].isoformat(),
+        "ultimo_commit": todos_commits[-1]["data"].isoformat(),
+        "repositorios": repositorios,
+        "parametros": {
+            "limiar_sessao_min": limiar_sessao_min,
+            "overhead_sessao_min": overhead_sessao_min,
+            "incluir_merges": incluir_merges,
+        },
+    }
+
+
+def _formatar_horas_br(valor: Optional[float]) -> str:
+    if valor is None:
+        return "—"
+    return f"{valor:,.1f}".replace(",", "X").replace(".", ",").replace("X", ".") + " h"
+
+
+def _formatar_data_hora_br(valor_iso: Optional[str]) -> str:
+    if not valor_iso:
+        return "—"
+    dt = datetime.fromisoformat(str(valor_iso))
+    return dt.astimezone(ZoneInfo("America/Sao_Paulo")).strftime("%d/%m/%Y %H:%M")
+
+
+def _formatar_periodo_commit_br(inicio_iso: Optional[str], fim_iso: Optional[str]) -> str:
+    if not inicio_iso or not fim_iso:
+        return "—"
+    inicio = datetime.fromisoformat(str(inicio_iso)).astimezone(ZoneInfo("America/Sao_Paulo"))
+    fim = datetime.fromisoformat(str(fim_iso)).astimezone(ZoneInfo("America/Sao_Paulo"))
+    return f"{inicio.strftime('%b/%Y')} → {fim.strftime('%b/%Y')}"
+
+
 def ordenar_periodos(periodos, reverso=False):
     def chave_periodo(valor):
         try:
@@ -9496,6 +9685,109 @@ if menu == "Sobre":
         </table>
     </div>
     """, unsafe_allow_html=True)
+
+    st.markdown("---")
+    st.markdown("### ⏱️ Investimento de Desenvolvimento")
+    st.caption("Estimativa baseada em sessões de commits no GitHub + **Overhead de Sessão** (tempo de ideação, leitura e navegação).")
+
+    config_horas = _carregar_config_estimativa_horas()
+    cache_horas = _ler_json_local(DEV_HOURS_CACHE_PATH)
+
+    total_horas_cache = cache_horas.get("total_horas") if isinstance(cache_horas, dict) else None
+    total_sessoes_cache = cache_horas.get("total_sessoes") if isinstance(cache_horas, dict) else None
+    sessao_media_cache = cache_horas.get("sessao_media_horas") if isinstance(cache_horas, dict) else None
+    total_commits_cache = cache_horas.get("total_commits") if isinstance(cache_horas, dict) else None
+    periodo_cache = (
+        _formatar_periodo_commit_br(
+            cache_horas.get("primeiro_commit"),
+            cache_horas.get("ultimo_commit"),
+        ) if isinstance(cache_horas, dict) else "—"
+    )
+    calculado_em_cache = (
+        _formatar_data_hora_br(cache_horas.get("calculado_em")) if isinstance(cache_horas, dict) else "—"
+    )
+    repos_cache = cache_horas.get("repositorios") if isinstance(cache_horas, dict) else []
+
+    col_h1, col_h2, col_h3 = st.columns(3)
+    with col_h1:
+        st.metric("Total estimado", _formatar_horas_br(total_horas_cache))
+    with col_h2:
+        st.metric("Sessões de trabalho", str(total_sessoes_cache) if total_sessoes_cache is not None else "—")
+    with col_h3:
+        st.metric("Sessão média", _formatar_horas_br(sessao_media_cache))
+
+    st.caption(
+        f"{periodo_cache} · {total_commits_cache if total_commits_cache is not None else '—'} commits · "
+        f"{', '.join(repos_cache) if repos_cache else 'repositório não calculado'}"
+    )
+
+    if st.button("🔄 Recalcular estimativa", key="btn_recalcular_horas_dev", width="content"):
+        with st.spinner("Buscando commits no GitHub..."):
+            try:
+                novo_cache = _calcular_estimativa_horas_dev(
+                    repositorios=config_horas["repositorios"],
+                    limiar_sessao_min=int(config_horas["limiar_sessao_min"]),
+                    overhead_sessao_min=int(config_horas["overhead_sessao_min"]),
+                    incluir_merges=bool(config_horas.get("incluir_merges", False)),
+                )
+                _salvar_json_local(DEV_HOURS_CACHE_PATH, novo_cache)
+                st.success("Estimativa atualizada com sucesso.")
+                st.rerun()
+            except Exception as exc:
+                st.error(f"Não foi possível recalcular agora: {exc}")
+
+    st.caption(f"Atualizado em: {calculado_em_cache}")
+
+    with st.expander("⚙️ Parâmetros de estimativa", expanded=False):
+        col_p1, col_p2 = st.columns(2)
+        with col_p1:
+            limiar_sessao_ui = st.number_input(
+                "Limiar de sessão (min)",
+                min_value=15,
+                max_value=480,
+                value=int(config_horas["limiar_sessao_min"]),
+                step=15,
+                key="dev_hours_limiar_sessao_min",
+            )
+        with col_p2:
+            overhead_sessao_ui = st.number_input(
+                "Overhead de Sessão (min)",
+                min_value=0,
+                max_value=120,
+                value=int(config_horas["overhead_sessao_min"]),
+                step=5,
+                key="dev_hours_overhead_sessao_min",
+            )
+
+        repos_disponiveis = ["abalroar/tomaconta-dev", "abalroar/tomaconta", "abalroar/ficadeolho"]
+        repos_ui = st.multiselect(
+            "Repositórios considerados",
+            options=repos_disponiveis,
+            default=[r for r in config_horas["repositorios"] if r in repos_disponiveis] or repos_disponiveis,
+            key="dev_hours_repositorios",
+        )
+        incluir_merges_ui = st.checkbox(
+            "Incluir commits de merge",
+            value=bool(config_horas.get("incluir_merges", False)),
+            key="dev_hours_incluir_merges",
+        )
+
+        st.caption("Overhead de Sessão: tempo estimado de ideação, leitura e navegação por bloco de trabalho, não registrado em commits.")
+        if st.button("Salvar parâmetros", key="btn_salvar_parametros_horas_dev", width="content"):
+            novo_cfg = {
+                "limiar_sessao_min": int(limiar_sessao_ui),
+                "overhead_sessao_min": int(overhead_sessao_ui),
+                "repositorios": repos_ui or DEV_HOURS_DEFAULT_CONFIG["repositorios"],
+                "incluir_merges": bool(incluir_merges_ui),
+            }
+            _salvar_json_local(DEV_HOURS_CONFIG_PATH, novo_cfg)
+            if DEV_HOURS_CACHE_PATH.exists():
+                DEV_HOURS_CACHE_PATH.unlink()
+            st.success("Parâmetros salvos. Clique em Recalcular para gerar uma nova estimativa.")
+            st.rerun()
+
+    if not isinstance(cache_horas, dict):
+        st.info("Clique em **Recalcular estimativa** para gerar o primeiro cálculo.")
 
     st.markdown("---")
     st.caption("desenvolvido por matheus prates, cfa | ferramenta open-source para análise de instituições financeiras brasileiras")
