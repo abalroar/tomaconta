@@ -2339,9 +2339,12 @@ def verificar_caches_github() -> dict:
     repo = _resolver_release_repo()
     tag = _resolver_release_tag()
 
-    # Todos os tipos de cache
-    tipos_cache = ['principal', 'capital', 'ativo', 'passivo', 'dre',
-                   'carteira_pf', 'carteira_pj', 'carteira_instrumentos']
+    # Tipos monitorados no release/status (inclui BLOPRUDENCIAL e derivadas para visibilidade operacional)
+    tipos_cache = [
+        'principal', 'capital', 'ativo', 'passivo', 'dre',
+        'carteira_pf', 'carteira_pj', 'carteira_instrumentos',
+        'bloprudencial', 'derived_metrics', 'derived_metrics_individual'
+    ]
 
     result = {
         'release_existe': False,
@@ -4885,6 +4888,29 @@ def _aplicar_aliases_df(df: Optional[pd.DataFrame], dict_aliases: dict) -> Optio
     return df_out
 
 
+def _instituicoes_filtro_snapshot(banco: str, dict_aliases: dict) -> tuple:
+    """Monta variantes de instituição para filtro robusto de slice."""
+    if not banco:
+        return tuple()
+
+    candidatos = {str(banco)}
+    banco_norm = normalizar_nome_instituicao(banco)
+    if banco_norm:
+        candidatos.add(banco_norm)
+
+    # dict_aliases é montado como Instituição -> Alias.
+    # Se o banco selecionado for um alias, incluir os nomes originais que mapeiam para ele.
+    if isinstance(dict_aliases, dict) and dict_aliases:
+        for nome_original, alias in dict_aliases.items():
+            if pd.isna(nome_original) or pd.isna(alias):
+                continue
+            if str(alias) == str(banco):
+                candidatos.add(str(nome_original))
+                candidatos.add(normalizar_nome_instituicao(nome_original))
+
+    return tuple(sorted(c for c in candidatos if c))
+
+
 @st.cache_data(ttl=3600, show_spinner=False)
 def _carregar_cache_relatorio(tipo_cache: str) -> Optional[pd.DataFrame]:
     manager = get_cache_manager()
@@ -4976,7 +5002,14 @@ def _carregar_cache_relatorio_slice(
                     base_txt = df[col_data_base].astype(str).str.replace(r"\D", "", regex=True).str[:6]
                     df = df[base_txt.isin(periodos_yyyymm)]
     if instituicoes and "Instituição" in df.columns:
-        df = df[df["Instituição"].isin(instituicoes)]
+        mask = df["Instituição"].isin(instituicoes)
+        if not mask.any():
+            inst_norm = df["Instituição"].apply(normalizar_nome_instituicao)
+            filtros_norm = {normalizar_nome_instituicao(i) for i in instituicoes}
+            filtros_norm.discard("")
+            if filtros_norm:
+                mask = inst_norm.isin(filtros_norm)
+        df = df[mask]
     return df
 
 
@@ -7073,7 +7106,8 @@ def pagina_snapshot():
     periodos_snapshot = [p for p in [periodo_atual, periodo_anterior_qoq, periodo_yoy_existente] if p]
     periodos_snapshot = list(dict.fromkeys(periodos_snapshot))
 
-    bancos_tuple = (banco,)
+    dict_aliases_snapshot = st.session_state.get("dict_aliases", {})
+    bancos_tuple = _instituicoes_filtro_snapshot(banco, dict_aliases_snapshot)
     periodos_tuple = tuple(periodos_snapshot)
     t_dados = time.perf_counter()
     cache_bloprud = None
@@ -7084,7 +7118,6 @@ def pagina_snapshot():
 
     # Alinhamento com Peers (Tabela): aplicar os mesmos aliases de instituição
     # antes de calcular métricas extras, evitando divergência de matching por nome.
-    dict_aliases_snapshot = st.session_state.get("dict_aliases", {})
     cache_ativo = _aplicar_aliases_df(cache_ativo, dict_aliases_snapshot)
     cache_capital = _aplicar_aliases_df(cache_capital, dict_aliases_snapshot)
     cache_bloprud = _aplicar_aliases_df(cache_bloprud, dict_aliases_snapshot)
@@ -7094,6 +7127,9 @@ def pagina_snapshot():
         instituicoes=[banco],
         metricas=["Desp Captação / Captação"],
     )
+    erro_derivadas_snapshot = st.session_state.get("derived_metrics_last_error")
+    if (df_deriv is None or df_deriv.empty) and erro_derivadas_snapshot:
+        st.warning(f"Métricas derivadas indisponíveis no Snapshot: {erro_derivadas_snapshot}")
 
     tempo_dados = time.perf_counter() - t_dados
 
@@ -7155,8 +7191,32 @@ def pagina_snapshot():
     perda_carteira_map = {p: _coerce_numeric_value(perda_carteira_raw.get((banco, p))) for p in periodos_snapshot}
 
     diagnostico_snapshot = []
-    if cache_capital is None or cache_capital.empty:
-        diagnostico_snapshot.append("cache de capital vazio para os períodos selecionados")
+
+    def _cache_local_disponivel(tipo_cache: str) -> bool:
+        manager_local = get_cache_manager()
+        cache_local = manager_local.get_cache(tipo_cache) if manager_local else None
+        if cache_local is None:
+            return False
+        return bool(cache_local.arquivo_dados.exists() or cache_local.arquivo_dados_pickle.exists())
+
+    def _diagnosticar_corte_cache(tipo_cache: str, df_slice: Optional[pd.DataFrame], periodos: list, banco_sel: str) -> Optional[str]:
+        if not _cache_local_disponivel(tipo_cache):
+            return f"arquivo local de {tipo_cache} ausente"
+        if df_slice is None or df_slice.empty:
+            df_periodo = _carregar_cache_relatorio_slice(
+                tipo_cache,
+                _cache_version_token(tipo_cache),
+                tuple(periodos),
+                tuple(),
+            )
+            if df_periodo is None or df_periodo.empty:
+                return f"cache de {tipo_cache} sem períodos selecionados"
+            return f"cache de {tipo_cache} sem instituição correspondente ({banco_sel})"
+        return None
+
+    msg_capital = _diagnosticar_corte_cache("capital", cache_capital, periodos_snapshot, banco)
+    if msg_capital:
+        diagnostico_snapshot.append(msg_capital)
     else:
         col_rwa_diag = _snapshot_pick_col(cache_capital, ["RWA Total", "Ativos Ponderados pelo Risco (RWA) (j)", "RWA"])
         col_cp_diag = _snapshot_pick_col(cache_capital, ["Capital Principal", "Capital Principal para Comparação com RWA (a)"])
@@ -7164,8 +7224,9 @@ def pagina_snapshot():
         if not (col_rwa_diag and (col_cp_diag or col_bas_diag)):
             diagnostico_snapshot.append("cache de capital sem colunas suficientes para CET1/Basileia")
 
-    if cache_ativo is None or cache_ativo.empty:
-        diagnostico_snapshot.append("cache de ativo vazio para os períodos selecionados")
+    msg_ativo = _diagnosticar_corte_cache("ativo", cache_ativo, periodos_snapshot, banco)
+    if msg_ativo:
+        diagnostico_snapshot.append(msg_ativo)
     else:
         perda_colunas_diag = [
             _snapshot_pick_col(cache_ativo, ["Perda Esperada (e2)"]),
@@ -7176,8 +7237,14 @@ def pagina_snapshot():
         if all(col is None for col in perda_colunas_diag):
             diagnostico_snapshot.append("cache de ativo sem colunas de Perda Esperada (e2/f2/g2/h2)")
 
-    if cache_bloprud is None or cache_bloprud.empty:
-        diagnostico_snapshot.append("cache BLOPRUDENCIAL vazio para os períodos selecionados")
+    bloprud_efetivo = any(
+        not pd.isna(v)
+        for v in list(perda_est3_map.values()) + list(perda_carteira_map.values())
+    )
+    if not bloprud_efetivo:
+        msg_blop = _diagnosticar_corte_cache("bloprudencial", cache_bloprud, periodos_snapshot, banco)
+        if msg_blop:
+            diagnostico_snapshot.append(msg_blop)
 
     if diagnostico_snapshot:
         st.warning(
@@ -8384,7 +8451,9 @@ def ensure_derived_metrics_cache(
 def carregar_metricas_derivadas_slice(periodos=None, instituicoes=None, metricas=None) -> pd.DataFrame:
     cache_derivado, erro, _ = ensure_derived_metrics_cache()
     if cache_derivado is None or erro:
+        st.session_state["derived_metrics_last_error"] = erro or "cache derivado indisponível"
         return pd.DataFrame()
+    st.session_state.pop("derived_metrics_last_error", None)
     return load_derived_metrics_slice(
         cache_derivado,
         periodos=periodos,
@@ -8400,7 +8469,9 @@ def carregar_metricas_derivadas_individual_slice(periodos=None, instituicoes=Non
         principal_cache_name="principal_individual",
     )
     if cache_derivado is None or erro:
+        st.session_state["derived_metrics_individual_last_error"] = erro or "cache derivado individual indisponível"
         return pd.DataFrame()
+    st.session_state.pop("derived_metrics_individual_last_error", None)
     return load_derived_metrics_slice(
         cache_derivado,
         periodos=periodos,
