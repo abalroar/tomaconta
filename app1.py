@@ -1179,24 +1179,27 @@ def recalcular_metricas_derivadas(dados_periodos):
         # Carteira de Crédito Bruta / PL - SEMPRE recalcular
         base_credito_col = "Carteira de Crédito Bruta" if "Carteira de Crédito Bruta" in df_atualizado.columns else "Carteira de Crédito"
         if base_credito_col in df_atualizado.columns and "Patrimônio Líquido" in df_atualizado.columns:
+            serie_credito = pd.to_numeric(df_atualizado[base_credito_col], errors="coerce")
             df_atualizado["Carteira de Crédito Bruta / PL"] = (
-                df_atualizado[base_credito_col].fillna(0) /
+                serie_credito /
                 df_atualizado["Patrimônio Líquido"].replace(0, np.nan)
             )
             df_atualizado["Crédito/PL (%)"] = df_atualizado["Carteira de Crédito Bruta / PL"]
 
         # Carteira/Core Funding - SEMPRE recalcular (base carteira bruta quando disponível)
         if base_credito_col in df_atualizado.columns and "Core Funding" in df_atualizado.columns:
+            serie_credito = pd.to_numeric(df_atualizado[base_credito_col], errors="coerce")
             df_atualizado["Carteira de Crédito/Core Funding (%)"] = (
-                df_atualizado[base_credito_col].fillna(0) /
+                serie_credito /
                 df_atualizado["Core Funding"].replace(0, np.nan)
             )
             df_atualizado["Crédito/Captações (%)"] = df_atualizado["Carteira de Crédito/Core Funding (%)"]
 
         # Crédito/Ativo (%) - SEMPRE recalcular (base carteira bruta quando disponível)
         if base_credito_col in df_atualizado.columns and "Ativo Total" in df_atualizado.columns:
+            serie_credito = pd.to_numeric(df_atualizado[base_credito_col], errors="coerce")
             df_atualizado["Crédito/Ativo (%)"] = (
-                df_atualizado[base_credito_col].fillna(0) /
+                serie_credito /
                 df_atualizado["Ativo Total"].replace(0, np.nan)
             )
 
@@ -6678,7 +6681,7 @@ def _snap_delta_html(
             suffix = f"{sinal}{diff_bps} bps"
         else:
             sinal = "+" if diff > 0 else ""
-            suffix = f"{sinal}{diff:,.1f}%".replace(",", "X").replace(".", ",").replace("X", ".")
+            suffix = f"{sinal}{diff:,.1f} p.p.".replace(",", "X").replace(".", ",").replace("X", ".")
     else:
         diff = _snap_pct_change(valor_atual, valor_base)
         if diff is None:
