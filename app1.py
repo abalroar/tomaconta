@@ -10340,20 +10340,55 @@ Pausas longas tendem a indicar interrupção real; abaixo disso tratamos como co
         pct_cod = ((float(horas_base_commits_cache) / total_comp) * 100.0) if total_comp > 0 else 0.0
         pct_ovh = ((float(horas_overhead_cache) / total_comp) * 100.0) if total_comp > 0 else 0.0
 
+        tipo_grafico_decomposicao = st.radio(
+            "Visual da decomposição",
+            options=["Pizza (donut)", "Barras"],
+            horizontal=True,
+            key="dev_hours_tipo_grafico_decomposicao",
+        )
+
         c_donut, c_tbl = st.columns([1, 1.3])
         with c_donut:
-            fig_donut = go.Figure(
-                data=[
-                    go.Pie(
-                        labels=["Horas entre commits", "Overhead de Sessão"],
-                        values=[float(horas_base_commits_cache), float(horas_overhead_cache)],
-                        hole=0.55,
-                        marker_colors=["#1f77b4", "#ff8c42"],
-                    )
-                ]
-            )
-            fig_donut.update_layout(height=320, margin=dict(l=10, r=10, t=10, b=10))
-            st.plotly_chart(fig_donut, use_container_width=True)
+            if tipo_grafico_decomposicao == "Pizza (donut)":
+                fig_donut = go.Figure(
+                    data=[
+                        go.Pie(
+                            labels=["Horas entre commits", "Overhead de Sessão"],
+                            values=[float(horas_base_commits_cache), float(horas_overhead_cache)],
+                            hole=0.55,
+                            marker_colors=["#1f77b4", "#ff8c42"],
+                        )
+                    ]
+                )
+                fig_donut.update_layout(height=320, margin=dict(l=10, r=10, t=10, b=10))
+                st.plotly_chart(fig_donut, use_container_width=True)
+            else:
+                fig_barras = go.Figure(
+                    data=[
+                        go.Bar(
+                            y=["Composição do total"],
+                            x=[float(horas_base_commits_cache)],
+                            name="Horas entre commits",
+                            orientation="h",
+                            marker_color="#1f77b4",
+                        ),
+                        go.Bar(
+                            y=["Composição do total"],
+                            x=[float(horas_overhead_cache)],
+                            name="Overhead de Sessão",
+                            orientation="h",
+                            marker_color="#ff8c42",
+                        ),
+                    ]
+                )
+                fig_barras.update_layout(
+                    barmode="stack",
+                    height=320,
+                    margin=dict(l=10, r=10, t=10, b=10),
+                    xaxis_title="Horas",
+                    yaxis_title="",
+                )
+                st.plotly_chart(fig_barras, use_container_width=True)
         with c_tbl:
             st.dataframe(
                 pd.DataFrame(
