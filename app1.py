@@ -2530,6 +2530,7 @@ def _validar_token_release_github(repo: str, token: Optional[str], tag: Optional
 
 DEV_HOURS_CONFIG_PATH = Path("data/dev_hours_config.json")
 DEV_HOURS_CACHE_PATH = Path("data/dev_hours_cache.json")
+DEV_HOURS_CACHE_TTL_HOURS = 24
 DEV_HOURS_DEFAULT_CONFIG = {
     "repositorios": ["abalroar/tomaconta-dev", "abalroar/tomaconta", "abalroar/ficadeolho"],
     "limiar_sessao_min": 90,
@@ -2714,6 +2715,9 @@ def _calcular_estimativa_horas_dev(
             return "2-4 h"
         return "> 4 h"
 
+    tz_br = ZoneInfo("America/Sao_Paulo")
+    esforco_semanal: dict[str, dict] = {}
+
     for sessao in sessoes:
         inicio = sessao[0]["data"]
         fim = sessao[-1]["data"]
@@ -2721,6 +2725,19 @@ def _calcular_estimativa_horas_dev(
         horas_base_commits += duracao_horas
         bucket = _bucket_sessao(duracao_horas * 60.0)
         distribuicao_sessoes[bucket] += 1
+
+        inicio_br = inicio.astimezone(tz_br)
+        inicio_semana = (inicio_br - timedelta(days=inicio_br.weekday())).date()
+        chave_semana = inicio_semana.isoformat()
+        if chave_semana not in esforco_semanal:
+            esforco_semanal[chave_semana] = {
+                "semana_inicio": chave_semana,
+                "label_semana": inicio_semana.strftime("%d/%b"),
+                "sessoes": 0,
+                "horas_commits": 0.0,
+            }
+        esforco_semanal[chave_semana]["sessoes"] += 1
+        esforco_semanal[chave_semana]["horas_commits"] += duracao_horas
 
     commits_por_mes: dict[str, int] = {}
     for commit in commits_unicos:
@@ -2733,6 +2750,21 @@ def _calcular_estimativa_horas_dev(
     total_horas_min = horas_base_commits
     total_horas_max = horas_base_commits + total_sessoes
     sessao_media_horas = (total_horas / total_sessoes) if total_sessoes else 0.0
+    esforco_semanal_ordenado = []
+    for semana in sorted(esforco_semanal.keys()):
+        item = esforco_semanal[semana]
+        horas_overhead_semana = item["sessoes"] * (overhead_sessao_min / 60.0)
+        total_semana = item["horas_commits"] + horas_overhead_semana
+        esforco_semanal_ordenado.append(
+            {
+                "semana_inicio": item["semana_inicio"],
+                "label_semana": item["label_semana"],
+                "sessoes": int(item["sessoes"]),
+                "horas_commits": round(float(item["horas_commits"]), 2),
+                "horas_overhead": round(float(horas_overhead_semana), 2),
+                "total_horas": round(float(total_semana), 2),
+            }
+        )
 
     return {
         "calculado_em": datetime.now(ZoneInfo("America/Sao_Paulo")).isoformat(),
@@ -2745,6 +2777,7 @@ def _calcular_estimativa_horas_dev(
             "max": round(total_horas_max, 2),
         },
         "distribuicao_sessoes": distribuicao_sessoes,
+        "esforco_semanal": esforco_semanal_ordenado,
         "commits_por_mes": dict(sorted(commits_por_mes.items())),
         "total_sessoes": total_sessoes,
         "sessao_media_horas": round(sessao_media_horas, 2),
@@ -2771,6 +2804,41 @@ def _formatar_data_hora_br(valor_iso: Optional[str]) -> str:
         return "—"
     dt = datetime.fromisoformat(str(valor_iso))
     return dt.astimezone(ZoneInfo("America/Sao_Paulo")).strftime("%d/%m/%Y %H:%M")
+
+
+def _parse_iso_datetime(valor_iso: Optional[str]) -> Optional[datetime]:
+    if not valor_iso:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(valor_iso))
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=ZoneInfo("UTC"))
+        return dt
+    except Exception:
+        return None
+
+
+def _cache_horas_precisa_recalculo(cache_horas: Optional[dict], config_horas: dict, ttl_horas: int) -> tuple[bool, str]:
+    if not isinstance(cache_horas, dict):
+        return True, "sem cache"
+
+    calculado_em = _parse_iso_datetime(cache_horas.get("calculado_em"))
+    if calculado_em is None:
+        return True, "cache sem timestamp"
+
+    agora = datetime.now(ZoneInfo("America/Sao_Paulo"))
+    if (agora - calculado_em.astimezone(ZoneInfo("America/Sao_Paulo"))) > timedelta(hours=ttl_horas):
+        return True, f"cache expirado ({ttl_horas}h)"
+
+    parametros_cache = cache_horas.get("parametros", {}) if isinstance(cache_horas.get("parametros"), dict) else {}
+    for chave in ("limiar_sessao_min", "overhead_sessao_min", "incluir_merges"):
+        if parametros_cache.get(chave) != config_horas.get(chave):
+            return True, "parâmetros alterados"
+
+    if (cache_horas.get("repositorios") or []) != (config_horas.get("repositorios") or []):
+        return True, "repositórios alterados"
+
+    return False, "cache válido"
 
 
 def _formatar_periodo_commit_br(inicio_iso: Optional[str], fim_iso: Optional[str]) -> str:
@@ -10083,6 +10151,25 @@ if menu == "Sobre":
 
     config_horas = _carregar_config_estimativa_horas()
     cache_horas = _ler_json_local(DEV_HOURS_CACHE_PATH)
+    precisa_recalcular_auto, motivo_recalculo_auto = _cache_horas_precisa_recalculo(
+        cache_horas=cache_horas,
+        config_horas=config_horas,
+        ttl_horas=DEV_HOURS_CACHE_TTL_HOURS,
+    )
+
+    if precisa_recalcular_auto:
+        with st.spinner("Atualizando estimativa automaticamente (TTL 24h)..."):
+            try:
+                cache_horas = _calcular_estimativa_horas_dev(
+                    repositorios=config_horas["repositorios"],
+                    limiar_sessao_min=int(config_horas["limiar_sessao_min"]),
+                    overhead_sessao_min=int(config_horas["overhead_sessao_min"]),
+                    incluir_merges=bool(config_horas.get("incluir_merges", False)),
+                )
+                _salvar_json_local(DEV_HOURS_CACHE_PATH, cache_horas)
+                st.success(f"Estimativa atualizada automaticamente ({motivo_recalculo_auto}).")
+            except Exception as exc:
+                st.warning(f"Não foi possível atualizar automaticamente ({motivo_recalculo_auto}): {exc}")
 
     horas_base_commits_cache = cache_horas.get("horas_base_commits") if isinstance(cache_horas, dict) else None
     horas_overhead_cache = cache_horas.get("horas_overhead") if isinstance(cache_horas, dict) else None
@@ -10101,6 +10188,7 @@ if menu == "Sobre":
         _formatar_data_hora_br(cache_horas.get("calculado_em")) if isinstance(cache_horas, dict) else "—"
     )
     repos_cache = cache_horas.get("repositorios") if isinstance(cache_horas, dict) else []
+    st.info(f"🕒 Última atualização: **{calculado_em_cache}** · cache TTL: {DEV_HOURS_CACHE_TTL_HOURS}h")
 
     col_h1, col_h2, col_h3 = st.columns(3)
     with col_h1:
@@ -10122,9 +10210,20 @@ if menu == "Sobre":
         faixa_central = _formatar_horas_br(faixa_cache.get("central"))
         st.caption(f"Faixa estimada: {faixa_min} — {faixa_max} · ponto central: {faixa_central}")
 
+    if repos_cache:
+        pills_html = " ".join(
+            [
+                f"<span title='{_html_mod.escape(str(repo))}' style='display:inline-block;border:1px solid #d9d9d9;border-radius:999px;padding:2px 10px;margin:2px;font-size:0.85rem;'>"
+                f"{_html_mod.escape(str(repo))}</span>"
+                for repo in repos_cache
+            ]
+        )
+        st.markdown(f"**Repositórios:** {pills_html}", unsafe_allow_html=True)
+    else:
+        st.caption("Repositórios: repositório não calculado")
+
     st.caption(
-        f"{periodo_cache} · {total_commits_cache if total_commits_cache is not None else '—'} commits · "
-        f"{', '.join(repos_cache) if repos_cache else 'repositório não calculado'}"
+        f"{periodo_cache} · {total_commits_cache if total_commits_cache is not None else '—'} commits"
     )
     st.caption(
         f"Estimativa baseada em {total_commits_cache if total_commits_cache is not None else '—'} commits e "
@@ -10191,6 +10290,105 @@ Pausas longas tendem a indicar interrupção real; abaixo disso tratamos como co
         if isinstance(commits_mes_cache, dict) and commits_mes_cache:
             st.markdown("**Linha do tempo de commits por mês:**")
             st.bar_chart(pd.DataFrame({"mes": list(commits_mes_cache.keys()), "commits": list(commits_mes_cache.values())}).set_index("mes"))
+
+    st.markdown("#### Breakdown semanal (horas por semana)")
+    esforco_semanal_cache = cache_horas.get("esforco_semanal", []) if isinstance(cache_horas, dict) else []
+    if isinstance(esforco_semanal_cache, list) and esforco_semanal_cache:
+        df_semana = pd.DataFrame(esforco_semanal_cache)
+
+        def _fmt_hora_curta(v: float) -> str:
+            return f"{float(v):.1f}".replace(".", ",")
+
+        df_semana["tooltip"] = df_semana.apply(
+            lambda r: (
+                f"Semana de {r['label_semana']}: {int(r['sessoes'])} sessões · "
+                f"{_fmt_hora_curta(r['horas_commits'])} h de commits · "
+                f"{_fmt_hora_curta(r['horas_overhead'])} h de overhead · "
+                f"Total: {_fmt_hora_curta(r['total_horas'])} h"
+            ),
+            axis=1,
+        )
+        fig_semana = go.Figure()
+        fig_semana.add_trace(
+            go.Bar(
+                name="Horas entre commits",
+                x=df_semana["label_semana"],
+                y=df_semana["horas_commits"],
+                marker_color="#1f77b4",
+                customdata=df_semana[["tooltip"]],
+                hovertemplate="%{customdata[0]}<extra></extra>",
+            )
+        )
+        fig_semana.add_trace(
+            go.Bar(
+                name="Overhead de Sessão",
+                x=df_semana["label_semana"],
+                y=df_semana["horas_overhead"],
+                marker_color="#ff8c42",
+                customdata=df_semana[["tooltip"]],
+                hovertemplate="%{customdata[0]}<extra></extra>",
+            )
+        )
+        fig_semana.update_layout(barmode="stack", xaxis_title="Semana", yaxis_title="Horas estimadas", height=360, margin=dict(l=10, r=10, t=10, b=10))
+        st.plotly_chart(fig_semana, use_container_width=True)
+    else:
+        st.caption("Sem dados semanais no cache atual.")
+
+    st.markdown("#### Decomposição da conta")
+    if (horas_base_commits_cache is not None) and (horas_overhead_cache is not None):
+        total_comp = max(float(horas_base_commits_cache) + float(horas_overhead_cache), 0.0)
+        pct_cod = ((float(horas_base_commits_cache) / total_comp) * 100.0) if total_comp > 0 else 0.0
+        pct_ovh = ((float(horas_overhead_cache) / total_comp) * 100.0) if total_comp > 0 else 0.0
+
+        c_donut, c_tbl = st.columns([1, 1.3])
+        with c_donut:
+            fig_donut = go.Figure(
+                data=[
+                    go.Pie(
+                        labels=["Horas entre commits", "Overhead de Sessão"],
+                        values=[float(horas_base_commits_cache), float(horas_overhead_cache)],
+                        hole=0.55,
+                        marker_colors=["#1f77b4", "#ff8c42"],
+                    )
+                ]
+            )
+            fig_donut.update_layout(height=320, margin=dict(l=10, r=10, t=10, b=10))
+            st.plotly_chart(fig_donut, use_container_width=True)
+        with c_tbl:
+            st.dataframe(
+                pd.DataFrame(
+                    [
+                        {"Componente": "Horas entre commits (programação ativa)", "Valor": _formatar_horas_br(horas_base_commits_cache), "% do total": f"{str(f'{pct_cod:.1f}').replace('.', ',')}%"},
+                        {"Componente": "Overhead de Sessão (ideação + leitura)", "Valor": _formatar_horas_br(horas_overhead_cache), "% do total": f"{str(f'{pct_ovh:.1f}').replace('.', ',')}%"},
+                        {"Componente": "Total estimado", "Valor": _formatar_horas_br(total_horas_cache), "% do total": "100,0%"},
+                    ]
+                ),
+                use_container_width=True,
+                hide_index=True,
+            )
+        st.caption(
+            f"{str(f'{pct_cod:.1f}').replace('.', ',')}% do tempo foi registrado diretamente em commits. "
+            f"Os {str(f'{pct_ovh:.1f}').replace('.', ',')}% restantes correspondem ao overhead estimado por sessão."
+        )
+
+    st.markdown("#### Sensibilidade executiva (overhead por sessão)")
+    if (total_sessoes_cache is not None) and (horas_base_commits_cache is not None):
+        overhead_slider = st.slider("Overhead por sessão (min)", min_value=0, max_value=90, value=int(config_horas.get("overhead_sessao_min", 30)), step=5, key="dev_hours_overhead_slider_ic")
+        horas_base_ref = float(horas_base_commits_cache)
+        total_ref = horas_base_ref + (int(total_sessoes_cache) * (overhead_slider / 60.0))
+        total_cons = horas_base_ref + (int(total_sessoes_cache) * (15 / 60.0))
+        total_gen = horas_base_ref + (int(total_sessoes_cache) * (45 / 60.0))
+        st.dataframe(
+            pd.DataFrame(
+                [
+                    {"Cenário": "Conservador", "Overhead/sessão": "15 min", "Horas entre commits": _formatar_horas_br(horas_base_ref), "Total estimado": _formatar_horas_br(total_cons)},
+                    {"Cenário": "Base (slider)", "Overhead/sessão": f"{overhead_slider} min", "Horas entre commits": _formatar_horas_br(horas_base_ref), "Total estimado": _formatar_horas_br(total_ref)},
+                    {"Cenário": "Generoso", "Overhead/sessão": "45 min", "Horas entre commits": _formatar_horas_br(horas_base_ref), "Total estimado": _formatar_horas_br(total_gen)},
+                ]
+            ),
+            use_container_width=True,
+            hide_index=True,
+        )
 
     if st.button("Recalcular estimativa", key="btn_recalcular_horas_dev", width="content"):
         with st.spinner("Buscando commits no GitHub..."):
