@@ -9854,6 +9854,18 @@ if menu == "DRE (Ind. e Congl.)":
     )
     st.markdown("---")
 
+timer_box_menu = None
+menu_timer_state_key = None
+menu_timer_signature = None
+t0_menu_timer = None
+if menu in MENU_PRINCIPAL and menu not in {"Snapshot", "Peers (Tabela)", "DRE (Ind. e Congl.)"}:
+    timer_box_menu = st.empty()
+    menu_timer_state_key = f"timer_state_{menu}"
+    menu_timer_signature = ("menu", menu)
+    _timer_reset_if_selection_changed(menu_timer_state_key, menu_timer_signature)
+    _timer_render_caption(menu_timer_state_key, timer_box_menu, f"Tempo de carregamento da aba {menu}")
+    t0_menu_timer = time.perf_counter()
+
 if menu == "Sobre":
     st.markdown("""
     ## sobre a plataforma
@@ -15458,6 +15470,16 @@ elif menu == "DRE" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo ==
 
         instituicao_selecionada = _formatar_opcao_instituicao_dre(instituicao_selecionada_raw)
         instituicao_alias_selecionada = _alias_instituicao_dre(instituicao_selecionada_raw)
+        timer_box_dre = st.empty()
+        dre_signature = (
+            "dre_consolidado",
+            instituicao_selecionada_raw,
+            int(ano_selecionado),
+            base_comparacao,
+        )
+        _timer_reset_if_selection_changed("dre_timer_state", dre_signature)
+        _timer_render_caption("dre_timer_state", timer_box_dre, "Tempo de carregamento da aba DRE")
+        t0_dre = time.perf_counter()
 
         # Exibir ratios no final da tabela (sem quebrar a ordem dos demais itens)
         _labels_ratio_dre = {
@@ -15999,6 +16021,9 @@ elif menu == "DRE" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo ==
                 """,
                 unsafe_allow_html=True,
             )
+        tempo_total_dre = time.perf_counter() - t0_dre
+        _timer_store_elapsed("dre_timer_state", dre_signature, tempo_total_dre)
+        _timer_render_caption("dre_timer_state", timer_box_dre, "Tempo de carregamento da aba DRE")
 
 elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo == "DRE Individual"):
     st.markdown("### Demonstração de Resultado (DRE Individual)")
@@ -16615,6 +16640,21 @@ elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolid
             index=0,
             key="dre_individual_base_comparacao_lucro",
         )
+    timer_box_dre_individual = st.empty()
+    dre_individual_signature = (
+        "dre_individual",
+        tuple(sorted(codinsts_selecionados)),
+        int(ano_selecionado),
+        visao_sel,
+        base_comparacao,
+    )
+    _timer_reset_if_selection_changed("dre_individual_timer_state", dre_individual_signature)
+    _timer_render_caption(
+        "dre_individual_timer_state",
+        timer_box_dre_individual,
+        "Tempo de carregamento da aba DRE Individual",
+    )
+    t0_dre_individual = time.perf_counter()
 
     if visao_sel == "Soma das Partes":
         nome_visao = "Soma das Partes — Seleção Atual"
@@ -17006,6 +17046,13 @@ elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolid
             """,
             unsafe_allow_html=True,
         )
+    tempo_total_dre_individual = time.perf_counter() - t0_dre_individual
+    _timer_store_elapsed("dre_individual_timer_state", dre_individual_signature, tempo_total_dre_individual)
+    _timer_render_caption(
+        "dre_individual_timer_state",
+        timer_box_dre_individual,
+        "Tempo de carregamento da aba DRE Individual",
+    )
 
 elif menu == "__deprecated__Carteira 4.966 (bloco legado DRE-1)":
     # =========================================================================
@@ -21516,3 +21563,8 @@ elif menu == "Glossário":
         - **[LEGADO] Passivo Exigível** = valor reportado do passivo exigível (Rel. 3).  
         - **[LEGADO] TVM** = valor reportado/agrupado de Títulos e Valores Mobiliários (Rel. 2).  
         """)
+
+if timer_box_menu is not None and menu_timer_state_key and menu_timer_signature and t0_menu_timer is not None:
+    tempo_total_menu = time.perf_counter() - t0_menu_timer
+    _timer_store_elapsed(menu_timer_state_key, menu_timer_signature, tempo_total_menu)
+    _timer_render_caption(menu_timer_state_key, timer_box_menu, f"Tempo de carregamento da aba {menu}")
