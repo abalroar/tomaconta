@@ -7090,7 +7090,7 @@ def _snap_delta_calc(
         payload["suffix"] = f"{sinal}{diff_bps} bps"
     elif delta_kind == "pp":
         sinal = "+" if diff > 0 else ""
-        payload["suffix"] = f"{sinal}{diff:,.1f} p.p.".replace(",", "X").replace(".", ",").replace("X", ".")
+        payload["suffix"] = f"{sinal}{diff:,.2f} p.p.".replace(",", "X").replace(".", ",").replace("X", ".")
     else:
         sinal = "+" if diff > 0 else ""
         payload["suffix"] = f"{sinal}{diff:,.1f}%".replace(",", "X").replace(".", ",").replace("X", ".")
@@ -7573,7 +7573,7 @@ def _audit_deltas_snapshot(
                 exibido = int(round(delta_calc))
                 computado = int(round(delta_calc))
             else:
-                exibido = round(delta_calc, 1)
+                exibido = round(delta_calc, 2)
                 computado = delta_calc
             discrepancia = abs(float(exibido) - float(computado))
             if discrepancia > tolerancia:
