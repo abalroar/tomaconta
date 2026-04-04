@@ -5476,6 +5476,7 @@ def _preparar_metricas_extra_peers(
     col_blop_conta = _bloprud_pick_col(cache_bloprudencial, ["CONTA", "Conta", "codigo_conta", "COD_CONTA"])
     col_blop_saldo = _bloprud_pick_col(cache_bloprudencial, ["SALDO", "Saldo", "VALOR", "Valor"])
     col_blop_cod_congl = _bloprud_pick_col(cache_bloprudencial, ["COD_CONGL", "Cod_Congl", "codigo_congl", "cod_congl"])
+    col_blop_documento = _bloprud_pick_col(cache_bloprudencial, ["DOCUMENTO", "Documento", "doc", "cadoc"])
 
     blop_lookup: dict[tuple[str, str, str], float] = {}
     blop_lookup_cod: dict[tuple[str, str, str], float] = {}
@@ -5497,6 +5498,15 @@ def _preparar_metricas_extra_peers(
             if col_data_base:
                 base_txt = df_blop[col_data_base].astype(str).str.replace(r"\D", "", regex=True).str[:6]
                 df_blop["Período"] = base_txt.str[4:6] + "/" + base_txt.str[:4]
+        if col_blop_documento:
+            docs_num = pd.to_numeric(df_blop[col_blop_documento], errors="coerce")
+            mask_4060 = docs_num == 4060
+            # Jun/Dez podem vir com 4060 e 4066 no mesmo arquivo mensal; para contas
+            # prudenciais usadas em Peers/Snapshot (PDD + estágios) manter apenas Cadoc 4060
+            # evita duplicação exata (~2x) ao agregar por instituição/conta.
+            if mask_4060.any():
+                df_blop = df_blop.loc[mask_4060].copy()
+
         if col_blop_nome_inst:
             df_blop["_inst_norm"] = df_blop[col_blop_nome_inst].map(_bloprud_norm_name)
         else:
@@ -6762,10 +6772,19 @@ def _snapshot_bloprud_stage3_pdd_por_periodo(
     col_inst = _snapshot_pick_col(cache_bloprudencial, ["NOME_INSTITUICAO", "Instituição", "Instituicao", "NOME_CONGL", "Nome_Congl"])
     col_conta = _snapshot_pick_col(cache_bloprudencial, ["CONTA", "Conta", "codigo_conta", "COD_CONTA"])
     col_saldo = _snapshot_pick_col(cache_bloprudencial, ["SALDO", "Saldo", "VALOR", "Valor"])
+    col_documento = _snapshot_pick_col(cache_bloprudencial, ["DOCUMENTO", "Documento", "doc", "cadoc"])
     if not col_inst or not col_conta or not col_saldo:
         return stage3_map, pdd_map
 
     df_blop = cache_bloprudencial.copy()
+    if col_documento:
+        docs_num = pd.to_numeric(df_blop[col_documento], errors="coerce")
+        mask_4060 = docs_num == 4060
+        # Mesmo critério de peers: quando coexistem 4060/4066 no mês, manter Cadoc 4060
+        # para evitar contagem em dobro nas contas prudenciais.
+        if mask_4060.any():
+            df_blop = df_blop.loc[mask_4060].copy()
+
     if "Período" not in df_blop.columns:
         col_data_base = _snapshot_pick_col(df_blop, ["DATA_BASE", "Data_Base", "data_base"])
         if not col_data_base:
