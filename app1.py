@@ -6887,6 +6887,14 @@ def _snapshot_capital_indices_por_periodo(
     return cet1, basileia
 
 
+def _snapshot_normalize_cmp_values(valor_atual, valor_base, higher_is_better: bool):
+    """Normaliza comparação para indicadores de risco negativos (mais negativo = pior)."""
+    a, b = float(valor_atual), float(valor_base)
+    if not higher_is_better and a < 0 and b < 0:
+        return -a, -b
+    return a, b
+
+
 def _snapshot_delta_ui(metrica_cfg: dict, valor_atual, valor_base) -> str:
     """Retorna o indicador visual HTML de melhora/piora/estabilidade da métrica."""
     if (
@@ -6895,8 +6903,8 @@ def _snapshot_delta_ui(metrica_cfg: dict, valor_atual, valor_base) -> str:
     ):
         return '<span class="snapshot-direction snapshot-direction--neutral">—</span>'
 
-    atual_f = float(valor_atual)
-    base_f = float(valor_base)
+    regra_sobe_bom = bool(metrica_cfg.get("higher_is_better", True))
+    atual_f, base_f = _snapshot_normalize_cmp_values(valor_atual, valor_base, regra_sobe_bom)
     if atual_f > base_f:
         direcao = "up"
     elif atual_f < base_f:
@@ -6907,7 +6915,6 @@ def _snapshot_delta_ui(metrica_cfg: dict, valor_atual, valor_base) -> str:
     if direcao == "neutral":
         return '<span class="snapshot-direction snapshot-direction--neutral">—</span>'
 
-    regra_sobe_bom = bool(metrica_cfg.get("higher_is_better", True))
     melhorou = (direcao == "up" and regra_sobe_bom) or (direcao == "down" and not regra_sobe_bom)
     classe = "snapshot-direction--positive" if melhorou else "snapshot-direction--negative"
     simbolo = "↑" if melhorou else "↓"
@@ -7112,9 +7119,10 @@ def _snap_delta_html(
             f'<span class="snap-card__delta-label">{label}</span> —</span>'
         )
 
-    if a > b:
+    a_cmp, b_cmp = _snapshot_normalize_cmp_values(a, b, higher_is_better)
+    if a_cmp > b_cmp:
         direcao = "up"
-    elif a < b:
+    elif a_cmp < b_cmp:
         direcao = "down"
     else:
         direcao = "neutral"
@@ -7141,6 +7149,7 @@ def _snap_card_status(valor_atual, valor_base, higher_is_better: bool) -> str:
         a, b = float(valor_atual), float(valor_base)
         if pd.isna(a) or pd.isna(b):
             return ""
+        a, b = _snapshot_normalize_cmp_values(a, b, higher_is_better)
     except (TypeError, ValueError):
         return ""
     if a == b:
