@@ -2530,6 +2530,7 @@ def _validar_token_release_github(repo: str, token: Optional[str], tag: Optional
 
 DEV_HOURS_CONFIG_PATH = Path("data/dev_hours_config.json")
 DEV_HOURS_CACHE_PATH = Path("data/dev_hours_cache.json")
+DEV_HOURS_CACHE_TTL_HOURS = 24
 DEV_HOURS_DEFAULT_CONFIG = {
     "repositorios": ["abalroar/tomaconta-dev", "abalroar/tomaconta", "abalroar/ficadeolho"],
     "limiar_sessao_min": 90,
@@ -2714,6 +2715,9 @@ def _calcular_estimativa_horas_dev(
             return "2-4 h"
         return "> 4 h"
 
+    tz_br = ZoneInfo("America/Sao_Paulo")
+    esforco_semanal: dict[str, dict] = {}
+
     for sessao in sessoes:
         inicio = sessao[0]["data"]
         fim = sessao[-1]["data"]
@@ -2805,6 +2809,41 @@ def _formatar_data_hora_br(valor_iso: Optional[str]) -> str:
         return "—"
     dt = datetime.fromisoformat(str(valor_iso))
     return dt.astimezone(ZoneInfo("America/Sao_Paulo")).strftime("%d/%m/%Y %H:%M")
+
+
+def _parse_iso_datetime(valor_iso: Optional[str]) -> Optional[datetime]:
+    if not valor_iso:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(valor_iso))
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=ZoneInfo("UTC"))
+        return dt
+    except Exception:
+        return None
+
+
+def _cache_horas_precisa_recalculo(cache_horas: Optional[dict], config_horas: dict, ttl_horas: int) -> tuple[bool, str]:
+    if not isinstance(cache_horas, dict):
+        return True, "sem cache"
+
+    calculado_em = _parse_iso_datetime(cache_horas.get("calculado_em"))
+    if calculado_em is None:
+        return True, "cache sem timestamp"
+
+    agora = datetime.now(ZoneInfo("America/Sao_Paulo"))
+    if (agora - calculado_em.astimezone(ZoneInfo("America/Sao_Paulo"))) > timedelta(hours=ttl_horas):
+        return True, f"cache expirado ({ttl_horas}h)"
+
+    parametros_cache = cache_horas.get("parametros", {}) if isinstance(cache_horas.get("parametros"), dict) else {}
+    for chave in ("limiar_sessao_min", "overhead_sessao_min", "incluir_merges"):
+        if parametros_cache.get(chave) != config_horas.get(chave):
+            return True, "parâmetros alterados"
+
+    if (cache_horas.get("repositorios") or []) != (config_horas.get("repositorios") or []):
+        return True, "repositórios alterados"
+
+    return False, "cache válido"
 
 
 def _formatar_periodo_commit_br(inicio_iso: Optional[str], fim_iso: Optional[str]) -> str:
@@ -10117,6 +10156,25 @@ if menu == "Sobre":
 
     config_horas = _carregar_config_estimativa_horas()
     cache_horas = _ler_json_local(DEV_HOURS_CACHE_PATH)
+    precisa_recalcular_auto, motivo_recalculo_auto = _cache_horas_precisa_recalculo(
+        cache_horas=cache_horas,
+        config_horas=config_horas,
+        ttl_horas=DEV_HOURS_CACHE_TTL_HOURS,
+    )
+
+    if precisa_recalcular_auto:
+        with st.spinner("Atualizando estimativa automaticamente (TTL 24h)..."):
+            try:
+                cache_horas = _calcular_estimativa_horas_dev(
+                    repositorios=config_horas["repositorios"],
+                    limiar_sessao_min=int(config_horas["limiar_sessao_min"]),
+                    overhead_sessao_min=int(config_horas["overhead_sessao_min"]),
+                    incluir_merges=bool(config_horas.get("incluir_merges", False)),
+                )
+                _salvar_json_local(DEV_HOURS_CACHE_PATH, cache_horas)
+                st.success(f"Estimativa atualizada automaticamente ({motivo_recalculo_auto}).")
+            except Exception as exc:
+                st.warning(f"Não foi possível atualizar automaticamente ({motivo_recalculo_auto}): {exc}")
 
     horas_base_commits_cache = cache_horas.get("horas_base_commits") if isinstance(cache_horas, dict) else None
     horas_overhead_cache = cache_horas.get("horas_overhead") if isinstance(cache_horas, dict) else None
@@ -10135,6 +10193,7 @@ if menu == "Sobre":
         _formatar_data_hora_br(cache_horas.get("calculado_em")) if isinstance(cache_horas, dict) else "—"
     )
     repos_cache = cache_horas.get("repositorios") if isinstance(cache_horas, dict) else []
+    st.info(f"🕒 Última atualização: **{calculado_em_cache}** · cache TTL: {DEV_HOURS_CACHE_TTL_HOURS}h")
 
     col_h1, col_h2, col_h3 = st.columns(3)
     with col_h1:
@@ -10156,9 +10215,20 @@ if menu == "Sobre":
         faixa_central = _formatar_horas_br(faixa_cache.get("central"))
         st.caption(f"Faixa estimada: {faixa_min} — {faixa_max} · ponto central: {faixa_central}")
 
+    if repos_cache:
+        pills_html = " ".join(
+            [
+                f"<span title='{_html_mod.escape(str(repo))}' style='display:inline-block;border:1px solid #d9d9d9;border-radius:999px;padding:2px 10px;margin:2px;font-size:0.85rem;'>"
+                f"{_html_mod.escape(str(repo))}</span>"
+                for repo in repos_cache
+            ]
+        )
+        st.markdown(f"**Repositórios:** {pills_html}", unsafe_allow_html=True)
+    else:
+        st.caption("Repositórios: repositório não calculado")
+
     st.caption(
-        f"{periodo_cache} · {total_commits_cache if total_commits_cache is not None else '—'} commits · "
-        f"{', '.join(repos_cache) if repos_cache else 'repositório não calculado'}"
+        f"{periodo_cache} · {total_commits_cache if total_commits_cache is not None else '—'} commits"
     )
     st.caption(
         f"Estimativa baseada em {total_commits_cache if total_commits_cache is not None else '—'} commits e "
