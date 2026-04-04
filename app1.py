@@ -12276,16 +12276,31 @@ elif menu == "Rankings":
                 base = base.replace(",", "X").replace(".", ",").replace("X", ".")
                 return f"{base}{sufixo}"
 
-            def _escala_monetaria_display(valores: list[float]) -> tuple[float, str]:
-                vals = [abs(float(v)) for v in valores if v is not None and pd.notna(v)]
-                if not vals:
-                    return 1.0, "MM"
-                vmax = max(vals)
-                if vmax >= 1_000_000:
-                    return 1_000_000.0, "tri"
-                if vmax >= 1_000:
-                    return 1_000.0, "bi"
-                return 1.0, "MM"
+            def _formatar_monetario_escala_individual(valor: float, incluir_sinal: bool = False) -> str:
+                if valor is None or pd.isna(valor):
+                    return "N/D"
+                valor_f = float(valor)
+                abs_val = abs(valor_f)
+                sinal = ""
+                if incluir_sinal:
+                    sinal = "+" if valor_f > 0 else ("-" if valor_f < 0 else "")
+                elif valor_f < 0:
+                    sinal = "-"
+
+                if abs_val >= 1_000_000_000_000:
+                    numero = _formatar_br(abs_val / 1_000_000_000_000, 1)
+                    return f"{sinal}R$ {numero} tri"
+                if abs_val >= 1_000_000_000:
+                    numero = _formatar_br(abs_val / 1_000_000_000, 1)
+                    return f"{sinal}R$ {numero} bi"
+                if abs_val >= 1_000_000:
+                    numero = _formatar_br(abs_val / 1_000_000, 0)
+                    return f"{sinal}R$ {numero} MM"
+                if abs_val >= 1_000:
+                    numero = _formatar_br(abs_val / 1_000, 1)
+                    return f"{sinal}R$ {numero} mil"
+                numero = _formatar_br(abs_val, 0)
+                return f"{sinal}R$ {numero}"
 
             def _formatar_valor_ranking(valor: float, variavel_ref: str, valores_contexto: Optional[list[float]] = None, incluir_sinal: bool = False) -> str:
                 if valor is None or pd.isna(valor):
@@ -12298,8 +12313,7 @@ elif menu == "Rankings":
                     ).iloc[0]
                     return _formatar_br(valor_display, 2, "%", incluir_sinal=incluir_sinal)
                 if variavel_ref in VARS_MOEDAS:
-                    div, unidade = _escala_monetaria_display(valores_contexto or [valor])
-                    return f"R$ {_formatar_br(float(valor) / div, 2, f' {unidade}', incluir_sinal=incluir_sinal)}"
+                    return _formatar_monetario_escala_individual(float(valor), incluir_sinal=incluir_sinal)
                 return _formatar_br(valor, 2, incluir_sinal=incluir_sinal)
 
             def _usar_escala_dinamica_memoria(indicador_ref: str | None, coluna_ref: str | None = None) -> bool:
