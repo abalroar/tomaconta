@@ -37,3 +37,10 @@ Data: 2026-04-04
 ## Observações
 - Foi preservado comentário no código com referência à versão anterior do glossário para rastreabilidade (`# [VERSÃO ANTERIOR]`).
 - Não foram alteradas outras abas além da aba Glossário (bloco `elif menu == "Glossário":`).
+
+## Ajuste pós-review (resgate de conteúdo histórico)
+- Reincorporadas explicações narrativas que existiam antes da reestruturação:
+  - Contexto de Conglomerado Prudencial
+  - Exemplos (PAN/BTG, Digio/Bradesco, consolidado do Original)
+  - Justificativa de início da série principal em Mar/2015
+- Mantida a estrutura temática nova, somando conteúdo antigo + conteúdo novo (sem remoção).

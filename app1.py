@@ -21120,6 +21120,32 @@ elif menu == "Glossário":
     Os dados são obtidos principalmente via **Banco Central (IFData/Olinda)**,
     com complementos de **Cadoc 4060** e mapeamentos COSIF do projeto.
 
+    ## Contexto de leitura dos dados (visão prudencial)
+
+    **Sobre os Dados Apresentados**
+
+    O Toma Conta prioriza a visão de **Conglomerado Prudencial** do IFData.
+
+    **O que isso significa:**
+
+    **Conglomerado Prudencial** é um grupo de instituições financeiras e entidades autorizadas,
+    controladas por uma mesma instituição líder, que consolida demonstrações para fins regulatórios.
+
+    O Banco Central supervisiona o grupo como um todo: eventos de liquidez/solvência em uma parte
+    do conglomerado podem impactar a leitura regulatória do conjunto.
+
+    **Exemplos práticos:**
+    - Banco PAN integra o Conglomerado Prudencial do BTG Pactual; por isso, leituras de Basileia podem aparecer no conglomerado e não como bloco regulatório totalmente separado.
+    - Banco Digio integra o conglomerado financeiro do Bradesco; em recortes prudenciais, pode não aparecer como grupo autônomo.
+    - O Conglomerado Prudencial Original pode incluir Banco Original, PicPay Bank e outras entidades do grupo no mesmo consolidado.
+
+    **Por que a série principal começa em Mar-2015?**
+
+    A visão de **Conglomerado Prudencial** passa a ser referência a partir de **março/2015**.
+    Antes disso, predominava a visão de **Conglomerado Financeiro** no histórico do IFData.
+
+    Para grupos complexos, misturar as duas visões em séries longas pode prejudicar comparabilidade.
+
     ---
 
     ## 1) Capital e Regulação
