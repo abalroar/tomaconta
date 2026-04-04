@@ -54,3 +54,7 @@ Data: 2026-04-04
   5) Alavancagem e Relações de Estrutura
 - Seção 6 movida para expander curto:
   - `Definições históricas / não exibidas por padrão`
+
+## Ajuste de layout (expanders em todas as seções)
+- Todas as seções do Glossário agora são exibidas em expanders (incluindo contexto e seções 1 a 6).
+- Título do expander configurado com marcador em negrito (`**...**`) para melhorar hierarquia visual.

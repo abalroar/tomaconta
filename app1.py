@@ -21224,24 +21224,23 @@ elif menu == "Glossário":
     # [VERSÃO ANTERIOR]: variáveis com exibição incerta permaneciam misturadas ao
     # corpo principal, sem seção histórica/legado explícita.
 
-    st.markdown("""
-    ## Glossário Central — versão reestruturada (abril/2026)
+    st.markdown("## Glossário Central — versão reestruturada (abril/2026)")
+    with st.expander("**Contexto de leitura dos dados (visão prudencial)**", expanded=True):
+        st.markdown("""
+        Os dados são obtidos principalmente via **Banco Central (IFData/Olinda)**,
+        com complementos de **Cadoc 4060** e mapeamentos COSIF do projeto.
 
-    Os dados são obtidos principalmente via **Banco Central (IFData/Olinda)**,
-    com complementos de **Cadoc 4060** e mapeamentos COSIF do projeto.
-
-    ## Contexto de leitura dos dados (visão prudencial)
-    O Toma Conta prioriza a visão de **Conglomerado Prudencial** do IFData.
-    Exemplo: Banco PAN integra o conglomerado prudencial do BTG Pactual.
-    A série principal começa em **março/2015**, quando a visão prudencial passa
-    a ser a referência para comparabilidade.
-    """)
+        O Toma Conta prioriza a visão de **Conglomerado Prudencial** do IFData.
+        Exemplo: Banco PAN integra o conglomerado prudencial do BTG Pactual.
+        A série principal começa em **março/2015**, quando a visão prudencial passa
+        a ser a referência para comparabilidade.
+        """)
 
     _cols_gloss = ["Indicador", "Aba(s)", "Fonte", "Fórmula", "Unidade", "Interpretação", "Limitação", "Periodicidade"]
 
     def _render_secao_glossario(titulo: str, linhas: list[dict]):
-        st.markdown(f"### {titulo}")
-        st.dataframe(pd.DataFrame(linhas, columns=_cols_gloss), width="stretch", hide_index=True)
+        with st.expander(f"**{titulo}**", expanded=False):
+            st.dataframe(pd.DataFrame(linhas, columns=_cols_gloss), width="stretch", hide_index=True)
 
     _render_secao_glossario("1) Capital e Regulação", [
         {"Indicador": "Índice de Capital Principal (CET1)", "Aba(s)": "Peers, Evolução, Glossário", "Fonte": "IFData Rel.5", "Fórmula": "Capital Principal ÷ RWA Total", "Unidade": "%", "Interpretação": "Folga de capital de maior qualidade frente ao risco ponderado.", "Limitação": "Pode variar por mudanças regulatórias/metodológicas.", "Periodicidade": "Trimestral"},
@@ -21283,7 +21282,7 @@ elif menu == "Glossário":
         {"Indicador": "Perda Esperada / Carteira de Crédito Bruta (%)", "Aba(s)": "Peers, Glossário", "Fonte": "IFData Rel.2", "Fórmula": "Perda Esperada ÷ Carteira de Crédito Bruta", "Unidade": "%", "Interpretação": "Nível relativo de perdas esperadas sobre o estoque de crédito.", "Limitação": "Não captura composição por segmento/produto.", "Periodicidade": "Trimestral"},
     ])
 
-    with st.expander("6) Definições históricas / não exibidas por padrão", expanded=False):
+    with st.expander("**6) Definições históricas / não exibidas por padrão**", expanded=False):
         st.markdown("""
         - **[LEGADO] Crédito/Ativo (%)** = Carteira de Crédito Bruta ÷ Ativo Total.  
         - **[LEGADO] Carteira de Crédito/Core Funding (%)** = Carteira de Crédito Bruta ÷ Core Funding.  
