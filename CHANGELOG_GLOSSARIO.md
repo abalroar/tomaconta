@@ -44,3 +44,13 @@ Data: 2026-04-04
   - Exemplos (PAN/BTG, Digio/Bradesco, consolidado do Original)
   - Justificativa de início da série principal em Mar/2015
 - Mantida a estrutura temática nova, somando conteúdo antigo + conteúdo novo (sem remoção).
+
+## Ajuste de usabilidade (tabelas por seção)
+- Glossário reformulado para exibição em **tabelas por seção**:
+  1) Capital e Regulação
+  2) Balanço e Funding
+  3) Rentabilidade e Eficiência
+  4) Qualidade de Carteira
+  5) Alavancagem e Relações de Estrutura
+- Seção 6 movida para expander curto:
+  - `Definições históricas / não exibidas por padrão`
