@@ -2635,6 +2635,9 @@ def _calcular_estimativa_horas_dev(
             "horas_base_commits": 0.0,
             "horas_overhead": 0.0,
             "total_horas": 0.0,
+            "faixa_estimativa_horas": {"min": 0.0, "central": 0.0, "max": 0.0},
+            "distribuicao_sessoes": {},
+            "commits_por_mes": {},
             "total_sessoes": 0,
             "sessao_media_horas": 0.0,
             "total_commits": 0,
@@ -2666,15 +2669,43 @@ def _calcular_estimativa_horas_dev(
         sessoes.append(sessao_atual)
 
     horas_base_commits = 0.0
+    distribuicao_sessoes = {
+        "< 30 min": 0,
+        "30-60 min": 0,
+        "1-2 h": 0,
+        "2-4 h": 0,
+        "> 4 h": 0,
+    }
+
+    def _bucket_sessao(minutos: float) -> str:
+        if minutos < 30:
+            return "< 30 min"
+        if minutos < 60:
+            return "30-60 min"
+        if minutos < 120:
+            return "1-2 h"
+        if minutos <= 240:
+            return "2-4 h"
+        return "> 4 h"
+
     for sessao in sessoes:
         inicio = sessao[0]["data"]
         fim = sessao[-1]["data"]
         duracao_horas = max(0.0, (fim - inicio).total_seconds() / 3600.0)
         horas_base_commits += duracao_horas
+        bucket = _bucket_sessao(duracao_horas * 60.0)
+        distribuicao_sessoes[bucket] += 1
+
+    commits_por_mes: dict[str, int] = {}
+    for commit in commits_unicos:
+        mes = commit["data"].astimezone(ZoneInfo("America/Sao_Paulo")).strftime("%Y-%m")
+        commits_por_mes[mes] = commits_por_mes.get(mes, 0) + 1
 
     total_sessoes = len(sessoes)
     horas_overhead = total_sessoes * (overhead_sessao_min / 60.0)
     total_horas = horas_base_commits + horas_overhead
+    total_horas_min = horas_base_commits
+    total_horas_max = horas_base_commits + total_sessoes
     sessao_media_horas = (total_horas / total_sessoes) if total_sessoes else 0.0
 
     return {
@@ -2682,6 +2713,13 @@ def _calcular_estimativa_horas_dev(
         "horas_base_commits": round(horas_base_commits, 2),
         "horas_overhead": round(horas_overhead, 2),
         "total_horas": round(total_horas, 2),
+        "faixa_estimativa_horas": {
+            "min": round(total_horas_min, 2),
+            "central": round(total_horas, 2),
+            "max": round(total_horas_max, 2),
+        },
+        "distribuicao_sessoes": distribuicao_sessoes,
+        "commits_por_mes": dict(sorted(commits_por_mes.items())),
         "total_sessoes": total_sessoes,
         "sessao_media_horas": round(sessao_media_horas, 2),
         "total_commits": total_commits,
@@ -9827,6 +9865,7 @@ if menu == "Sobre":
     horas_base_commits_cache = cache_horas.get("horas_base_commits") if isinstance(cache_horas, dict) else None
     horas_overhead_cache = cache_horas.get("horas_overhead") if isinstance(cache_horas, dict) else None
     total_horas_cache = cache_horas.get("total_horas") if isinstance(cache_horas, dict) else None
+    faixa_cache = cache_horas.get("faixa_estimativa_horas") if isinstance(cache_horas, dict) else {}
     total_sessoes_cache = cache_horas.get("total_sessoes") if isinstance(cache_horas, dict) else None
     sessao_media_cache = cache_horas.get("sessao_media_horas") if isinstance(cache_horas, dict) else None
     total_commits_cache = cache_horas.get("total_commits") if isinstance(cache_horas, dict) else None
@@ -9855,10 +9894,81 @@ if menu == "Sobre":
     with col_h5:
         st.metric("Sessão média", _formatar_horas_br(sessao_media_cache))
 
+    if isinstance(faixa_cache, dict) and faixa_cache:
+        faixa_min = _formatar_horas_br(faixa_cache.get("min"))
+        faixa_max = _formatar_horas_br(faixa_cache.get("max"))
+        faixa_central = _formatar_horas_br(faixa_cache.get("central"))
+        st.caption(f"Faixa estimada: {faixa_min} — {faixa_max} · ponto central: {faixa_central}")
+
     st.caption(
         f"{periodo_cache} · {total_commits_cache if total_commits_cache is not None else '—'} commits · "
         f"{', '.join(repos_cache) if repos_cache else 'repositório não calculado'}"
     )
+    st.caption(
+        f"Estimativa baseada em {total_commits_cache if total_commits_cache is not None else '—'} commits e "
+        f"{total_sessoes_cache if total_sessoes_cache is not None else '—'} sessões. "
+        f"Inclui overhead de {int(config_horas.get('overhead_sessao_min', 30))} min por sessão."
+    )
+
+    with st.expander("Como calculamos?", expanded=False):
+        st.markdown(
+            f"""
+Como estimamos o tempo investido no projeto
+
+Analisamos os commits no GitHub e identificamos blocos de trabalho (sessões).
+Quando o intervalo entre commits passa de **{int(config_horas.get('limiar_sessao_min', 90))} minutos**, iniciamos uma nova sessão.
+
+Em cada sessão adicionamos **Overhead de Sessão** de **{int(config_horas.get('overhead_sessao_min', 30))} min** para representar tempo sem commit:
+abrir ambiente, retomar contexto, revisar, testar e validar.
+
+Exemplo didático de um dia:
+- Sessão A: 20 min de codificação + 30 min de overhead = 50 min  
+- Sessão B: 1h30 de codificação + 30 min de overhead = 2h00  
+- Sessão C (commit único): 0 min de codificação + 30 min de overhead = 30 min  
+"""
+        )
+
+        if (horas_base_commits_cache is not None) and (horas_overhead_cache is not None):
+            total_comp = max((horas_base_commits_cache + horas_overhead_cache), 0.0)
+            pct_cod = (horas_base_commits_cache / total_comp) if total_comp > 0 else 0.0
+            pct_ovh = (horas_overhead_cache / total_comp) if total_comp > 0 else 0.0
+
+            st.markdown("**Composição do total (último cálculo):**")
+            st.write(
+                f"Codificação medida: {_formatar_horas_br(horas_base_commits_cache)} "
+                f"({pct_cod * 100:.0f}%)"
+            )
+            st.progress(int(round(pct_cod * 100)))
+            st.write(
+                f"Overhead estimado: {_formatar_horas_br(horas_overhead_cache)} "
+                f"({pct_ovh * 100:.0f}%)"
+            )
+            st.progress(int(round(pct_ovh * 100)))
+
+        st.markdown(
+            """
+**FAQ rápida**
+
+**E se a sessão teve só 1 commit?**  
+Aplicamos o overhead como estimativa mínima conservadora.
+
+**30 minutos não é alto para sessão curta?**  
+Esse tempo cobre setup, leitura, teste e fechamento da tarefa, mesmo com pouco código.
+
+**Por que 90 minutos para separar sessão?**  
+Pausas longas tendem a indicar interrupção real; abaixo disso tratamos como continuidade.
+"""
+        )
+
+        dist_cache = cache_horas.get("distribuicao_sessoes", {}) if isinstance(cache_horas, dict) else {}
+        if isinstance(dist_cache, dict) and sum(int(v) for v in dist_cache.values()) >= 10:
+            st.markdown("**Distribuição de sessões (duração bruta):**")
+            st.bar_chart(pd.DataFrame({"faixa": list(dist_cache.keys()), "sessoes": list(dist_cache.values())}).set_index("faixa"))
+
+        commits_mes_cache = cache_horas.get("commits_por_mes", {}) if isinstance(cache_horas, dict) else {}
+        if isinstance(commits_mes_cache, dict) and commits_mes_cache:
+            st.markdown("**Linha do tempo de commits por mês:**")
+            st.bar_chart(pd.DataFrame({"mes": list(commits_mes_cache.keys()), "commits": list(commits_mes_cache.values())}).set_index("mes"))
 
     if st.button("Recalcular estimativa", key="btn_recalcular_horas_dev", width="content"):
         with st.spinner("Buscando commits no GitHub..."):
