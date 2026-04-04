@@ -889,7 +889,7 @@ PEERS_TABELA_LAYOUT = [
                 "format_key": "Índice de Capital Principal",
             },
             {
-                "label": "Índice de Basileia Total",
+                "label": "Índice de Basileia Total (%)",
                 "data_keys": [],
                 "format_key": "Índice de Basileia",
             },
@@ -927,7 +927,7 @@ PEERS_GLOSSARIO_RESUMIDO = {
     "Ativo Total / PL": "Ativo Total ÷ Patrimônio Líquido.",
     "Carteira de Crédito* / PL": "Carteira de Crédito* ÷ Patrimônio Líquido.",
     "Índice de Capital Principal (CET1)": "Capital Principal ÷ RWA Total (Rel. 5).",
-    "Índice de Basileia Total": "(CET1 + AT1 + T2) ÷ RWA Total (Rel. 5).",
+    "Índice de Basileia Total (%)": "(CET1 + AT1 + T2) ÷ RWA Total (Rel. 5).",
     "Lucro Líquido Acumulado": "Lucro Líquido acumulado no ano (YTD) até o fim do período (Rel. 1).",
     "ROE Acumulado YTD (%)": "(LL YTD × fator de anualização) ÷ PL Médio.",
 }
@@ -5265,6 +5265,9 @@ def _preparar_metricas_extra_peers(
     cache_capital: Optional[pd.DataFrame] = None,
     cache_bloprudencial: Optional[pd.DataFrame] = None,
 ) -> dict:
+    # TODO(V3): eliminar duplicidade estrutural de métricas canônicas vs "*"
+    # (ex.: Core Funding/Core Funding* e Carteira de Crédito Bruta/Carteira de Crédito*)
+    # mantendo apenas uma chave de dado e aliases apenas de apresentação.
     extra = {
         "Carteira de Crédito Bruta": {},
         "Carteira de Crédito*": {},
@@ -5288,7 +5291,7 @@ def _preparar_metricas_extra_peers(
         "PDD / Estágio 3": {},
         "Perda Esperada / Estágio 3": {},
         "Índice de Capital Principal (CET1)": {},
-        "Índice de Basileia Total": {},
+        "Índice de Basileia Total (%)": {},
     }
     periodos_base = {_periodo_ano_anterior(periodo) for periodo in periodos}
     periodos_ext = [p for p in periodos + sorted(periodos_base) if p]
@@ -5915,7 +5918,7 @@ def _preparar_metricas_extra_peers(
                     v = float(val_precalc)
                     # Normalizar para decimal (0-1): cache pode ter 0-100
                     indice_basileia = v / 100 if abs(v) > 1 else v
-            extra["Índice de Basileia Total"][chave] = indice_basileia
+            extra["Índice de Basileia Total (%)"][chave] = indice_basileia
 
     return extra
 
@@ -6065,6 +6068,32 @@ def _montar_tabela_peers(
     )
     _perf_peers_stage(perf, "c_joins_mapeamentos_metricas_extra", t_extra)
 
+    # Fonte canônica de capital compartilhada com Rankings:
+    # evita divergência de CET1/Basileia entre abas.
+    df_capital_idx = _construir_indices_capital_unificados(
+        _cache_version_token("capital"),
+        _alias_signature(),
+    )
+    if df_capital_idx is not None and not df_capital_idx.empty:
+        df_capital_idx = df_capital_idx.copy()
+        if "Instituição" in df_capital_idx.columns and "Período" in df_capital_idx.columns:
+            mapa_cet1 = {}
+            mapa_basileia = {}
+            for _, row_cap in df_capital_idx.iterrows():
+                inst_cap = row_cap.get("Instituição")
+                per_cap = row_cap.get("Período")
+                if pd.isna(inst_cap) or pd.isna(per_cap):
+                    continue
+                chave_cap = (str(inst_cap), str(per_cap))
+                mapa_cet1[chave_cap] = _coerce_numeric_value(row_cap.get("Índice de Capital Principal (CET1)"))
+                mapa_basileia[chave_cap] = _coerce_numeric_value(row_cap.get("Índice de Basileia Total (%)"))
+            for banco in bancos:
+                for periodo in periodos:
+                    chave_peers = (banco, periodo)
+                    chave_cap = (str(banco), str(periodo))
+                    extra_values["Índice de Capital Principal (CET1)"][chave_peers] = mapa_cet1.get(chave_cap)
+                    extra_values["Índice de Basileia Total (%)"][chave_peers] = mapa_basileia.get(chave_cap)
+
     coluna_credito = _resolver_coluna_peers(df, ["Carteira de Crédito Bruta", "Carteira de Crédito"])
 
     t_calc = time.perf_counter()
@@ -6100,7 +6129,7 @@ def _montar_tabela_peers(
                         tip = _tooltip_ratio_peers(label, valor_num, valor_den, valor)
                     elif label in extra_values:
                         valor = extra_values[label].get((banco, periodo))
-                        if label in ("Índice de Capital Principal (CET1)", "Índice de Basileia Total"):
+                        if label in ("Índice de Capital Principal (CET1)", "Índice de Basileia Total (%)"):
                             if valor is not None and not pd.isna(valor):
                                 tip = f"{label}: {_formatar_percentual(float(valor), decimais=2)}"
                             else:
@@ -6391,7 +6420,7 @@ def _build_memoria_calculo_peers_tabela_metrica(
             return pd.DataFrame()
         return df_mem[df_mem["Instituição"] == banco].copy()
 
-    if metrica == "Índice de Basileia Total":
+    if metrica == "Índice de Basileia Total (%)":
         df_mem = _build_memoria_calculo_basileia_rankings(df_base, [banco], periodos)
         if df_mem.empty:
             return pd.DataFrame()
@@ -10227,17 +10256,21 @@ elif menu == "Peers (Tabela)":
                     periodos_base_peers = {_periodo_ano_anterior(p) for p in periodos_selecionados}
                     periodos_ext_peers = tuple(sorted({p for p in (periodos_selecionados + sorted(periodos_base_peers)) if p}))
                     bancos_tuple = tuple(bancos_selecionados)
+                    instituicoes_slice = set(bancos_selecionados)
+                    for _banco_sel in bancos_selecionados:
+                        instituicoes_slice.update(_instituicoes_filtro_snapshot(_banco_sel, dict_aliases))
+                    instituicoes_slice_tuple = tuple(sorted(i for i in instituicoes_slice if i))
 
                     # Carregamento já recortado no nível do cache (evita ler dataset inteiro)
                     t_slice = time.perf_counter()
-                    cache_ativo = _carregar_cache_relatorio_slice("ativo", _cache_version_token("ativo"), periodos_ext_peers, bancos_tuple)
-                    cache_passivo = _carregar_cache_relatorio_slice("passivo", _cache_version_token("passivo"), periodos_ext_peers, bancos_tuple)
-                    cache_carteira_pf = _carregar_cache_relatorio_slice("carteira_pf", _cache_version_token("carteira_pf"), periodos_ext_peers, bancos_tuple)
-                    cache_carteira_pj = _carregar_cache_relatorio_slice("carteira_pj", _cache_version_token("carteira_pj"), periodos_ext_peers, bancos_tuple)
-                    cache_carteira_instr = _carregar_cache_relatorio_slice("carteira_instrumentos", _cache_version_token("carteira_instrumentos"), periodos_ext_peers, bancos_tuple)
-                    cache_dre = _carregar_cache_relatorio_slice("dre", _cache_version_token("dre"), periodos_ext_peers, bancos_tuple)
-                    cache_capital = _carregar_cache_relatorio_slice("capital", _cache_version_token("capital"), periodos_ext_peers, bancos_tuple)
-                    cache_bloprudencial = _carregar_cache_relatorio_slice("bloprudencial", _cache_version_token("bloprudencial"), periodos_ext_peers, bancos_tuple)
+                    cache_ativo = _carregar_cache_relatorio_slice("ativo", _cache_version_token("ativo"), periodos_ext_peers, instituicoes_slice_tuple)
+                    cache_passivo = _carregar_cache_relatorio_slice("passivo", _cache_version_token("passivo"), periodos_ext_peers, instituicoes_slice_tuple)
+                    cache_carteira_pf = _carregar_cache_relatorio_slice("carteira_pf", _cache_version_token("carteira_pf"), periodos_ext_peers, instituicoes_slice_tuple)
+                    cache_carteira_pj = _carregar_cache_relatorio_slice("carteira_pj", _cache_version_token("carteira_pj"), periodos_ext_peers, instituicoes_slice_tuple)
+                    cache_carteira_instr = _carregar_cache_relatorio_slice("carteira_instrumentos", _cache_version_token("carteira_instrumentos"), periodos_ext_peers, instituicoes_slice_tuple)
+                    cache_dre = _carregar_cache_relatorio_slice("dre", _cache_version_token("dre"), periodos_ext_peers, instituicoes_slice_tuple)
+                    cache_capital = _carregar_cache_relatorio_slice("capital", _cache_version_token("capital"), periodos_ext_peers, instituicoes_slice_tuple)
+                    cache_bloprudencial = _carregar_cache_relatorio_slice("bloprudencial", _cache_version_token("bloprudencial"), periodos_ext_peers, instituicoes_slice_tuple)
                     _perf_peers_stage(peers_perf, "a_leitura_cache_slices", t_slice)
 
                     t_filtros = time.perf_counter()
