@@ -2612,6 +2612,8 @@ def _calcular_estimativa_horas_dev(
     if total_commits == 0:
         return {
             "calculado_em": datetime.now(ZoneInfo("America/Sao_Paulo")).isoformat(),
+            "horas_base_commits": 0.0,
+            "horas_overhead": 0.0,
             "total_horas": 0.0,
             "total_sessoes": 0,
             "sessao_media_horas": 0.0,
@@ -2643,18 +2645,22 @@ def _calcular_estimativa_horas_dev(
     if sessao_atual:
         sessoes.append(sessao_atual)
 
-    total_horas = 0.0
+    horas_base_commits = 0.0
     for sessao in sessoes:
         inicio = sessao[0]["data"]
         fim = sessao[-1]["data"]
         duracao_horas = max(0.0, (fim - inicio).total_seconds() / 3600.0)
-        total_horas += duracao_horas + (overhead_sessao_min / 60.0)
+        horas_base_commits += duracao_horas
 
     total_sessoes = len(sessoes)
+    horas_overhead = total_sessoes * (overhead_sessao_min / 60.0)
+    total_horas = horas_base_commits + horas_overhead
     sessao_media_horas = (total_horas / total_sessoes) if total_sessoes else 0.0
 
     return {
         "calculado_em": datetime.now(ZoneInfo("America/Sao_Paulo")).isoformat(),
+        "horas_base_commits": round(horas_base_commits, 2),
+        "horas_overhead": round(horas_overhead, 2),
         "total_horas": round(total_horas, 2),
         "total_sessoes": total_sessoes,
         "sessao_media_horas": round(sessao_media_horas, 2),
@@ -9689,10 +9695,14 @@ if menu == "Sobre":
     st.markdown("---")
     st.markdown("### ⏱️ Investimento de Desenvolvimento")
     st.caption("Estimativa baseada em sessões de commits no GitHub + **Overhead de Sessão** (tempo de ideação, leitura e navegação).")
+    st.caption("Leitura rápida: agrupamos commits em blocos de trabalho (sessões) e adicionamos um buffer por sessão para representar tempo sem commit.")
+    st.caption("A conta exibida é: **Horas entre commits** + **Overhead de Sessão** = **Total estimado**.")
 
     config_horas = _carregar_config_estimativa_horas()
     cache_horas = _ler_json_local(DEV_HOURS_CACHE_PATH)
 
+    horas_base_commits_cache = cache_horas.get("horas_base_commits") if isinstance(cache_horas, dict) else None
+    horas_overhead_cache = cache_horas.get("horas_overhead") if isinstance(cache_horas, dict) else None
     total_horas_cache = cache_horas.get("total_horas") if isinstance(cache_horas, dict) else None
     total_sessoes_cache = cache_horas.get("total_sessoes") if isinstance(cache_horas, dict) else None
     sessao_media_cache = cache_horas.get("sessao_media_horas") if isinstance(cache_horas, dict) else None
@@ -9710,10 +9720,16 @@ if menu == "Sobre":
 
     col_h1, col_h2, col_h3 = st.columns(3)
     with col_h1:
-        st.metric("Total estimado", _formatar_horas_br(total_horas_cache))
+        st.metric("Horas entre commits", _formatar_horas_br(horas_base_commits_cache))
     with col_h2:
-        st.metric("Sessões de trabalho", str(total_sessoes_cache) if total_sessoes_cache is not None else "—")
+        st.metric("Overhead de Sessão", _formatar_horas_br(horas_overhead_cache))
     with col_h3:
+        st.metric("Total estimado", _formatar_horas_br(total_horas_cache))
+
+    col_h4, col_h5 = st.columns(2)
+    with col_h4:
+        st.metric("Sessões de trabalho", str(total_sessoes_cache) if total_sessoes_cache is not None else "—")
+    with col_h5:
         st.metric("Sessão média", _formatar_horas_br(sessao_media_cache))
 
     st.caption(
