@@ -16724,10 +16724,9 @@ elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolid
         df_derived_view = pd.DataFrame()
     if not df_derived_view.empty:
         df_derived_view = df_derived_view.rename(columns={"Métrica": "Label", "Valor": "valor", "Instituição": "Instituicao", "Período": "Periodo"})
-        df_derived_view["Label"] = df_derived_view["Label"].where(
-            ~df_derived_view["Label"].isin(aliases_desp_capt_dre),
-            label_desp_capt_dre,
-        )
+        df_derived_view["Label"] = df_derived_view["Label"].astype(str)
+        _mask_alias_desp_capt = df_derived_view["Label"].isin(aliases_desp_capt_dre)
+        df_derived_view.loc[_mask_alias_desp_capt, "Label"] = label_desp_capt_dre
         df_derived_view["Periodo"] = df_derived_view["Periodo"].astype(str)
         df_derived_view[["ano", "mes"]] = extrair_ano_mes_periodo(df_derived_view["Periodo"])
         df_derived_view["ytd"] = pd.to_numeric(df_derived_view["valor"], errors="coerce")
@@ -17679,10 +17678,9 @@ elif menu == "__deprecated__Carteira 4.966 (bloco legado DRE-1)":
         df_derived_view = pd.DataFrame()
     if not df_derived_view.empty:
         df_derived_view = df_derived_view.rename(columns={"Métrica": "Label", "Valor": "valor", "Instituição": "Instituicao", "Período": "Periodo"})
-        df_derived_view["Label"] = df_derived_view["Label"].where(
-            ~df_derived_view["Label"].isin(aliases_desp_capt_dre),
-            label_desp_capt_dre,
-        )
+        df_derived_view["Label"] = df_derived_view["Label"].astype(str)
+        _mask_alias_desp_capt = df_derived_view["Label"].isin(aliases_desp_capt_dre)
+        df_derived_view.loc[_mask_alias_desp_capt, "Label"] = label_desp_capt_dre
         df_derived_view["Periodo"] = df_derived_view["Periodo"].astype(str)
         df_derived_view[["ano", "mes"]] = extrair_ano_mes_periodo(df_derived_view["Periodo"])
         df_derived_view["ytd"] = pd.to_numeric(df_derived_view["valor"], errors="coerce")
@@ -18697,10 +18695,9 @@ elif menu == "__deprecated__Carteira 4.966 (bloco legado DRE-2)":
         df_derived_view = pd.DataFrame()
     if not df_derived_view.empty:
         df_derived_view = df_derived_view.rename(columns={"Métrica": "Label", "Valor": "valor", "Instituição": "Instituicao", "Período": "Periodo"})
-        df_derived_view["Label"] = df_derived_view["Label"].where(
-            ~df_derived_view["Label"].isin(aliases_desp_capt_dre),
-            label_desp_capt_dre,
-        )
+        df_derived_view["Label"] = df_derived_view["Label"].astype(str)
+        _mask_alias_desp_capt = df_derived_view["Label"].isin(aliases_desp_capt_dre)
+        df_derived_view.loc[_mask_alias_desp_capt, "Label"] = label_desp_capt_dre
         df_derived_view["Periodo"] = df_derived_view["Periodo"].astype(str)
         df_derived_view[["ano", "mes"]] = extrair_ano_mes_periodo(df_derived_view["Periodo"])
         df_derived_view["ytd"] = pd.to_numeric(df_derived_view["valor"], errors="coerce")
