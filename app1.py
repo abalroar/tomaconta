@@ -6772,10 +6772,19 @@ def _snapshot_bloprud_stage3_pdd_por_periodo(
     col_inst = _snapshot_pick_col(cache_bloprudencial, ["NOME_INSTITUICAO", "Instituição", "Instituicao", "NOME_CONGL", "Nome_Congl"])
     col_conta = _snapshot_pick_col(cache_bloprudencial, ["CONTA", "Conta", "codigo_conta", "COD_CONTA"])
     col_saldo = _snapshot_pick_col(cache_bloprudencial, ["SALDO", "Saldo", "VALOR", "Valor"])
+    col_documento = _snapshot_pick_col(cache_bloprudencial, ["DOCUMENTO", "Documento", "doc", "cadoc"])
     if not col_inst or not col_conta or not col_saldo:
         return stage3_map, pdd_map
 
     df_blop = cache_bloprudencial.copy()
+    if col_documento:
+        docs_num = pd.to_numeric(df_blop[col_documento], errors="coerce")
+        mask_4060 = docs_num == 4060
+        # Mesmo critério de peers: quando coexistem 4060/4066 no mês, manter Cadoc 4060
+        # para evitar contagem em dobro nas contas prudenciais.
+        if mask_4060.any():
+            df_blop = df_blop.loc[mask_4060].copy()
+
     if "Período" not in df_blop.columns:
         col_data_base = _snapshot_pick_col(df_blop, ["DATA_BASE", "Data_Base", "data_base"])
         if not col_data_base:
