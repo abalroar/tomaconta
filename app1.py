@@ -5469,6 +5469,7 @@ def _preparar_metricas_extra_peers(
     blop_lookup: dict[tuple[str, str, str], float] = {}
     blop_lookup_cod: dict[tuple[str, str, str], float] = {}
     blop_nome_para_codigos: dict[str, set[str]] = {}
+    blop_cod_para_inst_keys: dict[str, set[str]] = {}
     if (
         cache_bloprudencial is not None
         and not cache_bloprudencial.empty
@@ -5566,7 +5567,10 @@ def _preparar_metricas_extra_peers(
                     nome_norm = str(nome).strip()
                     if not nome_norm:
                         continue
+                    for nome_variant in _bloprud_name_variants(nome_norm):
+                        blop_nome_para_codigos.setdefault(nome_variant, set()).add(cod)
                     blop_nome_para_codigos.setdefault(nome_norm, set()).add(cod)
+                    blop_cod_para_inst_keys.setdefault(cod, set()).add(nome_norm)
 
     def _blop_get_sum_periodo_conta(banco: str, periodo: str, conta: str) -> Optional[float]:
         if not blop_lookup and not blop_lookup_cod:
@@ -5575,6 +5579,11 @@ def _preparar_metricas_extra_peers(
         if not yyyymm:
             return None
         banco_variants = _bloprud_name_variants(banco)
+        debug_target = (
+            str(conta) == "3313000000"
+            and str(yyyymm) == "202509"
+            and any(v in {"BB", "BCO DO BRASIL", "BCO DO BRASIL S.A.", "BANCO DO BRASIL", "BANCO DO BRASIL S.A."} for v in banco_variants)
+        )
 
         # Prioridade: lookup por código estável do conglomerado prudencial.
         codigos = set()
@@ -5583,26 +5592,54 @@ def _preparar_metricas_extra_peers(
         for cod in codigos:
             val_cod = blop_lookup_cod.get((yyyymm, cod, conta))
             if val_cod is not None and not pd.isna(val_cod):
+                if debug_target:
+                    nomes = sorted(blop_cod_para_inst_keys.get(cod, set()))
+                    print(
+                        "[PE_EST3_DEBUG]",
+                        {
+                            "modo": "COD_CONGL",
+                            "banco": banco,
+                            "periodo": periodo,
+                            "yyyymm": yyyymm,
+                            "conta": conta,
+                            "cod_congl": cod,
+                            "inst_keys": nomes[:5],
+                            "saldo_bruto": float(val_cod),
+                        },
+                    )
                 return float(val_cod)
 
         for variant in banco_variants:
             val = blop_lookup.get((yyyymm, variant, conta))
             if val is not None and not pd.isna(val):
+                if debug_target:
+                    print(
+                        "[PE_EST3_DEBUG]",
+                        {
+                            "modo": "NOME_EXATO",
+                            "banco": banco,
+                            "periodo": periodo,
+                            "yyyymm": yyyymm,
+                            "conta": conta,
+                            "inst_key": variant,
+                            "saldo_bruto": float(val),
+                        },
+                    )
                 return float(val)
-
-        # fallback: compatibilizar por inclusão textual entre variantes e chaves do lookup
-        val_fallback = None
-        for (ym_key, inst_key, conta_key), saldo in blop_lookup.items():
-            if ym_key != yyyymm or conta_key != conta:
-                continue
-            if any(v and (v in inst_key or inst_key in v) for v in banco_variants):
-                if saldo is None or pd.isna(saldo):
-                    continue
-                val_fallback = float(saldo)
-                break
-
-        val = val_fallback
-        return None if val is None or pd.isna(val) else float(val)
+        if debug_target:
+            print(
+                "[PE_EST3_DEBUG]",
+                {
+                    "modo": "SEM_MATCH",
+                    "banco": banco,
+                    "periodo": periodo,
+                    "yyyymm": yyyymm,
+                    "conta": conta,
+                    "codigos_candidates": sorted(codigos),
+                    "banco_variants": sorted(banco_variants),
+                },
+            )
+        return None
 
     col_pf_total = _resolver_coluna_peers(
         cache_carteira_pf,
