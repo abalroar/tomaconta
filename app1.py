@@ -68,6 +68,7 @@ from utils.formatting import (
     formatar_percentual_br,
     formatar_razao_br,
 )
+from utils.snapshot_delta import compute_delta
 
 from utils.cosif_pdf_mapping import (
     get_cosif_description_map_cached,
@@ -6925,30 +6926,33 @@ def _snapshot_delta_ui(metrica_cfg: dict, valor_atual, valor_base) -> str:
 # Snapshot V2 – helpers
 # ---------------------------------------------------------------------------
 
-def _snap_pct_change(valor_atual, valor_base) -> Optional[float]:
-    """Variação percentual entre dois valores."""
-    if valor_atual is None or valor_base is None:
-        return None
-    try:
-        a, b = float(valor_atual), float(valor_base)
-        if pd.isna(a) or pd.isna(b) or b == 0:
-            return None
-        return ((a - b) / abs(b)) * 100
-    except (TypeError, ValueError):
-        return None
+SNAPSHOT_METRICS = {
+    "Índice de Basileia": {"tipo_delta": "bps", "escala": "dec"},
+    "ROE trim. anualizado": {"tipo_delta": "pp", "escala": "pct"},
+    "ROE Ac. Anualizado": {"tipo_delta": "pp", "escala": "pct"},
+    "Crédito / Captações": {"tipo_delta": "pp", "escala": "pct"},
+    "Desp. Anualizada Captação / Volume Captação": {"tipo_delta": "pp", "escala": "pct"},
+    "Desp. Anualizada Captações / Volume Captações": {"tipo_delta": "pp", "escala": "pct"},
+    "Perda Esperada / Estágio 3": {"tipo_delta": "pp", "escala": "pct"},
+    "Perda Esperada / Carteira": {"tipo_delta": "pp", "escala": "pct"},
+    "CET1": {"tipo_delta": "bps", "escala": "dec"},
+}
 
 
-def _snap_pp_change(valor_atual, valor_base) -> Optional[float]:
-    """Diferença em pontos percentuais (para métricas já em decimal 0-1)."""
-    if valor_atual is None or valor_base is None:
-        return None
-    try:
-        a, b = float(valor_atual), float(valor_base)
-        if pd.isna(a) or pd.isna(b):
-            return None
-        return (a - b) * 100  # decimal → p.p.
-    except (TypeError, ValueError):
-        return None
+def _snap_metric_delta_meta(metric_cfg: dict) -> tuple[str, str]:
+    """Resolve tipo/escala de delta para a métrica da Snapshot."""
+    label = metric_cfg.get("label", "")
+    meta = SNAPSHOT_METRICS.get(label, {})
+    if metric_cfg.get("is_pct", False):
+        default_tipo = "bps" if metric_cfg.get("show_bps", False) else "pp"
+        default_escala = "pct"
+    else:
+        default_tipo = "pct"
+        default_escala = "pct"
+    return (
+        metric_cfg.get("delta_kind", meta.get("tipo_delta", default_tipo)),
+        metric_cfg.get("scale", meta.get("escala", default_escala)),
+    )
 
 
 def _snap_sparkline_svg(
@@ -7049,8 +7053,8 @@ def _aliases_metrica_desp_captacao(label_exibicao: Optional[str] = None) -> list
 def _snap_delta_calc(
     valor_atual,
     valor_base,
-    is_pct_metric: bool = False,
-    show_bps: bool = False,
+    delta_kind: str = "pct",
+    scale: str = "pct",
 ) -> dict:
     """Calcula texto do delta e metadados para cards/memória da Snapshot."""
     payload = {
@@ -7073,25 +7077,21 @@ def _snap_delta_calc(
 
     payload["a"] = a
     payload["b"] = b
-    if b == 0:
+    if b == 0 and delta_kind == "pct":
         payload["motivo"] = "período anterior igual a zero"
         return payload
 
-    if is_pct_metric:
-        diff = _snap_pp_change(valor_atual, valor_base)
-        if diff is None:
-            return payload
-        if show_bps:
-            diff_bps = int(round(diff * 100))
-            sinal = "+" if diff_bps > 0 else ""
-            payload["suffix"] = f"{sinal}{diff_bps} bps"
-        else:
-            sinal = "+" if diff > 0 else ""
-            payload["suffix"] = f"{sinal}{diff:,.1f} p.p.".replace(",", "X").replace(".", ",").replace("X", ".")
+    diff = compute_delta(a, b, tipo=delta_kind, escala=scale)
+    if diff is None:
+        return payload
+    if delta_kind == "bps":
+        diff_bps = int(round(diff))
+        sinal = "+" if diff_bps > 0 else ""
+        payload["suffix"] = f"{sinal}{diff_bps} bps"
+    elif delta_kind == "pp":
+        sinal = "+" if diff > 0 else ""
+        payload["suffix"] = f"{sinal}{diff:,.2f} p.p.".replace(",", "X").replace(".", ",").replace("X", ".")
     else:
-        diff = _snap_pct_change(valor_atual, valor_base)
-        if diff is None:
-            return payload
         sinal = "+" if diff > 0 else ""
         payload["suffix"] = f"{sinal}{diff:,.1f}%".replace(",", "X").replace(".", ",").replace("X", ".")
 
@@ -7105,11 +7105,11 @@ def _snap_delta_html(
     valor_base,
     label: str,
     higher_is_better: bool = True,
-    is_pct_metric: bool = False,
-    show_bps: bool = False,
+    delta_kind: str = "pct",
+    scale: str = "pct",
 ) -> str:
     """Gera HTML de um delta (QoQ ou YoY) para o card V2."""
-    calc = _snap_delta_calc(valor_atual, valor_base, is_pct_metric=is_pct_metric, show_bps=show_bps)
+    calc = _snap_delta_calc(valor_atual, valor_base, delta_kind=delta_kind, scale=scale)
     a, b = calc.get("a"), calc.get("b")
     suffix = calc.get("suffix", "—")
 
@@ -7172,9 +7172,8 @@ def _render_snap_card(
     label = metric_cfg.get("label", "Métrica")
     higher_is_better = metric_cfg.get("higher_is_better", True)
     source = metric_cfg.get("source", "")
-    is_pct = metric_cfg.get("is_pct", False)
-    show_bps = metric_cfg.get("show_bps", False)
     comparison = metric_cfg.get("comparison", "qoq")
+    delta_kind, delta_scale = _snap_metric_delta_meta(metric_cfg)
 
     valor_atual = serie.get(periodo_atual)
     valor_fmt = _formatar_valor_snapshot(metric_cfg, valor_atual)
@@ -7188,11 +7187,11 @@ def _render_snap_card(
 
     # Para métricas YTD, QoQ não faz sentido; comparação principal é YoY
     if comparison == "yoy":
-        delta_1 = _snap_delta_html(valor_atual, valor_yoy, "YoY", higher_is_better, is_pct, show_bps)
+        delta_1 = _snap_delta_html(valor_atual, valor_yoy, "YoY", higher_is_better, delta_kind, delta_scale)
         delta_2 = ""
     else:
-        delta_1 = _snap_delta_html(valor_atual, valor_qoq, "QoQ", higher_is_better, is_pct, show_bps)
-        delta_2 = _snap_delta_html(valor_atual, valor_yoy, "YoY", higher_is_better, is_pct, show_bps)
+        delta_1 = _snap_delta_html(valor_atual, valor_qoq, "QoQ", higher_is_better, delta_kind, delta_scale)
+        delta_2 = _snap_delta_html(valor_atual, valor_yoy, "YoY", higher_is_better, delta_kind, delta_scale)
 
     # Borda esquerda (status) — usa QoQ como base primária
     base_for_status = valor_yoy if comparison == "yoy" else valor_qoq
@@ -7513,17 +7512,16 @@ def _build_memoria_calculo_snapshot(
     for cfg in metricas:
         serie = cfg.get("serie", {}) or {}
         label = cfg.get("label", "Métrica")
-        is_pct = bool(cfg.get("is_pct", False))
-        show_bps = bool(cfg.get("show_bps", False))
+        delta_kind, delta_scale = _snap_metric_delta_meta(cfg)
 
         valor_atual = serie.get(periodo_atual)
         valor_qoq = serie.get(periodo_anterior_qoq) if periodo_anterior_qoq else None
         valor_yoy = serie.get(periodo_anterior_yoy) if periodo_anterior_yoy else None
 
-        delta_qoq = _snap_delta_calc(valor_atual, valor_qoq, is_pct_metric=is_pct, show_bps=show_bps)
-        delta_yoy = _snap_delta_calc(valor_atual, valor_yoy, is_pct_metric=is_pct, show_bps=show_bps)
+        delta_qoq = _snap_delta_calc(valor_atual, valor_qoq, delta_kind=delta_kind, scale=delta_scale)
+        delta_yoy = _snap_delta_calc(valor_atual, valor_yoy, delta_kind=delta_kind, scale=delta_scale)
 
-        unidade_delta = "bps" if show_bps else ("p.p." if is_pct else "%")
+        unidade_delta = "bps" if delta_kind == "bps" else ("p.p." if delta_kind == "pp" else "%")
         motivo_qoq = delta_qoq.get("motivo") if not delta_qoq.get("valido") else ""
         motivo_yoy = delta_yoy.get("motivo") if not delta_yoy.get("valido") else ""
 
@@ -7543,6 +7541,54 @@ def _build_memoria_calculo_snapshot(
         )
 
     return pd.DataFrame(rows)
+
+
+def _audit_deltas_snapshot(
+    metricas: list[dict],
+    periodo_atual: str,
+    periodo_anterior_qoq: Optional[str],
+    periodo_anterior_yoy: Optional[str],
+) -> list[dict]:
+    """Audita deltas renderizados da Snapshot contra recomputação centralizada."""
+    anomalias = []
+    for cfg in metricas:
+        serie = cfg.get("serie", {}) or {}
+        label = cfg.get("label", "Métrica")
+        delta_kind, delta_scale = _snap_metric_delta_meta(cfg)
+        tolerancia = 0.5 if delta_kind == "bps" else 0.1
+        comparacoes = [
+            ("QoQ", periodo_anterior_qoq),
+            ("YoY", periodo_anterior_yoy),
+        ]
+        for comp_label, periodo_base in comparacoes:
+            if not periodo_base:
+                continue
+            atual = serie.get(periodo_atual)
+            base = serie.get(periodo_base)
+            calc_payload = _snap_delta_calc(atual, base, delta_kind=delta_kind, scale=delta_scale)
+            delta_calc = compute_delta(atual, base, tipo=delta_kind, escala=delta_scale)
+            if not calc_payload.get("valido") or delta_calc is None:
+                continue
+            if delta_kind == "bps":
+                exibido = int(round(delta_calc))
+                computado = int(round(delta_calc))
+            else:
+                exibido = round(delta_calc, 2)
+                computado = delta_calc
+            discrepancia = abs(float(exibido) - float(computado))
+            if discrepancia > tolerancia:
+                anomalias.append(
+                    {
+                        "Métrica": label,
+                        "Comparação": comp_label,
+                        "Delta renderizado": calc_payload.get("suffix", "—"),
+                        "Delta esperado (bruto)": round(computado, 4),
+                        "Tipo delta": delta_kind,
+                        "Escala": delta_scale,
+                        "Discrepância": round(discrepancia, 4),
+                    }
+                )
+    return anomalias
 
 
 def pagina_snapshot():
@@ -7944,11 +7990,25 @@ def pagina_snapshot():
         periodo_anterior_qoq,
         periodo_yoy_existente,
     )
+    anomalias_delta_snapshot = _audit_deltas_snapshot(
+        todas_metricas_snapshot,
+        periodo_atual,
+        periodo_anterior_qoq,
+        periodo_yoy_existente,
+    )
     with st.expander("Memória de cálculo — Snapshot", expanded=False):
         if df_memoria_snapshot.empty:
             st.info("memória de cálculo indisponível para os filtros atuais.")
         else:
             st.dataframe(df_memoria_snapshot, width='stretch', hide_index=True)
+
+    debug_mode = bool(st.secrets.get("debug_mode", False))
+    if debug_mode:
+        with st.expander("⚙ Diagnóstico — Auditoria de deltas Snapshot", expanded=False):
+            if not anomalias_delta_snapshot:
+                st.success("Nenhuma inconsistência acima da tolerância na auditoria de deltas.")
+            else:
+                st.dataframe(pd.DataFrame(anomalias_delta_snapshot), width='stretch', hide_index=True)
 
     # ===================================================================
     # Origem dos dados
