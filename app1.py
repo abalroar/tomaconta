@@ -21108,146 +21108,323 @@ elif menu == "Glossário":
     st.dataframe(pd.DataFrame(_map_rows), width="stretch", hide_index=True)
     st.caption("Obs.: `derived_metrics` e `derived_metrics_individual` são recalculados a partir de DRE + Principal.")
 
-    st.markdown("""
-    ## **Sobre os Dados Apresentados**
+    # [VERSÃO ANTERIOR]: glossário central continha duplicidades textuais de
+    # Perda Esperada / Depósitos Totais / Core Funding e não separava claramente
+    # ROE Ac. Anualizado (%) versus ROE Trim. Anualizado (%).
+    # [VERSÃO ANTERIOR]: variáveis com exibição incerta permaneciam misturadas ao
+    # corpo principal, sem seção histórica/legado explícita.
 
-    Os dados são obtidos via API Olinda do IFdata do Banco Central, na visão **Conglomerado**.
+    st.markdown("""
+    ## Glossário Central — versão reestruturada (abril/2026)
+
+    Os dados são obtidos principalmente via **Banco Central (IFData/Olinda)**,
+    com complementos de **Cadoc 4060** e mapeamentos COSIF do projeto.
+
+    ## Contexto de leitura dos dados (visão prudencial)
+
+    **Sobre os Dados Apresentados**
+
+    O Toma Conta prioriza a visão de **Conglomerado Prudencial** do IFData.
 
     **O que isso significa:**
 
-    **Conglomerado Prudencial** é um grupo de instituições financeiras e entidades autorizadas, controladas por uma mesma instituição líder, que deve consolidar suas demonstrações contábeis para fins regulatórios.
+    **Conglomerado Prudencial** é um grupo de instituições financeiras e entidades autorizadas,
+    controladas por uma mesma instituição líder, que consolida demonstrações para fins regulatórios.
 
-    O Banco Central supervisiona o grupo como um todo, considerando o somatório das instituições, e decisões sobre liquidez ou insolvência afetam todas as entidades do conglomerado.
+    O Banco Central supervisiona o grupo como um todo: eventos de liquidez/solvência em uma parte
+    do conglomerado podem impactar a leitura regulatória do conjunto.
 
-    **Exemplos:**
-    - O Banco PAN faz parte do Conglomerado Prudencial BTG Pactual. O próprio PAN esclarece que, por estar consolidado no prudencial do BTG, o índice de Basileia "individual" deixou de ser formalmente reportado.
-    - O Banco Digio faz parte do conglomerado financeiro do Bradesco, então em leituras "por conglomerado" você não verá o Digio como um grupo separado.
-    - O Conglomerado Prudencial Original inclui Banco Original, PicPay Bank e a IP do PicPay (além de outros veículos do grupo). Dependendo do recorte, você verá o conglomerado (ou o líder) e não cada entidade isoladamente.
+    **Exemplos práticos:**
+    - Banco PAN integra o Conglomerado Prudencial do BTG Pactual; por isso, leituras de Basileia podem aparecer no conglomerado e não como bloco regulatório totalmente separado.
+    - Banco Digio integra o conglomerado financeiro do Bradesco; em recortes prudenciais, pode não aparecer como grupo autônomo.
+    - O Conglomerado Prudencial Original pode incluir Banco Original, PicPay Bank e outras entidades do grupo no mesmo consolidado.
 
-    Em caso de dúvidas, consulte o site do Banco Central.
+    **Por que a série principal começa em Mar-2015?**
 
-    ---
+    A visão de **Conglomerado Prudencial** passa a ser referência a partir de **março/2015**.
+    Antes disso, predominava a visão de **Conglomerado Financeiro** no histórico do IFData.
 
-    ## **Por que os dados do IFdata (balanço etc.) começam em Mar-2015?**
-
-    A partir de **Mar-2015**, usamos a visão **Conglomerado Prudencial**, criada pelo Banco Central naquela data.
-    Antes disso, os dados eram reportados na visão **Conglomerado Financeiro**.
-
-    Para instituições com apenas um CNPJ, a comparação entre as duas visões pode até ser possível.
-    Para conglomerados com muitas instituições, **não é comparável**.
-    O mais adequado é usar a soma do todo: **Conglomerado Prudencial**.
+    Para grupos complexos, misturar as duas visões em séries longas pode prejudicar comparabilidade.
 
     ---
 
-    ## **Informações de Capital Regulatório**
+    ## 1) Capital e Regulação
 
-    **Capital Principal:** Parcela do capital de melhor qualidade e imediatamente disponível para absorver perdas (base regulatória usada para comparação com o RWA).
+    **Índice de Capital Principal (CET1)**  
+    Aba(s): Peers (Tabela), Evolução, Glossário  
+    Fonte: BCB IFData — Relatório 5 (Capital)  
+    Fórmula: Capital Principal ÷ RWA Total  
+    Unidade: %  
+    Interpretação: mede a folga de capital de melhor qualidade frente aos ativos ponderados por risco.  
+    Limitação: pode variar por mudanças metodológicas/regulatórias do reporte, não apenas por risco econômico.  
+    Periodicidade: trimestral
 
-    **Capital Complementar:** Instrumentos de capital e dívida perpétuos elegíveis como patrimônio regulatório (complementam o Capital Principal na formação do Nível I).
+    **Índice de Capital Nível I**  
+    Aba(s): Glossário  
+    Fonte: BCB IFData — Relatório 5 (Capital)  
+    Fórmula: Patrimônio de Referência Nível I ÷ RWA Total  
+    Unidade: %  
+    Interpretação: expressa a cobertura de risco por capital Nível I.  
+    Limitação: não captura sozinho o perfil de liquidez nem concentração de risco.  
+    Periodicidade: trimestral
 
-    **Capital Nível II:** Parcela do capital composta por instrumentos subordinados, elegíveis como patrimônio regulatório, aptos a absorver perdas durante o funcionamento da instituição.
+    **Índice de Basileia**  
+    Aba(s): Peers (Tabela), Evolução, Glossário  
+    Fonte: BCB IFData — Relatório 5 (Capital)  
+    Fórmula: Patrimônio de Referência ÷ RWA Total  
+    Unidade: %  
+    Interpretação: indica o nível total de capital regulatório em relação ao risco ponderado.  
+    Limitação: comparações históricas longas podem ser afetadas por alterações normativas e de escopo contábil.  
+    Periodicidade: trimestral
 
-    **Patrimônio de Referência:** Montante de capital regulatório total formado pela soma do Patrimônio de Referência Nível I e do Capital Nível II (usado para comparação com o RWA).
+    **Razão de Alavancagem**  
+    Aba(s): Glossário (mapeada no pipeline de capital)  
+    Fonte: BCB IFData — Relatório 5 (Capital)  
+    Fórmula: Patrimônio de Referência Nível I ÷ Exposição Total  
+    Unidade: %  
+    Interpretação: mostra capital de Nível I sobre exposição não ponderada por risco.  
+    Limitação: por não ponderar risco, pode super ou subestimar resiliência relativa entre perfis de carteira distintos.  
+    Periodicidade: trimestral
 
-    **RWA Crédito:** Parcela dos ativos ponderados pelo risco (RWA) referente à exposição ao risco de crédito (pode ser apurado pela abordagem padronizada ou por modelo interno IRB, quando aplicável).
+    **Adicional de Capital Principal (ACP)**  
+    Aba(s): Glossário  
+    Fonte: BCB IFData — Relatório 5 (Capital)  
+    Fórmula: ACP Conservação + ACP Contracíclico + ACP Sistêmico  
+    Unidade: % (requerimento)  
+    Interpretação: representa colchões regulatórios adicionais exigidos sobre o capital principal.  
+    Limitação: níveis exigidos podem mudar por ciclo/regulação; comparação direta entre períodos requer contexto normativo.  
+    Periodicidade: trimestral
 
-    **RWA Mercado:** Parcela do RWA referente à exposição ao risco de mercado, composta pela soma das parcelas de risco cambial, commodities, juros/cupons, ações e CVA (ajuste de valor de crédito da contraparte em derivativos), entre outras componentes do relatório.
-
-    **RWA Operacional:** Parcela do RWA referente à exposição ao risco operacional.
-
-    **RWA Total:** Soma das parcelas de RWA de Crédito, Mercado, Operacional e (quando existir no relatório) a parcela relativa a serviços de pagamento.
-
-    **Exposição Total:** Exposição total sem ponderação de risco (definição regulatória usada no cálculo da razão de alavancagem, conforme Circular 3.748/2015).
-
-    **Índice de Capital Principal (CET1):** Relação entre Capital Principal e RWA Total (Capital Principal / RWA Total).
-
-    **Índice de Capital Nível I:** Relação entre Patrimônio de Referência Nível I e RWA Total (Nível I / RWA Total).
-
-    **Índice de Basileia:** Relação entre Patrimônio de Referência e RWA Total (Patrimônio de Referência / RWA Total).
-
-    **Adicional de Capital Principal:** Requerimento de adicional de capital principal (ACP), apurado pela soma de ACP Conservação, ACP Contracíclico e ACP Sistêmico.
-
-    ---
-
-    ## **Variáveis de Balanço**
-
-    **Ativo Total:** Padrão COSIF.
-
-    **Ativos Líquidos:** Disponibilidades (a) + Aplicações Interfinanceiras de Liquidez (b) + Títulos e Valores Mobiliários (c), no Relatório de Ativo (Rel. 2).
-
-    **Carteira de Crédito Bruta:** Na Peers, segue a regra de apuração da tabela: até 2024 usa d1+e1+f (Rel. 2); a partir de 2025 usa Valor Contábil Bruto (e1+f1+g1+h1), com fallback para e+f+g+h quando necessário.
-
-    **Carteira de Crédito*:** Na aba Peers (Tabela), é o mesmo valor de Carteira de Crédito Bruta.
-
-    **Perda Esperada:** Soma das parcelas de perda esperada/ajustes de valor justo das bases e, f, g e h no Relatório de Ativo (Rel. 2), conforme as linhas disponíveis no período.
-
-    **Depósitos Totais:** Depósitos do Relatório de Passivo (Rel. 3). Quando a linha agregada não está disponível, usa a soma dos subtipos de depósitos.
-
-    **`Carteira de Crédito*`**: Na aba Peers (Tabela), corresponde à Carteira de Crédito Bruta.
-
-    **Perda Esperada:** Soma de perdas esperadas e ajustes de valor justo das bases e/f/g/h no Relatório de Ativo (Rel. 2).
-
-    **Depósitos Totais:** Depósitos do Relatório de Passivo (Rel. 3), com fallback para soma dos subtipos quando necessário.
-
-    **Títulos e Valores Mobiliários:** Títulos de Renda Fixa + Aplicação em COEs + Cotas de Fundos de Curto Prazo e Fundos de Investimentos, já descontados de Perda Incorrida, Perda Esperada e Ajuste a Valor Justo.
-
-    **Passivo Exigível:** Passivo Total, incluindo Depósitos, Compromissadas, Outros Instrumentos de Dívida, Relações Interfinanceiras, Relações Interdependências, Derivativos, Provisões (Cíveis, Fiscais, Trabalhistas) e Outras Obrigações.
-
-    **Captações:** Linha de Captações (e) do Relatório de Passivo (Rel. 3), correspondente à soma de (a)+(b)+(c)+(d).
-
-    **Core Funding:** Na Peers, usa Captações (e) até 2024; a partir de 2025, usa Captações (e) + Instrumentos de Dívida Elegíveis a Capital (h), no Relatório de Passivo.
-
-    **Core Funding*:** Na aba Peers (Tabela), é o mesmo valor de Core Funding.
-
-    **Core Funding:** Até 2024, usa Captações (e) no Rel. 3. A partir de 2025, soma Captações (e) e Dívida Subordinada (h).
-
-    **`Core Funding*`**: Na aba Peers (Tabela), corresponde ao Core Funding.
-
-    **Patrimônio Líquido:** Padrão COSIF.
-
-    **Patrimônio Líquido (PL):** Na aba Peers (Tabela), corresponde ao Patrimônio Líquido.
-
-    **Lucro Líquido Acumulado YTD:** Lucro líquido acumulado no ano até o fim do período de referência.
+    **IRRBB**  
+    Aba(s): Glossário (mapeada no pipeline de capital)  
+    Fonte: BCB IFData — Relatório 5 (Capital)  
+    Fórmula: ⚠️ FÓRMULA NÃO IDENTIFICADA explicitamente no app (campo recebido da base)  
+    Unidade: indicador regulatório  
+    Interpretação: métrica relacionada ao risco de taxa de juros na carteira bancária.  
+    Limitação: sem memória de cálculo explícita nesta versão do app, a leitura deve ser feita como valor reportado.  
+    Periodicidade: trimestral
 
     ---
 
-    ## **Índices e Percentuais**
+    ## 2) Balanço e Funding
 
-    **Índice de Imobilização:** Ativo Permanente dividido pelo Patrimônio de Referência.
+    **Ativo Total**  
+    Aba(s): Peers (Tabela), Glossário  
+    Fonte: BCB IFData — Relatório 1 (Principal)  
+    Fórmula: valor reportado da linha de ativo total  
+    Unidade: R$  
+    Interpretação: dimensão total do balanço da instituição/conglomerado.  
+    Limitação: tamanho não implica qualidade dos ativos.  
+    Periodicidade: trimestral
 
-    **Índice de Basileia Total:** Na aba Peers (Tabela), corresponde ao Índice de Basileia (Patrimônio de Referência ÷ RWA Total).
+    **Ativos Líquidos**  
+    Aba(s): Peers (Tabela), Glossário  
+    Fonte: BCB IFData — Relatório 2 (Ativo)  
+    Fórmula: Disponibilidades (a) + Aplicações Interfinanceiras de Liquidez (b) + TVM (c)  
+    Unidade: R$  
+    Interpretação: aproximação de ativos de maior liquidez contábil.  
+    Limitação: não equivale diretamente a métricas regulatórias de liquidez (ex.: LCR).  
+    Periodicidade: trimestral
+
+    **Carteira de Crédito Bruta**  
+    Aba(s): Peers (Tabela), Glossário  
+    Fonte: BCB IFData — Relatório 2 (Ativo)  
+    Fórmula: até 2024: d1+e1+f; desde 2025: e1+f1+g1+h1 (com fallback técnico quando necessário)  
+    Unidade: R$  
+    Interpretação: volume bruto de exposição em crédito no recorte da aba.  
+    Limitação: há quebra metodológica entre janelas históricas (pré-2025 vs 2025+).  
+    Periodicidade: trimestral
+
+    **Carteira de Crédito* (Peers)**  
+    Aba(s): Peers (Tabela), Evolução  
+    Fonte: BCB IFData — Relatório 2 (Ativo)  
+    Fórmula: alias de exibição para a Carteira de Crédito Bruta no contexto dessas abas  
+    Unidade: R$  
+    Interpretação: facilita leitura visual local mantendo equivalência com o indicador canônico.  
+    Limitação: o asterisco é contextual da UI; o nome canônico para documentação é **Carteira de Crédito Bruta**.  
+    Periodicidade: trimestral
+
+    **Depósitos Totais**  
+    Aba(s): Peers (Tabela), Glossário  
+    Fonte: BCB IFData — Relatório 3 (Passivo)  
+    Fórmula: linha agregada de depósitos; se ausente, soma subtipos disponíveis  
+    Unidade: R$  
+    Interpretação: principal bloco de funding bancário tradicional.  
+    Limitação: composição pode mudar entre instituições e ao longo do tempo.  
+    Periodicidade: trimestral
+
+    **Core Funding**  
+    Aba(s): Peers (Tabela), Evolução, Glossário  
+    Fonte: BCB IFData — Relatório 3 (Passivo)  
+    Fórmula: até 2024: Captações (e); desde 2025: Captações (e) + Instrumentos de Dívida Elegíveis a Capital (h)  
+    Unidade: R$  
+    Interpretação: base de captação estrutural usada nas métricas de alavancagem/funding do app.  
+    Limitação: possui mudança de escopo em 2025, reduzindo comparabilidade direta com períodos antigos.  
+    Periodicidade: trimestral
+
+    **Patrimônio Líquido (PL)**  
+    Aba(s): Peers (Tabela), Evolução, Glossário  
+    Fonte: BCB IFData — Relatório 1 (Principal)  
+    Fórmula: valor reportado de patrimônio líquido  
+    Unidade: R$  
+    Interpretação: base patrimonial contábil para alavancagem e rentabilidade.  
+    Limitação: pode sofrer efeitos pontuais de eventos contábeis não recorrentes.  
+    Periodicidade: trimestral
 
     ---
 
-    ## **Métricas Calculadas**
+    ## 3) Rentabilidade e Eficiência
 
-    **Ativo Total / PL:** Ativo Total dividido pelo Patrimônio Líquido.
+    **ROE Ac. Anualizado (%)**  
+    Aba(s): Peers (Tabela), Evolução, Glossário  
+    Fonte: BCB IFData — Relatório 1 (Principal)  
+    Fórmula: (LL acumulado YTD × fator anualização) ÷ PL médio, com fator Mar=4, Jun=2, Set=12/9, Dez=1  
+    Unidade: %  
+    Interpretação: retorno sobre patrimônio com base no resultado acumulado do ano anualizado.  
+    Limitação: sensível a sazonalidade e à base de PL médio; comparar períodos exige atenção ao mês de referência.  
+    Periodicidade: trimestral (com tratamento YTD)
 
-    **ROE Ac. Anualizado (%):** (LL YTD × fator de anualização) ÷ PL Médio. PL Médio = (PL no período + PL em Dez do ano anterior) / 2. Fator: Mar=4, Jun=2, Set≈1,33, Dez=1. N/A se PL médio ≤ 0 ou dado faltante.
+    **ROE Trim. Anualizado (%)**  
+    Aba(s): Rankings/memórias de cálculo, Glossário  
+    Fonte: BCB IFData — Relatório 1 (Principal)  
+    Fórmula: (Lucro líquido trimestral × 4) ÷ PL médio  
+    Unidade: %  
+    Interpretação: proxy de retorno anualizado baseada no trimestre corrente.  
+    Limitação: maior volatilidade que o ROE acumulado; não é intercambiável com ROE Ac. Anualizado.  
+    Periodicidade: trimestral
 
-    **Carteira de Crédito Bruta / PL:** Carteira de Crédito Bruta dividida pelo Patrimônio Líquido.
+    **Lucro Líquido Acumulado YTD**  
+    Aba(s): Peers (Tabela), Evolução, Glossário  
+    Fonte: BCB IFData — Relatório 1/4 (dependendo da aba)  
+    Fórmula: resultado líquido acumulado no ano até o período  
+    Unidade: R$  
+    Interpretação: mostra contribuição de resultado do exercício até a data-base.  
+    Limitação: não representa lucro “run-rate” do trimestre isolado.  
+    Periodicidade: trimestral (acumulado no ano)
 
-    **Carteira de Crédito* / PL:** Na aba Peers (Tabela), corresponde à Carteira de Crédito Bruta / PL.
+    **Desp PDD / Resultado Intermediação Fin. Bruto (%)**  
+    Aba(s): DRE, Glossário, derivados  
+    Fonte: BCB IFData — Relatório 4 (DRE)  
+    Fórmula: Desp. PDD ÷ Resultado de Intermediação Financeira Bruto  
+    Unidade: %  
+    Interpretação: aproxima pressão de provisões frente ao resultado de intermediação.  
+    Limitação: pode distorcer em períodos com resultado de intermediação muito baixo.  
+    Periodicidade: trimestral/YTD conforme recorte
 
-    **Perda Esperada / Carteira de Crédito*:** Na aba Peers (Tabela), corresponde a Perda Esperada / Carteira de Crédito Bruta.
+    **Desp Captação / Captação (%)**  
+    Aba(s): DRE, Glossário, derivados  
+    Fonte: BCB IFData — Relatório 4 (DRE) + Relatório 1 (captação)  
+    Fórmula: (Desp. Captação × (12 / meses_do_período)) ÷ Captações  
+    Unidade: %  
+    Interpretação: aproxima custo anualizado de funding sobre base de captação.  
+    Limitação: depende da qualidade/compatibilidade entre base de despesa (DRE) e base de estoque médio/nível de captação.  
+    Periodicidade: trimestral/YTD conforme recorte
 
-    **Carteira de Crédito/Core Funding (%):** Carteira de Crédito Bruta dividida pelo Core Funding.
+    ---
 
-    **Crédito/Ativo (%):** Carteira de Crédito Bruta dividida pelo Ativo Total.
+    ## 4) Qualidade de Carteira
 
-    **Lucro Líquido Acumulado:** Na aba Peers (Tabela), corresponde ao Lucro Líquido Acumulado YTD.
+    **Perda Esperada**  
+    Aba(s): Peers (Tabela), Glossário  
+    Fonte: BCB IFData — Relatório 2 (Ativo)  
+    Fórmula: soma das parcelas de perda esperada/ajustes de valor justo nas bases e/f/g/h  
+    Unidade: R$  
+    Interpretação: indica montante contábil de perdas esperadas reconhecidas no recorte da carteira.  
+    Limitação: depende de premissas/modelos contábeis e pode variar por mudança metodológica.  
+    Periodicidade: trimestral
 
-    **ROE Acumulado YTD (%):** Na aba Peers (Tabela), corresponde ao ROE Ac. Anualizado (%).
+    **Ativos Estágio 2**  
+    Aba(s): Peers (Tabela), Glossário  
+    Fonte: Cadoc 4060  
+    Fórmula: saldo da conta 3312000001  
+    Unidade: R$  
+    Interpretação: estoque de ativos classificados em estágio 2 no período.  
+    Limitação: comparabilidade requer mesma régua/classificação contábil entre instituições.  
+    Periodicidade: mensal/trimestral conforme disponibilidade
 
-    **Desp PDD / Resultado Intermediação Fin. Bruto (%):** Desp. PDD dividido pelo Resultado de Intermediação Financeira Bruto. Fórmula: Desp. PDD / Resultado de Intermediação Financeira Bruto.
+    **Ativos Estágio 3**  
+    Aba(s): Peers (Tabela), Glossário  
+    Fonte: Cadoc 4060  
+    Fórmula: saldo da conta 3313000000  
+    Unidade: R$  
+    Interpretação: estoque de ativos classificados em estágio 3 no período.  
+    Limitação: não substitui análise de cobertura, vintage e recuperação.  
+    Periodicidade: mensal/trimestral conforme disponibilidade
 
-    **Ativos Estágio 2:** Saldo da conta 3312000001 no mês/período selecionado (Cadoc 4060).
+    **Perda Esperada / Estágio 3 (%)**  
+    Aba(s): Peers (Tabela), Glossário  
+    Fonte: IFData Rel.2 + Cadoc 4060  
+    Fórmula: Perda Esperada ÷ Ativos Estágio 3  
+    Unidade: %  
+    Interpretação: proxy de cobertura da perda esperada sobre os ativos mais deteriorados (estágio 3).  
+    Limitação: mistura bases de origem diferentes e pode ter descasamento temporal de publicação.  
+    Periodicidade: mensal/trimestral conforme disponibilidade
 
-    **Ativos Estágio 3:** Saldo da conta 3313000000 no mês/período selecionado (Cadoc 4060).
+    ---
 
-    **Perda Esperada / Estágio 3:** Relação entre Perda Esperada (Rel. 2) e Ativos Estágio 3 (Cadoc 4060) do mesmo mês/período.
+    ## 5) Alavancagem e Relações de Estrutura
 
-    **Perda Esperada / Estágio 3 (%):** Mesmo indicador anterior, exibido em formato percentual quando aplicável.
+    **Ativo Total / PL**  
+    Aba(s): Peers (Tabela), Glossário  
+    Fonte: BCB IFData — Relatório 1  
+    Fórmula: Ativo Total ÷ Patrimônio Líquido  
+    Unidade: x  
+    Interpretação: grau de alavancagem contábil do balanço.  
+    Limitação: não considera ponderação de risco dos ativos.  
+    Periodicidade: trimestral
 
-    **Desp Captação / Captação (%):** Desp. Captação anualizada dividida por Captações. Fórmula: (Desp. Captação * (12 / meses_do_período)) / Captações.
+    **Carteira de Crédito Bruta / PL**  
+    Aba(s): Peers (Tabela), Evolução, Glossário  
+    Fonte: BCB IFData — Relatório 2 + Relatório 1  
+    Fórmula: Carteira de Crédito Bruta ÷ Patrimônio Líquido  
+    Unidade: x  
+    Interpretação: intensidade de crédito em relação à base patrimonial.  
+    Limitação: comparabilidade histórica afetada pela mudança de base da carteira em 2025.  
+    Periodicidade: trimestral
+
+    **Perda Esperada / Carteira de Crédito Bruta (%)**  
+    Aba(s): Peers (Tabela), Glossário  
+    Fonte: BCB IFData — Relatório 2  
+    Fórmula: Perda Esperada ÷ Carteira de Crédito Bruta  
+    Unidade: %  
+    Interpretação: sinaliza nível relativo de perdas esperadas sobre o estoque de crédito.  
+    Limitação: não distingue composição de risco por segmento/produto.  
+    Periodicidade: trimestral
+
+    ---
+
+    ## 6) Definições históricas / não exibidas por padrão
+
+    **[LEGADO — verificar se ainda aplicável] Crédito/Ativo (%)**  
+    Aba(s): Glossário central (histórico)  
+    Fonte: IFData Rel.2 + Rel.1  
+    Fórmula: Carteira de Crédito Bruta ÷ Ativo Total  
+    Unidade: %  
+    Interpretação: proxy de concentração de crédito no ativo total.  
+    Limitação: exibição principal não confirmada no fluxo atual da UI.
+
+    **[LEGADO — verificar se ainda aplicável] Carteira de Crédito/Core Funding (%)**  
+    Aba(s): Glossário central (histórico)  
+    Fonte: IFData Rel.2 + Rel.3  
+    Fórmula: Carteira de Crédito Bruta ÷ Core Funding  
+    Unidade: %  
+    Interpretação: relação entre uso de funding estrutural e estoque de crédito.  
+    Limitação: exibição principal não confirmada no fluxo atual da UI.
+
+    **[LEGADO — verificar se ainda aplicável] Passivo Exigível**  
+    Aba(s): Glossário central (histórico)  
+    Fonte: IFData Rel.3  
+    Fórmula: valor reportado do passivo exigível  
+    Unidade: R$  
+    Interpretação: dimensão das obrigações exigíveis.  
+    Limitação: exibição principal não confirmada no fluxo atual da UI.
+
+    **[LEGADO — verificar se ainda aplicável] Títulos e Valores Mobiliários (TVM)**  
+    Aba(s): Glossário central (histórico)  
+    Fonte: IFData Rel.2  
+    Fórmula: valor reportado/agrupado de TVM no recorte da aba  
+    Unidade: R$  
+    Interpretação: componente relevante de alocação de ativos.  
+    Limitação: exibição principal não confirmada no fluxo atual da UI.
     """)
+
