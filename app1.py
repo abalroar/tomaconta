@@ -5389,9 +5389,15 @@ def _preparar_metricas_extra_peers(
         txt = str(valor_norm or "").strip()
         if not txt:
             return ""
-        for suffix in [" - PRUDENCIAL", " PRUDENCIAL", " S.A.", " S A", " SA"]:
-            if txt.endswith(suffix):
-                txt = txt[: -len(suffix)].strip()
+        suffixes = [" - PRUDENCIAL", " PRUDENCIAL", " HOLDING", " S.A.", " S A", " SA"]
+        changed = True
+        while changed and txt:
+            changed = False
+            for suffix in suffixes:
+                if txt.endswith(suffix):
+                    txt = txt[: -len(suffix)].strip()
+                    changed = True
+                    break
         return " ".join(txt.split())
 
     def _bloprud_name_variants(valor: str) -> set[str]:
@@ -5409,6 +5415,11 @@ def _preparar_metricas_extra_peers(
         for v in list(variants):
             v2 = v.replace("BANCO", "BCO").replace("BCO", "BANCO")
             variants.add(" ".join(v2.split()))
+        for v in list(variants):
+            if v.startswith("BANCO "):
+                variants.add(v[len("BANCO "):].strip())
+            if v.startswith("BCO "):
+                variants.add(v[len("BCO "):].strip())
         return {v for v in variants if v}
 
     def _bloprud_pick_col(df_src: Optional[pd.DataFrame], candidates: list[str]) -> Optional[str]:
@@ -5526,7 +5537,8 @@ def _preparar_metricas_extra_peers(
             if not yyyymm or yyyymm == "None" or len(yyyymm) != 6:
                 continue
             if inst_norm and inst_norm != "None" and pd.notna(val):
-                blop_lookup[(yyyymm, inst_norm, conta)] = float(val)
+                for inst_variant in _bloprud_name_variants(inst_norm):
+                    blop_lookup[(yyyymm, inst_variant, conta)] = float(val)
 
         ag_congl = (
             df_blop.groupby(["_yyyymm", "_congl_norm", "_conta"], dropna=False)["_saldo"]
@@ -5541,7 +5553,8 @@ def _preparar_metricas_extra_peers(
             if not yyyymm or yyyymm == "None" or len(yyyymm) != 6:
                 continue
             if congl_norm and congl_norm != "None" and pd.notna(val):
-                blop_lookup[(yyyymm, congl_norm, conta)] = float(val)
+                for congl_variant in _bloprud_name_variants(congl_norm):
+                    blop_lookup[(yyyymm, congl_variant, conta)] = float(val)
 
         if col_blop_cod_congl:
             ag_cod = (
@@ -5563,14 +5576,16 @@ def _preparar_metricas_extra_peers(
                 cod = str(row.get("_cod_congl", "")).strip().upper()
                 if not cod or cod == "None":
                     continue
+                inst_norm = str(row.get("_inst_norm", "")).strip()
+                if inst_norm and inst_norm != "None":
+                    for inst_variant in _bloprud_name_variants(inst_norm):
+                        blop_cod_para_inst_keys.setdefault(cod, set()).add(inst_variant)
                 for nome in (row.get("_inst_norm", ""), row.get("_congl_norm", "")):
                     nome_norm = str(nome).strip()
                     if not nome_norm:
                         continue
                     for nome_variant in _bloprud_name_variants(nome_norm):
                         blop_nome_para_codigos.setdefault(nome_variant, set()).add(cod)
-                    blop_nome_para_codigos.setdefault(nome_norm, set()).add(cod)
-                    blop_cod_para_inst_keys.setdefault(cod, set()).add(nome_norm)
 
     def _blop_get_sum_periodo_conta(banco: str, periodo: str, conta: str) -> Optional[float]:
         if not blop_lookup and not blop_lookup_cod:
@@ -5579,11 +5594,7 @@ def _preparar_metricas_extra_peers(
         if not yyyymm:
             return None
         banco_variants = _bloprud_name_variants(banco)
-        debug_target = (
-            str(conta) == "3313000000"
-            and str(yyyymm) == "202509"
-            and any(v in {"BB", "BCO DO BRASIL", "BCO DO BRASIL S.A.", "BANCO DO BRASIL", "BANCO DO BRASIL S.A."} for v in banco_variants)
-        )
+        diag_alvo = (yyyymm == "202509" and str(conta) == "3313000000")
 
         # Prioridade: lookup por código estável do conglomerado prudencial.
         codigos = set()
@@ -5592,18 +5603,19 @@ def _preparar_metricas_extra_peers(
         for cod in codigos:
             val_cod = blop_lookup_cod.get((yyyymm, cod, conta))
             if val_cod is not None and not pd.isna(val_cod):
-                if debug_target:
-                    nomes = sorted(blop_cod_para_inst_keys.get(cod, set()))
+                if diag_alvo:
+                    inst_keys = sorted(blop_cod_para_inst_keys.get(cod, set()))
                     print(
-                        "[PE_EST3_DEBUG]",
+                        "[DIAG][PE_EST3][BLOP_MATCH]",
                         {
-                            "modo": "COD_CONGL",
                             "banco": banco,
                             "periodo": periodo,
                             "yyyymm": yyyymm,
                             "conta": conta,
+                            "caminho": "COD_CONGL",
                             "cod_congl": cod,
-                            "inst_keys": nomes[:5],
+                            "inst_key": inst_keys[0] if inst_keys else "",
+                            "inst_keys_count": len(inst_keys),
                             "saldo_bruto": float(val_cod),
                         },
                     )
@@ -5612,34 +5624,60 @@ def _preparar_metricas_extra_peers(
         for variant in banco_variants:
             val = blop_lookup.get((yyyymm, variant, conta))
             if val is not None and not pd.isna(val):
-                if debug_target:
+                if diag_alvo:
+                    cods_variant = sorted(blop_nome_para_codigos.get(variant, set()))
                     print(
-                        "[PE_EST3_DEBUG]",
+                        "[DIAG][PE_EST3][BLOP_MATCH]",
                         {
-                            "modo": "NOME_EXATO",
                             "banco": banco,
                             "periodo": periodo,
                             "yyyymm": yyyymm,
                             "conta": conta,
+                            "caminho": "NOME_EXATO",
+                            "cod_congl": cods_variant[0] if cods_variant else "",
                             "inst_key": variant,
+                            "inst_keys_count": 1,
                             "saldo_bruto": float(val),
                         },
                     )
                 return float(val)
-        if debug_target:
-            print(
-                "[PE_EST3_DEBUG]",
-                {
-                    "modo": "SEM_MATCH",
-                    "banco": banco,
-                    "periodo": periodo,
-                    "yyyymm": yyyymm,
-                    "conta": conta,
-                    "codigos_candidates": sorted(codigos),
-                    "banco_variants": sorted(banco_variants),
-                },
-            )
-        return None
+
+        # fallback: compatibilizar por inclusão textual entre variantes e chaves do lookup
+        val_fallback = None
+        for (ym_key, inst_key, conta_key), saldo in blop_lookup.items():
+            if ym_key != yyyymm or conta_key != conta:
+                continue
+            if any(
+                v and (
+                    v == inst_key
+                    or (len(v) >= 4 and f" {v} " in f" {inst_key} ")
+                    or (len(inst_key) >= 4 and f" {inst_key} " in f" {v} ")
+                )
+                for v in banco_variants
+            ):
+                if saldo is None or pd.isna(saldo):
+                    continue
+                val_fallback = float(saldo)
+                if diag_alvo:
+                    cods_inst = sorted(blop_nome_para_codigos.get(inst_key, set()))
+                    print(
+                        "[DIAG][PE_EST3][BLOP_MATCH]",
+                        {
+                            "banco": banco,
+                            "periodo": periodo,
+                            "yyyymm": yyyymm,
+                            "conta": conta,
+                            "caminho": "FALLBACK_TEXTUAL",
+                            "cod_congl": cods_inst[0] if cods_inst else "",
+                            "inst_key": inst_key,
+                            "inst_keys_count": 1,
+                            "saldo_bruto": float(saldo),
+                        },
+                    )
+                break
+
+        val = val_fallback
+        return None if val is None or pd.isna(val) else float(val)
 
     col_pf_total = _resolver_coluna_peers(
         cache_carteira_pf,
