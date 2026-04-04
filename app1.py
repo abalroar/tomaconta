@@ -10302,7 +10302,7 @@ Pausas longas tendem a indicar interrupção real; abaixo disso tratamos como co
         df_semana = pd.DataFrame(esforco_semanal_cache)
 
         def _fmt_h(v: float) -> str:
-            return f"{float(v):.1f}".replace(".", ",")
+            return f"{float(v):,.1f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
         df_semana["tooltip"] = df_semana.apply(
             lambda r: (
@@ -10320,7 +10320,7 @@ Pausas longas tendem a indicar interrupção real; abaixo disso tratamos como co
                 name="Horas entre commits",
                 x=df_semana["label_semana"],
                 y=df_semana["horas_commits"],
-                marker_color="#1f77b4",
+                marker_color="#111111",
                 customdata=df_semana[["tooltip"]],
                 hovertemplate="%{customdata[0]}<extra></extra>",
             )
@@ -10330,7 +10330,7 @@ Pausas longas tendem a indicar interrupção real; abaixo disso tratamos como co
                 name="Overhead de Sessão",
                 x=df_semana["label_semana"],
                 y=df_semana["horas_overhead"],
-                marker_color="#ff8c42",
+                marker_color="#f28c28",
                 customdata=df_semana[["tooltip"]],
                 hovertemplate="%{customdata[0]}<extra></extra>",
             )
