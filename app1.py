@@ -5476,6 +5476,7 @@ def _preparar_metricas_extra_peers(
     col_blop_conta = _bloprud_pick_col(cache_bloprudencial, ["CONTA", "Conta", "codigo_conta", "COD_CONTA"])
     col_blop_saldo = _bloprud_pick_col(cache_bloprudencial, ["SALDO", "Saldo", "VALOR", "Valor"])
     col_blop_cod_congl = _bloprud_pick_col(cache_bloprudencial, ["COD_CONGL", "Cod_Congl", "codigo_congl", "cod_congl"])
+    col_blop_documento = _bloprud_pick_col(cache_bloprudencial, ["DOCUMENTO", "Documento", "doc", "cadoc"])
 
     blop_lookup: dict[tuple[str, str, str], float] = {}
     blop_lookup_cod: dict[tuple[str, str, str], float] = {}
@@ -5497,6 +5498,15 @@ def _preparar_metricas_extra_peers(
             if col_data_base:
                 base_txt = df_blop[col_data_base].astype(str).str.replace(r"\D", "", regex=True).str[:6]
                 df_blop["Período"] = base_txt.str[4:6] + "/" + base_txt.str[:4]
+        if col_blop_documento:
+            docs_num = pd.to_numeric(df_blop[col_blop_documento], errors="coerce")
+            mask_4060 = docs_num == 4060
+            # Jun/Dez podem vir com 4060 e 4066 no mesmo arquivo mensal; para contas
+            # prudenciais usadas em Peers/Snapshot (PDD + estágios) manter apenas Cadoc 4060
+            # evita duplicação exata (~2x) ao agregar por instituição/conta.
+            if mask_4060.any():
+                df_blop = df_blop.loc[mask_4060].copy()
+
         if col_blop_nome_inst:
             df_blop["_inst_norm"] = df_blop[col_blop_nome_inst].map(_bloprud_norm_name)
         else:
