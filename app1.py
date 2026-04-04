@@ -21108,146 +21108,74 @@ elif menu == "Glossário":
     st.dataframe(pd.DataFrame(_map_rows), width="stretch", hide_index=True)
     st.caption("Obs.: `derived_metrics` e `derived_metrics_individual` são recalculados a partir de DRE + Principal.")
 
-    st.markdown("""
-    ## **Sobre os Dados Apresentados**
-
-    Os dados são obtidos via API Olinda do IFdata do Banco Central, na visão **Conglomerado**.
-
-    **O que isso significa:**
-
-    **Conglomerado Prudencial** é um grupo de instituições financeiras e entidades autorizadas, controladas por uma mesma instituição líder, que deve consolidar suas demonstrações contábeis para fins regulatórios.
-
-    O Banco Central supervisiona o grupo como um todo, considerando o somatório das instituições, e decisões sobre liquidez ou insolvência afetam todas as entidades do conglomerado.
-
-    **Exemplos:**
-    - O Banco PAN faz parte do Conglomerado Prudencial BTG Pactual. O próprio PAN esclarece que, por estar consolidado no prudencial do BTG, o índice de Basileia "individual" deixou de ser formalmente reportado.
-    - O Banco Digio faz parte do conglomerado financeiro do Bradesco, então em leituras "por conglomerado" você não verá o Digio como um grupo separado.
-    - O Conglomerado Prudencial Original inclui Banco Original, PicPay Bank e a IP do PicPay (além de outros veículos do grupo). Dependendo do recorte, você verá o conglomerado (ou o líder) e não cada entidade isoladamente.
-
-    Em caso de dúvidas, consulte o site do Banco Central.
-
-    ---
-
-    ## **Por que os dados do IFdata (balanço etc.) começam em Mar-2015?**
-
-    A partir de **Mar-2015**, usamos a visão **Conglomerado Prudencial**, criada pelo Banco Central naquela data.
-    Antes disso, os dados eram reportados na visão **Conglomerado Financeiro**.
-
-    Para instituições com apenas um CNPJ, a comparação entre as duas visões pode até ser possível.
-    Para conglomerados com muitas instituições, **não é comparável**.
-    O mais adequado é usar a soma do todo: **Conglomerado Prudencial**.
-
-    ---
-
-    ## **Informações de Capital Regulatório**
-
-    **Capital Principal:** Parcela do capital de melhor qualidade e imediatamente disponível para absorver perdas (base regulatória usada para comparação com o RWA).
-
-    **Capital Complementar:** Instrumentos de capital e dívida perpétuos elegíveis como patrimônio regulatório (complementam o Capital Principal na formação do Nível I).
-
-    **Capital Nível II:** Parcela do capital composta por instrumentos subordinados, elegíveis como patrimônio regulatório, aptos a absorver perdas durante o funcionamento da instituição.
-
-    **Patrimônio de Referência:** Montante de capital regulatório total formado pela soma do Patrimônio de Referência Nível I e do Capital Nível II (usado para comparação com o RWA).
-
-    **RWA Crédito:** Parcela dos ativos ponderados pelo risco (RWA) referente à exposição ao risco de crédito (pode ser apurado pela abordagem padronizada ou por modelo interno IRB, quando aplicável).
-
-    **RWA Mercado:** Parcela do RWA referente à exposição ao risco de mercado, composta pela soma das parcelas de risco cambial, commodities, juros/cupons, ações e CVA (ajuste de valor de crédito da contraparte em derivativos), entre outras componentes do relatório.
-
-    **RWA Operacional:** Parcela do RWA referente à exposição ao risco operacional.
-
-    **RWA Total:** Soma das parcelas de RWA de Crédito, Mercado, Operacional e (quando existir no relatório) a parcela relativa a serviços de pagamento.
-
-    **Exposição Total:** Exposição total sem ponderação de risco (definição regulatória usada no cálculo da razão de alavancagem, conforme Circular 3.748/2015).
-
-    **Índice de Capital Principal (CET1):** Relação entre Capital Principal e RWA Total (Capital Principal / RWA Total).
-
-    **Índice de Capital Nível I:** Relação entre Patrimônio de Referência Nível I e RWA Total (Nível I / RWA Total).
-
-    **Índice de Basileia:** Relação entre Patrimônio de Referência e RWA Total (Patrimônio de Referência / RWA Total).
-
-    **Adicional de Capital Principal:** Requerimento de adicional de capital principal (ACP), apurado pela soma de ACP Conservação, ACP Contracíclico e ACP Sistêmico.
-
-    ---
-
-    ## **Variáveis de Balanço**
-
-    **Ativo Total:** Padrão COSIF.
-
-    **Ativos Líquidos:** Disponibilidades (a) + Aplicações Interfinanceiras de Liquidez (b) + Títulos e Valores Mobiliários (c), no Relatório de Ativo (Rel. 2).
-
-    **Carteira de Crédito Bruta:** Na Peers, segue a regra de apuração da tabela: até 2024 usa d1+e1+f (Rel. 2); a partir de 2025 usa Valor Contábil Bruto (e1+f1+g1+h1), com fallback para e+f+g+h quando necessário.
-
-    **Carteira de Crédito*:** Na aba Peers (Tabela), é o mesmo valor de Carteira de Crédito Bruta.
-
-    **Perda Esperada:** Soma das parcelas de perda esperada/ajustes de valor justo das bases e, f, g e h no Relatório de Ativo (Rel. 2), conforme as linhas disponíveis no período.
-
-    **Depósitos Totais:** Depósitos do Relatório de Passivo (Rel. 3). Quando a linha agregada não está disponível, usa a soma dos subtipos de depósitos.
-
-    **`Carteira de Crédito*`**: Na aba Peers (Tabela), corresponde à Carteira de Crédito Bruta.
-
-    **Perda Esperada:** Soma de perdas esperadas e ajustes de valor justo das bases e/f/g/h no Relatório de Ativo (Rel. 2).
-
-    **Depósitos Totais:** Depósitos do Relatório de Passivo (Rel. 3), com fallback para soma dos subtipos quando necessário.
-
-    **Títulos e Valores Mobiliários:** Títulos de Renda Fixa + Aplicação em COEs + Cotas de Fundos de Curto Prazo e Fundos de Investimentos, já descontados de Perda Incorrida, Perda Esperada e Ajuste a Valor Justo.
-
-    **Passivo Exigível:** Passivo Total, incluindo Depósitos, Compromissadas, Outros Instrumentos de Dívida, Relações Interfinanceiras, Relações Interdependências, Derivativos, Provisões (Cíveis, Fiscais, Trabalhistas) e Outras Obrigações.
-
-    **Captações:** Linha de Captações (e) do Relatório de Passivo (Rel. 3), correspondente à soma de (a)+(b)+(c)+(d).
-
-    **Core Funding:** Na Peers, usa Captações (e) até 2024; a partir de 2025, usa Captações (e) + Instrumentos de Dívida Elegíveis a Capital (h), no Relatório de Passivo.
-
-    **Core Funding*:** Na aba Peers (Tabela), é o mesmo valor de Core Funding.
-
-    **Core Funding:** Até 2024, usa Captações (e) no Rel. 3. A partir de 2025, soma Captações (e) e Dívida Subordinada (h).
-
-    **`Core Funding*`**: Na aba Peers (Tabela), corresponde ao Core Funding.
-
-    **Patrimônio Líquido:** Padrão COSIF.
-
-    **Patrimônio Líquido (PL):** Na aba Peers (Tabela), corresponde ao Patrimônio Líquido.
-
-    **Lucro Líquido Acumulado YTD:** Lucro líquido acumulado no ano até o fim do período de referência.
-
-    ---
-
-    ## **Índices e Percentuais**
-
-    **Índice de Imobilização:** Ativo Permanente dividido pelo Patrimônio de Referência.
-
-    **Índice de Basileia Total:** Na aba Peers (Tabela), corresponde ao Índice de Basileia (Patrimônio de Referência ÷ RWA Total).
-
-    ---
-
-    ## **Métricas Calculadas**
-
-    **Ativo Total / PL:** Ativo Total dividido pelo Patrimônio Líquido.
-
-    **ROE Ac. Anualizado (%):** (LL YTD × fator de anualização) ÷ PL Médio. PL Médio = (PL no período + PL em Dez do ano anterior) / 2. Fator: Mar=4, Jun=2, Set≈1,33, Dez=1. N/A se PL médio ≤ 0 ou dado faltante.
-
-    **Carteira de Crédito Bruta / PL:** Carteira de Crédito Bruta dividida pelo Patrimônio Líquido.
-
-    **Carteira de Crédito* / PL:** Na aba Peers (Tabela), corresponde à Carteira de Crédito Bruta / PL.
-
-    **Perda Esperada / Carteira de Crédito*:** Na aba Peers (Tabela), corresponde a Perda Esperada / Carteira de Crédito Bruta.
-
-    **Carteira de Crédito/Core Funding (%):** Carteira de Crédito Bruta dividida pelo Core Funding.
-
-    **Crédito/Ativo (%):** Carteira de Crédito Bruta dividida pelo Ativo Total.
-
-    **Lucro Líquido Acumulado:** Na aba Peers (Tabela), corresponde ao Lucro Líquido Acumulado YTD.
-
-    **ROE Acumulado YTD (%):** Na aba Peers (Tabela), corresponde ao ROE Ac. Anualizado (%).
-
-    **Desp PDD / Resultado Intermediação Fin. Bruto (%):** Desp. PDD dividido pelo Resultado de Intermediação Financeira Bruto. Fórmula: Desp. PDD / Resultado de Intermediação Financeira Bruto.
-
-    **Ativos Estágio 2:** Saldo da conta 3312000001 no mês/período selecionado (Cadoc 4060).
-
-    **Ativos Estágio 3:** Saldo da conta 3313000000 no mês/período selecionado (Cadoc 4060).
-
-    **Perda Esperada / Estágio 3:** Relação entre Perda Esperada (Rel. 2) e Ativos Estágio 3 (Cadoc 4060) do mesmo mês/período.
-
-    **Perda Esperada / Estágio 3 (%):** Mesmo indicador anterior, exibido em formato percentual quando aplicável.
-
-    **Desp Captação / Captação (%):** Desp. Captação anualizada dividida por Captações. Fórmula: (Desp. Captação * (12 / meses_do_período)) / Captações.
-    """)
+    # [VERSÃO ANTERIOR]: glossário central continha duplicidades textuais de
+    # Perda Esperada / Depósitos Totais / Core Funding e não separava claramente
+    # ROE Ac. Anualizado (%) versus ROE Trim. Anualizado (%).
+    # [VERSÃO ANTERIOR]: variáveis com exibição incerta permaneciam misturadas ao
+    # corpo principal, sem seção histórica/legado explícita.
+
+    st.markdown("## Glossário Central — versão reestruturada (abril/2026)")
+    with st.expander("**Contexto de leitura dos dados (visão prudencial)**", expanded=True):
+        st.markdown("""
+        Os dados são obtidos principalmente via **Banco Central (IFData/Olinda)**,
+        com complementos de **Cadoc 4060** e mapeamentos COSIF do projeto.
+
+        O Toma Conta prioriza a visão de **Conglomerado Prudencial** do IFData.
+        Exemplo: Banco PAN integra o conglomerado prudencial do BTG Pactual.
+        A série principal começa em **março/2015**, quando a visão prudencial passa
+        a ser a referência para comparabilidade.
+        """)
+
+    _cols_gloss = ["Indicador", "Aba(s)", "Fonte", "Fórmula", "Unidade", "Interpretação", "Limitação", "Periodicidade"]
+
+    def _render_secao_glossario(titulo: str, linhas: list[dict]):
+        with st.expander(f"**{titulo}**", expanded=False):
+            st.dataframe(pd.DataFrame(linhas, columns=_cols_gloss), width="stretch", hide_index=True)
+
+    _render_secao_glossario("1) Capital e Regulação", [
+        {"Indicador": "Índice de Capital Principal (CET1)", "Aba(s)": "Peers, Evolução, Glossário", "Fonte": "IFData Rel.5", "Fórmula": "Capital Principal ÷ RWA Total", "Unidade": "%", "Interpretação": "Folga de capital de maior qualidade frente ao risco ponderado.", "Limitação": "Pode variar por mudanças regulatórias/metodológicas.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Índice de Capital Nível I", "Aba(s)": "Glossário", "Fonte": "IFData Rel.5", "Fórmula": "PR Nível I ÷ RWA Total", "Unidade": "%", "Interpretação": "Cobertura de risco por capital Nível I.", "Limitação": "Não resume liquidez nem concentração de risco.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Índice de Basileia", "Aba(s)": "Peers, Evolução, Glossário", "Fonte": "IFData Rel.5", "Fórmula": "Patrimônio de Referência ÷ RWA Total", "Unidade": "%", "Interpretação": "Nível total de capital regulatório sobre risco ponderado.", "Limitação": "Comparação histórica depende de contexto normativo.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Razão de Alavancagem", "Aba(s)": "Glossário", "Fonte": "IFData Rel.5", "Fórmula": "PR Nível I ÷ Exposição Total", "Unidade": "%", "Interpretação": "Capital Nível I sobre exposição não ponderada.", "Limitação": "Não pondera risco dos ativos.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Adicional de Capital Principal (ACP)", "Aba(s)": "Glossário", "Fonte": "IFData Rel.5", "Fórmula": "ACP Conservação + Contracíclico + Sistêmico", "Unidade": "%", "Interpretação": "Colchão regulatório adicional exigido.", "Limitação": "Níveis mudam conforme ciclo/regulação.", "Periodicidade": "Trimestral"},
+        {"Indicador": "IRRBB", "Aba(s)": "Glossário", "Fonte": "IFData Rel.5", "Fórmula": "⚠️ Fórmula não identificada no app (campo reportado)", "Unidade": "Indicador", "Interpretação": "Risco de taxa de juros na carteira bancária.", "Limitação": "Sem memória de cálculo explícita na UI atual.", "Periodicidade": "Trimestral"},
+    ])
+
+    _render_secao_glossario("2) Balanço e Funding", [
+        {"Indicador": "Ativo Total", "Aba(s)": "Peers, Glossário", "Fonte": "IFData Rel.1", "Fórmula": "Valor reportado", "Unidade": "R$", "Interpretação": "Tamanho total do balanço.", "Limitação": "Tamanho não implica qualidade dos ativos.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Ativos Líquidos", "Aba(s)": "Peers, Glossário", "Fonte": "IFData Rel.2", "Fórmula": "Disponibilidades (a) + AIL (b) + TVM (c)", "Unidade": "R$", "Interpretação": "Aproximação de ativos de maior liquidez.", "Limitação": "Não substitui métricas regulatórias de liquidez.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Carteira de Crédito Bruta", "Aba(s)": "Peers, Glossário", "Fonte": "IFData Rel.2", "Fórmula": "Até 2024: d1+e1+f; 2025+: e1+f1+g1+h1", "Unidade": "R$", "Interpretação": "Volume bruto de exposição em crédito.", "Limitação": "Quebra metodológica entre janelas históricas.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Carteira de Crédito* (Peers)", "Aba(s)": "Peers, Evolução", "Fonte": "IFData Rel.2", "Fórmula": "Alias visual da Carteira de Crédito Bruta", "Unidade": "R$", "Interpretação": "Nome contextual de UI para o mesmo conceito canônico.", "Limitação": "Asterisco é convenção local da aba.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Depósitos Totais", "Aba(s)": "Peers, Glossário", "Fonte": "IFData Rel.3", "Fórmula": "Linha agregada ou soma dos subtipos", "Unidade": "R$", "Interpretação": "Principal bloco de funding bancário tradicional.", "Limitação": "Composição varia entre instituições/períodos.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Core Funding", "Aba(s)": "Peers, Evolução, Glossário", "Fonte": "IFData Rel.3", "Fórmula": "Até 2024: Captações (e); 2025+: (e)+(h)", "Unidade": "R$", "Interpretação": "Base estrutural de captação para métricas de funding.", "Limitação": "Mudança de escopo em 2025.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Patrimônio Líquido (PL)", "Aba(s)": "Peers, Evolução, Glossário", "Fonte": "IFData Rel.1", "Fórmula": "Valor reportado", "Unidade": "R$", "Interpretação": "Base patrimonial para rentabilidade e alavancagem.", "Limitação": "Pode refletir eventos contábeis pontuais.", "Periodicidade": "Trimestral"},
+    ])
+
+    _render_secao_glossario("3) Rentabilidade e Eficiência", [
+        {"Indicador": "ROE Ac. Anualizado (%)", "Aba(s)": "Peers, Evolução, Glossário", "Fonte": "IFData Rel.1", "Fórmula": "(LL YTD × fator) ÷ PL médio", "Unidade": "%", "Interpretação": "Retorno sobre PL com base acumulada anualizada.", "Limitação": "Sensível a sazonalidade e mês de referência.", "Periodicidade": "Trimestral (YTD)"},
+        {"Indicador": "ROE Trim. Anualizado (%)", "Aba(s)": "Rankings, Glossário", "Fonte": "IFData Rel.1", "Fórmula": "(Lucro trimestral × 4) ÷ PL médio", "Unidade": "%", "Interpretação": "Proxy anualizada do trimestre corrente.", "Limitação": "Mais volátil que o ROE acumulado.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Lucro Líquido Acumulado YTD", "Aba(s)": "Peers, Evolução, Glossário", "Fonte": "IFData Rel.1/4", "Fórmula": "Resultado líquido acumulado no ano", "Unidade": "R$", "Interpretação": "Contribuição de resultado até a data-base.", "Limitação": "Não é lucro run-rate do trimestre isolado.", "Periodicidade": "Trimestral (acumulado)"},
+        {"Indicador": "Desp PDD / Resultado Intermediação Fin. Bruto (%)", "Aba(s)": "DRE, Glossário", "Fonte": "IFData Rel.4", "Fórmula": "Desp. PDD ÷ Resultado Interm. Fin. Bruto", "Unidade": "%", "Interpretação": "Pressão de provisões sobre resultado de intermediação.", "Limitação": "Pode distorcer com denominador muito baixo.", "Periodicidade": "Trimestral/YTD"},
+        {"Indicador": "Desp Captação / Captação (%)", "Aba(s)": "DRE, Glossário", "Fonte": "IFData Rel.4 + Rel.1", "Fórmula": "(Desp. Captação × (12/meses)) ÷ Captações", "Unidade": "%", "Interpretação": "Custo anualizado de funding sobre captação.", "Limitação": "Depende da compatibilidade entre bases.", "Periodicidade": "Trimestral/YTD"},
+    ])
+
+    _render_secao_glossario("4) Qualidade de Carteira", [
+        {"Indicador": "Perda Esperada", "Aba(s)": "Peers, Glossário", "Fonte": "IFData Rel.2", "Fórmula": "Soma das parcelas de perda esperada/ajustes e,f,g,h", "Unidade": "R$", "Interpretação": "Montante contábil de perdas esperadas no recorte.", "Limitação": "Depende de premissas/modelos contábeis.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Ativos Estágio 2", "Aba(s)": "Peers, Glossário", "Fonte": "Cadoc 4060", "Fórmula": "Conta 3312000001", "Unidade": "R$", "Interpretação": "Estoque de ativos em estágio 2.", "Limitação": "Comparabilidade requer mesma régua classificatória.", "Periodicidade": "Mensal/Trimestral"},
+        {"Indicador": "Ativos Estágio 3", "Aba(s)": "Peers, Glossário", "Fonte": "Cadoc 4060", "Fórmula": "Conta 3313000000", "Unidade": "R$", "Interpretação": "Estoque de ativos em estágio 3.", "Limitação": "Não substitui análise de recuperação/vintage.", "Periodicidade": "Mensal/Trimestral"},
+        {"Indicador": "Perda Esperada / Estágio 3 (%)", "Aba(s)": "Peers, Glossário", "Fonte": "IFData Rel.2 + Cadoc 4060", "Fórmula": "Perda Esperada ÷ Ativos Estágio 3", "Unidade": "%", "Interpretação": "Proxy de cobertura da perda esperada sobre estágio 3.", "Limitação": "Pode haver descasamento temporal entre fontes.", "Periodicidade": "Mensal/Trimestral"},
+    ])
+
+    _render_secao_glossario("5) Alavancagem e Relações de Estrutura", [
+        {"Indicador": "Ativo Total / PL", "Aba(s)": "Peers, Glossário", "Fonte": "IFData Rel.1", "Fórmula": "Ativo Total ÷ Patrimônio Líquido", "Unidade": "x", "Interpretação": "Grau de alavancagem contábil do balanço.", "Limitação": "Não pondera o risco dos ativos.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Carteira de Crédito Bruta / PL", "Aba(s)": "Peers, Evolução, Glossário", "Fonte": "IFData Rel.2 + Rel.1", "Fórmula": "Carteira de Crédito Bruta ÷ PL", "Unidade": "x", "Interpretação": "Intensidade de crédito sobre base patrimonial.", "Limitação": "Comparabilidade histórica afetada pela mudança de base em 2025.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Perda Esperada / Carteira de Crédito Bruta (%)", "Aba(s)": "Peers, Glossário", "Fonte": "IFData Rel.2", "Fórmula": "Perda Esperada ÷ Carteira de Crédito Bruta", "Unidade": "%", "Interpretação": "Nível relativo de perdas esperadas sobre o estoque de crédito.", "Limitação": "Não captura composição por segmento/produto.", "Periodicidade": "Trimestral"},
+    ])
+
+    with st.expander("**6) Definições históricas / não exibidas por padrão**", expanded=False):
+        st.markdown("""
+        - **[LEGADO] Crédito/Ativo (%)** = Carteira de Crédito Bruta ÷ Ativo Total.  
+        - **[LEGADO] Carteira de Crédito/Core Funding (%)** = Carteira de Crédito Bruta ÷ Core Funding.  
+        - **[LEGADO] Passivo Exigível** = valor reportado do passivo exigível (Rel. 3).  
+        - **[LEGADO] TVM** = valor reportado/agrupado de Títulos e Valores Mobiliários (Rel. 2).  
+        """)
