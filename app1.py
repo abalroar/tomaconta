@@ -4075,14 +4075,29 @@ def _aplicar_base_trimestral_dre(df: pd.DataFrame, df_valores_raw: pd.DataFrame)
         return out
 
     piv = raw.pivot_table(index=key_cols, columns="mes", values="valor", aggfunc="last")
+
+    def _serie_mes_ou_nan(mes_ref: int) -> pd.Series:
+        if mes_ref in piv.columns:
+            return pd.to_numeric(piv[mes_ref], errors="coerce")
+        return pd.Series(np.nan, index=piv.index, dtype="float64")
+
+    v3 = _serie_mes_ou_nan(3)
+    v6 = _serie_mes_ou_nan(6)
+    v9 = _serie_mes_ou_nan(9)
+    v12 = _serie_mes_ou_nan(12)
+
     tri = pd.DataFrame(index=piv.index)
-    tri[3] = piv.get(3)
-    tri[6] = piv.get(6) - piv.get(3)
-    tri[9] = piv.get(9)
-    tri[12] = piv.get(12) - piv.get(9)
+    tri[3] = v3
+    tri[6] = v6 - v3
+    tri[9] = v9
+    tri[12] = v12 - v9
+
+    mes_out = out.get("mes")
+    if mes_out is None:
+        return out
 
     for mes_ref in [3, 6, 9, 12]:
-        mask_mes = out.get("mes").eq(mes_ref)
+        mask_mes = mes_out.eq(mes_ref)
         if not mask_mes.any():
             continue
         idx = pd.MultiIndex.from_frame(out.loc[mask_mes, key_cols])
