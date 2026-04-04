@@ -13636,10 +13636,15 @@ elif menu == "Rankings":
 
                             fig_resumo = go.Figure()
                             media_display = calcular_media_ponderada(df_multiperiodo, 'valor_display', coluna_peso_resumo)
+                            media_raw = calcular_media_ponderada(df_multiperiodo, indicador_col, coluna_peso_resumo)
                             media_sfn_display = (
                                 df_periodo.assign(
                                     valor_display=_calcular_valores_display(df_periodo[indicador_col], indicador_col, format_info)
                                 )["valor_display"].dropna().mean()
+                                if indicador_col in df_periodo.columns else None
+                            )
+                            media_sfn_raw = (
+                                df_periodo[indicador_col].dropna().mean()
                                 if indicador_col in df_periodo.columns else None
                             )
                             casas_labels = 2
@@ -13648,8 +13653,8 @@ elif menu == "Rankings":
                                 dfx = df_plot[df_plot["Período"] == p].copy()
                                 if dfx.empty:
                                     continue
-                                valores_contexto = dfx["valor_display"].dropna().tolist()
-                                textos_labels = dfx["valor_display"].apply(
+                                valores_contexto = dfx[indicador_col].dropna().tolist()
+                                textos_labels = dfx[indicador_col].apply(
                                     lambda v: _formatar_valor_ranking(v, indicador_col, valores_contexto)
                                 )
                                 fig_resumo.add_trace(go.Bar(
@@ -13665,7 +13670,8 @@ elif menu == "Rankings":
                             fig_resumo.add_hline(y=media_display, line_dash='dash', line_color='#555555')
                             if media_sfn_display is not None and pd.notna(media_sfn_display):
                                 fig_resumo.add_hline(y=media_sfn_display, line_dash='dash', line_color='#1f77b4')
-                            media_sel_txt = _formatar_valor_ranking(media_display, indicador_col, df_plot["valor_display"].dropna().tolist())
+                            contexto_media_raw = df_plot[indicador_col].dropna().tolist()
+                            media_sel_txt = _formatar_valor_ranking(media_raw, indicador_col, contexto_media_raw)
                             fig_resumo.add_annotation(
                                 x=0.98, y=0.06, xref="paper", yref="paper",
                                 text=f"Média seleção: {media_sel_txt}",
@@ -13673,8 +13679,8 @@ elif menu == "Rankings":
                                 font=dict(color="#1A1A1A", size=14),
                                 bgcolor="rgba(255,255,255,0.82)", bordercolor="rgba(26,26,26,0.25)", borderwidth=1,
                             )
-                            if media_sfn_display is not None and pd.notna(media_sfn_display):
-                                media_sfn_txt = _formatar_valor_ranking(media_sfn_display, indicador_col, df_plot["valor_display"].dropna().tolist())
+                            if media_sfn_raw is not None and pd.notna(media_sfn_raw):
+                                media_sfn_txt = _formatar_valor_ranking(media_sfn_raw, indicador_col, contexto_media_raw)
                                 fig_resumo.add_annotation(
                                     x=0.98, y=0.14, xref="paper", yref="paper",
                                     text=f"Média SFN: {media_sfn_txt}",
@@ -13722,10 +13728,15 @@ elif menu == "Rankings":
                         else:
                             df_selecionado = df_multiperiodo.copy()
                             media_display = calcular_media_ponderada(df_selecionado, 'valor_display', coluna_peso_resumo)
+                            media_raw = calcular_media_ponderada(df_selecionado, indicador_col, coluna_peso_resumo)
                             media_sfn_display = (
                                 df_periodo.assign(
                                     valor_display=_calcular_valores_display(df_periodo[indicador_col], indicador_col, format_info)
                                 )["valor_display"].dropna().mean()
+                                if indicador_col in df_periodo.columns else None
+                            )
+                            media_sfn_raw = (
+                                df_periodo[indicador_col].dropna().mean()
                                 if indicador_col in df_periodo.columns else None
                             )
                             label_media = get_label_media(coluna_peso_resumo)
@@ -13740,6 +13751,7 @@ elif menu == "Rankings":
 
                             df_selecionado['ranking'] = df_selecionado['valor_display'].rank(method='first', ascending=False).astype(int)
                             df_selecionado['diff_media'] = df_selecionado['valor_display'] - media_display
+                            df_selecionado['diff_media_raw'] = df_selecionado[indicador_col] - media_raw
 
                             if media_display and media_display != 0:
                                 df_selecionado['diff_pct'] = (df_selecionado['valor_display'] / media_display - 1) * 100
@@ -13747,10 +13759,10 @@ elif menu == "Rankings":
                             else:
                                 df_selecionado['diff_pct_text'] = "N/D"
 
-                            df_selecionado['valor_text'] = df_selecionado['valor_display'].map(
+                            df_selecionado['valor_text'] = df_selecionado[indicador_col].map(
                                 lambda v: formatar_numero(v, format_info, variavel_ref=indicador_col)
                             )
-                            df_selecionado['diff_text'] = df_selecionado['diff_media'].map(
+                            df_selecionado['diff_text'] = df_selecionado['diff_media_raw'].map(
                                 lambda v: formatar_numero(v, format_info, incluir_sinal=True, variavel_ref=indicador_col)
                             )
 
@@ -13765,8 +13777,8 @@ elif menu == "Rankings":
                                 if len(periodo_resumo) == 1
                                 else [paleta_itau_bba[idx % len(paleta_itau_bba)] for idx, _ in enumerate(df_plot_chart['Instituição'])]
                             )
-                            valores_contexto_labels = df_plot_chart["valor_display"].dropna().tolist()
-                            textos_labels = df_plot_chart['valor_display'].apply(
+                            valores_contexto_labels = df_plot_chart[indicador_col].dropna().tolist()
+                            textos_labels = df_plot_chart[indicador_col].apply(
                                 lambda v: _formatar_valor_ranking(v, indicador_col, valores_contexto_labels)
                             )
 
@@ -13810,7 +13822,7 @@ elif menu == "Rankings":
                                 x=media_display,
                                 line_dash='dash',
                                 line_color='#555555',
-                                annotation_text=f"Média selecionadas: {formatar_numero(media_display, format_info, variavel_ref=indicador_col)}",
+                                annotation_text=f"Média selecionadas: {_formatar_valor_ranking(media_raw, indicador_col, valores_contexto_labels)}",
                                 annotation_position='top'
                             )
                             if media_sfn_display is not None and pd.notna(media_sfn_display):
@@ -13818,14 +13830,14 @@ elif menu == "Rankings":
                                     x=media_sfn_display,
                                     line_dash='dash',
                                     line_color='#1f77b4',
-                                    annotation_text=f"Média SFN: {formatar_numero(media_sfn_display, format_info, variavel_ref=indicador_col)}",
+                                    annotation_text=f"Média SFN: {_formatar_valor_ranking(media_sfn_raw, indicador_col, valores_contexto_labels)}",
                                     annotation_position='bottom'
                                 )
 
-                            media_sel_text = _formatar_valor_ranking(media_display, indicador_col, valores_contexto_labels)
+                            media_sel_text = _formatar_valor_ranking(media_raw, indicador_col, valores_contexto_labels)
                             media_sfn_text = (
-                                _formatar_valor_ranking(media_sfn_display, indicador_col, valores_contexto_labels)
-                                if media_sfn_display is not None and pd.notna(media_sfn_display)
+                                _formatar_valor_ranking(media_sfn_raw, indicador_col, valores_contexto_labels)
+                                if media_sfn_raw is not None and pd.notna(media_sfn_raw)
                                 else None
                             )
                             valores_media = [float(media_display)]
