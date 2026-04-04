@@ -7089,11 +7089,9 @@ def _snap_delta_calc(
         sinal = "+" if diff_bps > 0 else ""
         payload["suffix"] = f"{sinal}{diff_bps} bps"
     elif delta_kind == "pp":
-        sinal = "+" if diff > 0 else ""
-        payload["suffix"] = f"{sinal}{diff:,.2f} p.p.".replace(",", "X").replace(".", ",").replace("X", ".")
+        payload["suffix"] = formatar_numero_br(diff, casas=2, sufixo=" p.p.", com_sinal=True)
     else:
-        sinal = "+" if diff > 0 else ""
-        payload["suffix"] = f"{sinal}{diff:,.1f}%".replace(",", "X").replace(".", ",").replace("X", ".")
+        payload["suffix"] = formatar_numero_br(diff, casas=1, sufixo="%", com_sinal=True)
 
     payload["valido"] = True
     payload["motivo"] = ""
