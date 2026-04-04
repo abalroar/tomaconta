@@ -6882,6 +6882,60 @@ def _aliases_metrica_desp_captacao(label_exibicao: Optional[str] = None) -> list
     return list(dict.fromkeys(aliases))
 
 
+def _snap_delta_calc(
+    valor_atual,
+    valor_base,
+    is_pct_metric: bool = False,
+    show_bps: bool = False,
+) -> dict:
+    """Calcula texto do delta e metadados para cards/memória da Snapshot."""
+    payload = {
+        "a": None,
+        "b": None,
+        "suffix": "—",
+        "valido": False,
+        "motivo": "período anterior sem dado",
+    }
+    if valor_atual is None or valor_base is None:
+        return payload
+
+    try:
+        a, b = float(valor_atual), float(valor_base)
+    except (TypeError, ValueError):
+        return payload
+
+    if pd.isna(a) or pd.isna(b):
+        return payload
+
+    payload["a"] = a
+    payload["b"] = b
+    if b == 0:
+        payload["motivo"] = "período anterior igual a zero"
+        return payload
+
+    if is_pct_metric:
+        diff = _snap_pp_change(valor_atual, valor_base)
+        if diff is None:
+            return payload
+        if show_bps:
+            diff_bps = int(round(diff * 100))
+            sinal = "+" if diff_bps > 0 else ""
+            payload["suffix"] = f"{sinal}{diff_bps} bps"
+        else:
+            sinal = "+" if diff > 0 else ""
+            payload["suffix"] = f"{sinal}{diff:,.1f} p.p.".replace(",", "X").replace(".", ",").replace("X", ".")
+    else:
+        diff = _snap_pct_change(valor_atual, valor_base)
+        if diff is None:
+            return payload
+        sinal = "+" if diff > 0 else ""
+        payload["suffix"] = f"{sinal}{diff:,.1f}%".replace(",", "X").replace(".", ",").replace("X", ".")
+
+    payload["valido"] = True
+    payload["motivo"] = ""
+    return payload
+
+
 def _snap_delta_html(
     valor_atual,
     valor_base,
@@ -6891,53 +6945,17 @@ def _snap_delta_html(
     show_bps: bool = False,
 ) -> str:
     """Gera HTML de um delta (QoQ ou YoY) para o card V2."""
-    if valor_atual is None or valor_base is None:
-        return (
-            f'<span class="snap-card__delta snap-card__delta--neutral">'
-            f'<span class="snap-card__delta-label">{label}</span> —</span>'
-        )
-    try:
-        a, b = float(valor_atual), float(valor_base)
-        if pd.isna(a) or pd.isna(b):
-            return (
-                f'<span class="snap-card__delta snap-card__delta--neutral">'
-                f'<span class="snap-card__delta-label">{label}</span> —</span>'
-            )
-    except (TypeError, ValueError):
+    calc = _snap_delta_calc(valor_atual, valor_base, is_pct_metric=is_pct_metric, show_bps=show_bps)
+    a, b = calc.get("a"), calc.get("b")
+    suffix = calc.get("suffix", "—")
+
+    if not calc.get("valido") or a is None or b is None:
         return (
             f'<span class="snap-card__delta snap-card__delta--neutral">'
             f'<span class="snap-card__delta-label">{label}</span> —</span>'
         )
 
-    base_zero = False
-    try:
-        base_zero = abs(b) == 0
-    except Exception:
-        base_zero = False
-
-    if is_pct_metric:
-        diff = _snap_pp_change(valor_atual, valor_base)
-        if diff is None:
-            suffix = "—"
-        elif show_bps:
-            diff_bps = int(round(diff * 100))
-            sinal = "+" if diff_bps > 0 else ""
-            suffix = f"{sinal}{diff_bps} bps"
-        else:
-            sinal = "+" if diff > 0 else ""
-            suffix = f"{sinal}{diff:,.1f} p.p.".replace(",", "X").replace(".", ",").replace("X", ".")
-    else:
-        diff = _snap_pct_change(valor_atual, valor_base)
-        if diff is None:
-            suffix = "—"
-        else:
-            sinal = "+" if diff > 0 else ""
-            suffix = f"{sinal}{diff:,.1f}%".replace(",", "X").replace(".", ",").replace("X", ".")
-
-    # Direção e cor
-    if base_zero and a != 0:
-        direcao = "neutral"
-    elif a > b:
+    if a > b:
         direcao = "up"
     elif a < b:
         direcao = "down"
@@ -7316,6 +7334,49 @@ _SNAPSHOT_V2_CSS = """
 }
 </style>
 """
+
+
+def _build_memoria_calculo_snapshot(
+    metricas: list[dict],
+    periodo_atual: str,
+    periodo_anterior_qoq: Optional[str],
+    periodo_anterior_yoy: Optional[str],
+) -> pd.DataFrame:
+    """Monta memória de cálculo consolidada dos cards da Snapshot."""
+    rows = []
+    for cfg in metricas:
+        serie = cfg.get("serie", {}) or {}
+        label = cfg.get("label", "Métrica")
+        is_pct = bool(cfg.get("is_pct", False))
+        show_bps = bool(cfg.get("show_bps", False))
+
+        valor_atual = serie.get(periodo_atual)
+        valor_qoq = serie.get(periodo_anterior_qoq) if periodo_anterior_qoq else None
+        valor_yoy = serie.get(periodo_anterior_yoy) if periodo_anterior_yoy else None
+
+        delta_qoq = _snap_delta_calc(valor_atual, valor_qoq, is_pct_metric=is_pct, show_bps=show_bps)
+        delta_yoy = _snap_delta_calc(valor_atual, valor_yoy, is_pct_metric=is_pct, show_bps=show_bps)
+
+        unidade_delta = "bps" if show_bps else ("p.p." if is_pct else "%")
+        motivo_qoq = delta_qoq.get("motivo") if not delta_qoq.get("valido") else ""
+        motivo_yoy = delta_yoy.get("motivo") if not delta_yoy.get("valido") else ""
+
+        rows.append(
+            {
+                "Métrica": label,
+                "Período": periodo_para_exibicao(periodo_atual),
+                "Valor atual": _formatar_valor_snapshot(cfg, valor_atual),
+                "Valor anterior QoQ": _formatar_valor_snapshot(cfg, valor_qoq),
+                "Delta QoQ": delta_qoq.get("suffix", "—") if delta_qoq.get("valido") else "—",
+                "Motivo QoQ": motivo_qoq,
+                "Valor anterior YoY": _formatar_valor_snapshot(cfg, valor_yoy),
+                "Delta YoY": delta_yoy.get("suffix", "—") if delta_yoy.get("valido") else "—",
+                "Motivo YoY": motivo_yoy,
+                "Unidade do delta": unidade_delta,
+            }
+        )
+
+    return pd.DataFrame(rows)
 
 
 def pagina_snapshot():
@@ -7705,6 +7766,19 @@ def pagina_snapshot():
             for i, cfg in enumerate(sec["rows"])
         ]
         st.markdown(_render_snap_grid(cards, "snap-grid--supporting"), unsafe_allow_html=True)
+
+    todas_metricas_snapshot = hero_metrics + profit_metrics + [row for sec in supporting_sections for row in sec["rows"]]
+    df_memoria_snapshot = _build_memoria_calculo_snapshot(
+        todas_metricas_snapshot,
+        periodo_atual,
+        periodo_anterior_qoq,
+        periodo_yoy_existente,
+    )
+    with st.expander("Memória de cálculo — Snapshot", expanded=False):
+        if df_memoria_snapshot.empty:
+            st.info("memória de cálculo indisponível para os filtros atuais.")
+        else:
+            st.dataframe(df_memoria_snapshot, width='stretch', hide_index=True)
 
     # ===================================================================
     # Origem dos dados
