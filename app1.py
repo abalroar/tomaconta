@@ -2606,8 +2606,28 @@ def _calcular_estimativa_horas_dev(
             continue
         todos_commits.extend(_listar_commits_github_repo(repo_limpo, headers, incluir_merges=incluir_merges))
 
-    todos_commits.sort(key=lambda c: c["data"])
-    total_commits = len(todos_commits)
+    commits_unicos: list[dict] = []
+    chaves_sha: set[str] = set()
+    chaves_data_hora: set[tuple[str, str]] = set()
+    for commit in todos_commits:
+        sha = str(commit.get("sha", "")).strip()
+        if sha and sha in chaves_sha:
+            continue
+        dt = commit.get("data")
+        mensagem = str(commit.get("mensagem", "")).strip().lower()
+        chave_data_hora = (
+            dt.isoformat(timespec="seconds") if isinstance(dt, datetime) else "",
+            mensagem,
+        )
+        if chave_data_hora in chaves_data_hora:
+            continue
+        if sha:
+            chaves_sha.add(sha)
+        chaves_data_hora.add(chave_data_hora)
+        commits_unicos.append(commit)
+
+    commits_unicos.sort(key=lambda c: c["data"])
+    total_commits = len(commits_unicos)
 
     if total_commits == 0:
         return {
@@ -2632,7 +2652,7 @@ def _calcular_estimativa_horas_dev(
     sessoes: list[list[dict]] = []
     sessao_atual: list[dict] = []
 
-    for commit in todos_commits:
+    for commit in commits_unicos:
         if not sessao_atual:
             sessao_atual = [commit]
             continue
@@ -2665,8 +2685,8 @@ def _calcular_estimativa_horas_dev(
         "total_sessoes": total_sessoes,
         "sessao_media_horas": round(sessao_media_horas, 2),
         "total_commits": total_commits,
-        "primeiro_commit": todos_commits[0]["data"].isoformat(),
-        "ultimo_commit": todos_commits[-1]["data"].isoformat(),
+        "primeiro_commit": commits_unicos[0]["data"].isoformat(),
+        "ultimo_commit": commits_unicos[-1]["data"].isoformat(),
         "repositorios": repositorios,
         "parametros": {
             "limiar_sessao_min": limiar_sessao_min,
@@ -9693,7 +9713,7 @@ if menu == "Sobre":
     """, unsafe_allow_html=True)
 
     st.markdown("---")
-    st.markdown("### ⏱️ Investimento de Desenvolvimento")
+    st.markdown("### Investimento de Desenvolvimento")
     st.caption("Estimativa baseada em sessões de commits no GitHub + **Overhead de Sessão** (tempo de ideação, leitura e navegação).")
     st.caption("Leitura rápida: agrupamos commits em blocos de trabalho (sessões) e adicionamos um buffer por sessão para representar tempo sem commit.")
     st.caption("A conta exibida é: **Horas entre commits** + **Overhead de Sessão** = **Total estimado**.")
@@ -9737,7 +9757,7 @@ if menu == "Sobre":
         f"{', '.join(repos_cache) if repos_cache else 'repositório não calculado'}"
     )
 
-    if st.button("🔄 Recalcular estimativa", key="btn_recalcular_horas_dev", width="content"):
+    if st.button("Recalcular estimativa", key="btn_recalcular_horas_dev", width="content"):
         with st.spinner("Buscando commits no GitHub..."):
             try:
                 novo_cache = _calcular_estimativa_horas_dev(
@@ -9754,7 +9774,7 @@ if menu == "Sobre":
 
     st.caption(f"Atualizado em: {calculado_em_cache}")
 
-    with st.expander("⚙️ Parâmetros de estimativa", expanded=False):
+    with st.expander("Parâmetros de estimativa", expanded=False):
         col_p1, col_p2 = st.columns(2)
         with col_p1:
             limiar_sessao_ui = st.number_input(
