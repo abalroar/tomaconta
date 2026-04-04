@@ -3,6 +3,27 @@
 ## Escopo
 Investigar **somente** a origem e unidade do numerador/denominador no cálculo de `Perda Esperada / Estágio 3`, sem aplicar correção funcional nesta etapa.
 
+
+## Prompt recomendado (copiar/colar)
+```text
+Investigue o bug de Perda Esperada / Estágio 3 (BB, Set/25) sem alterar regra de negócio nesta etapa.
+
+Objetivo 1 — Matching/entidade escolhida no denominador
+- Instrumente _blop_get_sum_periodo_conta para logar, no caso BB Set/25 conta 3313000000, qual caminho foi usado:
+  (a) COD_CONGL, (b) nome exato, (c) fallback textual.
+- Logue também a entidade efetivamente escolhida (COD_CONGL e inst_key) e o SALDO bruto retornado.
+
+Objetivo 2 — Unidade nativa Cadoc 4060
+- Confirme na documentação/fonte oficial do Cadoc 4060 se o SALDO da conta 3313000000 está em R$ unidades ou R$ mil.
+- Conclua explicitamente se existe mismatch de 1.000× com o numerador (Perda Esperada do Rel. 2).
+
+Entregáveis obrigatórios
+1) Valor bruto exato usado no denominador;
+2) Entidade que originou esse valor (COD_CONGL/inst_key);
+3) Unidade nativa confirmada do Cadoc 4060 para essa conta;
+4) Diagnóstico final: erro de matching, de unidade, ou ambos.
+```
+
 ## Resultado principal (causa provável)
 - O cálculo da razão é feito em `app1.py` por `_calcular_ratio_peers(perda_esperada, estagio3_mes)`.
 - **Não existe conversão de escala de exibição** (`/1000`, `/1e6`, `*1000`) aplicada ao denominador antes da divisão nesse fluxo.
