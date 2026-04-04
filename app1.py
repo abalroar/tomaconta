@@ -2722,6 +2722,24 @@ def _calcular_estimativa_horas_dev(
         bucket = _bucket_sessao(duracao_horas * 60.0)
         distribuicao_sessoes[bucket] += 1
 
+    esforco_semanal: dict[str, dict] = {}
+    tz_br = ZoneInfo("America/Sao_Paulo")
+    for sessao in sessoes:
+        inicio = sessao[0]["data"].astimezone(tz_br)
+        fim = sessao[-1]["data"]
+        duracao_horas = max(0.0, (fim - sessao[0]["data"]).total_seconds() / 3600.0)
+        semana_inicio = (inicio - timedelta(days=inicio.weekday())).date()
+        chave = semana_inicio.isoformat()
+        if chave not in esforco_semanal:
+            esforco_semanal[chave] = {
+                "semana_inicio": chave,
+                "label_semana": semana_inicio.strftime("%d/%b"),
+                "sessoes": 0,
+                "horas_commits": 0.0,
+            }
+        esforco_semanal[chave]["sessoes"] += 1
+        esforco_semanal[chave]["horas_commits"] += duracao_horas
+
     commits_por_mes: dict[str, int] = {}
     for commit in commits_unicos:
         mes = commit["data"].astimezone(ZoneInfo("America/Sao_Paulo")).strftime("%Y-%m")
@@ -2733,6 +2751,21 @@ def _calcular_estimativa_horas_dev(
     total_horas_min = horas_base_commits
     total_horas_max = horas_base_commits + total_sessoes
     sessao_media_horas = (total_horas / total_sessoes) if total_sessoes else 0.0
+    esforco_semanal_lista: list[dict] = []
+    for semana in sorted(esforco_semanal.keys()):
+        item = esforco_semanal[semana]
+        horas_overhead_semana = item["sessoes"] * (overhead_sessao_min / 60.0)
+        total_semana = item["horas_commits"] + horas_overhead_semana
+        esforco_semanal_lista.append(
+            {
+                "semana_inicio": item["semana_inicio"],
+                "label_semana": item["label_semana"],
+                "sessoes": int(item["sessoes"]),
+                "horas_commits": round(float(item["horas_commits"]), 2),
+                "horas_overhead": round(float(horas_overhead_semana), 2),
+                "total_horas": round(float(total_semana), 2),
+            }
+        )
 
     return {
         "calculado_em": datetime.now(ZoneInfo("America/Sao_Paulo")).isoformat(),
@@ -2745,6 +2778,7 @@ def _calcular_estimativa_horas_dev(
             "max": round(total_horas_max, 2),
         },
         "distribuicao_sessoes": distribuicao_sessoes,
+        "esforco_semanal": esforco_semanal_lista,
         "commits_por_mes": dict(sorted(commits_por_mes.items())),
         "total_sessoes": total_sessoes,
         "sessao_media_horas": round(sessao_media_horas, 2),
@@ -10192,6 +10226,56 @@ Pausas longas tendem a indicar interrupção real; abaixo disso tratamos como co
             st.markdown("**Linha do tempo de commits por mês:**")
             st.bar_chart(pd.DataFrame({"mes": list(commits_mes_cache.keys()), "commits": list(commits_mes_cache.values())}).set_index("mes"))
 
+    st.markdown("#### Breakdown semanal (horas por semana)")
+    esforco_semanal_cache = cache_horas.get("esforco_semanal", []) if isinstance(cache_horas, dict) else []
+    if isinstance(esforco_semanal_cache, list) and esforco_semanal_cache:
+        df_semana = pd.DataFrame(esforco_semanal_cache)
+
+        def _fmt_h(v: float) -> str:
+            return f"{float(v):,.1f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+        df_semana["tooltip"] = df_semana.apply(
+            lambda r: (
+                f"Semana de {r['label_semana']}: {int(r['sessoes'])} sessões · "
+                f"{_fmt_h(r['horas_commits'])} h de commits · "
+                f"{_fmt_h(r['horas_overhead'])} h de overhead · "
+                f"Total: {_fmt_h(r['total_horas'])} h"
+            ),
+            axis=1,
+        )
+
+        fig_semana = go.Figure()
+        fig_semana.add_trace(
+            go.Bar(
+                name="Horas entre commits",
+                x=df_semana["label_semana"],
+                y=df_semana["horas_commits"],
+                marker_color="#111111",
+                customdata=df_semana[["tooltip"]],
+                hovertemplate="%{customdata[0]}<extra></extra>",
+            )
+        )
+        fig_semana.add_trace(
+            go.Bar(
+                name="Overhead de Sessão",
+                x=df_semana["label_semana"],
+                y=df_semana["horas_overhead"],
+                marker_color="#f28c28",
+                customdata=df_semana[["tooltip"]],
+                hovertemplate="%{customdata[0]}<extra></extra>",
+            )
+        )
+        fig_semana.update_layout(
+            barmode="stack",
+            xaxis_title="Semana",
+            yaxis_title="Horas estimadas",
+            height=360,
+            margin=dict(l=10, r=10, t=10, b=10),
+        )
+        st.plotly_chart(fig_semana, use_container_width=True)
+    else:
+        st.info("Sem dados semanais neste cache. Clique em **Recalcular estimativa** para buscar ao vivo no GitHub e sobrescrever a estimativa salva.")
+
     if st.button("Recalcular estimativa", key="btn_recalcular_horas_dev", width="content"):
         with st.spinner("Buscando commits no GitHub..."):
             try:
@@ -10202,7 +10286,7 @@ Pausas longas tendem a indicar interrupção real; abaixo disso tratamos como co
                     incluir_merges=bool(config_horas.get("incluir_merges", False)),
                 )
                 _salvar_json_local(DEV_HOURS_CACHE_PATH, novo_cache)
-                st.success("Estimativa atualizada com sucesso.")
+                st.success("Estimativa atualizada com sucesso e salva no cache local (sobrescrevendo a anterior).")
                 st.rerun()
             except Exception as exc:
                 st.error(f"Não foi possível recalcular agora: {exc}")
