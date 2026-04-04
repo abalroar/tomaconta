@@ -4040,54 +4040,69 @@ def _periodo_dez_ano_anterior(periodo: str) -> Optional[str]:
     return f"{parte_dez}/{ano_txt}"
 
 
-def _aplicar_lucro_trimestral_dre(df: pd.DataFrame, label_lucro: str = "Lucro Líquido Período Acumulado") -> pd.DataFrame:
-    """Converte a linha de lucro da DRE para exibição trimestral no padrão Rel. 4.
+def _aplicar_base_trimestral_dre(df: pd.DataFrame, df_valores_raw: pd.DataFrame) -> pd.DataFrame:
+    """Converte linhas da DRE para base trimestral usando valores brutos (pré-YTD).
 
-    Regras de exibição (MM/AAAA, base semestral do IFData):
-      - 03: usa o valor bruto do IFData
-      - 06: 06 - 03
-      - 09: usa o valor bruto do IFData
-      - 12: 12 - 09
+    Regras (base semestral do IFData):
+      - 03: valor cru 03
+      - 06: valor cru 06 - valor cru 03
+      - 09: valor cru 09 (reset do 2º semestre)
+      - 12: valor cru 12 - valor cru 09
     """
-    if df is None or df.empty or "Label" not in df.columns:
+    if df is None or df.empty or "Label" not in df.columns or "ytd" not in df.columns:
+        return df
+    if df_valores_raw is None or df_valores_raw.empty:
         return df
 
     out = df.copy()
-    mask = out["Label"] == label_lucro
-    if not mask.any():
+    raw = df_valores_raw.copy()
+
+    if "Periodo" not in raw.columns or "Label" not in raw.columns or "valor" not in raw.columns:
         return out
 
-    out.loc[mask, "ytd"] = pd.to_numeric(out.loc[mask, "ytd"], errors="coerce")
+    raw["valor"] = pd.to_numeric(raw["valor"], errors="coerce")
+    if "ano" not in raw.columns or "mes" not in raw.columns:
+        raw[["ano", "mes"]] = extrair_ano_mes_periodo(raw["Periodo"])
 
-    group_cols = [c for c in ["InstituicaoRaw", "Instituicao", "InstituicaoExib", "InstituicaoKey", "ano"] if c in out.columns]
-    if "ano" not in group_cols and "ano" in out.columns:
-        group_cols.append("ano")
-    if not group_cols:
-        group_cols = ["Label"]
+    key_cols = [c for c in ["Instituicao", "Label", "ano"] if c in raw.columns and c in out.columns]
+    if not key_cols:
+        return out
 
-    for _, idxs in out.loc[mask].groupby(group_cols, dropna=False, observed=False).groups.items():
-        g = out.loc[idxs]
-        by_mes = g.dropna(subset=["mes"]).copy()
-        if by_mes.empty:
+    raw = raw.dropna(subset=["mes"]).copy()
+    raw["mes"] = pd.to_numeric(raw["mes"], errors="coerce")
+    raw = raw[raw["mes"].isin([3, 6, 9, 12])]
+    if raw.empty:
+        return out
+
+    piv = raw.pivot_table(index=key_cols, columns="mes", values="valor", aggfunc="last")
+
+    def _serie_mes_ou_nan(mes_ref: int) -> pd.Series:
+        if mes_ref in piv.columns:
+            return pd.to_numeric(piv[mes_ref], errors="coerce")
+        return pd.Series(np.nan, index=piv.index, dtype="float64")
+
+    v3 = _serie_mes_ou_nan(3)
+    v6 = _serie_mes_ou_nan(6)
+    v9 = _serie_mes_ou_nan(9)
+    v12 = _serie_mes_ou_nan(12)
+
+    tri = pd.DataFrame(index=piv.index)
+    tri[3] = v3
+    tri[6] = v6 - v3
+    tri[9] = v9
+    tri[12] = v12 - v9
+
+    mes_out = out.get("mes")
+    if mes_out is None:
+        return out
+
+    for mes_ref in [3, 6, 9, 12]:
+        mask_mes = mes_out.eq(mes_ref)
+        if not mask_mes.any():
             continue
-        by_mes["mes"] = pd.to_numeric(by_mes["mes"], errors="coerce")
-        raw_map = by_mes.dropna(subset=["mes"]).set_index(by_mes["mes"].astype(int))["ytd"].to_dict()
-
-        for row_idx, mes in by_mes["mes"].items():
-            mes_int = int(mes) if pd.notna(mes) else None
-            if mes_int == 3:
-                novo = raw_map.get(3, np.nan)
-            elif mes_int == 6:
-                v6, v3 = raw_map.get(6), raw_map.get(3)
-                novo = (v6 - v3) if pd.notna(v6) and pd.notna(v3) else np.nan
-            elif mes_int == 9:
-                novo = raw_map.get(9, np.nan)
-            elif mes_int == 12:
-                v12, v9 = raw_map.get(12), raw_map.get(9)
-                novo = (v12 - v9) if pd.notna(v12) and pd.notna(v9) else np.nan
-            else:
-                novo = out.at[row_idx, "ytd"]
-            out.at[row_idx, "ytd"] = novo
+        idx = pd.MultiIndex.from_frame(out.loc[mask_mes, key_cols])
+        novos = pd.to_numeric(tri[mes_ref].reindex(idx).to_numpy(), errors="coerce")
+        out.loc[mask_mes, "ytd"] = novos
 
     return out
 
@@ -9824,14 +9839,17 @@ with st.sidebar:
         )
 
 if "dre_consolidada_tipo_visualizacao" not in st.session_state:
-    st.session_state["dre_consolidada_tipo_visualizacao"] = "Conglomerado prudencial"
-dre_consolidada_tipo = st.session_state.get("dre_consolidada_tipo_visualizacao", "Conglomerado prudencial")
+    st.session_state["dre_consolidada_tipo_visualizacao"] = "Conglomerado Prudencial"
+dre_consolidada_tipo = st.session_state.get("dre_consolidada_tipo_visualizacao", "Conglomerado Prudencial")
+if dre_consolidada_tipo == "Conglomerado prudencial":
+    dre_consolidada_tipo = "Conglomerado Prudencial"
+    st.session_state["dre_consolidada_tipo_visualizacao"] = "Conglomerado Prudencial"
 if menu == "DRE (Ind. e Congl.)":
     st.markdown("### DRE (Ind. e Congl.)")
-    st.caption("Selecione a visualização abaixo para acessar exatamente a experiência atual de conglomerado prudencial ou DRE individual.")
+    st.caption("Selecione a visualização abaixo para acessar exatamente a experiência atual de conglomerado Prudencial ou DRE individual.")
     dre_consolidada_tipo = st.segmented_control(
         "Tipo de visualização",
-        options=["Conglomerado prudencial", "DRE Individual"],
+        options=["Conglomerado Prudencial", "DRE Individual"],
         key="dre_consolidada_tipo_visualizacao",
     )
     st.markdown("---")
@@ -14602,7 +14620,7 @@ elif menu == "Contribuições FGC/FGCoop":
                             use_container_width=True,
                         )
 
-elif menu == "DRE" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo == "Conglomerado prudencial"):
+elif menu == "DRE" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo == "Conglomerado Prudencial"):
     st.markdown("### Demonstração de Resultado (DRE)")
     st.caption("Tabela DRE a partir de Mar/25, com marcadores ▲/▼ (quando há base comparável no ano anterior) em relação ao mesmo período acumulado")
 
@@ -15692,7 +15710,7 @@ elif menu == "DRE" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo ==
             diag_info["derived_load_s"] = round(tempo_derived, 3)
 
         if usar_lucro_trimestral:
-            df_filtrado = _aplicar_lucro_trimestral_dre(df_filtrado, label_lucro=lucro_label_dre)
+            df_filtrado = _aplicar_base_trimestral_dre(df_filtrado, df_valores)
 
         # Os períodos exibidos/baixados devem refletir apenas publicações da DRE-base,
         # sem ser "forçados" por métricas derivadas que possam existir no trimestre.
@@ -16796,7 +16814,7 @@ elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolid
                     )
 
     if usar_lucro_trimestral:
-        df_filtrado = _aplicar_lucro_trimestral_dre(df_filtrado, label_lucro=lucro_label_dre)
+        df_filtrado = _aplicar_base_trimestral_dre(df_filtrado, df_valores)
 
     meses_com_publicacao = (
         df_filtrado_base.loc[df_filtrado_base["ytd"].notna(), "mes"]
@@ -17751,7 +17769,7 @@ elif menu == "__deprecated__Carteira 4.966 (bloco legado DRE-1)":
                     )
 
     if usar_lucro_trimestral:
-        df_filtrado = _aplicar_lucro_trimestral_dre(df_filtrado, label_lucro=lucro_label_dre)
+        df_filtrado = _aplicar_base_trimestral_dre(df_filtrado, df_valores)
 
     meses_com_publicacao = (
         df_filtrado_base.loc[df_filtrado_base["ytd"].notna(), "mes"]
@@ -18484,7 +18502,7 @@ elif menu == "__deprecated__Carteira 4.966 (bloco legado DRE-2)":
         opcoes_conglomerado.append(chave)
     opcoes_conglomerado = sorted(opcoes_conglomerado)
     idx_default = opcoes_conglomerado.index("80099 - ITAU") if "80099 - ITAU" in opcoes_conglomerado else 0
-    conglomerado_sel = st.selectbox("Conglomerado prudencial", options=opcoes_conglomerado, index=idx_default, key="dre_individual_conglomerado")
+    conglomerado_sel = st.selectbox("Conglomerado Prudencial", options=opcoes_conglomerado, index=idx_default, key="dre_individual_conglomerado")
     conglomerado_obj = mapa_conglomerado.get(conglomerado_sel, {})
 
     instituicoes_match = []
@@ -18769,7 +18787,7 @@ elif menu == "__deprecated__Carteira 4.966 (bloco legado DRE-2)":
                     )
 
     if usar_lucro_trimestral:
-        df_filtrado = _aplicar_lucro_trimestral_dre(df_filtrado, label_lucro=lucro_label_dre)
+        df_filtrado = _aplicar_base_trimestral_dre(df_filtrado, df_valores)
 
     meses_com_publicacao = (
         df_filtrado_base.loc[df_filtrado_base["ytd"].notna(), "mes"]
