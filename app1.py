@@ -35,6 +35,31 @@ def _perf_log(label: str) -> str:
     """Finaliza timer e retorna mensagem formatada."""
     elapsed = _perf_end(label)
     return f"[PERF] {label}: {elapsed:.3f}s"
+
+
+def _timer_reset_if_selection_changed(timer_key: str, selection_signature) -> None:
+    """Reseta timer visual quando a seleção da aba muda."""
+    state = st.session_state.get(timer_key)
+    if not isinstance(state, dict) or state.get("signature") != selection_signature:
+        st.session_state[timer_key] = {"signature": selection_signature, "elapsed": None}
+
+
+def _timer_store_elapsed(timer_key: str, selection_signature, elapsed_seconds: float) -> None:
+    """Armazena tempo medido para a seleção corrente."""
+    st.session_state[timer_key] = {
+        "signature": selection_signature,
+        "elapsed": float(elapsed_seconds),
+    }
+
+
+def _timer_render_caption(timer_key: str, container, label: str) -> None:
+    """Renderiza cronômetro de carregamento para a aba."""
+    state = st.session_state.get(timer_key, {})
+    elapsed = state.get("elapsed")
+    if elapsed is None:
+        container.caption(f"⏱️ {label}: medindo carregamento desta seleção...")
+        return
+    container.caption(f"⏱️ {label}: {elapsed:.2f}s (seleção atual)")
 import utils  # garante pacote utils carregado
 importlib.invalidate_caches()
 from utils.formatting import (
@@ -7444,6 +7469,10 @@ def pagina_snapshot():
     )
     idx_snapshot_default = bancos.index(banco_snapshot_default) if banco_snapshot_default in bancos else 0
     banco = st.selectbox("Instituição", bancos, index=idx_snapshot_default, key="snapshot_banco")
+    timer_box = st.empty()
+    snapshot_signature = ("snapshot", banco)
+    _timer_reset_if_selection_changed("snapshot_timer_state", snapshot_signature)
+    _timer_render_caption("snapshot_timer_state", timer_box, "Tempo de carregamento da aba Snapshot")
 
     periodos_banco = ordenar_periodos(df_base.loc[df_base["Instituição"] == banco, "Período"].dropna().unique().tolist(), reverso=True)
     if not periodos_banco:
@@ -7826,6 +7855,8 @@ def pagina_snapshot():
 
     tempo_render = time.perf_counter() - t_render
     tempo_total = time.perf_counter() - t0
+    _timer_store_elapsed("snapshot_timer_state", snapshot_signature, tempo_total)
+    _timer_render_caption("snapshot_timer_state", timer_box, "Tempo de carregamento da aba Snapshot")
 
 
 def _gerar_imagem_peers_tabela(
@@ -10436,6 +10467,19 @@ elif menu == "Peers (Tabela)":
                     )
 
                 if bancos_selecionados and periodos_selecionados:
+                    timer_box_peers = st.empty()
+                    peers_signature = (
+                        "peers_tabela",
+                        tuple(sorted(bancos_selecionados)),
+                        tuple(sorted(periodos_selecionados)),
+                    )
+                    _timer_reset_if_selection_changed("peers_tabela_timer_state", peers_signature)
+                    _timer_render_caption(
+                        "peers_tabela_timer_state",
+                        timer_box_peers,
+                        "Tempo de carregamento da aba Peers (Tabela)",
+                    )
+                    t0_peers = time.perf_counter()
                     periodos_selecionados = ordenar_periodos(periodos_selecionados, reverso=True)
                     periodos_base_peers = {_periodo_ano_anterior(p) for p in periodos_selecionados}
                     periodos_ext_peers = tuple(sorted({p for p in (periodos_selecionados + sorted(periodos_base_peers)) if p}))
@@ -10576,6 +10620,13 @@ elif menu == "Peers (Tabela)":
 
                     print("[PEERS_PERF]", {k: round(v, 3) for k, v in sorted(peers_perf.items())})
                     _log_roe_trace(df, "peers_pos_render")
+                    tempo_total_peers = time.perf_counter() - t0_peers
+                    _timer_store_elapsed("peers_tabela_timer_state", peers_signature, tempo_total_peers)
+                    _timer_render_caption(
+                        "peers_tabela_timer_state",
+                        timer_box_peers,
+                        "Tempo de carregamento da aba Peers (Tabela)",
+                    )
 
                     with st.expander("Memória de cálculo — Peers (Tabela)", expanded=False):
                         formatos_metrica = {
