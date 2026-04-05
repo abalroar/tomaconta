@@ -5354,6 +5354,33 @@ def _carregar_cache_relatorio_slice(
     instituicoes: tuple = (),
 ) -> Optional[pd.DataFrame]:
     """Carrega recorte de cache por período/instituição para reduzir I/O e RAM."""
+    def _periodos_to_yyyymm(periodos_src: tuple) -> tuple[str, ...]:
+        out = []
+        for p in (periodos_src or ()):
+            if not isinstance(p, str) or "/" not in p:
+                continue
+            mm, yyyy = p.split("/", 1)
+            mm = mm.strip().zfill(2)
+            yyyy = yyyy.strip()
+            if len(yyyy) == 4 and mm.isdigit():
+                out.append(f"{yyyy}{mm}")
+        return tuple(sorted(set(out)))
+
+    def _periodos_to_data_base_candidates(periodos_src: tuple) -> tuple:
+        vals = set()
+        for ym in _periodos_to_yyyymm(periodos_src):
+            vals.add(ym)
+            vals.add(int(ym))
+            ano = ym[:4]
+            mes = ym[4:6]
+            vals.add(f"{ano}-{mes}")
+            for dia in range(1, 32):
+                dd = f"{dia:02d}"
+                vals.add(f"{ym}{dd}")
+                vals.add(int(f"{ym}{dd}"))
+                vals.add(f"{ano}-{mes}-{dd}")
+        return tuple(sorted(vals, key=lambda x: str(x)))
+
     manager = get_cache_manager()
     if manager is None:
         return None
@@ -5370,14 +5397,33 @@ def _carregar_cache_relatorio_slice(
         try:
             import pyarrow.dataset as ds
             dataset = ds.dataset(cache.arquivo_dados)
+            schema_names = {str(n) for n in dataset.schema.names}
             filtro = None
             if periodos:
-                f = ds.field("Período").isin(list(periodos))
-                filtro = f if filtro is None else filtro & f
-            if instituicoes:
+                if "Período" in schema_names:
+                    f = ds.field("Período").isin(list(periodos))
+                    filtro = f if filtro is None else filtro & f
+                elif tipo_cache == "bloprudencial":
+                    yyyymm_needed = _periodos_to_data_base_candidates(tuple(periodos))
+                    if yyyymm_needed and "DATA_BASE" in schema_names:
+                        # DATA_BASE pode vir como YYYYMM, YYYYMMDD, int ou data string.
+                        f = ds.field("DATA_BASE").isin(list(yyyymm_needed))
+                        filtro = f if filtro is None else filtro & f
+            if instituicoes and "Instituição" in schema_names and tipo_cache != "bloprudencial":
                 f = ds.field("Instituição").isin(list(instituicoes))
                 filtro = f if filtro is None else filtro & f
-            tabela = dataset.to_table(filter=filtro) if filtro is not None else dataset.to_table()
+            if tipo_cache == "bloprudencial":
+                cols_blop = [
+                    c for c in [
+                        "DATA_BASE", "Período", "DOCUMENTO", "CONTA", "SALDO",
+                        "NOME_INSTITUICAO", "NOME_CONGL", "COD_CONGL",
+                        "Instituição", "Instituicao", "Documento", "Conta", "Saldo",
+                        "Nome_Congl", "Cod_Congl",
+                    ] if c in schema_names
+                ]
+                tabela = dataset.to_table(columns=cols_blop or None, filter=filtro) if filtro is not None else dataset.to_table(columns=cols_blop or None)
+            else:
+                tabela = dataset.to_table(filter=filtro) if filtro is not None else dataset.to_table()
             return _normalizar_nomes_carteira(tabela.to_pandas())
         except Exception:
             pass
@@ -5402,7 +5448,7 @@ def _carregar_cache_relatorio_slice(
                 if periodos_yyyymm:
                     base_txt = df[col_data_base].astype(str).str.replace(r"\D", "", regex=True).str[:6]
                     df = df[base_txt.isin(periodos_yyyymm)]
-    if instituicoes and "Instituição" in df.columns:
+    if instituicoes and "Instituição" in df.columns and tipo_cache != "bloprudencial":
         mask = df["Instituição"].isin(instituicoes)
         if not mask.any():
             inst_norm = df["Instituição"].apply(normalizar_nome_instituicao)
