@@ -1,0 +1,78 @@
+{
+  "run_id": "20260331-160235_run-retry-v2-0-a",
+  "executed_at_utc": "2026-03-31T18:14:50.840649+00:00",
+  "git_head": "e20967e",
+  "modo": "overwrite",
+  "snapshot_pre": "20260331-160235_retry-v2-0-a",
+  "snapshot_post": null,
+  "tipos": [
+    "principal",
+    "capital",
+    "ativo",
+    "passivo",
+    "dre",
+    "carteira_pf",
+    "carteira_pj",
+    "carteira_instrumentos",
+    "bloprudencial"
+  ],
+  "periodo_trimestral": {
+    "inicio": "201503",
+    "fim": "202509"
+  },
+  "periodo_mensal": {
+    "inicio": "201503",
+    "fim": "202509"
+  },
+  "detalhes": [
+    {
+      "tipo": "principal",
+      "status": "ok",
+      "mensagem": "concluído em lotes",
+      "periodos": 43,
+      "lotes": 43,
+      "lotes_ok": 43
+    },
+    {
+      "tipo": "capital",
+      "status": "ok",
+      "mensagem": "concluído em lotes",
+      "periodos": 43,
+      "lotes": 43,
+      "lotes_ok": 43
+    },
+    {
+      "tipo": "ativo",
+      "status": "ok",
+      "mensagem": "concluído em lotes",
+      "periodos": 43,
+      "lotes": 43,
+      "lotes_ok": 43
+    },
+    {
+      "tipo": "passivo",
+      "status": "ok",
+      "mensagem": "concluído em lotes",
+      "periodos": 43,
+      "lotes": 43,
+      "lotes_ok": 43
+    },
+    {
+      "tipo": "dre",
+      "status": "ok",
+      "mensagem": "concluído em lotes",
+      "periodos": 43,
+      "lotes": 43,
+      "lotes_ok": 43
+    },
+    {
+      "tipo": "carteira_pf",
+      "status": "erro",
+      "mensagem": "Nenhum período extraído com sucesso. Erros: 201503: Sem dados para 201503",
+      "periodos": 43,
+      "lotes": 1,
+      "lotes_ok": 0
+    }
+  ],
+  "status": "erro"
+}

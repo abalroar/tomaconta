@@ -6468,9 +6468,34 @@ def _montar_tabela_peers(
     )
     _perf_peers_stage(perf, "c_joins_mapeamentos_metricas_extra", t_extra)
 
-    # PERFORMANCE: evita reconstrução global dos índices de capital em base completa
-    # dentro do hot path de Peers. O extra_values já calcula CET1/Basileia a partir
-    # do recorte de capital desta execução (cache_capital slice).
+    # Fonte canônica de capital compartilhada com Rankings:
+    # evita divergência de CET1/Basileia entre abas.
+    df_capital_idx = _construir_indices_capital_unificados(
+        _cache_version_token("capital"),
+        _alias_signature(),
+    )
+    if df_capital_idx is not None and not df_capital_idx.empty:
+        df_capital_idx = df_capital_idx.copy()
+        if "Instituição" in df_capital_idx.columns and "Período" in df_capital_idx.columns:
+            df_capital_idx["inst_key"] = df_capital_idx["Instituição"].apply(normalizar_nome_instituicao)
+            df_capital_idx["per_key"] = df_capital_idx["Período"].apply(normalizar_periodo_chave)
+            capital_dict = (
+                df_capital_idx
+                .dropna(subset=["inst_key", "per_key"])
+                .set_index(["inst_key", "per_key"])
+                .to_dict("index")
+            )
+            for banco in bancos:
+                for periodo in periodos:
+                    chave_saida = (banco, periodo)
+                    chave_peers = (normalizar_nome_instituicao(banco), normalizar_periodo_chave(periodo))
+                    row_cap = capital_dict.get(chave_peers) or {}
+                    extra_values["Índice de Capital Principal (CET1)"][chave_saida] = _coerce_numeric_value(
+                        row_cap.get("Índice de Capital Principal (CET1)")
+                    )
+                    extra_values["Índice de Basileia Total (%)"][chave_saida] = _coerce_numeric_value(
+                        row_cap.get("Índice de Basileia Total (%)")
+                    )
 
     coluna_credito = _resolver_coluna_peers(df, ["Carteira de Crédito Bruta", "Carteira de Crédito"])
 
