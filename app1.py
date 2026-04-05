@@ -1,5 +1,6 @@
 import importlib
 import math
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, Optional, List
 import streamlit as st
 import pandas as pd
@@ -6314,22 +6315,25 @@ def _montar_tabela_peers(
     if df_capital_idx is not None and not df_capital_idx.empty:
         df_capital_idx = df_capital_idx.copy()
         if "Instituição" in df_capital_idx.columns and "Período" in df_capital_idx.columns:
-            mapa_cet1 = {}
-            mapa_basileia = {}
-            for _, row_cap in df_capital_idx.iterrows():
-                inst_cap = row_cap.get("Instituição")
-                per_cap = row_cap.get("Período")
-                if pd.isna(inst_cap) or pd.isna(per_cap):
-                    continue
-                chave_cap = (str(inst_cap), str(per_cap))
-                mapa_cet1[chave_cap] = _coerce_numeric_value(row_cap.get("Índice de Capital Principal (CET1)"))
-                mapa_basileia[chave_cap] = _coerce_numeric_value(row_cap.get("Índice de Basileia Total (%)"))
+            df_capital_idx["inst_key"] = df_capital_idx["Instituição"].apply(normalizar_nome_instituicao)
+            df_capital_idx["per_key"] = df_capital_idx["Período"].apply(normalizar_periodo_chave)
+            capital_dict = (
+                df_capital_idx
+                .dropna(subset=["inst_key", "per_key"])
+                .set_index(["inst_key", "per_key"])
+                .to_dict("index")
+            )
             for banco in bancos:
                 for periodo in periodos:
-                    chave_peers = (banco, periodo)
-                    chave_cap = (str(banco), str(periodo))
-                    extra_values["Índice de Capital Principal (CET1)"][chave_peers] = mapa_cet1.get(chave_cap)
-                    extra_values["Índice de Basileia Total (%)"][chave_peers] = mapa_basileia.get(chave_cap)
+                    chave_saida = (banco, periodo)
+                    chave_peers = (normalizar_nome_instituicao(banco), normalizar_periodo_chave(periodo))
+                    row_cap = capital_dict.get(chave_peers) or {}
+                    extra_values["Índice de Capital Principal (CET1)"][chave_saida] = _coerce_numeric_value(
+                        row_cap.get("Índice de Capital Principal (CET1)")
+                    )
+                    extra_values["Índice de Basileia Total (%)"][chave_saida] = _coerce_numeric_value(
+                        row_cap.get("Índice de Basileia Total (%)")
+                    )
 
     coluna_credito = _resolver_coluna_peers(df, ["Carteira de Crédito Bruta", "Carteira de Crédito"])
 
@@ -9013,29 +9017,52 @@ def get_df_periodo_brincar(periodo: str) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=900, show_spinner=False)
-def _get_analise_base_df(principal_token: str, alias_sig: tuple, capital_mesclado: bool) -> pd.DataFrame:
+def _get_analise_base_df(
+    principal_token: str,
+    alias_sig: tuple,
+    capital_mesclado: bool,
+    periodos_filter: Optional[list] = None,
+) -> pd.DataFrame:
     """Base unificada para abas analíticas com dependências explícitas para cache."""
     _ = (principal_token, capital_mesclado)
     dados_periodos = _carregar_dados_periodos_preparados(principal_token, alias_sig)
     if not dados_periodos:
         return pd.DataFrame()
 
-    df = pd.concat(dados_periodos.values(), ignore_index=True)
-    if df is None or df.empty:
+    if periodos_filter is not None:
+        periodos_set = {str(p) for p in periodos_filter if p is not None}
+        dados_periodos = {
+            periodo: df_periodo
+            for periodo, df_periodo in dados_periodos.items()
+            if str(periodo) in periodos_set
+        }
+
+    if not dados_periodos:
         return pd.DataFrame()
 
-    df = _normalizar_lucro_liquido(df.copy())
-    df = _recalcular_roe_anualizado_df(df)
-    df = _recalcular_roe_trimestral_df(df)
-    return df
+    result = pd.concat(dados_periodos.values(), ignore_index=True)
+    assert result.shape[0] > 0, "get_analise_base_df retornou vazio"
+
+    if result is None or result.empty:
+        return pd.DataFrame()
+
+    result = _normalizar_lucro_liquido(result.copy())
+    result = _recalcular_roe_anualizado_df(result)
+    result = _recalcular_roe_trimestral_df(result)
+    return result
 
 
-def get_analise_base_df() -> pd.DataFrame:
+def get_analise_base_df(periodos_filter: Optional[list] = None) -> pd.DataFrame:
     """Retorna base memoizada para Peers e Scatter."""
     principal_token = _cache_version_token("principal")
     alias_sig = _alias_signature()
     capital_mesclado = bool(st.session_state.get('_dados_capital_mesclados', False))
-    return _get_analise_base_df(principal_token, alias_sig, capital_mesclado)
+    return _get_analise_base_df(
+        principal_token,
+        alias_sig,
+        capital_mesclado,
+        periodos_filter=periodos_filter,
+    )
 
 
 def _get_cache_data_mtime(cache_obj) -> Optional[float]:
@@ -10833,17 +10860,47 @@ elif menu == "Peers (Tabela)":
                     for _banco_sel in bancos_selecionados:
                         instituicoes_slice.update(_instituicoes_filtro_snapshot(_banco_sel, dict_aliases))
                     instituicoes_slice_tuple = tuple(sorted(i for i in instituicoes_slice if i))
+                    df = get_analise_base_df(periodos_filter=list(periodos_ext_peers))
 
                     # Carregamento já recortado no nível do cache (evita ler dataset inteiro)
                     t_slice = time.perf_counter()
-                    cache_ativo = _carregar_cache_relatorio_slice("ativo", _cache_version_token("ativo"), periodos_ext_peers, instituicoes_slice_tuple)
-                    cache_passivo = _carregar_cache_relatorio_slice("passivo", _cache_version_token("passivo"), periodos_ext_peers, instituicoes_slice_tuple)
-                    cache_carteira_pf = _carregar_cache_relatorio_slice("carteira_pf", _cache_version_token("carteira_pf"), periodos_ext_peers, instituicoes_slice_tuple)
-                    cache_carteira_pj = _carregar_cache_relatorio_slice("carteira_pj", _cache_version_token("carteira_pj"), periodos_ext_peers, instituicoes_slice_tuple)
-                    cache_carteira_instr = _carregar_cache_relatorio_slice("carteira_instrumentos", _cache_version_token("carteira_instrumentos"), periodos_ext_peers, instituicoes_slice_tuple)
-                    cache_dre = _carregar_cache_relatorio_slice("dre", _cache_version_token("dre"), periodos_ext_peers, instituicoes_slice_tuple)
-                    cache_capital = _carregar_cache_relatorio_slice("capital", _cache_version_token("capital"), periodos_ext_peers, instituicoes_slice_tuple)
-                    cache_bloprudencial = _carregar_cache_relatorio_slice("bloprudencial", _cache_version_token("bloprudencial"), periodos_ext_peers, instituicoes_slice_tuple)
+                    _slices_config = [
+                        ("ativo", _cache_version_token("ativo")),
+                        ("passivo", _cache_version_token("passivo")),
+                        ("carteira_pf", _cache_version_token("carteira_pf")),
+                        ("carteira_pj", _cache_version_token("carteira_pj")),
+                        ("carteira_instrumentos", _cache_version_token("carteira_instrumentos")),
+                        ("dre", _cache_version_token("dre")),
+                        ("capital", _cache_version_token("capital")),
+                        ("bloprudencial", _cache_version_token("bloprudencial")),
+                    ]
+                    _slices_result = {}
+                    with ThreadPoolExecutor(max_workers=8) as _executor:
+                        _futures = {
+                            _executor.submit(
+                                _carregar_cache_relatorio_slice,
+                                tipo,
+                                token,
+                                periodos_ext_peers,
+                                instituicoes_slice_tuple,
+                            ): tipo
+                            for tipo, token in _slices_config
+                        }
+                        for _future in as_completed(_futures):
+                            _tipo = _futures[_future]
+                            try:
+                                _slices_result[_tipo] = _future.result()
+                            except Exception:
+                                _slices_result[_tipo] = None
+
+                    cache_ativo = _slices_result.get("ativo")
+                    cache_passivo = _slices_result.get("passivo")
+                    cache_carteira_pf = _slices_result.get("carteira_pf")
+                    cache_carteira_pj = _slices_result.get("carteira_pj")
+                    cache_carteira_instr = _slices_result.get("carteira_instrumentos")
+                    cache_dre = _slices_result.get("dre")
+                    cache_capital = _slices_result.get("capital")
+                    cache_bloprudencial = _slices_result.get("bloprudencial")
                     _perf_peers_stage(peers_perf, "a_leitura_cache_slices", t_slice)
 
                     t_filtros = time.perf_counter()
