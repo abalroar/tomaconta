@@ -5753,6 +5753,7 @@ def _preparar_metricas_extra_peers(
 
         # Mapa de nomes->código usa o conjunto de períodos (não restringir por conta),
         # para preservar cobertura de bancos menores sem reabrir varredura global.
+<<<<<<< HEAD
         df_blop_map = (
             df_blop[["_inst_norm", "_congl_norm", "_cod_congl"]]
             .copy()
@@ -5767,6 +5768,9 @@ def _preparar_metricas_extra_peers(
             df_blop_map = df_blop_map.loc[has_nome]
             df_blop_map = df_blop_map[df_blop_map["_cod_congl"].ne("")]
             df_blop_map = df_blop_map.drop_duplicates(subset=["_inst_norm", "_congl_norm", "_cod_congl"])
+=======
+        df_blop_map = df_blop[["_inst_norm", "_congl_norm", "_cod_congl"]].copy()
+>>>>>>> main
 
         if col_blop_conta:
             contas_num = df_blop[col_blop_conta].astype(str).str.replace(r"\D", "", regex=True)
@@ -5829,8 +5833,13 @@ def _preparar_metricas_extra_peers(
                 if cod_congl and cod_congl != "None" and pd.notna(val):
                     blop_lookup_cod[(yyyymm, cod_congl, conta)] = float(val)
 
+<<<<<<< HEAD
             for inst_norm, congl_norm, cod in df_blop_map.itertuples(index=False, name=None):
                 cod = str(cod).strip().upper()
+=======
+            for _, row in df_blop_map.iterrows():
+                cod = str(row.get("_cod_congl", "")).strip().upper()
+>>>>>>> main
                 if not cod or cod == "None":
                     continue
                 inst_norm = str(inst_norm).strip()
