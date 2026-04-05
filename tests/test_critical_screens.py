@@ -27,6 +27,7 @@ def test_build_critical_screens_dataframe_materializes_expected_metrics(tmp_path
                 "Ativo Total": 1800.0,
                 "Patrimônio Líquido": 200.0,
                 "Lucro Líquido Acumulado YTD": 40.0,
+                "Captações": 480.0,
             },
             {
                 "Instituição": "ITAU - PRUDENCIAL",
@@ -34,6 +35,7 @@ def test_build_critical_screens_dataframe_materializes_expected_metrics(tmp_path
                 "Ativo Total": 1900.0,
                 "Patrimônio Líquido": 220.0,
                 "Lucro Líquido Acumulado YTD": 10.0,
+                "Captações": 500.0,
             },
         ]
     )
@@ -69,6 +71,21 @@ def test_build_critical_screens_dataframe_materializes_expected_metrics(tmp_path
                 "Depósitos a Prazo (a4)": 40.0,
                 "Outros Depósitos (a5)": 5.0,
                 "Depósitos Outros (a6)": 1.0,
+            }
+        ]
+    )
+    dre = pd.DataFrame(
+        [
+            {
+                "Instituição": "ITAU - PRUDENCIAL",
+                "Período": "1/2025",
+                "Resultado com Perda Esperada (f)": -12.0,
+                "Rendas de Operações de Crédito (c)": 90.0,
+                "Rendas de Arrendamento Financeiro (d)": 10.0,
+                "Rendas de Outras Operações com Características de Concessão de Crédito (e)": 5.0,
+                "Rendas de Aplicações Interfinanceiras de Liquidez (a)": 8.0,
+                "Rendas de Títulos e Valores Mobiliários (b)": 7.0,
+                "Despesas de Captações (g)": 11.0,
             }
         ]
     )
@@ -154,6 +171,7 @@ def test_build_critical_screens_dataframe_materializes_expected_metrics(tmp_path
         df_ativo=ativo,
         df_passivo=passivo,
         df_capital=capital,
+        df_dre=dre,
         df_carteira_pf=carteira_pf,
         df_carteira_pj=carteira_pj,
         df_carteira_instrumentos=carteira_instr,
@@ -166,10 +184,14 @@ def test_build_critical_screens_dataframe_materializes_expected_metrics(tmp_path
     assert row["Ativo Total"] == 1900.0
     assert row["Patrimônio Líquido"] == 220.0
     assert row["Lucro Líquido Acumulado YTD"] == 10.0
+    assert row["Lucro Líquido Trimestral"] == 10.0
     assert round(row["ROE Ac. Anualizado (%)"], 6) == round((10.0 * 4.0) / ((220.0 + 200.0) / 2.0), 6)
+    assert round(row["ROE trimestral anualizado (%)"], 6) == round((10.0 * 4.0) / ((220.0 + 200.0) / 2.0), 6)
     assert row["Ativos Líquidos"] == 600.0
     assert row["Depósitos Totais"] == 106.0
     assert row["Core Funding*"] == 550.0
+    assert round(row["Crédito / Captações"], 6) == round(1900.0 / 550.0, 6)
+    assert round(row["Desp Captação / Captação"], 6) == round((11.0 * 4.0) / 500.0, 6)
     assert row["Carteira de Crédito Bruta"] == 1900.0
     assert row["Perda Esperada"] == 100.0
     assert round(row["Perda Esperada / Carteira de Crédito*"], 6) == round(100.0 / 1900.0, 6)
@@ -178,6 +200,8 @@ def test_build_critical_screens_dataframe_materializes_expected_metrics(tmp_path
     assert round(row["Perda Esperada / Estágio 3"], 6) == 0.2
     assert round(row["Índice de Capital Principal (CET1)"], 6) == 0.12
     assert round(row["Índice de Basileia Total (%)"], 6) == 0.17
+    assert row["Trace::Ativos Líquidos::Disponibilidades (a)"] == 100.0
+    assert row["Trace::Capital::Capital Principal"] == 120.0
     assert bool(row["CapitalDisponivel"])
     assert bool(row["BloprudencialDisponivel"])
     assert bool(row["QualidadeCarteiraDisponivel"])

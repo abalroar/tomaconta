@@ -15,6 +15,13 @@ import pandas as pd
 from .availability import display_period_to_api, filter_supported_periods
 from .base import BaseCache, CacheConfig, CacheResult
 from .bloprudencial import load_bloprudencial_df_cached
+from .derived_metrics import (
+    _acumular_dre_ytd_por_periodo,
+    _anualizar_serie_por_periodo,
+    _media_captacoes_ytd,
+    _prepare_base_dre,
+    _prepare_base_principal,
+)
 from .institutions import build_institution_to_conglomerate_map, canonicalize_institution_name, normalize_institution_name
 
 if TYPE_CHECKING:
@@ -22,7 +29,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("ifdata_cache")
 
-CRITICAL_SCREENS_SCHEMA_VERSION = 2
+CRITICAL_SCREENS_SCHEMA_VERSION = 3
 BUNDLED_CRITICAL_SCREENS_DIR = Path("data") / "bundled" / "critical_screens"
 
 
@@ -68,8 +75,55 @@ CRITICAL_BASE_METRICS = [
     "Ativo Total",
     "Patrimônio Líquido",
     "Lucro Líquido Acumulado YTD",
+    "Lucro Líquido Trimestral",
     "ROE Ac. Anualizado (%)",
+    "ROE trimestral anualizado (%)",
     "ROE Ac. YTD an. (%)",
+    "Crédito / Captações",
+    "Desp Captação / Captação",
+]
+
+CRITICAL_TRACE_COLUMNS = [
+    "InstituiçãoRaw",
+    "Trace::PL Dez Ano Anterior",
+    "Trace::Fator Anualização",
+    "Trace::Ativos Líquidos::Disponibilidades (a)",
+    "Trace::Ativos Líquidos::Aplicações Interfinanceiras de Liquidez (b)",
+    "Trace::Ativos Líquidos::Títulos e Valores Mobiliários (c)",
+    "Trace::Carteira::Operações de Crédito (d1)",
+    "Trace::Carteira::Arrendamento Mercantil a Receber (e1)",
+    "Trace::Carteira::Outros Créditos - Líquido de Provisão (f)",
+    "Trace::Carteira::Valor Contábil Bruto (e1)",
+    "Trace::Carteira::Valor Contábil Bruto (f1)",
+    "Trace::Carteira::Valor Contábil Bruto (g1)",
+    "Trace::Carteira::Valor Contábil Bruto (h1)",
+    "Trace::Perda Esperada::Perda Esperada (e2)",
+    "Trace::Perda Esperada::Hedge de Valor Justo (e3)",
+    "Trace::Perda Esperada::Ajuste a Valor Justo (e4)",
+    "Trace::Perda Esperada::Perda Esperada (f2)",
+    "Trace::Perda Esperada::Hedge de Valor Justo (f3)",
+    "Trace::Perda Esperada::Perda Esperada (g2)",
+    "Trace::Perda Esperada::Hedge de Valor Justo (g3)",
+    "Trace::Perda Esperada::Ajuste a Valor Justo (g4)",
+    "Trace::Perda Esperada::Perda Esperada (h2)",
+    "Trace::Depósitos Totais::Depósitos (e)",
+    "Trace::Depósitos Totais::Depósitos à Vista (a1)",
+    "Trace::Depósitos Totais::Depósitos de Poupança (a2)",
+    "Trace::Depósitos Totais::Depósitos Interfinanceiros (a3)",
+    "Trace::Depósitos Totais::Depósitos a Prazo (a4)",
+    "Trace::Depósitos Totais::Outros Depósitos (a5)",
+    "Trace::Depósitos Totais::Depósitos Outros (a6)",
+    "Trace::Core Funding::Captações (e)",
+    "Trace::Core Funding::Instrumentos de Dívida Elegíveis a Capital (h)",
+    "Trace::Capital::Capital Principal",
+    "Trace::Capital::Capital Complementar",
+    "Trace::Capital::Capital Nível II",
+    "Trace::Capital::RWA Total",
+    "Trace::Capital::Índice CET1 Publicado",
+    "Trace::Capital::Índice Basileia Publicado",
+    "Trace::Desp Captação::Despesa YTD",
+    "Trace::Desp Captação::Despesa Anualizada",
+    "Trace::Desp Captação::Captações Média YTD",
 ]
 
 
@@ -296,6 +350,7 @@ def _normalize_principal_metrics(df: pd.DataFrame) -> pd.DataFrame:
     pl_col = "Patrimônio Líquido"
     if ll_col in out.columns:
         ll_ytd_ajustado = pd.Series(np.nan, index=out.index, dtype="float64")
+        ll_trimestral = pd.Series(np.nan, index=out.index, dtype="float64")
         for (_, _), idx in out.groupby(["InstituiçãoKey", "_ano_tmp"], dropna=False, observed=False).groups.items():
             grupo = out.loc[idx].copy().sort_values("_tri_idx_tmp")
             raw_map = pd.to_numeric(grupo[ll_col], errors="coerce")
@@ -311,7 +366,18 @@ def _normalize_principal_metrics(df: pd.DataFrame) -> pd.DataFrame:
                     ll_jun = raw_map.get(2)
                     if pd.notna(ll_jun):
                         ll_ytd_ajustado.at[row_idx] = float(ll_jun) + float(ll_db)
+                if tri in (1, 3):
+                    ll_trimestral.at[row_idx] = float(ll_db)
+                elif tri == 2:
+                    ll_mar = raw_map.get(1)
+                    if pd.notna(ll_mar):
+                        ll_trimestral.at[row_idx] = float(ll_db) - float(ll_mar)
+                elif tri == 4:
+                    ll_set = raw_map.get(3)
+                    if pd.notna(ll_set):
+                        ll_trimestral.at[row_idx] = float(ll_db) - float(ll_set)
         out[ll_col] = ll_ytd_ajustado.where(ll_ytd_ajustado.notna(), pd.to_numeric(out[ll_col], errors="coerce"))
+        out["Lucro Líquido Trimestral"] = ll_trimestral
 
     if {ll_col, pl_col}.issubset(out.columns):
         ll_num = pd.to_numeric(out[ll_col], errors="coerce")
@@ -329,9 +395,15 @@ def _normalize_principal_metrics(df: pd.DataFrame) -> pd.DataFrame:
         )
         pl_dez_prev = pd.to_numeric(pl_dez.reindex(idx_prev).to_numpy(), errors="coerce")
         pl_medio = (pl_num + pl_dez_prev) / 2
-        roe = (_annualization_factor(out["_mes_tmp"]) * ll_num) / pl_medio.where(pl_medio > 0, np.nan)
+        fator_anualizacao = _annualization_factor(out["_mes_tmp"])
+        roe = (fator_anualizacao * ll_num) / pl_medio.where(pl_medio > 0, np.nan)
         out["ROE Ac. Anualizado (%)"] = roe
         out["ROE Ac. YTD an. (%)"] = roe
+        out["Trace::PL Dez Ano Anterior"] = pl_dez_prev
+        out["Trace::Fator Anualização"] = fator_anualizacao
+        ll_trimestral = pd.to_numeric(out.get("Lucro Líquido Trimestral"), errors="coerce")
+        roe_tri = (ll_trimestral * 4.0) / pl_medio.where(pl_medio > 0, np.nan)
+        out["ROE trimestral anualizado (%)"] = roe_tri
 
     return out.drop(columns=["_tri_idx_tmp", "_ano_tmp", "_mes_tmp"], errors="ignore")
 
@@ -341,6 +413,7 @@ def _prepare_frame(
     catalog_map: Dict[str, str],
     *,
     canonicalize_names: bool = True,
+    dedupe: bool = True,
 ) -> pd.DataFrame:
     if df is None or df.empty:
         return pd.DataFrame()
@@ -348,20 +421,38 @@ def _prepare_frame(
     if "Instituição" not in out.columns or "Período" not in out.columns:
         return pd.DataFrame()
 
+    out["InstituiçãoRaw"] = out["Instituição"].astype(str).str.strip()
+
     if canonicalize_names:
-        nomes_brutos = out["Instituição"].astype(str)
+        nomes_brutos = out["InstituiçãoRaw"].astype(str)
         mapa_canonico = {
             nome: canonicalize_institution_name(nome, catalog_map=catalog_map)
             for nome in nomes_brutos.dropna().unique().tolist()
         }
         out["Instituição"] = nomes_brutos.map(mapa_canonico).fillna(nomes_brutos)
     else:
-        out["Instituição"] = out["Instituição"].astype(str).str.strip()
+        out["Instituição"] = out["InstituiçãoRaw"].astype(str).str.strip()
 
     out["Período"] = out["Período"].astype(str).str.strip()
     out["InstituiçãoKey"] = out["Instituição"].map(normalize_institution_name)
     out = out[out["InstituiçãoKey"].astype(bool)].copy()
-    out = out.drop_duplicates(subset=["InstituiçãoKey", "Período"], keep="last")
+    if not dedupe:
+        return out
+    metric_columns = [
+        col
+        for col in out.columns
+        if col not in {"Instituição", "InstituiçãoRaw", "Período", "InstituiçãoKey"}
+    ]
+    out["_canonical_exact"] = (
+        out["InstituiçãoRaw"].map(normalize_institution_name) == out["InstituiçãoKey"]
+    ).astype(int)
+    out["_non_null_score"] = out[metric_columns].notna().sum(axis=1) if metric_columns else 0
+    out = out.sort_values(
+        ["InstituiçãoKey", "Período", "_canonical_exact", "_non_null_score", "InstituiçãoRaw"],
+        ascending=[True, True, False, False, True],
+    )
+    out = out.drop_duplicates(subset=["InstituiçãoKey", "Período"], keep="first")
+    out = out.drop(columns=["_canonical_exact", "_non_null_score"], errors="ignore")
     return out
 
 
@@ -634,12 +725,120 @@ def _build_bloprud_lookup(df_bloprudencial: Optional[pd.DataFrame], catalog_map:
     return out
 
 
+def _build_desp_capt_lookup(
+    df_dre: Optional[pd.DataFrame],
+    df_principal: Optional[pd.DataFrame],
+    catalog_map: Dict[str, str],
+) -> Dict[tuple[str, str], dict]:
+    if df_dre is None or df_dre.empty or df_principal is None or df_principal.empty:
+        return {}
+
+    try:
+        df_dre_base, colunas_dre = _prepare_base_dre(df_dre)
+        df_principal_base = _prepare_base_principal(df_principal)
+    except Exception:
+        return {}
+
+    col_desp_captacao = colunas_dre.get("desp_captacao")
+    if not col_desp_captacao or col_desp_captacao not in df_dre_base.columns:
+        return {}
+
+    desp_ytd = _acumular_dre_ytd_por_periodo(df_dre_base, pd.to_numeric(df_dre_base[col_desp_captacao], errors="coerce"))
+    periodos = df_dre_base["Período"].astype(str)
+    desp_anualizada = _anualizar_serie_por_periodo(desp_ytd, periodos)
+
+    df_merge = df_dre_base[["Instituição", "Período"]].copy().merge(
+        df_principal_base,
+        on=["Instituição", "Período"],
+        how="left",
+        suffixes=("", "_principal"),
+    )
+    capt_media_ytd = _media_captacoes_ytd(
+        df_merge["Instituição"],
+        df_merge["Período"],
+        df_merge["Captações"],
+    )
+    denominador_valido = capt_media_ytd.notna() & (capt_media_ytd != 0)
+    ratio = desp_anualizada.where(denominador_valido) / capt_media_ytd.where(denominador_valido)
+
+    df_lookup = pd.DataFrame(
+        {
+            "Instituição": df_dre_base["Instituição"].astype(str),
+            "Período": df_dre_base["Período"].astype(str),
+            "Desp Captação / Captação": ratio,
+            "Trace::Desp Captação::Despesa YTD": desp_ytd,
+            "Trace::Desp Captação::Despesa Anualizada": desp_anualizada,
+            "Trace::Desp Captação::Captações Média YTD": capt_media_ytd,
+        }
+    )
+    prepared = _prepare_frame(df_lookup, catalog_map)
+    return _prepare_lookup(
+        prepared,
+        [
+            "Desp Captação / Captação",
+            "Trace::Desp Captação::Despesa YTD",
+            "Trace::Desp Captação::Despesa Anualizada",
+            "Trace::Desp Captação::Captações Média YTD",
+        ],
+    )
+
+
+def _collect_variant_audit(*frames: Optional[pd.DataFrame]) -> dict:
+    canonical_variants: Dict[str, set[str]] = {}
+    raw_to_canonical: Dict[str, str] = {}
+    dedupe_conflicts: Dict[str, list[str]] = {}
+
+    for frame in frames:
+        if frame is None or frame.empty:
+            continue
+        if not {"Instituição", "InstituiçãoRaw"}.issubset(frame.columns):
+            continue
+        pares = (
+            frame[["Instituição", "InstituiçãoRaw"]]
+            .dropna()
+            .drop_duplicates()
+            .to_dict("records")
+        )
+        for item in pares:
+            canonical = str(item["Instituição"]).strip()
+            raw = str(item["InstituiçãoRaw"]).strip()
+            if not canonical or not raw:
+                continue
+            canonical_variants.setdefault(canonical, set()).add(raw)
+            raw_to_canonical.setdefault(raw, canonical)
+
+        if {"InstituiçãoKey", "Período", "InstituiçãoRaw"}.issubset(frame.columns):
+            dup = frame.groupby(["InstituiçãoKey", "Período"], dropna=False)["InstituiçãoRaw"].nunique()
+            for (inst_key, periodo), total in dup.items():
+                if int(total) <= 1:
+                    continue
+                raws = (
+                    frame.loc[
+                        (frame["InstituiçãoKey"] == inst_key) & (frame["Período"] == periodo),
+                        "InstituiçãoRaw",
+                    ]
+                    .dropna()
+                    .astype(str)
+                    .sort_values()
+                    .unique()
+                    .tolist()
+                )
+                dedupe_conflicts[f"{inst_key}|{periodo}"] = raws
+
+    return {
+        "canonical_variants": {k: sorted(v) for k, v in sorted(canonical_variants.items())},
+        "raw_to_canonical": dict(sorted(raw_to_canonical.items())),
+        "dedupe_conflicts": dict(sorted(dedupe_conflicts.items())),
+    }
+
+
 def build_critical_screens_dataframe(
     *,
     df_principal: pd.DataFrame,
     df_ativo: Optional[pd.DataFrame],
     df_passivo: Optional[pd.DataFrame],
     df_capital: Optional[pd.DataFrame],
+    df_dre: Optional[pd.DataFrame],
     df_carteira_pf: Optional[pd.DataFrame],
     df_carteira_pj: Optional[pd.DataFrame],
     df_carteira_instrumentos: Optional[pd.DataFrame],
@@ -652,7 +851,16 @@ def build_critical_screens_dataframe(
 
     base = _prepare_frame(df_principal, catalog_map, canonicalize_names=True)
     if base.empty:
-        return pd.DataFrame(columns=["Instituição", "Período", "InstituiçãoKey", *CRITICAL_BASE_METRICS, *CRITICAL_EXTRA_METRICS])
+        return pd.DataFrame(
+            columns=[
+                "Instituição",
+                "Período",
+                "InstituiçãoKey",
+                *CRITICAL_BASE_METRICS,
+                *CRITICAL_EXTRA_METRICS,
+                *CRITICAL_TRACE_COLUMNS,
+            ]
+        )
     base = _normalize_principal_metrics(base)
 
     ativo = _prepare_frame(df_ativo, catalog_map)
@@ -662,6 +870,7 @@ def build_critical_screens_dataframe(
     carteira_pj = _prepare_frame(df_carteira_pj, catalog_map)
     carteira_instr = _prepare_frame(df_carteira_instrumentos, catalog_map)
     blop_lookup = _build_bloprud_lookup(df_bloprudencial, catalog_map)
+    desp_capt_lookup = _build_desp_capt_lookup(df_dre, df_principal, catalog_map)
 
     col_disp_ativo = _pick_col(ativo, ["Disponibilidades (a)", "Disponibilidades", "Disponibilidades (a) ="])
     col_aplic_ativo = _pick_col(
@@ -751,21 +960,30 @@ def build_critical_screens_dataframe(
         ],
     )
 
-    perda_colunas = []
-    for coluna in [
-        "Perda Esperada (e2)",
-        "Hedge de Valor Justo (e3)",
-        "Ajuste a Valor Justo (e4)",
-        "Perda Esperada (f2)",
-        "Hedge de Valor Justo (f3)",
-        "Perda Esperada (g2)",
-        "Hedge de Valor Justo (g3)",
-        "Ajuste a Valor Justo (g4)",
-        "Perda Esperada (h2)",
-    ]:
-        resolvida = _pick_col(ativo, [coluna])
-        if resolvida and resolvida not in perda_colunas:
-            perda_colunas.append(resolvida)
+    col_perda_e2 = _pick_col(ativo, ["Perda Esperada (e2)"])
+    col_perda_e3 = _pick_col(ativo, ["Hedge de Valor Justo (e3)"])
+    col_perda_e4 = _pick_col(ativo, ["Ajuste a Valor Justo (e4)"])
+    col_perda_f2 = _pick_col(ativo, ["Perda Esperada (f2)"])
+    col_perda_f3 = _pick_col(ativo, ["Hedge de Valor Justo (f3)"])
+    col_perda_g2 = _pick_col(ativo, ["Perda Esperada (g2)"])
+    col_perda_g3 = _pick_col(ativo, ["Hedge de Valor Justo (g3)"])
+    col_perda_g4 = _pick_col(ativo, ["Ajuste a Valor Justo (g4)"])
+    col_perda_h2 = _pick_col(ativo, ["Perda Esperada (h2)"])
+    perda_colunas = [
+        coluna
+        for coluna in [
+            col_perda_e2,
+            col_perda_e3,
+            col_perda_e4,
+            col_perda_f2,
+            col_perda_f3,
+            col_perda_g2,
+            col_perda_g3,
+            col_perda_g4,
+            col_perda_h2,
+        ]
+        if coluna
+    ]
 
     col_pf_total = _pick_col(
         carteira_pf,
@@ -846,6 +1064,7 @@ def build_critical_screens_dataframe(
     rows = []
     for item in base.to_dict("records"):
         instituicao = str(item.get("Instituição"))
+        instituicao_raw = str(item.get("InstituiçãoRaw") or instituicao)
         institution_key = str(item.get("InstituiçãoKey"))
         periodo = str(item.get("Período"))
         periodo_api = display_period_to_api(periodo)
@@ -853,27 +1072,49 @@ def build_critical_screens_dataframe(
         ativo_total = _coerce_numeric_value(item.get("Ativo Total"))
         patrimonio_liquido = _coerce_numeric_value(item.get("Patrimônio Líquido"))
         lucro_liquido_ytd = _coerce_numeric_value(item.get("Lucro Líquido Acumulado YTD"))
+        lucro_liquido_tri = _coerce_numeric_value(item.get("Lucro Líquido Trimestral"))
         roe_ac_ytd = _coerce_numeric_value(item.get("ROE Ac. Anualizado (%)"))
+        roe_tri = _coerce_numeric_value(item.get("ROE trimestral anualizado (%)"))
+        pl_dez_anterior = _coerce_numeric_value(item.get("Trace::PL Dez Ano Anterior"))
+        fator_anualizacao = _coerce_numeric_value(item.get("Trace::Fator Anualização"))
 
         valor_pf = _lk_get(lk_pf, institution_key, periodo, col_pf_total)
         valor_pj = _lk_get(lk_pj, institution_key, periodo, col_pj_total)
         carteira_classificada = _sum_values([valor_pf, valor_pj])
 
+        trace_disp = _coerce_numeric_value(_lk_get(lk_ativo, institution_key, periodo, col_disp_ativo))
+        trace_aplic = _coerce_numeric_value(_lk_get(lk_ativo, institution_key, periodo, col_aplic_ativo))
+        trace_tvm = _coerce_numeric_value(_lk_get(lk_ativo, institution_key, periodo, col_tvm_ativo))
+
         if ano_ref is not None and ano_ref <= 2024:
+            trace_cart_d1 = _coerce_numeric_value(_lk_get(lk_ativo, institution_key, periodo, col_credito_bruta_d1))
+            trace_cart_e1_alt = _coerce_numeric_value(_lk_get(lk_ativo, institution_key, periodo, col_credito_bruta_e1_alt))
+            trace_cart_f_old = _coerce_numeric_value(_lk_get(lk_ativo, institution_key, periodo, col_credito_bruta_f))
+            trace_cart_e1 = None
+            trace_cart_f1 = None
+            trace_cart_g1 = None
+            trace_cart_h1 = None
             carteira_bruta = _sum_values(
                 [
-                    _lk_get(lk_ativo, institution_key, periodo, col_credito_bruta_d1),
-                    _lk_get(lk_ativo, institution_key, periodo, col_credito_bruta_e1_alt),
-                    _lk_get(lk_ativo, institution_key, periodo, col_credito_bruta_f),
+                    trace_cart_d1,
+                    trace_cart_e1_alt,
+                    trace_cart_f_old,
                 ]
             )
         else:
+            trace_cart_d1 = None
+            trace_cart_e1_alt = None
+            trace_cart_f_old = None
+            trace_cart_e1 = _coerce_numeric_value(_lk_get(lk_ativo, institution_key, periodo, col_credito_bruta_e1))
+            trace_cart_f1 = _coerce_numeric_value(_lk_get(lk_ativo, institution_key, periodo, col_credito_bruta_f1))
+            trace_cart_g1 = _coerce_numeric_value(_lk_get(lk_ativo, institution_key, periodo, col_credito_bruta_g1))
+            trace_cart_h1 = _coerce_numeric_value(_lk_get(lk_ativo, institution_key, periodo, col_credito_bruta_h1))
             carteira_bruta = _sum_values(
                 [
-                    _lk_get(lk_ativo, institution_key, periodo, col_credito_bruta_e1),
-                    _lk_get(lk_ativo, institution_key, periodo, col_credito_bruta_f1),
-                    _lk_get(lk_ativo, institution_key, periodo, col_credito_bruta_g1),
-                    _lk_get(lk_ativo, institution_key, periodo, col_credito_bruta_h1),
+                    trace_cart_e1,
+                    trace_cart_f1,
+                    trace_cart_g1,
+                    trace_cart_h1,
                 ]
             )
         if carteira_bruta is None:
@@ -888,32 +1129,60 @@ def build_critical_screens_dataframe(
 
         ativos_liquidos = _sum_values(
             [
-                _lk_get(lk_ativo, institution_key, periodo, col_disp_ativo),
-                _lk_get(lk_ativo, institution_key, periodo, col_aplic_ativo),
-                _lk_get(lk_ativo, institution_key, periodo, col_tvm_ativo),
+                trace_disp,
+                trace_aplic,
+                trace_tvm,
             ]
         )
-        depositos_totais = _lk_get(lk_passivo, institution_key, periodo, col_depositos_passivo)
+        trace_dep_e = _coerce_numeric_value(_lk_get(lk_passivo, institution_key, periodo, col_depositos_passivo))
+        trace_dep_a1 = _coerce_numeric_value(_lk_get(lk_passivo, institution_key, periodo, col_dep_a1))
+        trace_dep_a2 = _coerce_numeric_value(_lk_get(lk_passivo, institution_key, periodo, col_dep_a2))
+        trace_dep_a3 = _coerce_numeric_value(_lk_get(lk_passivo, institution_key, periodo, col_dep_a3))
+        trace_dep_a4 = _coerce_numeric_value(_lk_get(lk_passivo, institution_key, periodo, col_dep_a4))
+        trace_dep_a5 = _coerce_numeric_value(_lk_get(lk_passivo, institution_key, periodo, col_dep_a5))
+        trace_dep_a6 = _coerce_numeric_value(_lk_get(lk_passivo, institution_key, periodo, col_dep_a6))
+        depositos_totais = trace_dep_e
         if _coerce_numeric_value(depositos_totais) is None:
             depositos_totais = _sum_values(
                 [
-                    _lk_get(lk_passivo, institution_key, periodo, col_dep_a1),
-                    _lk_get(lk_passivo, institution_key, periodo, col_dep_a2),
-                    _lk_get(lk_passivo, institution_key, periodo, col_dep_a3),
-                    _lk_get(lk_passivo, institution_key, periodo, col_dep_a4),
-                    _lk_get(lk_passivo, institution_key, periodo, col_dep_a5),
-                    _lk_get(lk_passivo, institution_key, periodo, col_dep_a6),
+                    trace_dep_a1,
+                    trace_dep_a2,
+                    trace_dep_a3,
+                    trace_dep_a4,
+                    trace_dep_a5,
+                    trace_dep_a6,
                 ]
             )
 
-        cap_val = _lk_get(lk_passivo, institution_key, periodo, col_capt_passivo)
+        trace_cap_e = _coerce_numeric_value(_lk_get(lk_passivo, institution_key, periodo, col_capt_passivo))
+        trace_instr_h = _coerce_numeric_value(_lk_get(lk_passivo, institution_key, periodo, col_instr_passivo))
+        cap_val = trace_cap_e
         if ano_ref is None or ano_ref <= 2024:
             core_funding = _coerce_numeric_value(cap_val)
         else:
-            core_funding = _sum_values([cap_val, _lk_get(lk_passivo, institution_key, periodo, col_instr_passivo)])
+            core_funding = _sum_values([cap_val, trace_instr_h])
 
+        trace_perda_e2 = _coerce_numeric_value(_lk_get(lk_ativo, institution_key, periodo, col_perda_e2))
+        trace_perda_e3 = _coerce_numeric_value(_lk_get(lk_ativo, institution_key, periodo, col_perda_e3))
+        trace_perda_e4 = _coerce_numeric_value(_lk_get(lk_ativo, institution_key, periodo, col_perda_e4))
+        trace_perda_f2 = _coerce_numeric_value(_lk_get(lk_ativo, institution_key, periodo, col_perda_f2))
+        trace_perda_f3 = _coerce_numeric_value(_lk_get(lk_ativo, institution_key, periodo, col_perda_f3))
+        trace_perda_g2 = _coerce_numeric_value(_lk_get(lk_ativo, institution_key, periodo, col_perda_g2))
+        trace_perda_g3 = _coerce_numeric_value(_lk_get(lk_ativo, institution_key, periodo, col_perda_g3))
+        trace_perda_g4 = _coerce_numeric_value(_lk_get(lk_ativo, institution_key, periodo, col_perda_g4))
+        trace_perda_h2 = _coerce_numeric_value(_lk_get(lk_ativo, institution_key, periodo, col_perda_h2))
         perda_esperada = _sum_values(
-            [_lk_get(lk_ativo, institution_key, periodo, coluna) for coluna in perda_colunas]
+            [
+                trace_perda_e2,
+                trace_perda_e3,
+                trace_perda_e4,
+                trace_perda_f2,
+                trace_perda_f3,
+                trace_perda_g2,
+                trace_perda_g3,
+                trace_perda_g4,
+                trace_perda_h2,
+            ]
         )
         valor_c4 = _lk_get(lk_instr, institution_key, periodo, col_c4)
         valor_c5 = _lk_get(lk_instr, institution_key, periodo, col_c5)
@@ -929,33 +1198,49 @@ def build_critical_screens_dataframe(
         indice_cap_principal = None
         val_cp = _coerce_numeric_value(_lk_get(lk_capital, institution_key, periodo, col_cap_principal))
         val_rwa = _coerce_numeric_value(_lk_get(lk_capital, institution_key, periodo, col_rwa_total))
+        val_cet1_publicado = None
         if val_cp is not None and val_rwa is not None and val_rwa != 0:
             indice_cap_principal = val_cp / val_rwa
         if indice_cap_principal is None:
             val_precalc = _coerce_numeric_value(_lk_get(lk_capital, institution_key, periodo, col_indice_cap_principal))
             if val_precalc is not None:
                 indice_cap_principal = val_precalc / 100 if abs(val_precalc) > 1 else val_precalc
+                val_cet1_publicado = indice_cap_principal
 
         indice_basileia = None
         val_cc = _coerce_numeric_value(_lk_get(lk_capital, institution_key, periodo, col_cap_complementar))
         val_n2 = _coerce_numeric_value(_lk_get(lk_capital, institution_key, periodo, col_cap_nivel2))
+        val_bas_publicado = None
         if None not in (val_cp, val_cc, val_n2, val_rwa) and val_rwa not in (None, 0):
             indice_basileia = (val_cp + val_cc + val_n2) / val_rwa
         if indice_basileia is None:
             val_precalc = _coerce_numeric_value(_lk_get(lk_capital, institution_key, periodo, col_indice_basileia_precalc))
             if val_precalc is not None:
                 indice_basileia = val_precalc / 100 if abs(val_precalc) > 1 else val_precalc
+                val_bas_publicado = indice_basileia
+
+        desp_capt_row = desp_capt_lookup.get((institution_key, periodo), {})
+        desp_capt = _coerce_numeric_value(desp_capt_row.get("Desp Captação / Captação"))
+        desp_capt_ytd = _coerce_numeric_value(desp_capt_row.get("Trace::Desp Captação::Despesa YTD"))
+        desp_capt_anual = _coerce_numeric_value(desp_capt_row.get("Trace::Desp Captação::Despesa Anualizada"))
+        capt_media_ytd = _coerce_numeric_value(desp_capt_row.get("Trace::Desp Captação::Captações Média YTD"))
+        credito_capt = _calc_ratio(carteira_bruta, core_funding)
 
         rows.append(
             {
                 "Instituição": instituicao,
+                "InstituiçãoRaw": instituicao_raw,
                 "Período": periodo,
                 "InstituiçãoKey": institution_key,
                 "Ativo Total": ativo_total,
                 "Patrimônio Líquido": patrimonio_liquido,
                 "Lucro Líquido Acumulado YTD": lucro_liquido_ytd,
+                "Lucro Líquido Trimestral": lucro_liquido_tri,
                 "ROE Ac. Anualizado (%)": roe_ac_ytd,
+                "ROE trimestral anualizado (%)": roe_tri,
                 "ROE Ac. YTD an. (%)": roe_ac_ytd,
+                "Crédito / Captações": credito_capt,
+                "Desp Captação / Captação": desp_capt,
                 "Ativos Líquidos": ativos_liquidos,
                 "Depósitos Totais": _coerce_numeric_value(depositos_totais),
                 "Core Funding": _coerce_numeric_value(core_funding),
@@ -979,6 +1264,45 @@ def build_critical_screens_dataframe(
                 "Perda Esperada / Estágio 3": _calc_ratio(perda_esperada, estagio3),
                 "Índice de Capital Principal (CET1)": indice_cap_principal,
                 "Índice de Basileia Total (%)": indice_basileia,
+                "Trace::PL Dez Ano Anterior": pl_dez_anterior,
+                "Trace::Fator Anualização": fator_anualizacao,
+                "Trace::Ativos Líquidos::Disponibilidades (a)": trace_disp,
+                "Trace::Ativos Líquidos::Aplicações Interfinanceiras de Liquidez (b)": trace_aplic,
+                "Trace::Ativos Líquidos::Títulos e Valores Mobiliários (c)": trace_tvm,
+                "Trace::Carteira::Operações de Crédito (d1)": trace_cart_d1,
+                "Trace::Carteira::Arrendamento Mercantil a Receber (e1)": trace_cart_e1_alt,
+                "Trace::Carteira::Outros Créditos - Líquido de Provisão (f)": trace_cart_f_old,
+                "Trace::Carteira::Valor Contábil Bruto (e1)": trace_cart_e1,
+                "Trace::Carteira::Valor Contábil Bruto (f1)": trace_cart_f1,
+                "Trace::Carteira::Valor Contábil Bruto (g1)": trace_cart_g1,
+                "Trace::Carteira::Valor Contábil Bruto (h1)": trace_cart_h1,
+                "Trace::Perda Esperada::Perda Esperada (e2)": trace_perda_e2,
+                "Trace::Perda Esperada::Hedge de Valor Justo (e3)": trace_perda_e3,
+                "Trace::Perda Esperada::Ajuste a Valor Justo (e4)": trace_perda_e4,
+                "Trace::Perda Esperada::Perda Esperada (f2)": trace_perda_f2,
+                "Trace::Perda Esperada::Hedge de Valor Justo (f3)": trace_perda_f3,
+                "Trace::Perda Esperada::Perda Esperada (g2)": trace_perda_g2,
+                "Trace::Perda Esperada::Hedge de Valor Justo (g3)": trace_perda_g3,
+                "Trace::Perda Esperada::Ajuste a Valor Justo (g4)": trace_perda_g4,
+                "Trace::Perda Esperada::Perda Esperada (h2)": trace_perda_h2,
+                "Trace::Depósitos Totais::Depósitos (e)": trace_dep_e,
+                "Trace::Depósitos Totais::Depósitos à Vista (a1)": trace_dep_a1,
+                "Trace::Depósitos Totais::Depósitos de Poupança (a2)": trace_dep_a2,
+                "Trace::Depósitos Totais::Depósitos Interfinanceiros (a3)": trace_dep_a3,
+                "Trace::Depósitos Totais::Depósitos a Prazo (a4)": trace_dep_a4,
+                "Trace::Depósitos Totais::Outros Depósitos (a5)": trace_dep_a5,
+                "Trace::Depósitos Totais::Depósitos Outros (a6)": trace_dep_a6,
+                "Trace::Core Funding::Captações (e)": trace_cap_e,
+                "Trace::Core Funding::Instrumentos de Dívida Elegíveis a Capital (h)": trace_instr_h,
+                "Trace::Capital::Capital Principal": val_cp,
+                "Trace::Capital::Capital Complementar": val_cc,
+                "Trace::Capital::Capital Nível II": val_n2,
+                "Trace::Capital::RWA Total": val_rwa,
+                "Trace::Capital::Índice CET1 Publicado": val_cet1_publicado,
+                "Trace::Capital::Índice Basileia Publicado": val_bas_publicado,
+                "Trace::Desp Captação::Despesa YTD": desp_capt_ytd,
+                "Trace::Desp Captação::Despesa Anualizada": desp_capt_anual,
+                "Trace::Desp Captação::Captações Média YTD": capt_media_ytd,
             }
         )
 
@@ -1046,11 +1370,24 @@ def materialize_critical_screens_cache(
         df_ativo=loaded["ativo"],
         df_passivo=loaded["passivo"],
         df_capital=loaded["capital"],
+        df_dre=loaded["dre"],
         df_carteira_pf=loaded["carteira_pf"],
         df_carteira_pj=loaded["carteira_pj"],
         df_carteira_instrumentos=loaded["carteira_instrumentos"],
         df_bloprudencial=blop_df,
         base_dir=root,
+    )
+
+    catalog_map = build_institution_to_conglomerate_map(root)
+    canonical_audit = _collect_variant_audit(
+        _prepare_frame(loaded["principal"], catalog_map, dedupe=False),
+        _prepare_frame(loaded["ativo"], catalog_map, dedupe=False),
+        _prepare_frame(loaded["passivo"], catalog_map, dedupe=False),
+        _prepare_frame(loaded["capital"], catalog_map, dedupe=False),
+        _prepare_frame(loaded["dre"], catalog_map, dedupe=False),
+        _prepare_frame(loaded["carteira_pf"], catalog_map, dedupe=False),
+        _prepare_frame(loaded["carteira_pj"], catalog_map, dedupe=False),
+        _prepare_frame(loaded["carteira_instrumentos"], catalog_map, dedupe=False),
     )
 
     info_extra = {
@@ -1059,8 +1396,12 @@ def materialize_critical_screens_cache(
         "linhas_bloprudencial": int(len(blop_df)),
         "metricas_extra": CRITICAL_EXTRA_METRICS,
         "metricas_base": CRITICAL_BASE_METRICS,
+        "trace_columns": CRITICAL_TRACE_COLUMNS,
         "schema_version": CRITICAL_SCREENS_SCHEMA_VERSION,
         "source_fingerprints": _source_fingerprints(cache_manager, root),
+        "canonical_variants": canonical_audit.get("canonical_variants", {}),
+        "raw_to_canonical": canonical_audit.get("raw_to_canonical", {}),
+        "dedupe_conflicts": canonical_audit.get("dedupe_conflicts", {}),
     }
     result = cache.salvar_local(curated, fonte="materialized", info_extra=info_extra)
     if result.sucesso and save_bundled:

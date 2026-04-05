@@ -9,12 +9,39 @@ import re
 import unicodedata
 from functools import lru_cache
 from pathlib import Path
-from typing import Dict, Iterable, List
+from typing import Dict, Iterable, List, Tuple
 
 import requests
 
 
 CONGLOMERADOS_API_URL = "https://www3.bcb.gov.br/informes/rest/conglomerados"
+
+_GENERIC_TOKENS = {
+    "A",
+    "ANONIMA",
+    "BANCO",
+    "BANK",
+    "BCO",
+    "BM",
+    "CONGLOMERADO",
+    "D",
+    "DA",
+    "DAS",
+    "DE",
+    "DO",
+    "DOS",
+    "FINANCEIRA",
+    "GRUPO",
+    "HOLDING",
+    "INSTITUICAO",
+    "MULTIPLO",
+    "OF",
+    "PAGAMENTO",
+    "PRUDENCIAL",
+    "S",
+    "SA",
+    "SOCIEDADE",
+}
 
 
 def normalize_institution_name(nome: str | None) -> str:
@@ -31,6 +58,18 @@ def normalize_institution_name(nome: str | None) -> str:
     texto = re.sub(r"[^A-Z0-9\s]", " ", texto)
     texto = re.sub(r"\s+", " ", texto).strip()
     return texto
+
+
+def _significant_institution_tokens(nome: str | None) -> Tuple[str, ...]:
+    """Retorna tokens significativos para canonicalização nominal auditável."""
+    texto = normalize_institution_name(nome)
+    if not texto:
+        return ()
+
+    texto = re.sub(r"\bBCO\b", "BANCO", texto)
+    texto = re.sub(r"\bS A\b", "SA", texto)
+    tokens = [token for token in texto.split() if token and token not in _GENERIC_TOKENS]
+    return tuple(tokens)
 
 
 def _project_root(base_dir: Path | None = None) -> Path:
@@ -163,11 +202,11 @@ def _load_conglomerados_catalog_cached(root_str: str) -> List[dict]:
     if dados:
         return dados
 
-    dados = _load_conglomerados_api()
+    dados = _load_conglomerados_bloprudencial_fallback(root)
     if dados:
         return dados
 
-    return _load_conglomerados_bloprudencial_fallback(root)
+    return _load_conglomerados_api()
 
 
 def build_institution_to_conglomerate_map(base_dir: Path | None = None) -> Dict[str, str]:
@@ -214,25 +253,16 @@ def canonicalize_institution_name(
     if resolved:
         return resolved
 
-    # Variações oficiais podem omitir sufixos como "HOLDING S.A.".
-    # Aceitamos apenas correspondência única para manter rastreabilidade.
-    candidatos = {
-        nome_canonico
-        for chave_catalogo, nome_canonico in catalog.items()
-        if chave and (chave in chave_catalogo or chave_catalogo in chave)
-    }
-    if len(candidatos) == 1:
-        return next(iter(candidatos))
-
-    tokens = [token for token in chave.split() if len(token) >= 3]
-    if tokens:
-        candidatos_tokens = {
+    tokens_brutos = _significant_institution_tokens(bruto)
+    if tokens_brutos:
+        tokens_set = set(tokens_brutos)
+        candidatos_subconjunto = {
             nome_canonico
             for chave_catalogo, nome_canonico in catalog.items()
-            if all(token in chave_catalogo for token in tokens)
+            if tokens_set.issubset(set(_significant_institution_tokens(chave_catalogo)))
         }
-        if len(candidatos_tokens) == 1:
-            return next(iter(candidatos_tokens))
+        if len(candidatos_subconjunto) == 1:
+            return next(iter(candidatos_subconjunto))
 
     return bruto
 

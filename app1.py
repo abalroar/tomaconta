@@ -912,7 +912,6 @@ PEERS_TABELA_LAYOUT = [
                 "label": "Ativo Total / PL",
                 "data_keys": ["Ativo/PL", "Ativo / PL"],
                 "format_key": "Ativo/PL",
-                "todo": "TODO: Integrar Ativo/PL a partir das fontes do projeto (sem criar fórmula nova).",
             },
             {
                 "label": "Carteira de Crédito* / PL",
@@ -5292,6 +5291,11 @@ def _carregar_cache_relatorio_slice(
 
     periodos = tuple(periodos or ())
     instituicoes = tuple(instituicoes or ())
+    instituicoes_expandidas = (
+        _expandir_instituicoes_canonicas(instituicoes)
+        if instituicoes and tipo_cache != "bloprudencial"
+        else instituicoes
+    )
 
     # Caminho rápido: parquet com filtro no reader
     if cache.arquivo_dados.exists():
@@ -5310,8 +5314,8 @@ def _carregar_cache_relatorio_slice(
                         # DATA_BASE pode vir como YYYYMM, YYYYMMDD, int ou data string.
                         f = ds.field("DATA_BASE").isin(list(yyyymm_needed))
                         filtro = f if filtro is None else filtro & f
-            if instituicoes and "Instituição" in schema_names and tipo_cache != "bloprudencial":
-                f = ds.field("Instituição").isin(list(instituicoes))
+            if instituicoes_expandidas and "Instituição" in schema_names and tipo_cache != "bloprudencial":
+                f = ds.field("Instituição").isin(list(instituicoes_expandidas))
                 filtro = f if filtro is None else filtro & f
             if tipo_cache == "bloprudencial":
                 cols_blop = [
@@ -5349,11 +5353,11 @@ def _carregar_cache_relatorio_slice(
                 if periodos_yyyymm:
                     base_txt = df[col_data_base].astype(str).str.replace(r"\D", "", regex=True).str[:6]
                     df = df[base_txt.isin(periodos_yyyymm)]
-    if instituicoes and "Instituição" in df.columns and tipo_cache != "bloprudencial":
-        mask = df["Instituição"].isin(instituicoes)
+    if instituicoes_expandidas and "Instituição" in df.columns and tipo_cache != "bloprudencial":
+        mask = df["Instituição"].isin(instituicoes_expandidas)
         if not mask.any():
             inst_norm = df["Instituição"].apply(normalizar_nome_instituicao)
-            filtros_norm = {normalizar_nome_instituicao(i) for i in instituicoes}
+            filtros_norm = {normalizar_nome_instituicao(i) for i in instituicoes_expandidas}
             filtros_norm.discard("")
             if filtros_norm:
                 mask = inst_norm.isin(filtros_norm)
@@ -5414,6 +5418,48 @@ def _garantir_cache_telas_criticas(menu_nome: str) -> bool:
         _status.update(label="falha ao materializar cache curado", state="error", expanded=True)
         st.error(f"critical_screens: {resultado.mensagem}")
         return False
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def _carregar_metadata_critical_screens(cache_token: str) -> dict:
+    _ = cache_token
+    manager = get_cache_manager()
+    cache = manager.get_cache("critical_screens") if manager else None
+    if cache is None:
+        return {}
+    caminho = cache.arquivo_metadata
+    if not caminho.exists():
+        bootstrap = cache.bootstrap_local_from_bundle()
+        if not bootstrap.sucesso:
+            return {}
+    try:
+        return json.loads(caminho.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _expandir_instituicoes_canonicas(instituicoes: tuple[str, ...]) -> tuple[str, ...]:
+    if not instituicoes:
+        return ()
+    metadata = _carregar_metadata_critical_screens(_cache_version_token("critical_screens"))
+    extra = metadata.get("extra") or {}
+    canonical_variants = extra.get("canonical_variants") or {}
+    raw_to_canonical = extra.get("raw_to_canonical") or {}
+
+    expandidas = []
+    vistos = set()
+    for nome in instituicoes:
+        nome_txt = str(nome).strip()
+        if not nome_txt:
+            continue
+        canonico = raw_to_canonical.get(nome_txt, nome_txt)
+        for candidato in [canonico, *canonical_variants.get(canonico, [])]:
+            candidato_txt = str(candidato).strip()
+            if not candidato_txt or candidato_txt in vistos:
+                continue
+            vistos.add(candidato_txt)
+            expandidas.append(candidato_txt)
+    return tuple(expandidas)
 
 
 
@@ -6891,6 +6937,298 @@ def _render_peers_table_html(
     return html
 
 
+def _memoria_fmt_monetario(valor) -> str:
+    if valor is None or pd.isna(valor):
+        return "N/D"
+    return _formatar_monetario_br_inteligente(valor, decimais=2, usar_sufixo_mm_maiusculo=True)
+
+
+def _memoria_fmt_resultado(metrica: str, valor) -> str:
+    if valor is None or pd.isna(valor):
+        return "N/D"
+    format_map = {
+        "Carteira de Crédito": "Carteira de Crédito Bruta",
+        "Patrimônio Líquido (PL)": "Patrimônio Líquido",
+        "Lucro Líquido Acum. YTD": "Lucro Líquido Acumulado YTD",
+        "ROE Acumulado YTD (%)": "ROE Ac. Anualizado (%)",
+        "ROE trim. anualizado": "ROE trimestral anualizado (%)",
+        "ROE Ac. Anualizado": "ROE Ac. Anualizado (%)",
+        "Crédito / Captações": "Carteira de Crédito/Core Funding (%)",
+        "Ativo Total / PL": "Ativo/PL",
+        "Carteira de Crédito* / PL": "Carteira de Crédito Bruta / PL",
+        "Perda Esperada / Carteira de Crédito*": "Perda Esperada / Carteira de Crédito Bruta",
+        "Perda Esperada / Carteira": "Perda Esperada / Carteira de Crédito Bruta",
+        "Índice de Capital Principal (CET1)": "Índice de Capital Principal",
+        "Índice de Basileia": "Índice de Basileia",
+        "Índice de Basileia Total (%)": "Índice de Basileia",
+        "CET1": "Índice de Capital Principal",
+        "Desp. Anualizada Captação / Volume Captação": "Desp Captação / Captação",
+        "Desp. Anualizada Captações / Volume Captações": "Desp Captação / Captação",
+    }
+    return _formatar_valor_peers(valor, format_map.get(metrica, metrica))
+
+
+def _memoria_fmt_fator(valor) -> str:
+    if valor is None or pd.isna(valor):
+        return "N/D"
+    return f"{float(valor):.2f}x".replace(".", ",")
+
+
+def _append_memoria_linha(
+    rows: list[dict],
+    *,
+    periodo: str,
+    etapa: str,
+    fonte: str,
+    campo: str,
+    filtro: str,
+    transformacao: str,
+    valor_fmt: str,
+    ordem: int,
+):
+    rows.append(
+        {
+            "Período": periodo_para_exibicao(periodo),
+            "Etapa": etapa,
+            "Fonte": fonte,
+            "Campo/Conta": campo,
+            "Filtro": filtro,
+            "Transformação": transformacao,
+            "Valor": valor_fmt,
+            "Ordem": ordem,
+        }
+    )
+
+
+def _snapshot_metric_to_curated_column(metrica: str) -> str:
+    mapping = {
+        "Carteira de Crédito": "Carteira de Crédito Bruta",
+        "Patrimônio Líquido (PL)": "Patrimônio Líquido",
+        "Lucro Líquido Acum. YTD": "Lucro Líquido Acumulado YTD",
+        "ROE Acumulado YTD (%)": "ROE Ac. Anualizado (%)",
+        "ROE trim. anualizado": "ROE trimestral anualizado (%)",
+        "ROE Ac. Anualizado": "ROE Ac. Anualizado (%)",
+        "Perda Esperada / Carteira": "Perda Esperada / Carteira de Crédito*",
+        "Índice de Basileia": "Índice de Basileia Total (%)",
+        "CET1": "Índice de Capital Principal (CET1)",
+        "Desp. Anualizada Captação / Volume Captação": "Desp Captação / Captação",
+        "Desp. Anualizada Captações / Volume Captações": "Desp Captação / Captação",
+    }
+    return mapping.get(metrica, metrica)
+
+
+def _build_memoria_calculo_curado_metrica(
+    df_curado: Optional[pd.DataFrame],
+    banco: str,
+    periodos: list[str],
+    metrica: str,
+) -> pd.DataFrame:
+    if df_curado is None or df_curado.empty:
+        return pd.DataFrame()
+
+    lookup = _critical_metric_lookup(df_curado)
+    metric_column = _snapshot_metric_to_curated_column(metrica)
+    rows: list[dict] = []
+
+    def _row(periodo: str) -> dict:
+        return lookup.get((banco, periodo), {}) or {}
+
+    for periodo in periodos:
+        row = _row(periodo)
+        if not row:
+            continue
+        filtro = f"Instituição = {banco}; Período = {periodo_para_exibicao(periodo)}"
+        ordem = 1
+        resultado = row.get(metric_column)
+
+        def add(etapa: str, fonte: str, campo: str, transformacao: str, valor_fmt: str):
+            nonlocal ordem
+            _append_memoria_linha(
+                rows,
+                periodo=periodo,
+                etapa=etapa,
+                fonte=fonte,
+                campo=campo,
+                filtro=filtro,
+                transformacao=transformacao,
+                valor_fmt=valor_fmt,
+                ordem=ordem,
+            )
+            ordem += 1
+
+        if metrica in {"Ativo Total", "Patrimônio Líquido (PL)", "Patrimônio Líquido", "Lucro Líquido Acumulado", "Lucro Líquido Acum. YTD", "Lucro Líquido Trimestral"}:
+            source_map = {
+                "Ativo Total": ("BCB IFData Rel. 1", "Ativo Total"),
+                "Patrimônio Líquido (PL)": ("BCB IFData Rel. 1", "Patrimônio Líquido"),
+                "Patrimônio Líquido": ("BCB IFData Rel. 1", "Patrimônio Líquido"),
+                "Lucro Líquido Acumulado": ("BCB IFData Rel. 1", "Lucro Líquido Acumulado YTD"),
+                "Lucro Líquido Acum. YTD": ("BCB IFData Rel. 1", "Lucro Líquido Acumulado YTD"),
+                "Lucro Líquido Trimestral": ("BCB IFData Rel. 1", "Lucro Líquido Trimestral"),
+            }
+            fonte, campo = source_map[metrica]
+            add("Fonte canônica", fonte, campo, "Valor publicado/normalizado no cache curado", _memoria_fmt_monetario(resultado))
+            add("Resultado renderizado", "Snapshot/Peers", metric_column, "Sem transformação adicional", _memoria_fmt_resultado(metrica, resultado))
+            continue
+
+        if metrica == "Ativos Líquidos":
+            comps = [
+                ("Trace::Ativos Líquidos::Disponibilidades (a)", "Disponibilidades (a)"),
+                ("Trace::Ativos Líquidos::Aplicações Interfinanceiras de Liquidez (b)", "Aplicações Interfinanceiras de Liquidez (b)"),
+                ("Trace::Ativos Líquidos::Títulos e Valores Mobiliários (c)", "Títulos e Valores Mobiliários (c)"),
+            ]
+            for col, label in comps:
+                add("Componente", "BCB IFData Rel. 2", label, "Soma simples", _memoria_fmt_monetario(row.get(col)))
+            add("Resultado renderizado", "Snapshot/Peers", "Ativos Líquidos", "Disponibilidades + AIL + TVM", _memoria_fmt_resultado(metrica, resultado))
+            continue
+
+        if metrica in {"Carteira de Crédito*", "Carteira de Crédito"}:
+            ano_ref = _periodo_ano_int(periodo)
+            if ano_ref is not None and ano_ref <= 2024:
+                comps = [
+                    ("Trace::Carteira::Operações de Crédito (d1)", "Operações de Crédito (d1)"),
+                    ("Trace::Carteira::Arrendamento Mercantil a Receber (e1)", "Arrendamento Mercantil a Receber (e1)"),
+                    ("Trace::Carteira::Outros Créditos - Líquido de Provisão (f)", "Outros Créditos - Líquido de Provisão (f)"),
+                ]
+                formula = "d1 + e1 + f"
+            else:
+                comps = [
+                    ("Trace::Carteira::Valor Contábil Bruto (e1)", "Valor Contábil Bruto (e1)"),
+                    ("Trace::Carteira::Valor Contábil Bruto (f1)", "Valor Contábil Bruto (f1)"),
+                    ("Trace::Carteira::Valor Contábil Bruto (g1)", "Valor Contábil Bruto (g1)"),
+                    ("Trace::Carteira::Valor Contábil Bruto (h1)", "Valor Contábil Bruto (h1)"),
+                ]
+                formula = "e1 + f1 + g1 + h1"
+            for col, label in comps:
+                add("Componente", "BCB IFData Rel. 2", label, "Soma simples", _memoria_fmt_monetario(row.get(col)))
+            add("Resultado renderizado", "Snapshot/Peers", metric_column, formula, _memoria_fmt_resultado(metrica, resultado))
+            continue
+
+        if metrica == "Perda Esperada":
+            comps = [
+                ("Trace::Perda Esperada::Perda Esperada (e2)", "Perda Esperada (e2)"),
+                ("Trace::Perda Esperada::Hedge de Valor Justo (e3)", "Hedge de Valor Justo (e3)"),
+                ("Trace::Perda Esperada::Ajuste a Valor Justo (e4)", "Ajuste a Valor Justo (e4)"),
+                ("Trace::Perda Esperada::Perda Esperada (f2)", "Perda Esperada (f2)"),
+                ("Trace::Perda Esperada::Hedge de Valor Justo (f3)", "Hedge de Valor Justo (f3)"),
+                ("Trace::Perda Esperada::Perda Esperada (g2)", "Perda Esperada (g2)"),
+                ("Trace::Perda Esperada::Hedge de Valor Justo (g3)", "Hedge de Valor Justo (g3)"),
+                ("Trace::Perda Esperada::Ajuste a Valor Justo (g4)", "Ajuste a Valor Justo (g4)"),
+                ("Trace::Perda Esperada::Perda Esperada (h2)", "Perda Esperada (h2)"),
+            ]
+            for col, label in comps:
+                add("Componente", "BCB IFData Rel. 2", label, "Soma simples", _memoria_fmt_monetario(row.get(col)))
+            add("Resultado renderizado", "Snapshot/Peers", "Perda Esperada", "Soma dos componentes e/f/g/h", _memoria_fmt_resultado(metrica, resultado))
+            continue
+
+        if metrica == "Depósitos Totais":
+            deposito_e = row.get("Trace::Depósitos Totais::Depósitos (e)")
+            if deposito_e is not None and not pd.isna(deposito_e):
+                add("Fonte canônica", "BCB IFData Rel. 3", "Depósitos (e)", "Linha agregada publicada", _memoria_fmt_monetario(deposito_e))
+            else:
+                comps = [
+                    ("Trace::Depósitos Totais::Depósitos à Vista (a1)", "Depósitos à Vista (a1)"),
+                    ("Trace::Depósitos Totais::Depósitos de Poupança (a2)", "Depósitos de Poupança (a2)"),
+                    ("Trace::Depósitos Totais::Depósitos Interfinanceiros (a3)", "Depósitos Interfinanceiros (a3)"),
+                    ("Trace::Depósitos Totais::Depósitos a Prazo (a4)", "Depósitos a Prazo (a4)"),
+                    ("Trace::Depósitos Totais::Outros Depósitos (a5)", "Outros Depósitos (a5)"),
+                    ("Trace::Depósitos Totais::Depósitos Outros (a6)", "Depósitos Outros (a6)"),
+                ]
+                for col, label in comps:
+                    add("Componente", "BCB IFData Rel. 3", label, "Soma simples", _memoria_fmt_monetario(row.get(col)))
+            add("Resultado renderizado", "Snapshot/Peers", "Depósitos Totais", "Linha agregada ou soma a1..a6", _memoria_fmt_resultado(metrica, resultado))
+            continue
+
+        if metrica == "Core Funding*":
+            add("Componente", "BCB IFData Rel. 3", "Captações (e)", "Base principal de funding", _memoria_fmt_monetario(row.get("Trace::Core Funding::Captações (e)")))
+            if _periodo_ano_int(periodo) and _periodo_ano_int(periodo) >= 2025:
+                add("Componente", "BCB IFData Rel. 3", "Instrumentos de Dívida Elegíveis a Capital (h)", "Complemento pós-2025", _memoria_fmt_monetario(row.get("Trace::Core Funding::Instrumentos de Dívida Elegíveis a Capital (h)")))
+            add("Resultado renderizado", "Snapshot/Peers", "Core Funding*", "Captações (e) + Instrumentos (h) quando aplicável", _memoria_fmt_resultado(metrica, resultado))
+            continue
+
+        if metrica in {"Ativos Estágio 2", "Ativos Estágio 3"}:
+            conta = "3312000001" if metrica == "Ativos Estágio 2" else "3313000000"
+            add("Fonte canônica", "Cadoc 4060", f"Conta {conta}", "Soma de saldo no período", _memoria_fmt_monetario(resultado))
+            add("Resultado renderizado", "Snapshot/Peers", metric_column, "Sem transformação adicional", _memoria_fmt_resultado(metrica, resultado))
+            continue
+
+        if metrica in {"Perda Esperada / Estágio 3", "Perda Esperada / Carteira de Crédito*", "Perda Esperada / Carteira", "Ativo Total / PL", "Carteira de Crédito* / PL", "Crédito / Captações"}:
+            ratio_map = {
+                "Perda Esperada / Estágio 3": ("Perda Esperada", "Ativos Estágio 3", "Perda Esperada ÷ Estágio 3"),
+                "Perda Esperada / Carteira de Crédito*": ("Perda Esperada", "Carteira de Crédito*", "Perda Esperada ÷ Carteira de Crédito*"),
+                "Perda Esperada / Carteira": ("Perda Esperada", "Carteira de Crédito Bruta", "Perda Esperada ÷ Carteira de Crédito Bruta"),
+                "Ativo Total / PL": ("Ativo Total", "Patrimônio Líquido", "Ativo Total ÷ Patrimônio Líquido"),
+                "Carteira de Crédito* / PL": ("Carteira de Crédito*", "Patrimônio Líquido", "Carteira de Crédito* ÷ Patrimônio Líquido"),
+                "Crédito / Captações": ("Carteira de Crédito Bruta", "Core Funding*", "Carteira de Crédito Bruta ÷ Core Funding*"),
+            }
+            num_col, den_col, formula = ratio_map[metrica]
+            ratio_result = _calcular_ratio_peers(row.get(num_col), row.get(den_col))
+            add("Numerador", "Cache curado", num_col, "Valor renderizado canônico", _memoria_fmt_monetario(row.get(num_col)))
+            add("Denominador", "Cache curado", den_col, "Valor renderizado canônico", _memoria_fmt_monetario(row.get(den_col)))
+            add("Resultado renderizado", "Snapshot/Peers", metrica, formula, _memoria_fmt_resultado(metrica, ratio_result if ratio_result is not None else resultado))
+            continue
+
+        if metrica in {"Índice de Capital Principal (CET1)", "CET1"}:
+            cp = row.get("Trace::Capital::Capital Principal")
+            rwa = row.get("Trace::Capital::RWA Total")
+            if cp is not None and not pd.isna(cp) and rwa is not None and not pd.isna(rwa):
+                add("Numerador", "BCB IFData Rel. 5", "Capital Principal", "Valor publicado", _memoria_fmt_monetario(cp))
+                add("Denominador", "BCB IFData Rel. 5", "RWA Total", "Valor publicado", _memoria_fmt_monetario(rwa))
+                add("Resultado renderizado", "Snapshot/Peers", "Índice de Capital Principal (CET1)", "Capital Principal ÷ RWA Total", _memoria_fmt_resultado(metrica, resultado))
+            else:
+                add("Fonte canônica", "BCB IFData Rel. 5", "Índice de Capital Principal publicado", "Uso do índice publicado quando componentes faltam", _memoria_fmt_resultado(metrica, row.get("Trace::Capital::Índice CET1 Publicado")))
+                add("Resultado renderizado", "Snapshot/Peers", "Índice de Capital Principal (CET1)", "Sem transformação adicional", _memoria_fmt_resultado(metrica, resultado))
+            continue
+
+        if metrica in {"Índice de Basileia Total (%)", "Índice de Basileia"}:
+            cp = row.get("Trace::Capital::Capital Principal")
+            cc = row.get("Trace::Capital::Capital Complementar")
+            n2 = row.get("Trace::Capital::Capital Nível II")
+            rwa = row.get("Trace::Capital::RWA Total")
+            if all(v is not None and not pd.isna(v) for v in [cp, cc, n2, rwa]):
+                add("Componente", "BCB IFData Rel. 5", "Capital Principal", "Soma para PR", _memoria_fmt_monetario(cp))
+                add("Componente", "BCB IFData Rel. 5", "Capital Complementar", "Soma para PR", _memoria_fmt_monetario(cc))
+                add("Componente", "BCB IFData Rel. 5", "Capital Nível II", "Soma para PR", _memoria_fmt_monetario(n2))
+                add("Denominador", "BCB IFData Rel. 5", "RWA Total", "Valor publicado", _memoria_fmt_monetario(rwa))
+                add("Resultado renderizado", "Snapshot/Peers", "Índice de Basileia Total (%)", "(CP + CC + N2) ÷ RWA Total", _memoria_fmt_resultado(metrica, resultado))
+            else:
+                add("Fonte canônica", "BCB IFData Rel. 5", "Índice de Basileia publicado", "Uso do índice publicado quando componentes faltam", _memoria_fmt_resultado(metrica, row.get("Trace::Capital::Índice Basileia Publicado")))
+                add("Resultado renderizado", "Snapshot/Peers", "Índice de Basileia Total (%)", "Sem transformação adicional", _memoria_fmt_resultado(metrica, resultado))
+            continue
+
+        if metrica in {"ROE Acumulado YTD (%)", "ROE Ac. Anualizado", "ROE trim. anualizado"}:
+            is_trim = metrica == "ROE trim. anualizado"
+            ll_col = "Lucro Líquido Trimestral" if is_trim else "Lucro Líquido Acumulado YTD"
+            ll_val = row.get(ll_col)
+            fator = 4.0 if is_trim else row.get("Trace::Fator Anualização")
+            pl_atual = row.get("Patrimônio Líquido")
+            pl_dez = row.get("Trace::PL Dez Ano Anterior")
+            pl_medio = None
+            if pl_atual is not None and pl_dez is not None and not pd.isna(pl_atual) and not pd.isna(pl_dez):
+                pl_medio = (float(pl_atual) + float(pl_dez)) / 2.0
+            add("Numerador", "BCB IFData Rel. 1", ll_col, "Lucro base do período", _memoria_fmt_monetario(ll_val))
+            add("Fator", "Regra do app", "Fator de anualização", "4x para ROE trimestral; 12/meses para ROE acumulado", _memoria_fmt_fator(fator))
+            add("Componente", "BCB IFData Rel. 1", "Patrimônio Líquido atual", "Valor publicado", _memoria_fmt_monetario(pl_atual))
+            add("Componente", "BCB IFData Rel. 1", "PL Dez ano anterior", "Valor publicado em Dez do ano anterior", _memoria_fmt_monetario(pl_dez))
+            add("Denominador", "Cache curado", "PL Médio", "(PL atual + PL Dez anterior) ÷ 2", _memoria_fmt_monetario(pl_medio))
+            formula = "(LL trimestral × 4) ÷ PL médio" if is_trim else "(LL YTD × fator) ÷ PL médio"
+            add("Resultado renderizado", "Snapshot/Peers", metric_column, formula, _memoria_fmt_resultado(metrica, resultado))
+            continue
+
+        if metrica in {"Desp Captação / Captação", "Desp. Anualizada Captação / Volume Captação", "Desp. Anualizada Captações / Volume Captações"}:
+            add("Numerador", "BCB IFData Rel. 4", "Despesa de Captação YTD", "DRE acumulada para YTD", _memoria_fmt_monetario(row.get("Trace::Desp Captação::Despesa YTD")))
+            add("Fator", "Regra do app", "Fator de anualização", "12/meses do período", _memoria_fmt_fator(row.get("Trace::Fator Anualização")))
+            add("Componente", "Cache derivado curado", "Despesa de Captação anualizada", "Despesa YTD × fator", _memoria_fmt_monetario(row.get("Trace::Desp Captação::Despesa Anualizada")))
+            add("Denominador", "BCB IFData Rel. 1", "Captações média YTD", "Média simples das captações no ano", _memoria_fmt_monetario(row.get("Trace::Desp Captação::Captações Média YTD")))
+            add("Resultado renderizado", "Snapshot/Peers", "Desp Captação / Captação", "Despesa anualizada ÷ Captações média YTD", _memoria_fmt_resultado(metrica, resultado))
+            continue
+
+        add("Resultado renderizado", "Snapshot/Peers", metric_column, "Valor final do cache curado", _memoria_fmt_resultado(metrica, resultado))
+
+    if not rows:
+        return pd.DataFrame()
+    return pd.DataFrame(rows).drop(columns=["Ordem"])
+
+
 def _build_memoria_calculo_peers_tabela_metrica(
     df_base: pd.DataFrame,
     banco: str,
@@ -6898,127 +7236,8 @@ def _build_memoria_calculo_peers_tabela_metrica(
     metrica: str,
     valores: dict,
 ) -> pd.DataFrame:
-    """Monta memória de cálculo da Peers para uma métrica, no padrão componente × período."""
-    rows = []
-
-    def _enriquecer_memoria_com_capital(df_src: pd.DataFrame) -> pd.DataFrame:
-        cols_req = {"Capital Principal", "RWA Total"}
-        if cols_req.issubset(df_src.columns):
-            return df_src
-
-        df_capital = _carregar_cache_relatorio_slice(
-            "capital",
-            _cache_version_token("capital"),
-            tuple(periodos),
-            (banco,),
-        )
-        if df_capital is None or df_capital.empty:
-            return df_src
-
-        mapa_colunas = {}
-        candidatos = {
-            "Capital Principal": ["Capital Principal", "Capital Principal para Comparação com RWA (a)"],
-            "Capital Complementar": ["Capital Complementar", "Capital Complementar (b)"],
-            "Capital Nível II": ["Capital Nível II", "Capital Nível II (d)", "Capital Nivel II"],
-            "RWA Total": [
-                "RWA Total",
-                "Ativos Ponderados pelo Risco (RWA) (j) = (f) + (g) + (h) + (i)",
-                "Ativos Ponderados pelo Risco (RWA) (j)",
-                "Ativos Ponderados pelo Risco (RWA) (i) = (f) + (g) + (h)",
-                "Ativos Ponderados pelo Risco (RWA) (i)",
-                "RWA",
-            ],
-        }
-        for alvo, opcoes in candidatos.items():
-            col = _resolver_coluna_peers(df_capital, opcoes)
-            if col:
-                mapa_colunas[col] = alvo
-
-        cols_merge = ["Instituição", "Período", *mapa_colunas.keys()]
-        cols_merge = [c for c in cols_merge if c in df_capital.columns]
-        if not {"Instituição", "Período"}.issubset(cols_merge):
-            return df_src
-
-        df_capital = (
-            df_capital[cols_merge]
-            .rename(columns=mapa_colunas)
-            .drop_duplicates(subset=["Instituição", "Período"], keep="last")
-        )
-        cols_novas = [c for c in df_capital.columns if c not in {"Instituição", "Período"} and c not in df_src.columns]
-        if not cols_novas:
-            return df_src
-        return df_src.merge(
-            df_capital[["Instituição", "Período", *cols_novas]],
-            on=["Instituição", "Período"],
-            how="left",
-        )
-
-    if metrica == "ROE Acumulado YTD (%)":
-        df_mem = _build_memoria_calculo_roe_ac_rankings(df_base, [banco], periodos)
-        if df_mem.empty:
-            return pd.DataFrame()
-        return df_mem[df_mem["Instituição"] == banco].copy()
-
-    if metrica == "Índice de Capital Principal (CET1)":
-        df_mem = _build_memoria_calculo_cet1_rankings(_enriquecer_memoria_com_capital(df_base), [banco], periodos)
-        if df_mem.empty:
-            return pd.DataFrame()
-        return df_mem[df_mem["Instituição"] == banco].copy()
-
-    if metrica == "Índice de Basileia Total (%)":
-        df_mem = _build_memoria_calculo_basileia_rankings(_enriquecer_memoria_com_capital(df_base), [banco], periodos)
-        if df_mem.empty:
-            return pd.DataFrame()
-        return df_mem[df_mem["Instituição"] == banco].copy()
-
-    for periodo in periodos:
-        valor_final = valores.get((metrica, banco, periodo))
-        if metrica == "Ativo Total / PL":
-            ativo = valores.get(("Ativo Total", banco, periodo))
-            pl = valores.get(("Patrimônio Líquido (PL)", banco, periodo))
-            rows.extend([
-                {"Instituição": banco, "Período": periodo, "componente": "Ativo Total", "valor": ativo, "ordem": 1},
-                {"Instituição": banco, "Período": periodo, "componente": "Patrimônio Líquido", "valor": pl, "ordem": 2},
-                {"Instituição": banco, "Período": periodo, "componente": "= Ativo Total ÷ PL", "valor": valor_final, "ordem": 3},
-            ])
-        elif metrica == "Carteira de Crédito* / PL":
-            carteira = valores.get(("Carteira de Crédito*", banco, periodo))
-            pl = valores.get(("Patrimônio Líquido (PL)", banco, periodo))
-            rows.extend([
-                {"Instituição": banco, "Período": periodo, "componente": "Carteira de Crédito*", "valor": carteira, "ordem": 1},
-                {"Instituição": banco, "Período": periodo, "componente": "Patrimônio Líquido", "valor": pl, "ordem": 2},
-                {"Instituição": banco, "Período": periodo, "componente": "= Carteira de Crédito* ÷ PL", "valor": valor_final, "ordem": 3},
-            ])
-        elif metrica == "Perda Esperada / Estágio 3":
-            pe = valores.get(("Perda Esperada", banco, periodo))
-            est3 = valores.get(("Ativos Estágio 3", banco, periodo))
-            rows.extend([
-                {"Instituição": banco, "Período": periodo, "componente": "Perda Esperada", "valor": pe, "ordem": 1},
-                {"Instituição": banco, "Período": periodo, "componente": "Ativos Estágio 3", "valor": est3, "ordem": 2},
-                {"Instituição": banco, "Período": periodo, "componente": "= Perda Esperada ÷ Estágio 3", "valor": valor_final, "ordem": 3},
-            ])
-        elif metrica == "Perda Esperada / Carteira de Crédito*":
-            pe = valores.get(("Perda Esperada", banco, periodo))
-            carteira = valores.get(("Carteira de Crédito*", banco, periodo))
-            rows.extend([
-                {"Instituição": banco, "Período": periodo, "componente": "Perda Esperada", "valor": pe, "ordem": 1},
-                {"Instituição": banco, "Período": periodo, "componente": "Carteira de Crédito*", "valor": carteira, "ordem": 2},
-                {"Instituição": banco, "Período": periodo, "componente": "= Perda Esperada ÷ Carteira de Crédito*", "valor": valor_final, "ordem": 3},
-            ])
-        else:
-            rows.append(
-                {
-                    "Instituição": banco,
-                    "Período": periodo,
-                    "componente": "Valor final",
-                    "valor": valor_final,
-                    "ordem": 1,
-                }
-            )
-
-    if not rows:
-        return pd.DataFrame()
-    return pd.DataFrame(rows)
+    _ = valores
+    return _build_memoria_calculo_curado_metrica(df_base, banco, periodos, metrica)
 
 
 def _periodo_trimestre_anterior(periodo: Optional[str], periodos_disponiveis: list[str]) -> Optional[str]:
@@ -7910,45 +8129,17 @@ _SNAPSHOT_V2_CSS = """
 
 
 def _build_memoria_calculo_snapshot(
-    metricas: list[dict],
+    df_curado: pd.DataFrame,
+    banco: str,
+    metrica: str,
     periodo_atual: str,
     periodo_anterior_qoq: Optional[str],
     periodo_anterior_yoy: Optional[str],
 ) -> pd.DataFrame:
-    """Monta memória de cálculo consolidada dos cards da Snapshot."""
-    rows = []
-    for cfg in metricas:
-        serie = cfg.get("serie", {}) or {}
-        label = cfg.get("label", "Métrica")
-        delta_kind, delta_scale = _snap_metric_delta_meta(cfg)
-
-        valor_atual = serie.get(periodo_atual)
-        valor_qoq = serie.get(periodo_anterior_qoq) if periodo_anterior_qoq else None
-        valor_yoy = serie.get(periodo_anterior_yoy) if periodo_anterior_yoy else None
-
-        delta_qoq = _snap_delta_calc(valor_atual, valor_qoq, delta_kind=delta_kind, scale=delta_scale)
-        delta_yoy = _snap_delta_calc(valor_atual, valor_yoy, delta_kind=delta_kind, scale=delta_scale)
-
-        unidade_delta = "bps" if delta_kind == "bps" else ("p.p." if delta_kind == "pp" else "%")
-        motivo_qoq = delta_qoq.get("motivo") if not delta_qoq.get("valido") else ""
-        motivo_yoy = delta_yoy.get("motivo") if not delta_yoy.get("valido") else ""
-
-        rows.append(
-            {
-                "Métrica": label,
-                "Período": periodo_para_exibicao(periodo_atual),
-                "Valor atual": _formatar_valor_snapshot(cfg, valor_atual),
-                "Valor anterior QoQ": _formatar_valor_snapshot(cfg, valor_qoq),
-                "Delta QoQ": delta_qoq.get("suffix", "—") if delta_qoq.get("valido") else "—",
-                "Motivo QoQ": motivo_qoq,
-                "Valor anterior YoY": _formatar_valor_snapshot(cfg, valor_yoy),
-                "Delta YoY": delta_yoy.get("suffix", "—") if delta_yoy.get("valido") else "—",
-                "Motivo YoY": motivo_yoy,
-                "Unidade do delta": unidade_delta,
-            }
-        )
-
-    return pd.DataFrame(rows)
+    """Monta memória de cálculo detalhada da Snapshot a partir do cache curado."""
+    periodos = [p for p in [periodo_atual, periodo_anterior_qoq, periodo_anterior_yoy] if p]
+    periodos = list(dict.fromkeys(periodos))
+    return _build_memoria_calculo_curado_metrica(df_curado, banco, periodos, metrica)
 
 
 def _audit_deltas_snapshot(
@@ -8003,21 +8194,20 @@ def pagina_snapshot():
     st.markdown(_SNAPSHOT_V2_CSS, unsafe_allow_html=True)
 
     t0 = time.perf_counter()
-    if not _garantir_dados_principais("Snapshot"):
-        st.info("carregando dados automaticamente do github...")
-        return
     if not _garantir_cache_telas_criticas("Snapshot"):
         return
 
     st.markdown("### Snapshot")
     st.caption("briefing executivo rápido com os principais indicadores da instituição.")
 
-    df_base = get_analise_base_df(_cache_version_token("principal"))
-    if df_base is None or df_base.empty or "Instituição" not in df_base.columns:
-        st.warning("base indisponível para Snapshot.")
+    critical_token = _cache_version_token("critical_screens")
+    snapshot_ctx = _get_peers_filters_context(critical_token)
+    bancos_ctx = snapshot_ctx.get("bancos_todos", []) or []
+    if not bancos_ctx:
+        st.warning("cache curado indisponível para Snapshot.")
         return
 
-    bancos = ordenar_bancos_com_alias(df_base["Instituição"].dropna().unique().tolist(), {})
+    bancos = ordenar_bancos_com_alias(list(bancos_ctx), {})
     banco_snapshot_default = next(
         (
             b
@@ -8033,7 +8223,20 @@ def pagina_snapshot():
     _timer_reset_if_selection_changed("snapshot_timer_state", snapshot_signature)
     _timer_render_caption("snapshot_timer_state", timer_box, "Tempo de carregamento da aba Snapshot")
 
-    periodos_banco = ordenar_periodos(df_base.loc[df_base["Instituição"] == banco, "Período"].dropna().unique().tolist(), reverso=True)
+    t_dados = time.perf_counter()
+    df_bank_all = _carregar_cache_relatorio_slice(
+        "critical_screens",
+        critical_token,
+        instituicoes=(banco,),
+    )
+    if df_bank_all is None or df_bank_all.empty or "Período" not in df_bank_all.columns:
+        st.warning("cache curado sem períodos disponíveis para a instituição selecionada.")
+        return
+
+    periodos_banco = ordenar_periodos(
+        df_bank_all["Período"].dropna().astype(str).unique().tolist(),
+        reverso=True,
+    )
     if not periodos_banco:
         st.warning("sem períodos disponíveis para a instituição selecionada.")
         return
@@ -8059,70 +8262,25 @@ def pagina_snapshot():
     periodos_snapshot = [p for p in [periodo_atual, periodo_anterior_qoq, periodo_yoy_existente] if p]
     periodos_snapshot = list(dict.fromkeys(periodos_snapshot))
 
-    bancos_tuple = (banco,)
-    periodos_tuple = tuple(periodos_snapshot)
-    t_dados = time.perf_counter()
-    cache_critical = _carregar_cache_relatorio_slice(
-        "critical_screens",
-        _cache_version_token("critical_screens"),
-        periodos_tuple,
-        bancos_tuple,
-    )
-    critical_lookup = _critical_metric_lookup(cache_critical)
-    df_inst = df_base[(df_base["Instituição"] == banco) & (df_base["Período"].isin(periodos_snapshot))].copy()
-    col_capt = _snapshot_pick_col(df_inst, ["Captações", "Core Funding", "Captação"])
-    label_desp_captacao = _label_desp_captacao_por_denominador(col_capt)
-    df_deriv = carregar_metricas_derivadas_slice(
-        periodos=periodos_snapshot,
-        instituicoes=list(bancos_tuple),
-        metricas=_aliases_metrica_desp_captacao(label_desp_captacao),
-    )
-    erro_derivadas_snapshot = st.session_state.get("derived_metrics_last_error")
-    if (df_deriv is None or df_deriv.empty) and erro_derivadas_snapshot:
-        st.warning(f"Métricas derivadas indisponíveis no Snapshot: {erro_derivadas_snapshot}")
-
+    cache_snapshot = df_bank_all[df_bank_all["Período"].astype(str).isin(periodos_snapshot)].copy()
+    critical_lookup = _critical_metric_lookup(cache_snapshot)
     tempo_dados = time.perf_counter() - t_dados
 
-    # --- Data maps (existing) ---
-    col_carteira_df = _snapshot_pick_col(df_inst, ["Carteira de Crédito Bruta", "Carteira de Crédito", "Carteira de Crédito*"])
-    carteira_map = {
-        p: _coerce_numeric_value(_obter_valor_peers(df_inst, banco, p, col_carteira_df)) if col_carteira_df else None
-        for p in periodos_snapshot
-    }
-    if all(v is None or pd.isna(v) for v in carteira_map.values()):
-        carteira_map = _critical_metric_map(cache_critical, banco, periodos_snapshot, "Carteira de Crédito Bruta")
-
-    col_ativo = _snapshot_pick_col(df_inst, ["Ativo Total"])
-    ativo_map = {p: _coerce_numeric_value(_obter_valor_peers(df_inst, banco, p, col_ativo)) if col_ativo else None for p in periodos_snapshot}
-
-    capt_map = {p: _coerce_numeric_value(_obter_valor_peers(df_inst, banco, p, col_capt)) if col_capt else None for p in periodos_snapshot}
-
-    col_pl = _snapshot_pick_col(df_inst, ["Patrimônio Líquido"])
-    pl_map = {p: _coerce_numeric_value(_obter_valor_peers(df_inst, banco, p, col_pl)) if col_pl else None for p in periodos_snapshot}
-
-    col_credito_capt = _snapshot_pick_col(df_inst, ["Carteira de Crédito/Core Funding (%)", "Crédito/Captações (%)"])
-    credito_capt_map = {
-        p: _coerce_numeric_value(_obter_valor_peers(df_inst, banco, p, col_credito_capt)) if col_credito_capt else None
-        for p in periodos_snapshot
-    }
-
-    desp_capt_map = {}
-    if df_deriv is not None and not df_deriv.empty:
-        rec = df_deriv[df_deriv["Métrica"].isin(_aliases_metrica_desp_captacao(label_desp_captacao))]
-        desp_capt_map = {str(r["Período"]): _coerce_numeric_value(r["Valor"]) for _, r in rec.iterrows()}
-    desp_capt_map = {p: next((v for per, v in desp_capt_map.items() if _periodos_equivalentes(per, p)), None) for p in periodos_snapshot}
-
-    col_ll_tri = _snapshot_pick_col(df_inst, ["Lucro Líquido Trimestral"])
-    ll_tri_map = {p: _coerce_numeric_value(_obter_valor_peers(df_inst, banco, p, col_ll_tri)) if col_ll_tri else None for p in periodos_snapshot}
-
-    col_ll_ytd = _snapshot_pick_col(df_inst, ["Lucro Líquido Acumulado YTD"])
-    ll_ytd_map = {p: _coerce_numeric_value(_obter_valor_peers(df_inst, banco, p, col_ll_ytd)) if col_ll_ytd else None for p in periodos_snapshot}
-
-    cet1_map = _critical_metric_map(cache_critical, banco, periodos_snapshot, "Índice de Capital Principal (CET1)")
-    bas_map = _critical_metric_map(cache_critical, banco, periodos_snapshot, "Índice de Basileia Total (%)")
-    perda_est3_map = _critical_metric_map(cache_critical, banco, periodos_snapshot, "Perda Esperada / Estágio 3")
-    perda_carteira_map = _critical_metric_map(cache_critical, banco, periodos_snapshot, "Perda Esperada / Carteira de Crédito*")
-    perda_esperada_map = _critical_metric_map(cache_critical, banco, periodos_snapshot, "Perda Esperada")
+    label_desp_captacao = "Desp. Anualizada Captação / Volume Captação"
+    ativo_map = _critical_metric_map(cache_snapshot, banco, periodos_snapshot, "Ativo Total")
+    carteira_map = _critical_metric_map(cache_snapshot, banco, periodos_snapshot, "Carteira de Crédito Bruta")
+    pl_map = _critical_metric_map(cache_snapshot, banco, periodos_snapshot, "Patrimônio Líquido")
+    ll_tri_map = _critical_metric_map(cache_snapshot, banco, periodos_snapshot, "Lucro Líquido Trimestral")
+    ll_ytd_map = _critical_metric_map(cache_snapshot, banco, periodos_snapshot, "Lucro Líquido Acumulado YTD")
+    roe_tri_map = _critical_metric_map(cache_snapshot, banco, periodos_snapshot, "ROE trimestral anualizado (%)")
+    roe_ac_map = _critical_metric_map(cache_snapshot, banco, periodos_snapshot, "ROE Ac. Anualizado (%)")
+    credito_capt_map = _critical_metric_map(cache_snapshot, banco, periodos_snapshot, "Crédito / Captações")
+    desp_capt_map = _critical_metric_map(cache_snapshot, banco, periodos_snapshot, "Desp Captação / Captação")
+    cet1_map = _critical_metric_map(cache_snapshot, banco, periodos_snapshot, "Índice de Capital Principal (CET1)")
+    bas_map = _critical_metric_map(cache_snapshot, banco, periodos_snapshot, "Índice de Basileia Total (%)")
+    perda_est3_map = _critical_metric_map(cache_snapshot, banco, periodos_snapshot, "Perda Esperada / Estágio 3")
+    perda_carteira_map = _critical_metric_map(cache_snapshot, banco, periodos_snapshot, "Perda Esperada / Carteira de Crédito*")
+    perda_esperada_map = _critical_metric_map(cache_snapshot, banco, periodos_snapshot, "Perda Esperada")
     blop_disp_map = {
         p: bool(_critical_metric_value(critical_lookup, banco, p, "BloprudencialDisponivel"))
         for p in periodos_snapshot
@@ -8147,7 +8305,7 @@ def pagina_snapshot():
 
     if not _cache_local_disponivel("critical_screens"):
         diagnostico_snapshot.append("arquivo local de critical_screens ausente")
-    elif cache_critical is None or cache_critical.empty:
+    elif cache_snapshot is None or cache_snapshot.empty:
         diagnostico_snapshot.append(f"critical_screens sem instituição/períodos correspondentes para {banco}")
 
     if not any(capital_disp_map.values()):
@@ -8178,21 +8336,9 @@ def pagina_snapshot():
                 )
             )
 
-    # --- New data maps: ROE ---
-    col_roe_tri = _snapshot_pick_col(
-        df_inst,
-        ["ROE trimestral anualizado (%)", "ROE Trim. Anualizado (%)", "ROE Trimestral An. (%)"],
-    )
-    roe_tri_map = {p: _coerce_numeric_value(_obter_valor_peers(df_inst, banco, p, col_roe_tri)) if col_roe_tri else None for p in periodos_snapshot}
-
-    col_roe_ac = _snapshot_pick_col(df_inst, ["ROE Ac. Anualizado (%)", "ROE Ac. YTD an. (%)"])
-    roe_ac_map = {p: _coerce_numeric_value(_obter_valor_peers(df_inst, banco, p, col_roe_ac)) if col_roe_ac else None for p in periodos_snapshot}
-
     # --- Sparkline data (last 8 quarters) ---
     periodos_sparkline = periodos_banco[:8]
-    df_spark = df_base[
-        (df_base["Instituição"] == banco) & (df_base["Período"].isin(periodos_sparkline))
-    ].copy()
+    df_spark = df_bank_all[df_bank_all["Período"].isin(periodos_sparkline)].copy()
     # Sort chronologically (oldest first) for sparkline rendering
     df_spark_sorted = df_spark.copy()
     if not df_spark_sorted.empty and "Período" in df_spark_sorted.columns:
@@ -8353,12 +8499,6 @@ def pagina_snapshot():
         st.markdown(_render_snap_grid(cards, "snap-grid--supporting"), unsafe_allow_html=True)
 
     todas_metricas_snapshot = hero_metrics + profit_metrics + [row for sec in supporting_sections for row in sec["rows"]]
-    df_memoria_snapshot = _build_memoria_calculo_snapshot(
-        todas_metricas_snapshot,
-        periodo_atual,
-        periodo_anterior_qoq,
-        periodo_yoy_existente,
-    )
     anomalias_delta_snapshot = _audit_deltas_snapshot(
         todas_metricas_snapshot,
         periodo_atual,
@@ -8366,6 +8506,20 @@ def pagina_snapshot():
         periodo_yoy_existente,
     )
     with st.expander("Memória de cálculo — Snapshot", expanded=False):
+        metricas_snapshot_disponiveis = [cfg["label"] for cfg in todas_metricas_snapshot]
+        metrica_snapshot_sel = st.selectbox(
+            "Métrica",
+            metricas_snapshot_disponiveis,
+            key="snapshot_memoria_metrica",
+        )
+        df_memoria_snapshot = _build_memoria_calculo_snapshot(
+            cache_snapshot,
+            banco,
+            metrica_snapshot_sel,
+            periodo_atual,
+            periodo_anterior_qoq,
+            periodo_yoy_existente,
+        )
         if df_memoria_snapshot.empty:
             st.info("memória de cálculo indisponível para os filtros atuais.")
         else:
@@ -10117,7 +10271,7 @@ st.session_state['_menu_prev_rendered'] = menu
 st.markdown("---")
 
 CACHE_DEPENDENCIAS_POR_ABA = {
-    "Snapshot": ["principal", "critical_screens", "derived_metrics"],
+    "Snapshot": ["critical_screens"],
     "Rankings": ["principal", "capital"],
     "Peers (Tabela)": ["critical_screens"],
     "Evolução": ["principal", "passivo", "ativo", "capital"],
@@ -11401,35 +11555,7 @@ elif menu == "Peers (Tabela)":
                                 if df_metrica.empty:
                                     st.caption("sem memória de cálculo para esta métrica nos períodos selecionados.")
                                     continue
-
-                                pivot = (
-                                    df_metrica.pivot_table(
-                                        index="componente",
-                                        columns="Período",
-                                        values="valor",
-                                        aggfunc="first",
-                                    )
-                                    .reset_index()
-                                )
-                                colunas_periodo = [p for p in periodos_selecionados if p in pivot.columns]
-                                for col_per in colunas_periodo:
-                                    pivot[col_per] = pivot.apply(
-                                        lambda row: _fmt_memoria_peers(metrica_sel, row["componente"], row[col_per]),
-                                        axis=1,
-                                    )
-                                mapa_periodos = {p: periodo_para_exibicao(p) for p in colunas_periodo}
-                                pivot = pivot.rename(columns=mapa_periodos)
-
-                                ordem_comp = (
-                                    df_metrica[["componente", "ordem"]]
-                                    .drop_duplicates()
-                                    .sort_values("ordem")["componente"]
-                                    .tolist()
-                                )
-                                pivot["ordem"] = pivot["componente"].map({c: i for i, c in enumerate(ordem_comp)})
-                                pivot = pivot.sort_values("ordem").drop(columns=["ordem"])
-
-                                st.dataframe(pivot, width="stretch", hide_index=True)
+                                st.dataframe(df_metrica, width="stretch", hide_index=True)
 
                     with st.expander("Mini-glossário", expanded=False):
                         st.markdown(
