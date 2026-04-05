@@ -5544,7 +5544,16 @@ def _preparar_metricas_extra_peers(
     cache_dre: Optional[pd.DataFrame],
     cache_capital: Optional[pd.DataFrame] = None,
     cache_bloprudencial: Optional[pd.DataFrame] = None,
+    dict_aliases: Optional[dict] = None,
 ) -> dict:
+    # Reverse alias map: alias_name -> set of original institution names
+    # dict_aliases maps original_name -> alias, so we invert it.
+    _alias_reverse: dict[str, set[str]] = {}
+    if dict_aliases:
+        for nome_original, alias in dict_aliases.items():
+            if pd.notna(nome_original) and pd.notna(alias):
+                _alias_reverse.setdefault(str(alias), set()).add(str(nome_original))
+
     # TODO(V3): eliminar duplicidade estrutural de métricas canônicas vs "*"
     # (ex.: Core Funding/Core Funding* e Carteira de Crédito Bruta/Carteira de Crédito*)
     # mantendo apenas uma chave de dado e aliases apenas de apresentação.
@@ -5920,6 +5929,10 @@ def _preparar_metricas_extra_peers(
         banco_variants = _blop_banco_variants_cache.get(str(banco))
         if banco_variants is None:
             banco_variants = _bloprud_name_variants(banco)
+            # Bridge alias→original: if banco is an alias, also include
+            # variants of all original institution names that map to it.
+            for orig_name in _alias_reverse.get(str(banco), set()):
+                banco_variants |= _bloprud_name_variants(orig_name)
             _blop_banco_variants_cache[str(banco)] = banco_variants
         diag_alvo = (yyyymm == "202509" and str(conta) == "3313000000")
 
@@ -6580,6 +6593,7 @@ def _preparar_metricas_extra_peers_cached(
         loaded["dre"],
         loaded["capital"],
         loaded["bloprudencial"],
+        dict_aliases=dict_aliases,
     )
     _elapsed_total = _time.perf_counter() - _t0_wrapper
     print(f"[PEERS_TIMING] metricas_extra_total_inside: {_elapsed_total:.3f}s")
@@ -6941,6 +6955,17 @@ def _render_peers_table_html(
     zebra_idx = 0
     for section in PEERS_TABELA_LAYOUT:
         html += f'<tr><td class="peer-section" colspan="{colunas_total}">{section["section"]}</td></tr>'
+        if section["section"] == "Qualidade Carteira 4060":
+            _disclaimer_4060 = (
+                "Dados do Cadoc 4060 (Balancete Prudencial). "
+                "Instituições de menor porte (segmentos S4/S5) podem não reportar este documento ao BCB, "
+                "resultando em N/D."
+            )
+            html += (
+                f'<tr><td colspan="{colunas_total}" style="font-size:0.78em;color:#888;'
+                f'padding:2px 10px 4px 10px;font-style:italic;background:#f8f8f8;">'
+                f'{_html_mod.escape(_disclaimer_4060)}</td></tr>'
+            )
         for row in section["rows"]:
             zebra_class = "peer-zebra" if zebra_idx % 2 == 0 else ""
             zebra_idx += 1
