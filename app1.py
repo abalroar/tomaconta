@@ -5282,10 +5282,23 @@ def _aplicar_aliases_df(df: Optional[pd.DataFrame], dict_aliases: dict) -> Optio
         return df
     df_out = _normalizar_nomes_carteira(df.copy())
     if dict_aliases and "Instituição" in df_out.columns:
-        df_out["Instituição"] = df_out["Instituição"].apply(
-            lambda nome: dict_aliases.get(nome, dict_aliases.get(normalizar_nome_instituicao(nome), nome))
-            if pd.notna(nome) else nome
-        )
+        # Build expanded alias map: both original name and normalized name → alias
+        _alias_map = {}
+        for _nome_orig, _alias_val in dict_aliases.items():
+            if pd.notna(_nome_orig) and pd.notna(_alias_val):
+                _alias_map[_nome_orig] = _alias_val
+                _nome_norm = normalizar_nome_instituicao(_nome_orig)
+                if _nome_norm:
+                    _alias_map[_nome_norm] = _alias_val
+        col = df_out["Instituição"]
+        mapped = col.map(_alias_map)
+        # Where map found no match, try normalizing the source name
+        mask_miss = mapped.isna() & col.notna()
+        if mask_miss.any():
+            norm_series = col[mask_miss].map(normalizar_nome_instituicao)
+            mapped[mask_miss] = norm_series.map(_alias_map)
+        # Fill remaining NaN with original values
+        df_out["Instituição"] = mapped.fillna(col)
     return df_out
 
 
@@ -5805,6 +5818,23 @@ def _preparar_metricas_extra_peers(
 
         df_blop["_saldo"] = pd.to_numeric(df_blop[col_blop_saldo], errors="coerce")
 
+        # Pre-compute name variants cache to avoid redundant calls inside loops
+        _variants_cache: dict[str, set[str]] = {}
+        def _cached_variants(name: str) -> set[str]:
+            v = _variants_cache.get(name)
+            if v is None:
+                v = _bloprud_name_variants(name)
+                _variants_cache[name] = v
+            return v
+
+        # Pre-warm variants cache with unique names from all 3 columns
+        for _col_name in ("_inst_norm", "_congl_norm"):
+            if _col_name in df_blop.columns:
+                for _uname in df_blop[_col_name].dropna().unique():
+                    _uname_s = str(_uname).strip()
+                    if _uname_s and _uname_s != "None":
+                        _cached_variants(_uname_s)
+
         ag_inst = (
             df_blop.groupby(["_yyyymm", "_inst_norm", "_conta"], dropna=False)["_saldo"]
             .sum(min_count=1)
@@ -5818,8 +5848,8 @@ def _preparar_metricas_extra_peers(
             if not yyyymm or yyyymm == "None" or len(yyyymm) != 6:
                 continue
             if inst_norm and inst_norm != "None" and pd.notna(val):
-                for inst_variant in _bloprud_name_variants(inst_norm):
-                    val_f = float(val)
+                val_f = float(val)
+                for inst_variant in _cached_variants(inst_norm):
                     blop_lookup[(yyyymm, inst_variant, conta)] = val_f
                     blop_lookup_por_mes_conta.setdefault((yyyymm, conta), {}).setdefault(inst_variant, val_f)
 
@@ -5836,8 +5866,8 @@ def _preparar_metricas_extra_peers(
             if not yyyymm or yyyymm == "None" or len(yyyymm) != 6:
                 continue
             if congl_norm and congl_norm != "None" and pd.notna(val):
-                for congl_variant in _bloprud_name_variants(congl_norm):
-                    val_f = float(val)
+                val_f = float(val)
+                for congl_variant in _cached_variants(congl_norm):
                     blop_lookup[(yyyymm, congl_variant, conta)] = val_f
                     blop_lookup_por_mes_conta.setdefault((yyyymm, conta), {}).setdefault(congl_variant, val_f)
 
@@ -5863,13 +5893,13 @@ def _preparar_metricas_extra_peers(
                     continue
                 inst_norm = str(row[0]).strip()
                 if inst_norm and inst_norm != "None":
-                    for inst_variant in _bloprud_name_variants(inst_norm):
+                    for inst_variant in _cached_variants(inst_norm):
                         blop_cod_para_inst_keys.setdefault(cod, set()).add(inst_variant)
                 for nome in (row[0], row[1]):
                     nome_norm = str(nome).strip()
                     if not nome_norm:
                         continue
-                    for nome_variant in _bloprud_name_variants(nome_norm):
+                    for nome_variant in _cached_variants(nome_norm):
                         blop_nome_para_codigos.setdefault(nome_variant, set()).add(cod)
 
     _blop_query_cache: dict[tuple[str, str, str], Optional[float]] = {}
@@ -5980,6 +6010,12 @@ def _preparar_metricas_extra_peers(
 
         val = val_fallback
         out = None if val is None or pd.isna(val) else float(val)
+        if out is None and banco_variants:
+            print(
+                f"[BLOP_MISS] banco={banco}, periodo={periodo}, conta={conta}, "
+                f"variants={sorted(banco_variants)[:5]}, codigos={sorted(codigos)[:3]}, "
+                f"lookup_keys_sample={len(blop_lookup)}, cod_keys_sample={len(blop_lookup_cod)}"
+            )
         _blop_query_cache[query_key] = out
         return out
 
@@ -6508,7 +6544,9 @@ def _preparar_metricas_extra_peers_cached(
     alias_sig: tuple,
     slice_tokens: tuple,
 ) -> dict:
-    """Cached wrapper: loads slices, applies aliases, computes extra metrics."""
+    """Cached wrapper: loads slices in parallel, applies aliases, computes extra metrics."""
+    import time as _time
+    _t0_wrapper = _time.perf_counter()
     dict_aliases = dict(alias_sig) if alias_sig else {}
     slice_tokens_dict = dict(slice_tokens)
 
@@ -6521,18 +6559,31 @@ def _preparar_metricas_extra_peers_cached(
         )
         return _aplicar_aliases_df(df_slice, dict_aliases)
 
-    return _preparar_metricas_extra_peers(
+    tipos = ["ativo", "passivo", "carteira_pf", "carteira_pj",
+             "carteira_instrumentos", "dre", "capital", "bloprudencial"]
+
+    from concurrent.futures import ThreadPoolExecutor
+    _t_io = _time.perf_counter()
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        loaded = dict(zip(tipos, executor.map(_load_and_alias, tipos)))
+    _elapsed_io = _time.perf_counter() - _t_io
+    print(f"[PEERS_TIMING] parallel_slice_load: {_elapsed_io:.3f}s")
+
+    result = _preparar_metricas_extra_peers(
         list(bancos_tuple),
         list(periodos_tuple),
-        _load_and_alias("ativo"),
-        _load_and_alias("passivo"),
-        _load_and_alias("carteira_pf"),
-        _load_and_alias("carteira_pj"),
-        _load_and_alias("carteira_instrumentos"),
-        _load_and_alias("dre"),
-        _load_and_alias("capital"),
-        _load_and_alias("bloprudencial"),
+        loaded["ativo"],
+        loaded["passivo"],
+        loaded["carteira_pf"],
+        loaded["carteira_pj"],
+        loaded["carteira_instrumentos"],
+        loaded["dre"],
+        loaded["capital"],
+        loaded["bloprudencial"],
     )
+    _elapsed_total = _time.perf_counter() - _t0_wrapper
+    print(f"[PEERS_TIMING] metricas_extra_total_inside: {_elapsed_total:.3f}s")
+    return result
 
 
 def _montar_tabela_peers(
