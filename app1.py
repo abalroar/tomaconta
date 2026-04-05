@@ -5366,6 +5366,20 @@ def _carregar_cache_relatorio_slice(
                 out.append(f"{yyyy}{mm}")
         return tuple(sorted(set(out)))
 
+<<<<<<< HEAD
+=======
+    # HOTFIX-PERF/COBERTURA:
+    # Para BLOPrudencial, o recorte por instituição no parquet reduz cobertura (nomes
+    # prudenciais nem sempre batem com o alias da UI) e pode forçar fallback full-load.
+    # Caminho dedicado: carregar só competências necessárias no cache mensal.
+    if tipo_cache == "bloprudencial":
+        yyyymm_needed = _periodos_to_yyyymm(tuple(periodos or ()))
+        if yyyymm_needed:
+            df_blop = _carregar_bloprudencial_fallback_periodos(yyyymm_needed)
+            if df_blop is not None and not df_blop.empty:
+                return _normalizar_nomes_carteira(df_blop)
+
+>>>>>>> main
     manager = get_cache_manager()
     if manager is None:
         return None
@@ -5391,6 +5405,7 @@ def _carregar_cache_relatorio_slice(
                 elif tipo_cache == "bloprudencial":
                     yyyymm_needed = _periodos_to_yyyymm(tuple(periodos))
                     if yyyymm_needed and "DATA_BASE" in schema_names:
+<<<<<<< HEAD
                         # DATA_BASE pode variar entre YYYYMM, YYYYMMDD, int ou string.
                         vals = set()
                         for ym in yyyymm_needed:
@@ -5407,6 +5422,10 @@ def _carregar_cache_relatorio_slice(
                                 if ymd.isdigit():
                                     vals.add(int(ymd))
                         vals = sorted(vals)
+=======
+                        # DATA_BASE pode estar como int/string YYYYMM no cache consolidado.
+                        vals = sorted(set(list(yyyymm_needed) + [int(v) for v in yyyymm_needed if v.isdigit()]))
+>>>>>>> main
                         f = ds.field("DATA_BASE").isin(vals)
                         filtro = f if filtro is None else filtro & f
             if instituicoes and "Instituição" in schema_names and tipo_cache != "bloprudencial":
