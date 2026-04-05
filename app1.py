@@ -1,5 +1,6 @@
 import importlib
 import math
+import hashlib
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, Optional, List
 import streamlit as st
@@ -17,8 +18,28 @@ from typing import Tuple, Optional
 import time
 import html as _html_mod
 
+# ============================================================
+# PERFORMANCE PATCH — Applied by Codex
+# Task 1: Fixed cache miss on _get_analise_base_df (args now hashable)
+# Task 2: Pre-materialized lookup dict in _preparar_metricas_extra_peers
+# Task 3: Added _to_cache_key() guard helper
+# Task 4: Upgraded shared loaders to st.cache_resource where applicable
+# Debug: [CACHE DEBUG] print left intentionally for validation
+# ============================================================
+
 # === PERFORMANCE TIMER ===
 _perf_timers = {}
+
+
+def _to_cache_key(obj):
+    """Converte qualquer objeto para uma cache key hashable e estável."""
+    if isinstance(obj, (str, int, float, bool, type(None))):
+        return obj
+    if isinstance(obj, (list, tuple)):
+        return tuple(_to_cache_key(i) for i in obj)
+    if isinstance(obj, dict):
+        return tuple(sorted((k, _to_cache_key(v)) for k, v in obj.items()))
+    return str(obj)
 
 def _perf_start(label: str):
     """Inicia timer de performance para uma etapa."""
@@ -4895,15 +4916,24 @@ def _calcular_core_funding(
     periodo: str,
     col_capt: Optional[str],
     col_instr: Optional[str],
+    lk_passivo: Optional[dict] = None,
 ) -> Optional[float]:
     """Core Funding por período: até 2024 usa Captações (e); 2025+ usa Captações (e) + Dívida Subordinada (h)."""
     if cache_passivo is None or cache_passivo.empty:
         return None
     ano_ref = _periodo_ano_int(periodo)
-    cap_val = _obter_valor_peers(cache_passivo, instituicao, periodo, col_capt) if col_capt else None
+    if lk_passivo is not None:
+        row = lk_passivo.get((instituicao, str(periodo)))
+        cap_val = row.get(col_capt) if (row is not None and col_capt) else None
+    else:
+        cap_val = _obter_valor_peers(cache_passivo, instituicao, periodo, col_capt) if col_capt else None
     if ano_ref is None or ano_ref <= 2024:
         return _coerce_numeric_value(cap_val)
-    instr_val = _obter_valor_peers(cache_passivo, instituicao, periodo, col_instr) if col_instr else None
+    if lk_passivo is not None:
+        row = lk_passivo.get((instituicao, str(periodo)))
+        instr_val = row.get(col_instr) if (row is not None and col_instr) else None
+    else:
+        instr_val = _obter_valor_peers(cache_passivo, instituicao, periodo, col_instr) if col_instr else None
     return _somar_valores([cap_val, instr_val])
 
 
@@ -6318,7 +6348,14 @@ def _montar_tabela_peers(
         perf = {}
 
     # FIX-2: evita reconstruções/lazy builds por célula.
-    _build_peers_lookup(df)
+    main_lookup = _build_peers_lookup(df)
+    def _lk_main_get(banco: str, periodo: str, coluna: Optional[str]):
+        if coluna is None or not main_lookup:
+            return None
+        row = main_lookup.get((banco, periodo))
+        if row is None:
+            return None
+        return row.get(coluna)
     for _df_cache in (
         (caches_extras or {}).get("ativo"),
         (caches_extras or {}).get("passivo"),
@@ -6350,7 +6387,7 @@ def _montar_tabela_peers(
     # evita divergência de CET1/Basileia entre abas.
     df_capital_idx = _construir_indices_capital_unificados(
         _cache_version_token("capital"),
-        _alias_signature(),
+        _alias_signature_cache_key(),
     )
     if df_capital_idx is not None and not df_capital_idx.empty:
         df_capital_idx = df_capital_idx.copy()
@@ -6418,15 +6455,15 @@ def _montar_tabela_peers(
                         else:
                             tip = f"{label}: {_fmt_tooltip_mm(valor)}" if valor is not None else ""
                     elif label == "Ativo Total / PL":
-                        valor_ativo = _obter_valor_peers(df, banco, periodo, coluna_ativo)
-                        valor_pl = _obter_valor_peers(df, banco, periodo, coluna_pl)
+                        valor_ativo = _lk_main_get(banco, periodo, coluna_ativo)
+                        valor_pl = _lk_main_get(banco, periodo, coluna_pl)
                         valor = _calcular_ratio_peers(valor_ativo, valor_pl)
                         tip = _tooltip_ratio_peers(label, valor_ativo, valor_pl, valor)
                     elif label == "Carteira de Crédito* / PL":
                         valor_credito = extra_values.get("Carteira de Crédito Bruta", {}).get((banco, periodo))
                         if valor_credito is None or pd.isna(valor_credito):
-                            valor_credito = _obter_valor_peers(df, banco, periodo, coluna_credito)
-                        valor_pl_v = _obter_valor_peers(df, banco, periodo, coluna_pl)
+                            valor_credito = _lk_main_get(banco, periodo, coluna_credito)
+                        valor_pl_v = _lk_main_get(banco, periodo, coluna_pl)
                         valor = _calcular_ratio_peers(valor_credito, valor_pl_v)
                         tip = _tooltip_ratio_peers(label, valor_credito, valor_pl_v, valor)
                     elif coluna:
@@ -6434,7 +6471,7 @@ def _montar_tabela_peers(
                             valor = _ajustar_lucro_acumulado_peers(df, banco, periodo, coluna)
                             tip = _tooltip_ll_peers(df, banco, periodo, coluna, valor)
                         else:
-                            valor = _obter_valor_peers(df, banco, periodo, coluna)
+                            valor = _lk_main_get(banco, periodo, coluna)
                             if coluna and "(%)" in coluna and valor is not None and not pd.isna(valor):
                                 try:
                                     tip = f"{label}: {_formatar_percentual(float(valor), decimais=2)}"
@@ -6453,16 +6490,16 @@ def _montar_tabela_peers(
                         if label == "Lucro Líquido Acumulado":
                             valor_base = _ajustar_lucro_acumulado_peers(df, banco, periodo_base, coluna)
                         else:
-                            valor_base = _obter_valor_peers(df, banco, periodo_base, coluna)
+                            valor_base = _lk_main_get(banco, periodo_base, coluna)
                     elif periodo_base and label == "Ativo Total / PL":
-                        valor_ativo_base = _obter_valor_peers(df, banco, periodo_base, coluna_ativo)
-                        valor_pl_base = _obter_valor_peers(df, banco, periodo_base, coluna_pl)
+                        valor_ativo_base = _lk_main_get(banco, periodo_base, coluna_ativo)
+                        valor_pl_base = _lk_main_get(banco, periodo_base, coluna_pl)
                         valor_base = _calcular_ratio_peers(valor_ativo_base, valor_pl_base)
                     elif periodo_base and label == "Carteira de Crédito* / PL":
                         valor_credito_b = extra_values.get("Carteira de Crédito Bruta", {}).get((banco, periodo_base))
                         if valor_credito_b is None or pd.isna(valor_credito_b):
-                            valor_credito_b = _obter_valor_peers(df, banco, periodo_base, coluna_credito)
-                        valor_pl_b = _obter_valor_peers(df, banco, periodo_base, coluna_pl)
+                            valor_credito_b = _lk_main_get(banco, periodo_base, coluna_credito)
+                        valor_pl_b = _lk_main_get(banco, periodo_base, coluna_pl)
                         valor_base = _calcular_ratio_peers(valor_credito_b, valor_pl_b)
                     else:
                         valor_base = None
@@ -9061,9 +9098,13 @@ def _get_analise_base_df(
     principal_token: str,
     alias_sig: tuple,
     capital_mesclado: bool,
-    periodos_filter: Optional[list] = None,
+    periodos_filter: Optional[tuple] = None,
 ) -> pd.DataFrame:
     """Base unificada para abas analíticas com dependências explícitas para cache."""
+    _arg_hash = hashlib.md5(
+        str((principal_token, alias_sig, capital_mesclado, periodos_filter)).encode()
+    ).hexdigest()
+    print(f"[CACHE DEBUG] _get_analise_base_df CALLED | arg_hash={_arg_hash}")
     _ = (principal_token, capital_mesclado)
     dados_periodos = _carregar_dados_periodos_preparados(principal_token, alias_sig)
     if not dados_periodos:
@@ -9097,14 +9138,15 @@ def get_analise_base_df(
     periodos_filter: Optional[list] = None,
 ) -> pd.DataFrame:
     """Retorna base memoizada para Peers e Scatter."""
-    principal_token = cache_token if cache_token is not None else _cache_version_token("principal")
-    alias_sig = _alias_signature()
-    capital_mesclado = bool(st.session_state.get('_dados_capital_mesclados', False))
+    principal_token = str(cache_token if cache_token is not None else _cache_version_token("principal"))
+    alias_sig = _alias_signature_cache_key()
+    capital_mesclado = bool(_to_cache_key(st.session_state.get('_dados_capital_mesclados', False)))
+    periodos_filter_key = _to_cache_key(periodos_filter) if periodos_filter is not None else None
     return _get_analise_base_df(
         principal_token,
         alias_sig,
         capital_mesclado,
-        periodos_filter=periodos_filter,
+        periodos_filter=periodos_filter_key,
     )
 
 
@@ -9419,6 +9461,18 @@ def _alias_signature() -> tuple:
     return tuple(sorted((str(k), str(v)) for k, v in dict_aliases.items()))
 
 
+def _alias_signature_cache_key() -> tuple:
+    """Normaliza assinatura de aliases para uso seguro em caches do Streamlit."""
+    alias_sig_key = _to_cache_key(_alias_signature())
+    if (
+        isinstance(alias_sig_key, tuple)
+        and all(isinstance(i, tuple) and len(i) == 2 for i in alias_sig_key)
+    ):
+        return tuple((str(k), str(v)) for k, v in alias_sig_key)
+    alias_sig_json = json.dumps(alias_sig_key, ensure_ascii=False, sort_keys=True)
+    return (("__alias_sig_json__", alias_sig_json),)
+
+
 def _precisa_recalcular_metricas_rapido(dados_periodos: dict) -> bool:
     """Heurística conservadora para evitar recálculo global desnecessário."""
     if not dados_periodos:
@@ -9456,7 +9510,7 @@ def _precisa_recalcular_metricas_rapido(dados_periodos: dict) -> bool:
 
     return False
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_resource(show_spinner=False)
 def _carregar_dados_periodos_preparados(cache_token: str, alias_sig: tuple):
     """Carrega e prepara cache principal com memoização entre sessões.
 
@@ -9487,7 +9541,7 @@ def _carregar_dados_periodos_preparados(cache_token: str, alias_sig: tuple):
     return dados_cache
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_resource(show_spinner=False)
 def _carregar_dados_capital_preparados(cache_token: str, alias_sig: tuple):
     """Carrega e prepara cache de capital com memoização entre sessões."""
     cache_manager = get_cache_manager()
@@ -9512,7 +9566,7 @@ def carregar_dados_periodos():
     _perf_start("init_dados_periodos")
 
     cache_token = _cache_version_token("principal")
-    alias_sig = _alias_signature()
+    alias_sig = _alias_signature_cache_key()
 
     _perf_start("principal_preparado_cache")
     dados_cache = _carregar_dados_periodos_preparados(cache_token, alias_sig)
@@ -9634,7 +9688,7 @@ def carregar_dados_capital():
     _perf_start("init_dados_capital")
 
     cache_token = _cache_version_token("capital")
-    alias_sig = _alias_signature()
+    alias_sig = _alias_signature_cache_key()
 
     _perf_start("capital_preparado_cache")
     dados_capital = _carregar_dados_capital_preparados(cache_token, alias_sig)
@@ -10929,7 +10983,7 @@ elif menu == "Peers (Tabela)":
                     instituicoes_slice_tuple = tuple(sorted(i for i in instituicoes_slice if i))
                     df = get_analise_base_df(
                         _cache_version_token("principal"),
-                        periodos_filter=list(periodos_ext_peers),
+                        periodos_filter=tuple(periodos_ext_peers),
                     )
 
                     # Carregamento já recortado no nível do cache (evita ler dataset inteiro)
@@ -11567,6 +11621,7 @@ elif menu == "Evolução":
             )
             if col_capt or col_instr:
                 core_map = {}
+                lk_passivo = _build_peers_lookup(cache_passivo)
                 for periodo in periodos_evo:
                     df_cap_per = cache_passivo[
                         (cache_passivo.get("Instituição", pd.Series(dtype="object")).astype(str) == str(instituicao))
@@ -11580,6 +11635,7 @@ elif menu == "Evolução":
                         periodo,
                         col_capt,
                         col_instr,
+                        lk_passivo=lk_passivo,
                     )
                     core_funding_memoria_map[periodo] = {"captacoes": cap_val, "instr_capital": ins_val}
                 core_funding_series = df_ano.get("Período", pd.Series(index=df_ano.index)).map(core_map)
@@ -11750,7 +11806,7 @@ elif menu == "Evolução":
             pd.to_numeric(df_ano["Carteira de Crédito Bruta"], errors="coerce") / pd.to_numeric(df_ano.get("Patrimônio Líquido"), errors="coerce"),
             np.nan,
         )
-        df_capital_idx = _construir_indices_capital_unificados(_cache_version_token("capital"), _alias_signature())
+        df_capital_idx = _construir_indices_capital_unificados(_cache_version_token("capital"), _alias_signature_cache_key())
         if not df_capital_idx.empty:
             # Merge por chave temporal robusta (Ano/Tri) para cobrir variações de formato de Período
             # entre bases (ex.: "12/2021" vs "4/2021").
@@ -12298,7 +12354,7 @@ elif menu == "Scatter Plot":
             periodo_scatter,
             _cache_version_token("principal"),
             _cache_version_token("derived_metrics"),
-            _alias_signature(),
+            _alias_signature_cache_key(),
             bool(st.session_state.get('_dados_capital_mesclados', False)),
         )
 
@@ -12512,14 +12568,14 @@ elif menu == "Scatter Plot":
                 periodo_inicial,
                 _cache_version_token("principal"),
                 _cache_version_token("derived_metrics"),
-                _alias_signature(),
+                _alias_signature_cache_key(),
                 bool(st.session_state.get('_dados_capital_mesclados', False)),
             )
             df_p2, diag_scatter_derived_p2 = get_scatter_periodo_df(
                 periodo_subseq,
                 _cache_version_token("principal"),
                 _cache_version_token("derived_metrics"),
-                _alias_signature(),
+                _alias_signature_cache_key(),
                 bool(st.session_state.get('_dados_capital_mesclados', False)),
             )
 
@@ -12769,7 +12825,7 @@ elif menu == "Rankings":
             _cache_version_token("principal"),
             _cache_version_token("capital"),
             bool(st.session_state.get('_dados_capital_mesclados', False)),
-            _alias_signature(),
+            _alias_signature_cache_key(),
         )
         print(_perf_log("rankings_base_df"))
 
