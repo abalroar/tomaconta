@@ -5911,6 +5911,20 @@ def _preparar_metricas_extra_peers(
                     for nome_variant in _cached_variants(nome_norm):
                         blop_nome_para_codigos.setdefault(nome_variant, set()).add(cod)
 
+    # Build alias → COD_CONGL bridge using institution codes (deterministic, no name guessing).
+    # Flow: alias → original_names (from _alias_reverse) → normalized → COD_CONGL (from BLOPRUDENCIAL).
+    _alias_to_cod_congl: dict[str, set[str]] = {}
+    if _alias_reverse and blop_nome_para_codigos:
+        for alias, orig_names in _alias_reverse.items():
+            codigos_alias: set[str] = set()
+            for orig_name in orig_names:
+                for variant in _bloprud_name_variants(orig_name):
+                    codigos_alias.update(blop_nome_para_codigos.get(variant, set()))
+            if codigos_alias:
+                _alias_to_cod_congl[alias] = codigos_alias
+    if _alias_to_cod_congl:
+        print(f"[BLOP_BRIDGE] alias→COD_CONGL: {', '.join(f'{a}→{sorted(c)}' for a, c in sorted(_alias_to_cod_congl.items())[:10])}")
+
     _blop_query_cache: dict[tuple[str, str, str], Optional[float]] = {}
     _blop_banco_variants_cache: dict[str, set[str]] = {}
     _blop_banco_codigos_cache: dict[str, set[str]] = {}
@@ -5937,9 +5951,14 @@ def _preparar_metricas_extra_peers(
         diag_alvo = (yyyymm == "202509" and str(conta) == "3313000000")
 
         # Prioridade: lookup por código estável do conglomerado prudencial.
+        # 1st: direct alias→COD_CONGL bridge (deterministic, code-based)
+        # 2nd: name variants → COD_CONGL (fallback for non-aliased banks)
         codigos = _blop_banco_codigos_cache.get(str(banco))
         if codigos is None:
             codigos = set()
+            # Try code-based bridge first (alias → COD_CONGL)
+            codigos.update(_alias_to_cod_congl.get(str(banco), set()))
+            # Then add codes found via name variants
             for variant in banco_variants:
                 codigos.update(blop_nome_para_codigos.get(variant, set()))
             _blop_banco_codigos_cache[str(banco)] = codigos
