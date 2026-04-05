@@ -5517,32 +5517,49 @@ def _preparar_metricas_extra_peers(
     periodos_base = {_periodo_ano_anterior(periodo) for periodo in periodos}
     periodos_ext = [p for p in periodos + sorted(periodos_base) if p]
 
-    # FIX-B: materializa dicts (Instituição, Período) -> row apenas uma vez.
-    def _lk(df_src: Optional[pd.DataFrame]) -> dict:
+    def _resolver_coluna_base(df_src: Optional[pd.DataFrame], candidatos: list[str]) -> Optional[str]:
+        if df_src is None or df_src.empty:
+            return None
+        cols = list(df_src.columns)
+        lower_map = {str(c).strip().lower(): c for c in cols}
+        for cand in candidatos:
+            key = str(cand).strip().lower()
+            if key in lower_map:
+                return lower_map[key]
+        return None
+
+    def _build_metric_pivot(df_src: Optional[pd.DataFrame], metric_cols: list[str]) -> dict:
         if df_src is None or df_src.empty:
             return {}
-        out = {}
-        for r in df_src.to_dict("records"):
-            k = (r.get("Instituição", ""), str(r.get("Período", "")))
-            if k not in out:
-                out[k] = r
-        return out
+        metric_cols = [c for c in metric_cols if c and c in df_src.columns]
+        if not metric_cols:
+            return {}
+        col_inst = _resolver_coluna_base(df_src, ["Instituição", "instituicao", "banco"])
+        col_per = _resolver_coluna_base(df_src, ["Período", "periodo", "competencia", "data"])
+        if not col_inst or not col_per:
+            return {}
 
-    def _lk_get(lk_src: dict, banco: str, periodo: str, coluna: Optional[str]):
-        if coluna is None or not lk_src:
-            return None
-        row = lk_src.get((banco, str(periodo)))
-        if row is None:
-            return None
-        return row.get(coluna)
+        # PERF: pre-materialized pivot replaces O(N) per-call DataFrame scans
+        grouped = (
+            df_src[[col_inst, col_per] + metric_cols]
+            .copy()
+            .assign(**{col_per: lambda d: d[col_per].astype(str)})
+            .groupby([col_inst, col_per], dropna=False, sort=False)[metric_cols]
+            .first()
+            .reset_index()
+        )
+        pivot = {}
+        for row in grouped.itertuples(index=False, name=None):
+            inst = row[0]
+            per = str(row[1])
+            for idx, metric_col in enumerate(metric_cols, start=2):
+                pivot[(inst, per, metric_col)] = row[idx]
+        return pivot
 
-    lk_ativo = _lk(cache_ativo)
-    lk_passivo = _lk(cache_passivo)
-    lk_capital = _lk(cache_capital)
-    lk_dre = _lk(cache_dre)
-    lk_pf = _lk(cache_carteira_pf)
-    lk_pj = _lk(cache_carteira_pj)
-    lk_instr = _lk(cache_carteira_instr)
+    def _lk_get(pivot_src: dict, banco: str, periodo: str, coluna: Optional[str]):
+        if coluna is None or not pivot_src:
+            return None
+        return pivot_src.get((banco, str(periodo), coluna))
 
     def _periodo_to_yyyymm(periodo: str) -> Optional[str]:
         parsed = _parse_periodo(periodo)
@@ -6073,6 +6090,31 @@ def _preparar_metricas_extra_peers(
             "Índice de Basileia (m) = (e) / (i)",
         ],
     )
+
+    cols_ativo_pivot = [
+        col_credito_bruta_e1, col_credito_bruta_f1, col_credito_bruta_g1, col_credito_bruta_h1,
+        col_credito_bruta_d1, col_credito_bruta_e1_alt, col_credito_bruta_f,
+        col_credito_net_e, col_credito_net_f, col_credito_net_g, col_credito_net_h,
+        col_disp_ativo, col_aplic_ativo, col_tvm_ativo,
+    ] + perda_colunas
+    cols_passivo_pivot = [
+        col_depositos_passivo, col_dep_a1, col_dep_a2, col_dep_a3, col_dep_a4, col_dep_a5, col_dep_a6,
+        col_capt_passivo, col_instr_passivo,
+    ]
+    cols_capital_pivot = [
+        col_cap_principal, col_cap_complementar, col_cap_nivel2, col_rwa_total,
+        col_indice_cap_principal, col_indice_basileia_precalc,
+    ]
+    cols_pf_pivot = [col_pf_total]
+    cols_pj_pivot = [col_pj_total]
+    cols_instr_pivot = [col_c4, col_c5]
+
+    lk_ativo = _build_metric_pivot(cache_ativo, cols_ativo_pivot)
+    lk_passivo = _build_metric_pivot(cache_passivo, cols_passivo_pivot)
+    lk_capital = _build_metric_pivot(cache_capital, cols_capital_pivot)
+    lk_pf = _build_metric_pivot(cache_carteira_pf, cols_pf_pivot)
+    lk_pj = _build_metric_pivot(cache_carteira_pj, cols_pj_pivot)
+    lk_instr = _build_metric_pivot(cache_carteira_instr, cols_instr_pivot)
 
     for banco in bancos:
         for periodo in periodos_ext:
