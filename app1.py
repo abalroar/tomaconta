@@ -13126,16 +13126,14 @@ elif menu == "Scatter Plot":
         st.caption("Use o botão de carregamento acima para abrir o Scatter imediatamente.")
 
 elif menu == "Rankings":
-    if _garantir_dados_principais("Rankings"):
-        if not st.session_state.get('_dados_capital_mesclados'):
-            carregar_dados_capital()
-            if 'dados_capital' in st.session_state and st.session_state['dados_capital']:
-                st.session_state['dados_periodos'] = mesclar_dados_capital(
-                    st.session_state['dados_periodos'],
-                    st.session_state['dados_capital']
-                )
-                st.session_state['_dados_capital_mesclados'] = True
+    # Indicadores que requerem dados de capital (carregados sob demanda)
+    INDICADORES_CAPITAL_RANKINGS = {
+        'Índice de Capital Principal (CET1)',
+        'Índice de Capital T1 (%)',
+        'Índice de Basileia Total (%)',
+    }
 
+    if _garantir_dados_principais("Rankings"):
         # PERF: lightweight context for dropdown population (instant)
         _rankings_ctx = _get_rankings_filters_context(
             _cache_version_token("principal"),
@@ -13235,6 +13233,16 @@ elif menu == "Rankings":
                     indicadores_ordenados,
                     key="indicador_resumo"
                 )
+            # Carregamento de capital sob demanda: só para indicadores que precisam
+            if indicador_label in INDICADORES_CAPITAL_RANKINGS:
+                if not st.session_state.get('_dados_capital_mesclados'):
+                    carregar_dados_capital()
+                    if 'dados_capital' in st.session_state and st.session_state['dados_capital']:
+                        st.session_state['dados_periodos'] = mesclar_dados_capital(
+                            st.session_state['dados_periodos'],
+                            st.session_state['dados_capital']
+                        )
+                        st.session_state['_dados_capital_mesclados'] = True
             coluna_peso_resumo = None
             tipo_media_label = "Média simples"
             modo_ordenacao = "Ordenar por valor"
@@ -14149,32 +14157,33 @@ elif menu == "Rankings":
                                 st.dataframe(df_tabela_capital, use_container_width=True, hide_index=True)
 
                             st.markdown("#### Exportar")
-                            buffer_excel = BytesIO()
-                            with pd.ExcelWriter(buffer_excel, engine='xlsxwriter') as writer:
-                                df_export_capital.to_excel(writer, index=False, sheet_name='indice_basileia')
-                            buffer_excel.seek(0)
-
                             col_export_a, col_export_b = st.columns(2)
                             with col_export_a:
-                                st.download_button(
-                                    label="Download Excel",
-                                    data=buffer_excel,
-                                    file_name=f"indice_basileia_{periodo_resumo_base.replace('/', '-')}.xlsx",
-                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                    key="exportar_resumo_excel_basileia",
-                                    use_container_width=False,
-                                )
-                            with col_export_b:
-                                png_bytes = _plotly_fig_to_png_bytes(fig_basileia)
-                                if png_bytes:
+                                if st.button("Gerar Excel", key="rankings_basileia_gerar_excel"):
+                                    buffer_excel = BytesIO()
+                                    with pd.ExcelWriter(buffer_excel, engine='xlsxwriter') as writer:
+                                        df_export_capital.to_excel(writer, index=False, sheet_name='indice_basileia')
+                                    buffer_excel.seek(0)
                                     st.download_button(
-                                        label="exportar gráfico PNG",
-                                        data=png_bytes,
-                                        file_name=f"indice_basileia_{periodo_resumo_base.replace('/', '-')}.png",
-                                        mime="image/png",
-                                        key="exportar_grafico_png_basileia",
-                                        use_container_width=True,
+                                        label="Download Excel",
+                                        data=buffer_excel,
+                                        file_name=f"indice_basileia_{periodo_resumo_base.replace('/', '-')}.xlsx",
+                                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                        key="exportar_resumo_excel_basileia",
+                                        use_container_width=False,
                                     )
+                            with col_export_b:
+                                if st.button("Gerar PNG", key="rankings_basileia_gerar_png"):
+                                    png_bytes = _plotly_fig_to_png_bytes(fig_basileia)
+                                    if png_bytes:
+                                        st.download_button(
+                                            label="exportar gráfico PNG",
+                                            data=png_bytes,
+                                            file_name=f"indice_basileia_{periodo_resumo_base.replace('/', '-')}.png",
+                                            mime="image/png",
+                                            key="exportar_grafico_png_basileia",
+                                            use_container_width=True,
+                                        )
                 else:
                     if df_selecionado.empty:
                         st.info("selecione instituições ou ajuste os filtros para visualizar o ranking.")
