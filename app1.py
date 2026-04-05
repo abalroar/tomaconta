@@ -5662,6 +5662,7 @@ def _preparar_metricas_extra_peers(
     col_blop_documento = _bloprud_pick_col(cache_bloprudencial, ["DOCUMENTO", "Documento", "doc", "cadoc"])
 
     blop_lookup: dict[tuple[str, str, str], float] = {}
+    blop_lookup_por_mes_conta: dict[tuple[str, str], dict[str, float]] = {}
     blop_lookup_cod: dict[tuple[str, str, str], float] = {}
     blop_nome_para_codigos: dict[str, set[str]] = {}
     blop_cod_para_inst_keys: dict[str, set[str]] = {}
@@ -5731,7 +5732,9 @@ def _preparar_metricas_extra_peers(
                 continue
             if inst_norm and inst_norm != "None" and pd.notna(val):
                 for inst_variant in _bloprud_name_variants(inst_norm):
-                    blop_lookup[(yyyymm, inst_variant, conta)] = float(val)
+                    val_f = float(val)
+                    blop_lookup[(yyyymm, inst_variant, conta)] = val_f
+                    blop_lookup_por_mes_conta.setdefault((yyyymm, conta), {}).setdefault(inst_variant, val_f)
 
         ag_congl = (
             df_blop.groupby(["_yyyymm", "_congl_norm", "_conta"], dropna=False)["_saldo"]
@@ -5747,7 +5750,9 @@ def _preparar_metricas_extra_peers(
                 continue
             if congl_norm and congl_norm != "None" and pd.notna(val):
                 for congl_variant in _bloprud_name_variants(congl_norm):
-                    blop_lookup[(yyyymm, congl_variant, conta)] = float(val)
+                    val_f = float(val)
+                    blop_lookup[(yyyymm, congl_variant, conta)] = val_f
+                    blop_lookup_por_mes_conta.setdefault((yyyymm, conta), {}).setdefault(congl_variant, val_f)
 
         if col_blop_cod_congl:
             ag_cod = (
@@ -5780,19 +5785,34 @@ def _preparar_metricas_extra_peers(
                     for nome_variant in _bloprud_name_variants(nome_norm):
                         blop_nome_para_codigos.setdefault(nome_variant, set()).add(cod)
 
+    _blop_query_cache: dict[tuple[str, str, str], Optional[float]] = {}
+    _blop_banco_variants_cache: dict[str, set[str]] = {}
+    _blop_banco_codigos_cache: dict[str, set[str]] = {}
+
     def _blop_get_sum_periodo_conta(banco: str, periodo: str, conta: str) -> Optional[float]:
+        query_key = (str(banco), str(periodo), str(conta))
+        if query_key in _blop_query_cache:
+            return _blop_query_cache[query_key]
         if not blop_lookup and not blop_lookup_cod:
+            _blop_query_cache[query_key] = None
             return None
         yyyymm = _periodo_to_yyyymm(periodo)
         if not yyyymm:
+            _blop_query_cache[query_key] = None
             return None
-        banco_variants = _bloprud_name_variants(banco)
+        banco_variants = _blop_banco_variants_cache.get(str(banco))
+        if banco_variants is None:
+            banco_variants = _bloprud_name_variants(banco)
+            _blop_banco_variants_cache[str(banco)] = banco_variants
         diag_alvo = (yyyymm == "202509" and str(conta) == "3313000000")
 
         # Prioridade: lookup por código estável do conglomerado prudencial.
-        codigos = set()
-        for variant in banco_variants:
-            codigos.update(blop_nome_para_codigos.get(variant, set()))
+        codigos = _blop_banco_codigos_cache.get(str(banco))
+        if codigos is None:
+            codigos = set()
+            for variant in banco_variants:
+                codigos.update(blop_nome_para_codigos.get(variant, set()))
+            _blop_banco_codigos_cache[str(banco)] = codigos
         for cod in codigos:
             val_cod = blop_lookup_cod.get((yyyymm, cod, conta))
             if val_cod is not None and not pd.isna(val_cod):
@@ -5812,6 +5832,7 @@ def _preparar_metricas_extra_peers(
                             "saldo_bruto": float(val_cod),
                         },
                     )
+                _blop_query_cache[query_key] = float(val_cod)
                 return float(val_cod)
 
         for variant in banco_variants:
@@ -5833,13 +5854,14 @@ def _preparar_metricas_extra_peers(
                             "saldo_bruto": float(val),
                         },
                     )
+                _blop_query_cache[query_key] = float(val)
                 return float(val)
 
         # fallback: compatibilizar por inclusão textual entre variantes e chaves do lookup
+        # já indexadas por (yyyymm, conta) para evitar varredura global.
         val_fallback = None
-        for (ym_key, inst_key, conta_key), saldo in blop_lookup.items():
-            if ym_key != yyyymm or conta_key != conta:
-                continue
+        inst_map = blop_lookup_por_mes_conta.get((yyyymm, str(conta)), {})
+        for inst_key, saldo in inst_map.items():
             if any(
                 v and (
                     v == inst_key
@@ -5870,7 +5892,9 @@ def _preparar_metricas_extra_peers(
                 break
 
         val = val_fallback
-        return None if val is None or pd.isna(val) else float(val)
+        out = None if val is None or pd.isna(val) else float(val)
+        _blop_query_cache[query_key] = out
+        return out
 
     col_pf_total = _resolver_coluna_peers(
         cache_carteira_pf,
