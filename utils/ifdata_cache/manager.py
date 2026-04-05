@@ -161,9 +161,9 @@ class CacheManager:
         from .bloprudencial_cache import BloprudencialCache
 
         # Caches principais (variáveis selecionadas)
-        self.registrar(PrincipalCache(self.base_dir))
+        self.registrar(PrincipalCache(self.base_dir, manter_codinst=True))
         self.registrar(PrincipalIndividualCache(self.base_dir))
-        self.registrar(CapitalCache(self.base_dir))
+        self.registrar(CapitalCache(self.base_dir, manter_codinst=True))
 
         # Caches de relatórios completos (todas as variáveis)
         self.registrar(AtivoCache(self.base_dir))
