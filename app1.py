@@ -10165,6 +10165,48 @@ def _get_rankings_base_df(
     return _normalizar_indicadores_rankings(df)
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def _get_rankings_direct_df(
+    principal_token: str,
+    alias_sig: tuple,
+    periodos_filter: Optional[tuple] = None,
+) -> pd.DataFrame:
+    # [CHANGE] Data: 2026-04-05 | Aba: Rankings | Prioridade: P1
+    # Motivo: indicadores diretos como Ativo Total pagavam a base analítica completa
+    # (concat + recálculo de lucro/ROE), embora dependam apenas do cache principal preparado.
+    # Solução: recorte direto por período a partir de dados_periodos preparados, com
+    # normalização leve de aliases/nomes de coluna já usada nos Rankings.
+    # Impacto: reduz o custo do caminho frio de Rankings sem alterar fórmulas financeiras.
+    # Testado em: py_compile, pytest e execução headless da aba Rankings.
+    """Retorna recorte direto de Rankings para indicadores que não exigem recálculo analítico."""
+    _ = (principal_token, alias_sig)
+    dados_periodos = _carregar_dados_periodos_preparados(principal_token, alias_sig)
+    if not dados_periodos:
+        return pd.DataFrame()
+
+    if periodos_filter is not None:
+        periodos_set = {str(p) for p in periodos_filter if p is not None}
+    else:
+        periodos_set = set()
+
+    frames = []
+    for periodo, df_periodo in dados_periodos.items():
+        if periodos_set and str(periodo) not in periodos_set:
+            continue
+        if df_periodo is None or df_periodo.empty:
+            continue
+        frames.append(df_periodo.copy())
+
+    if not frames:
+        return pd.DataFrame()
+
+    df = pd.concat(frames, ignore_index=True)
+    if df.empty:
+        return pd.DataFrame()
+
+    return _normalizar_indicadores_rankings(df)
+
+
 def _normalizar_indicadores_rankings(df: pd.DataFrame) -> pd.DataFrame:
     """Padroniza colunas-chave dos Rankings com a mesma semântica da aba Peers."""
     if df is None or df.empty:
@@ -13420,6 +13462,13 @@ elif menu == "Rankings":
         'Índice de Capital T1 (%)',
         'Índice de Basileia Total (%)',
     }
+    INDICADORES_DIRETOS_RANKINGS = {
+        'Ativo Total',
+        'Carteira de Crédito*',
+        'Core Funding*',
+        'Patrimônio Líquido',
+        'Lucro Líquido Acumulado YTD',
+    }
 
     if _garantir_dados_principais("Rankings"):
         # PERF: lightweight context for dropdown population (instant)
@@ -13613,10 +13662,26 @@ elif menu == "Rankings":
                 grafico_base == "Ranking"
                 and indicador_label == "Índice de Basileia Total (%)"
             )
-            _periodos_rankings_filter = _rankings_expandir_periodos(periodo_resumo)
+            usar_caminho_direto = indicador_label in INDICADORES_DIRETOS_RANKINGS
+            _periodos_rankings_filter = (
+                tuple(sorted({str(p) for p in periodo_resumo if p}))
+                if (usar_caminho_basileia_otimizado or usar_caminho_direto)
+                else _rankings_expandir_periodos(periodo_resumo)
+            )
             if usar_caminho_basileia_otimizado:
+                _perf_start("rankings_df_source_basileia")
                 df = _df_periodo_raw.copy() if _df_periodo_raw is not None else pd.DataFrame()
+                print(_perf_log("rankings_df_source_basileia"))
+            elif usar_caminho_direto:
+                _perf_start("rankings_df_source_direct")
+                df = _get_rankings_direct_df(
+                    _cache_version_token("principal"),
+                    _alias_signature_cache_key(),
+                    periodos_filter=_periodos_rankings_filter,
+                )
+                print(_perf_log("rankings_df_source_direct"))
             else:
+                _perf_start("rankings_df_source_analytical")
                 df = _get_rankings_base_df(
                     _cache_version_token("principal"),
                     _cache_version_token("capital"),
@@ -13624,6 +13689,7 @@ elif menu == "Rankings":
                     _alias_signature_cache_key(),
                     periodos_filter=_periodos_rankings_filter,
                 )
+                print(_perf_log("rankings_df_source_analytical"))
             print(_perf_log("rankings_base_df"))
 
             # Re-resolve indicator column after enrichment (handles column name variants)
@@ -14606,7 +14672,9 @@ elif menu == "Rankings":
                                 separators=',.',
                                 yaxis=dict(tickformat=format_info['tickformat'], ticksuffix=format_info['ticksuffix']),
                             )
+                            _perf_start("rankings_plot_render_multi")
                             st.plotly_chart(fig_resumo, width='stretch', config={'displayModeBar': 'hover', 'displaylogo': False})
+                            print(_perf_log("rankings_plot_render_multi"))
                             tabela_wide = (
                                 df_plot[["Período", "Instituição", "valor_display"]]
                                 .pivot_table(index="Instituição", columns="Período", values="valor_display", aggfunc="first")
@@ -14807,7 +14875,9 @@ elif menu == "Rankings":
                                 margin=dict(l=40, r=20, t=90, b=120 if not orientacao_horizontal else 60)
                             )
 
+                            _perf_start("rankings_plot_render_single")
                             st.plotly_chart(fig_resumo, width='stretch', config={'displayModeBar': 'hover', 'displaylogo': False})
+                            print(_perf_log("rankings_plot_render_single"))
 
                             media_grupo_raw = calcular_media_ponderada(df_selecionado, indicador_col, coluna_peso_resumo)
                             df_export = df_selecionado.copy()
@@ -14875,32 +14945,62 @@ elif menu == "Rankings":
                             )
 
                             st.markdown("#### Exportar")
-                            buffer_excel = BytesIO()
-                            with pd.ExcelWriter(buffer_excel, engine='xlsxwriter') as writer:
-                                df_export.to_excel(writer, index=False, sheet_name='ranking')
-                            buffer_excel.seek(0)
+                            export_signature_key = "rankings_export_signature"
+                            export_payload_key = "rankings_export_payload"
+                            export_signature = (
+                                grafico_base,
+                                indicador_label,
+                                tuple(periodo_resumo),
+                                tuple(df_selecionado["Instituição"].astype(str).tolist()),
+                                direcao_top,
+                                bool(mostrar_data_labels),
+                                _cache_version_token("principal"),
+                                _cache_version_token("capital"),
+                            )
+                            if st.session_state.get(export_signature_key) != export_signature:
+                                st.session_state.pop(export_payload_key, None)
+                                st.session_state[export_signature_key] = export_signature
 
-                            col_export_a, col_export_b = st.columns(2)
-                            with col_export_a:
-                                st.download_button(
-                                    label="Download Excel",
-                                    data=buffer_excel,
-                                    file_name=f"ranking_{periodo_resumo_base.replace('/', '-')}.xlsx",
-                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                    key="exportar_resumo_excel",
-                                    width="content",
-                                )
-                            with col_export_b:
-                                png_bytes = _plotly_fig_to_png_bytes(fig_resumo)
-                                if png_bytes:
+                            if st.button("Preparar arquivos de exportação", key="rankings_prepare_exports", width="stretch"):
+                                _perf_start("rankings_prepare_exports")
+                                buffer_excel = BytesIO()
+                                with pd.ExcelWriter(buffer_excel, engine='xlsxwriter') as writer:
+                                    df_export.to_excel(writer, index=False, sheet_name='ranking')
+                                buffer_excel.seek(0)
+                                st.session_state[export_payload_key] = {
+                                    "excel": buffer_excel.getvalue(),
+                                    "png": _plotly_fig_to_png_bytes(fig_resumo),
+                                }
+                                print(_perf_log("rankings_prepare_exports"))
+                                st.rerun()
+
+                            exports_payload = st.session_state.get(export_payload_key)
+                            if exports_payload:
+                                periodo_arquivo = (periodo_resumo_base or "periodos").replace("/", "-")
+                                indicador_arquivo = re.sub(r"[^\w\-.]+", "_", str(indicador_label), flags=re.UNICODE).strip("_") or "indicador"
+                                col_export_a, col_export_b = st.columns(2)
+                                with col_export_a:
                                     st.download_button(
-                                        label="exportar gráfico PNG",
-                                        data=png_bytes,
-                                        file_name=f"ranking_{periodo_resumo_base.replace('/', '-')}.png",
-                                        mime="image/png",
-                                        key="exportar_grafico_png_ranking",
-                                        width="stretch",
+                                        label="Download Excel",
+                                        data=exports_payload["excel"],
+                                        file_name=f"ranking_{indicador_arquivo}_{periodo_arquivo}.xlsx",
+                                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                        key="exportar_resumo_excel",
+                                        width="content",
                                     )
+                                with col_export_b:
+                                    png_bytes = exports_payload.get("png")
+                                    if png_bytes:
+                                        st.download_button(
+                                            label="exportar gráfico PNG",
+                                            data=png_bytes,
+                                            file_name=f"ranking_{indicador_arquivo}_{periodo_arquivo}.png",
+                                            mime="image/png",
+                                            key="exportar_grafico_png_ranking",
+                                            width="stretch",
+                                        )
+                            else:
+                                st.caption("Exports são gerados sob demanda e não entram no tempo principal de renderização da aba.")
 
             if grafico_base == "Deltas (antes e depois)":
                 st.markdown("---")
