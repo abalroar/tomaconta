@@ -4970,10 +4970,11 @@ def _scatter_compor_texto_label(
 ) -> str:
     incluir_nome = instituicao is not None and str(instituicao).strip() != ""
     linhas = [instituicao] if incluir_nome else []
-    linhas.append(f"X ({x_label}): {_format_scatter_label_value(x_valor, format_x, usar_mm_numeral=True)}")
-    linhas.append(f"Y ({y_label}): {_format_scatter_label_value(y_valor, format_y, usar_mm_numeral=True)}")
+    _ = (x_label, y_label)
+    linhas.append(f"X: {_format_scatter_label_value(x_valor, format_x, usar_mm_numeral=True)}")
+    linhas.append(f"Y: {_format_scatter_label_value(y_valor, format_y, usar_mm_numeral=True)}")
     if size_label and format_size is not None:
-        linhas.append(f"Tamanho ({size_label}): {_format_scatter_label_value(size_valor, format_size, usar_mm_numeral=True)}")
+        linhas.append(f"Tamanho: {_format_scatter_label_value(size_valor, format_size, usar_mm_numeral=True)}")
     return "<br>".join(linhas)
 
 
@@ -9486,6 +9487,77 @@ def _get_rankings_filters_context(principal_token: str, alias_sig: tuple) -> dic
     }
 
 
+@st.cache_data(ttl=900, show_spinner=False)
+def _get_evolucao_filters_context(principal_token: str, alias_sig: tuple) -> dict:
+    # [CHANGE] Data: 2026-04-05 | Aba: Evolução | Prioridade: P1
+    # Motivo: a aba concatenava a base analítica inteira antes mesmo de montar os filtros.
+    # Solução: contexto leve com apenas instituições e períodos válidos.
+    # Impacto: reduz tempo até o menu ficar utilizável; sem alterar cálculos financeiros.
+    # Testado em: py_compile e medição direta do contexto leve.
+    """Retorna instituições e períodos válidos da aba Evolução sem concatenar a base inteira."""
+    dados_periodos = _carregar_dados_periodos_preparados(principal_token, alias_sig)
+    if not dados_periodos:
+        return {"instituicoes": (), "periodos_validos": ()}
+
+    instituicoes = set()
+    periodos_validos = []
+    for periodo, df_periodo in dados_periodos.items():
+        parsed = _parse_periodo(str(periodo))
+        if parsed:
+            parte, ano, _ = parsed
+            tri = _parte_periodo_para_trimestre_idx(parte)
+            if tri is not None:
+                periodos_validos.append((str(periodo), int(ano), int(tri)))
+
+        if df_periodo is None or df_periodo.empty or "Instituição" not in df_periodo.columns:
+            continue
+        instituicoes.update(df_periodo["Instituição"].dropna().astype(str).unique().tolist())
+
+    periodos_validos = tuple(sorted(set(periodos_validos), key=lambda item: (item[1], item[2], item[0])))
+    return {
+        "instituicoes": tuple(sorted(instituicoes)),
+        "periodos_validos": periodos_validos,
+    }
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def _get_evolucao_instituicao_base_df(
+    principal_token: str,
+    alias_sig: tuple,
+    instituicao: str,
+    periodos_filter: tuple,
+) -> pd.DataFrame:
+    # [CHANGE] Data: 2026-04-05 | Aba: Evolução | Prioridade: P1
+    # Motivo: a troca de IF recalculava/concatenava dados de todas as instituições.
+    # Solução: carregar só a série da instituição/períodos selecionados.
+    # Impacto: reduz custo de troca de IF; sem alterar fórmulas nem memória de cálculo.
+    # Testado em: py_compile e medição direta do slice por instituição.
+    """Carrega apenas a série necessária da instituição selecionada para a aba Evolução."""
+    dados_periodos = _carregar_dados_periodos_preparados(principal_token, alias_sig)
+    if not dados_periodos or not instituicao:
+        return pd.DataFrame()
+
+    periodos_set = {str(p) for p in periodos_filter if p is not None}
+    frames = []
+    for periodo, df_periodo in dados_periodos.items():
+        if periodos_set and str(periodo) not in periodos_set:
+            continue
+        if df_periodo is None or df_periodo.empty or "Instituição" not in df_periodo.columns:
+            continue
+        df_slice = df_periodo[df_periodo["Instituição"].astype(str) == str(instituicao)].copy()
+        if not df_slice.empty:
+            frames.append(df_slice)
+
+    if not frames:
+        return pd.DataFrame()
+
+    result = pd.concat(frames, ignore_index=True)
+    result = _normalizar_lucro_liquido(result.copy())
+    result = _recalcular_roe_anualizado_df(result)
+    result = _recalcular_roe_trimestral_df(result)
+    return result
+
+
 def _rankings_expandir_periodos(periodos_selecionados: list) -> tuple:
     """Expande períodos selecionados com auxiliares necessários para cálculo de ROE."""
     periodos_set = set()
@@ -10439,7 +10511,7 @@ timer_box_menu = None
 menu_timer_state_key = None
 menu_timer_signature = None
 t0_menu_timer = None
-if menu in MENU_PRINCIPAL and menu not in {"Snapshot", "Peers (Tabela)", "DRE (Ind. e Congl.)"}:
+if menu in MENU_PRINCIPAL and menu not in {"Snapshot", "Peers (Tabela)", "DRE (Ind. e Congl.)", "Evolução"}:
     timer_box_menu = st.empty()
     menu_timer_state_key = f"timer_state_{menu}"
     menu_timer_signature = ("menu", menu)
@@ -11818,26 +11890,23 @@ elif menu == "Evolução":
         if not st.session_state.get("dados_capital"):
             carregar_dados_capital()
 
-        df_ev = get_analise_base_df(_cache_version_token("principal"))
-        if df_ev is None or df_ev.empty:
+        principal_token = _cache_version_token("principal")
+        alias_sig = _alias_signature_cache_key()
+        contexto_evolucao = _get_evolucao_filters_context(principal_token, alias_sig)
+        instituicoes_contexto = list(contexto_evolucao.get("instituicoes", ()))
+        periodos_validos_ctx = list(contexto_evolucao.get("periodos_validos", ()))
+        if not instituicoes_contexto or not periodos_validos_ctx:
             st.warning("dados indisponíveis para a aba Evolução.")
             st.stop()
 
-        df_ev = df_ev.copy()
-        parsed = df_ev["Período"].astype(str).apply(_parse_periodo)
-        df_ev["Ano"] = parsed.apply(lambda x: x[1] if x else None)
-        df_ev["Tri"] = parsed.apply(lambda x: _parte_periodo_para_trimestre_idx(x[0]) if x else None)
-        df_ev = df_ev.dropna(subset=["Ano", "Tri"]).copy()
-        df_ev["Ano"] = df_ev["Ano"].astype(int)
-        df_ev["Tri"] = df_ev["Tri"].astype(int)
-
-        anos_disp = sorted(df_ev["Ano"].unique().tolist())
+        periodos_validos = pd.DataFrame(periodos_validos_ctx, columns=["Período", "Ano", "Tri"])
+        anos_disp = sorted(periodos_validos["Ano"].unique().tolist())
         if not anos_disp:
             st.warning("não há anos válidos para montar a evolução.")
             st.stop()
 
         periodos_validos = (
-            df_ev[["Período", "Ano", "Tri"]]
+            periodos_validos
             .drop_duplicates()
             .sort_values(["Ano", "Tri"])
             .reset_index(drop=True)
@@ -11847,8 +11916,10 @@ elif menu == "Evolução":
             st.warning("não há períodos de dezembro para definir o início da janela histórica.")
             st.stop()
 
-        insts = ordenar_bancos_com_alias(df_ev["Instituição"].dropna().unique().tolist(), st.session_state.get("dict_aliases", {}))
-        inst_padrao = [i for i in insts if "itau" in str(i).lower() or "itaú" in str(i).lower()][:1]
+        insts = ordenar_bancos_com_alias(instituicoes_contexto, st.session_state.get("dict_aliases", {}))
+        inst_padrao = [i for i in insts if str(i) == "ITAU - PRUDENCIAL"][:1]
+        if not inst_padrao:
+            inst_padrao = [i for i in insts if re.search(r"\bita[uú]\b", str(i).lower())][:1]
         if not inst_padrao and insts:
             inst_padrao = [insts[0]]
 
@@ -11886,11 +11957,49 @@ elif menu == "Evolução":
         periodos_janela.append((ano_final, tri_final))
         periodos_janela = list(dict.fromkeys(periodos_janela))
 
+        periodos_evolucao = (
+            periodos_validos[
+                periodos_validos[["Ano", "Tri"]].apply(tuple, axis=1).isin(periodos_janela)
+            ]["Período"]
+            .astype(str)
+            .tolist()
+        )
+
+        timer_box_evolucao = st.empty()
+        evolucao_signature = (instituicao, periodo_inicio, periodo_final)
+        _timer_reset_if_selection_changed("evolucao_timer_state", evolucao_signature)
+        _timer_render_caption("evolucao_timer_state", timer_box_evolucao, "Tempo de carregamento da aba Evolução")
+        t0_evolucao = time.perf_counter()
+
+        df_ev = _get_evolucao_instituicao_base_df(
+            principal_token,
+            alias_sig,
+            instituicao,
+            tuple(periodos_evolucao),
+        )
+        if df_ev is None or df_ev.empty:
+            tempo_total_evolucao = time.perf_counter() - t0_evolucao
+            _timer_store_elapsed("evolucao_timer_state", evolucao_signature, tempo_total_evolucao)
+            _timer_render_caption("evolucao_timer_state", timer_box_evolucao, "Tempo de carregamento da aba Evolução")
+            st.info("sem dados para a instituição na janela selecionada.")
+            st.stop()
+
+        df_ev = df_ev.copy()
+        parsed = df_ev["Período"].astype(str).apply(_parse_periodo)
+        df_ev["Ano"] = parsed.apply(lambda x: x[1] if x else None)
+        df_ev["Tri"] = parsed.apply(lambda x: _parte_periodo_para_trimestre_idx(x[0]) if x else None)
+        df_ev = df_ev.dropna(subset=["Ano", "Tri"]).copy()
+        df_ev["Ano"] = df_ev["Ano"].astype(int)
+        df_ev["Tri"] = df_ev["Tri"].astype(int)
+
         df_inst = df_ev[
             (df_ev["Instituição"] == instituicao)
             & (df_ev[["Ano", "Tri"]].apply(tuple, axis=1).isin(periodos_janela))
         ].copy()
         if df_inst.empty:
+            tempo_total_evolucao = time.perf_counter() - t0_evolucao
+            _timer_store_elapsed("evolucao_timer_state", evolucao_signature, tempo_total_evolucao)
+            _timer_render_caption("evolucao_timer_state", timer_box_evolucao, "Tempo de carregamento da aba Evolução")
             st.info("sem dados para a instituição na janela selecionada.")
             st.stop()
 
@@ -11998,11 +12107,9 @@ elif menu == "Evolução":
                 "ativo",
                 _cache_version_token("ativo"),
                 tuple(sorted(set(periodos_evo_expand))) if periodos_evo_expand else tuple(periodos_evo),
-                (),
+                (instituicao,),
             )
             cache_ativo = _aplicar_aliases_df(cache_ativo, st.session_state.get("dict_aliases", {}))
-            if cache_ativo is not None and not cache_ativo.empty and "Instituição" in cache_ativo.columns:
-                cache_ativo = cache_ativo[cache_ativo["Instituição"] == instituicao].copy()
             col_e1 = _resolver_coluna_peers(cache_ativo, ["Valor Contábil Bruto (e1)", "Valor Contabil Bruto (e1)"])
             col_f1 = _resolver_coluna_peers(cache_ativo, ["Valor Contábil Bruto (f1)", "Valor Contabil Bruto (f1)"])
             col_g1 = _resolver_coluna_peers(cache_ativo, ["Valor Contábil Bruto (g1)", "Valor Contabil Bruto (g1)"])
@@ -12478,75 +12585,109 @@ elif menu == "Evolução":
             else:
                 st.info("memória de cálculo indisponível para os filtros atuais.")
 
-        col_export1, col_export2, col_export3, col_export4 = st.columns(4)
-        buffer_excel_visual = _gerar_excel_evolucao_tabela_visual(
-            df_show=df_show,
-            periodos_cols=periodos_cols,
-            instituicao=instituicao,
-            periodo_inicio=periodo_inicio,
-            periodo_final=periodo_final,
+        # [CHANGE] Data: 2026-04-05 | Aba: Evolução | Prioridade: P1
+        # Motivo: exportações Excel/PNG eram geradas em todo rerender e inflavam o tempo de troca de IF.
+        # Solução: geração lazy sob demanda com invalidação por seleção + tokens dos caches relevantes.
+        # Impacto: apenas no fluxo de exportação da aba Evolução; dados exibidos e memória de cálculo preservados.
+        # Testado em: render da aba Evolução via AppTest e py_compile do app.
+        st.markdown("#### Exportar")
+        export_signature_key = "evolucao_export_signature"
+        export_payload_key = "evolucao_export_payload"
+        selection_signature = (
+            instituicao,
+            periodo_inicio,
+            periodo_final,
+            tuple(periodos_cols),
+            _cache_version_token("principal"),
+            _cache_version_token("ativo"),
+            _cache_version_token("passivo"),
+            _cache_version_token("capital"),
         )
+        if st.session_state.get(export_signature_key) != selection_signature:
+            st.session_state.pop(export_payload_key, None)
+            st.session_state[export_signature_key] = selection_signature
 
-        buffer_excel = io.BytesIO()
-        with pd.ExcelWriter(buffer_excel, engine='xlsxwriter') as writer:
-            df_graph.to_excel(writer, index=False, sheet_name='grafico_dados')
-            df_metric.to_excel(writer, index=False, sheet_name='tabela_metricas')
-            nota_df = pd.DataFrame({
-                "nota": [
-                    "* Carteira de Crédito: 2000–2024 = Crédito Bruta + Arrendamento Bruta + Outros Créditos Líquidos de Provisão (base líquida, sem detalhamento — comparação imprecisa).",
-                    "2025+ = Valor Contábil Bruto (e1+f1+g1+h1), onde: e = Operações de Crédito; f = Arrendamento; g = Outras Ops.; h = Transações de Pagamentos.",
-                    "Core Funding*: até 2024 = Captações (e); 2025+ = Captações (e) + Dívida Subordinada (h) no Relatório de Passivo (Rel. 3). Captações (e) = (a) + (b) + (c) + (d).",
-                ]
-            })
-            nota_df.to_excel(writer, index=False, sheet_name='nota')
-        buffer_excel.seek(0)
-        instituicao_arquivo = re.sub(r"[^\w\-.]+", "_", str(instituicao), flags=re.UNICODE).strip("_") or "instituicao"
-
-        with col_export1:
-            st.download_button(
-                label="Download Excel",
-                data=buffer_excel_visual.getvalue(),
-                file_name=f"evolucao_tabela_visual_{instituicao_arquivo}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                key="evolucao_excel_visual",
-                use_container_width=True,
+        if st.button("Preparar arquivos de exportação", key="evolucao_prepare_exports", width="stretch"):
+            buffer_excel_visual = _gerar_excel_evolucao_tabela_visual(
+                df_show=df_show,
+                periodos_cols=periodos_cols,
+                instituicao=instituicao,
+                periodo_inicio=periodo_inicio,
+                periodo_final=periodo_final,
             )
 
-        with col_export2:
-            st.download_button(
-                label="Download Dados Puros",
-                data=buffer_excel.getvalue(),
-                file_name=f"evolucao_{instituicao_arquivo}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                key="evolucao_excel",
-                use_container_width=True,
-            )
+            buffer_excel = io.BytesIO()
+            with pd.ExcelWriter(buffer_excel, engine='xlsxwriter') as writer:
+                df_graph.to_excel(writer, index=False, sheet_name='grafico_dados')
+                df_metric.to_excel(writer, index=False, sheet_name='tabela_metricas')
+                nota_df = pd.DataFrame({
+                    "nota": [
+                        "* Carteira de Crédito: 2000–2024 = Crédito Bruta + Arrendamento Bruta + Outros Créditos Líquidos de Provisão (base líquida, sem detalhamento — comparação imprecisa).",
+                        "2025+ = Valor Contábil Bruto (e1+f1+g1+h1), onde: e = Operações de Crédito; f = Arrendamento; g = Outras Ops.; h = Transações de Pagamentos.",
+                        "Core Funding*: até 2024 = Captações (e); 2025+ = Captações (e) + Dívida Subordinada (h) no Relatório de Passivo (Rel. 3). Captações (e) = (a) + (b) + (c) + (d).",
+                    ]
+                })
+                nota_df.to_excel(writer, index=False, sheet_name='nota')
+            buffer_excel.seek(0)
 
-        with col_export3:
-            png_bytes = _plotly_fig_to_png_bytes(fig_ev)
-            if png_bytes:
-                st.download_button(
-                    label="exportar gráfico PNG",
-                    data=png_bytes,
-                    file_name=f"evolucao_grafico_{instituicao_arquivo}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png",
-                    mime="image/png",
-                    key="evolucao_grafico_png",
-                    use_container_width=True,
-                )
-            else:
-                pass
+            st.session_state[export_payload_key] = {
+                "excel_visual": buffer_excel_visual.getvalue(),
+                "excel_raw": buffer_excel.getvalue(),
+                "grafico_png": _plotly_fig_to_png_bytes(fig_ev),
+                "tabela_png": _gerar_png_tabela_evolucao(df_show, periodos_cols),
+            }
+            st.rerun()
 
-        with col_export4:
-            tabela_png = _gerar_png_tabela_evolucao(df_show, periodos_cols)
-            if tabela_png:
+        exports_payload = st.session_state.get(export_payload_key)
+        if exports_payload:
+            col_export1, col_export2, col_export3, col_export4 = st.columns(4)
+            instituicao_arquivo = re.sub(r"[^\w\-.]+", "_", str(instituicao), flags=re.UNICODE).strip("_") or "instituicao"
+
+            with col_export1:
                 st.download_button(
-                    label="exportar tabela PNG",
-                    data=tabela_png,
-                    file_name=f"evolucao_tabela_{instituicao_arquivo}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png",
-                    mime="image/png",
-                    key="evolucao_tabela_png",
-                    use_container_width=True,
+                    label="Download Excel",
+                    data=exports_payload["excel_visual"],
+                    file_name=f"evolucao_tabela_visual_{instituicao_arquivo}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="evolucao_excel_visual",
+                    width="stretch",
                 )
+
+            with col_export2:
+                st.download_button(
+                    label="Download Dados Puros",
+                    data=exports_payload["excel_raw"],
+                    file_name=f"evolucao_{instituicao_arquivo}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="evolucao_excel",
+                    width="stretch",
+                )
+
+            with col_export3:
+                png_bytes = exports_payload.get("grafico_png")
+                if png_bytes:
+                    st.download_button(
+                        label="exportar gráfico PNG",
+                        data=png_bytes,
+                        file_name=f"evolucao_grafico_{instituicao_arquivo}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png",
+                        mime="image/png",
+                        key="evolucao_grafico_png",
+                        width="stretch",
+                    )
+
+            with col_export4:
+                tabela_png = exports_payload.get("tabela_png")
+                if tabela_png:
+                    st.download_button(
+                        label="exportar tabela PNG",
+                        data=tabela_png,
+                        file_name=f"evolucao_tabela_{instituicao_arquivo}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png",
+                        mime="image/png",
+                        key="evolucao_tabela_png",
+                        width="stretch",
+                    )
+        else:
+            st.caption("Exports são gerados sob demanda e não entram no tempo principal de renderização da aba.")
 
         # exportação PPT removida
         with st.expander("Mini-glossário", expanded=False):
@@ -12565,6 +12706,9 @@ elif menu == "Evolução":
                 """,
                 unsafe_allow_html=True,
             )
+        tempo_total_evolucao = time.perf_counter() - t0_evolucao
+        _timer_store_elapsed("evolucao_timer_state", evolucao_signature, tempo_total_evolucao)
+        _timer_render_caption("evolucao_timer_state", timer_box_evolucao, "Tempo de carregamento da aba Evolução")
     else:
         st.info("carregando dados automaticamente do github...")
         st.markdown("por favor, aguarde alguns segundos e recarregue a página")
@@ -12703,13 +12847,42 @@ elif menu == "Scatter Plot":
             format_size = get_axis_format(var_size, df_scatter[var_size] if var_size in df_scatter.columns else None)
             df_scatter_plot['size_display'] = _calcular_valores_display(df_scatter_plot[var_size], var_size, format_size)
 
+        # [CHANGE] Data: 2026-04-05 | Aba: Scatter Plot | Prioridade: P3
+        # Motivo: permitir customização compacta de cores sem vazar estado para outras abas.
+        # Solução: mapa de cores local da aba + color picker em expander.
+        # Impacto: apenas na apresentação dos gráficos scatter t=1/t=2.
+        # Testado em: py_compile do app e inspeção estática do fluxo da aba.
         fig_scatter = go.Figure()
         cores_plotly = px.colors.qualitative.Plotly
+        scatter_color_state_key = "scatter_color_map"
+        if scatter_color_state_key not in st.session_state:
+            st.session_state[scatter_color_state_key] = {}
+        scatter_color_map = st.session_state[scatter_color_state_key]
+        scatter_bancos_visiveis = df_scatter_plot['Instituição'].dropna().astype(str).unique().tolist()
+        if scatter_bancos_visiveis:
+            with st.expander("🎨 Personalizar cores", expanded=False):
+                for idx_cor_picker, banco_picker in enumerate(scatter_bancos_visiveis):
+                    banco_norm = normalizar_nome_instituicao(banco_picker)
+                    cor_inicial = (
+                        scatter_color_map.get(banco_norm)
+                        or obter_cor_banco(banco_picker)
+                        or cores_plotly[idx_cor_picker % len(cores_plotly)]
+                    )
+                    scatter_color_map[banco_norm] = st.color_picker(
+                        banco_picker,
+                        value=cor_inicial,
+                        key=f"scatter_color_picker_{banco_norm}",
+                    )
+
+        def _obter_cor_scatter_local(instituicao_nome: str) -> Optional[str]:
+            banco_norm = normalizar_nome_instituicao(instituicao_nome)
+            return scatter_color_map.get(banco_norm) or obter_cor_banco(instituicao_nome)
+
         idx_cor = 0
 
         for instituicao in df_scatter_plot['Instituição'].unique():
             df_inst = df_scatter_plot[df_scatter_plot['Instituição'] == instituicao]
-            cor = obter_cor_banco(instituicao)
+            cor = _obter_cor_scatter_local(instituicao)
             if not cor:
                 cor = cores_plotly[idx_cor % len(cores_plotly)]
                 idx_cor += 1
@@ -12960,7 +13133,7 @@ elif menu == "Scatter Plot":
                     y2 = row_p2['y_display'].values[0]
 
                     # Cor do banco
-                    cor = obter_cor_banco(instituicao)
+                    cor = _obter_cor_scatter_local(instituicao)
                     if not cor:
                         cor = cores_plotly[idx_cor_n2 % len(cores_plotly)]
                         idx_cor_n2 += 1
@@ -16323,8 +16496,19 @@ elif menu == "DRE" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo ==
             diag_info["df_valores_mb"] = _df_mem_mb(df_valores)
             diag_info["df_ytd_mb"] = _df_mem_mb(df_ytd_base)
 
+        # [CHANGE] Data: 2026-04-05 | Aba: DRE (Ind. e Congl.) | Prioridade: P1
+        # Motivo: o recorte derivado carregava todos os períodos da instituição em todo rerender.
+        # Solução: limitar o recorte ao ano selecionado + ano anterior para preservar YoY.
+        # Impacto: apenas em performance; fórmulas e valores exibidos permanecem iguais.
+        # Testado em: py_compile, pytest e medição direta do slice derivado.
+        periodos_derivados_relevantes = tuple(
+            f"{tri}/{ano}"
+            for ano in sorted({max(DRE_ANO_EXIBICAO_INICIAL - 1, int(ano_selecionado) - 1), int(ano_selecionado)})
+            for tri in range(1, 5)
+        )
         _perf_start("dre_derived_load")
         df_derived_slice = carregar_metricas_derivadas_slice(
+            periodos=periodos_derivados_relevantes,
             instituicoes=[instituicao_selecionada_raw, instituicao_alias_selecionada],
             metricas=DERIVED_METRICS,
         )
@@ -16490,6 +16674,9 @@ elif menu == "DRE" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo ==
         meses_ordenados = sorted([m for m in meses_com_publicacao if m in [3, 6, 9, 12]], reverse=True)
         periodos_disponiveis = [periodo_para_exibicao(f"{int(mes/3)}/{ano_selecionado}") for mes in meses_ordenados]
         if not periodos_disponiveis:
+            tempo_total_dre = time.perf_counter() - t0_dre
+            _timer_store_elapsed("dre_timer_state", dre_signature, tempo_total_dre)
+            _timer_render_caption("dre_timer_state", timer_box_dre, "Tempo de carregamento da aba DRE")
             st.warning("Não há períodos publicados para os filtros selecionados.")
             st.stop()
 
@@ -16640,114 +16827,142 @@ elif menu == "DRE" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo ==
 
             return rows
 
-        buffer_excel = BytesIO()
-        with pd.ExcelWriter(buffer_excel, engine="xlsxwriter") as writer:
-            workbook = writer.book
-            worksheet = workbook.add_worksheet("DRE")
-            writer.sheets["DRE"] = worksheet
+        # [CHANGE] Data: 2026-04-05 | Aba: DRE (Ind. e Congl.) | Prioridade: P1
+        # Motivo: o workbook e o glossário COSIF eram montados em todo rerender.
+        # Solução: geração lazy do Excel sob clique, com invalidação por seleção.
+        # Impacto: apenas no fluxo de exportação; tabela e cálculos permanecem iguais.
+        # Testado em: py_compile, pytest e inspeção estática do fluxo de export.
+        def _gerar_excel_dre_export() -> bytes:
+            buffer_excel = BytesIO()
+            with pd.ExcelWriter(buffer_excel, engine="xlsxwriter") as writer:
+                workbook = writer.book
+                worksheet = workbook.add_worksheet("DRE")
+                writer.sheets["DRE"] = worksheet
 
-            fmt_head_dark = workbook.add_format({"bold": True, "font_color": "white", "bg_color": "#111111", "align": "center", "valign": "vcenter", "border": 1})
-            fmt_head_mid = workbook.add_format({"bold": True, "font_color": "white", "bg_color": "#6E6E6E", "align": "center", "valign": "vcenter", "border": 1})
-            fmt_item = workbook.add_format({"align": "left", "valign": "vcenter", "border": 1})
-            fmt_item_child = workbook.add_format({"align": "left", "valign": "vcenter", "border": 1, "indent": 1})
-            fmt_num = workbook.add_format({"align": "right", "valign": "vcenter", "border": 1, "num_format": "#,##0"})
-            fmt_pct = workbook.add_format({"align": "right", "valign": "vcenter", "border": 1, "num_format": "0.00%"})
+                fmt_head_dark = workbook.add_format({"bold": True, "font_color": "white", "bg_color": "#111111", "align": "center", "valign": "vcenter", "border": 1})
+                fmt_head_mid = workbook.add_format({"bold": True, "font_color": "white", "bg_color": "#6E6E6E", "align": "center", "valign": "vcenter", "border": 1})
+                fmt_item = workbook.add_format({"align": "left", "valign": "vcenter", "border": 1})
+                fmt_item_child = workbook.add_format({"align": "left", "valign": "vcenter", "border": 1, "indent": 1})
+                fmt_num = workbook.add_format({"align": "right", "valign": "vcenter", "border": 1, "num_format": "#,##0"})
+                fmt_pct = workbook.add_format({"align": "right", "valign": "vcenter", "border": 1, "num_format": "0.00%"})
 
-            worksheet.merge_range(0, 0, 1, 0, "Item", fmt_head_dark)
-            for idx, periodo in enumerate(periodos_disponiveis):
-                col_idx = 1 + idx
-                worksheet.write(0, col_idx, periodo, fmt_head_dark)
-                worksheet.write(1, col_idx, "YTD", fmt_head_mid)
-
-            row_idx = 2
-            for entry in entradas_com_label:
-                label = entry["label"]
-                worksheet.write(row_idx, 0, entry.get("label_exib", label), fmt_item_child if entry.get("is_child") else fmt_item)
+                worksheet.merge_range(0, 0, 1, 0, "Item", fmt_head_dark)
                 for idx, periodo in enumerate(periodos_disponiveis):
-                    cell = df_filtrado[
-                        (df_filtrado["Label"] == label)
-                        & (df_filtrado["PeriodoExib"] == periodo)
-                    ]
-                    valor = pd.NA
-                    yoy_val = pd.NA
-                    if not cell.empty:
-                        valor = cell["ytd"].iloc[0]
-                        yoy_val = pd.to_numeric(cell["yoy"].iloc[0], errors="coerce")
+                    col_idx = 1 + idx
+                    worksheet.write(0, col_idx, periodo, fmt_head_dark)
+                    worksheet.write(1, col_idx, "YTD", fmt_head_mid)
 
-                    if pd.isna(valor):
-                        worksheet.write_blank(row_idx, 1 + idx, None, fmt_num)
-                        continue
+                row_idx = 2
+                for entry in entradas_com_label:
+                    label = entry["label"]
+                    worksheet.write(row_idx, 0, entry.get("label_exib", label), fmt_item_child if entry.get("is_child") else fmt_item)
+                    for idx, periodo in enumerate(periodos_disponiveis):
+                        cell = df_filtrado[
+                            (df_filtrado["Label"] == label)
+                            & (df_filtrado["PeriodoExib"] == periodo)
+                        ]
+                        valor = pd.NA
+                        yoy_val = pd.NA
+                        if not cell.empty:
+                            valor = cell["ytd"].iloc[0]
+                            yoy_val = pd.to_numeric(cell["yoy"].iloc[0], errors="coerce")
 
-                    formato = formato_por_label.get(label, "num")
-                    base_fmt = fmt_pct if formato == "pct" else fmt_num
-                    if pd.notna(yoy_val):
-                        marcador = "▲" if yoy_val > 0 else "▼" if yoy_val < 0 else ""
-                        valor_exib = formatar_percentual(valor, decimais=2) if formato == "pct" else formatar_valor_br(valor)
-                        worksheet.write(row_idx, 1 + idx, f"{valor_exib} {marcador}".strip(), base_fmt)
-                    else:
-                        worksheet.write_number(row_idx, 1 + idx, float(valor), base_fmt)
-                row_idx += 1
+                        if pd.isna(valor):
+                            worksheet.write_blank(row_idx, 1 + idx, None, fmt_num)
+                            continue
 
-            worksheet.set_column(0, 0, 52)
-            worksheet.set_column(1, len(periodos_disponiveis), 16)
-            worksheet.freeze_panes(2, 1)
+                        formato = formato_por_label.get(label, "num")
+                        base_fmt = fmt_pct if formato == "pct" else fmt_num
+                        if pd.notna(yoy_val):
+                            marcador = "▲" if yoy_val > 0 else "▼" if yoy_val < 0 else ""
+                            valor_exib = formatar_percentual(valor, decimais=2) if formato == "pct" else formatar_valor_br(valor)
+                            worksheet.write(row_idx, 1 + idx, f"{valor_exib} {marcador}".strip(), base_fmt)
+                        else:
+                            worksheet.write_number(row_idx, 1 + idx, float(valor), base_fmt)
+                    row_idx += 1
 
-            # Aba obrigatória de glossário exportável (de-para DRE -> COSIF)
-            ws_gloss = workbook.add_worksheet("Glossário COSIF")
-            writer.sheets["Glossário COSIF"] = ws_gloss
-            gloss_headers = [
-                "Ordem",
-                "Nível",
-                "Linha DRE",
-                "Referência IFData",
-                "Contas COSIF",
-                "Descrição COSIF",
-                "Fórmula COSIF",
-                "Título",
-                "Função",
-                "Base normativa",
-                "Status Mapeamento",
-            ]
-            for col_idx, head in enumerate(gloss_headers):
-                ws_gloss.write(0, col_idx, head, fmt_head_dark)
+                worksheet.set_column(0, 0, 52)
+                worksheet.set_column(1, len(periodos_disponiveis), 16)
+                worksheet.freeze_panes(2, 1)
 
-            gloss_rows = _montar_glossario_export_rows()
-            for row_idx_gl, row_data in enumerate(gloss_rows, start=1):
-                ws_gloss.write_number(row_idx_gl, 0, int(row_data["Ordem"]))
-                ws_gloss.write(row_idx_gl, 1, row_data["Nível"])
-                ws_gloss.write(row_idx_gl, 2, row_data["Linha DRE"])
-                ws_gloss.write(row_idx_gl, 3, row_data["Referência IFData"])
-                ws_gloss.write(row_idx_gl, 4, row_data["Contas COSIF"])
-                ws_gloss.write(row_idx_gl, 5, row_data["Descrição COSIF"])
-                ws_gloss.write(row_idx_gl, 6, row_data["Fórmula COSIF"])
-                ws_gloss.write(row_idx_gl, 7, row_data["Título"])
-                ws_gloss.write(row_idx_gl, 8, row_data["Função"])
-                ws_gloss.write(row_idx_gl, 9, row_data["Base normativa"])
-                ws_gloss.write(row_idx_gl, 10, row_data["Status Mapeamento"])
+                ws_gloss = workbook.add_worksheet("Glossário COSIF")
+                writer.sheets["Glossário COSIF"] = ws_gloss
+                gloss_headers = [
+                    "Ordem",
+                    "Nível",
+                    "Linha DRE",
+                    "Referência IFData",
+                    "Contas COSIF",
+                    "Descrição COSIF",
+                    "Fórmula COSIF",
+                    "Título",
+                    "Função",
+                    "Base normativa",
+                    "Status Mapeamento",
+                ]
+                for col_idx, head in enumerate(gloss_headers):
+                    ws_gloss.write(0, col_idx, head, fmt_head_dark)
 
-            ws_gloss.set_column(0, 0, 8)
-            ws_gloss.set_column(1, 1, 18)
-            ws_gloss.set_column(2, 2, 50)
-            ws_gloss.set_column(3, 3, 50)
-            ws_gloss.set_column(4, 4, 45)
-            ws_gloss.set_column(5, 5, 90)
-            ws_gloss.set_column(6, 6, 55)
-            ws_gloss.set_column(7, 7, 45)
-            ws_gloss.set_column(8, 8, 80)
-            ws_gloss.set_column(9, 9, 22)
-            ws_gloss.set_column(10, 10, 22)
-            ws_gloss.freeze_panes(1, 0)
-            ws_gloss.autofilter(0, 0, max(1, len(gloss_rows)), len(gloss_headers) - 1)
+                gloss_rows = _montar_glossario_export_rows()
+                for row_idx_gl, row_data in enumerate(gloss_rows, start=1):
+                    ws_gloss.write_number(row_idx_gl, 0, int(row_data["Ordem"]))
+                    ws_gloss.write(row_idx_gl, 1, row_data["Nível"])
+                    ws_gloss.write(row_idx_gl, 2, row_data["Linha DRE"])
+                    ws_gloss.write(row_idx_gl, 3, row_data["Referência IFData"])
+                    ws_gloss.write(row_idx_gl, 4, row_data["Contas COSIF"])
+                    ws_gloss.write(row_idx_gl, 5, row_data["Descrição COSIF"])
+                    ws_gloss.write(row_idx_gl, 6, row_data["Fórmula COSIF"])
+                    ws_gloss.write(row_idx_gl, 7, row_data["Título"])
+                    ws_gloss.write(row_idx_gl, 8, row_data["Função"])
+                    ws_gloss.write(row_idx_gl, 9, row_data["Base normativa"])
+                    ws_gloss.write(row_idx_gl, 10, row_data["Status Mapeamento"])
 
-        buffer_excel.seek(0)
+                ws_gloss.set_column(0, 0, 8)
+                ws_gloss.set_column(1, 1, 18)
+                ws_gloss.set_column(2, 2, 50)
+                ws_gloss.set_column(3, 3, 50)
+                ws_gloss.set_column(4, 4, 45)
+                ws_gloss.set_column(5, 5, 90)
+                ws_gloss.set_column(6, 6, 55)
+                ws_gloss.set_column(7, 7, 45)
+                ws_gloss.set_column(8, 8, 80)
+                ws_gloss.set_column(9, 9, 22)
+                ws_gloss.set_column(10, 10, 22)
+                ws_gloss.freeze_panes(1, 0)
+                ws_gloss.autofilter(0, 0, max(1, len(gloss_rows)), len(gloss_headers) - 1)
 
-        st.download_button(
-            label="Download Excel",
-            data=buffer_excel,
-            file_name=f"DRE_{instituicao_selecionada.replace(' ', '_')}_{ano_selecionado}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key="dre_download_excel"
+            buffer_excel.seek(0)
+            return buffer_excel.getvalue()
+
+        export_signature_key = "dre_export_signature"
+        export_payload_key = "dre_export_payload"
+        dre_export_signature = (
+            instituicao_selecionada_raw,
+            int(ano_selecionado),
+            base_comparacao,
+            tuple(periodos_disponiveis),
+            dre_cache_token,
         )
+        if st.session_state.get(export_signature_key) != dre_export_signature:
+            st.session_state.pop(export_payload_key, None)
+            st.session_state[export_signature_key] = dre_export_signature
+
+        if st.button("Preparar arquivo de exportação", key="dre_prepare_export", width="stretch"):
+            st.session_state[export_payload_key] = _gerar_excel_dre_export()
+            st.rerun()
+
+        dre_export_payload = st.session_state.get(export_payload_key)
+        if dre_export_payload:
+            st.download_button(
+                label="Download Excel",
+                data=dre_export_payload,
+                file_name=f"DRE_{instituicao_selecionada.replace(' ', '_')}_{ano_selecionado}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="dre_download_excel",
+                width="stretch",
+            )
+        else:
+            st.caption("O Excel é gerado sob demanda e não entra no tempo principal de renderização da aba.")
 
         with st.expander("Mini-glossário", expanded=False):
             st.markdown(
@@ -20348,6 +20563,25 @@ elif menu == "Taxas de Juros por Produto":
                 if not bancos_sel:
                     st.warning("Selecione ao menos um banco.")
                 else:
+                    # [CHANGE] Data: 2026-04-05 | Aba: Taxas de Juros por Produto | Prioridade: P4
+                    # Motivo: permitir customização de cores sem compartilhar estado com o Scatter.
+                    # Solução: mapa de cores local da aba com color picker em expander.
+                    # Impacto: apenas na apresentação do gráfico de linhas.
+                    # Testado em: py_compile do app e inspeção estática do fluxo da aba.
+                    taxas_color_state_key = "taxas_juros_color_map"
+                    if taxas_color_state_key not in st.session_state:
+                        st.session_state[taxas_color_state_key] = {}
+                    taxas_color_map = st.session_state[taxas_color_state_key]
+                    with st.expander("🎨 Personalizar cores", expanded=False):
+                        for idx_cor_taxas, banco_taxas in enumerate(bancos_sel):
+                            banco_norm = normalizar_nome_instituicao(banco_taxas)
+                            cor_inicial = taxas_color_map.get(banco_norm) or px.colors.qualitative.Plotly[idx_cor_taxas % len(px.colors.qualitative.Plotly)]
+                            taxas_color_map[banco_norm] = st.color_picker(
+                                banco_taxas,
+                                value=cor_inicial,
+                                key=f"taxas_color_picker_{banco_norm}",
+                            )
+
                     # =============================================================
                     # TIPO DE TAXA
                     # =============================================================
@@ -20361,6 +20595,11 @@ elif menu == "Taxas de Juros por Produto":
                     # Filtrar dados históricos para os bancos selecionados
                     df_chart = df_prod_hist[df_prod_hist['Instituição Financeira'].isin(bancos_sel)].copy()
                     df_chart = df_chart.sort_values('Fim Período')
+                    color_discrete_map = {
+                        banco_nome: taxas_color_map.get(normalizar_nome_instituicao(banco_nome))
+                        for banco_nome in bancos_sel
+                        if taxas_color_map.get(normalizar_nome_instituicao(banco_nome))
+                    }
 
                     # =============================================================
                     # GRÁFICO DE LINHAS - HISTÓRICO 12 MESES
@@ -20376,6 +20615,7 @@ elif menu == "Taxas de Juros por Produto":
                             tipo_taxa: tipo_taxa,
                             'Instituição Financeira': 'Instituição'
                         },
+                        color_discrete_map=color_discrete_map or None,
                         template='plotly_white',
                         markers=True
                     )
@@ -20392,11 +20632,31 @@ elif menu == "Taxas de Juros por Produto":
                         xaxis_title="",
                         yaxis_title=tipo_taxa,
                         hovermode='x unified',
-                        margin=dict(b=100)
+                        margin=dict(b=100, r=180)
                     )
 
                     fig.update_xaxes(tickformat="%b/%y")
                     fig.update_traces(marker=dict(size=6))
+
+                    df_last = (
+                        df_chart.sort_values('Fim Período')
+                        .groupby('Instituição Financeira', observed=False)
+                        .tail(1)
+                    )
+                    for _, row_last in df_last.iterrows():
+                        banco_nome = row_last['Instituição Financeira']
+                        cor_texto = color_discrete_map.get(banco_nome) or '#1f2937'
+                        fig.add_trace(go.Scatter(
+                            x=[row_last['Fim Período']],
+                            y=[row_last[tipo_taxa]],
+                            mode='text',
+                            text=[banco_nome],
+                            textposition='middle right',
+                            textfont=dict(size=10, color=cor_texto),
+                            showlegend=False,
+                            hoverinfo='skip',
+                            cliponaxis=False,
+                        ))
 
                     st.plotly_chart(fig, width='stretch')
 
