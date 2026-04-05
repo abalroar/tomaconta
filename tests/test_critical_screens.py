@@ -201,9 +201,15 @@ class _FakeBlopCache:
 
 
 class _FakeManager:
-    def __init__(self, blop_df: pd.DataFrame | None = None, cache_stamp: str = "2026-04-05T12:00:00"):
+    def __init__(
+        self,
+        blop_df: pd.DataFrame | None = None,
+        cache_stamp: str = "2026-04-05T12:00:00",
+        blop_exists: bool | None = None,
+    ):
         self._blop_df = blop_df
-        self._cache = _FakeBlopCache(blop_df is not None, cache_stamp)
+        exists = blop_df is not None if blop_exists is None else blop_exists
+        self._cache = _FakeBlopCache(exists, cache_stamp)
 
     def carregar(self, cache_name: str):
         if cache_name == "bloprudencial" and self._blop_df is not None:
@@ -281,3 +287,72 @@ def test_critical_screens_needs_refresh_detects_source_fingerprint_change(tmp_pa
 
     assert not critical_screens_needs_refresh(base_dir=tmp_path, manager=manager_igual)
     assert critical_screens_needs_refresh(base_dir=tmp_path, manager=manager_diferente)
+
+
+def test_critical_screens_needs_refresh_ignores_missing_local_sources(tmp_path: Path):
+    cache = CriticalScreensCache(tmp_path)
+    dados = pd.DataFrame(
+        [
+            {
+                "Instituição": "ITAU - PRUDENCIAL",
+                "Período": "1/2025",
+                "InstituiçãoKey": "ITAU PRUDENCIAL",
+            }
+        ]
+    )
+    cache.salvar_local(
+        dados,
+        fonte="materialized",
+        info_extra={
+            "schema_version": CRITICAL_SCREENS_SCHEMA_VERSION,
+            "source_fingerprints": {
+                "principal": {
+                    "timestamp_salvamento": "2026-04-05T10:00:00",
+                    "total_registros": 10,
+                    "total_periodos": 2,
+                    "fonte": "github_releases",
+                },
+                "bloprudencial": {
+                    "timestamp_salvamento": "2026-04-05T12:00:00",
+                    "total_registros": 2,
+                    "total_periodos": 2,
+                    "fonte": "cache_local",
+                },
+                "_bloprud_local_periods": ["202503", "202506"],
+            }
+        },
+    )
+
+    manager_sem_fontes = _FakeManager(blop_df=None, blop_exists=False)
+    assert not critical_screens_needs_refresh(base_dir=tmp_path, manager=manager_sem_fontes)
+
+
+def test_critical_screens_can_bootstrap_from_bundle(tmp_path: Path):
+    cache = CriticalScreensCache(tmp_path)
+    dados = pd.DataFrame(
+        [
+            {
+                "Instituição": "ITAU - PRUDENCIAL",
+                "Período": "1/2025",
+                "InstituiçãoKey": "ITAU PRUDENCIAL",
+            }
+        ]
+    )
+    save_result = cache.salvar_local(
+        dados,
+        fonte="materialized",
+        info_extra={"schema_version": CRITICAL_SCREENS_SCHEMA_VERSION},
+    )
+    assert save_result.sucesso
+
+    bundle_result = cache.sync_bundle_from_local()
+    assert bundle_result.sucesso
+
+    cache.limpar_local()
+    assert not cache.existe()
+
+    bootstrap_result = cache.bootstrap_local_from_bundle()
+    assert bootstrap_result.sucesso
+    assert cache.existe()
+    assert bootstrap_result.dados is not None
+    assert bootstrap_result.dados.iloc[0]["Instituição"] == "ITAU - PRUDENCIAL"

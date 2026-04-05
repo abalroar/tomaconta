@@ -16,9 +16,10 @@ from utils.ifdata_cache import materialize_critical_screens_cache
 def main() -> int:
     parser = argparse.ArgumentParser(description="Materializa cache curado das telas críticas")
     parser.add_argument("--force", action="store_true", help="reconstrói mesmo se o cache já existir")
+    parser.add_argument("--bundle", action="store_true", help="atualiza também o artefato bundled versionado")
     args = parser.parse_args()
 
-    result = materialize_critical_screens_cache(force=args.force)
+    result = materialize_critical_screens_cache(force=args.force, save_bundled=args.bundle)
     print(result.mensagem, flush=True)
     return 0 if result.sucesso else 1
 

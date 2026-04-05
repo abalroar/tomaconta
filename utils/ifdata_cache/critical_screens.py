@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, Iterable, List, Optional, Sequence
 
@@ -22,6 +23,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger("ifdata_cache")
 
 CRITICAL_SCREENS_SCHEMA_VERSION = 2
+BUNDLED_CRITICAL_SCREENS_DIR = Path("data") / "bundled" / "critical_screens"
 
 
 CRITICAL_SCREENS_CONFIG = CacheConfig(
@@ -89,6 +91,67 @@ class CriticalScreensCache(BaseCache):
 
     def __init__(self, base_dir: Path):
         super().__init__(CRITICAL_SCREENS_CONFIG, base_dir)
+
+    @property
+    def bundled_dir(self) -> Path:
+        return self.base_dir / BUNDLED_CRITICAL_SCREENS_DIR
+
+    @property
+    def bundled_data_file(self) -> Path:
+        return self.bundled_dir / self.config.arquivo_dados
+
+    @property
+    def bundled_metadata_file(self) -> Path:
+        return self.bundled_dir / self.config.arquivo_metadata
+
+    def bundle_available(self) -> bool:
+        return self.bundled_data_file.exists() and self.bundled_metadata_file.exists()
+
+    def bootstrap_local_from_bundle(self) -> CacheResult:
+        """Replica o artefato bundled para o diretório de cache local."""
+        if not self.bundle_available():
+            return CacheResult(
+                sucesso=False,
+                mensagem="Artefato bundled de critical_screens indisponível",
+                fonte="nenhum",
+            )
+
+        try:
+            self._garantir_diretorio()
+            shutil.copy2(self.bundled_data_file, self.arquivo_dados)
+            shutil.copy2(self.bundled_metadata_file, self.arquivo_metadata)
+        except Exception as exc:
+            return CacheResult(
+                sucesso=False,
+                mensagem=f"Falha ao copiar artefato bundled: {exc}",
+                fonte="nenhum",
+            )
+        return self.carregar_local()
+
+    def sync_bundle_from_local(self) -> CacheResult:
+        """Atualiza o artefato bundled a partir do cache local atual."""
+        if not self.existe() or not self.arquivo_metadata.exists():
+            return CacheResult(
+                sucesso=False,
+                mensagem="Cache local de critical_screens indisponível para bundle",
+                fonte="nenhum",
+            )
+
+        try:
+            self.bundled_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(self.arquivo_dados, self.bundled_data_file)
+            shutil.copy2(self.arquivo_metadata, self.bundled_metadata_file)
+        except Exception as exc:
+            return CacheResult(
+                sucesso=False,
+                mensagem=f"Falha ao atualizar artefato bundled: {exc}",
+                fonte="nenhum",
+            )
+        return CacheResult(
+            sucesso=True,
+            mensagem="Artefato bundled de critical_screens atualizado",
+            fonte="cache_local",
+        )
 
     def baixar_remoto(self):
         return CacheResult(
@@ -492,7 +555,14 @@ def critical_screens_needs_refresh(
 
     previous = extra.get("source_fingerprints") or {}
     current = _source_fingerprints(cache_manager, root)
-    return previous != current
+    for key, current_value in current.items():
+        if current_value is None:
+            continue
+        if key == "_bloprud_local_periods" and not current_value:
+            continue
+        if previous.get(key) != current_value:
+            return True
+    return False
 
 
 def _build_bloprud_lookup(df_bloprudencial: Optional[pd.DataFrame], catalog_map: Dict[str, str]) -> Dict[tuple[str, str, str], float]:
@@ -938,6 +1008,7 @@ def materialize_critical_screens_cache(
     manager: "CacheManager" | None = None,
     force: bool = False,
     periodos: Optional[Sequence[str]] = None,
+    save_bundled: bool = False,
 ) -> CacheResult:
     """Materializa o cache curado das telas críticas."""
     root = Path(base_dir).resolve() if base_dir else Path(__file__).resolve().parents[2]
@@ -947,7 +1018,18 @@ def materialize_critical_screens_cache(
     cache = CriticalScreensCache(root)
 
     if cache.existe() and not force and not periodos:
-        return cache.carregar_local()
+        result = cache.carregar_local()
+        if result.sucesso and save_bundled:
+            bundle_result = cache.sync_bundle_from_local()
+            if not bundle_result.sucesso:
+                return CacheResult(
+                    sucesso=False,
+                    mensagem=f"{result.mensagem}; {bundle_result.mensagem}",
+                    dados=result.dados,
+                    metadata=result.metadata,
+                    fonte=result.fonte,
+                )
+        return result
 
     loaded = {cache_name: _load_source_cache(cache_manager, cache_name) for cache_name in SOURCE_CACHE_TYPES}
     principal = loaded["principal"]
@@ -980,7 +1062,18 @@ def materialize_critical_screens_cache(
         "schema_version": CRITICAL_SCREENS_SCHEMA_VERSION,
         "source_fingerprints": _source_fingerprints(cache_manager, root),
     }
-    return cache.salvar_local(curated, fonte="materialized", info_extra=info_extra)
+    result = cache.salvar_local(curated, fonte="materialized", info_extra=info_extra)
+    if result.sucesso and save_bundled:
+        bundle_result = cache.sync_bundle_from_local()
+        if not bundle_result.sucesso:
+            return CacheResult(
+                sucesso=False,
+                mensagem=f"{result.mensagem}; {bundle_result.mensagem}",
+                dados=result.dados,
+                metadata=result.metadata,
+                fonte=result.fonte,
+            )
+    return result
 
 
 def load_critical_screens_slice(
@@ -992,6 +1085,8 @@ def load_critical_screens_slice(
     """Carrega recorte do cache curado sem abrir todo o dataset em memória."""
     root = Path(base_dir).resolve() if base_dir else Path(__file__).resolve().parents[2]
     cache = CriticalScreensCache(root)
+    if not cache.existe():
+        cache.bootstrap_local_from_bundle()
     if not cache.arquivo_dados.exists():
         resultado = cache.carregar_local()
         if not resultado.sucesso or resultado.dados is None or resultado.dados.empty:

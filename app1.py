@@ -5395,6 +5395,10 @@ def _critical_metric_map(df: Optional[pd.DataFrame], instituicao: str, periodos:
 def _garantir_cache_telas_criticas(menu_nome: str) -> bool:
     manager = get_cache_manager()
     cache = manager.get_cache("critical_screens") if manager else None
+    if cache is not None and (not cache.existe() or not cache.arquivo_metadata.exists()):
+        bootstrap_result = cache.bootstrap_local_from_bundle()
+        if bootstrap_result.sucesso and not critical_screens_needs_refresh(manager=manager):
+            return True
     if (
         cache is not None
         and (cache.arquivo_dados.exists() or cache.arquivo_dados_pickle.exists())

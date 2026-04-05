@@ -92,6 +92,38 @@ def _chunked(values: List[str], batch_size: int) -> Iterable[List[str]]:
         yield values[i : i + batch_size]
 
 
+def _is_expected_no_data_error(message: str | None) -> bool:
+    texto = str(message or "").strip().lower()
+    if not texto:
+        return False
+    marcadores_ok = (
+        "sem dados",
+        "nenhum período extraído com sucesso",
+        "nenhum periodo extraido com sucesso",
+        "nenhuma variável encontrada após filtro",
+        "nenhuma variavel encontrada apos filtro",
+    )
+    if not any(marcador in texto for marcador in marcadores_ok):
+        return False
+    marcadores_fatais = (
+        "timeout",
+        "timed out",
+        "connection",
+        "conex",
+        "dns",
+        "ssl",
+        "proxy",
+        "403",
+        "404",
+        "429",
+        "500",
+        "502",
+        "503",
+        "504",
+    )
+    return not any(marcador in texto for marcador in marcadores_fatais)
+
+
 def _create_snapshot(base_dir: Path, label: str, reason: str, dry_run: bool = False) -> Path:
     cache_dir, versions_dir = _cache_paths(base_dir)
     versions_dir.mkdir(parents=True, exist_ok=True)
@@ -227,11 +259,14 @@ def _run_refresh(args: argparse.Namespace, base_dir: Path) -> int:
 
         total_lotes = 0
         lotes_ok = 0
+        lotes_skip = 0
+        lotes_skip_detalhes = []
         modo_lote = "overwrite"
-        erro_msg = None
+        erro_fatal = None
         for periodos_lote in _chunked(periodos, args.batch_size):
             total_lotes += 1
             tentativas = args.retry_max + 1
+            erro_lote = None
             for tentativa in range(1, tentativas + 1):
                 _print(
                     f"[LOTE] {tipo} {total_lotes}: períodos {periodos_lote[0]}..{periodos_lote[-1]} "
@@ -248,32 +283,59 @@ def _run_refresh(args: argparse.Namespace, base_dir: Path) -> int:
                 if result.sucesso:
                     lotes_ok += 1
                     modo_lote = "incremental"
-                    erro_msg = None
+                    erro_lote = None
                     break
 
-                erro_msg = result.mensagem
-                _print(f"[ERRO] lote {tipo} {total_lotes}: {erro_msg}")
+                erro_lote = result.mensagem
+                _print(f"[ERRO] lote {tipo} {total_lotes}: {erro_lote}")
                 if tentativa < tentativas and args.retry_delay > 0:
                     _print(f"[RETRY] aguardando {args.retry_delay}s para nova tentativa")
                     time.sleep(args.retry_delay)
 
-            if erro_msg:
+            if erro_lote:
+                if _is_expected_no_data_error(erro_lote):
+                    lotes_skip += 1
+                    lotes_skip_detalhes.append(
+                        {
+                            "lote": total_lotes,
+                            "periodos": list(periodos_lote),
+                            "mensagem": erro_lote,
+                        }
+                    )
+                    _print(
+                        f"[SKIP] lote {tipo} {total_lotes}: sem dados publicados para "
+                        f"{periodos_lote[0]}..{periodos_lote[-1]}"
+                    )
+                    continue
+                erro_fatal = erro_lote
                 break
+
+        if erro_fatal:
+            status_tipo = "erro"
+            mensagem_tipo = erro_fatal
+        elif lotes_ok == 0:
+            status_tipo = "skip"
+            mensagem_tipo = "todos os lotes retornaram sem dados publicados"
+        else:
+            status_tipo = "ok"
+            mensagem_tipo = "concluído em lotes"
 
         detalhes.append(
             {
                 "tipo": tipo,
-                "status": "ok" if not erro_msg else "erro",
-                "mensagem": "concluído em lotes" if not erro_msg else erro_msg,
+                "status": status_tipo,
+                "mensagem": mensagem_tipo,
                 "periodos": len(periodos),
                 "periodos_ignorados": periodos_ignorados,
                 "lotes": total_lotes,
                 "lotes_ok": lotes_ok,
+                "lotes_skip": lotes_skip,
+                "lotes_skip_detalhes": lotes_skip_detalhes,
             }
         )
 
-        if erro_msg:
-            _print(f"[ERRO] {tipo}: {erro_msg}")
+        if erro_fatal:
+            _print(f"[ERRO] {tipo}: {erro_fatal}")
             break
 
     summary = {
@@ -300,7 +362,12 @@ def _run_refresh(args: argparse.Namespace, base_dir: Path) -> int:
     run_manifest_path = base_dir / "data" / "cache_versions" / "runs" / f"{run_id}.json"
     if not args.dry_run:
         if summary["status"] == "ok":
-            result_curado = materialize_critical_screens_cache(base_dir=base_dir, manager=manager, force=True)
+            result_curado = materialize_critical_screens_cache(
+                base_dir=base_dir,
+                manager=manager,
+                force=True,
+                save_bundled=True,
+            )
             detalhes.append(
                 {
                     "tipo": "critical_screens",
