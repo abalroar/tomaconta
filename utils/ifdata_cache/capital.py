@@ -112,7 +112,7 @@ class CapitalCache(BaseCache):
         """Baixa parquet do repositório GitHub."""
         try:
             self._log("info", f"Tentando parquet do repositório: {self.github_raw_url}")
-            response = requests.get(self.github_raw_url, timeout=120)
+            response = requests.get(self.github_raw_url, timeout=30)
 
             if response.status_code == 404:
                 self._log("warning", "Parquet não encontrado no repositório")
@@ -145,7 +145,7 @@ class CapitalCache(BaseCache):
         """Baixa parquet do GitHub Releases."""
         try:
             self._log("info", f"Tentando parquet dos releases: {self.github_release_parquet_url}")
-            response = requests.get(self.github_release_parquet_url, timeout=120)
+            response = requests.get(self.github_release_parquet_url, timeout=30)
 
             if response.status_code == 404:
                 self._log("warning", "Parquet não encontrado nos releases")
@@ -178,7 +178,7 @@ class CapitalCache(BaseCache):
         """Baixa pickle do GitHub Releases (formato antigo)."""
         try:
             self._log("info", f"Tentando pickle dos releases ({repo_nome}): {url}")
-            response = requests.get(url, timeout=120)
+            response = requests.get(url, timeout=30)
 
             if response.status_code == 404:
                 self._log("warning", f"Cache de capital não encontrado nos releases ({repo_nome})")
