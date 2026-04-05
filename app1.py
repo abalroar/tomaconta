@@ -5810,11 +5810,11 @@ def _preparar_metricas_extra_peers(
             .sum(min_count=1)
             .reset_index()
         )
-        for _, row in ag_inst.iterrows():
-            yyyymm = str(row["_yyyymm"])
-            inst_norm = str(row["_inst_norm"])
-            conta = str(row["_conta"])
-            val = row["_saldo"]
+        for row in ag_inst.itertuples(index=False):
+            yyyymm = str(row._yyyymm)
+            inst_norm = str(row._inst_norm)
+            conta = str(row._conta)
+            val = row._saldo
             if not yyyymm or yyyymm == "None" or len(yyyymm) != 6:
                 continue
             if inst_norm and inst_norm != "None" and pd.notna(val):
@@ -5828,11 +5828,11 @@ def _preparar_metricas_extra_peers(
             .sum(min_count=1)
             .reset_index()
         )
-        for _, row in ag_congl.iterrows():
-            yyyymm = str(row["_yyyymm"])
-            congl_norm = str(row["_congl_norm"])
-            conta = str(row["_conta"])
-            val = row["_saldo"]
+        for row in ag_congl.itertuples(index=False):
+            yyyymm = str(row._yyyymm)
+            congl_norm = str(row._congl_norm)
+            conta = str(row._conta)
+            val = row._saldo
             if not yyyymm or yyyymm == "None" or len(yyyymm) != 6:
                 continue
             if congl_norm and congl_norm != "None" and pd.notna(val):
@@ -5847,25 +5847,25 @@ def _preparar_metricas_extra_peers(
                 .sum(min_count=1)
                 .reset_index()
             )
-            for _, row in ag_cod.iterrows():
-                yyyymm = str(row["_yyyymm"])
-                cod_congl = str(row["_cod_congl"]).strip().upper()
-                conta = str(row["_conta"])
-                val = row["_saldo"]
+            for row in ag_cod.itertuples(index=False):
+                yyyymm = str(row._yyyymm)
+                cod_congl = str(row._cod_congl).strip().upper()
+                conta = str(row._conta)
+                val = row._saldo
                 if not yyyymm or yyyymm == "None" or len(yyyymm) != 6:
                     continue
                 if cod_congl and cod_congl != "None" and pd.notna(val):
                     blop_lookup_cod[(yyyymm, cod_congl, conta)] = float(val)
 
-            for _, row in df_blop_map.iterrows():
-                cod = str(row.get("_cod_congl", "")).strip().upper()
+            for row in df_blop_map.itertuples(index=False):
+                cod = str(getattr(row, "_cod_congl", "")).strip().upper()
                 if not cod or cod == "None":
                     continue
-                inst_norm = str(row.get("_inst_norm", "")).strip()
+                inst_norm = str(getattr(row, "_inst_norm", "")).strip()
                 if inst_norm and inst_norm != "None":
                     for inst_variant in _bloprud_name_variants(inst_norm):
                         blop_cod_para_inst_keys.setdefault(cod, set()).add(inst_variant)
-                for nome in (row.get("_inst_norm", ""), row.get("_congl_norm", "")):
+                for nome in (getattr(row, "_inst_norm", ""), getattr(row, "_congl_norm", "")):
                     nome_norm = str(nome).strip()
                     if not nome_norm:
                         continue
@@ -6499,12 +6499,49 @@ def _ajustar_lucro_acumulado_peers(
     return _obter_valor_peers(df, banco, periodo, coluna)
 
 
+@st.cache_data(ttl=900, show_spinner=False)
+def _preparar_metricas_extra_peers_cached(
+    bancos_tuple: tuple,
+    periodos_tuple: tuple,
+    periodos_ext_tuple: tuple,
+    instituicoes_slice_tuple: tuple,
+    alias_sig: tuple,
+    slice_tokens: tuple,
+) -> dict:
+    """Cached wrapper: loads slices, applies aliases, computes extra metrics."""
+    dict_aliases = dict(alias_sig) if alias_sig else {}
+    slice_tokens_dict = dict(slice_tokens)
+
+    def _load_and_alias(tipo):
+        token = slice_tokens_dict.get(tipo)
+        if not token:
+            return None
+        df_slice = _carregar_cache_relatorio_slice(
+            tipo, token, periodos_ext_tuple, instituicoes_slice_tuple,
+        )
+        return _aplicar_aliases_df(df_slice, dict_aliases)
+
+    return _preparar_metricas_extra_peers(
+        list(bancos_tuple),
+        list(periodos_tuple),
+        _load_and_alias("ativo"),
+        _load_and_alias("passivo"),
+        _load_and_alias("carteira_pf"),
+        _load_and_alias("carteira_pj"),
+        _load_and_alias("carteira_instrumentos"),
+        _load_and_alias("dre"),
+        _load_and_alias("capital"),
+        _load_and_alias("bloprudencial"),
+    )
+
+
 def _montar_tabela_peers(
     df: pd.DataFrame,
     bancos: list,
     periodos: list,
     caches_extras: Optional[dict] = None,
     perf: Optional[dict] = None,
+    extra_values_precomputed: Optional[dict] = None,
 ):
     """Monta estrutura da tabela peers com valores por banco/período."""
     valores = {}
@@ -6528,31 +6565,22 @@ def _montar_tabela_peers(
         if row is None:
             return None
         return row.get(coluna)
-    for _df_cache in (
-        (caches_extras or {}).get("ativo"),
-        (caches_extras or {}).get("passivo"),
-        (caches_extras or {}).get("carteira_pf"),
-        (caches_extras or {}).get("carteira_pj"),
-        (caches_extras or {}).get("carteira_instrumentos"),
-        (caches_extras or {}).get("dre"),
-        (caches_extras or {}).get("capital"),
-        (caches_extras or {}).get("bloprudencial"),
-    ):
-        _build_peers_lookup(_df_cache)
-
     t_extra = time.perf_counter()
-    extra_values = _preparar_metricas_extra_peers(
-        bancos,
-        periodos,
-        (caches_extras or {}).get("ativo"),
-        (caches_extras or {}).get("passivo"),
-        (caches_extras or {}).get("carteira_pf"),
-        (caches_extras or {}).get("carteira_pj"),
-        (caches_extras or {}).get("carteira_instrumentos"),
-        (caches_extras or {}).get("dre"),
-        (caches_extras or {}).get("capital"),
-        (caches_extras or {}).get("bloprudencial"),
-    )
+    if extra_values_precomputed is not None:
+        extra_values = extra_values_precomputed
+    else:
+        extra_values = _preparar_metricas_extra_peers(
+            bancos,
+            periodos,
+            (caches_extras or {}).get("ativo"),
+            (caches_extras or {}).get("passivo"),
+            (caches_extras or {}).get("carteira_pf"),
+            (caches_extras or {}).get("carteira_pj"),
+            (caches_extras or {}).get("carteira_instrumentos"),
+            (caches_extras or {}).get("dre"),
+            (caches_extras or {}).get("capital"),
+            (caches_extras or {}).get("bloprudencial"),
+        )
     _perf_peers_stage(perf, "c_joins_mapeamentos_metricas_extra", t_extra)
 
     # Fonte canônica de capital compartilhada com Rankings:
@@ -9296,6 +9324,38 @@ def _get_peers_filters_context(principal_token: str, alias_sig: tuple) -> dict:
     }
 
 
+@st.cache_data(ttl=900, show_spinner=False)
+def _get_rankings_filters_context(principal_token: str, alias_sig: tuple) -> dict:
+    """Retorna períodos para filtros da aba Rankings sem concatenar dataframe completo."""
+    dados_periodos = _carregar_dados_periodos_preparados(principal_token, alias_sig)
+    if not dados_periodos:
+        return {"periodos_disponiveis": []}
+
+    periodos_disponiveis = []
+    for periodo in dados_periodos:
+        periodos_disponiveis.append(str(periodo))
+
+    return {
+        "periodos_disponiveis": tuple(sorted(set(periodos_disponiveis))),
+    }
+
+
+def _rankings_expandir_periodos(periodos_selecionados: list) -> tuple:
+    """Expande períodos selecionados com auxiliares necessários para cálculo de ROE."""
+    periodos_set = set()
+    for p in periodos_selecionados:
+        if not p:
+            continue
+        periodos_set.add(p)
+        p_anterior = _periodo_ano_anterior(p)
+        if p_anterior:
+            periodos_set.add(p_anterior)
+        p_dez = _periodo_dez_ano_anterior(p)
+        if p_dez:
+            periodos_set.add(p_dez)
+    return tuple(sorted(periodos_set))
+
+
 def get_df_periodo_brincar(periodo: str) -> pd.DataFrame:
     """Obtém DataFrame de um período específico sem concatenar todos os períodos."""
     dados_periodos = st.session_state.get('dados_periodos', {})
@@ -9806,21 +9866,18 @@ def _get_rankings_base_df(
     capital_token: str,
     capital_mesclado: bool,
     alias_sig: tuple,
+    periodos_filter: Optional[tuple] = None,
 ) -> pd.DataFrame:
     """Pré-processa DataFrame base de Rankings uma única vez por versão de cache.
 
-    Evita recomputar, a cada interação do multiselect, etapas pesadas como:
-    - normalização de lucro líquido no dataframe completo
-    - enriquecimento CET1/merge de capital
+    Reutiliza get_analise_base_df (concat + ROE) e adiciona apenas etapas
+    específicas de Rankings: merge de capital e normalização de indicadores.
     """
     _ = (principal_token, capital_token, capital_mesclado, alias_sig)
-    df = get_dados_concatenados()
+    df = get_analise_base_df(principal_token, periodos_filter=periodos_filter)
     if df is None or df.empty:
         return pd.DataFrame()
 
-    df = _normalizar_lucro_liquido(df.copy())
-    df = _recalcular_roe_anualizado_df(df)
-    df = _recalcular_roe_trimestral_df(df)
     df_capital_idx = _construir_indices_capital_unificados(capital_token, alias_sig)
     if not df_capital_idx.empty:
         left_df = df.set_index(["Período", "Instituição"])
@@ -11214,9 +11271,9 @@ elif menu == "Peers (Tabela)":
                     )
                     _log_roe_trace(df, "peers_df_base")
 
-                    # Carregamento já recortado no nível do cache (evita ler dataset inteiro)
-                    t_slice = time.perf_counter()
-                    _slices_config = [
+                    # PERF: compute extra metrics via cached wrapper (slices loaded internally)
+                    _t = time.perf_counter()
+                    _slice_tokens = tuple(sorted([
                         ("ativo", _cache_version_token("ativo")),
                         ("passivo", _cache_version_token("passivo")),
                         ("carteira_pf", _cache_version_token("carteira_pf")),
@@ -11225,96 +11282,26 @@ elif menu == "Peers (Tabela)":
                         ("dre", _cache_version_token("dre")),
                         ("capital", _cache_version_token("capital")),
                         ("bloprudencial", _cache_version_token("bloprudencial")),
-                    ]
-                    _slices_result = {}
-                    def _load_slice_with_timing(_tipo, _token):
-                        _t_slice_ind = time.perf_counter()
-                        _slice_df = _carregar_cache_relatorio_slice(
-                            _tipo,
-                            _token,
-                            periodos_ext_peers,
-                            instituicoes_slice_tuple,
-                        )
-                        _slice_dur = time.perf_counter() - _t_slice_ind
-                        return _slice_df, _slice_dur
-
-                    with ThreadPoolExecutor(max_workers=8) as _executor:
-                        _futures = {
-                            _executor.submit(_load_slice_with_timing, tipo, token): tipo
-                            for tipo, token in _slices_config
-                        }
-                        for _future in as_completed(_futures):
-                            _tipo = _futures[_future]
-                            try:
-                                _slice_df, _slice_dur = _future.result()
-                                _slices_result[_tipo] = _slice_df
-                                _slice_label = {
-                                    "carteira_pf": "carteirapf",
-                                    "carteira_pj": "carteirapj",
-                                    "carteira_instrumentos": "carteirainstrumentos",
-                                }.get(_tipo, _tipo)
-                                _log_timing(f"3_slice_{_slice_label}", _slice_dur)
-                                print(f"[PEERS_TIMING] 3_slice_{_slice_label}: {_slice_dur:.3f}s")
-                            except Exception:
-                                _slices_result[_tipo] = None
-
-                    cache_ativo = _slices_result.get("ativo")
-                    cache_passivo = _slices_result.get("passivo")
-                    cache_carteira_pf = _slices_result.get("carteira_pf")
-                    cache_carteira_pj = _slices_result.get("carteira_pj")
-                    cache_carteira_instr = _slices_result.get("carteira_instrumentos")
-                    cache_dre = _slices_result.get("dre")
-                    cache_capital = _slices_result.get("capital")
-                    cache_bloprudencial = _slices_result.get("bloprudencial")
-                    _perf_peers_stage(peers_perf, "a_leitura_cache_slices", t_slice)
-                    _elapsed = time.perf_counter() - t_slice
-                    _log_timing("3_slice_TOTAL", _elapsed)
-                    print(f"[PEERS_TIMING] 3_slice_TOTAL: {_elapsed:.3f}s")
-
-                    _t = time.perf_counter()
-                    t_filtros = time.perf_counter()
-                    cache_ativo = _aplicar_aliases_df(cache_ativo, dict_aliases)
-                    cache_passivo = _aplicar_aliases_df(cache_passivo, dict_aliases)
-                    cache_carteira_pf = _aplicar_aliases_df(cache_carteira_pf, dict_aliases)
-                    cache_carteira_pj = _aplicar_aliases_df(cache_carteira_pj, dict_aliases)
-                    cache_carteira_instr = _aplicar_aliases_df(cache_carteira_instr, dict_aliases)
-                    cache_dre = _aplicar_aliases_df(cache_dre, dict_aliases)
-                    cache_capital = _aplicar_aliases_df(cache_capital, dict_aliases)
-                    cache_bloprudencial = _aplicar_aliases_df(cache_bloprudencial, dict_aliases)
+                    ]))
+                    _extra_values = _preparar_metricas_extra_peers_cached(
+                        bancos_tuple,
+                        tuple(periodos_selecionados),
+                        periodos_ext_peers,
+                        instituicoes_slice_tuple,
+                        _alias_signature_cache_key(),
+                        _slice_tokens,
+                    )
                     _elapsed = time.perf_counter() - _t
-                    _log_timing("4_aplicar_aliases", _elapsed)
-                    print(f"[PEERS_TIMING] 4_aplicar_aliases: {_elapsed:.3f}s")
-
-                    # Fallback defensivo: garante ausência de NameError em deploy parcial.
-                    # Quando o recorte foi feito no carregamento, evitar novo slice para não duplicar custo.
-                    if not periodos_ext_peers and not bancos_selecionados:
-                        slice_fn = _get_slice_cache_for_peers_fn()
-                        cache_ativo = slice_fn(cache_ativo, bancos_selecionados, periodos_ext_peers)
-                        cache_passivo = slice_fn(cache_passivo, bancos_selecionados, periodos_ext_peers)
-                        cache_carteira_pf = slice_fn(cache_carteira_pf, bancos_selecionados, periodos_ext_peers)
-                        cache_carteira_pj = slice_fn(cache_carteira_pj, bancos_selecionados, periodos_ext_peers)
-                        cache_carteira_instr = slice_fn(cache_carteira_instr, bancos_selecionados, periodos_ext_peers)
-                        cache_dre = slice_fn(cache_dre, bancos_selecionados, periodos_ext_peers)
-                        cache_capital = slice_fn(cache_capital, bancos_selecionados, periodos_ext_peers)
-                        cache_bloprudencial = slice_fn(cache_bloprudencial, bancos_selecionados, periodos_ext_peers)
-                    _perf_peers_stage(peers_perf, "b_filtros_alias_periodo_banco", t_filtros)
+                    _log_timing("3_metricas_extra_cached", _elapsed)
+                    print(f"[PEERS_TIMING] 3_metricas_extra_cached: {_elapsed:.3f}s")
 
                     _t = time.perf_counter()
                     valores, colunas_usadas, faltas, delta_flags, delta_context, tooltips = _montar_tabela_peers(
                         df,
                         bancos_selecionados,
                         periodos_selecionados,
-                        caches_extras={
-                            "ativo": cache_ativo,
-                            "passivo": cache_passivo,
-                            "carteira_pf": cache_carteira_pf,
-                            "carteira_pj": cache_carteira_pj,
-                            "carteira_instrumentos": cache_carteira_instr,
-                            "dre": cache_dre,
-                            "capital": cache_capital,
-                            "bloprudencial": cache_bloprudencial,
-                        },
                         perf=peers_perf,
+                        extra_values_precomputed=_extra_values,
                     )
                     _elapsed = time.perf_counter() - _t
                     _log_timing("5_montar_tabela_peers", _elapsed)
@@ -13048,17 +13035,12 @@ elif menu == "Rankings":
                 )
                 st.session_state['_dados_capital_mesclados'] = True
 
-        _perf_start("rankings_base_df")
-        df = _get_rankings_base_df(
+        # PERF: lightweight context for dropdown population (instant)
+        _rankings_ctx = _get_rankings_filters_context(
             _cache_version_token("principal"),
-            _cache_version_token("capital"),
-            bool(st.session_state.get('_dados_capital_mesclados', False)),
             _alias_signature_cache_key(),
         )
-        print(_perf_log("rankings_base_df"))
-
-        periodos_disponiveis = ordenar_periodos(df['Período'].dropna().unique())
-        periodos_dropdown = ordenar_periodos(df['Período'].dropna().unique(), reverso=True)
+        _rankings_periodos_raw = list(_rankings_ctx.get("periodos_disponiveis", []))
 
         st.markdown("### ranking")
         opcoes_grafico = ["Ranking (barras)", "Deltas (barras)", "Tabela"]
@@ -13092,16 +13074,13 @@ elif menu == "Rankings":
             'ROE Ac. Anualizado (%)': ['ROE Ac. Anualizado (%)', 'ROE Ac. YTD an. (%)'],
         }
 
-        indicadores_disponiveis = {}
-        for label, colunas in indicadores_config.items():
-            coluna_valida = next((col for col in colunas if col in df.columns), None)
-            if coluna_valida:
-                indicadores_disponiveis[label] = coluna_valida
+        # PERF: all indicators available after enrichment (normalizar_indicadores_rankings)
+        indicadores_disponiveis = {label: colunas[0] for label, colunas in indicadores_config.items()}
 
-        if not indicadores_disponiveis:
-            st.warning("nenhum dos indicadores requeridos foi encontrado nos dados atuais.")
+        if not _rankings_periodos_raw:
+            st.warning("nenhum período disponível nos dados atuais.")
         else:
-            periodos = ordenar_periodos(df['Período'].dropna().unique(), reverso=True)
+            periodos = ordenar_periodos(_rankings_periodos_raw, reverso=True)
             ordem_prioritaria = [
                 'Ativo Total',
                 'Carteira de Crédito*',
@@ -13166,10 +13145,14 @@ elif menu == "Rankings":
                 st.caption("info — definição não disponível; consulte o Glossário.")
 
             periodo_pool_ref = periodo_resumo[0] if periodo_resumo else None
-            df_periodo = df[df['Período'] == periodo_pool_ref].copy() if periodo_pool_ref else pd.DataFrame()
-            periodo_resumo_base = periodo_pool_ref
 
-            bancos_todos = df_periodo['Instituição'].dropna().unique().tolist()
+            # PERF: bank list from raw per-period data (instant dict lookup)
+            _dados_periodos_raw = st.session_state.get('dados_periodos', {})
+            _df_periodo_raw = _dados_periodos_raw.get(periodo_pool_ref, pd.DataFrame()) if periodo_pool_ref else pd.DataFrame()
+            if _df_periodo_raw is not None and not _df_periodo_raw.empty and "Instituição" in _df_periodo_raw.columns:
+                bancos_todos = _df_periodo_raw['Instituição'].dropna().unique().tolist()
+            else:
+                bancos_todos = []
             dict_aliases = st.session_state.get('dict_aliases', {})
             bancos_todos = ordenar_bancos_com_alias(bancos_todos, dict_aliases)
 
@@ -13185,7 +13168,7 @@ elif menu == "Rankings":
                     key="ranking_pool_base_v2"
                 )
                 top_map = {"Top 5": 5, "Top 10": 10, "Top 20": 20}
-                bancos_pool = _obter_top_instituicoes_por_ativo(df_periodo, top_map.get(pool_base, 0)) if pool_base != "Manual" else []
+                bancos_pool = _obter_top_instituicoes_por_ativo(_df_periodo_raw, top_map.get(pool_base, 0)) if pool_base != "Manual" else []
             with col_bancos:
                 bancos_manualmente_adicionados = st.multiselect(
                     "adicionar instituições (manual)",
@@ -13215,6 +13198,28 @@ elif menu == "Rankings":
                     key="ranking_data_labels_toggle",
                     help="Mostra/oculta os valores diretamente nas barras do gráfico.",
                 )
+
+            # PERF: deferred load — enriched DataFrame with period filter
+            _perf_start("rankings_base_df")
+            _periodos_rankings_filter = _rankings_expandir_periodos(periodo_resumo)
+            df = _get_rankings_base_df(
+                _cache_version_token("principal"),
+                _cache_version_token("capital"),
+                bool(st.session_state.get('_dados_capital_mesclados', False)),
+                _alias_signature_cache_key(),
+                periodos_filter=_periodos_rankings_filter,
+            )
+            print(_perf_log("rankings_base_df"))
+
+            # Re-resolve indicator column after enrichment (handles column name variants)
+            for label, colunas in indicadores_config.items():
+                coluna_valida = next((col for col in colunas if col in df.columns), None)
+                if coluna_valida:
+                    indicadores_disponiveis[label] = coluna_valida
+            indicador_col = indicadores_disponiveis.get(indicador_label, indicador_col)
+
+            periodo_resumo_base = periodo_pool_ref
+            df_periodo = df[df['Período'] == periodo_pool_ref].copy() if periodo_pool_ref else pd.DataFrame()
 
             format_info = get_axis_format(indicador_col)
             if indicador_label == "Índice de Capital Principal (CET1)":
