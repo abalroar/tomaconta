@@ -5449,17 +5449,32 @@ def _preparar_metricas_extra_peers(
     periodos_base = {_periodo_ano_anterior(periodo) for periodo in periodos}
     periodos_ext = [p for p in periodos + sorted(periodos_base) if p]
 
-    # FIX-2: materializa lookup (Instituição, Período) uma única vez por DataFrame.
-    for _df_cache in (
-        cache_ativo,
-        cache_passivo,
-        cache_carteira_pf,
-        cache_carteira_pj,
-        cache_carteira_instr,
-        cache_dre,
-        cache_capital,
-    ):
-        _build_peers_lookup(_df_cache)
+    # FIX-B: materializa dicts (Instituição, Período) -> row apenas uma vez.
+    def _lk(df_src: Optional[pd.DataFrame]) -> dict:
+        if df_src is None or df_src.empty:
+            return {}
+        out = {}
+        for r in df_src.to_dict("records"):
+            k = (r.get("Instituição", ""), str(r.get("Período", "")))
+            if k not in out:
+                out[k] = r
+        return out
+
+    def _lk_get(lk_src: dict, banco: str, periodo: str, coluna: Optional[str]):
+        if coluna is None or not lk_src:
+            return None
+        row = lk_src.get((banco, str(periodo)))
+        if row is None:
+            return None
+        return row.get(coluna)
+
+    lk_ativo = _lk(cache_ativo)
+    lk_passivo = _lk(cache_passivo)
+    lk_capital = _lk(cache_capital)
+    lk_dre = _lk(cache_dre)
+    lk_pf = _lk(cache_carteira_pf)
+    lk_pj = _lk(cache_carteira_pj)
+    lk_instr = _lk(cache_carteira_instr)
 
     def _periodo_to_yyyymm(periodo: str) -> Optional[str]:
         parsed = _parse_periodo(periodo)
@@ -6013,31 +6028,31 @@ def _preparar_metricas_extra_peers(
     for banco in bancos:
         for periodo in periodos_ext:
             chave = (banco, periodo)
-            valor_pf = _obter_valor_peers(cache_carteira_pf, banco, periodo, col_pf_total)
-            valor_pj = _obter_valor_peers(cache_carteira_pj, banco, periodo, col_pj_total)
+            valor_pf = _lk_get(lk_pf, banco, periodo, col_pf_total)
+            valor_pj = _lk_get(lk_pj, banco, periodo, col_pj_total)
             carteira_classificada = _somar_valores([valor_pf, valor_pj])
             extra["Carteira de Crédito Classificada"][chave] = carteira_classificada
 
             ano_ref = _periodo_ano_int(periodo)
             if ano_ref is not None and ano_ref <= 2024:
                 carteira_bruta = _somar_valores([
-                    _obter_valor_peers(cache_ativo, banco, periodo, col_credito_bruta_d1),
-                    _obter_valor_peers(cache_ativo, banco, periodo, col_credito_bruta_e1_alt),
-                    _obter_valor_peers(cache_ativo, banco, periodo, col_credito_bruta_f),
+                    _lk_get(lk_ativo, banco, periodo, col_credito_bruta_d1),
+                    _lk_get(lk_ativo, banco, periodo, col_credito_bruta_e1_alt),
+                    _lk_get(lk_ativo, banco, periodo, col_credito_bruta_f),
                 ])
             else:
                 carteira_bruta = _somar_valores([
-                    _obter_valor_peers(cache_ativo, banco, periodo, col_credito_bruta_e1),
-                    _obter_valor_peers(cache_ativo, banco, periodo, col_credito_bruta_f1),
-                    _obter_valor_peers(cache_ativo, banco, periodo, col_credito_bruta_g1),
-                    _obter_valor_peers(cache_ativo, banco, periodo, col_credito_bruta_h1),
+                    _lk_get(lk_ativo, banco, periodo, col_credito_bruta_e1),
+                    _lk_get(lk_ativo, banco, periodo, col_credito_bruta_f1),
+                    _lk_get(lk_ativo, banco, periodo, col_credito_bruta_g1),
+                    _lk_get(lk_ativo, banco, periodo, col_credito_bruta_h1),
                 ])
             if carteira_bruta is None:
                 carteira_bruta = _somar_valores([
-                    _obter_valor_peers(cache_ativo, banco, periodo, col_credito_net_e),
-                    _obter_valor_peers(cache_ativo, banco, periodo, col_credito_net_f),
-                    _obter_valor_peers(cache_ativo, banco, periodo, col_credito_net_g),
-                    _obter_valor_peers(cache_ativo, banco, periodo, col_credito_net_h),
+                    _lk_get(lk_ativo, banco, periodo, col_credito_net_e),
+                    _lk_get(lk_ativo, banco, periodo, col_credito_net_f),
+                    _lk_get(lk_ativo, banco, periodo, col_credito_net_g),
+                    _lk_get(lk_ativo, banco, periodo, col_credito_net_h),
                 ])
             extra["Carteira de Crédito Bruta"][chave] = carteira_bruta
             extra["Carteira de Crédito*"][chave] = carteira_bruta
@@ -6045,38 +6060,37 @@ def _preparar_metricas_extra_peers(
             # Ativos Líquidos = Disponibilidades (a) + Aplicações Interfinanceiras (b) + TVM (c)
             # do relatório de Ativo (Rel. 2)
             ativos_liquidos = _somar_valores([
-                _obter_valor_peers(cache_ativo, banco, periodo, col_disp_ativo),
-                _obter_valor_peers(cache_ativo, banco, periodo, col_aplic_ativo),
-                _obter_valor_peers(cache_ativo, banco, periodo, col_tvm_ativo),
+                _lk_get(lk_ativo, banco, periodo, col_disp_ativo),
+                _lk_get(lk_ativo, banco, periodo, col_aplic_ativo),
+                _lk_get(lk_ativo, banco, periodo, col_tvm_ativo),
             ])
             extra["Ativos Líquidos"][chave] = ativos_liquidos
 
             # Depósitos Totais = Depósitos (e) do relatório de Passivo (Rel. 3)
-            depositos_totais = _obter_valor_peers(cache_passivo, banco, periodo, col_depositos_passivo)
+            depositos_totais = _lk_get(lk_passivo, banco, periodo, col_depositos_passivo)
             if depositos_totais is None or pd.isna(_coerce_numeric_value(depositos_totais)):
                 depositos_totais = _somar_valores([
-                    _obter_valor_peers(cache_passivo, banco, periodo, col_dep_a1),
-                    _obter_valor_peers(cache_passivo, banco, periodo, col_dep_a2),
-                    _obter_valor_peers(cache_passivo, banco, periodo, col_dep_a3),
-                    _obter_valor_peers(cache_passivo, banco, periodo, col_dep_a4),
-                    _obter_valor_peers(cache_passivo, banco, periodo, col_dep_a5),
-                    _obter_valor_peers(cache_passivo, banco, periodo, col_dep_a6),
+                    _lk_get(lk_passivo, banco, periodo, col_dep_a1),
+                    _lk_get(lk_passivo, banco, periodo, col_dep_a2),
+                    _lk_get(lk_passivo, banco, periodo, col_dep_a3),
+                    _lk_get(lk_passivo, banco, periodo, col_dep_a4),
+                    _lk_get(lk_passivo, banco, periodo, col_dep_a5),
+                    _lk_get(lk_passivo, banco, periodo, col_dep_a6),
                 ])
             extra["Depósitos Totais"][chave] = _coerce_numeric_value(depositos_totais)
 
             # Core Funding (Captações; 2025+ inclui dívida subordinada h)
-            core_funding = _calcular_core_funding(
-                cache_passivo,
-                banco,
-                periodo,
-                col_capt_passivo,
-                col_instr_passivo,
-            )
+            cap_val = _lk_get(lk_passivo, banco, periodo, col_capt_passivo)
+            if ano_ref is None or ano_ref <= 2024:
+                core_funding = _coerce_numeric_value(cap_val)
+            else:
+                instr_val = _lk_get(lk_passivo, banco, periodo, col_instr_passivo)
+                core_funding = _somar_valores([cap_val, instr_val])
             extra["Core Funding"][chave] = _coerce_numeric_value(core_funding)
             extra["Core Funding*"][chave] = _coerce_numeric_value(core_funding)
 
             perda_vals = [
-                _obter_valor_peers(cache_ativo, banco, periodo, col)
+                _lk_get(lk_ativo, banco, periodo, col)
                 for col in perda_colunas
             ]
             perda_esperada = _somar_valores(perda_vals)
@@ -6088,8 +6102,8 @@ def _preparar_metricas_extra_peers(
             extra["Perda Esperada / Carteira de Crédito Bruta"][chave] = perda_ratio
             extra["Perda Esperada / Carteira de Crédito*"][chave] = perda_ratio
 
-            valor_c4 = _obter_valor_peers(cache_carteira_instr, banco, periodo, col_c4)
-            valor_c5 = _obter_valor_peers(cache_carteira_instr, banco, periodo, col_c5)
+            valor_c4 = _lk_get(lk_instr, banco, periodo, col_c4)
+            valor_c5 = _lk_get(lk_instr, banco, periodo, col_c5)
             carteira_c4_c5 = _somar_valores([valor_c4, valor_c5])
             extra["Carteira de Créd. Class. C4+C5"][chave] = carteira_c4_c5
             extra["Carteira de Créd. Class. C4+C5 / Carteira Classificada"][chave] = _calcular_ratio_peers(
@@ -6123,16 +6137,16 @@ def _preparar_metricas_extra_peers(
             indice_cap_principal = None
             if col_cap_principal and col_rwa_total:
                 val_cp = _coerce_numeric_value(
-                    _obter_valor_peers(cache_capital, banco, periodo, col_cap_principal)
+                    _lk_get(lk_capital, banco, periodo, col_cap_principal)
                 )
                 val_rwa = _coerce_numeric_value(
-                    _obter_valor_peers(cache_capital, banco, periodo, col_rwa_total)
+                    _lk_get(lk_capital, banco, periodo, col_rwa_total)
                 )
                 if val_cp is not None and val_rwa is not None and not pd.isna(val_cp) and not pd.isna(val_rwa) and float(val_rwa) != 0:
                     indice_cap_principal = float(val_cp) / float(val_rwa)
             if indice_cap_principal is None and col_indice_cap_principal:
                 val_precalc = _coerce_numeric_value(
-                    _obter_valor_peers(cache_capital, banco, periodo, col_indice_cap_principal)
+                    _lk_get(lk_capital, banco, periodo, col_indice_cap_principal)
                 )
                 if val_precalc is not None and not pd.isna(val_precalc):
                     v = float(val_precalc)
@@ -6143,16 +6157,16 @@ def _preparar_metricas_extra_peers(
             indice_basileia = None
             if col_cap_principal and col_cap_complementar and col_cap_nivel2 and col_rwa_total:
                 val_cp = _coerce_numeric_value(
-                    _obter_valor_peers(cache_capital, banco, periodo, col_cap_principal)
+                    _lk_get(lk_capital, banco, periodo, col_cap_principal)
                 )
                 val_cc = _coerce_numeric_value(
-                    _obter_valor_peers(cache_capital, banco, periodo, col_cap_complementar)
+                    _lk_get(lk_capital, banco, periodo, col_cap_complementar)
                 )
                 val_n2 = _coerce_numeric_value(
-                    _obter_valor_peers(cache_capital, banco, periodo, col_cap_nivel2)
+                    _lk_get(lk_capital, banco, periodo, col_cap_nivel2)
                 )
                 val_rwa = _coerce_numeric_value(
-                    _obter_valor_peers(cache_capital, banco, periodo, col_rwa_total)
+                    _lk_get(lk_capital, banco, periodo, col_rwa_total)
                 )
                 if (
                     val_cp is not None and val_cc is not None and val_n2 is not None and val_rwa is not None
@@ -6162,7 +6176,7 @@ def _preparar_metricas_extra_peers(
                     indice_basileia = (float(val_cp) + float(val_cc) + float(val_n2)) / float(val_rwa)
             if indice_basileia is None and col_indice_basileia_precalc:
                 val_precalc = _coerce_numeric_value(
-                    _obter_valor_peers(cache_capital, banco, periodo, col_indice_basileia_precalc)
+                    _lk_get(lk_capital, banco, periodo, col_indice_basileia_precalc)
                 )
                 if val_precalc is not None and not pd.isna(val_precalc):
                     v = float(val_precalc)
