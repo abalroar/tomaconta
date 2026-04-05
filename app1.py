@@ -5811,10 +5811,10 @@ def _preparar_metricas_extra_peers(
             .reset_index()
         )
         for row in ag_inst.itertuples(index=False):
-            yyyymm = str(row._yyyymm)
-            inst_norm = str(row._inst_norm)
-            conta = str(row._conta)
-            val = row._saldo
+            yyyymm = str(row[0])
+            inst_norm = str(row[1])
+            conta = str(row[2])
+            val = row[3]
             if not yyyymm or yyyymm == "None" or len(yyyymm) != 6:
                 continue
             if inst_norm and inst_norm != "None" and pd.notna(val):
@@ -5829,10 +5829,10 @@ def _preparar_metricas_extra_peers(
             .reset_index()
         )
         for row in ag_congl.itertuples(index=False):
-            yyyymm = str(row._yyyymm)
-            congl_norm = str(row._congl_norm)
-            conta = str(row._conta)
-            val = row._saldo
+            yyyymm = str(row[0])
+            congl_norm = str(row[1])
+            conta = str(row[2])
+            val = row[3]
             if not yyyymm or yyyymm == "None" or len(yyyymm) != 6:
                 continue
             if congl_norm and congl_norm != "None" and pd.notna(val):
@@ -5848,24 +5848,24 @@ def _preparar_metricas_extra_peers(
                 .reset_index()
             )
             for row in ag_cod.itertuples(index=False):
-                yyyymm = str(row._yyyymm)
-                cod_congl = str(row._cod_congl).strip().upper()
-                conta = str(row._conta)
-                val = row._saldo
+                yyyymm = str(row[0])
+                cod_congl = str(row[1]).strip().upper()
+                conta = str(row[2])
+                val = row[3]
                 if not yyyymm or yyyymm == "None" or len(yyyymm) != 6:
                     continue
                 if cod_congl and cod_congl != "None" and pd.notna(val):
                     blop_lookup_cod[(yyyymm, cod_congl, conta)] = float(val)
 
             for row in df_blop_map.itertuples(index=False):
-                cod = str(getattr(row, "_cod_congl", "")).strip().upper()
+                cod = str(row[2]).strip().upper()
                 if not cod or cod == "None":
                     continue
-                inst_norm = str(getattr(row, "_inst_norm", "")).strip()
+                inst_norm = str(row[0]).strip()
                 if inst_norm and inst_norm != "None":
                     for inst_variant in _bloprud_name_variants(inst_norm):
                         blop_cod_para_inst_keys.setdefault(cod, set()).add(inst_variant)
-                for nome in (getattr(row, "_inst_norm", ""), getattr(row, "_congl_norm", "")):
+                for nome in (row[0], row[1]):
                     nome_norm = str(nome).strip()
                     if not nome_norm:
                         continue
