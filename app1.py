@@ -5354,6 +5354,18 @@ def _carregar_cache_relatorio_slice(
     instituicoes: tuple = (),
 ) -> Optional[pd.DataFrame]:
     """Carrega recorte de cache por período/instituição para reduzir I/O e RAM."""
+    def _periodos_to_yyyymm(periodos_src: tuple) -> tuple[str, ...]:
+        out = []
+        for p in (periodos_src or ()):
+            if not isinstance(p, str) or "/" not in p:
+                continue
+            mm, yyyy = p.split("/", 1)
+            mm = mm.strip().zfill(2)
+            yyyy = yyyy.strip()
+            if len(yyyy) == 4 and mm.isdigit():
+                out.append(f"{yyyy}{mm}")
+        return tuple(sorted(set(out)))
+
     manager = get_cache_manager()
     if manager is None:
         return None
@@ -5370,15 +5382,42 @@ def _carregar_cache_relatorio_slice(
         try:
             import pyarrow.dataset as ds
             dataset = ds.dataset(cache.arquivo_dados)
+            schema_names = {str(n) for n in dataset.schema.names}
             filtro = None
             if periodos:
-                f = ds.field("Período").isin(list(periodos))
-                filtro = f if filtro is None else filtro & f
-            if instituicoes:
+                if "Período" in schema_names:
+                    f = ds.field("Período").isin(list(periodos))
+                    filtro = f if filtro is None else filtro & f
+                elif tipo_cache == "bloprudencial":
+                    yyyymm_needed = _periodos_to_yyyymm(tuple(periodos))
+                    if yyyymm_needed and "DATA_BASE" in schema_names:
+                        # DATA_BASE pode variar entre YYYYMM, YYYYMMDD, int ou string.
+                        vals = set()
+                        for ym in yyyymm_needed:
+                            if len(ym) != 6:
+                                continue
+                            yyyy, mm = ym[:4], ym[4:6]
+                            vals.add(ym)
+                            if ym.isdigit():
+                                vals.add(int(ym))
+                            for dd in range(1, 32):
+                                ymd = f"{yyyy}{mm}{dd:02d}"
+                                vals.add(ymd)
+                                vals.add(f"{yyyy}-{mm}-{dd:02d}")
+                                if ymd.isdigit():
+                                    vals.add(int(ymd))
+                        vals = sorted(vals)
+                        f = ds.field("DATA_BASE").isin(vals)
+                        filtro = f if filtro is None else filtro & f
+            if instituicoes and "Instituição" in schema_names and tipo_cache != "bloprudencial":
                 f = ds.field("Instituição").isin(list(instituicoes))
                 filtro = f if filtro is None else filtro & f
             tabela = dataset.to_table(filter=filtro) if filtro is not None else dataset.to_table()
-            return _normalizar_nomes_carteira(tabela.to_pandas())
+            df_arrow = _normalizar_nomes_carteira(tabela.to_pandas())
+            # BLOPrudencial: se o filtro parquet vier vazio (shape/encoding variável de DATA_BASE),
+            # cair para fallback pandas para filtrar por prefixo YYYYMM sem perder cobertura.
+            if tipo_cache != "bloprudencial" or not periodos or not df_arrow.empty:
+                return df_arrow
         except Exception:
             pass
 
@@ -5402,7 +5441,7 @@ def _carregar_cache_relatorio_slice(
                 if periodos_yyyymm:
                     base_txt = df[col_data_base].astype(str).str.replace(r"\D", "", regex=True).str[:6]
                     df = df[base_txt.isin(periodos_yyyymm)]
-    if instituicoes and "Instituição" in df.columns:
+    if instituicoes and "Instituição" in df.columns and tipo_cache != "bloprudencial":
         mask = df["Instituição"].isin(instituicoes)
         if not mask.any():
             inst_norm = df["Instituição"].apply(normalizar_nome_instituicao)
@@ -11205,7 +11244,7 @@ elif menu == "Peers (Tabela)":
                             _tipo,
                             _token,
                             periodos_ext_peers,
-                            instituicoes_slice_tuple,
+                            instituicoes_slice_tuple if _tipo != "bloprudencial" else tuple(),
                         )
                         _slice_dur = time.perf_counter() - _t_slice_ind
                         return _slice_df, _slice_dur
