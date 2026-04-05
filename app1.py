@@ -10859,6 +10859,7 @@ elif menu == "Peers (Tabela)":
                     for _banco_sel in bancos_selecionados:
                         instituicoes_slice.update(_instituicoes_filtro_snapshot(_banco_sel, dict_aliases))
                     instituicoes_slice_tuple = tuple(sorted(i for i in instituicoes_slice if i))
+                    df = get_analise_base_df(periodos_filter=list(periodos_ext_peers))
 
                     # Carregamento já recortado no nível do cache (evita ler dataset inteiro)
                     t_slice = time.perf_counter()
