@@ -7,8 +7,9 @@ Produz dados no formato exato que os gráficos do app1.py esperam.
 
 import logging
 import os
+import time
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
 import requests
@@ -106,90 +107,85 @@ class CapitalCache(BaseCache):
             fonte="nenhum"
         )
 
+    def _baixar_com_deadline(self, url: str, deadline_s: int = 20) -> Tuple[Optional[bytes], object]:
+        """Download com deadline de wall-clock absoluto.
+
+        requests.timeout só reinicia por chunk recebido; um servidor que envia
+        dados muito devagar (20 KB/s) nunca dispara o timeout mas leva minutos.
+        Aqui abortamos se o total ultrapassar deadline_s segundos.
+
+        Retorna (bytes_conteudo, status_code) em sucesso ou (None, motivo_str) em falha.
+        """
+        import io
+        t0 = time.monotonic()
+        buf = io.BytesIO()
+        try:
+            resp = requests.get(url, stream=True, timeout=(10, 10))
+            status = resp.status_code
+            if not resp.ok:
+                return None, status
+            for chunk in resp.iter_content(chunk_size=65536):
+                elapsed = time.monotonic() - t0
+                if elapsed > deadline_s:
+                    resp.close()
+                    self._log("warning", f"Deadline {deadline_s}s atingido ({elapsed:.1f}s) para {url}")
+                    return None, "DEADLINE"
+                if chunk:
+                    buf.write(chunk)
+            return buf.getvalue(), status
+        except requests.RequestException as e:
+            return None, str(e)
+
     def _baixar_parquet_repo(self) -> CacheResult:
         """Baixa parquet do repositório GitHub."""
+        import io
+        self._log("info", f"Tentando parquet do repositório: {self.github_raw_url}")
         try:
-            self._log("info", f"Tentando parquet do repositório: {self.github_raw_url}")
-            response = requests.get(self.github_raw_url, timeout=30)
-
-            if response.status_code == 404:
-                self._log("warning", "Parquet não encontrado no repositório")
-                return CacheResult(sucesso=False, mensagem="Parquet não existe no repositório", fonte="nenhum")
-
-            response.raise_for_status()
-
-            import io
-            try:
-                df = pd.read_parquet(io.BytesIO(response.content))
-                self._log("info", f"Baixado parquet do repositório: {len(df)} registros")
-                return CacheResult(
-                    sucesso=True,
-                    mensagem=f"Baixado do repositório: {len(df)} registros",
-                    dados=df,
-                    fonte="github_repo"
-                )
-            except ImportError:
-                self._log("warning", "pyarrow não disponível para ler parquet")
-                return CacheResult(sucesso=False, mensagem="pyarrow não disponível", fonte="nenhum")
-
-        except requests.RequestException as e:
-            self._log("error", f"Erro ao baixar do repositório: {e}")
-            return CacheResult(sucesso=False, mensagem=str(e), fonte="nenhum")
+            conteudo, status = self._baixar_com_deadline(self.github_raw_url, deadline_s=20)
+            if conteudo is None:
+                if status == 404:
+                    self._log("warning", "Parquet não encontrado no repositório")
+                else:
+                    self._log("warning", f"Falha no repositório: {status}")
+                return CacheResult(sucesso=False, mensagem=f"Repo: {status}", fonte="nenhum")
+            df = pd.read_parquet(io.BytesIO(conteudo))
+            self._log("info", f"Baixado parquet do repositório: {len(df)} registros")
+            return CacheResult(sucesso=True, mensagem=f"Repo: {len(df)} registros", dados=df, fonte="github_repo")
         except Exception as e:
-            self._log("error", f"Erro: {e}")
+            self._log("error", f"Erro ao baixar do repositório: {e}")
             return CacheResult(sucesso=False, mensagem=str(e), fonte="nenhum")
 
     def _baixar_parquet_release(self) -> CacheResult:
         """Baixa parquet do GitHub Releases."""
+        import io
+        self._log("info", f"Tentando parquet dos releases: {self.github_release_parquet_url}")
         try:
-            self._log("info", f"Tentando parquet dos releases: {self.github_release_parquet_url}")
-            response = requests.get(self.github_release_parquet_url, timeout=30)
-
-            if response.status_code == 404:
-                self._log("warning", "Parquet não encontrado nos releases")
-                return CacheResult(sucesso=False, mensagem="Parquet não existe nos releases", fonte="nenhum")
-
-            response.raise_for_status()
-
-            import io
-            try:
-                df = pd.read_parquet(io.BytesIO(response.content))
-                self._log("info", f"Baixado parquet dos releases: {len(df)} registros")
-                return CacheResult(
-                    sucesso=True,
-                    mensagem=f"Baixado dos releases: {len(df)} registros",
-                    dados=df,
-                    fonte="github_releases"
-                )
-            except ImportError:
-                self._log("warning", "pyarrow não disponível para ler parquet")
-                return CacheResult(sucesso=False, mensagem="pyarrow não disponível", fonte="nenhum")
-
-        except requests.RequestException as e:
-            self._log("error", f"Erro de rede: {e}")
-            return CacheResult(sucesso=False, mensagem=f"Erro de rede: {e}", fonte="nenhum")
+            conteudo, status = self._baixar_com_deadline(self.github_release_parquet_url, deadline_s=20)
+            if conteudo is None:
+                if status == 404:
+                    self._log("warning", "Parquet não encontrado nos releases")
+                else:
+                    self._log("warning", f"Falha nos releases: {status}")
+                return CacheResult(sucesso=False, mensagem=f"Releases: {status}", fonte="nenhum")
+            df = pd.read_parquet(io.BytesIO(conteudo))
+            self._log("info", f"Baixado parquet dos releases: {len(df)} registros")
+            return CacheResult(sucesso=True, mensagem=f"Releases: {len(df)} registros", dados=df, fonte="github_releases")
         except Exception as e:
-            self._log("error", f"Erro: {e}")
+            self._log("error", f"Erro de rede: {e}")
             return CacheResult(sucesso=False, mensagem=str(e), fonte="nenhum")
 
     def _baixar_pickle_releases(self, url: str, repo_nome: str = "") -> CacheResult:
         """Baixa pickle do GitHub Releases (formato antigo)."""
+        import io, pickle
+        self._log("info", f"Tentando pickle dos releases ({repo_nome}): {url}")
         try:
-            self._log("info", f"Tentando pickle dos releases ({repo_nome}): {url}")
-            response = requests.get(url, timeout=30)
+            conteudo, status = self._baixar_com_deadline(url, deadline_s=20)
+            if conteudo is None:
+                self._log("warning", f"Pickle não encontrado ({repo_nome}): {status}")
+                return CacheResult(sucesso=False, mensagem=f"Releases pickle: {status}", fonte="nenhum")
 
-            if response.status_code == 404:
-                self._log("warning", f"Cache de capital não encontrado nos releases ({repo_nome})")
-                return CacheResult(sucesso=False, mensagem=f"Cache não existe nos releases ({repo_nome})", fonte="nenhum")
+            dados_dict = pickle.load(io.BytesIO(conteudo))
 
-            response.raise_for_status()
-
-            import pickle
-            import io
-
-            dados_dict = pickle.load(io.BytesIO(response.content))
-
-            # Converter para DataFrame único
             if isinstance(dados_dict, dict):
                 dfs = []
                 for periodo, df in dados_dict.items():
@@ -198,31 +194,24 @@ class CapitalCache(BaseCache):
                             df = df.copy()
                             df["Período"] = str(periodo)
                         dfs.append(df)
-
-                if dfs:
-                    df_final = pd.concat(dfs, ignore_index=True)
-                else:
-                    return CacheResult(sucesso=False, mensagem="Arquivo do GitHub vazio", fonte="nenhum")
+                if not dfs:
+                    return CacheResult(sucesso=False, mensagem="Arquivo pickle vazio", fonte="nenhum")
+                df_final = pd.concat(dfs, ignore_index=True)
             elif isinstance(dados_dict, pd.DataFrame):
                 df_final = dados_dict
             else:
                 return CacheResult(sucesso=False, mensagem=f"Formato inesperado: {type(dados_dict)}", fonte="nenhum")
 
             self._log("info", f"Baixado pickle dos releases ({repo_nome}): {len(df_final)} registros")
-
             return CacheResult(
                 sucesso=True,
-                mensagem=f"Baixado dos releases ({repo_nome}): {len(df_final)} registros",
+                mensagem=f"Pickle releases ({repo_nome}): {len(df_final)} registros",
                 dados=df_final,
                 fonte=f"github_releases_{repo_nome}"
             )
-
-        except requests.RequestException as e:
-            self._log("error", f"Erro de rede: {e}")
-            return CacheResult(sucesso=False, mensagem=f"Erro de rede: {e}", fonte="nenhum")
         except Exception as e:
             self._log("error", f"Erro: {e}")
-            return CacheResult(sucesso=False, mensagem=f"Erro: {e}", fonte="nenhum")
+            return CacheResult(sucesso=False, mensagem=str(e), fonte="nenhum")
 
     def extrair_periodo(
         self,
