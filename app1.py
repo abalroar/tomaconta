@@ -9146,15 +9146,46 @@ def adicionar_indice_cet1(df_base: pd.DataFrame) -> pd.DataFrame:
 @st.cache_data(ttl=3600, show_spinner=False)
 def _construir_indices_capital_unificados(capital_token: str, alias_sig: tuple) -> pd.DataFrame:
     """Fonte única de índices de capital (CET1, T1 e Basileia Total) para Evolução e Rankings."""
-    _ = (capital_token, alias_sig)
-    df_capital = _preparar_df_capital_base()
-    if df_capital is None or df_capital.empty:
+    df_componentes = _construir_componentes_capital_rankings(capital_token, alias_sig)
+    if df_componentes is None or df_componentes.empty:
         return pd.DataFrame(columns=[
             "Período",
             "Instituição",
             "Índice de Capital Principal (CET1)",
             "Índice de Capital T1 (%)",
             "Índice de Basileia Total (%)",
+        ])
+
+    colunas = [
+        "Período",
+        "Instituição",
+        "Índice de Capital Principal (CET1)",
+        "Índice de Capital T1 (%)",
+        "Índice de Basileia Total (%)",
+    ]
+    return df_componentes[colunas].copy()
+
+
+@st.cache_resource(show_spinner=False)
+def _construir_componentes_capital_rankings(capital_token: str, alias_sig: tuple) -> pd.DataFrame:
+    """Pré-calcula componentes de capital para Rankings sem recalcular no render."""
+    _ = (capital_token, alias_sig)
+    df_capital = _preparar_df_capital_base()
+    if df_capital is None or df_capital.empty:
+        return pd.DataFrame(columns=[
+            "Período",
+            "Instituição",
+            "Capital Principal",
+            "Capital Complementar",
+            "Capital Nível II",
+            "RWA Total",
+            "Índice de Capital Principal (CET1)",
+            "Índice de Capital T1 (%)",
+            "Índice de Basileia Total (%)",
+            "CET1 (%)",
+            "AT1 (%)",
+            "T2 (%)",
+            "Índice de Basileia Total (%)_display",
         ])
 
     colunas_encontradas, _, _, _ = _mapear_colunas_capital(df_capital)
@@ -9164,36 +9195,77 @@ def _construir_indices_capital_unificados(capital_token: str, alias_sig: tuple) 
     col_rwa = colunas_encontradas.get("RWA Total")
     col_basileia_precalc = colunas_encontradas.get("Índice de Basileia Capital")
 
-    if not all([col_capital_principal, col_capital_complementar, col_capital_n2, col_rwa]):
+    if not all([col_capital_principal, col_rwa]):
         return pd.DataFrame(columns=[
             "Período",
             "Instituição",
+            "Capital Principal",
+            "Capital Complementar",
+            "Capital Nível II",
+            "RWA Total",
             "Índice de Capital Principal (CET1)",
             "Índice de Capital T1 (%)",
             "Índice de Basileia Total (%)",
+            "CET1 (%)",
+            "AT1 (%)",
+            "T2 (%)",
+            "Índice de Basileia Total (%)_display",
         ])
 
     principal = pd.to_numeric(df_capital[col_capital_principal], errors="coerce")
-    complementar = pd.to_numeric(df_capital[col_capital_complementar], errors="coerce")
-    capital_n2 = pd.to_numeric(df_capital[col_capital_n2], errors="coerce")
+    complementar = (
+        pd.to_numeric(df_capital[col_capital_complementar], errors="coerce")
+        if col_capital_complementar and col_capital_complementar in df_capital.columns
+        else pd.Series(0.0, index=df_capital.index)
+    )
+    capital_n2 = (
+        pd.to_numeric(df_capital[col_capital_n2], errors="coerce")
+        if col_capital_n2 and col_capital_n2 in df_capital.columns
+        else pd.Series(0.0, index=df_capital.index)
+    )
     rwa = pd.to_numeric(df_capital[col_rwa], errors="coerce").replace(0, np.nan)
 
     df_idx = df_capital[["Período", "Instituição"]].copy()
+    df_idx["Capital Principal"] = principal
+    df_idx["Capital Complementar"] = complementar.fillna(0.0)
+    df_idx["Capital Nível II"] = capital_n2.fillna(0.0)
+    df_idx["RWA Total"] = rwa
     df_idx["Índice de Capital Principal (CET1)"] = principal / rwa
-    df_idx["Índice de Capital T1 (%)"] = (principal + complementar) / rwa
-    df_idx["Índice de Basileia Total (%)"] = (principal + complementar + capital_n2) / rwa
+    df_idx["Índice de Capital T1 (%)"] = (principal + complementar.fillna(0.0)) / rwa
+    df_idx["Índice de Basileia Total (%)"] = (
+        principal + complementar.fillna(0.0) + capital_n2.fillna(0.0)
+    ) / rwa
 
     if col_basileia_precalc and col_basileia_precalc in df_capital.columns:
         bas_pre = _normalizar_indice_para_decimal(pd.to_numeric(df_capital[col_basileia_precalc], errors="coerce"))
         df_idx["Índice de Basileia Total (%)"] = df_idx["Índice de Basileia Total (%)"].combine_first(bas_pre)
 
+    df_idx["CET1 (%)"] = df_idx["Índice de Capital Principal (CET1)"] * 100
+    df_idx["AT1 (%)"] = (
+        pd.to_numeric(df_idx["Capital Complementar"], errors="coerce")
+        / pd.to_numeric(df_idx["RWA Total"], errors="coerce").replace(0, np.nan)
+    ) * 100
+    df_idx["T2 (%)"] = (
+        pd.to_numeric(df_idx["Capital Nível II"], errors="coerce")
+        / pd.to_numeric(df_idx["RWA Total"], errors="coerce").replace(0, np.nan)
+    ) * 100
+    df_idx["Índice de Basileia Total (%)_display"] = df_idx["Índice de Basileia Total (%)"] * 100
+
     df_idx = (
         df_idx.sort_values(["Período", "Instituição"])
         .groupby(["Período", "Instituição"], as_index=False)
         .agg({
+            "Capital Principal": "last",
+            "Capital Complementar": "last",
+            "Capital Nível II": "last",
+            "RWA Total": "last",
             "Índice de Capital Principal (CET1)": "last",
             "Índice de Capital T1 (%)": "last",
             "Índice de Basileia Total (%)": "last",
+            "CET1 (%)": "last",
+            "AT1 (%)": "last",
+            "T2 (%)": "last",
+            "Índice de Basileia Total (%)_display": "last",
         })
     )
     return df_idx
@@ -10058,11 +10130,16 @@ def _get_rankings_base_df(
     específicas de Rankings: merge de capital e normalização de indicadores.
     """
     _ = (principal_token, capital_token, capital_mesclado, alias_sig)
-    df = get_analise_base_df(principal_token, periodos_filter=periodos_filter)
+    df = _get_analise_base_df(
+        principal_token,
+        alias_sig,
+        False,
+        periodos_filter=periodos_filter,
+    )
     if df is None or df.empty:
         return pd.DataFrame()
 
-    df_capital_idx = _construir_indices_capital_unificados(capital_token, alias_sig)
+    df_capital_idx = _construir_componentes_capital_rankings(capital_token, alias_sig)
     if not df_capital_idx.empty:
         left_df = df.set_index(["Período", "Instituição"])
         right_df = df_capital_idx.set_index(["Período", "Instituição"])
@@ -10136,6 +10213,22 @@ def _normalizar_indicadores_rankings(df: pd.DataFrame) -> pd.DataFrame:
         df_out["Índice de Basileia Total (%)"] = _normalizar_indice_para_decimal(serie_basileia_total)
 
     return df_out
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def _get_rankings_capital_slice(
+    capital_token: str,
+    alias_sig: tuple,
+    periodos_filter: tuple,
+) -> pd.DataFrame:
+    """Recorte enxuto de capital para o branch de Basileia em Rankings."""
+    df_capital = _construir_componentes_capital_rankings(capital_token, alias_sig)
+    if df_capital is None or df_capital.empty:
+        return pd.DataFrame()
+    if not periodos_filter:
+        return df_capital.copy()
+    periodos_set = {str(p) for p in periodos_filter if p is not None}
+    return df_capital[df_capital["Período"].astype(str).isin(periodos_set)].copy()
 
 def carregar_dados_capital():
     if 'dados_capital' in st.session_state and st.session_state['dados_capital']:
@@ -10511,7 +10604,7 @@ timer_box_menu = None
 menu_timer_state_key = None
 menu_timer_signature = None
 t0_menu_timer = None
-if menu in MENU_PRINCIPAL and menu not in {"Snapshot", "Peers (Tabela)", "DRE (Ind. e Congl.)", "Evolução"}:
+if menu in MENU_PRINCIPAL and menu not in {"Snapshot", "Peers (Tabela)", "DRE (Ind. e Congl.)", "Evolução", "Rankings"}:
     timer_box_menu = st.empty()
     menu_timer_state_key = f"timer_state_{menu}"
     menu_timer_signature = ("menu", menu)
@@ -13299,6 +13392,11 @@ elif menu == "Scatter Plot":
         st.caption("Use o botão de carregamento acima para abrir o Scatter imediatamente.")
 
 elif menu == "Rankings":
+    timer_box_rankings = st.empty()
+    rankings_timer_state_key = "rankings_timer_state"
+    rankings_timer_signature = None
+    t0_rankings_timer = None
+
     # Indicadores que requerem dados de capital (carregados sob demanda)
     INDICADORES_CAPITAL_RANKINGS = {
         'Índice de Capital Principal (CET1)',
@@ -13406,16 +13504,10 @@ elif menu == "Rankings":
                     indicadores_ordenados,
                     key="indicador_resumo"
                 )
-            # Carregamento de capital sob demanda: só para indicadores que precisam
+            # Carregamento de capital sob demanda: Rankings usa slice canônico de capital
+            # sem mesclar toda a base principal no session_state.
             if indicador_label in INDICADORES_CAPITAL_RANKINGS:
-                if not st.session_state.get('_dados_capital_mesclados'):
-                    carregar_dados_capital()
-                    if 'dados_capital' in st.session_state and st.session_state['dados_capital']:
-                        st.session_state['dados_periodos'] = mesclar_dados_capital(
-                            st.session_state['dados_periodos'],
-                            st.session_state['dados_capital']
-                        )
-                        st.session_state['_dados_capital_mesclados'] = True
+                carregar_dados_capital()
             coluna_peso_resumo = None
             tipo_media_label = "Média simples"
             modo_ordenacao = "Ordenar por valor"
@@ -13481,16 +13573,40 @@ elif menu == "Rankings":
                     help="Mostra/oculta os valores diretamente nas barras do gráfico.",
                 )
 
+            rankings_timer_signature = (
+                grafico_base,
+                indicador_label,
+                tuple(periodo_resumo),
+                tuple(bancos_selecionados),
+                direcao_top,
+                bool(mostrar_data_labels),
+                pool_base,
+            )
+            _timer_reset_if_selection_changed(rankings_timer_state_key, rankings_timer_signature)
+            _timer_render_caption(
+                rankings_timer_state_key,
+                timer_box_rankings,
+                "Tempo de carregamento da aba Rankings",
+            )
+            t0_rankings_timer = time.perf_counter()
+
             # PERF: deferred load — enriched DataFrame with period filter
             _perf_start("rankings_base_df")
-            _periodos_rankings_filter = _rankings_expandir_periodos(periodo_resumo)
-            df = _get_rankings_base_df(
-                _cache_version_token("principal"),
-                _cache_version_token("capital"),
-                bool(st.session_state.get('_dados_capital_mesclados', False)),
-                _alias_signature_cache_key(),
-                periodos_filter=_periodos_rankings_filter,
+            usar_caminho_basileia_otimizado = (
+                grafico_base == "Ranking"
+                and indicador_label == "Índice de Basileia Total (%)"
             )
+            _periodos_rankings_filter = _rankings_expandir_periodos(periodo_resumo)
+            if usar_caminho_basileia_otimizado:
+                df = _df_periodo_raw.copy() if _df_periodo_raw is not None else pd.DataFrame()
+            else:
+                df = _get_rankings_base_df(
+                    _cache_version_token("principal"),
+                    _cache_version_token("capital"),
+                    False,
+                    _alias_signature_cache_key(),
+                    periodos_filter=_periodos_rankings_filter,
+                )
             print(_perf_log("rankings_base_df"))
 
             # Re-resolve indicator column after enrichment (handles column name variants)
@@ -13695,7 +13811,7 @@ elif menu == "Rankings":
 
                             st.dataframe(
                                 pivot.style.apply(_style_memoria_row, axis=1),
-                                use_container_width=True,
+                                width="stretch",
                                 hide_index=True,
                             )
 
@@ -13779,7 +13895,7 @@ elif menu == "Rankings":
 
                             st.dataframe(
                                 pivot.style.apply(_style_memoria_detail, axis=1),
-                                use_container_width=True,
+                                width="stretch",
                                 hide_index=True,
                             )
 
@@ -13884,7 +14000,7 @@ elif menu == "Rankings":
                                 rec[["Período", "Passo", "valor_formatado", "Regra"]].rename(
                                     columns={"valor_formatado": "Valor"}
                                 ),
-                                use_container_width=True,
+                                width="stretch",
                                 hide_index=True,
                             )
 
@@ -13998,6 +14114,44 @@ elif menu == "Rankings":
                             name=(periodo_ref or ""),
                         )
 
+            def _resolver_componente_topo_basileia(row: pd.Series) -> str:
+                for componente in ("T2 (%)", "AT1 (%)", "CET1 (%)"):
+                    valor = pd.to_numeric(pd.Series([row.get(componente)]), errors="coerce").iloc[0]
+                    if pd.notna(valor) and abs(float(valor)) > 1e-9:
+                        return componente
+                return "CET1 (%)"
+
+            def _configurar_labels_basileia_comparativo(
+                trace: go.Bar,
+                df_comp: pd.DataFrame,
+                componente: str,
+                mostrar_total: bool,
+            ) -> None:
+                """Usa labels nativos do trace para respeitar o offset dos períodos no comparativo."""
+                if df_comp.empty:
+                    trace.text = None
+                    trace.textposition = "none"
+                    return
+
+                if not mostrar_total:
+                    trace.text = None
+                    trace.textposition = "none"
+                    return
+
+                textos = []
+                for _, row in df_comp.iterrows():
+                    topo = _resolver_componente_topo_basileia(row)
+                    total = pd.to_numeric(pd.Series([row.get("Índice de Basileia Total (%)")]), errors="coerce").iloc[0]
+                    if topo == componente and pd.notna(total):
+                        textos.append(_formatar_br(total, 1, "%"))
+                    else:
+                        textos.append("")
+
+                trace.text = textos
+                trace.texttemplate = "%{text}"
+                trace.textposition = "outside"
+                trace.textfont = dict(size=12, color="#185FA5")
+
             if bancos_selecionados:
                 df_selecionado = df_periodo[df_periodo['Instituição'].isin(bancos_selecionados)].copy()
             else:
@@ -14010,32 +14164,21 @@ elif menu == "Rankings":
 
             if grafico_base == "Ranking":
                 if indicador_label == "Índice de Basileia Total (%)":
-                    df_capital_base = _preparar_df_capital_base()
-                    if df_capital_base.empty:
+                    periodos_capital = periodo_resumo if len(periodo_resumo) > 1 else [periodo_resumo_base]
+                    df_periodo_cap = _get_rankings_capital_slice(
+                        _cache_version_token("capital"),
+                        _alias_signature_cache_key(),
+                        tuple(periodos_capital),
+                    )
+
+                    if df_periodo_cap.empty:
                         st.info("dados de capital não disponíveis para o ranking.")
                     else:
-                        colunas_encontradas_cap, _, _, _ = _mapear_colunas_capital(df_capital_base)
-                        periodos_capital = periodo_resumo if len(periodo_resumo) > 1 else [periodo_resumo_base]
-                        lista_df_capital = []
-                        for periodo_cap in periodos_capital:
-                            df_periodo_cap_i, basileia_info = _calcular_basileia_periodo(
-                                df_capital_base,
-                                periodo_cap,
-                                colunas_encontradas_cap,
+                        if "Índice de Basileia Total (%)_display" in df_periodo_cap.columns:
+                            df_periodo_cap["Índice de Basileia Total (%)"] = pd.to_numeric(
+                                df_periodo_cap["Índice de Basileia Total (%)_display"],
+                                errors="coerce",
                             )
-                            if basileia_info.get("mensagem") and df_periodo_cap_i.empty:
-                                st.error(basileia_info["mensagem"])
-                                continue
-                            if not df_periodo_cap_i.empty:
-                                df_periodo_cap_i = df_periodo_cap_i.copy()
-                                df_periodo_cap_i["Período"] = periodo_cap
-                                lista_df_capital.append(df_periodo_cap_i)
-
-                        df_periodo_cap = (
-                            pd.concat(lista_df_capital, ignore_index=True)
-                            if lista_df_capital
-                            else pd.DataFrame()
-                        )
 
                         if not df_periodo_cap.empty:
                             colunas_peso_possiveis = [v for v in VARIAVEIS_PONDERACAO.values() if v is not None]
@@ -14125,6 +14268,20 @@ elif menu == "Rankings":
 
                             n_bancos = df_selecionado_cap['Instituição'].nunique()
                             eixo_instituicoes = df_selecionado_cap['Instituição'].drop_duplicates()
+                            comparar_periodos_basileia = len(periodo_resumo) > 1
+                            mostrar_total_periodo = set(periodo_resumo)
+                            mostrar_cet1_periodo = set()
+                            if comparar_periodos_basileia:
+                                periodos_ordenados = ordenar_periodos(periodo_resumo)
+                                periodo_mais_recente = periodos_ordenados[-1] if periodos_ordenados else None
+                                if len(periodo_resumo) >= 3 and periodo_mais_recente:
+                                    mostrar_total_periodo = {periodo_mais_recente}
+                                    mostrar_cet1_periodo = set()
+                                elif len(periodo_resumo) == 2:
+                                    mostrar_total_periodo = set(periodo_resumo)
+                                    mostrar_cet1_periodo = set(periodo_resumo) if n_bancos <= 8 else set()
+                                else:
+                                    mostrar_cet1_periodo = set(periodo_resumo)
                             # Paleta inspirada no Itaú BBA: laranja, preto/grafite e cinza.
                             cores_componentes = {
                                 'CET1 (%)': '#ff5a00',  # laranja base
@@ -14155,7 +14312,7 @@ elif menu == "Rankings":
                                             ],
                                             axis=-1,
                                         )
-                                        fig_basileia.add_trace(go.Bar(
+                                        bar_trace = go.Bar(
                                             x=df_comp['Instituição'],
                                             y=df_comp[componente],
                                             name=nome_display,
@@ -14176,7 +14333,15 @@ elif menu == "Rankings":
                                                 "T2: %{customdata[3]:.2f}%<br>"
                                                 "Total: %{customdata[4]:.2f}%<extra></extra>"
                                             )
-                                        ))
+                                        )
+                                        if mostrar_data_labels:
+                                            _configurar_labels_basileia_comparativo(
+                                                bar_trace,
+                                                df_comp,
+                                                componente,
+                                                mostrar_total=(p in mostrar_total_periodo),
+                                            )
+                                        fig_basileia.add_trace(bar_trace)
                                 else:
                                     customdata_comp = np.stack(
                                         [
@@ -14207,32 +14372,6 @@ elif menu == "Rankings":
                                             "Total: %{customdata[4]:.2f}%<extra></extra>"
                                         )
                                     ))
-
-                            if comparar_periodos_basileia:
-                                periodos_ordenados = ordenar_periodos(periodo_resumo)
-                                periodo_mais_recente = periodos_ordenados[-1] if periodos_ordenados else None
-                                mostrar_total_periodo = set(periodo_resumo)
-                                mostrar_cet1_periodo = set()
-                                if len(periodo_resumo) >= 3 and periodo_mais_recente:
-                                    mostrar_total_periodo = {periodo_mais_recente}
-                                    mostrar_cet1_periodo = set()
-                                elif len(periodo_resumo) == 2:
-                                    mostrar_cet1_periodo = set(periodo_resumo) if n_bancos <= 8 else set()
-                                else:
-                                    mostrar_cet1_periodo = set(periodo_resumo)
-
-                                if mostrar_data_labels:
-                                    for p in periodo_resumo:
-                                        df_total = df_selecionado_cap[df_selecionado_cap["Período"] == p].copy()
-                                        if df_total.empty:
-                                            continue
-                                        _adicionar_labels_basileia_v2(
-                                            fig_basileia,
-                                            df_total,
-                                            periodo_ref=p,
-                                            mostrar_cet1=(p in mostrar_cet1_periodo),
-                                            mostrar_total=(p in mostrar_total_periodo),
-                                        )
 
                             MINIMO_REGULATORIO = 10.5
 
@@ -14327,7 +14466,7 @@ elif menu == "Rankings":
                                         df_tabela_capital[col_fmt] = df_tabela_capital[col_fmt].apply(
                                             lambda v: _formatar_br(v, 2, "%") if pd.notna(v) else "N/D"
                                         )
-                                st.dataframe(df_tabela_capital, use_container_width=True, hide_index=True)
+                                st.dataframe(df_tabela_capital, width="stretch", hide_index=True)
 
                             st.markdown("#### Exportar")
                             col_export_a, col_export_b = st.columns(2)
@@ -14343,7 +14482,7 @@ elif menu == "Rankings":
                                         file_name=f"indice_basileia_{periodo_resumo_base.replace('/', '-')}.xlsx",
                                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                         key="exportar_resumo_excel_basileia",
-                                        use_container_width=False,
+                                        width="content",
                                     )
                             with col_export_b:
                                 if st.button("Gerar PNG", key="rankings_basileia_gerar_png"):
@@ -14355,7 +14494,7 @@ elif menu == "Rankings":
                                             file_name=f"indice_basileia_{periodo_resumo_base.replace('/', '-')}.png",
                                             mime="image/png",
                                             key="exportar_grafico_png_basileia",
-                                            use_container_width=True,
+                                            width="stretch",
                                         )
                 else:
                     if df_selecionado.empty:
@@ -14464,7 +14603,7 @@ elif menu == "Rankings":
                                     lambda v: _formatar_br(v, casas_labels, format_info.get('ticksuffix', ''))
                                 )
                             with st.expander("Dados do gráfico", expanded=False):
-                                st.dataframe(tabela_wide, use_container_width=True, hide_index=True)
+                                st.dataframe(tabela_wide, width="stretch", hide_index=True)
                             _renderizar_memoria_indicador_rankings(
                                 df,
                                 bancos_selecionados,
@@ -14698,7 +14837,7 @@ elif menu == "Rankings":
                                     lambda v: _formatar_valor_ranking(v, indicador_col, contexto_col)
                                 )
                             with st.expander("Dados do gráfico", expanded=False):
-                                st.dataframe(tabela_wide, use_container_width=True, hide_index=True)
+                                st.dataframe(tabela_wide, width="stretch", hide_index=True)
                             _renderizar_memoria_indicador_rankings(
                                 df,
                                 bancos_selecionados,
@@ -14732,7 +14871,7 @@ elif menu == "Rankings":
                                     file_name=f"ranking_{periodo_resumo_base.replace('/', '-')}.xlsx",
                                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                     key="exportar_resumo_excel",
-                                    use_container_width=False,
+                                    width="content",
                                 )
                             with col_export_b:
                                 png_bytes = _plotly_fig_to_png_bytes(fig_resumo)
@@ -14743,7 +14882,7 @@ elif menu == "Rankings":
                                         file_name=f"ranking_{periodo_resumo_base.replace('/', '-')}.png",
                                         mime="image/png",
                                         key="exportar_grafico_png_ranking",
-                                        use_container_width=True,
+                                        width="stretch",
                                     )
 
             if grafico_base == "Deltas (antes e depois)":
@@ -15141,7 +15280,7 @@ elif menu == "Rankings":
                                 lambda v: _formatar_br(v, 2)
                             )
                         with st.expander("Tabela de dados brutos (delta)", expanded=False):
-                            st.dataframe(df_resumo_exibicao, use_container_width=True)
+                            st.dataframe(df_resumo_exibicao, width="stretch")
                         st.caption("exportação disponível apenas na visão tabela.")
                 elif _indicador_incompativel:
                     pass  # Warning já exibido acima
@@ -15321,7 +15460,7 @@ elif menu == "Rankings":
                             styled_df = df_formatado.style.apply(_style_tabela, axis=1)
                             st.dataframe(
                                 styled_df,
-                                use_container_width=True,
+                                width="stretch",
                                 hide_index=True,
                             )
 
@@ -15344,8 +15483,20 @@ elif menu == "Rankings":
                                 file_name=f"ranking_tabela_{formatar_periodo_mm_yyyy(periodo_tabela).replace('/', '-')}.xlsx",
                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                 key="exportar_tabela_excel_v1",
-                                use_container_width=False,
+                                width="content",
                             )
+
+        if rankings_timer_signature and t0_rankings_timer is not None:
+            _timer_store_elapsed(
+                rankings_timer_state_key,
+                rankings_timer_signature,
+                time.perf_counter() - t0_rankings_timer,
+            )
+            _timer_render_caption(
+                rankings_timer_state_key,
+                timer_box_rankings,
+                "Tempo de carregamento da aba Rankings",
+            )
 
     else:
         st.info("carregando dados automaticamente do github...")
