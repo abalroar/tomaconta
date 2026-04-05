@@ -5715,14 +5715,6 @@ def _preparar_metricas_extra_peers(
             # evita duplicação exata (~2x) ao agregar por instituição/conta.
             if mask_4060.any():
                 df_blop = df_blop.loc[mask_4060].copy()
-        if col_blop_conta:
-            contas_num = df_blop[col_blop_conta].astype(str).str.replace(r"\D", "", regex=True)
-            mask_contas = contas_num.isin(contas_blop_necessarias)
-            if mask_contas.any():
-                df_blop = df_blop.loc[mask_contas].copy()
-            df_blop["_conta"] = contas_num.loc[df_blop.index]
-        else:
-            df_blop["_conta"] = ""
 
         if col_blop_nome_inst:
             df_blop["_inst_norm"] = df_blop[col_blop_nome_inst].map(_bloprud_norm_name)
@@ -5742,6 +5734,7 @@ def _preparar_metricas_extra_peers(
             )
         else:
             df_blop["_cod_congl"] = ""
+        df_blop["_conta"] = df_blop[col_blop_conta].astype(str).str.replace(r"\D", "", regex=True)
         df_blop["_saldo"] = pd.to_numeric(df_blop[col_blop_saldo], errors="coerce")
 
         col_data_base = _bloprud_pick_col(df_blop, ["DATA_BASE", "Data_Base", "data_base"])
@@ -5753,6 +5746,22 @@ def _preparar_metricas_extra_peers(
                     df_blop = df_blop.loc[mask_ym].copy()
         else:
             df_blop["_yyyymm"] = None
+
+        # Mapa de nomes->código usa o conjunto de períodos (não restringir por conta),
+        # para preservar cobertura de bancos menores sem reabrir varredura global.
+        df_blop_map = df_blop[["_inst_norm", "_congl_norm", "_cod_congl"]].copy()
+
+        if col_blop_conta:
+            contas_num = df_blop[col_blop_conta].astype(str).str.replace(r"\D", "", regex=True)
+            mask_contas = contas_num.isin(contas_blop_necessarias)
+            if mask_contas.any():
+                df_blop = df_blop.loc[mask_contas].copy()
+                contas_num = contas_num.loc[df_blop.index]
+            df_blop["_conta"] = contas_num
+        else:
+            df_blop["_conta"] = ""
+
+        df_blop["_saldo"] = pd.to_numeric(df_blop[col_blop_saldo], errors="coerce")
 
         ag_inst = (
             df_blop.groupby(["_yyyymm", "_inst_norm", "_conta"], dropna=False)["_saldo"]
@@ -5806,7 +5815,7 @@ def _preparar_metricas_extra_peers(
                 if cod_congl and cod_congl != "None" and pd.notna(val):
                     blop_lookup_cod[(yyyymm, cod_congl, conta)] = float(val)
 
-            for _, row in df_blop.iterrows():
+            for _, row in df_blop_map.iterrows():
                 cod = str(row.get("_cod_congl", "")).strip().upper()
                 if not cod or cod == "None":
                     continue
@@ -11141,7 +11150,17 @@ elif menu == "Peers (Tabela)":
                     t0_peers = time.perf_counter()
                     periodos_selecionados = ordenar_periodos(periodos_selecionados, reverso=True)
                     periodos_base_peers = {_periodo_ano_anterior(p) for p in periodos_selecionados}
-                    periodos_ext_peers = tuple(sorted({p for p in (periodos_selecionados + sorted(periodos_base_peers)) if p}))
+                    periodos_dez_roe = {
+                        _periodo_dez_ano_anterior(p)
+                        for p in list(periodos_selecionados) + list(periodos_base_peers)
+                    }
+                    periodos_ext_peers = tuple(sorted({
+                        p for p in (
+                            list(periodos_selecionados)
+                            + sorted(periodos_base_peers)
+                            + sorted(periodos_dez_roe)
+                        ) if p
+                    }))
                     bancos_tuple = tuple(bancos_selecionados)
                     instituicoes_slice = set(bancos_selecionados)
                     for _banco_sel in bancos_selecionados:
