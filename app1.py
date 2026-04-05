@@ -9048,13 +9048,30 @@ def _mapear_colunas_capital(df_capital: pd.DataFrame):
 
 
 def _preparar_df_capital_base() -> pd.DataFrame:
-    if 'dados_capital' not in st.session_state or not st.session_state['dados_capital']:
+    dados_capital = st.session_state.get('dados_capital')
+    if not dados_capital:
+        cache_token = _cache_version_token("capital")
+        alias_sig = _alias_signature_cache_key()
+        dados_capital = _carregar_dados_capital_preparados(cache_token, alias_sig)
+        if dados_capital:
+            st.session_state['dados_capital'] = dados_capital
+            st.session_state['capital_cache_fonte'] = 'local (cache preparado)'
+
+    if not dados_capital:
         return pd.DataFrame()
-    df_capital = pd.concat(st.session_state['dados_capital'].values(), ignore_index=True)
+
+    dados_periodos = st.session_state.get('dados_periodos')
+    if not dados_periodos:
+        principal_token = _cache_version_token("principal")
+        alias_sig = _alias_signature_cache_key()
+        dados_periodos = _carregar_dados_periodos_preparados(principal_token, alias_sig)
+        if dados_periodos:
+            st.session_state['dados_periodos'] = dados_periodos
+
+    df_capital = pd.concat(dados_capital.values(), ignore_index=True)
     df_capital = normalizar_colunas_capital(df_capital)
     dict_aliases = st.session_state.get('dict_aliases', {})
     df_aliases = st.session_state.get('df_aliases', None)
-    dados_periodos = st.session_state.get('dados_periodos', None)
     df_capital = resolver_nomes_instituicoes_capital(df_capital, dict_aliases, df_aliases, dados_periodos)
     return df_capital
 
