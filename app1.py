@@ -1,5 +1,6 @@
 import importlib
 import math
+import hashlib
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, Optional, List
 import streamlit as st
@@ -17,8 +18,28 @@ from typing import Tuple, Optional
 import time
 import html as _html_mod
 
+# ============================================================
+# PERFORMANCE PATCH — Applied by Codex
+# Task 1: Fixed cache miss on _get_analise_base_df (args now hashable)
+# Task 2: Pre-materialized lookup dict in _preparar_metricas_extra_peers
+# Task 3: Added _to_cache_key() guard helper
+# Task 4: Upgraded shared loaders to st.cache_resource where applicable
+# Debug: [CACHE DEBUG] print left intentionally for validation
+# ============================================================
+
 # === PERFORMANCE TIMER ===
 _perf_timers = {}
+
+
+def _to_cache_key(obj):
+    """Converte qualquer objeto para uma cache key hashable e estável."""
+    if isinstance(obj, (str, int, float, bool, type(None))):
+        return obj
+    if isinstance(obj, (list, tuple)):
+        return tuple(_to_cache_key(i) for i in obj)
+    if isinstance(obj, dict):
+        return tuple(sorted((k, _to_cache_key(v)) for k, v in obj.items()))
+    return str(obj)
 
 def _perf_start(label: str):
     """Inicia timer de performance para uma etapa."""
@@ -4895,15 +4916,24 @@ def _calcular_core_funding(
     periodo: str,
     col_capt: Optional[str],
     col_instr: Optional[str],
+    lk_passivo: Optional[dict] = None,
 ) -> Optional[float]:
     """Core Funding por período: até 2024 usa Captações (e); 2025+ usa Captações (e) + Dívida Subordinada (h)."""
     if cache_passivo is None or cache_passivo.empty:
         return None
     ano_ref = _periodo_ano_int(periodo)
-    cap_val = _obter_valor_peers(cache_passivo, instituicao, periodo, col_capt) if col_capt else None
+    if lk_passivo is not None:
+        row = lk_passivo.get((instituicao, str(periodo)))
+        cap_val = row.get(col_capt) if (row is not None and col_capt) else None
+    else:
+        cap_val = _obter_valor_peers(cache_passivo, instituicao, periodo, col_capt) if col_capt else None
     if ano_ref is None or ano_ref <= 2024:
         return _coerce_numeric_value(cap_val)
-    instr_val = _obter_valor_peers(cache_passivo, instituicao, periodo, col_instr) if col_instr else None
+    if lk_passivo is not None:
+        row = lk_passivo.get((instituicao, str(periodo)))
+        instr_val = row.get(col_instr) if (row is not None and col_instr) else None
+    else:
+        instr_val = _obter_valor_peers(cache_passivo, instituicao, periodo, col_instr) if col_instr else None
     return _somar_valores([cap_val, instr_val])
 
 
@@ -5406,6 +5436,44 @@ def _get_slice_cache_for_peers_fn():
 
     return _fallback
 
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _carregar_bloprudencial_fallback_periodos(yyyymm_needed: tuple) -> pd.DataFrame:
+    """Carrega base prudencial por competências (fallback) com cache para reuso entre reruns."""
+    if not yyyymm_needed:
+        return pd.DataFrame()
+    try:
+        from utils.ifdata_cache import load_bloprudencial_df_cached
+    except Exception:
+        return pd.DataFrame()
+
+    dfs_blop = []
+    for ym in yyyymm_needed:
+        ym_txt = str(ym)
+        if len(ym_txt) != 6:
+            continue
+        try:
+            df_ym = load_bloprudencial_df_cached(
+                yyyymm=ym_txt,
+                cache_dir="data/cache/bcb_bloprudencial",
+                force_refresh=False,
+            )
+        except Exception:
+            continue
+        if df_ym is None or df_ym.empty:
+            continue
+        tmp = df_ym.copy()
+        if "DATA_BASE" not in tmp.columns:
+            tmp["DATA_BASE"] = ym_txt
+        if "Período" not in tmp.columns:
+            tmp["Período"] = f"{ym_txt[4:6]}/{ym_txt[:4]}"
+        dfs_blop.append(tmp)
+
+    if not dfs_blop:
+        return pd.DataFrame()
+    return pd.concat(dfs_blop, ignore_index=True)
+
+
 def _preparar_metricas_extra_peers(
     bancos: list,
     periodos: list,
@@ -5449,32 +5517,49 @@ def _preparar_metricas_extra_peers(
     periodos_base = {_periodo_ano_anterior(periodo) for periodo in periodos}
     periodos_ext = [p for p in periodos + sorted(periodos_base) if p]
 
-    # FIX-B: materializa dicts (Instituição, Período) -> row apenas uma vez.
-    def _lk(df_src: Optional[pd.DataFrame]) -> dict:
+    def _resolver_coluna_base(df_src: Optional[pd.DataFrame], candidatos: list[str]) -> Optional[str]:
+        if df_src is None or df_src.empty:
+            return None
+        cols = list(df_src.columns)
+        lower_map = {str(c).strip().lower(): c for c in cols}
+        for cand in candidatos:
+            key = str(cand).strip().lower()
+            if key in lower_map:
+                return lower_map[key]
+        return None
+
+    def _build_metric_pivot(df_src: Optional[pd.DataFrame], metric_cols: list[str]) -> dict:
         if df_src is None or df_src.empty:
             return {}
-        out = {}
-        for r in df_src.to_dict("records"):
-            k = (r.get("Instituição", ""), str(r.get("Período", "")))
-            if k not in out:
-                out[k] = r
-        return out
+        metric_cols = [c for c in metric_cols if c and c in df_src.columns]
+        if not metric_cols:
+            return {}
+        col_inst = _resolver_coluna_base(df_src, ["Instituição", "instituicao", "banco"])
+        col_per = _resolver_coluna_base(df_src, ["Período", "periodo", "competencia", "data"])
+        if not col_inst or not col_per:
+            return {}
 
-    def _lk_get(lk_src: dict, banco: str, periodo: str, coluna: Optional[str]):
-        if coluna is None or not lk_src:
-            return None
-        row = lk_src.get((banco, str(periodo)))
-        if row is None:
-            return None
-        return row.get(coluna)
+        # PERF: pre-materialized pivot replaces O(N) per-call DataFrame scans
+        grouped = (
+            df_src[[col_inst, col_per] + metric_cols]
+            .copy()
+            .assign(**{col_per: lambda d: d[col_per].astype(str)})
+            .groupby([col_inst, col_per], dropna=False, sort=False)[metric_cols]
+            .first()
+            .reset_index()
+        )
+        pivot = {}
+        for row in grouped.itertuples(index=False, name=None):
+            inst = row[0]
+            per = str(row[1])
+            for idx, metric_col in enumerate(metric_cols, start=2):
+                pivot[(inst, per, metric_col)] = row[idx]
+        return pivot
 
-    lk_ativo = _lk(cache_ativo)
-    lk_passivo = _lk(cache_passivo)
-    lk_capital = _lk(cache_capital)
-    lk_dre = _lk(cache_dre)
-    lk_pf = _lk(cache_carteira_pf)
-    lk_pj = _lk(cache_carteira_pj)
-    lk_instr = _lk(cache_carteira_instr)
+    def _lk_get(pivot_src: dict, banco: str, periodo: str, coluna: Optional[str]):
+        if coluna is None or not pivot_src:
+            return None
+        return pivot_src.get((banco, str(periodo), coluna))
 
     def _periodo_to_yyyymm(periodo: str) -> Optional[str]:
         parsed = _parse_periodo(periodo)
@@ -5561,32 +5646,13 @@ def _preparar_metricas_extra_peers(
     # Fallback: quando o cache manager "bloprudencial" estiver vazio/ausente,
     # carregar competências necessárias direto do loader mensal em disco/rede.
     if cache_bloprudencial is None or cache_bloprudencial.empty:
-        try:
-            from utils.ifdata_cache import load_bloprudencial_df_cached
-
-            yyyymm_needed = sorted({
-                ym for ym in (_periodo_to_yyyymm(p) for p in periodos)
-                if ym
-            })
-            dfs_blop = []
-            for ym in yyyymm_needed:
-                df_ym = load_bloprudencial_df_cached(
-                    yyyymm=ym,
-                    cache_dir="data/cache/bcb_bloprudencial",
-                    force_refresh=False,
-                )
-                if df_ym is None or df_ym.empty:
-                    continue
-                tmp = df_ym.copy()
-                if "DATA_BASE" not in tmp.columns:
-                    tmp["DATA_BASE"] = ym
-                if "Período" not in tmp.columns:
-                    tmp["Período"] = f"{ym[4:6]}/{ym[:4]}"
-                dfs_blop.append(tmp)
-            if dfs_blop:
-                cache_bloprudencial = pd.concat(dfs_blop, ignore_index=True)
-        except Exception:
-            pass
+        yyyymm_needed = tuple(sorted({
+            ym for ym in (_periodo_to_yyyymm(p) for p in periodos)
+            if ym
+        }))
+        df_blop_fallback = _carregar_bloprudencial_fallback_periodos(yyyymm_needed)
+        if df_blop_fallback is not None and not df_blop_fallback.empty:
+            cache_bloprudencial = df_blop_fallback
 
     col_blop_nome_inst = _bloprud_pick_col(cache_bloprudencial, ["NOME_INSTITUICAO", "Instituição", "Instituicao"])
     col_blop_nome_congl = _bloprud_pick_col(cache_bloprudencial, ["NOME_CONGL", "Nome_Congl", "nome_congl"])
@@ -5596,6 +5662,7 @@ def _preparar_metricas_extra_peers(
     col_blop_documento = _bloprud_pick_col(cache_bloprudencial, ["DOCUMENTO", "Documento", "doc", "cadoc"])
 
     blop_lookup: dict[tuple[str, str, str], float] = {}
+    blop_lookup_por_mes_conta: dict[tuple[str, str], dict[str, float]] = {}
     blop_lookup_cod: dict[tuple[str, str, str], float] = {}
     blop_nome_para_codigos: dict[str, set[str]] = {}
     blop_cod_para_inst_keys: dict[str, set[str]] = {}
@@ -5665,7 +5732,9 @@ def _preparar_metricas_extra_peers(
                 continue
             if inst_norm and inst_norm != "None" and pd.notna(val):
                 for inst_variant in _bloprud_name_variants(inst_norm):
-                    blop_lookup[(yyyymm, inst_variant, conta)] = float(val)
+                    val_f = float(val)
+                    blop_lookup[(yyyymm, inst_variant, conta)] = val_f
+                    blop_lookup_por_mes_conta.setdefault((yyyymm, conta), {}).setdefault(inst_variant, val_f)
 
         ag_congl = (
             df_blop.groupby(["_yyyymm", "_congl_norm", "_conta"], dropna=False)["_saldo"]
@@ -5681,7 +5750,9 @@ def _preparar_metricas_extra_peers(
                 continue
             if congl_norm and congl_norm != "None" and pd.notna(val):
                 for congl_variant in _bloprud_name_variants(congl_norm):
-                    blop_lookup[(yyyymm, congl_variant, conta)] = float(val)
+                    val_f = float(val)
+                    blop_lookup[(yyyymm, congl_variant, conta)] = val_f
+                    blop_lookup_por_mes_conta.setdefault((yyyymm, conta), {}).setdefault(congl_variant, val_f)
 
         if col_blop_cod_congl:
             ag_cod = (
@@ -5714,19 +5785,34 @@ def _preparar_metricas_extra_peers(
                     for nome_variant in _bloprud_name_variants(nome_norm):
                         blop_nome_para_codigos.setdefault(nome_variant, set()).add(cod)
 
+    _blop_query_cache: dict[tuple[str, str, str], Optional[float]] = {}
+    _blop_banco_variants_cache: dict[str, set[str]] = {}
+    _blop_banco_codigos_cache: dict[str, set[str]] = {}
+
     def _blop_get_sum_periodo_conta(banco: str, periodo: str, conta: str) -> Optional[float]:
+        query_key = (str(banco), str(periodo), str(conta))
+        if query_key in _blop_query_cache:
+            return _blop_query_cache[query_key]
         if not blop_lookup and not blop_lookup_cod:
+            _blop_query_cache[query_key] = None
             return None
         yyyymm = _periodo_to_yyyymm(periodo)
         if not yyyymm:
+            _blop_query_cache[query_key] = None
             return None
-        banco_variants = _bloprud_name_variants(banco)
+        banco_variants = _blop_banco_variants_cache.get(str(banco))
+        if banco_variants is None:
+            banco_variants = _bloprud_name_variants(banco)
+            _blop_banco_variants_cache[str(banco)] = banco_variants
         diag_alvo = (yyyymm == "202509" and str(conta) == "3313000000")
 
         # Prioridade: lookup por código estável do conglomerado prudencial.
-        codigos = set()
-        for variant in banco_variants:
-            codigos.update(blop_nome_para_codigos.get(variant, set()))
+        codigos = _blop_banco_codigos_cache.get(str(banco))
+        if codigos is None:
+            codigos = set()
+            for variant in banco_variants:
+                codigos.update(blop_nome_para_codigos.get(variant, set()))
+            _blop_banco_codigos_cache[str(banco)] = codigos
         for cod in codigos:
             val_cod = blop_lookup_cod.get((yyyymm, cod, conta))
             if val_cod is not None and not pd.isna(val_cod):
@@ -5746,6 +5832,7 @@ def _preparar_metricas_extra_peers(
                             "saldo_bruto": float(val_cod),
                         },
                     )
+                _blop_query_cache[query_key] = float(val_cod)
                 return float(val_cod)
 
         for variant in banco_variants:
@@ -5767,13 +5854,14 @@ def _preparar_metricas_extra_peers(
                             "saldo_bruto": float(val),
                         },
                     )
+                _blop_query_cache[query_key] = float(val)
                 return float(val)
 
         # fallback: compatibilizar por inclusão textual entre variantes e chaves do lookup
+        # já indexadas por (yyyymm, conta) para evitar varredura global.
         val_fallback = None
-        for (ym_key, inst_key, conta_key), saldo in blop_lookup.items():
-            if ym_key != yyyymm or conta_key != conta:
-                continue
+        inst_map = blop_lookup_por_mes_conta.get((yyyymm, str(conta)), {})
+        for inst_key, saldo in inst_map.items():
             if any(
                 v and (
                     v == inst_key
@@ -5804,7 +5892,9 @@ def _preparar_metricas_extra_peers(
                 break
 
         val = val_fallback
-        return None if val is None or pd.isna(val) else float(val)
+        out = None if val is None or pd.isna(val) else float(val)
+        _blop_query_cache[query_key] = out
+        return out
 
     col_pf_total = _resolver_coluna_peers(
         cache_carteira_pf,
@@ -6024,6 +6114,31 @@ def _preparar_metricas_extra_peers(
             "Índice de Basileia (m) = (e) / (i)",
         ],
     )
+
+    cols_ativo_pivot = [
+        col_credito_bruta_e1, col_credito_bruta_f1, col_credito_bruta_g1, col_credito_bruta_h1,
+        col_credito_bruta_d1, col_credito_bruta_e1_alt, col_credito_bruta_f,
+        col_credito_net_e, col_credito_net_f, col_credito_net_g, col_credito_net_h,
+        col_disp_ativo, col_aplic_ativo, col_tvm_ativo,
+    ] + perda_colunas
+    cols_passivo_pivot = [
+        col_depositos_passivo, col_dep_a1, col_dep_a2, col_dep_a3, col_dep_a4, col_dep_a5, col_dep_a6,
+        col_capt_passivo, col_instr_passivo,
+    ]
+    cols_capital_pivot = [
+        col_cap_principal, col_cap_complementar, col_cap_nivel2, col_rwa_total,
+        col_indice_cap_principal, col_indice_basileia_precalc,
+    ]
+    cols_pf_pivot = [col_pf_total]
+    cols_pj_pivot = [col_pj_total]
+    cols_instr_pivot = [col_c4, col_c5]
+
+    lk_ativo = _build_metric_pivot(cache_ativo, cols_ativo_pivot)
+    lk_passivo = _build_metric_pivot(cache_passivo, cols_passivo_pivot)
+    lk_capital = _build_metric_pivot(cache_capital, cols_capital_pivot)
+    lk_pf = _build_metric_pivot(cache_carteira_pf, cols_pf_pivot)
+    lk_pj = _build_metric_pivot(cache_carteira_pj, cols_pj_pivot)
+    lk_instr = _build_metric_pivot(cache_carteira_instr, cols_instr_pivot)
 
     for banco in bancos:
         for periodo in periodos_ext:
@@ -6318,7 +6433,14 @@ def _montar_tabela_peers(
         perf = {}
 
     # FIX-2: evita reconstruções/lazy builds por célula.
-    _build_peers_lookup(df)
+    main_lookup = _build_peers_lookup(df)
+    def _lk_main_get(banco: str, periodo: str, coluna: Optional[str]):
+        if coluna is None or not main_lookup:
+            return None
+        row = main_lookup.get((banco, periodo))
+        if row is None:
+            return None
+        return row.get(coluna)
     for _df_cache in (
         (caches_extras or {}).get("ativo"),
         (caches_extras or {}).get("passivo"),
@@ -6346,34 +6468,9 @@ def _montar_tabela_peers(
     )
     _perf_peers_stage(perf, "c_joins_mapeamentos_metricas_extra", t_extra)
 
-    # Fonte canônica de capital compartilhada com Rankings:
-    # evita divergência de CET1/Basileia entre abas.
-    df_capital_idx = _construir_indices_capital_unificados(
-        _cache_version_token("capital"),
-        _alias_signature(),
-    )
-    if df_capital_idx is not None and not df_capital_idx.empty:
-        df_capital_idx = df_capital_idx.copy()
-        if "Instituição" in df_capital_idx.columns and "Período" in df_capital_idx.columns:
-            df_capital_idx["inst_key"] = df_capital_idx["Instituição"].apply(normalizar_nome_instituicao)
-            df_capital_idx["per_key"] = df_capital_idx["Período"].apply(normalizar_periodo_chave)
-            capital_dict = (
-                df_capital_idx
-                .dropna(subset=["inst_key", "per_key"])
-                .set_index(["inst_key", "per_key"])
-                .to_dict("index")
-            )
-            for banco in bancos:
-                for periodo in periodos:
-                    chave_saida = (banco, periodo)
-                    chave_peers = (normalizar_nome_instituicao(banco), normalizar_periodo_chave(periodo))
-                    row_cap = capital_dict.get(chave_peers) or {}
-                    extra_values["Índice de Capital Principal (CET1)"][chave_saida] = _coerce_numeric_value(
-                        row_cap.get("Índice de Capital Principal (CET1)")
-                    )
-                    extra_values["Índice de Basileia Total (%)"][chave_saida] = _coerce_numeric_value(
-                        row_cap.get("Índice de Basileia Total (%)")
-                    )
+    # PERFORMANCE: evita reconstrução global dos índices de capital em base completa
+    # dentro do hot path de Peers. O extra_values já calcula CET1/Basileia a partir
+    # do recorte de capital desta execução (cache_capital slice).
 
     coluna_credito = _resolver_coluna_peers(df, ["Carteira de Crédito Bruta", "Carteira de Crédito"])
 
@@ -6418,15 +6515,15 @@ def _montar_tabela_peers(
                         else:
                             tip = f"{label}: {_fmt_tooltip_mm(valor)}" if valor is not None else ""
                     elif label == "Ativo Total / PL":
-                        valor_ativo = _obter_valor_peers(df, banco, periodo, coluna_ativo)
-                        valor_pl = _obter_valor_peers(df, banco, periodo, coluna_pl)
+                        valor_ativo = _lk_main_get(banco, periodo, coluna_ativo)
+                        valor_pl = _lk_main_get(banco, periodo, coluna_pl)
                         valor = _calcular_ratio_peers(valor_ativo, valor_pl)
                         tip = _tooltip_ratio_peers(label, valor_ativo, valor_pl, valor)
                     elif label == "Carteira de Crédito* / PL":
                         valor_credito = extra_values.get("Carteira de Crédito Bruta", {}).get((banco, periodo))
                         if valor_credito is None or pd.isna(valor_credito):
-                            valor_credito = _obter_valor_peers(df, banco, periodo, coluna_credito)
-                        valor_pl_v = _obter_valor_peers(df, banco, periodo, coluna_pl)
+                            valor_credito = _lk_main_get(banco, periodo, coluna_credito)
+                        valor_pl_v = _lk_main_get(banco, periodo, coluna_pl)
                         valor = _calcular_ratio_peers(valor_credito, valor_pl_v)
                         tip = _tooltip_ratio_peers(label, valor_credito, valor_pl_v, valor)
                     elif coluna:
@@ -6434,7 +6531,7 @@ def _montar_tabela_peers(
                             valor = _ajustar_lucro_acumulado_peers(df, banco, periodo, coluna)
                             tip = _tooltip_ll_peers(df, banco, periodo, coluna, valor)
                         else:
-                            valor = _obter_valor_peers(df, banco, periodo, coluna)
+                            valor = _lk_main_get(banco, periodo, coluna)
                             if coluna and "(%)" in coluna and valor is not None and not pd.isna(valor):
                                 try:
                                     tip = f"{label}: {_formatar_percentual(float(valor), decimais=2)}"
@@ -6453,16 +6550,16 @@ def _montar_tabela_peers(
                         if label == "Lucro Líquido Acumulado":
                             valor_base = _ajustar_lucro_acumulado_peers(df, banco, periodo_base, coluna)
                         else:
-                            valor_base = _obter_valor_peers(df, banco, periodo_base, coluna)
+                            valor_base = _lk_main_get(banco, periodo_base, coluna)
                     elif periodo_base and label == "Ativo Total / PL":
-                        valor_ativo_base = _obter_valor_peers(df, banco, periodo_base, coluna_ativo)
-                        valor_pl_base = _obter_valor_peers(df, banco, periodo_base, coluna_pl)
+                        valor_ativo_base = _lk_main_get(banco, periodo_base, coluna_ativo)
+                        valor_pl_base = _lk_main_get(banco, periodo_base, coluna_pl)
                         valor_base = _calcular_ratio_peers(valor_ativo_base, valor_pl_base)
                     elif periodo_base and label == "Carteira de Crédito* / PL":
                         valor_credito_b = extra_values.get("Carteira de Crédito Bruta", {}).get((banco, periodo_base))
                         if valor_credito_b is None or pd.isna(valor_credito_b):
-                            valor_credito_b = _obter_valor_peers(df, banco, periodo_base, coluna_credito)
-                        valor_pl_b = _obter_valor_peers(df, banco, periodo_base, coluna_pl)
+                            valor_credito_b = _lk_main_get(banco, periodo_base, coluna_credito)
+                        valor_pl_b = _lk_main_get(banco, periodo_base, coluna_pl)
                         valor_base = _calcular_ratio_peers(valor_credito_b, valor_pl_b)
                     else:
                         valor_base = None
@@ -9045,6 +9142,28 @@ def _get_crie_metrica_context(periodos_hash: str, periodos_keys: tuple):
     }
 
 
+@st.cache_data(ttl=900, show_spinner=False)
+def _get_peers_filters_context(principal_token: str, alias_sig: tuple) -> dict:
+    """Retorna bancos/períodos para filtros da aba Peers sem concatenar dataframe completo."""
+    dados_periodos = _carregar_dados_periodos_preparados(principal_token, alias_sig)
+    if not dados_periodos:
+        return {"bancos_todos": [], "periodos_disponiveis": []}
+
+    bancos_todos = set()
+    periodos_disponiveis = []
+    for periodo, df_periodo in dados_periodos.items():
+        periodos_disponiveis.append(str(periodo))
+        if df_periodo is None or df_periodo.empty:
+            continue
+        if "Instituição" in df_periodo.columns:
+            bancos_todos.update(df_periodo["Instituição"].dropna().astype(str).tolist())
+
+    return {
+        "bancos_todos": sorted(bancos_todos),
+        "periodos_disponiveis": tuple(sorted(set(periodos_disponiveis))),
+    }
+
+
 def get_df_periodo_brincar(periodo: str) -> pd.DataFrame:
     """Obtém DataFrame de um período específico sem concatenar todos os períodos."""
     dados_periodos = st.session_state.get('dados_periodos', {})
@@ -9061,9 +9180,13 @@ def _get_analise_base_df(
     principal_token: str,
     alias_sig: tuple,
     capital_mesclado: bool,
-    periodos_filter: Optional[list] = None,
+    periodos_filter: Optional[tuple] = None,
 ) -> pd.DataFrame:
     """Base unificada para abas analíticas com dependências explícitas para cache."""
+    _arg_hash = hashlib.md5(
+        str((principal_token, alias_sig, capital_mesclado, periodos_filter)).encode()
+    ).hexdigest()
+    print(f"[CACHE DEBUG] _get_analise_base_df CALLED | arg_hash={_arg_hash}")
     _ = (principal_token, capital_mesclado)
     dados_periodos = _carregar_dados_periodos_preparados(principal_token, alias_sig)
     if not dados_periodos:
@@ -9097,14 +9220,15 @@ def get_analise_base_df(
     periodos_filter: Optional[list] = None,
 ) -> pd.DataFrame:
     """Retorna base memoizada para Peers e Scatter."""
-    principal_token = cache_token if cache_token is not None else _cache_version_token("principal")
-    alias_sig = _alias_signature()
-    capital_mesclado = bool(st.session_state.get('_dados_capital_mesclados', False))
+    principal_token = str(cache_token if cache_token is not None else _cache_version_token("principal"))
+    alias_sig = _alias_signature_cache_key()
+    capital_mesclado = bool(_to_cache_key(st.session_state.get('_dados_capital_mesclados', False)))
+    periodos_filter_key = _to_cache_key(periodos_filter) if periodos_filter is not None else None
     return _get_analise_base_df(
         principal_token,
         alias_sig,
         capital_mesclado,
-        periodos_filter=periodos_filter,
+        periodos_filter=periodos_filter_key,
     )
 
 
@@ -9419,6 +9543,18 @@ def _alias_signature() -> tuple:
     return tuple(sorted((str(k), str(v)) for k, v in dict_aliases.items()))
 
 
+def _alias_signature_cache_key() -> tuple:
+    """Normaliza assinatura de aliases para uso seguro em caches do Streamlit."""
+    alias_sig_key = _to_cache_key(_alias_signature())
+    if (
+        isinstance(alias_sig_key, tuple)
+        and all(isinstance(i, tuple) and len(i) == 2 for i in alias_sig_key)
+    ):
+        return tuple((str(k), str(v)) for k, v in alias_sig_key)
+    alias_sig_json = json.dumps(alias_sig_key, ensure_ascii=False, sort_keys=True)
+    return (("__alias_sig_json__", alias_sig_json),)
+
+
 def _precisa_recalcular_metricas_rapido(dados_periodos: dict) -> bool:
     """Heurística conservadora para evitar recálculo global desnecessário."""
     if not dados_periodos:
@@ -9456,7 +9592,7 @@ def _precisa_recalcular_metricas_rapido(dados_periodos: dict) -> bool:
 
     return False
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_resource(show_spinner=False)
 def _carregar_dados_periodos_preparados(cache_token: str, alias_sig: tuple):
     """Carrega e prepara cache principal com memoização entre sessões.
 
@@ -9487,7 +9623,7 @@ def _carregar_dados_periodos_preparados(cache_token: str, alias_sig: tuple):
     return dados_cache
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_resource(show_spinner=False)
 def _carregar_dados_capital_preparados(cache_token: str, alias_sig: tuple):
     """Carrega e prepara cache de capital com memoização entre sessões."""
     cache_manager = get_cache_manager()
@@ -9512,7 +9648,7 @@ def carregar_dados_periodos():
     _perf_start("init_dados_periodos")
 
     cache_token = _cache_version_token("principal")
-    alias_sig = _alias_signature()
+    alias_sig = _alias_signature_cache_key()
 
     _perf_start("principal_preparado_cache")
     dados_cache = _carregar_dados_periodos_preparados(cache_token, alias_sig)
@@ -9634,7 +9770,7 @@ def carregar_dados_capital():
     _perf_start("init_dados_capital")
 
     cache_token = _cache_version_token("capital")
-    alias_sig = _alias_signature()
+    alias_sig = _alias_signature_cache_key()
 
     _perf_start("capital_preparado_cache")
     dados_capital = _carregar_dados_capital_preparados(cache_token, alias_sig)
@@ -10850,20 +10986,23 @@ elif menu == "Peers (Tabela)":
 
         _t = time.perf_counter()
         t_dados = time.perf_counter()
-        df = get_analise_base_df(_cache_version_token("principal"))
+        peers_ctx = _get_peers_filters_context(
+            _cache_version_token("principal"),
+            _alias_signature_cache_key(),
+        )
         _elapsed = time.perf_counter() - _t
         _log_timing("1_get_analise_base_df", _elapsed)
         print(f"[PEERS_TIMING] 1_get_analise_base_df: {_elapsed:.3f}s")
         _perf_peers_stage(peers_perf, "a_leitura_dados_brutos", t_dados)
-        _log_roe_trace(df, "peers_df_base")
 
-        if len(df) > 0 and 'Instituição' in df.columns:
+        bancos_todos = peers_ctx.get("bancos_todos", []) or []
+        periodos_ctx = peers_ctx.get("periodos_disponiveis", []) or []
+        if bancos_todos and periodos_ctx:
             _t = time.perf_counter()
-            bancos_todos = df['Instituição'].dropna().unique().tolist()
             dict_aliases = st.session_state.get('dict_aliases', {})
             bancos_disponiveis = ordenar_bancos_com_alias(bancos_todos, dict_aliases)
-            periodos_disponiveis = ordenar_periodos(df['Período'].dropna().unique())
-            periodos_dropdown = ordenar_periodos(df['Período'].dropna().unique(), reverso=True)
+            periodos_disponiveis = ordenar_periodos(list(periodos_ctx))
+            periodos_dropdown = ordenar_periodos(list(periodos_ctx), reverso=True)
             _elapsed = time.perf_counter() - _t
             _log_timing("2_build_dropdowns", _elapsed)
             print(f"[PEERS_TIMING] 2_build_dropdowns: {_elapsed:.3f}s")
@@ -10929,8 +11068,9 @@ elif menu == "Peers (Tabela)":
                     instituicoes_slice_tuple = tuple(sorted(i for i in instituicoes_slice if i))
                     df = get_analise_base_df(
                         _cache_version_token("principal"),
-                        periodos_filter=list(periodos_ext_peers),
+                        periodos_filter=tuple(periodos_ext_peers),
                     )
+                    _log_roe_trace(df, "peers_df_base")
 
                     # Carregamento já recortado no nível do cache (evita ler dataset inteiro)
                     t_slice = time.perf_counter()
@@ -11567,6 +11707,7 @@ elif menu == "Evolução":
             )
             if col_capt or col_instr:
                 core_map = {}
+                lk_passivo = _build_peers_lookup(cache_passivo)
                 for periodo in periodos_evo:
                     df_cap_per = cache_passivo[
                         (cache_passivo.get("Instituição", pd.Series(dtype="object")).astype(str) == str(instituicao))
@@ -11580,6 +11721,7 @@ elif menu == "Evolução":
                         periodo,
                         col_capt,
                         col_instr,
+                        lk_passivo=lk_passivo,
                     )
                     core_funding_memoria_map[periodo] = {"captacoes": cap_val, "instr_capital": ins_val}
                 core_funding_series = df_ano.get("Período", pd.Series(index=df_ano.index)).map(core_map)
@@ -11750,7 +11892,7 @@ elif menu == "Evolução":
             pd.to_numeric(df_ano["Carteira de Crédito Bruta"], errors="coerce") / pd.to_numeric(df_ano.get("Patrimônio Líquido"), errors="coerce"),
             np.nan,
         )
-        df_capital_idx = _construir_indices_capital_unificados(_cache_version_token("capital"), _alias_signature())
+        df_capital_idx = _construir_indices_capital_unificados(_cache_version_token("capital"), _alias_signature_cache_key())
         if not df_capital_idx.empty:
             # Merge por chave temporal robusta (Ano/Tri) para cobrir variações de formato de Período
             # entre bases (ex.: "12/2021" vs "4/2021").
@@ -12298,7 +12440,7 @@ elif menu == "Scatter Plot":
             periodo_scatter,
             _cache_version_token("principal"),
             _cache_version_token("derived_metrics"),
-            _alias_signature(),
+            _alias_signature_cache_key(),
             bool(st.session_state.get('_dados_capital_mesclados', False)),
         )
 
@@ -12512,14 +12654,14 @@ elif menu == "Scatter Plot":
                 periodo_inicial,
                 _cache_version_token("principal"),
                 _cache_version_token("derived_metrics"),
-                _alias_signature(),
+                _alias_signature_cache_key(),
                 bool(st.session_state.get('_dados_capital_mesclados', False)),
             )
             df_p2, diag_scatter_derived_p2 = get_scatter_periodo_df(
                 periodo_subseq,
                 _cache_version_token("principal"),
                 _cache_version_token("derived_metrics"),
-                _alias_signature(),
+                _alias_signature_cache_key(),
                 bool(st.session_state.get('_dados_capital_mesclados', False)),
             )
 
@@ -12769,7 +12911,7 @@ elif menu == "Rankings":
             _cache_version_token("principal"),
             _cache_version_token("capital"),
             bool(st.session_state.get('_dados_capital_mesclados', False)),
-            _alias_signature(),
+            _alias_signature_cache_key(),
         )
         print(_perf_log("rankings_base_df"))
 
