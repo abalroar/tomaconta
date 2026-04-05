@@ -5366,20 +5366,21 @@ def _carregar_cache_relatorio_slice(
                 out.append(f"{yyyy}{mm}")
         return tuple(sorted(set(out)))
 
-<<<<<<< HEAD
-=======
-    # HOTFIX-PERF/COBERTURA:
-    # Para BLOPrudencial, o recorte por instituição no parquet reduz cobertura (nomes
-    # prudenciais nem sempre batem com o alias da UI) e pode forçar fallback full-load.
-    # Caminho dedicado: carregar só competências necessárias no cache mensal.
-    if tipo_cache == "bloprudencial":
-        yyyymm_needed = _periodos_to_yyyymm(tuple(periodos or ()))
-        if yyyymm_needed:
-            df_blop = _carregar_bloprudencial_fallback_periodos(yyyymm_needed)
-            if df_blop is not None and not df_blop.empty:
-                return _normalizar_nomes_carteira(df_blop)
+    def _periodos_to_data_base_candidates(periodos_src: tuple) -> tuple:
+        vals = set()
+        for ym in _periodos_to_yyyymm(periodos_src):
+            vals.add(ym)
+            vals.add(int(ym))
+            ano = ym[:4]
+            mes = ym[4:6]
+            vals.add(f"{ano}-{mes}")
+            for dia in range(1, 32):
+                dd = f"{dia:02d}"
+                vals.add(f"{ym}{dd}")
+                vals.add(int(f"{ym}{dd}"))
+                vals.add(f"{ano}-{mes}-{dd}")
+        return tuple(sorted(vals, key=lambda x: str(x)))
 
->>>>>>> main
     manager = get_cache_manager()
     if manager is None:
         return None
@@ -5403,40 +5404,27 @@ def _carregar_cache_relatorio_slice(
                     f = ds.field("Período").isin(list(periodos))
                     filtro = f if filtro is None else filtro & f
                 elif tipo_cache == "bloprudencial":
-                    yyyymm_needed = _periodos_to_yyyymm(tuple(periodos))
+                    yyyymm_needed = _periodos_to_data_base_candidates(tuple(periodos))
                     if yyyymm_needed and "DATA_BASE" in schema_names:
-<<<<<<< HEAD
-                        # DATA_BASE pode variar entre YYYYMM, YYYYMMDD, int ou string.
-                        vals = set()
-                        for ym in yyyymm_needed:
-                            if len(ym) != 6:
-                                continue
-                            yyyy, mm = ym[:4], ym[4:6]
-                            vals.add(ym)
-                            if ym.isdigit():
-                                vals.add(int(ym))
-                            for dd in range(1, 32):
-                                ymd = f"{yyyy}{mm}{dd:02d}"
-                                vals.add(ymd)
-                                vals.add(f"{yyyy}-{mm}-{dd:02d}")
-                                if ymd.isdigit():
-                                    vals.add(int(ymd))
-                        vals = sorted(vals)
-=======
-                        # DATA_BASE pode estar como int/string YYYYMM no cache consolidado.
-                        vals = sorted(set(list(yyyymm_needed) + [int(v) for v in yyyymm_needed if v.isdigit()]))
->>>>>>> main
-                        f = ds.field("DATA_BASE").isin(vals)
+                        # DATA_BASE pode vir como YYYYMM, YYYYMMDD, int ou data string.
+                        f = ds.field("DATA_BASE").isin(list(yyyymm_needed))
                         filtro = f if filtro is None else filtro & f
             if instituicoes and "Instituição" in schema_names and tipo_cache != "bloprudencial":
                 f = ds.field("Instituição").isin(list(instituicoes))
                 filtro = f if filtro is None else filtro & f
-            tabela = dataset.to_table(filter=filtro) if filtro is not None else dataset.to_table()
-            df_arrow = _normalizar_nomes_carteira(tabela.to_pandas())
-            # BLOPrudencial: se o filtro parquet vier vazio (shape/encoding variável de DATA_BASE),
-            # cair para fallback pandas para filtrar por prefixo YYYYMM sem perder cobertura.
-            if tipo_cache != "bloprudencial" or not periodos or not df_arrow.empty:
-                return df_arrow
+            if tipo_cache == "bloprudencial":
+                cols_blop = [
+                    c for c in [
+                        "DATA_BASE", "Período", "DOCUMENTO", "CONTA", "SALDO",
+                        "NOME_INSTITUICAO", "NOME_CONGL", "COD_CONGL",
+                        "Instituição", "Instituicao", "Documento", "Conta", "Saldo",
+                        "Nome_Congl", "Cod_Congl",
+                    ] if c in schema_names
+                ]
+                tabela = dataset.to_table(columns=cols_blop or None, filter=filtro) if filtro is not None else dataset.to_table(columns=cols_blop or None)
+            else:
+                tabela = dataset.to_table(filter=filtro) if filtro is not None else dataset.to_table()
+            return _normalizar_nomes_carteira(tabela.to_pandas())
         except Exception:
             pass
 
@@ -5680,16 +5668,9 @@ def _preparar_metricas_extra_peers(
         return " ".join(txt.split())
 
     def _bloprud_name_variants(valor: str) -> set[str]:
-        if not hasattr(_bloprud_name_variants, "_memo"):
-            _bloprud_name_variants._memo = {}
-        memo = _bloprud_name_variants._memo
-        memo_key = str(valor or "")
-        if memo_key in memo:
-            return memo[memo_key]
         base = _bloprud_norm_name(valor)
         if not base:
-            memo[memo_key] = set()
-            return memo[memo_key]
+            return set()
         variants = {base}
         stripped = _bloprud_strip_suffixes(base)
         if stripped:
@@ -5706,8 +5687,7 @@ def _preparar_metricas_extra_peers(
                 variants.add(v[len("BANCO "):].strip())
             if v.startswith("BCO "):
                 variants.add(v[len("BCO "):].strip())
-        memo[memo_key] = {v for v in variants if v}
-        return memo[memo_key]
+        return {v for v in variants if v}
 
     def _bloprud_pick_col(df_src: Optional[pd.DataFrame], candidates: list[str]) -> Optional[str]:
         if df_src is None or df_src.empty:
@@ -5811,20 +5791,7 @@ def _preparar_metricas_extra_peers(
 
         # Mapa de nomes->código usa o conjunto de períodos (não restringir por conta),
         # para preservar cobertura de bancos menores sem reabrir varredura global.
-        df_blop_map = (
-            df_blop[["_inst_norm", "_congl_norm", "_cod_congl"]]
-            .copy()
-            .dropna(subset=["_cod_congl"])
-            .assign(_cod_congl=lambda d: d["_cod_congl"].astype(str).str.strip().str.upper())
-        )
-        if not df_blop_map.empty:
-            has_nome = (
-                df_blop_map["_inst_norm"].astype(str).str.strip().ne("")
-                | df_blop_map["_congl_norm"].astype(str).str.strip().ne("")
-            )
-            df_blop_map = df_blop_map.loc[has_nome]
-            df_blop_map = df_blop_map[df_blop_map["_cod_congl"].ne("")]
-            df_blop_map = df_blop_map.drop_duplicates(subset=["_inst_norm", "_congl_norm", "_cod_congl"])
+        df_blop_map = df_blop[["_inst_norm", "_congl_norm", "_cod_congl"]].copy()
 
         if col_blop_conta:
             contas_num = df_blop[col_blop_conta].astype(str).str.replace(r"\D", "", regex=True)
@@ -5843,10 +5810,11 @@ def _preparar_metricas_extra_peers(
             .sum(min_count=1)
             .reset_index()
         )
-        for yyyymm, inst_norm, conta, val in ag_inst.itertuples(index=False, name=None):
-            yyyymm = str(yyyymm)
-            inst_norm = str(inst_norm)
-            conta = str(conta)
+        for _, row in ag_inst.iterrows():
+            yyyymm = str(row["_yyyymm"])
+            inst_norm = str(row["_inst_norm"])
+            conta = str(row["_conta"])
+            val = row["_saldo"]
             if not yyyymm or yyyymm == "None" or len(yyyymm) != 6:
                 continue
             if inst_norm and inst_norm != "None" and pd.notna(val):
@@ -5860,10 +5828,11 @@ def _preparar_metricas_extra_peers(
             .sum(min_count=1)
             .reset_index()
         )
-        for yyyymm, congl_norm, conta, val in ag_congl.itertuples(index=False, name=None):
-            yyyymm = str(yyyymm)
-            congl_norm = str(congl_norm)
-            conta = str(conta)
+        for _, row in ag_congl.iterrows():
+            yyyymm = str(row["_yyyymm"])
+            congl_norm = str(row["_congl_norm"])
+            conta = str(row["_conta"])
+            val = row["_saldo"]
             if not yyyymm or yyyymm == "None" or len(yyyymm) != 6:
                 continue
             if congl_norm and congl_norm != "None" and pd.notna(val):
@@ -5878,24 +5847,25 @@ def _preparar_metricas_extra_peers(
                 .sum(min_count=1)
                 .reset_index()
             )
-            for yyyymm, cod_congl, conta, val in ag_cod.itertuples(index=False, name=None):
-                yyyymm = str(yyyymm)
-                cod_congl = str(cod_congl).strip().upper()
-                conta = str(conta)
+            for _, row in ag_cod.iterrows():
+                yyyymm = str(row["_yyyymm"])
+                cod_congl = str(row["_cod_congl"]).strip().upper()
+                conta = str(row["_conta"])
+                val = row["_saldo"]
                 if not yyyymm or yyyymm == "None" or len(yyyymm) != 6:
                     continue
                 if cod_congl and cod_congl != "None" and pd.notna(val):
                     blop_lookup_cod[(yyyymm, cod_congl, conta)] = float(val)
 
-            for inst_norm, congl_norm, cod in df_blop_map.itertuples(index=False, name=None):
-                cod = str(cod).strip().upper()
+            for _, row in df_blop_map.iterrows():
+                cod = str(row.get("_cod_congl", "")).strip().upper()
                 if not cod or cod == "None":
                     continue
-                inst_norm = str(inst_norm).strip()
+                inst_norm = str(row.get("_inst_norm", "")).strip()
                 if inst_norm and inst_norm != "None":
                     for inst_variant in _bloprud_name_variants(inst_norm):
                         blop_cod_para_inst_keys.setdefault(cod, set()).add(inst_variant)
-                for nome in (inst_norm, congl_norm):
+                for nome in (row.get("_inst_norm", ""), row.get("_congl_norm", "")):
                     nome_norm = str(nome).strip()
                     if not nome_norm:
                         continue
@@ -11263,7 +11233,7 @@ elif menu == "Peers (Tabela)":
                             _tipo,
                             _token,
                             periodos_ext_peers,
-                            instituicoes_slice_tuple if _tipo != "bloprudencial" else tuple(),
+                            instituicoes_slice_tuple,
                         )
                         _slice_dur = time.perf_counter() - _t_slice_ind
                         return _slice_df, _slice_dur
