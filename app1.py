@@ -2,7 +2,7 @@ import importlib
 import math
 import hashlib
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Sequence
 import streamlit as st
 import pandas as pd
 import os
@@ -133,6 +133,7 @@ from utils.ifdata_cache import (
     load_derived_metrics_slice,
     CRITICAL_EXTRA_METRICS,
     materialize_critical_screens_cache,
+    critical_screens_needs_refresh,
     canonicalize_institution_name,
     build_institution_to_conglomerate_map,
 )
@@ -5394,11 +5395,15 @@ def _critical_metric_map(df: Optional[pd.DataFrame], instituicao: str, periodos:
 def _garantir_cache_telas_criticas(menu_nome: str) -> bool:
     manager = get_cache_manager()
     cache = manager.get_cache("critical_screens") if manager else None
-    if cache is not None and (cache.arquivo_dados.exists() or cache.arquivo_dados_pickle.exists()):
+    if (
+        cache is not None
+        and (cache.arquivo_dados.exists() or cache.arquivo_dados_pickle.exists())
+        and not critical_screens_needs_refresh(manager=manager)
+    ):
         return True
 
     with st.status(f"materializando cache curado de Snapshot/Peers para {menu_nome.lower()}...", expanded=True) as _status:
-        resultado = materialize_critical_screens_cache(force=True)
+        resultado = materialize_critical_screens_cache(manager=manager, force=True)
         if resultado.sucesso:
             _status.update(label="cache curado materializado", state="complete", expanded=False)
             return True
@@ -6504,6 +6509,22 @@ def _preparar_metricas_extra_peers_cached(
     return result
 
 
+def _preparar_metricas_extra_peers_from_slice(
+    df_slice: Optional[pd.DataFrame],
+    bancos: list[str],
+    periodos: Sequence[str],
+) -> dict:
+    """Extrai métricas extras diretamente do slice já carregado do cache curado."""
+    lookup = _critical_metric_lookup(df_slice)
+    result = {metric: {} for metric in CRITICAL_EXTRA_METRICS}
+    for banco in bancos:
+        for periodo in periodos:
+            row = lookup.get((banco, periodo), {})
+            for metric in CRITICAL_EXTRA_METRICS:
+                result[metric][(banco, periodo)] = _coerce_numeric_value(row.get(metric))
+    return result
+
+
 def _montar_tabela_peers(
     df: pd.DataFrame,
     bancos: list,
@@ -6511,6 +6532,7 @@ def _montar_tabela_peers(
     caches_extras: Optional[dict] = None,
     perf: Optional[dict] = None,
     extra_values_precomputed: Optional[dict] = None,
+    allow_capital_fallback: bool = True,
 ):
     """Monta estrutura da tabela peers com valores por banco/período."""
     valores = {}
@@ -6567,7 +6589,7 @@ def _montar_tabela_peers(
         if precisa_capital_canonico:
             break
 
-    if precisa_capital_canonico:
+    if precisa_capital_canonico and allow_capital_fallback:
         t_capital_unificado = time.perf_counter()
         df_capital_idx = _construir_indices_capital_unificados(
             _cache_version_token("capital"),
@@ -6781,35 +6803,7 @@ def _render_peers_table_html(
     .delta-pos { color: #28a745; margin-left: 4px; }
     .delta-neg { color: #dc3545; margin-left: 4px; }
     .peers-table td.has-tip {
-        position: relative;
         cursor: help;
-    }
-    .peers-table .tip-text {
-        visibility: hidden;
-        opacity: 0;
-        position: absolute;
-        top: calc(100% + 6px);
-        left: 50%;
-        transform: translateX(-50%);
-        background: #333;
-        color: #fff;
-        padding: 8px 10px;
-        border-radius: 4px;
-        font-size: 11px;
-        white-space: normal;
-        z-index: 9999;
-        min-width: 220px;
-        max-width: 340px;
-        text-align: left;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.25);
-        pointer-events: none;
-        line-height: 1.5;
-        transition: opacity .16s ease-in-out, visibility .16s ease-in-out, transform .16s ease-in-out;
-    }
-    .peers-table td.has-tip:hover .tip-text {
-        visibility: visible;
-        opacity: 1;
-        transform: translateX(-50%) translateY(1px);
     }
     .peers-table .metric-with-info {
         display: inline-flex;
@@ -6828,17 +6822,6 @@ def _render_peers_table_html(
         font-size: 11px;
         font-weight: 700;
         cursor: help;
-        position: relative;
-    }
-    .peers-table .metric-info .tip-text {
-        min-width: 220px;
-        left: 0;
-        transform: translateX(0);
-    }
-    .peers-table .metric-info:hover .tip-text {
-        visibility: visible;
-        opacity: 1;
-        transform: translateY(1px);
     }
     </style>
     <div class="peers-table-wrap"><table class="peers-table">
@@ -6866,12 +6849,11 @@ def _render_peers_table_html(
             label_html = _html_mod.escape(label)
             gloss = PEERS_GLOSSARIO_RESUMIDO.get(label)
             if gloss:
-                gloss_html = _html_mod.escape(gloss)
+                gloss_attr = _html_mod.escape(gloss, quote=True).replace("\n", "&#10;")
                 label_html = (
                     f'<span class="metric-with-info">{label_html}'
-                    f'<span class="metric-info" aria-label="Informação da métrica" role="img">i'
-                    f'<span class="tip-text tip-metric">{gloss_html}</span>'
-                    f'</span></span>'
+                    f'<span class="metric-info" title="{gloss_attr}" aria-label="Informação da métrica" role="img">i</span>'
+                    f'</span>'
                 )
             html += f'<tr class="peer-item {zebra_class}"><td>{label_html}</td>'
 
@@ -6894,8 +6876,8 @@ def _render_peers_table_html(
                     if delta_tip:
                         tip = f"{tip_base}\n\n{delta_tip}".strip() if tip_base else delta_tip
                     if tip:
-                        tip_html = _html_mod.escape(tip).replace("\n", "<br>")
-                        html += f'<td class="has-tip">{valor_fmt}{delta_html}<span class="tip-text tip-main">{tip_html}</span></td>'
+                        tip_attr = _html_mod.escape(tip, quote=True).replace("\n", "&#10;")
+                        html += f'<td class="has-tip" title="{tip_attr}">{valor_fmt}{delta_html}</td>'
                     else:
                         html += f"<td>{valor_fmt}{delta_html}</td>"
 
@@ -9247,24 +9229,19 @@ def _get_crie_metrica_context(periodos_hash: str, periodos_keys: tuple):
 
 
 @st.cache_data(ttl=900, show_spinner=False)
-def _get_peers_filters_context(principal_token: str, alias_sig: tuple) -> dict:
-    """Retorna bancos/períodos para filtros da aba Peers sem concatenar dataframe completo."""
-    dados_periodos = _carregar_dados_periodos_preparados(principal_token, alias_sig)
-    if not dados_periodos:
+def _get_peers_filters_context(critical_token: str) -> dict:
+    """Retorna bancos/períodos da aba Peers a partir do cache curado final."""
+    df_curado = _carregar_cache_relatorio_slice("critical_screens", critical_token)
+    if df_curado is None or df_curado.empty:
         return {"bancos_todos": [], "periodos_disponiveis": []}
 
-    bancos_todos = set()
-    periodos_disponiveis = []
-    for periodo, df_periodo in dados_periodos.items():
-        periodos_disponiveis.append(str(periodo))
-        if df_periodo is None or df_periodo.empty:
-            continue
-        if "Instituição" in df_periodo.columns:
-            bancos_todos.update(df_periodo["Instituição"].dropna().astype(str).tolist())
-
     return {
-        "bancos_todos": sorted(bancos_todos),
-        "periodos_disponiveis": tuple(sorted(set(periodos_disponiveis))),
+        "bancos_todos": tuple(sorted(df_curado["Instituição"].dropna().astype(str).unique().tolist()))
+        if "Instituição" in df_curado.columns
+        else (),
+        "periodos_disponiveis": tuple(sorted(df_curado["Período"].dropna().astype(str).unique().tolist()))
+        if "Período" in df_curado.columns
+        else (),
     }
 
 
@@ -10086,7 +10063,7 @@ st.markdown("---")
 CACHE_DEPENDENCIAS_POR_ABA = {
     "Snapshot": ["principal", "critical_screens", "derived_metrics"],
     "Rankings": ["principal", "capital"],
-    "Peers (Tabela)": ["principal", "critical_screens"],
+    "Peers (Tabela)": ["critical_screens"],
     "Evolução": ["principal", "passivo", "ativo", "capital"],
     "Scatter Plot": ["principal", "capital", "derived_metrics"],
     "DRE (Ind. e Congl.)": ["dre", "principal", "dre_individual", "principal_individual"],
@@ -11077,23 +11054,21 @@ elif menu == "Peers (Tabela)":
 
     _t_total_peers = time.perf_counter()
     _t = time.perf_counter()
-    _dados_principais_ok = _garantir_dados_principais("Peers (Tabela)")
+    _cache_critico_ok = _garantir_cache_telas_criticas("Peers (Tabela)")
     _elapsed = time.perf_counter() - _t
-    _log_timing("0_garantir_dados_principais", _elapsed)
-    print(f"[PEERS_TIMING] 0_garantir_dados_principais: {_elapsed:.3f}s")
-    _cache_critico_ok = _garantir_cache_telas_criticas("Peers (Tabela)") if _dados_principais_ok else False
-    if _dados_principais_ok and _cache_critico_ok:
+    _log_timing("0_garantir_cache_telas_criticas", _elapsed)
+    print(f"[PEERS_TIMING] 0_garantir_cache_telas_criticas: {_elapsed:.3f}s")
+    if _cache_critico_ok:
         peers_perf = {}
 
         _t = time.perf_counter()
         t_dados = time.perf_counter()
         peers_ctx = _get_peers_filters_context(
-            _cache_version_token("principal"),
-            tuple(),
+            _cache_version_token("critical_screens"),
         )
         _elapsed = time.perf_counter() - _t
-        _log_timing("1_get_analise_base_df", _elapsed)
-        print(f"[PEERS_TIMING] 1_get_analise_base_df: {_elapsed:.3f}s")
+        _log_timing("1_get_peers_context_curado", _elapsed)
+        print(f"[PEERS_TIMING] 1_get_peers_context_curado: {_elapsed:.3f}s")
         _perf_peers_stage(peers_perf, "a_leitura_dados_brutos", t_dados)
 
         bancos_todos = peers_ctx.get("bancos_todos", []) or []
@@ -11157,7 +11132,6 @@ elif menu == "Peers (Tabela)":
                         timer_box_peers,
                         "Tempo de carregamento da aba Peers (Tabela)",
                     )
-                    t0_peers = time.perf_counter()
                     periodos_selecionados = ordenar_periodos(periodos_selecionados, reverso=True)
                     periodos_base_peers = {_periodo_ano_anterior(p) for p in periodos_selecionados}
                     periodos_dez_roe = {
@@ -11173,28 +11147,26 @@ elif menu == "Peers (Tabela)":
                     }))
                     bancos_tuple = tuple(bancos_selecionados)
                     instituicoes_slice_tuple = tuple(sorted(i for i in bancos_selecionados if i))
-                    df = get_analise_base_df(
-                        _cache_version_token("principal"),
-                        periodos_filter=tuple(periodos_ext_peers),
-                    )
-                    _log_roe_trace(df, "peers_df_base")
-
-                    # PERF: compute extra metrics via cached wrapper (slices loaded internally)
                     _t = time.perf_counter()
-                    _slice_tokens = tuple(sorted([
-                        ("critical_screens", _cache_version_token("critical_screens")),
-                    ]))
-                    _extra_values = _preparar_metricas_extra_peers_cached(
-                        bancos_tuple,
-                        tuple(periodos_selecionados),
+                    df = _carregar_cache_relatorio_slice(
+                        "critical_screens",
+                        _cache_version_token("critical_screens"),
                         periodos_ext_peers,
                         instituicoes_slice_tuple,
-                        tuple(),
-                        _slice_tokens,
                     )
                     _elapsed = time.perf_counter() - _t
-                    _log_timing("3_metricas_extra_cached", _elapsed)
-                    print(f"[PEERS_TIMING] 3_metricas_extra_cached: {_elapsed:.3f}s")
+                    _log_timing("3_load_critical_screens_slice", _elapsed)
+                    print(f"[PEERS_TIMING] 3_load_critical_screens_slice: {_elapsed:.3f}s")
+
+                    _t = time.perf_counter()
+                    _extra_values = _preparar_metricas_extra_peers_from_slice(
+                        df,
+                        list(bancos_tuple),
+                        list(periodos_ext_peers),
+                    )
+                    _elapsed = time.perf_counter() - _t
+                    _log_timing("4_metricas_extra_from_slice", _elapsed)
+                    print(f"[PEERS_TIMING] 4_metricas_extra_from_slice: {_elapsed:.3f}s")
 
                     _t = time.perf_counter()
                     valores, colunas_usadas, faltas, delta_flags, delta_context, tooltips = _montar_tabela_peers(
@@ -11203,6 +11175,7 @@ elif menu == "Peers (Tabela)":
                         periodos_selecionados,
                         perf=peers_perf,
                         extra_values_precomputed=_extra_values,
+                        allow_capital_fallback=False,
                     )
                     _elapsed = time.perf_counter() - _t
                     _log_timing("5_montar_tabela_peers", _elapsed)
@@ -11226,21 +11199,12 @@ elif menu == "Peers (Tabela)":
 
                     t_render = time.perf_counter()
                     st.markdown(html_tabela, unsafe_allow_html=True)
+                    _elapsed = time.perf_counter() - t_render
+                    _log_timing("7_dispatch_html_streamlit", _elapsed)
+                    print(f"[PEERS_TIMING] 7_dispatch_html_streamlit: {_elapsed:.3f}s")
                     _perf_peers_stage(peers_perf, "f_render_tabela", t_render)
 
-                    print("[PEERS_PERF]", {k: round(v, 3) for k, v in sorted(peers_perf.items())})
-                    _log_roe_trace(df, "peers_pos_render")
-                    tempo_total_peers = time.perf_counter() - t0_peers
-                    _timer_store_elapsed("peers_tabela_timer_state", peers_signature, tempo_total_peers)
-                    _timer_render_caption(
-                        "peers_tabela_timer_state",
-                        timer_box_peers,
-                        "Tempo de carregamento da aba Peers (Tabela)",
-                    )
-                    _elapsed_total = time.perf_counter() - t0_peers
-                    _log_timing("7_total_interativo_peers", _elapsed_total)
-                    print(f"[PEERS_TIMING] TOTAL_interactive_peers: {_elapsed_total:.3f}s")
-
+                    t_ui_aux_peers = time.perf_counter()
                     st.markdown("#### Exportar")
                     export_signature_key = "peers_tabela_export_signature"
                     export_payload_key = "peers_tabela_export_payload"
@@ -11450,6 +11414,20 @@ elif menu == "Peers (Tabela)":
                             """,
                             unsafe_allow_html=True,
                         )
+
+                    _elapsed = time.perf_counter() - t_ui_aux_peers
+                    _log_timing("8_ui_auxiliar_peers", _elapsed)
+                    print(f"[PEERS_TIMING] 8_ui_auxiliar_peers: {_elapsed:.3f}s")
+                    print("[PEERS_PERF]", {k: round(v, 3) for k, v in sorted(peers_perf.items())})
+                    tempo_total_peers = time.perf_counter() - _t_total_peers
+                    _timer_store_elapsed("peers_tabela_timer_state", peers_signature, tempo_total_peers)
+                    _timer_render_caption(
+                        "peers_tabela_timer_state",
+                        timer_box_peers,
+                        "Tempo de carregamento da aba Peers (Tabela)",
+                    )
+                    _log_timing("9_total_aba_peers", tempo_total_peers)
+                    print(f"[PEERS_TIMING] TOTAL_aba_peers: {tempo_total_peers:.3f}s")
                 else:
                     st.info("selecione instituições e períodos para visualizar a tabela.")
             else:

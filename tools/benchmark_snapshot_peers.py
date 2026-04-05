@@ -13,6 +13,7 @@ import pandas as pd
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
+import app1  # noqa: E402
 from utils.ifdata_cache import CacheManager, load_critical_screens_slice  # noqa: E402
 from utils.ifdata_cache.critical_screens import (  # noqa: E402
     _load_bloprud_periods,
@@ -153,6 +154,63 @@ def _print_benchmark(title: str, bench: dict) -> None:
     )
 
 
+def _benchmark_peers_server_path() -> dict:
+    periodos_sel = app1.ordenar_periodos(PEERS_PERIODOS, reverso=True)
+    periodos_base = {app1._periodo_ano_anterior(p) for p in periodos_sel}
+    periodos_dez = {
+        app1._periodo_dez_ano_anterior(p)
+        for p in list(periodos_sel) + list(periodos_base)
+    }
+    periodos_ext = tuple(sorted({p for p in list(periodos_sel) + sorted(periodos_base) + sorted(periodos_dez) if p}))
+    instituicoes = tuple(sorted([PEERS_INSTITUICAO]))
+    critical_token = app1._cache_version_token("critical_screens")
+
+    sub = {}
+
+    t0 = time.perf_counter()
+    app1._get_peers_filters_context(critical_token)
+    sub["context_curado_s"] = time.perf_counter() - t0
+
+    t0 = time.perf_counter()
+    df = app1._carregar_cache_relatorio_slice(
+        "critical_screens",
+        critical_token,
+        periodos_ext,
+        instituicoes,
+    )
+    sub["slice_curado_s"] = time.perf_counter() - t0
+
+    t0 = time.perf_counter()
+    extra = app1._preparar_metricas_extra_peers_from_slice(df, [PEERS_INSTITUICAO], periodos_ext)
+    sub["extra_from_slice_s"] = time.perf_counter() - t0
+
+    t0 = time.perf_counter()
+    valores, colunas_usadas, faltas, delta_flags, delta_context, tooltips = app1._montar_tabela_peers(
+        df,
+        [PEERS_INSTITUICAO],
+        periodos_sel,
+        perf={},
+        extra_values_precomputed=extra,
+        allow_capital_fallback=False,
+    )
+    sub["montar_tabela_s"] = time.perf_counter() - t0
+
+    t0 = time.perf_counter()
+    html = app1._render_peers_table_html(
+        [PEERS_INSTITUICAO],
+        periodos_sel,
+        valores,
+        colunas_usadas,
+        delta_flags,
+        delta_context,
+        tooltips,
+    )
+    sub["render_html_s"] = time.perf_counter() - t0
+    sub["html_len"] = len(html)
+    sub["faltas"] = sorted(faltas)
+    return sub
+
+
 def main() -> int:
     manager = CacheManager(PROJECT_ROOT)
 
@@ -175,6 +233,7 @@ def main() -> int:
     _print_benchmark("legacy_strict", peers_legacy)
     _print_benchmark("ondemand_canonical", peers_ondemand)
     _print_benchmark("materialized_slice", peers_curated)
+    print("peers_server_path_curated=", _benchmark_peers_server_path(), flush=True)
     print(
         "missing_legacy_strict=",
         _summarize_metric_presence(peers_legacy["result"], PEERS_INSTITUICAO, PEERS_PERIODOS, PEERS_METRICAS),

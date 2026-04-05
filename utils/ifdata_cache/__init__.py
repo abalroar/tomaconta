@@ -124,6 +124,7 @@ from .critical_screens import (
     build_critical_screens_dataframe,
     materialize_critical_screens_cache,
     load_critical_screens_slice,
+    critical_screens_needs_refresh,
 )
 from .availability import (
     MIN_API_PERIOD_BY_CACHE,

@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, Iterable, List, Optional, Sequence
 
+import numpy as np
 import pandas as pd
 
 from .availability import display_period_to_api, filter_supported_periods
@@ -18,6 +20,8 @@ if TYPE_CHECKING:
     from .manager import CacheManager
 
 logger = logging.getLogger("ifdata_cache")
+
+CRITICAL_SCREENS_SCHEMA_VERSION = 2
 
 
 CRITICAL_SCREENS_CONFIG = CacheConfig(
@@ -58,6 +62,14 @@ CRITICAL_EXTRA_METRICS = [
     "Índice de Basileia Total (%)",
 ]
 
+CRITICAL_BASE_METRICS = [
+    "Ativo Total",
+    "Patrimônio Líquido",
+    "Lucro Líquido Acumulado YTD",
+    "ROE Ac. Anualizado (%)",
+    "ROE Ac. YTD an. (%)",
+]
+
 
 SOURCE_CACHE_TYPES = [
     "principal",
@@ -69,6 +81,7 @@ SOURCE_CACHE_TYPES = [
     "carteira_pj",
     "carteira_instrumentos",
 ]
+CRITICAL_SOURCE_TYPES = [*SOURCE_CACHE_TYPES, "bloprudencial"]
 
 
 class CriticalScreensCache(BaseCache):
@@ -167,6 +180,99 @@ def _calc_ratio(valor_num, valor_den) -> Optional[float]:
     return float(num) / float(den)
 
 
+def _period_part_to_quarter_idx(value) -> Optional[int]:
+    parte_txt = str(value).strip()
+    if parte_txt == "03":
+        return 1
+    if parte_txt == "06":
+        return 2
+    if parte_txt == "09":
+        return 3
+    if parte_txt == "12":
+        return 4
+    try:
+        parte = int(parte_txt)
+    except Exception:
+        return None
+    if parte in (1, 2, 3, 4):
+        return parte
+    if parte == 6:
+        return 2
+    if parte == 9:
+        return 3
+    if parte == 12:
+        return 4
+    return None
+
+
+def _annualization_factor(months) -> float | pd.Series:
+    if isinstance(months, pd.Series):
+        return pd.to_numeric(months, errors="coerce").map(_annualization_factor)
+    if months == 3:
+        return 4.0
+    if months == 6:
+        return 2.0
+    if months == 9:
+        return 12 / 9
+    if months == 12:
+        return 1.0
+    return 12 / months if months and months > 0 else 1.0
+
+
+def _normalize_principal_metrics(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None or df.empty:
+        return df
+
+    out = df.copy()
+    periodo_split = out["Período"].astype(str).str.split("/", expand=True)
+    out["_tri_idx_tmp"] = pd.to_numeric(periodo_split[0], errors="coerce").map(_period_part_to_quarter_idx)
+    out["_ano_tmp"] = pd.to_numeric(periodo_split[1], errors="coerce")
+    out["_mes_tmp"] = out["_tri_idx_tmp"].map({1: 3, 2: 6, 3: 9, 4: 12}).fillna(12)
+
+    ll_col = "Lucro Líquido Acumulado YTD"
+    pl_col = "Patrimônio Líquido"
+    if ll_col in out.columns:
+        ll_ytd_ajustado = pd.Series(np.nan, index=out.index, dtype="float64")
+        for (_, _), idx in out.groupby(["InstituiçãoKey", "_ano_tmp"], dropna=False, observed=False).groups.items():
+            grupo = out.loc[idx].copy().sort_values("_tri_idx_tmp")
+            raw_map = pd.to_numeric(grupo[ll_col], errors="coerce")
+            raw_map = pd.Series(raw_map.to_numpy(), index=grupo["_tri_idx_tmp"].to_numpy()).to_dict()
+            for row_idx, tri_idx in zip(grupo.index, grupo["_tri_idx_tmp"]):
+                tri = int(tri_idx) if pd.notna(tri_idx) else None
+                ll_db = raw_map.get(tri)
+                if tri is None or pd.isna(ll_db):
+                    continue
+                if tri in (1, 2):
+                    ll_ytd_ajustado.at[row_idx] = float(ll_db)
+                elif tri in (3, 4):
+                    ll_jun = raw_map.get(2)
+                    if pd.notna(ll_jun):
+                        ll_ytd_ajustado.at[row_idx] = float(ll_jun) + float(ll_db)
+        out[ll_col] = ll_ytd_ajustado.where(ll_ytd_ajustado.notna(), pd.to_numeric(out[ll_col], errors="coerce"))
+
+    if {ll_col, pl_col}.issubset(out.columns):
+        ll_num = pd.to_numeric(out[ll_col], errors="coerce")
+        pl_num = pd.to_numeric(out[pl_col], errors="coerce")
+        pl_dez = (
+            out[out["_tri_idx_tmp"] == 4]
+            .dropna(subset=["_ano_tmp"])
+            .sort_values(["InstituiçãoKey", "_ano_tmp", "Período"])
+            .drop_duplicates(subset=["InstituiçãoKey", "_ano_tmp"], keep="last")
+            .set_index(["InstituiçãoKey", "_ano_tmp"])[pl_col]
+        )
+        idx_prev = pd.MultiIndex.from_arrays(
+            [out["InstituiçãoKey"].values, (out["_ano_tmp"] - 1).values],
+            names=["InstituiçãoKey", "_ano_tmp"],
+        )
+        pl_dez_prev = pd.to_numeric(pl_dez.reindex(idx_prev).to_numpy(), errors="coerce")
+        pl_medio = (pl_num + pl_dez_prev) / 2
+        roe = (_annualization_factor(out["_mes_tmp"]) * ll_num) / pl_medio.where(pl_medio > 0, np.nan)
+        out["ROE Ac. Anualizado (%)"] = roe
+        out["ROE Ac. YTD an. (%)"] = roe
+
+    return out.drop(columns=["_tri_idx_tmp", "_ano_tmp", "_mes_tmp"], errors="ignore")
+
+
 def _prepare_frame(
     df: Optional[pd.DataFrame],
     catalog_map: Dict[str, str],
@@ -233,6 +339,40 @@ def _list_local_bloprud_periods(base_dir: Path) -> set[str]:
     return periodos
 
 
+def _normalize_bloprud_frame(
+    df: Optional[pd.DataFrame],
+    periodos_display: Sequence[str],
+) -> pd.DataFrame:
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    out = df.copy()
+    if "Período" not in out.columns:
+        col_data_base = _pick_col(out, ["DATA_BASE", "Data_Base", "data_base"])
+        if not col_data_base:
+            return pd.DataFrame()
+        periodos_api = out[col_data_base].astype(str).str.replace(r"\D", "", regex=True).str[:6]
+        out["Período"] = periodos_api.map(_api_to_display_period)
+
+    out["Período"] = out["Período"].astype(str).str.strip()
+    periodos_validos = {str(periodo) for periodo in periodos_display if str(periodo).strip()}
+    if periodos_validos:
+        out = out[out["Período"].isin(periodos_validos)].copy()
+    return out
+
+
+def _load_bloprud_cached(manager: "CacheManager", periodos_display: Sequence[str]) -> pd.DataFrame:
+    try:
+        resultado = manager.carregar("bloprudencial")
+    except Exception as exc:
+        logger.warning("[CACHE:CRITICAL_SCREENS] Falha ao carregar cache persistido BLOPRUDENCIAL: %s", exc)
+        return pd.DataFrame()
+
+    if not resultado.sucesso or resultado.dados is None or resultado.dados.empty:
+        return pd.DataFrame()
+    return _normalize_bloprud_frame(resultado.dados, periodos_display)
+
+
 def _load_bloprud_periods(base_dir: Path, periodos_display: Sequence[str]) -> pd.DataFrame:
     periodos_desejados = sorted(
         {display_period_to_api(periodo) for periodo in periodos_display if display_period_to_api(periodo)}
@@ -272,6 +412,87 @@ def _load_bloprud_periods(base_dir: Path, periodos_display: Sequence[str]) -> pd
     if not dfs:
         return pd.DataFrame()
     return pd.concat(dfs, ignore_index=True)
+
+
+def _load_bloprud_sources(
+    *,
+    manager: "CacheManager",
+    base_dir: Path,
+    periodos_display: Sequence[str],
+) -> pd.DataFrame:
+    periodos_criticos = [str(periodo) for periodo in periodos_display if str(periodo).strip()]
+    if not periodos_criticos:
+        return pd.DataFrame()
+
+    dfs = []
+    persisted = _load_bloprud_cached(manager, periodos_criticos)
+    if not persisted.empty:
+        dfs.append(persisted)
+
+    periodos_presentes = set()
+    for df in dfs:
+        if "Período" in df.columns:
+            periodos_presentes.update(df["Período"].dropna().astype(str).tolist())
+
+    missing = [periodo for periodo in periodos_criticos if periodo not in periodos_presentes]
+    if missing:
+        local = _load_bloprud_periods(base_dir, missing)
+        if not local.empty:
+            dfs.append(local)
+
+    if not dfs:
+        return pd.DataFrame()
+
+    combined = pd.concat(dfs, ignore_index=True)
+    if "Período" in combined.columns:
+        combined = combined.drop_duplicates(keep="last")
+    return combined.reset_index(drop=True)
+
+
+def _source_fingerprints(cache_manager: "CacheManager", root: Path) -> dict:
+    fingerprints = {}
+    for cache_name in CRITICAL_SOURCE_TYPES:
+        cache = cache_manager.get_cache(cache_name)
+        if cache is None or not cache.existe():
+            fingerprints[cache_name] = None
+            continue
+        info = cache.get_info()
+        fingerprints[cache_name] = {
+            "timestamp_salvamento": info.get("timestamp_salvamento"),
+            "total_registros": info.get("total_registros"),
+            "total_periodos": info.get("total_periodos"),
+            "fonte": info.get("fonte"),
+        }
+
+    fingerprints["_bloprud_local_periods"] = sorted(_list_local_bloprud_periods(root))
+    return fingerprints
+
+
+def critical_screens_needs_refresh(
+    *,
+    base_dir: Path | None = None,
+    manager: "CacheManager" | None = None,
+) -> bool:
+    root = Path(base_dir).resolve() if base_dir else Path(__file__).resolve().parents[2]
+    from .manager import CacheManager
+
+    cache_manager = manager or CacheManager(root)
+    cache = CriticalScreensCache(root)
+    if not cache.existe() or not cache.arquivo_metadata.exists():
+        return True
+
+    try:
+        metadata = json.loads(cache.arquivo_metadata.read_text(encoding="utf-8"))
+    except Exception:
+        return True
+
+    extra = metadata.get("extra") or {}
+    if extra.get("schema_version") != CRITICAL_SCREENS_SCHEMA_VERSION:
+        return True
+
+    previous = extra.get("source_fingerprints") or {}
+    current = _source_fingerprints(cache_manager, root)
+    return previous != current
 
 
 def _build_bloprud_lookup(df_bloprudencial: Optional[pd.DataFrame], catalog_map: Dict[str, str]) -> Dict[tuple[str, str, str], float]:
@@ -361,7 +582,8 @@ def build_critical_screens_dataframe(
 
     base = _prepare_frame(df_principal, catalog_map, canonicalize_names=True)
     if base.empty:
-        return pd.DataFrame(columns=["Instituição", "Período", "InstituiçãoKey", *CRITICAL_EXTRA_METRICS])
+        return pd.DataFrame(columns=["Instituição", "Período", "InstituiçãoKey", *CRITICAL_BASE_METRICS, *CRITICAL_EXTRA_METRICS])
+    base = _normalize_principal_metrics(base)
 
     ativo = _prepare_frame(df_ativo, catalog_map)
     passivo = _prepare_frame(df_passivo, catalog_map)
@@ -552,12 +774,16 @@ def build_critical_screens_dataframe(
 
     base = base.sort_values(["Período", "InstituiçãoKey", "Instituição"]).reset_index(drop=True)
     rows = []
-    for item in base.itertuples(index=False):
-        instituicao = str(item.Instituição)
-        institution_key = str(item.InstituiçãoKey)
-        periodo = str(item.Período)
+    for item in base.to_dict("records"):
+        instituicao = str(item.get("Instituição"))
+        institution_key = str(item.get("InstituiçãoKey"))
+        periodo = str(item.get("Período"))
         periodo_api = display_period_to_api(periodo)
         ano_ref = int(periodo_api[:4]) if periodo_api else None
+        ativo_total = _coerce_numeric_value(item.get("Ativo Total"))
+        patrimonio_liquido = _coerce_numeric_value(item.get("Patrimônio Líquido"))
+        lucro_liquido_ytd = _coerce_numeric_value(item.get("Lucro Líquido Acumulado YTD"))
+        roe_ac_ytd = _coerce_numeric_value(item.get("ROE Ac. Anualizado (%)"))
 
         valor_pf = _lk_get(lk_pf, institution_key, periodo, col_pf_total)
         valor_pj = _lk_get(lk_pj, institution_key, periodo, col_pj_total)
@@ -655,6 +881,11 @@ def build_critical_screens_dataframe(
                 "Instituição": instituicao,
                 "Período": periodo,
                 "InstituiçãoKey": institution_key,
+                "Ativo Total": ativo_total,
+                "Patrimônio Líquido": patrimonio_liquido,
+                "Lucro Líquido Acumulado YTD": lucro_liquido_ytd,
+                "ROE Ac. Anualizado (%)": roe_ac_ytd,
+                "ROE Ac. YTD an. (%)": roe_ac_ytd,
                 "Ativos Líquidos": ativos_liquidos,
                 "Depósitos Totais": _coerce_numeric_value(depositos_totais),
                 "Core Funding": _coerce_numeric_value(core_funding),
@@ -727,7 +958,7 @@ def materialize_critical_screens_cache(
         for cache_name, df in list(loaded.items()):
             loaded[cache_name] = df[df["Período"].astype(str).isin(periodos_criticos)].copy()
 
-    blop_df = _load_bloprud_periods(root, periodos_criticos)
+    blop_df = _load_bloprud_sources(manager=cache_manager, base_dir=root, periodos_display=periodos_criticos)
     curated = build_critical_screens_dataframe(
         df_principal=loaded["principal"],
         df_ativo=loaded["ativo"],
@@ -745,6 +976,9 @@ def materialize_critical_screens_cache(
         "periodos_materializados": sorted(curated["Período"].dropna().astype(str).unique().tolist()) if not curated.empty else [],
         "linhas_bloprudencial": int(len(blop_df)),
         "metricas_extra": CRITICAL_EXTRA_METRICS,
+        "metricas_base": CRITICAL_BASE_METRICS,
+        "schema_version": CRITICAL_SCREENS_SCHEMA_VERSION,
+        "source_fingerprints": _source_fingerprints(cache_manager, root),
     }
     return cache.salvar_local(curated, fonte="materialized", info_extra=info_extra)
 
