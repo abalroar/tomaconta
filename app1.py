@@ -6506,32 +6506,52 @@ def _montar_tabela_peers(
 
     # Fonte canônica de capital compartilhada com Rankings:
     # evita divergência de CET1/Basileia entre abas.
-    df_capital_idx = _construir_indices_capital_unificados(
-        _cache_version_token("capital"),
-        _alias_signature(),
-    )
-    if df_capital_idx is not None and not df_capital_idx.empty:
-        df_capital_idx = df_capital_idx.copy()
-        if "Instituição" in df_capital_idx.columns and "Período" in df_capital_idx.columns:
-            df_capital_idx["inst_key"] = df_capital_idx["Instituição"].apply(normalizar_nome_instituicao)
-            df_capital_idx["per_key"] = df_capital_idx["Período"].apply(normalizar_periodo_chave)
-            capital_dict = (
-                df_capital_idx
-                .dropna(subset=["inst_key", "per_key"])
-                .set_index(["inst_key", "per_key"])
-                .to_dict("index")
-            )
-            for banco in bancos:
-                for periodo in periodos:
-                    chave_saida = (banco, periodo)
-                    chave_peers = (normalizar_nome_instituicao(banco), normalizar_periodo_chave(periodo))
-                    row_cap = capital_dict.get(chave_peers) or {}
-                    extra_values["Índice de Capital Principal (CET1)"][chave_saida] = _coerce_numeric_value(
-                        row_cap.get("Índice de Capital Principal (CET1)")
-                    )
-                    extra_values["Índice de Basileia Total (%)"][chave_saida] = _coerce_numeric_value(
-                        row_cap.get("Índice de Basileia Total (%)")
-                    )
+    # PERF: só consulta base canônica quando houver lacunas no recorte já calculado.
+    precisa_capital_canonico = False
+    for banco in bancos:
+        for periodo in periodos:
+            chave_cap = (banco, periodo)
+            cet1_v = extra_values.get("Índice de Capital Principal (CET1)", {}).get(chave_cap)
+            bas_v = extra_values.get("Índice de Basileia Total (%)", {}).get(chave_cap)
+            if cet1_v is None or bas_v is None or pd.isna(cet1_v) or pd.isna(bas_v):
+                precisa_capital_canonico = True
+                break
+        if precisa_capital_canonico:
+            break
+
+    if precisa_capital_canonico:
+        t_capital_unificado = time.perf_counter()
+        df_capital_idx = _construir_indices_capital_unificados(
+            _cache_version_token("capital"),
+            _alias_signature(),
+        )
+        _perf_peers_stage(perf, "c_capital_unificado_fallback", t_capital_unificado)
+        if df_capital_idx is not None and not df_capital_idx.empty:
+            df_capital_idx = df_capital_idx.copy()
+            if "Instituição" in df_capital_idx.columns and "Período" in df_capital_idx.columns:
+                df_capital_idx["inst_key"] = df_capital_idx["Instituição"].apply(normalizar_nome_instituicao)
+                df_capital_idx["per_key"] = df_capital_idx["Período"].apply(normalizar_periodo_chave)
+                capital_dict = (
+                    df_capital_idx
+                    .dropna(subset=["inst_key", "per_key"])
+                    .set_index(["inst_key", "per_key"])
+                    .to_dict("index")
+                )
+                for banco in bancos:
+                    for periodo in periodos:
+                        chave_saida = (banco, periodo)
+                        chave_peers = (normalizar_nome_instituicao(banco), normalizar_periodo_chave(periodo))
+                        row_cap = capital_dict.get(chave_peers) or {}
+                        cet1_atual = extra_values["Índice de Capital Principal (CET1)"].get(chave_saida)
+                        bas_atual = extra_values["Índice de Basileia Total (%)"].get(chave_saida)
+                        if cet1_atual is None or pd.isna(cet1_atual):
+                            extra_values["Índice de Capital Principal (CET1)"][chave_saida] = _coerce_numeric_value(
+                                row_cap.get("Índice de Capital Principal (CET1)")
+                            )
+                        if bas_atual is None or pd.isna(bas_atual):
+                            extra_values["Índice de Basileia Total (%)"][chave_saida] = _coerce_numeric_value(
+                                row_cap.get("Índice de Basileia Total (%)")
+                            )
 
     coluna_credito = _resolver_coluna_peers(df, ["Carteira de Crédito Bruta", "Carteira de Crédito"])
 
