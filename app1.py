@@ -10786,20 +10786,28 @@ elif menu == "Snapshot":
     pagina_snapshot()
 
 elif menu == "Peers (Tabela)":
-    if _garantir_dados_principais("Peers (Tabela)"):
+    _t_total_peers = time.perf_counter()
+    _t = time.perf_counter()
+    _dados_principais_ok = _garantir_dados_principais("Peers (Tabela)")
+    print(f"[PEERS_TIMING] 0_garantir_dados_principais: {time.perf_counter() - _t:.3f}s")
+    if _dados_principais_ok:
         peers_perf = {}
 
+        _t = time.perf_counter()
         t_dados = time.perf_counter()
         df = get_analise_base_df()
+        print(f"[PEERS_TIMING] 1_get_analise_base_df: {time.perf_counter() - _t:.3f}s")
         _perf_peers_stage(peers_perf, "a_leitura_dados_brutos", t_dados)
         _log_roe_trace(df, "peers_df_base")
 
         if len(df) > 0 and 'Instituição' in df.columns:
+            _t = time.perf_counter()
             bancos_todos = df['Instituição'].dropna().unique().tolist()
             dict_aliases = st.session_state.get('dict_aliases', {})
             bancos_disponiveis = ordenar_bancos_com_alias(bancos_todos, dict_aliases)
             periodos_disponiveis = ordenar_periodos(df['Período'].dropna().unique())
             periodos_dropdown = ordenar_periodos(df['Período'].dropna().unique(), reverso=True)
+            print(f"[PEERS_TIMING] 2_build_dropdowns: {time.perf_counter() - _t:.3f}s")
 
             if bancos_disponiveis and periodos_disponiveis:
                 st.markdown("### Peers (Tabela)")
@@ -10875,21 +10883,28 @@ elif menu == "Peers (Tabela)":
                         ("bloprudencial", _cache_version_token("bloprudencial")),
                     ]
                     _slices_result = {}
+                    def _load_slice_with_timing(_tipo, _token):
+                        _t_slice_ind = time.perf_counter()
+                        _slice_df = _carregar_cache_relatorio_slice(
+                            _tipo,
+                            _token,
+                            periodos_ext_peers,
+                            instituicoes_slice_tuple,
+                        )
+                        _slice_dur = time.perf_counter() - _t_slice_ind
+                        return _slice_df, _slice_dur
+
                     with ThreadPoolExecutor(max_workers=8) as _executor:
                         _futures = {
-                            _executor.submit(
-                                _carregar_cache_relatorio_slice,
-                                tipo,
-                                token,
-                                periodos_ext_peers,
-                                instituicoes_slice_tuple,
-                            ): tipo
+                            _executor.submit(_load_slice_with_timing, tipo, token): tipo
                             for tipo, token in _slices_config
                         }
                         for _future in as_completed(_futures):
                             _tipo = _futures[_future]
                             try:
-                                _slices_result[_tipo] = _future.result()
+                                _slice_df, _slice_dur = _future.result()
+                                _slices_result[_tipo] = _slice_df
+                                print(f"[PEERS_TIMING] 3_slice_{_tipo}: {_slice_dur:.3f}s")
                             except Exception:
                                 _slices_result[_tipo] = None
 
@@ -10903,6 +10918,7 @@ elif menu == "Peers (Tabela)":
                     cache_bloprudencial = _slices_result.get("bloprudencial")
                     _perf_peers_stage(peers_perf, "a_leitura_cache_slices", t_slice)
 
+                    _t = time.perf_counter()
                     t_filtros = time.perf_counter()
                     cache_ativo = _aplicar_aliases_df(cache_ativo, dict_aliases)
                     cache_passivo = _aplicar_aliases_df(cache_passivo, dict_aliases)
@@ -10912,6 +10928,7 @@ elif menu == "Peers (Tabela)":
                     cache_dre = _aplicar_aliases_df(cache_dre, dict_aliases)
                     cache_capital = _aplicar_aliases_df(cache_capital, dict_aliases)
                     cache_bloprudencial = _aplicar_aliases_df(cache_bloprudencial, dict_aliases)
+                    print(f"[PEERS_TIMING] 4_aplicar_aliases: {time.perf_counter() - _t:.3f}s")
 
                     # Fallback defensivo: garante ausência de NameError em deploy parcial.
                     # Quando o recorte foi feito no carregamento, evitar novo slice para não duplicar custo.
@@ -10927,6 +10944,7 @@ elif menu == "Peers (Tabela)":
                         cache_bloprudencial = slice_fn(cache_bloprudencial, bancos_selecionados, periodos_ext_peers)
                     _perf_peers_stage(peers_perf, "b_filtros_alias_periodo_banco", t_filtros)
 
+                    _t = time.perf_counter()
                     valores, colunas_usadas, faltas, delta_flags, delta_context, tooltips = _montar_tabela_peers(
                         df,
                         bancos_selecionados,
@@ -10943,7 +10961,9 @@ elif menu == "Peers (Tabela)":
                         },
                         perf=peers_perf,
                     )
+                    print(f"[PEERS_TIMING] 5_montar_tabela_peers: {time.perf_counter() - _t:.3f}s")
 
+                    _t = time.perf_counter()
                     t_format = time.perf_counter()
                     html_tabela = _render_peers_table_html(
                         bancos_selecionados,
@@ -10954,6 +10974,7 @@ elif menu == "Peers (Tabela)":
                         delta_context,
                         tooltips,
                     )
+                    print(f"[PEERS_TIMING] 6_render_html: {time.perf_counter() - _t:.3f}s")
                     _perf_peers_stage(peers_perf, "e_formatacao", t_format)
 
                     t_render = time.perf_counter()
@@ -11029,6 +11050,7 @@ elif menu == "Peers (Tabela)":
                         timer_box_peers,
                         "Tempo de carregamento da aba Peers (Tabela)",
                     )
+                    print(f"[PEERS_TIMING] TOTAL_peers: {time.perf_counter() - _t_total_peers:.3f}s")
 
                     with st.expander("Memória de cálculo — Peers (Tabela)", expanded=False):
                         formatos_metrica = {
