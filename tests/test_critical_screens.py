@@ -3,12 +3,15 @@ from pathlib import Path
 import pandas as pd
 
 from utils.ifdata_cache.base import CacheResult
+from utils.ifdata_cache.manager import CacheManager
 from utils.ifdata_cache.critical_screens import (
     CriticalScreensCache,
     CRITICAL_SCREENS_SCHEMA_VERSION,
     _load_bloprud_sources,
     build_critical_screens_dataframe,
     critical_screens_needs_refresh,
+    get_critical_screens_runtime_status,
+    materialize_critical_screens_cache,
 )
 
 
@@ -230,10 +233,12 @@ class _FakeManager:
         blop_df: pd.DataFrame | None = None,
         cache_stamp: str = "2026-04-05T12:00:00",
         blop_exists: bool | None = None,
+        all_sources_exist: bool = False,
     ):
         self._blop_df = blop_df
         exists = blop_df is not None if blop_exists is None else blop_exists
         self._cache = _FakeBlopCache(exists, cache_stamp)
+        self._all_sources_exist = all_sources_exist
 
     def carregar(self, cache_name: str):
         if cache_name == "bloprudencial" and self._blop_df is not None:
@@ -248,6 +253,8 @@ class _FakeManager:
     def get_cache(self, cache_name: str):
         if cache_name == "bloprudencial":
             return self._cache
+        if self._all_sources_exist:
+            return _FakeBlopCache(True)
         return _FakeBlopCache(False)
 
 
@@ -272,6 +279,12 @@ def test_load_bloprud_sources_uses_persisted_cache_when_available(tmp_path: Path
 
 def test_critical_screens_needs_refresh_detects_source_fingerprint_change(tmp_path: Path):
     cache = CriticalScreensCache(tmp_path)
+    fingerprint_base = {
+        "timestamp_salvamento": "2026-04-05T12:00:00",
+        "total_registros": 2,
+        "total_periodos": 2,
+        "fonte": "cache_local",
+    }
     dados = pd.DataFrame(
         [
             {
@@ -287,27 +300,30 @@ def test_critical_screens_needs_refresh_detects_source_fingerprint_change(tmp_pa
         info_extra={
             "schema_version": CRITICAL_SCREENS_SCHEMA_VERSION,
             "source_fingerprints": {
-                "principal": None,
-                "capital": None,
-                "ativo": None,
-                "passivo": None,
-                "dre": None,
-                "carteira_pf": None,
-                "carteira_pj": None,
-                "carteira_instrumentos": None,
-                "bloprudencial": {
-                    "timestamp_salvamento": "2026-04-05T12:00:00",
-                    "total_registros": 2,
-                    "total_periodos": 2,
-                    "fonte": "cache_local",
-                },
+                "principal": fingerprint_base,
+                "capital": fingerprint_base,
+                "ativo": fingerprint_base,
+                "passivo": fingerprint_base,
+                "dre": fingerprint_base,
+                "carteira_pf": fingerprint_base,
+                "carteira_pj": fingerprint_base,
+                "carteira_instrumentos": fingerprint_base,
+                "bloprudencial": fingerprint_base,
                 "_bloprud_local_periods": [],
             }
         },
     )
 
-    manager_igual = _FakeManager(blop_df=pd.DataFrame([{"DATA_BASE": "202503"}]), cache_stamp="2026-04-05T12:00:00")
-    manager_diferente = _FakeManager(blop_df=pd.DataFrame([{"DATA_BASE": "202503"}]), cache_stamp="2026-04-06T12:00:00")
+    manager_igual = _FakeManager(
+        blop_df=pd.DataFrame([{"DATA_BASE": "202503"}]),
+        cache_stamp="2026-04-05T12:00:00",
+        all_sources_exist=True,
+    )
+    manager_diferente = _FakeManager(
+        blop_df=pd.DataFrame([{"DATA_BASE": "202503"}]),
+        cache_stamp="2026-04-06T12:00:00",
+        all_sources_exist=True,
+    )
 
     assert not critical_screens_needs_refresh(base_dir=tmp_path, manager=manager_igual)
     assert critical_screens_needs_refresh(base_dir=tmp_path, manager=manager_diferente)
@@ -380,3 +396,53 @@ def test_critical_screens_can_bootstrap_from_bundle(tmp_path: Path):
     assert cache.existe()
     assert bootstrap_result.dados is not None
     assert bootstrap_result.dados.iloc[0]["Instituição"] == "ITAU - PRUDENCIAL"
+
+
+def test_runtime_status_prefers_bundle_without_forcing_refresh(tmp_path: Path):
+    cache = CriticalScreensCache(tmp_path)
+    dados = pd.DataFrame(
+        [
+            {
+                "Instituição": "ITAU - PRUDENCIAL",
+                "Período": "1/2025",
+                "InstituiçãoKey": "ITAU PRUDENCIAL",
+            }
+        ]
+    )
+    save_result = cache.salvar_local(
+        dados,
+        fonte="materialized",
+        info_extra={
+            "schema_version": CRITICAL_SCREENS_SCHEMA_VERSION,
+            "source_fingerprints": {
+                "principal": {
+                    "timestamp_salvamento": "2026-04-05T10:00:00",
+                    "total_registros": 10,
+                    "total_periodos": 2,
+                    "fonte": "github_releases",
+                },
+                "_bloprud_local_periods": ["202503", "202506"],
+            },
+        },
+    )
+    assert save_result.sucesso
+    assert cache.sync_bundle_from_local().sucesso
+    cache.limpar_local()
+
+    status = get_critical_screens_runtime_status(base_dir=tmp_path, manager=_FakeManager(blop_df=None, blop_exists=False))
+    assert status["bundle_ready"]
+    assert not status["local_ready"]
+    assert not status["can_materialize_from_local_sources"]
+    assert status["mode"] == "bootstrap_bundle"
+
+
+def test_materialize_critical_screens_fails_fast_without_local_sources(tmp_path: Path):
+    manager = CacheManager(base_dir=tmp_path)
+    result = materialize_critical_screens_cache(
+        base_dir=tmp_path,
+        manager=manager,
+        force=True,
+        allow_remote_source_download=False,
+    )
+    assert not result.sucesso
+    assert "fontes de critical_screens" in result.mensagem

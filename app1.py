@@ -133,7 +133,7 @@ from utils.ifdata_cache import (
     load_derived_metrics_slice,
     CRITICAL_EXTRA_METRICS,
     materialize_critical_screens_cache,
-    critical_screens_needs_refresh,
+    get_critical_screens_runtime_status,
     canonicalize_institution_name,
     build_institution_to_conglomerate_map,
 )
@@ -5398,20 +5398,35 @@ def _critical_metric_map(df: Optional[pd.DataFrame], instituicao: str, periodos:
 
 def _garantir_cache_telas_criticas(menu_nome: str) -> bool:
     manager = get_cache_manager()
-    cache = manager.get_cache("critical_screens") if manager else None
-    if cache is not None and (not cache.existe() or not cache.arquivo_metadata.exists()):
-        bootstrap_result = cache.bootstrap_local_from_bundle()
-        if bootstrap_result.sucesso and not critical_screens_needs_refresh(manager=manager):
-            return True
-    if (
-        cache is not None
-        and (cache.arquivo_dados.exists() or cache.arquivo_dados_pickle.exists())
-        and not critical_screens_needs_refresh(manager=manager)
-    ):
+    status = get_critical_screens_runtime_status(manager=manager)
+    cache = status.get("cache")
+
+    if status.get("local_ready"):
         return True
 
+    if cache is not None and status.get("bundle_ready"):
+        bootstrap_result = cache.bootstrap_local_from_bundle()
+        if bootstrap_result.sucesso:
+            return True
+        st.error(f"critical_screens: {bootstrap_result.mensagem}")
+        st.caption("o app não continuará para rematerialização remota automática no boot.")
+        return False
+
+    if not status.get("can_materialize_from_local_sources"):
+        faltantes = status.get("missing_local_source_caches") or []
+        st.error("critical_screens indisponível para runtime.")
+        st.caption(status.get("message") or "artefato curado ausente e fontes locais incompletas.")
+        if faltantes:
+            st.caption(f"fontes locais ausentes: {', '.join(faltantes)}")
+        st.caption("gere/publice o bundle curado ou prepare as fontes localmente via Atualizar Base.")
+        return False
+
     with st.status(f"materializando cache curado de Snapshot/Peers para {menu_nome.lower()}...", expanded=True) as _status:
-        resultado = materialize_critical_screens_cache(manager=manager, force=True)
+        resultado = materialize_critical_screens_cache(
+            manager=manager,
+            force=True,
+            allow_remote_source_download=False,
+        )
         if resultado.sucesso:
             _status.update(label="cache curado materializado", state="complete", expanded=False)
             return True
@@ -11426,7 +11441,7 @@ elif menu == "Peers (Tabela)":
                         st.session_state.pop(export_payload_key, None)
                         st.session_state[export_signature_key] = selection_signature
 
-                    if st.button("Preparar arquivos de exportação", key="peers_prepare_exports", use_container_width=True):
+                    if st.button("Preparar arquivos de exportação", key="peers_prepare_exports", width="stretch"):
                         payload = {}
                         t_export_fmt = time.perf_counter()
                         payload["excel_tabela"] = _gerar_excel_peers_tabela(
@@ -11475,7 +11490,7 @@ elif menu == "Peers (Tabela)":
                                 file_name=f"peers_tabela_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                 key="peers_tabela_excel",
-                                use_container_width=True,
+                                width="stretch",
                             )
                         with col_exp2:
                             st.caption("Dados puros (sem formatação)")
@@ -11485,7 +11500,7 @@ elif menu == "Peers (Tabela)":
                                 file_name=f"peers_dados_puros_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                 key="peers_dados_puros_excel",
-                                use_container_width=True,
+                                width="stretch",
                             )
                         with col_exp3:
                             st.caption("Imagem da tabela")
@@ -11495,7 +11510,7 @@ elif menu == "Peers (Tabela)":
                                 file_name=f"peers_tabela_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png",
                                 mime="image/png",
                                 key="peers_tabela_png",
-                                use_container_width=True,
+                                width="stretch",
                             )
                     else:
                         st.caption("Exports são gerados sob demanda e não entram no tempo interativo da aba.")
@@ -13729,7 +13744,7 @@ elif menu == "Rankings":
                                     else (_formatar_valor_ranking(v, _col_ref) if isinstance(v, (int, float, np.number)) else v)
                                 )
                             )
-                            st.dataframe(mem_df, use_container_width=True, hide_index=True)
+                            st.dataframe(mem_df, width="stretch", hide_index=True)
 
             def _adicionar_labels_basileia_v2(
                 fig: go.Figure,

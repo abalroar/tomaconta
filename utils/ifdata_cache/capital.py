@@ -80,15 +80,17 @@ class CapitalCache(BaseCache):
         self.github_release_parquet_url = f"{release_base}/capital_dados.parquet"
         # 3. Pickle dos releases (compat legado)
         self.github_release_url = f"{release_base}/capital_cache.pkl"
+        self.repo_raw_enabled = False
 
     def baixar_remoto(self) -> CacheResult:
         """Baixa dados do GitHub (tenta múltiplas fontes em ordem de prioridade)."""
         self._log("info", "Tentando baixar do GitHub...")
 
         # 1. Tentar parquet do repositório raw
-        resultado = self._baixar_parquet_repo()
-        if resultado.sucesso:
-            return resultado
+        if self.repo_raw_enabled:
+            resultado = self._baixar_parquet_repo()
+            if resultado.sucesso:
+                return resultado
 
         # 2. Tentar parquet dos releases
         resultado = self._baixar_parquet_release()

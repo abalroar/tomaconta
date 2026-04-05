@@ -125,6 +125,7 @@ from .critical_screens import (
     materialize_critical_screens_cache,
     load_critical_screens_slice,
     critical_screens_needs_refresh,
+    get_critical_screens_runtime_status,
 )
 from .availability import (
     MIN_API_PERIOD_BY_CACHE,
@@ -306,6 +307,7 @@ __all__ = [
     "build_critical_screens_dataframe",
     "materialize_critical_screens_cache",
     "load_critical_screens_slice",
+    "get_critical_screens_runtime_status",
     "MIN_API_PERIOD_BY_CACHE",
     "availability_display_period_to_api",
     "availability_api_period_to_display",

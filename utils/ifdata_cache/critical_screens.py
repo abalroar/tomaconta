@@ -7,7 +7,7 @@ import logging
 import re
 import shutil
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, Iterable, List, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -220,6 +220,85 @@ class CriticalScreensCache(BaseCache):
             mensagem="Cache critical_screens não suporta extração por período",
             fonte="nenhum",
         )
+
+
+def _read_metadata_if_exists(path: Path) -> Optional[dict]:
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def _critical_screens_schema_valid(metadata: Optional[dict]) -> bool:
+    if not metadata:
+        return False
+    extra = metadata.get("extra") or {}
+    return extra.get("schema_version") == CRITICAL_SCREENS_SCHEMA_VERSION
+
+
+def _missing_local_source_caches(cache_manager: "CacheManager") -> list[str]:
+    missing: list[str] = []
+    for cache_name in CRITICAL_SOURCE_TYPES:
+        cache = cache_manager.get_cache(cache_name)
+        if cache is None or not cache.existe():
+            missing.append(cache_name)
+    return missing
+
+
+def get_critical_screens_runtime_status(
+    *,
+    base_dir: Path | None = None,
+    manager: "CacheManager" | None = None,
+) -> dict[str, Any]:
+    """Diagnóstico do artefato curado para uso em runtime.
+
+    Runtime e manutenção têm regras diferentes:
+    - runtime deve privilegiar o artefato curado já materializado/bundled;
+    - refresh só faz sentido quando todas as fontes locais existem.
+    """
+    root = Path(base_dir).resolve() if base_dir else Path(__file__).resolve().parents[2]
+    from .manager import CacheManager
+
+    cache_manager = manager or CacheManager(root)
+    cache = CriticalScreensCache(root)
+
+    local_metadata = _read_metadata_if_exists(cache.arquivo_metadata)
+    bundled_metadata = _read_metadata_if_exists(cache.bundled_metadata_file)
+
+    local_ready = cache.existe() and _critical_screens_schema_valid(local_metadata)
+    bundle_ready = cache.bundle_available() and _critical_screens_schema_valid(bundled_metadata)
+    missing_local_sources = _missing_local_source_caches(cache_manager)
+    can_materialize_from_local_sources = not missing_local_sources
+
+    if local_ready:
+        mode = "use_local"
+        message = "artefato local de critical_screens está pronto para runtime"
+    elif bundle_ready:
+        mode = "bootstrap_bundle"
+        message = "artefato bundled de critical_screens está pronto para bootstrap local"
+    elif can_materialize_from_local_sources:
+        mode = "materialize_local"
+        message = "artefato curado ausente; fontes locais completas permitem rematerialização explícita"
+    else:
+        mode = "missing"
+        message = (
+            "artefato curado ausente/inválido e fontes locais incompletas; "
+            "runtime não deve iniciar rematerialização remota automática"
+        )
+
+    return {
+        "cache": cache,
+        "local_ready": local_ready,
+        "bundle_ready": bundle_ready,
+        "can_materialize_from_local_sources": can_materialize_from_local_sources,
+        "missing_local_source_caches": missing_local_sources,
+        "mode": mode,
+        "message": message,
+        "local_metadata": local_metadata,
+        "bundled_metadata": bundled_metadata,
+    }
 
 
 def _normalize_period_display(periodo: str | None) -> str:
@@ -643,6 +722,11 @@ def critical_screens_needs_refresh(
     extra = metadata.get("extra") or {}
     if extra.get("schema_version") != CRITICAL_SCREENS_SCHEMA_VERSION:
         return True
+
+    # Sem todas as fontes locais, não há base para afirmar que o artefato
+    # bundled/local está desatualizado em runtime. Esse caso é comum no deploy.
+    if _missing_local_source_caches(cache_manager):
+        return False
 
     previous = extra.get("source_fingerprints") or {}
     current = _source_fingerprints(cache_manager, root)
@@ -1319,8 +1403,26 @@ def build_critical_screens_dataframe(
     return out.sort_values(["Período", "Instituição"]).reset_index(drop=True)
 
 
-def _load_source_cache(manager: CacheManager, cache_name: str) -> pd.DataFrame:
-    resultado = manager.carregar(cache_name)
+def _load_source_cache(
+    manager: CacheManager,
+    cache_name: str,
+    *,
+    allow_remote_source_download: bool = False,
+) -> pd.DataFrame:
+    cache = manager.get_cache(cache_name)
+    if cache is None:
+        raise RuntimeError(f"{cache_name}: cache não registrado")
+
+    if allow_remote_source_download:
+        resultado = manager.carregar(cache_name)
+    else:
+        if not cache.existe():
+            raise RuntimeError(
+                f"{cache_name}: cache local ausente; rematerialização exige fontes locais "
+                "preparadas previamente ou allow_remote_source_download=True"
+            )
+        resultado = cache.carregar_local()
+
     if not resultado.sucesso or resultado.dados is None:
         raise RuntimeError(f"{cache_name}: {resultado.mensagem}")
     return resultado.dados
@@ -1333,6 +1435,7 @@ def materialize_critical_screens_cache(
     force: bool = False,
     periodos: Optional[Sequence[str]] = None,
     save_bundled: bool = False,
+    allow_remote_source_download: bool = False,
 ) -> CacheResult:
     """Materializa o cache curado das telas críticas."""
     root = Path(base_dir).resolve() if base_dir else Path(__file__).resolve().parents[2]
@@ -1355,7 +1458,21 @@ def materialize_critical_screens_cache(
                 )
         return result
 
-    loaded = {cache_name: _load_source_cache(cache_manager, cache_name) for cache_name in SOURCE_CACHE_TYPES}
+    try:
+        loaded = {
+            cache_name: _load_source_cache(
+                cache_manager,
+                cache_name,
+                allow_remote_source_download=allow_remote_source_download,
+            )
+            for cache_name in SOURCE_CACHE_TYPES
+        }
+    except Exception as exc:
+        return CacheResult(
+            sucesso=False,
+            mensagem=f"Falha ao carregar fontes de critical_screens: {exc}",
+            fonte="nenhum",
+        )
     principal = loaded["principal"]
     principal_periodos = sorted(principal["Período"].dropna().astype(str).unique().tolist())
     periodos_criticos = list(periodos) if periodos else principal_periodos

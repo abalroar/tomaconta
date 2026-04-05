@@ -66,15 +66,17 @@ class RelatorioCompletoCache(BaseCache):
         self.github_release_parquet_url = f"{release_base}/{self.config.nome}_dados.parquet"
         # 3. Pickle dos releases (compat legado)
         self.github_release_url = f"{release_base}/{self.config.nome}_cache.pkl"
+        self.repo_raw_enabled = False
 
     def baixar_remoto(self) -> CacheResult:
         """Baixa dados do GitHub (tenta repositório primeiro, depois releases)."""
         self._log("info", "Tentando baixar do GitHub...")
 
         # 1. Tentar parquet do repositório
-        resultado = self._baixar_parquet_repo()
-        if resultado.sucesso:
-            return resultado
+        if self.repo_raw_enabled:
+            resultado = self._baixar_parquet_repo()
+            if resultado.sucesso:
+                return resultado
 
         # 2. Fallback: tentar parquet dos releases
         resultado = self._baixar_parquet_release()
