@@ -6897,6 +6897,58 @@ def _build_memoria_calculo_peers_tabela_metrica(
     """Monta memória de cálculo da Peers para uma métrica, no padrão componente × período."""
     rows = []
 
+    def _enriquecer_memoria_com_capital(df_src: pd.DataFrame) -> pd.DataFrame:
+        cols_req = {"Capital Principal", "RWA Total"}
+        if cols_req.issubset(df_src.columns):
+            return df_src
+
+        df_capital = _carregar_cache_relatorio_slice(
+            "capital",
+            _cache_version_token("capital"),
+            tuple(periodos),
+            (banco,),
+        )
+        if df_capital is None or df_capital.empty:
+            return df_src
+
+        mapa_colunas = {}
+        candidatos = {
+            "Capital Principal": ["Capital Principal", "Capital Principal para Comparação com RWA (a)"],
+            "Capital Complementar": ["Capital Complementar", "Capital Complementar (b)"],
+            "Capital Nível II": ["Capital Nível II", "Capital Nível II (d)", "Capital Nivel II"],
+            "RWA Total": [
+                "RWA Total",
+                "Ativos Ponderados pelo Risco (RWA) (j) = (f) + (g) + (h) + (i)",
+                "Ativos Ponderados pelo Risco (RWA) (j)",
+                "Ativos Ponderados pelo Risco (RWA) (i) = (f) + (g) + (h)",
+                "Ativos Ponderados pelo Risco (RWA) (i)",
+                "RWA",
+            ],
+        }
+        for alvo, opcoes in candidatos.items():
+            col = _resolver_coluna_peers(df_capital, opcoes)
+            if col:
+                mapa_colunas[col] = alvo
+
+        cols_merge = ["Instituição", "Período", *mapa_colunas.keys()]
+        cols_merge = [c for c in cols_merge if c in df_capital.columns]
+        if not {"Instituição", "Período"}.issubset(cols_merge):
+            return df_src
+
+        df_capital = (
+            df_capital[cols_merge]
+            .rename(columns=mapa_colunas)
+            .drop_duplicates(subset=["Instituição", "Período"], keep="last")
+        )
+        cols_novas = [c for c in df_capital.columns if c not in {"Instituição", "Período"} and c not in df_src.columns]
+        if not cols_novas:
+            return df_src
+        return df_src.merge(
+            df_capital[["Instituição", "Período", *cols_novas]],
+            on=["Instituição", "Período"],
+            how="left",
+        )
+
     if metrica == "ROE Acumulado YTD (%)":
         df_mem = _build_memoria_calculo_roe_ac_rankings(df_base, [banco], periodos)
         if df_mem.empty:
@@ -6904,13 +6956,13 @@ def _build_memoria_calculo_peers_tabela_metrica(
         return df_mem[df_mem["Instituição"] == banco].copy()
 
     if metrica == "Índice de Capital Principal (CET1)":
-        df_mem = _build_memoria_calculo_cet1_rankings(df_base, [banco], periodos)
+        df_mem = _build_memoria_calculo_cet1_rankings(_enriquecer_memoria_com_capital(df_base), [banco], periodos)
         if df_mem.empty:
             return pd.DataFrame()
         return df_mem[df_mem["Instituição"] == banco].copy()
 
     if metrica == "Índice de Basileia Total (%)":
-        df_mem = _build_memoria_calculo_basileia_rankings(df_base, [banco], periodos)
+        df_mem = _build_memoria_calculo_basileia_rankings(_enriquecer_memoria_com_capital(df_base), [banco], periodos)
         if df_mem.empty:
             return pd.DataFrame()
         return df_mem[df_mem["Instituição"] == banco].copy()
