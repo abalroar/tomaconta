@@ -48,7 +48,7 @@ class RelatorioCompletoCache(BaseCache):
         base_dir: Path,
         relatorio_num: int,
         tipo_instituicao: int = 1,
-        manter_codinst: bool = False,
+        manter_codinst: bool = True,
     ):
         super().__init__(config, base_dir)
         self.relatorio_num = relatorio_num

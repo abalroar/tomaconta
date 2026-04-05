@@ -349,7 +349,7 @@ def extrair_resumo(
     periodo: str,
     dict_aliases: Optional[Dict[str, str]] = None,
     tipo_instituicao: int = TIPO_INSTITUICAO,
-    manter_codinst: bool = False,
+    manter_codinst: bool = True,
 ) -> Optional[pd.DataFrame]:
     """Extrai dados do Relatório 1 (Resumo) no formato dos gráficos.
 
@@ -425,30 +425,24 @@ def extrair_resumo(
         )
     df_pivot = _resolver_nomes_instituicoes(df_pivot, periodo)
 
-    # 7. Aplicar aliases
-    if dict_aliases:
-        df_pivot["Instituição"] = df_pivot["Instituição"].apply(
-            lambda x: dict_aliases.get(x, x) if pd.notna(x) else x
-        )
-
-    # 8. Adicionar período no formato de exibição
+    # 7. Adicionar período no formato de exibição
     df_pivot["Período"] = periodo_api_para_exibicao(periodo)
 
-    # 9. Calcular métricas derivadas
+    # 8. Calcular métricas derivadas
     df_pivot = _calcular_metricas_derivadas(df_pivot, periodo)
 
-    # 10. Remover CodInst quando não for necessário preservar chave estável
+    # 9. Remover CodInst quando não for necessário preservar chave estável
     if not manter_codinst and "CodInst" in df_pivot.columns:
         df_pivot = df_pivot.drop(columns=["CodInst"])
 
-    # 11. Reordenar colunas
+    # 10. Reordenar colunas
     cols_inicio = ["Instituição", "Período"]
     if "CodInst" in df_pivot.columns:
         cols_inicio = ["CodInst"] + cols_inicio
     outras_cols = sorted([c for c in df_pivot.columns if c not in cols_inicio])
     df_pivot = df_pivot[cols_inicio + outras_cols]
 
-    # 12. Remover linhas sem dados
+    # 11. Remover linhas sem dados
     colunas_numericas = [c for c in df_pivot.columns if c not in cols_inicio]
     if colunas_numericas:
         df_pivot = df_pivot.dropna(subset=colunas_numericas, how="all")
@@ -529,7 +523,8 @@ def _calcular_metricas_derivadas(df: pd.DataFrame, periodo: str) -> pd.DataFrame
 # =============================================================================
 def extrair_capital(
     periodo: str,
-    dict_aliases: Optional[Dict[str, str]] = None
+    dict_aliases: Optional[Dict[str, str]] = None,
+    manter_codinst: bool = True,
 ) -> Optional[pd.DataFrame]:
     """Extrai dados do Relatório 5 (Capital) no formato dos gráficos.
 
@@ -596,12 +591,6 @@ def extrair_capital(
         df_pivot["Instituição"] = df_pivot["CodInst"].apply(lambda x: f"[IF {x}]")
     df_pivot = _resolver_nomes_instituicoes(df_pivot, periodo)
 
-    # Aplicar aliases
-    if dict_aliases:
-        df_pivot["Instituição"] = df_pivot["Instituição"].apply(
-            lambda x: dict_aliases.get(x, x) if pd.notna(x) else x
-        )
-
     # Adicionar período
     df_pivot["Período"] = periodo_api_para_exibicao(periodo)
 
@@ -616,12 +605,14 @@ def extrair_capital(
             if mask_percentual.any():
                 df_pivot.loc[mask_percentual, col] = serie_num.loc[mask_percentual] / 100
 
-    # Remover CodInst
-    if "CodInst" in df_pivot.columns:
+    # Remover CodInst quando não for necessário preservar chave estável
+    if not manter_codinst and "CodInst" in df_pivot.columns:
         df_pivot = df_pivot.drop(columns=["CodInst"])
 
     # Reordenar
     cols_inicio = ["Instituição", "Período"]
+    if "CodInst" in df_pivot.columns:
+        cols_inicio = ["CodInst"] + cols_inicio
     outras_cols = sorted([c for c in df_pivot.columns if c not in cols_inicio])
     df_pivot = df_pivot[cols_inicio + outras_cols]
 
@@ -637,7 +628,7 @@ def extrair_relatorio_completo(
     relatorio: int,
     dict_aliases: Optional[Dict[str, str]] = None,
     tipo_instituicao: int = TIPO_INSTITUICAO,
-    manter_codinst: bool = False,
+    manter_codinst: bool = True,
 ) -> Optional[pd.DataFrame]:
     """Extrai TODAS as variáveis de um relatório.
 
@@ -688,12 +679,6 @@ def extrair_relatorio_completo(
     if "Instituição" not in df_pivot.columns:
         df_pivot["Instituição"] = df_pivot["CodInst"].apply(lambda x: f"[IF {x}]")
     df_pivot = _resolver_nomes_instituicoes(df_pivot, periodo)
-
-    # Aplicar aliases
-    if dict_aliases:
-        df_pivot["Instituição"] = df_pivot["Instituição"].apply(
-            lambda x: dict_aliases.get(x, x) if pd.notna(x) else x
-        )
 
     # Adicionar período
     df_pivot["Período"] = periodo_api_para_exibicao(periodo)
