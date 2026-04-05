@@ -66,8 +66,9 @@ class CapitalCache(BaseCache):
     - Métricas de capital no formato esperado pelos gráficos
     """
 
-    def __init__(self, base_dir: Path):
+    def __init__(self, base_dir: Path, manter_codinst: bool = True):
         super().__init__(CAPITAL_CONFIG, base_dir)
+        self.manter_codinst = manter_codinst
         release_repo = os.getenv("TOMACONTA_RELEASE_REPO", "abalroar/tomaconta")
         raw_repo = os.getenv("TOMACONTA_RAW_REPO", "abalroar/tomaconta")
         release_base = f"https://github.com/{release_repo}/releases/download/v1.0-cache"
@@ -246,7 +247,7 @@ class CapitalCache(BaseCache):
             # Usar extrator autônomo
             from .extractor import extrair_capital
 
-            df = extrair_capital(periodo, dict_aliases)
+            df = extrair_capital(periodo, dict_aliases, manter_codinst=self.manter_codinst)
 
             if df is None or df.empty:
                 return CacheResult(
