@@ -1,5 +1,6 @@
 import importlib
 import math
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, Optional, List
 import streamlit as st
 import pandas as pd
@@ -10863,14 +10864,43 @@ elif menu == "Peers (Tabela)":
 
                     # Carregamento já recortado no nível do cache (evita ler dataset inteiro)
                     t_slice = time.perf_counter()
-                    cache_ativo = _carregar_cache_relatorio_slice("ativo", _cache_version_token("ativo"), periodos_ext_peers, instituicoes_slice_tuple)
-                    cache_passivo = _carregar_cache_relatorio_slice("passivo", _cache_version_token("passivo"), periodos_ext_peers, instituicoes_slice_tuple)
-                    cache_carteira_pf = _carregar_cache_relatorio_slice("carteira_pf", _cache_version_token("carteira_pf"), periodos_ext_peers, instituicoes_slice_tuple)
-                    cache_carteira_pj = _carregar_cache_relatorio_slice("carteira_pj", _cache_version_token("carteira_pj"), periodos_ext_peers, instituicoes_slice_tuple)
-                    cache_carteira_instr = _carregar_cache_relatorio_slice("carteira_instrumentos", _cache_version_token("carteira_instrumentos"), periodos_ext_peers, instituicoes_slice_tuple)
-                    cache_dre = _carregar_cache_relatorio_slice("dre", _cache_version_token("dre"), periodos_ext_peers, instituicoes_slice_tuple)
-                    cache_capital = _carregar_cache_relatorio_slice("capital", _cache_version_token("capital"), periodos_ext_peers, instituicoes_slice_tuple)
-                    cache_bloprudencial = _carregar_cache_relatorio_slice("bloprudencial", _cache_version_token("bloprudencial"), periodos_ext_peers, instituicoes_slice_tuple)
+                    _slices_config = [
+                        ("ativo", _cache_version_token("ativo")),
+                        ("passivo", _cache_version_token("passivo")),
+                        ("carteira_pf", _cache_version_token("carteira_pf")),
+                        ("carteira_pj", _cache_version_token("carteira_pj")),
+                        ("carteira_instrumentos", _cache_version_token("carteira_instrumentos")),
+                        ("dre", _cache_version_token("dre")),
+                        ("capital", _cache_version_token("capital")),
+                        ("bloprudencial", _cache_version_token("bloprudencial")),
+                    ]
+                    _slices_result = {}
+                    with ThreadPoolExecutor(max_workers=8) as _executor:
+                        _futures = {
+                            _executor.submit(
+                                _carregar_cache_relatorio_slice,
+                                tipo,
+                                token,
+                                periodos_ext_peers,
+                                instituicoes_slice_tuple,
+                            ): tipo
+                            for tipo, token in _slices_config
+                        }
+                        for _future in as_completed(_futures):
+                            _tipo = _futures[_future]
+                            try:
+                                _slices_result[_tipo] = _future.result()
+                            except Exception:
+                                _slices_result[_tipo] = None
+
+                    cache_ativo = _slices_result.get("ativo")
+                    cache_passivo = _slices_result.get("passivo")
+                    cache_carteira_pf = _slices_result.get("carteira_pf")
+                    cache_carteira_pj = _slices_result.get("carteira_pj")
+                    cache_carteira_instr = _slices_result.get("carteira_instrumentos")
+                    cache_dre = _slices_result.get("dre")
+                    cache_capital = _slices_result.get("capital")
+                    cache_bloprudencial = _slices_result.get("bloprudencial")
                     _perf_peers_stage(peers_perf, "a_leitura_cache_slices", t_slice)
 
                     t_filtros = time.perf_counter()
