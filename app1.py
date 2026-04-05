@@ -5715,6 +5715,7 @@ def _preparar_metricas_extra_peers(
             # evita duplicação exata (~2x) ao agregar por instituição/conta.
             if mask_4060.any():
                 df_blop = df_blop.loc[mask_4060].copy()
+
         if col_blop_nome_inst:
             df_blop["_inst_norm"] = df_blop[col_blop_nome_inst].map(_bloprud_norm_name)
         else:
@@ -5733,6 +5734,9 @@ def _preparar_metricas_extra_peers(
             )
         else:
             df_blop["_cod_congl"] = ""
+        df_blop["_conta"] = df_blop[col_blop_conta].astype(str).str.replace(r"\D", "", regex=True)
+        df_blop["_saldo"] = pd.to_numeric(df_blop[col_blop_saldo], errors="coerce")
+
         col_data_base = _bloprud_pick_col(df_blop, ["DATA_BASE", "Data_Base", "data_base"])
         if col_data_base:
             df_blop["_yyyymm"] = df_blop[col_data_base].astype(str).str.replace(r"\D", "", regex=True).str[:6]
