@@ -1,7 +1,7 @@
 {
-  "timestamp_salvamento": "2026-03-31T13:26:58.841686",
+  "timestamp_salvamento": "2026-02-19T15:06:53.233988",
   "fonte": "api",
-  "total_registros": 59252,
+  "total_registros": 59270,
   "colunas": [
     "Instituição",
     "Período",
@@ -70,6 +70,6 @@
   ],
   "total_periodos": 43,
   "extra": {
-    "operacao": "Salvamento final: 09/2025 até 09/2025"
+    "operacao": "Salvamento final: 03/2023 até 09/2025"
   }
 }

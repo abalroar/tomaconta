@@ -6472,7 +6472,7 @@ def _montar_tabela_peers(
     # evita divergência de CET1/Basileia entre abas.
     df_capital_idx = _construir_indices_capital_unificados(
         _cache_version_token("capital"),
-        _alias_signature_cache_key(),
+        _alias_signature(),
     )
     if df_capital_idx is not None and not df_capital_idx.empty:
         df_capital_idx = df_capital_idx.copy()
