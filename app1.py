@@ -5528,6 +5528,9 @@ def _preparar_metricas_extra_peers(
                 return lower_map[key]
         return None
 
+    bancos_set = {str(b) for b in bancos if b is not None and str(b).strip() != ""}
+    periodos_set = {str(p) for p in periodos_ext if p is not None and str(p).strip() != ""}
+
     def _build_metric_pivot(df_src: Optional[pd.DataFrame], metric_cols: list[str]) -> dict:
         if df_src is None or df_src.empty:
             return {}
@@ -5539,10 +5542,26 @@ def _preparar_metricas_extra_peers(
         if not col_inst or not col_per:
             return {}
 
+        # PERF: limita base ao recorte de bancos/períodos selecionados antes do groupby.
+        df_work = df_src[[col_inst, col_per] + metric_cols].copy()
+        if periodos_set:
+            per_mask = df_work[col_per].astype(str).isin(periodos_set)
+            if per_mask.any():
+                df_work = df_work.loc[per_mask]
+        if bancos_set:
+            inst_mask = df_work[col_inst].astype(str).isin(bancos_set)
+            if not inst_mask.any():
+                inst_norm_series = df_work[col_inst].map(normalizar_nome_instituicao)
+                bancos_norm = {normalizar_nome_instituicao(b) for b in bancos_set}
+                bancos_norm.discard("")
+                if bancos_norm:
+                    inst_mask = inst_norm_series.isin(bancos_norm)
+            if inst_mask.any():
+                df_work = df_work.loc[inst_mask]
+
         # PERF: pre-materialized pivot replaces O(N) per-call DataFrame scans
         grouped = (
-            df_src[[col_inst, col_per] + metric_cols]
-            .copy()
+            df_work
             .assign(**{col_per: lambda d: d[col_per].astype(str)})
             .groupby([col_inst, col_per], dropna=False, sort=False)[metric_cols]
             .first()
@@ -5666,6 +5685,12 @@ def _preparar_metricas_extra_peers(
     blop_lookup_cod: dict[tuple[str, str, str], float] = {}
     blop_nome_para_codigos: dict[str, set[str]] = {}
     blop_cod_para_inst_keys: dict[str, set[str]] = {}
+    contas_blop_necessarias = {"1490000004", "1890000006", "3311000002", "3312000001", "3313000000"}
+    yyyymm_blop_necessarios = {
+        ym for ym in (_periodo_to_yyyymm(p) for p in periodos_ext)
+        if ym and len(str(ym)) == 6
+    }
+
     if (
         cache_bloprudencial is not None
         and not cache_bloprudencial.empty
@@ -5690,6 +5715,14 @@ def _preparar_metricas_extra_peers(
             # evita duplicação exata (~2x) ao agregar por instituição/conta.
             if mask_4060.any():
                 df_blop = df_blop.loc[mask_4060].copy()
+        if col_blop_conta:
+            contas_num = df_blop[col_blop_conta].astype(str).str.replace(r"\D", "", regex=True)
+            mask_contas = contas_num.isin(contas_blop_necessarias)
+            if mask_contas.any():
+                df_blop = df_blop.loc[mask_contas].copy()
+            df_blop["_conta"] = contas_num.loc[df_blop.index]
+        else:
+            df_blop["_conta"] = ""
 
         if col_blop_nome_inst:
             df_blop["_inst_norm"] = df_blop[col_blop_nome_inst].map(_bloprud_norm_name)
@@ -5709,12 +5742,15 @@ def _preparar_metricas_extra_peers(
             )
         else:
             df_blop["_cod_congl"] = ""
-        df_blop["_conta"] = df_blop[col_blop_conta].astype(str).str.replace(r"\D", "", regex=True)
         df_blop["_saldo"] = pd.to_numeric(df_blop[col_blop_saldo], errors="coerce")
 
         col_data_base = _bloprud_pick_col(df_blop, ["DATA_BASE", "Data_Base", "data_base"])
         if col_data_base:
             df_blop["_yyyymm"] = df_blop[col_data_base].astype(str).str.replace(r"\D", "", regex=True).str[:6]
+            if yyyymm_blop_necessarios:
+                mask_ym = df_blop["_yyyymm"].isin(yyyymm_blop_necessarios)
+                if mask_ym.any():
+                    df_blop = df_blop.loc[mask_ym].copy()
         else:
             df_blop["_yyyymm"] = None
 
