@@ -5436,6 +5436,44 @@ def _get_slice_cache_for_peers_fn():
 
     return _fallback
 
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _carregar_bloprudencial_fallback_periodos(yyyymm_needed: tuple) -> pd.DataFrame:
+    """Carrega base prudencial por competências (fallback) com cache para reuso entre reruns."""
+    if not yyyymm_needed:
+        return pd.DataFrame()
+    try:
+        from utils.ifdata_cache import load_bloprudencial_df_cached
+    except Exception:
+        return pd.DataFrame()
+
+    dfs_blop = []
+    for ym in yyyymm_needed:
+        ym_txt = str(ym)
+        if len(ym_txt) != 6:
+            continue
+        try:
+            df_ym = load_bloprudencial_df_cached(
+                yyyymm=ym_txt,
+                cache_dir="data/cache/bcb_bloprudencial",
+                force_refresh=False,
+            )
+        except Exception:
+            continue
+        if df_ym is None or df_ym.empty:
+            continue
+        tmp = df_ym.copy()
+        if "DATA_BASE" not in tmp.columns:
+            tmp["DATA_BASE"] = ym_txt
+        if "Período" not in tmp.columns:
+            tmp["Período"] = f"{ym_txt[4:6]}/{ym_txt[:4]}"
+        dfs_blop.append(tmp)
+
+    if not dfs_blop:
+        return pd.DataFrame()
+    return pd.concat(dfs_blop, ignore_index=True)
+
+
 def _preparar_metricas_extra_peers(
     bancos: list,
     periodos: list,
@@ -5591,32 +5629,13 @@ def _preparar_metricas_extra_peers(
     # Fallback: quando o cache manager "bloprudencial" estiver vazio/ausente,
     # carregar competências necessárias direto do loader mensal em disco/rede.
     if cache_bloprudencial is None or cache_bloprudencial.empty:
-        try:
-            from utils.ifdata_cache import load_bloprudencial_df_cached
-
-            yyyymm_needed = sorted({
-                ym for ym in (_periodo_to_yyyymm(p) for p in periodos)
-                if ym
-            })
-            dfs_blop = []
-            for ym in yyyymm_needed:
-                df_ym = load_bloprudencial_df_cached(
-                    yyyymm=ym,
-                    cache_dir="data/cache/bcb_bloprudencial",
-                    force_refresh=False,
-                )
-                if df_ym is None or df_ym.empty:
-                    continue
-                tmp = df_ym.copy()
-                if "DATA_BASE" not in tmp.columns:
-                    tmp["DATA_BASE"] = ym
-                if "Período" not in tmp.columns:
-                    tmp["Período"] = f"{ym[4:6]}/{ym[:4]}"
-                dfs_blop.append(tmp)
-            if dfs_blop:
-                cache_bloprudencial = pd.concat(dfs_blop, ignore_index=True)
-        except Exception:
-            pass
+        yyyymm_needed = tuple(sorted({
+            ym for ym in (_periodo_to_yyyymm(p) for p in periodos)
+            if ym
+        }))
+        df_blop_fallback = _carregar_bloprudencial_fallback_periodos(yyyymm_needed)
+        if df_blop_fallback is not None and not df_blop_fallback.empty:
+            cache_bloprudencial = df_blop_fallback
 
     col_blop_nome_inst = _bloprud_pick_col(cache_bloprudencial, ["NOME_INSTITUICAO", "Instituição", "Instituicao"])
     col_blop_nome_congl = _bloprud_pick_col(cache_bloprudencial, ["NOME_CONGL", "Nome_Congl", "nome_congl"])
@@ -9082,6 +9101,28 @@ def _get_crie_metrica_context(periodos_hash: str, periodos_keys: tuple):
     }
 
 
+@st.cache_data(ttl=900, show_spinner=False)
+def _get_peers_filters_context(principal_token: str, alias_sig: tuple) -> dict:
+    """Retorna bancos/períodos para filtros da aba Peers sem concatenar dataframe completo."""
+    dados_periodos = _carregar_dados_periodos_preparados(principal_token, alias_sig)
+    if not dados_periodos:
+        return {"bancos_todos": [], "periodos_disponiveis": []}
+
+    bancos_todos = set()
+    periodos_disponiveis = []
+    for periodo, df_periodo in dados_periodos.items():
+        periodos_disponiveis.append(str(periodo))
+        if df_periodo is None or df_periodo.empty:
+            continue
+        if "Instituição" in df_periodo.columns:
+            bancos_todos.update(df_periodo["Instituição"].dropna().astype(str).tolist())
+
+    return {
+        "bancos_todos": sorted(bancos_todos),
+        "periodos_disponiveis": tuple(sorted(set(periodos_disponiveis))),
+    }
+
+
 def get_df_periodo_brincar(periodo: str) -> pd.DataFrame:
     """Obtém DataFrame de um período específico sem concatenar todos os períodos."""
     dados_periodos = st.session_state.get('dados_periodos', {})
@@ -10904,20 +10945,23 @@ elif menu == "Peers (Tabela)":
 
         _t = time.perf_counter()
         t_dados = time.perf_counter()
-        df = get_analise_base_df(_cache_version_token("principal"))
+        peers_ctx = _get_peers_filters_context(
+            _cache_version_token("principal"),
+            _alias_signature_cache_key(),
+        )
         _elapsed = time.perf_counter() - _t
         _log_timing("1_get_analise_base_df", _elapsed)
         print(f"[PEERS_TIMING] 1_get_analise_base_df: {_elapsed:.3f}s")
         _perf_peers_stage(peers_perf, "a_leitura_dados_brutos", t_dados)
-        _log_roe_trace(df, "peers_df_base")
 
-        if len(df) > 0 and 'Instituição' in df.columns:
+        bancos_todos = peers_ctx.get("bancos_todos", []) or []
+        periodos_ctx = peers_ctx.get("periodos_disponiveis", []) or []
+        if bancos_todos and periodos_ctx:
             _t = time.perf_counter()
-            bancos_todos = df['Instituição'].dropna().unique().tolist()
             dict_aliases = st.session_state.get('dict_aliases', {})
             bancos_disponiveis = ordenar_bancos_com_alias(bancos_todos, dict_aliases)
-            periodos_disponiveis = ordenar_periodos(df['Período'].dropna().unique())
-            periodos_dropdown = ordenar_periodos(df['Período'].dropna().unique(), reverso=True)
+            periodos_disponiveis = ordenar_periodos(list(periodos_ctx))
+            periodos_dropdown = ordenar_periodos(list(periodos_ctx), reverso=True)
             _elapsed = time.perf_counter() - _t
             _log_timing("2_build_dropdowns", _elapsed)
             print(f"[PEERS_TIMING] 2_build_dropdowns: {_elapsed:.3f}s")
@@ -10985,6 +11029,7 @@ elif menu == "Peers (Tabela)":
                         _cache_version_token("principal"),
                         periodos_filter=tuple(periodos_ext_peers),
                     )
+                    _log_roe_trace(df, "peers_df_base")
 
                     # Carregamento já recortado no nível do cache (evita ler dataset inteiro)
                     t_slice = time.perf_counter()
