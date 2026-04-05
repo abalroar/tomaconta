@@ -247,7 +247,8 @@ class CapitalCache(BaseCache):
             # Usar extrator autônomo
             from .extractor import extrair_capital
 
-            df = extrair_capital(periodo, dict_aliases, manter_codinst=self.manter_codinst)
+            _ = dict_aliases
+            df = extrair_capital(periodo, manter_codinst=self.manter_codinst)
 
             if df is None or df.empty:
                 return CacheResult(

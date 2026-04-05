@@ -17,11 +17,20 @@ import json
 import time
 import shutil
 import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Iterable, List
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
+
 from utils.ifdata_cache import CacheManager, gerar_periodos_trimestrais
+from utils.ifdata_cache import (
+    describe_support_window,
+    filter_supported_periods,
+    materialize_critical_screens_cache,
+)
 
 DEFAULT_TIPOS = [
     "principal",
@@ -191,7 +200,27 @@ def _run_refresh(args: argparse.Namespace, base_dir: Path) -> int:
             )
             continue
 
-        kwargs = {"dict_aliases": {}}
+        periodos, periodos_ignorados = filter_supported_periods(tipo, periodos)
+        if periodos_ignorados:
+            _print(
+                f"[SKIP] {tipo}: ignorando {len(periodos_ignorados)} período(s) fora da janela suportada "
+                f"({describe_support_window(tipo)}): {', '.join(periodos_ignorados[:6])}"
+            )
+        if not periodos:
+            detalhes.append(
+                {
+                    "tipo": tipo,
+                    "status": "skip",
+                    "mensagem": f"nenhum período suportado ({describe_support_window(tipo)})",
+                    "periodos": 0,
+                    "periodos_ignorados": periodos_ignorados,
+                    "lotes": 0,
+                    "lotes_ok": 0,
+                }
+            )
+            continue
+
+        kwargs = {}
         if tipo == "bloprudencial":
             kwargs["cache_dir"] = "data/cache/bcb_bloprudencial"
             kwargs["force_refresh"] = True
@@ -237,6 +266,7 @@ def _run_refresh(args: argparse.Namespace, base_dir: Path) -> int:
                 "status": "ok" if not erro_msg else "erro",
                 "mensagem": "concluído em lotes" if not erro_msg else erro_msg,
                 "periodos": len(periodos),
+                "periodos_ignorados": periodos_ignorados,
                 "lotes": total_lotes,
                 "lotes_ok": lotes_ok,
             }
@@ -263,13 +293,27 @@ def _run_refresh(args: argparse.Namespace, base_dir: Path) -> int:
             "fim": args.mensal_fim,
         },
         "detalhes": detalhes,
-        "status": "ok" if all(d["status"] == "ok" or d["status"] == "dry-run" for d in detalhes) else "erro",
+        "status": "ok" if all(d["status"] in {"ok", "dry-run", "skip"} for d in detalhes) else "erro",
     }
 
     manifest_path = base_dir / "data" / "cache_versions" / "last_refresh_manifest.json"
     run_manifest_path = base_dir / "data" / "cache_versions" / "runs" / f"{run_id}.json"
     if not args.dry_run:
         if summary["status"] == "ok":
+            result_curado = materialize_critical_screens_cache(base_dir=base_dir, manager=manager, force=True)
+            detalhes.append(
+                {
+                    "tipo": "critical_screens",
+                    "status": "ok" if result_curado.sucesso else "erro",
+                    "mensagem": result_curado.mensagem,
+                    "periodos": 0,
+                    "periodos_ignorados": [],
+                    "lotes": 1,
+                    "lotes_ok": 1 if result_curado.sucesso else 0,
+                }
+            )
+            if not result_curado.sucesso:
+                summary["status"] = "erro"
             post_snapshot = _create_snapshot(
                 base_dir=base_dir,
                 label=f"post-{args.snapshot_label}",

@@ -357,11 +357,7 @@ def processar_periodo_capital(ano_mes: str, dict_aliases: dict = None) -> Option
         if col_normalizada in df_pivot.columns:
             df_out[col_exibido] = df_pivot[col_normalizada]
 
-    # 7. Aplicar aliases se fornecido
-    if dict_aliases:
-        df_out["Instituição"] = df_out["Instituição"].apply(
-            lambda x: dict_aliases.get(x, x) if pd.notna(x) else x
-        )
+    # 7. Preservar nome oficial da fonte; alias foi removido do pipeline.
 
     # 8. Adicionar metadados
     df_out["Período"] = f"{ano_mes[4:6]}/{ano_mes[:4]}"

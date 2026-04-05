@@ -681,12 +681,9 @@ def calcular_lucro_semestral(ano_mes: str, df_pivot: pd.DataFrame) -> pd.DataFra
 
 
 def aplicar_aliases(df: pd.DataFrame, dict_aliases: dict) -> pd.DataFrame:
-    """Aplica dicionário de aliases aos nomes de instituições."""
-    df = df.copy()
-    df['Instituição'] = df['Instituição'].apply(
-        lambda x: dict_aliases.get(x, x) if pd.notna(x) else x
-    )
-    return df
+    """Mantém nomes oficiais; alias foi removido do pipeline."""
+    _ = dict_aliases
+    return df.copy()
 
 
 def processar_periodo(ano_mes: str, dict_aliases: dict) -> pd.DataFrame:
@@ -903,7 +900,7 @@ def processar_periodo(ano_mes: str, dict_aliases: dict) -> pd.DataFrame:
             df_out["Ativo Total"].replace(0, np.nan)
         )
 
-    # 10. Renomear e aplicar aliases
+    # 10. Renomear preservando nome oficial
     df_out = df_out.rename(columns={"NomeInstituicao": "Instituição"})
     df_out = aplicar_aliases(df_out, dict_aliases)
     df_out["Período"] = f"{ano_mes[4:6]}/{ano_mes[:4]}"
@@ -1028,47 +1025,6 @@ def processar_todos_periodos(periodos, dict_aliases, progress_callback=None, sav
 # FUNÇÕES AUXILIARES PARA CORES (mantidas do original)
 # =============================================================================
 def carregar_cores_aliases(df_aliases):
-    """Carrega cores personalizadas do arquivo de aliases."""
-    dict_cores_personalizadas = {}
-
-    mapa_cores = {
-        'Azul-marinho': '#003366',
-        'Laranja': '#FF6600',
-        'Amarelo ouro': '#FFD700',
-        'Vinho': '#8B0000',
-        'Verde': '#28A745',
-        'Roxo-vivo': '#820AD1',
-        'Laranja 2': '#FF8C00',
-        'Verde mais claro': '#03A64A',
-        'Ciano': '#00B0FF',
-        'Laranja 3': '#FF7F50',
-        'Ciano 2': '#00CED1',
-        'Amarelo ouro 2': '#FFB500',
-        'Verde whatsapp': '#25D366',
-        'Marrom': '#8B4513',
-        'Azul royal': '#4169E1',
-        'Cinza escuro': '#404040',
-        'Azul petróleo': '#006699',
-        'Vermelho': '#DC143C',
-        'Preto': '#000000',
-        'Rosa': '#FF1493',
-        'Azul Citi': '#003DA5',
-        'Laranja escuro': '#FF4500',
-        'Verde oliva': '#556B2F',
-        'Azul Porto': '#0066CC',
-        'Azul escuro': '#000080'
-    }
-
-    for idx, row in df_aliases.iterrows():
-        banco = row['Alias Banco']
-
-        if pd.notna(row.get('Código Cor')):
-            dict_cores_personalizadas[banco] = row['Código Cor']
-        elif pd.notna(row.get('Cor')):
-            cor_nome = row['Cor']
-            if cor_nome in mapa_cores:
-                dict_cores_personalizadas[banco] = mapa_cores[cor_nome]
-            else:
-                dict_cores_personalizadas[banco] = cor_nome
-
-    return dict_cores_personalizadas
+    """Compatibilidade: cores por alias foram removidas."""
+    _ = df_aliases
+    return {}

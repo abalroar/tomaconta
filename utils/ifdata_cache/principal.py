@@ -236,7 +236,7 @@ class PrincipalCache(BaseCache):
 
         Args:
             periodo: Período no formato YYYYMM (ex: "202312")
-            dict_aliases: Dicionário de aliases para instituições
+            dict_aliases: parâmetro legado sem efeito
 
         Returns:
             CacheResult com DataFrame ou erro
@@ -249,7 +249,6 @@ class PrincipalCache(BaseCache):
 
             df = extrair_resumo(
                 periodo,
-                dict_aliases,
                 tipo_instituicao=self.tipo_instituicao,
                 manter_codinst=self.manter_codinst,
             )

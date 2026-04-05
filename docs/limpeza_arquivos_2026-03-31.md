@@ -2,7 +2,7 @@
 
 ## Critério adotado
 - Remover **somente** arquivos sem qualquer referência no código de runtime do app (`app1.py`) e sem impacto nas abas oficiais do Streamlit.
-- Não remover arquivos de suporte operacional (cache, mapeamentos, aliases, ferramentas de atualização) para evitar regressões fora da UI.
+- Não remover arquivos de suporte operacional (cache, mapeamentos e ferramentas de atualização) para evitar regressões fora da UI.
 
 ## Arquivos removidos
 1. `logo.jpg` (raiz do repositório)
@@ -15,7 +15,7 @@
 
 ## Arquivos mantidos por segurança
 - `data/logo.jpg` (logo carregado pelo app).
-- `data/Aliases.xlsx`, `data/dre_mapping.json`, `data/dre_cosif_mapping.json`, `data/instituicoes_fallback.json` (dependências diretas de leitura de dados).
+- `data/dre_mapping.json`, `data/dre_cosif_mapping.json`, `data/instituicoes_fallback.json` (dependências diretas de leitura de dados).
 - `data/cache/**` (cache e metadados de operação).
 - `tools/**`, `tests/**`, `docs/**` (não usados em abas de produção, mas úteis para manutenção/qualidade).
 

@@ -108,6 +108,12 @@ CACHES_INFO = {
         "relatorio": None,
         "todas_variaveis": False,
     },
+    "critical_screens": {
+        "nome_exibicao": "Snapshot/Peers Curado",
+        "descricao": "Métricas materializadas para Snapshot e Peers",
+        "relatorio": None,
+        "todas_variaveis": False,
+    },
     "bloprudencial": {
         "nome_exibicao": "Conglomerados Prudenciais (BLOPRUDENCIAL)",
         "descricao": "Arquivo mensal estático BLOPRUDENCIAL (BCB)",
@@ -157,6 +163,7 @@ class CacheManager:
         )
         from .taxas_juros import TaxasJurosCache
         from .derived_metrics import DerivedMetricsCache, DerivedMetricsIndividualCache
+        from .critical_screens import CriticalScreensCache
         from .balancetes import BalancetesCache
         from .bloprudencial_cache import BloprudencialCache
 
@@ -179,6 +186,7 @@ class CacheManager:
         # Cache de métricas derivadas (DRE + Resumo)
         self.registrar(DerivedMetricsCache(self.base_dir))
         self.registrar(DerivedMetricsIndividualCache(self.base_dir))
+        self.registrar(CriticalScreensCache(self.base_dir))
         # Cache de balancetes COSIF (API REST BCB)
         self.registrar(BalancetesCache(self.base_dir))
         # Cache BLOPRUDENCIAL mensal (arquivo estático BCB)
@@ -451,7 +459,8 @@ class CacheManager:
 
             try:
                 # Extrair período
-                resultado = cache.extrair_periodo(periodo, dict_aliases=dict_aliases, **kwargs)
+                _ = dict_aliases
+                resultado = cache.extrair_periodo(periodo, **kwargs)
 
                 if resultado.sucesso and resultado.dados is not None:
                     dados_extraidos.append(resultado.dados)

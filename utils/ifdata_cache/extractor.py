@@ -718,11 +718,14 @@ def extrair_periodo(
         DataFrame formatado para gráficos ou None
     """
     if relatorio == 1:
-        return extrair_resumo(periodo, dict_aliases)
+        _ = dict_aliases
+        return extrair_resumo(periodo)
     elif relatorio == 5:
-        return extrair_capital(periodo, dict_aliases)
+        _ = dict_aliases
+        return extrair_capital(periodo)
     else:
-        return extrair_relatorio_completo(periodo, relatorio, dict_aliases)
+        _ = dict_aliases
+        return extrair_relatorio_completo(periodo, relatorio)
 
 
 def extrair_multiplos_periodos(
@@ -758,7 +761,8 @@ def extrair_multiplos_periodos(
             callback_progresso(i, len(periodos), periodo_api)
 
         try:
-            df = extrair_periodo(periodo_api, relatorio, dict_aliases)
+            _ = dict_aliases
+            df = extrair_periodo(periodo_api, relatorio)
 
             if df is not None and not df.empty:
                 # Usar período de exibição como chave (formato "1/2024")

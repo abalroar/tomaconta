@@ -118,6 +118,28 @@ from .derived_metrics import (
     build_derived_metrics,
     load_derived_metrics_slice,
 )
+from .critical_screens import (
+    CriticalScreensCache,
+    CRITICAL_EXTRA_METRICS,
+    build_critical_screens_dataframe,
+    materialize_critical_screens_cache,
+    load_critical_screens_slice,
+)
+from .availability import (
+    MIN_API_PERIOD_BY_CACHE,
+    display_period_to_api as availability_display_period_to_api,
+    api_period_to_display as availability_api_period_to_display,
+    filter_supported_periods,
+    is_period_supported,
+    describe_support_window,
+)
+from .institutions import (
+    normalize_institution_name,
+    load_conglomerados_catalog,
+    build_institution_to_conglomerate_map,
+    canonicalize_institution_name,
+    canonicalize_institution_series,
+)
 
 # Extrator autônomo (novo sistema)
 from .extractor import (
@@ -278,6 +300,22 @@ __all__ = [
     "DERIVED_METRICS_FORMULAS",
     "build_derived_metrics",
     "load_derived_metrics_slice",
+    "CriticalScreensCache",
+    "CRITICAL_EXTRA_METRICS",
+    "build_critical_screens_dataframe",
+    "materialize_critical_screens_cache",
+    "load_critical_screens_slice",
+    "MIN_API_PERIOD_BY_CACHE",
+    "availability_display_period_to_api",
+    "availability_api_period_to_display",
+    "filter_supported_periods",
+    "is_period_supported",
+    "describe_support_window",
+    "normalize_institution_name",
+    "load_conglomerados_catalog",
+    "build_institution_to_conglomerate_map",
+    "canonicalize_institution_name",
+    "canonicalize_institution_series",
     # Extrator autônomo
     "extrair_cadastro",
     "extrair_valores",

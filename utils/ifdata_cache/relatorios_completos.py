@@ -227,7 +227,7 @@ class RelatorioCompletoCache(BaseCache):
 
         Args:
             periodo: Período no formato YYYYMM (ex: "202312")
-            dict_aliases: Dicionário de aliases para instituições
+            dict_aliases: parâmetro legado sem efeito
 
         Returns:
             CacheResult com DataFrame ou erro
@@ -241,7 +241,6 @@ class RelatorioCompletoCache(BaseCache):
             df = extrair_relatorio_completo(
                 periodo,
                 self.relatorio_num,
-                dict_aliases,
                 tipo_instituicao=self.tipo_instituicao,
                 manter_codinst=self.manter_codinst,
             )

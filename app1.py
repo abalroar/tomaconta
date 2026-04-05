@@ -131,6 +131,10 @@ from utils.ifdata_cache import (
     DERIVED_METRICS_FORMULAS,
     build_derived_metrics,
     load_derived_metrics_slice,
+    CRITICAL_EXTRA_METRICS,
+    materialize_critical_screens_cache,
+    canonicalize_institution_name,
+    build_institution_to_conglomerate_map,
 )
 import io
 import base64
@@ -762,25 +766,8 @@ DATA_DIR = APP_DIR / "data"
 
 
 def _resolver_aliases_path() -> Path:
-    """Resolve caminho do arquivo de aliases com fallback para variações de nome/case.
-
-    Em ambientes Linux, `Data/alias.xlsx` e `data/Aliases.xlsx` são caminhos diferentes.
-    Usuários frequentemente atualizam o arquivo com variações de maiúsculas/minúsculas;
-    este resolvedor evita que o app "perca" o arquivo por causa disso.
-    """
-    candidatos = [
-        APP_DIR / "data" / "Aliases.xlsx",
-        APP_DIR / "data" / "alias.xlsx",
-        APP_DIR / "Data" / "Aliases.xlsx",
-        APP_DIR / "Data" / "alias.xlsx",
-    ]
-
-    for caminho in candidatos:
-        if caminho.exists():
-            return caminho
-
-    # fallback: mantém caminho canônico para mensagens/diagnóstico
-    return candidatos[0]
+    """Compatibilidade legada: Alias institucional foi removido do app."""
+    return APP_DIR / "data" / "Aliases.xlsx"
 
 
 ALIASES_PATH = _resolver_aliases_path()
@@ -1646,57 +1633,26 @@ def preparar_download_cache_local(cache_manager: CacheManager, tipo_cache: str) 
     }
 
 def _aliases_file_token() -> str:
-    """Token de versão do arquivo de aliases para invalidação de cache."""
-    path = _resolver_aliases_path()
-    if not path.exists():
-        return "aliases:missing"
-    stat = path.stat()
-    return f"aliases:{path.as_posix()}:{int(stat.st_mtime)}:{stat.st_size}"
+    """Token estável mantido apenas para compatibilidade de cache."""
+    return "instituicoes-canonicas:v1"
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def carregar_aliases(alias_file_token: str):
-    """Carrega aliases do Excel com cache de 1 hora e invalidação por arquivo."""
+    """Compatibilidade: Alias institucional foi removido do pipeline."""
     _ = alias_file_token
     _perf_start("carregar_aliases")
-    aliases_path = _resolver_aliases_path()
-    if aliases_path.exists():
-        df = pd.read_excel(aliases_path)
-        # higiene mínima de cabeçalhos para evitar quebra por espaços acidentais
-        df.columns = [str(col).strip() for col in df.columns]
-        print(_perf_log("carregar_aliases"))
-        return df
     print(_perf_log("carregar_aliases"))
-    return None
+    return pd.DataFrame(columns=["Instituição", "Alias Banco", "Cor", "Código Cor"])
 
 
-ALIAS_OVERRIDES = {
-    # Conglomerados novos no BLOPRUDENCIAL podem ainda não constar no XLS.
-    # Mantemos fallback explícito para não sumirem dos seletores.
-    "DOCK IP - PRUDENCIAL": "Dock",
-}
+ALIAS_OVERRIDES = {}
 
 
 def aplicar_alias_overrides(df_aliases: Optional[pd.DataFrame]) -> pd.DataFrame:
-    """Garante aliases mínimos para instituições ausentes no arquivo principal."""
-    if df_aliases is None or df_aliases.empty:
-        return pd.DataFrame(
-            [{"Instituição": inst, "Alias Banco": alias} for inst, alias in ALIAS_OVERRIDES.items()]
-        )
-
-    if "Instituição" not in df_aliases.columns or "Alias Banco" not in df_aliases.columns:
-        return df_aliases
-
-    df_out = df_aliases.copy()
-    existentes = set(df_out["Instituição"].dropna().astype(str).tolist())
-    faltantes = [
-        {"Instituição": inst, "Alias Banco": alias}
-        for inst, alias in ALIAS_OVERRIDES.items()
-        if inst not in existentes
-    ]
-    if faltantes:
-        df_out = pd.concat([df_out, pd.DataFrame(faltantes)], ignore_index=True)
-    return df_out
+    """Compatibilidade: retorna estrutura vazia padronizada."""
+    _ = df_aliases
+    return pd.DataFrame(columns=["Instituição", "Alias Banco", "Cor", "Código Cor"])
 
 # FIX PROBLEMA 3: Normalização de nomes de instituições
 def normalizar_nome_instituicao(nome):
@@ -1743,85 +1699,36 @@ def normalizar_nome_instituicao_match(nome):
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def construir_dict_aliases_normalizado(_df_aliases_hash: str, df_aliases_data: tuple):
-    """Constrói dicionário de aliases com nomes normalizados para lookup robusto.
-
-    Usa hash do dataframe para cache (evita recomputar a cada rerun).
-    Mapeia tanto o nome original (Instituição) quanto variantes normalizadas
-    para o alias amigável (Alias Banco).
-    """
+    """Compatibilidade: Alias institucional foi removido do pipeline."""
     _perf_start("construir_dict_aliases")
-    dict_norm = {}
-    if not df_aliases_data:
-        print(_perf_log("construir_dict_aliases"))
-        return dict_norm
-
-    # Reconstruir DataFrame a partir da tupla (para cache funcionar)
-    instituicoes, aliases = df_aliases_data
-
-    for i in range(len(instituicoes)):
-        instituicao = instituicoes[i]
-        alias = aliases[i]
-
-        if pd.notna(instituicao) and pd.notna(alias):
-            # Mapeamento direto
-            dict_norm[instituicao] = alias
-            # Mapeamento normalizado (uppercase, sem espaços extras)
-            dict_norm[normalizar_nome_instituicao(instituicao)] = alias
-            # Mapeamento sem acentos (simplificado)
-            nome_simples = instituicao.upper().strip()
-            dict_norm[nome_simples] = alias
-
+    _ = (_df_aliases_hash, df_aliases_data)
     print(_perf_log("construir_dict_aliases"))
-    return dict_norm
+    return {}
 
 
 def _preparar_aliases_para_cache(df_aliases):
-    """Prepara dados do DataFrame para funções cacheadas."""
-    if df_aliases is None or df_aliases.empty:
-        return "", ()
-    # Hash baseado no conteúdo
-    content_hash = str(hash(tuple(df_aliases['Instituição'].fillna('').tolist())))
-    # Dados como tupla (hashável)
-    instituicoes = tuple(df_aliases['Instituição'].tolist())
-    aliases = tuple(df_aliases['Alias Banco'].tolist())
-    return content_hash, (instituicoes, aliases)
+    """Compatibilidade: Alias institucional foi removido do pipeline."""
+    _ = df_aliases
+    return "", ()
 
 def _detectar_coluna_codigo_aliases(df_aliases: Optional[pd.DataFrame]) -> Optional[str]:
-    """Detecta coluna de código institucional no Aliases.xlsx."""
-    if df_aliases is None or df_aliases.empty:
-        return None
-    candidatos = ["CodInst", "COD_INST", "Código", "Codigo", "Cod", "COD"]
-    for col in candidatos:
-        if col in df_aliases.columns:
-            return col
+    """Compatibilidade: arquivo de Alias deixou de participar do matching."""
+    _ = df_aliases
     return None
 
 
 def construir_dict_aliases_por_codigo(df_aliases: Optional[pd.DataFrame]) -> dict[int, str]:
-    """Constrói mapa canônico cod_inst -> alias para uso prioritário na UI."""
-    if df_aliases is None or df_aliases.empty:
-        return {}
-    if "Alias Banco" not in df_aliases.columns:
-        return {}
-    col_cod = _detectar_coluna_codigo_aliases(df_aliases)
-    if not col_cod:
-        return {}
-
-    df_map = df_aliases[[col_cod, "Alias Banco"]].copy()
-    df_map[col_cod] = pd.to_numeric(df_map[col_cod], errors="coerce")
-    df_map = df_map.dropna(subset=[col_cod, "Alias Banco"])
-    if df_map.empty:
-        return {}
-
-    df_map[col_cod] = df_map[col_cod].astype(int)
-    return dict(zip(df_map[col_cod], df_map["Alias Banco"].astype(str)))
+    """Compatibilidade: Alias institucional foi removido do app."""
+    _ = df_aliases
+    return {}
 
 
 def _diagnostico_mapeamento_instituicoes(
     cache_manager,
     df_aliases: Optional[pd.DataFrame],
 ) -> dict:
-    """Gera diagnóstico de cobertura/conflitos do mapeamento institucional."""
+    """Audita nomenclatura canônica por código sem dependência de Alias local."""
+    _ = df_aliases
     if cache_manager is None:
         return {
             "status": "sem_cache_manager",
@@ -1835,22 +1742,7 @@ def _diagnostico_mapeamento_instituicoes(
             "detalhes_cache": pd.DataFrame(),
         }
 
-    col_cod_alias = _detectar_coluna_codigo_aliases(df_aliases)
-    alias_cod_df = pd.DataFrame()
-    if (
-        df_aliases is not None
-        and not df_aliases.empty
-        and col_cod_alias
-        and "Alias Banco" in df_aliases.columns
-    ):
-        alias_cod_df = df_aliases[[col_cod_alias, "Instituição", "Alias Banco"]].copy()
-        alias_cod_df[col_cod_alias] = pd.to_numeric(alias_cod_df[col_cod_alias], errors="coerce")
-        alias_cod_df = alias_cod_df.dropna(subset=[col_cod_alias]).copy()
-        if not alias_cod_df.empty:
-            alias_cod_df["cod_inst"] = alias_cod_df[col_cod_alias].astype(int)
-            alias_cod_df = alias_cod_df.drop(columns=[col_cod_alias])
-    codigos_alias = set(alias_cod_df["cod_inst"].dropna().astype(int).tolist()) if not alias_cod_df.empty else set()
-
+    catalog_map = build_institution_to_conglomerate_map(APP_DIR)
     cache_catalogo = []
     detalhes_cache = []
     for cache_tipo in ["principal", "capital", "ativo", "passivo", "dre", "bloprudencial"]:
@@ -1889,15 +1781,18 @@ def _diagnostico_mapeamento_instituicoes(
             continue
         base["cod_inst"] = base[col_cod].astype(int)
         base["nome_cache"] = base[col_inst].astype(str)
+        base["nome_canonico"] = base["nome_cache"].apply(
+            lambda nome: canonicalize_institution_name(nome, catalog_map=catalog_map)
+        )
         base["cache"] = cache_tipo
-        cache_catalogo.append(base[["cache", "cod_inst", "nome_cache"]].drop_duplicates())
+        cache_catalogo.append(base[["cache", "cod_inst", "nome_cache", "nome_canonico"]].drop_duplicates())
 
     if not cache_catalogo:
         return {
             "status": "sem_coluna_codigo",
             "cobertura_pct": 0.0,
             "total_codigos_cache": 0,
-            "total_codigos_alias": len(codigos_alias),
+            "total_codigos_alias": 0,
             "conflitos_alias": pd.DataFrame(),
             "sem_alias": pd.DataFrame(),
             "divergencias_nome": pd.DataFrame(),
@@ -1907,25 +1802,43 @@ def _diagnostico_mapeamento_instituicoes(
 
     df_catalogo = pd.concat(cache_catalogo, ignore_index=True).drop_duplicates()
     codigos_catalogo = set(df_catalogo["cod_inst"].dropna().astype(int).tolist())
-    cobertura = (len(codigos_catalogo & codigos_alias) / len(codigos_catalogo) * 100) if codigos_catalogo else 0.0
+    placeholder_if = df_catalogo[
+        df_catalogo["nome_cache"].astype(str).str.contains(r"^\[IF\s+[A-Za-z0-9]+\]$", regex=True, na=False)
+    ].copy()
+    codigos_resolvidos = set(
+        df_catalogo.loc[~df_catalogo["cod_inst"].isin(set(placeholder_if["cod_inst"].tolist())), "cod_inst"]
+        .dropna()
+        .astype(int)
+        .tolist()
+    )
+    cobertura = (len(codigos_resolvidos) / len(codigos_catalogo) * 100) if codigos_catalogo else 0.0
 
-    conflitos_alias = pd.DataFrame()
-    if not alias_cod_df.empty:
-        conflitos_alias = (
-            alias_cod_df.dropna(subset=["Alias Banco"])
-            .groupby("Alias Banco", as_index=False)["cod_inst"]
-            .nunique()
-            .query("cod_inst > 1")
-            .rename(columns={"cod_inst": "qtd_codigos"})
-            .sort_values("qtd_codigos", ascending=False)
+    conflitos_alias = (
+        df_catalogo.dropna(subset=["nome_canonico"])
+        .groupby("nome_canonico", as_index=False)["cod_inst"]
+        .nunique()
+        .query("cod_inst > 1")
+        .rename(columns={"nome_canonico": "nome_canonico", "cod_inst": "qtd_codigos"})
+        .sort_values("qtd_codigos", ascending=False)
+    )
+    if not conflitos_alias.empty:
+        amostra_codigos = (
+            df_catalogo.groupby("nome_canonico")["cod_inst"]
+            .apply(lambda s: " | ".join(str(v) for v in sorted(set(s.astype(int)))[:5]))
+            .reset_index(name="amostra_codigos")
         )
+        conflitos_alias = conflitos_alias.merge(amostra_codigos, on="nome_canonico", how="left")
 
-    sem_alias = df_catalogo[~df_catalogo["cod_inst"].isin(codigos_alias)].copy()
-    sem_alias = sem_alias.sort_values(["cache", "nome_cache"]).reset_index(drop=True)
+    sem_alias = (
+        placeholder_if[["cache", "cod_inst", "nome_cache"]]
+        .drop_duplicates()
+        .sort_values(["cache", "nome_cache"])
+        .reset_index(drop=True)
+    )
 
     divergencias_nome = (
         df_catalogo.groupby("cod_inst", as_index=False)["nome_cache"]
-        .nunique()
+            .nunique()
         .query("nome_cache > 1")
         .rename(columns={"nome_cache": "qtd_nomes"})
         .sort_values("qtd_nomes", ascending=False)
@@ -1938,13 +1851,11 @@ def _diagnostico_mapeamento_instituicoes(
         )
         divergencias_nome = divergencias_nome.merge(nomes_por_cod, on="cod_inst", how="left")
 
-    placeholder_if = df_catalogo[df_catalogo["nome_cache"].astype(str).str.contains(r"^\[IF\s+\d+\]$", regex=True, na=False)].copy()
-
     return {
         "status": "ok",
         "cobertura_pct": cobertura,
         "total_codigos_cache": len(codigos_catalogo),
-        "total_codigos_alias": len(codigos_alias),
+        "total_codigos_alias": len(codigos_resolvidos),
         "conflitos_alias": conflitos_alias,
         "sem_alias": sem_alias,
         "divergencias_nome": divergencias_nome,
@@ -1954,144 +1865,59 @@ def _diagnostico_mapeamento_instituicoes(
 
 
 def aplicar_aliases_em_periodos(dados_periodos, dict_aliases, mapa_codigos=None):
-    if not dados_periodos:
-        return dados_periodos
-    dados_corrigidos = {}
-
-    for periodo, df in dados_periodos.items():
-        if 'Instituição' not in df.columns:
-            dados_corrigidos[periodo] = df
-            continue
-
-        df_corrigido = df.copy()
-
-        if mapa_codigos:
-            df_corrigido['Instituição'] = df_corrigido['Instituição'].apply(
-                lambda nome: mapa_codigos.get(str(nome).strip(), nome) if pd.notna(nome) else nome
-            )
-
-        df_corrigido['Instituição'] = df_corrigido['Instituição'].apply(
-            lambda nome: dict_aliases.get(nome, nome) if pd.notna(nome) else nome
-        )
-
-        dados_corrigidos[periodo] = df_corrigido
-
-    return dados_corrigidos
+    _ = (dict_aliases, mapa_codigos)
+    return dados_periodos
 
 
 def resolver_nomes_instituicoes_capital(df_capital, dict_aliases, df_aliases=None, dados_periodos=None):
-    """Resolve nomes de instituições que estão como códigos [IF xxxxx] no cache de capital.
-
-    Usa múltiplas estratégias de lookup:
-    1. Busca direta no dict_aliases (nome original -> alias)
-    2. Busca por CodInst no df_aliases se disponível
-    3. Busca no dados_periodos (cache principal) como fallback
-    4. Mantém o nome original se não encontrar correspondência
-
-    Args:
-        df_capital: DataFrame com dados de capital
-        dict_aliases: Dicionário nome original -> alias
-        df_aliases: DataFrame do Aliases.xlsx com mapeamentos
-        dados_periodos: Dicionário do cache principal para fallback de nomes
-
-    Returns:
-        DataFrame com nomes de instituições resolvidos
-    """
-    import re
-
+    """Resolve placeholders do capital para nome oficial/canônico da instituição."""
+    _ = (dict_aliases, df_aliases)
     if df_capital is None or df_capital.empty:
         return df_capital
 
-    if 'Instituição' not in df_capital.columns:
+    if "Instituição" not in df_capital.columns:
         return df_capital
 
     df_result = df_capital.copy()
-
-    # Construir mapa CodInst -> Nome a partir do df_aliases se disponível
-    mapa_codinst_nome = {}
-    if df_aliases is not None and not df_aliases.empty:
-        # Verificar se há coluna de código no aliases
-        colunas_codigo = ['CodInst', 'Código', 'Cod', 'CNPJ']
-        col_codigo = None
-        for col in colunas_codigo:
-            if col in df_aliases.columns:
-                col_codigo = col
-                break
-
-        if col_codigo and 'Alias Banco' in df_aliases.columns:
-            df_aliases_validos = df_aliases[[col_codigo, 'Alias Banco']].dropna(subset=[col_codigo, 'Alias Banco'])
-            mapa_codinst_nome = dict(
-                zip(
-                    df_aliases_validos[col_codigo].astype(str).str.strip(),
-                    df_aliases_validos['Alias Banco']
-                )
-            )
-
-    # Construir mapa adicional a partir do dados_periodos (cache principal) como fallback
     mapa_dados_periodos = {}
     if dados_periodos:
         for periodo, df_periodo in dados_periodos.items():
-            if 'Instituição' in df_periodo.columns and 'CodInst' in df_periodo.columns:
+            _ = periodo
+            if "Instituição" in df_periodo.columns and "CodInst" in df_periodo.columns:
                 for _, row in df_periodo.iterrows():
-                    cod = row.get('CodInst')
-                    nome = row.get('Instituição')
-                    # Só usar se o nome não for um placeholder
-                    if pd.notna(cod) and pd.notna(nome) and not str(nome).startswith('[IF'):
+                    cod = row.get("CodInst")
+                    nome = row.get("Instituição")
+                    if pd.notna(cod) and pd.notna(nome) and not str(nome).startswith("[IF"):
                         cod_str = str(int(cod)) if isinstance(cod, float) else str(cod)
                         if cod_str not in mapa_dados_periodos:
                             mapa_dados_periodos[cod_str] = nome
 
+    catalog_map = build_institution_to_conglomerate_map(APP_DIR)
+
     def resolver_nome(nome, codinst=None):
-        """Resolve um nome de instituição."""
         if pd.isna(nome):
             return nome
 
         nome_str = str(nome).strip()
-
-        # 1. Busca direta no dict_aliases
-        if dict_aliases and nome_str in dict_aliases:
-            return dict_aliases[nome_str]
-
-        # 2. Verificar se é um placeholder [IF xxxxx] - agora aceita alfanuméricos
-        match = re.match(r'\[IF\s+([A-Za-z0-9]+)\]', nome_str)
+        match = re.match(r"\[IF\s+([A-Za-z0-9]+)\]", nome_str)
         if match:
             cod_extraido = match.group(1)
-
-            # Tentar resolver pelo código extraído no mapa de aliases
-            if mapa_codinst_nome and cod_extraido in mapa_codinst_nome:
-                return mapa_codinst_nome[cod_extraido]
-
-            # Tentar resolver no mapa do dados_periodos
-            if mapa_dados_periodos and cod_extraido in mapa_dados_periodos:
-                return mapa_dados_periodos[cod_extraido]
-
-            # Se temos CodInst na linha, usar para lookup
-            if codinst is not None and pd.notna(codinst):
-                cod_str = str(int(codinst)) if isinstance(codinst, float) else str(codinst)
-                if mapa_codinst_nome and cod_str in mapa_codinst_nome:
-                    return mapa_codinst_nome[cod_str]
-                if mapa_dados_periodos and cod_str in mapa_dados_periodos:
-                    return mapa_dados_periodos[cod_str]
-
-        # 3. Se temos CodInst, tentar lookup direto
-        if codinst is not None and pd.notna(codinst):
+            if cod_extraido in mapa_dados_periodos:
+                nome_str = str(mapa_dados_periodos[cod_extraido]).strip()
+        elif codinst is not None and pd.notna(codinst):
             cod_str = str(int(codinst)) if isinstance(codinst, float) else str(codinst)
-            if mapa_codinst_nome and cod_str in mapa_codinst_nome:
-                return mapa_codinst_nome[cod_str]
-            if mapa_dados_periodos and cod_str in mapa_dados_periodos:
-                return mapa_dados_periodos[cod_str]
+            if cod_str in mapa_dados_periodos:
+                nome_str = str(mapa_dados_periodos[cod_str]).strip()
 
-        # 4. Manter nome original se não encontrou correspondência
-        return nome_str
+        return canonicalize_institution_name(nome_str, catalog_map=catalog_map)
 
-    # Aplicar resolução de nomes
-    if 'CodInst' in df_result.columns:
-        df_result['Instituição'] = df_result.apply(
-            lambda row: resolver_nome(row['Instituição'], row.get('CodInst')),
-            axis=1
+    if "CodInst" in df_result.columns:
+        df_result["Instituição"] = df_result.apply(
+            lambda row: resolver_nome(row["Instituição"], row.get("CodInst")),
+            axis=1,
         )
     else:
-        df_result['Instituição'] = df_result['Instituição'].apply(
+        df_result["Instituição"] = df_result["Instituição"].apply(
             lambda nome: resolver_nome(nome)
         )
 
@@ -2124,67 +1950,17 @@ def normalizar_codigo_cor(cor_valor):
 # FIX PROBLEMA 3: Carregamento correto de cores com normalização
 @st.cache_data(ttl=3600, show_spinner=False)
 def carregar_cores_aliases_local(_df_hash: str, cores_data: tuple):
-    """Lê a cor do Aliases.xlsx e cria um dicionário de cores.
-
-    Usa hash do dataframe para cache (evita recomputar a cada rerun).
-    Importante: mapeia tanto o valor da coluna 'Instituição' (nome original vindo do BCB)
-    quanto o valor da coluna 'Alias Banco' (nome amigável que aparece no app),
-    para que a cor seja aplicada em qualquer tela.
-    """
+    """Compatibilidade: cores por Alias institucional foram removidas."""
     _perf_start("carregar_cores_aliases")
-    dict_cores = {}
-    if not cores_data:
-        print(_perf_log("carregar_cores_aliases"))
-        return dict_cores
-
-    instituicoes, aliases, cores = cores_data
-
-    for i in range(len(instituicoes)):
-        instituicao = instituicoes[i]
-        alias = aliases[i]
-        cor_valor = cores[i]
-
-        cor_str = normalizar_codigo_cor(cor_valor)
-        if not cor_str:
-            continue
-
-        if pd.notna(instituicao):
-            dict_cores[normalizar_nome_instituicao(instituicao)] = cor_str
-            # Também aceita busca pelo 'Alias Banco' (útil quando a coluna Instituição já vem renomeada)
-            if pd.notna(alias):
-                dict_cores[normalizar_nome_instituicao(alias)] = cor_str
-
-        # Também mapeia pelo alias (é o que aparece na UI)
-        if pd.notna(alias):
-            dict_cores[normalizar_nome_instituicao(alias)] = cor_str
-
+    _ = (_df_hash, cores_data)
     print(_perf_log("carregar_cores_aliases"))
-    return dict_cores
+    return {}
 
 
 def _preparar_cores_para_cache(df_aliases):
-    """Prepara dados de cores do DataFrame para função cacheada."""
-    if df_aliases is None or df_aliases.empty:
-        return "", ()
-
-    # Encontrar coluna de cor
-    colunas_possiveis = ['Código Cor', 'Cor', 'Color', 'Hex', 'Código']
-    coluna_cor = None
-    for col in colunas_possiveis:
-        if col in df_aliases.columns:
-            coluna_cor = col
-            break
-
-    if coluna_cor is None:
-        return "", ()
-
-    # Hash baseado no conteúdo
-    content_hash = str(hash(tuple(df_aliases['Instituição'].fillna('').tolist())))
-    # Dados como tupla (hashável)
-    instituicoes = tuple(df_aliases['Instituição'].tolist())
-    aliases = tuple(df_aliases['Alias Banco'].tolist())
-    cores = tuple(df_aliases[coluna_cor].tolist())
-    return content_hash, (instituicoes, aliases, cores)
+    """Compatibilidade: cores por Alias institucional foram removidas."""
+    _ = df_aliases
+    return "", ()
 
 
 def _normalizar_texto_sem_acento(valor: str) -> str:
@@ -2228,17 +2004,7 @@ def _ordenar_cargos_estatutarios(df_orgaos: pd.DataFrame) -> pd.DataFrame:
 
 
 def obter_aliases_orgaos() -> pd.DataFrame:
-    """Reutiliza o mesmo cache de Aliases.xlsx já carregado nas demais abas."""
-    df_aliases = st.session_state.get("df_aliases")
-    if isinstance(df_aliases, pd.DataFrame) and not df_aliases.empty:
-        return df_aliases
-
-    # fallback defensivo: mantém o mesmo fluxo/padrão de cache das outras abas
-    alias_file_token = _aliases_file_token()
-    df_aliases = carregar_aliases(alias_file_token)
-    if isinstance(df_aliases, pd.DataFrame) and not df_aliases.empty:
-        return aplicar_alias_overrides(df_aliases)
-
+    """Compatibilidade: a aba passa a operar apenas com nome oficial."""
     return pd.DataFrame(columns=["Instituição", "Alias Banco", "Cor", "Código Cor"])
 
 
@@ -3389,39 +3155,18 @@ def _diagnosticar_ifdata_resumo(periodo_api: str, termo_busca: str):
 
 
 def ordenar_bancos_com_alias(bancos: list, dict_aliases: dict = None) -> list:
-    """Ordena bancos com alias primeiro (A-Z), depois sem alias (A-Z).
-
-    Args:
-        bancos: Lista de nomes de bancos
-        dict_aliases: Dicionário de aliases {nome_original: alias}
-
-    Returns:
-        Lista ordenada de bancos
-    """
-    if not dict_aliases:
-        return sorted(bancos)
-
-    aliases_set = set(dict_aliases.values())
-
-    bancos_com_alias = []
-    bancos_sem_alias = []
-
-    for banco in bancos:
-        if banco in aliases_set:
-            bancos_com_alias.append(banco)
-        else:
-            bancos_sem_alias.append(banco)
+    """Ordena instituições por nome oficial."""
+    _ = dict_aliases
 
     def sort_key(nome):
-        primeiro_char = nome[0].lower() if nome else 'z'
+        nome = str(nome)
+        primeiro_char = nome[0].lower() if nome else "z"
         if primeiro_char.isdigit():
             return (1, nome.lower())
         return (0, nome.lower())
 
-    bancos_com_alias_sorted = sorted(bancos_com_alias, key=sort_key)
-    bancos_sem_alias_sorted = sorted(bancos_sem_alias, key=sort_key)
-
-    return bancos_com_alias_sorted + bancos_sem_alias_sorted
+    bancos_validos = {str(banco) for banco in bancos if pd.notna(banco)}
+    return sorted(bancos_validos, key=sort_key)
 
 
 # --- Defaults helpers ---
@@ -5450,43 +5195,21 @@ def _aplicar_aliases_df(df: Optional[pd.DataFrame], dict_aliases: dict) -> Optio
     df_out = _normalizar_nomes_carteira(df.copy())
     if "Instituição" not in df_out.columns:
         return df_out
-
-    dict_aliases_codinst = st.session_state.get("dict_aliases_codinst", {}) or {}
-    col_cod = _snapshot_pick_col(df_out, ["CodInst", "COD_INST", "cod_inst", "CODINST"])
-
-    if dict_aliases_codinst and col_cod:
-        cod_series = pd.to_numeric(df_out[col_cod], errors="coerce")
-        alias_cod = cod_series.map(dict_aliases_codinst)
-        df_out["Instituição"] = alias_cod.fillna(df_out["Instituição"])
-
-    if dict_aliases:
-        col = df_out["Instituição"]
-        mapped = col.map(dict_aliases)
-        df_out["Instituição"] = mapped.fillna(col)
+    _ = dict_aliases
+    catalog_map = build_institution_to_conglomerate_map(APP_DIR)
+    df_out["Instituição"] = [
+        canonicalize_institution_name(nome, catalog_map=catalog_map)
+        for nome in df_out["Instituição"].tolist()
+    ]
     return df_out
 
 
 def _instituicoes_filtro_snapshot(banco: str, dict_aliases: dict) -> tuple:
-    """Monta variantes de instituição para filtro robusto de slice."""
+    """Retorna apenas a instituição oficial selecionada."""
+    _ = dict_aliases
     if not banco:
         return tuple()
-
-    candidatos = {str(banco)}
-    banco_norm = normalizar_nome_instituicao(banco)
-    if banco_norm:
-        candidatos.add(banco_norm)
-
-    # dict_aliases é montado como Instituição -> Alias.
-    # Se o banco selecionado for um alias, incluir os nomes originais que mapeiam para ele.
-    if isinstance(dict_aliases, dict) and dict_aliases:
-        for nome_original, alias in dict_aliases.items():
-            if pd.isna(nome_original) or pd.isna(alias):
-                continue
-            if str(alias) == str(banco):
-                candidatos.add(str(nome_original))
-                candidatos.add(normalizar_nome_instituicao(nome_original))
-
-    return tuple(sorted(c for c in candidatos if c))
+    return (str(banco),)
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -5635,6 +5358,53 @@ def _carregar_cache_relatorio_slice(
                 mask = inst_norm.isin(filtros_norm)
         df = df[mask]
     return df
+
+
+def _critical_metric_lookup(df: Optional[pd.DataFrame]) -> dict:
+    if df is None or df.empty:
+        return {}
+    required = {"Instituição", "Período"}
+    if not required.issubset(df.columns):
+        return {}
+    base = (
+        df.dropna(subset=["Instituição", "Período"])
+        .drop_duplicates(subset=["Instituição", "Período"], keep="last")
+        .set_index(["Instituição", "Período"])
+    )
+    return base.to_dict("index")
+
+
+def _critical_metric_value(metric_lookup: dict, instituicao: str, periodo: str, coluna: str):
+    if not metric_lookup or not coluna:
+        return None
+    row = metric_lookup.get((instituicao, periodo))
+    if row is None:
+        return None
+    return row.get(coluna)
+
+
+def _critical_metric_map(df: Optional[pd.DataFrame], instituicao: str, periodos: list[str], coluna: str) -> dict[str, Optional[float]]:
+    lookup = _critical_metric_lookup(df)
+    return {
+        periodo: _coerce_numeric_value(_critical_metric_value(lookup, instituicao, periodo, coluna))
+        for periodo in periodos
+    }
+
+
+def _garantir_cache_telas_criticas(menu_nome: str) -> bool:
+    manager = get_cache_manager()
+    cache = manager.get_cache("critical_screens") if manager else None
+    if cache is not None and (cache.arquivo_dados.exists() or cache.arquivo_dados_pickle.exists()):
+        return True
+
+    with st.status(f"materializando cache curado de Snapshot/Peers para {menu_nome.lower()}...", expanded=True) as _status:
+        resultado = materialize_critical_screens_cache(force=True)
+        if resultado.sucesso:
+            _status.update(label="cache curado materializado", state="complete", expanded=False)
+            return True
+        _status.update(label="falha ao materializar cache curado", state="error", expanded=True)
+        st.error(f"critical_screens: {resultado.mensagem}")
+        return False
 
 
 
@@ -6708,45 +6478,29 @@ def _preparar_metricas_extra_peers_cached(
     alias_sig: tuple,
     slice_tokens: tuple,
 ) -> dict:
-    """Cached wrapper: loads slices in parallel, applies aliases, computes extra metrics."""
+    """Wrapper cacheado: lê apenas o parquet curado de Snapshot/Peers."""
     import time as _time
+
+    _ = alias_sig
     _t0_wrapper = _time.perf_counter()
-    dict_aliases = dict(alias_sig) if alias_sig else {}
     slice_tokens_dict = dict(slice_tokens)
-
-    def _load_and_alias(tipo):
-        token = slice_tokens_dict.get(tipo)
-        if not token:
-            return None
-        df_slice = _carregar_cache_relatorio_slice(
-            tipo, token, periodos_ext_tuple, instituicoes_slice_tuple,
-        )
-        return _aplicar_aliases_df(df_slice, dict_aliases)
-
-    tipos = ["ativo", "passivo", "carteira_pf", "carteira_pj",
-             "carteira_instrumentos", "dre", "capital", "bloprudencial"]
-
-    from concurrent.futures import ThreadPoolExecutor
-    _t_io = _time.perf_counter()
-    with ThreadPoolExecutor(max_workers=8) as executor:
-        loaded = dict(zip(tipos, executor.map(_load_and_alias, tipos)))
-    _elapsed_io = _time.perf_counter() - _t_io
-    print(f"[PEERS_TIMING] parallel_slice_load: {_elapsed_io:.3f}s")
-
-    result = _preparar_metricas_extra_peers(
-        list(bancos_tuple),
-        list(periodos_tuple),
-        loaded["ativo"],
-        loaded["passivo"],
-        loaded["carteira_pf"],
-        loaded["carteira_pj"],
-        loaded["carteira_instrumentos"],
-        loaded["dre"],
-        loaded["capital"],
-        loaded["bloprudencial"],
+    token = slice_tokens_dict.get("critical_screens")
+    df_slice = _carregar_cache_relatorio_slice(
+        "critical_screens",
+        token or _cache_version_token("critical_screens"),
+        periodos_ext_tuple,
+        instituicoes_slice_tuple,
     )
+    lookup = _critical_metric_lookup(df_slice)
+    result = {metric: {} for metric in CRITICAL_EXTRA_METRICS}
+    for banco in bancos_tuple:
+        for periodo in periodos_ext_tuple:
+            row = lookup.get((banco, periodo), {})
+            for metric in CRITICAL_EXTRA_METRICS:
+                result[metric][(banco, periodo)] = _coerce_numeric_value(row.get(metric))
+
     _elapsed_total = _time.perf_counter() - _t0_wrapper
-    print(f"[PEERS_TIMING] metricas_extra_total_inside: {_elapsed_total:.3f}s")
+    print(f"[PEERS_TIMING] critical_screens_slice_total: {_elapsed_total:.3f}s")
     return result
 
 
@@ -8214,6 +7968,8 @@ def pagina_snapshot():
     if not _garantir_dados_principais("Snapshot"):
         st.info("carregando dados automaticamente do github...")
         return
+    if not _garantir_cache_telas_criticas("Snapshot"):
+        return
 
     st.markdown("### Snapshot")
     st.caption("briefing executivo rápido com os principais indicadores da instituição.")
@@ -8223,7 +7979,7 @@ def pagina_snapshot():
         st.warning("base indisponível para Snapshot.")
         return
 
-    bancos = ordenar_bancos_com_alias(df_base["Instituição"].dropna().unique().tolist(), st.session_state.get("dict_aliases", {}))
+    bancos = ordenar_bancos_com_alias(df_base["Instituição"].dropna().unique().tolist(), {})
     banco_snapshot_default = next(
         (
             b
@@ -8265,22 +8021,16 @@ def pagina_snapshot():
     periodos_snapshot = [p for p in [periodo_atual, periodo_anterior_qoq, periodo_yoy_existente] if p]
     periodos_snapshot = list(dict.fromkeys(periodos_snapshot))
 
-    dict_aliases_snapshot = st.session_state.get("dict_aliases", {})
-    bancos_tuple = _instituicoes_filtro_snapshot(banco, dict_aliases_snapshot)
+    bancos_tuple = (banco,)
     periodos_tuple = tuple(periodos_snapshot)
     t_dados = time.perf_counter()
-    cache_bloprud = None
-    cache_ativo = _carregar_cache_relatorio_slice("ativo", _cache_version_token("ativo"), periodos_tuple, bancos_tuple)
-    cache_capital = _carregar_cache_relatorio_slice("capital", _cache_version_token("capital"), periodos_tuple, bancos_tuple)
-    cache_bloprud = _carregar_cache_relatorio_slice("bloprudencial", _cache_version_token("bloprudencial"), periodos_tuple, bancos_tuple)
-    cache_passivo = _carregar_cache_relatorio_slice("passivo", _cache_version_token("passivo"), periodos_tuple, bancos_tuple)
-
-    # Alinhamento com Peers (Tabela): aplicar os mesmos aliases de instituição
-    # antes de calcular métricas extras, evitando divergência de matching por nome.
-    cache_ativo = _aplicar_aliases_df(cache_ativo, dict_aliases_snapshot)
-    cache_capital = _aplicar_aliases_df(cache_capital, dict_aliases_snapshot)
-    cache_bloprud = _aplicar_aliases_df(cache_bloprud, dict_aliases_snapshot)
-    cache_passivo = _aplicar_aliases_df(cache_passivo, dict_aliases_snapshot)
+    cache_critical = _carregar_cache_relatorio_slice(
+        "critical_screens",
+        _cache_version_token("critical_screens"),
+        periodos_tuple,
+        bancos_tuple,
+    )
+    critical_lookup = _critical_metric_lookup(cache_critical)
     df_inst = df_base[(df_base["Instituição"] == banco) & (df_base["Período"].isin(periodos_snapshot))].copy()
     col_capt = _snapshot_pick_col(df_inst, ["Captações", "Core Funding", "Captação"])
     label_desp_captacao = _label_desp_captacao_por_denominador(col_capt)
@@ -8302,7 +8052,7 @@ def pagina_snapshot():
         for p in periodos_snapshot
     }
     if all(v is None or pd.isna(v) for v in carteira_map.values()):
-        carteira_map = _snapshot_carteira_bruta_por_periodo(cache_ativo, banco, periodos_snapshot)
+        carteira_map = _critical_metric_map(cache_critical, banco, periodos_snapshot, "Carteira de Crédito Bruta")
 
     col_ativo = _snapshot_pick_col(df_inst, ["Ativo Total"])
     ativo_map = {p: _coerce_numeric_value(_obter_valor_peers(df_inst, banco, p, col_ativo)) if col_ativo else None for p in periodos_snapshot}
@@ -8330,24 +8080,23 @@ def pagina_snapshot():
     col_ll_ytd = _snapshot_pick_col(df_inst, ["Lucro Líquido Acumulado YTD"])
     ll_ytd_map = {p: _coerce_numeric_value(_obter_valor_peers(df_inst, banco, p, col_ll_ytd)) if col_ll_ytd else None for p in periodos_snapshot}
 
-    cet1_map, bas_map = _snapshot_capital_indices_por_periodo(cache_capital, banco, periodos_snapshot)
-
-    extra_snapshot = _preparar_metricas_extra_peers(
-        bancos=[banco],
-        periodos=periodos_snapshot,
-        cache_ativo=cache_ativo,
-        cache_passivo=cache_passivo,
-        cache_carteira_pf=None,
-        cache_carteira_pj=None,
-        cache_carteira_instr=None,
-        cache_dre=None,
-        cache_capital=cache_capital,
-        cache_bloprudencial=cache_bloprud,
-    )
-    perda_est3_raw = (extra_snapshot or {}).get("Perda Esperada / Estágio 3", {})
-    perda_carteira_raw = (extra_snapshot or {}).get("Perda Esperada / Carteira de Crédito*", {})
-    perda_est3_map = {p: _coerce_numeric_value(perda_est3_raw.get((banco, p))) for p in periodos_snapshot}
-    perda_carteira_map = {p: _coerce_numeric_value(perda_carteira_raw.get((banco, p))) for p in periodos_snapshot}
+    cet1_map = _critical_metric_map(cache_critical, banco, periodos_snapshot, "Índice de Capital Principal (CET1)")
+    bas_map = _critical_metric_map(cache_critical, banco, periodos_snapshot, "Índice de Basileia Total (%)")
+    perda_est3_map = _critical_metric_map(cache_critical, banco, periodos_snapshot, "Perda Esperada / Estágio 3")
+    perda_carteira_map = _critical_metric_map(cache_critical, banco, periodos_snapshot, "Perda Esperada / Carteira de Crédito*")
+    perda_esperada_map = _critical_metric_map(cache_critical, banco, periodos_snapshot, "Perda Esperada")
+    blop_disp_map = {
+        p: bool(_critical_metric_value(critical_lookup, banco, p, "BloprudencialDisponivel"))
+        for p in periodos_snapshot
+    }
+    capital_disp_map = {
+        p: bool(_critical_metric_value(critical_lookup, banco, p, "CapitalDisponivel"))
+        for p in periodos_snapshot
+    }
+    qual_disp_map = {
+        p: bool(_critical_metric_value(critical_lookup, banco, p, "QualidadeCarteiraDisponivel"))
+        for p in periodos_snapshot
+    }
 
     diagnostico_snapshot = []
 
@@ -8358,66 +8107,32 @@ def pagina_snapshot():
             return False
         return bool(cache_local.arquivo_dados.exists() or cache_local.arquivo_dados_pickle.exists())
 
-    def _diagnosticar_corte_cache(tipo_cache: str, df_slice: Optional[pd.DataFrame], periodos: list, banco_sel: str) -> Optional[str]:
-        if not _cache_local_disponivel(tipo_cache):
-            return f"arquivo local de {tipo_cache} ausente"
-        if df_slice is None or df_slice.empty:
-            df_periodo = _carregar_cache_relatorio_slice(
-                tipo_cache,
-                _cache_version_token(tipo_cache),
-                tuple(periodos),
-                tuple(),
-            )
-            if df_periodo is None or df_periodo.empty:
-                return f"cache de {tipo_cache} sem períodos selecionados"
-            return f"cache de {tipo_cache} sem instituição correspondente ({banco_sel})"
-        return None
+    if not _cache_local_disponivel("critical_screens"):
+        diagnostico_snapshot.append("arquivo local de critical_screens ausente")
+    elif cache_critical is None or cache_critical.empty:
+        diagnostico_snapshot.append(f"critical_screens sem instituição/períodos correspondentes para {banco}")
 
-    msg_capital = _diagnosticar_corte_cache("capital", cache_capital, periodos_snapshot, banco)
-    if msg_capital:
-        diagnostico_snapshot.append(msg_capital)
-    else:
-        col_rwa_diag = _snapshot_pick_col(cache_capital, ["RWA Total", "Ativos Ponderados pelo Risco (RWA) (j)", "RWA"])
-        col_cp_diag = _snapshot_pick_col(cache_capital, ["Capital Principal", "Capital Principal para Comparação com RWA (a)"])
-        col_bas_diag = _snapshot_pick_col(cache_capital, ["Índice de Basileia", "Índice de Basileia Capital"])
-        if not (col_rwa_diag and (col_cp_diag or col_bas_diag)):
-            diagnostico_snapshot.append("cache de capital sem colunas suficientes para CET1/Basileia")
+    if not any(capital_disp_map.values()):
+        diagnostico_snapshot.append("capital indisponível no cache curado para os períodos selecionados")
 
-    msg_ativo = _diagnosticar_corte_cache("ativo", cache_ativo, periodos_snapshot, banco)
-    if msg_ativo:
-        diagnostico_snapshot.append(msg_ativo)
-    else:
-        perda_colunas_diag = [
-            _snapshot_pick_col(cache_ativo, ["Perda Esperada (e2)"]),
-            _snapshot_pick_col(cache_ativo, ["Perda Esperada (f2)"]),
-            _snapshot_pick_col(cache_ativo, ["Perda Esperada (g2)"]),
-            _snapshot_pick_col(cache_ativo, ["Perda Esperada (h2)"]),
-        ]
-        if all(col is None for col in perda_colunas_diag):
-            diagnostico_snapshot.append("cache de ativo sem colunas de Perda Esperada (e2/f2/g2/h2)")
-
-    bloprud_efetivo = any(
-        not pd.isna(v)
-        for v in list(perda_est3_map.values()) + list(perda_carteira_map.values())
-    )
-    if not bloprud_efetivo:
-        msg_blop = _diagnosticar_corte_cache("bloprudencial", cache_bloprud, periodos_snapshot, banco)
-        if msg_blop:
-            diagnostico_snapshot.append(msg_blop)
+    if not any(v is not None and not pd.isna(v) for v in perda_esperada_map.values()):
+        diagnostico_snapshot.append("perda esperada indisponível no cache curado para os períodos selecionados")
+    elif not any(blop_disp_map.values()):
+        diagnostico_snapshot.append(f"BLOPRUDENCIAL sem conglomerado correspondente para {banco} nos períodos selecionados")
+    elif not any(qual_disp_map.values()):
+        diagnostico_snapshot.append("qualidade de carteira indisponível no cache curado para os períodos selecionados")
 
     if diagnostico_snapshot:
         st.warning(
-            "Snapshot: dependências incompletas para Capital/Qualidade de Carteira. "
-            "Revise os caches antes de validar os cartões."
+            "Snapshot: capital ou qualidade de carteira seguem incompletos para a instituição selecionada."
         )
-        with st.expander("Como corrigir definitivamente (passo a passo)", expanded=False):
+        with st.expander("Diagnóstico do cache curado", expanded=False):
             st.markdown(
                 "\n".join(
                     [
-                        "1. Abra **Atualizar base** e rode atualização completa dos caches: `capital`, `ativo`, `passivo` e `bloprudencial`.",
-                        "2. Confirme que a instituição existe com o mesmo alias/nome nos quatro caches.",
-                        "3. Reabra a aba Snapshot e verifique se CET1/Basileia e métricas de qualidade aparecem no período atual e no YoY.",
-                        "4. Se persistir, execute `python tools/update_caches_cli.py --tipos capital ativo passivo bloprudencial` e recarregue o app.",
+                        "1. Rode `python tools/update_caches_cli.py --all --ano-inicial 2015 --mes-inicial 03 --ano-final 2025 --mes-final 09 --mensal-inicio 201503 --mensal-fim 202509`.",
+                        "2. Verifique se o processo concluiu a materialização de `critical_screens` sem erro.",
+                        "3. Se apenas o BLOPRUDENCIAL faltar, confira se o conglomerado existe com nome oficial equivalente no arquivo mensal.",
                         "",
                         "**Diagnóstico encontrado nesta execução:**",
                     ]
@@ -9921,21 +9636,11 @@ def criar_mini_grafico(df_banco, variavel, titulo, tipo='linha'):
 _perf_start("init_total")
 
 if 'df_aliases' not in st.session_state:
-    _perf_start("init_aliases")
-    alias_file_token = _aliases_file_token()
-    df_aliases = carregar_aliases(alias_file_token)
-    if df_aliases is not None:
-        df_aliases = aplicar_alias_overrides(df_aliases)
-        st.session_state['df_aliases'] = df_aliases
-        st.session_state['dict_aliases'] = dict(zip(df_aliases['Instituição'], df_aliases['Alias Banco']))
-        # Usar funções cacheadas com dados preparados
-        alias_hash, alias_data = _preparar_aliases_para_cache(df_aliases)
-        dict_aliases_norm = construir_dict_aliases_normalizado(alias_hash, alias_data)
-        st.session_state['dict_aliases_norm'] = dict_aliases_norm
-        cores_hash, cores_data = _preparar_cores_para_cache(df_aliases)
-        st.session_state['dict_cores_personalizadas'] = carregar_cores_aliases_local(cores_hash, cores_data)
-        st.session_state['colunas_classificacao'] = [c for c in df_aliases.columns if c not in ['Instituição','Alias Banco','Cor','Código Cor']]
-    print(_perf_log("init_aliases"))
+    st.session_state['df_aliases'] = pd.DataFrame()
+    st.session_state['dict_aliases'] = {}
+    st.session_state['dict_aliases_norm'] = {}
+    st.session_state['dict_cores_personalizadas'] = {}
+    st.session_state['colunas_classificacao'] = []
 
 def _cache_version_token(tipo_cache: str) -> str:
     """Token estável para invalidar caches processados quando arquivo base muda."""
@@ -9958,20 +9663,12 @@ def _cache_version_token(tipo_cache: str) -> str:
 
 
 def _alias_signature() -> tuple:
-    dict_aliases = st.session_state.get('dict_aliases', {}) or {}
-    return tuple(sorted((str(k), str(v)) for k, v in dict_aliases.items()))
+    return ()
 
 
 def _alias_signature_cache_key() -> tuple:
-    """Normaliza assinatura de aliases para uso seguro em caches do Streamlit."""
-    alias_sig_key = _to_cache_key(_alias_signature())
-    if (
-        isinstance(alias_sig_key, tuple)
-        and all(isinstance(i, tuple) and len(i) == 2 for i in alias_sig_key)
-    ):
-        return tuple((str(k), str(v)) for k, v in alias_sig_key)
-    alias_sig_json = json.dumps(alias_sig_key, ensure_ascii=False, sort_keys=True)
-    return (("__alias_sig_json__", alias_sig_json),)
+    """Compatibilidade: não há mais assinatura variável de Alias institucional."""
+    return ()
 
 
 def _precisa_recalcular_metricas_rapido(dados_periodos: dict) -> bool:
@@ -10387,12 +10084,9 @@ st.session_state['_menu_prev_rendered'] = menu
 st.markdown("---")
 
 CACHE_DEPENDENCIAS_POR_ABA = {
-    "Snapshot": ["principal", "ativo", "capital", "bloprudencial", "derived_metrics"],
+    "Snapshot": ["principal", "critical_screens", "derived_metrics"],
     "Rankings": ["principal", "capital"],
-    "Peers (Tabela)": [
-        "principal", "ativo", "passivo", "carteira_pf", "carteira_pj",
-        "carteira_instrumentos", "dre", "capital", "bloprudencial", "derived_metrics",
-    ],
+    "Peers (Tabela)": ["principal", "critical_screens"],
     "Evolução": ["principal", "passivo", "ativo", "capital"],
     "Scatter Plot": ["principal", "capital", "derived_metrics"],
     "DRE (Ind. e Congl.)": ["dre", "principal", "dre_individual", "principal_individual"],
@@ -10413,6 +10107,8 @@ def _nota_cache_dependencia(cache_nome: str) -> str:
         return "calculado automaticamente (DRE individual + principal individual)"
     if cache_nome == "bloprudencial":
         return "fonte mensal BLOPRUDENCIAL (BCB)"
+    if cache_nome == "critical_screens":
+        return "parquet curado materializado a partir de principal/capital/ativo/passivo/carteiras/BLOPRUDENCIAL"
     return "extração/cache padrão"
 
 
@@ -10439,10 +10135,12 @@ with st.sidebar:
     st.markdown("")
 
     with st.expander("controle avançado"):
-        if 'df_aliases' in st.session_state:
-            st.success(f"{len(st.session_state['df_aliases'])} aliases carregados")
+        manager_sidebar = get_cache_manager()
+        cache_curado = manager_sidebar.get_cache("critical_screens") if manager_sidebar else None
+        if cache_curado is not None and (cache_curado.arquivo_dados.exists() or cache_curado.arquivo_dados_pickle.exists()):
+            st.success("critical_screens materializado")
         else:
-            st.error("aliases não encontrados")
+            st.warning("critical_screens ainda não materializado")
 
         # Informações detalhadas do cache
         st.markdown("**status do cache**")
@@ -10685,7 +10383,7 @@ if menu == "Sobre":
             </div>
             <div class="ops-card">
                 <div class="ops-title">nomenclatura personalizada</div>
-                <div class="ops-desc">aliases e cores por instituição para manter consistência visual.</div>
+                <div class="ops-desc">nomes canônicos por instituição, com matching oficial e previsível.</div>
             </div>
             <div class="ops-card">
                 <div class="ops-title">exportação</div>
@@ -10715,7 +10413,7 @@ if menu == "Sobre":
             </li>
             <li class="steps-item">
                 <div class="steps-num">3</div>
-                <div class="steps-text"><strong>aplique filtros e aliases</strong> para padronizar nomes e cores.</div>
+                <div class="steps-text"><strong>aplique filtros e nomes canônicos</strong> para padronizar a comparação.</div>
             </li>
             <li class="steps-item">
                 <div class="steps-num">4</div>
@@ -11383,14 +11081,15 @@ elif menu == "Peers (Tabela)":
     _elapsed = time.perf_counter() - _t
     _log_timing("0_garantir_dados_principais", _elapsed)
     print(f"[PEERS_TIMING] 0_garantir_dados_principais: {_elapsed:.3f}s")
-    if _dados_principais_ok:
+    _cache_critico_ok = _garantir_cache_telas_criticas("Peers (Tabela)") if _dados_principais_ok else False
+    if _dados_principais_ok and _cache_critico_ok:
         peers_perf = {}
 
         _t = time.perf_counter()
         t_dados = time.perf_counter()
         peers_ctx = _get_peers_filters_context(
             _cache_version_token("principal"),
-            _alias_signature_cache_key(),
+            tuple(),
         )
         _elapsed = time.perf_counter() - _t
         _log_timing("1_get_analise_base_df", _elapsed)
@@ -11401,8 +11100,7 @@ elif menu == "Peers (Tabela)":
         periodos_ctx = peers_ctx.get("periodos_disponiveis", []) or []
         if bancos_todos and periodos_ctx:
             _t = time.perf_counter()
-            dict_aliases = st.session_state.get('dict_aliases', {})
-            bancos_disponiveis = ordenar_bancos_com_alias(bancos_todos, dict_aliases)
+            bancos_disponiveis = ordenar_bancos_com_alias(bancos_todos, {})
             periodos_disponiveis = ordenar_periodos(list(periodos_ctx))
             periodos_dropdown = ordenar_periodos(list(periodos_ctx), reverso=True)
             _elapsed = time.perf_counter() - _t
@@ -11474,10 +11172,7 @@ elif menu == "Peers (Tabela)":
                         ) if p
                     }))
                     bancos_tuple = tuple(bancos_selecionados)
-                    instituicoes_slice = set(bancos_selecionados)
-                    for _banco_sel in bancos_selecionados:
-                        instituicoes_slice.update(_instituicoes_filtro_snapshot(_banco_sel, dict_aliases))
-                    instituicoes_slice_tuple = tuple(sorted(i for i in instituicoes_slice if i))
+                    instituicoes_slice_tuple = tuple(sorted(i for i in bancos_selecionados if i))
                     df = get_analise_base_df(
                         _cache_version_token("principal"),
                         periodos_filter=tuple(periodos_ext_peers),
@@ -11487,21 +11182,14 @@ elif menu == "Peers (Tabela)":
                     # PERF: compute extra metrics via cached wrapper (slices loaded internally)
                     _t = time.perf_counter()
                     _slice_tokens = tuple(sorted([
-                        ("ativo", _cache_version_token("ativo")),
-                        ("passivo", _cache_version_token("passivo")),
-                        ("carteira_pf", _cache_version_token("carteira_pf")),
-                        ("carteira_pj", _cache_version_token("carteira_pj")),
-                        ("carteira_instrumentos", _cache_version_token("carteira_instrumentos")),
-                        ("dre", _cache_version_token("dre")),
-                        ("capital", _cache_version_token("capital")),
-                        ("bloprudencial", _cache_version_token("bloprudencial")),
+                        ("critical_screens", _cache_version_token("critical_screens")),
                     ]))
                     _extra_values = _preparar_metricas_extra_peers_cached(
                         bancos_tuple,
                         tuple(periodos_selecionados),
                         periodos_ext_peers,
                         instituicoes_slice_tuple,
-                        _alias_signature_cache_key(),
+                        tuple(),
                         _slice_tokens,
                     )
                     _elapsed = time.perf_counter() - _t
@@ -11540,66 +11228,6 @@ elif menu == "Peers (Tabela)":
                     st.markdown(html_tabela, unsafe_allow_html=True)
                     _perf_peers_stage(peers_perf, "f_render_tabela", t_render)
 
-                    st.markdown("#### Exportar")
-                    col_exp1, col_exp2, col_exp3 = st.columns(3)
-                    with col_exp1:
-                        st.caption("Tabela formatada (layout visual)")
-                        t_export_fmt = time.perf_counter()
-                        excel_buffer = _gerar_excel_peers_tabela(
-                            bancos_selecionados,
-                            periodos_selecionados,
-                            valores,
-                            colunas_usadas,
-                            delta_flags,
-                        )
-                        st.download_button(
-                            label="Download Excel",
-                            data=excel_buffer,
-                            file_name=f"peers_tabela_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            key="peers_tabela_excel",
-                            use_container_width=True,
-                        )
-                        _perf_peers_stage(peers_perf, "g_preparo_export", t_export_fmt)
-                    with col_exp2:
-                        st.caption("Dados puros (sem formatação)")
-                        t_export_raw = time.perf_counter()
-                        excel_raw = _gerar_excel_peers_dados_puros(
-                            bancos_selecionados,
-                            periodos_selecionados,
-                            valores,
-                            colunas_usadas,
-                            delta_flags,
-                        )
-                        st.download_button(
-                            label="Download Dados Puros",
-                            data=excel_raw,
-                            file_name=f"peers_dados_puros_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            key="peers_dados_puros_excel",
-                            use_container_width=True,
-                        )
-                        _perf_peers_stage(peers_perf, "g_preparo_export", t_export_raw)
-                    with col_exp3:
-                        st.caption("Imagem da tabela")
-                        t_export_png = time.perf_counter()
-                        peers_tabela_png = _gerar_imagem_peers_tabela(
-                            bancos_selecionados,
-                            periodos_selecionados,
-                            valores,
-                            colunas_usadas,
-                            delta_flags,
-                        )
-                        st.download_button(
-                            label="Download PNG",
-                            data=peers_tabela_png.getvalue(),
-                            file_name=f"peers_tabela_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png",
-                            mime="image/png",
-                            key="peers_tabela_png",
-                            use_container_width=True,
-                        )
-                        _perf_peers_stage(peers_perf, "g_preparo_export", t_export_png)
-
                     print("[PEERS_PERF]", {k: round(v, 3) for k, v in sorted(peers_perf.items())})
                     _log_roe_trace(df, "peers_pos_render")
                     tempo_total_peers = time.perf_counter() - t0_peers
@@ -11610,8 +11238,93 @@ elif menu == "Peers (Tabela)":
                         "Tempo de carregamento da aba Peers (Tabela)",
                     )
                     _elapsed_total = time.perf_counter() - t0_peers
-                    _log_timing("TOTAL_peers", _elapsed_total)
-                    print(f"[PEERS_TIMING] TOTAL_peers: {_elapsed_total:.3f}s")
+                    _log_timing("7_total_interativo_peers", _elapsed_total)
+                    print(f"[PEERS_TIMING] TOTAL_interactive_peers: {_elapsed_total:.3f}s")
+
+                    st.markdown("#### Exportar")
+                    export_signature_key = "peers_tabela_export_signature"
+                    export_payload_key = "peers_tabela_export_payload"
+                    selection_signature = (
+                        tuple(sorted(bancos_selecionados)),
+                        tuple(periodos_selecionados),
+                    )
+                    if st.session_state.get(export_signature_key) != selection_signature:
+                        st.session_state.pop(export_payload_key, None)
+                        st.session_state[export_signature_key] = selection_signature
+
+                    if st.button("Preparar arquivos de exportação", key="peers_prepare_exports", use_container_width=True):
+                        payload = {}
+                        t_export_fmt = time.perf_counter()
+                        payload["excel_tabela"] = _gerar_excel_peers_tabela(
+                            bancos_selecionados,
+                            periodos_selecionados,
+                            valores,
+                            colunas_usadas,
+                            delta_flags,
+                        )
+                        _perf_peers_stage(peers_perf, "g_preparo_export", t_export_fmt)
+                        _log_timing("8_export_excel_tabela", time.perf_counter() - t_export_fmt)
+
+                        t_export_raw = time.perf_counter()
+                        payload["excel_raw"] = _gerar_excel_peers_dados_puros(
+                            bancos_selecionados,
+                            periodos_selecionados,
+                            valores,
+                            colunas_usadas,
+                            delta_flags,
+                        )
+                        _perf_peers_stage(peers_perf, "g_preparo_export", t_export_raw)
+                        _log_timing("9_export_dados_puros", time.perf_counter() - t_export_raw)
+
+                        t_export_png = time.perf_counter()
+                        payload["png"] = _gerar_imagem_peers_tabela(
+                            bancos_selecionados,
+                            periodos_selecionados,
+                            valores,
+                            colunas_usadas,
+                            delta_flags,
+                        )
+                        _perf_peers_stage(peers_perf, "g_preparo_export", t_export_png)
+                        _log_timing("10_export_png", time.perf_counter() - t_export_png)
+
+                        st.session_state[export_payload_key] = payload
+                        st.rerun()
+
+                    exports_payload = st.session_state.get(export_payload_key)
+                    if exports_payload:
+                        col_exp1, col_exp2, col_exp3 = st.columns(3)
+                        with col_exp1:
+                            st.caption("Tabela formatada (layout visual)")
+                            st.download_button(
+                                label="Download Excel",
+                                data=exports_payload["excel_tabela"],
+                                file_name=f"peers_tabela_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                key="peers_tabela_excel",
+                                use_container_width=True,
+                            )
+                        with col_exp2:
+                            st.caption("Dados puros (sem formatação)")
+                            st.download_button(
+                                label="Download Dados Puros",
+                                data=exports_payload["excel_raw"],
+                                file_name=f"peers_dados_puros_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                key="peers_dados_puros_excel",
+                                use_container_width=True,
+                            )
+                        with col_exp3:
+                            st.caption("Imagem da tabela")
+                            st.download_button(
+                                label="Download PNG",
+                                data=exports_payload["png"].getvalue(),
+                                file_name=f"peers_tabela_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png",
+                                mime="image/png",
+                                key="peers_tabela_png",
+                                use_container_width=True,
+                            )
+                    else:
+                        st.caption("Exports são gerados sob demanda e não entram no tempo interativo da aba.")
 
                     # DIAG-WEB-2: painel de timings visível no app (ambiente web)
                     _timing_log = st.session_state.get("peers_timing_log", [])
@@ -21355,10 +21068,11 @@ elif menu == "Atualizar Base":
         st.session_state['cache_manager'] = CacheManager()
     cache_manager = st.session_state['cache_manager']
 
-    if 'df_aliases' in st.session_state:
-        st.success(f"{len(st.session_state['df_aliases'])} aliases carregados")
+    cache_curado = cache_manager.get_cache("critical_screens")
+    if cache_curado is not None and (cache_curado.arquivo_dados.exists() or cache_curado.arquivo_dados_pickle.exists()):
+        st.success("critical_screens disponível")
     else:
-        st.error("aliases não encontrados")
+        st.warning("critical_screens ainda não materializado")
 
     st.markdown("### Extração de Dados (Admin)")
 
@@ -21423,26 +21137,26 @@ elif menu == "Atualizar Base":
         else:
             st.caption(f"Repositório: `{github_status.get('repo')}` | Tag: `{github_status.get('tag')}`")
 
-    st.markdown("### Mapeamento Instituições")
+    st.markdown("### Canonização de Instituições")
     diagnostico_map = _diagnostico_mapeamento_instituicoes(cache_manager, st.session_state.get("df_aliases"))
     c1, c2, c3 = st.columns(3)
     with c1:
-        st.metric("Cobertura por código", f"{diagnostico_map['cobertura_pct']:.1f}%")
+        st.metric("Cobertura canônica", f"{diagnostico_map['cobertura_pct']:.1f}%")
     with c2:
         st.metric("Códigos nos caches", f"{diagnostico_map['total_codigos_cache']:,}".replace(",", "."))
     with c3:
-        st.metric("Códigos no alias", f"{diagnostico_map['total_codigos_alias']:,}".replace(",", "."))
+        st.metric("Códigos resolvidos", f"{diagnostico_map['total_codigos_alias']:,}".replace(",", "."))
 
     status_diag = diagnostico_map.get("status")
     if status_diag == "sem_coluna_codigo":
         st.warning(
-            "Não foi possível calcular cobertura por código com os dados atuais: "
+            "Não foi possível calcular cobertura canônica por código com os dados atuais: "
             "nenhum cache carregado contém simultaneamente coluna de código e coluna de instituição."
         )
     elif status_diag == "sem_cache_manager":
         st.error("Gerenciador de cache indisponível para executar a auditoria de mapeamento.")
 
-    with st.expander("auditoria de mapeamento", expanded=False):
+    with st.expander("auditoria de canonização", expanded=False):
         detalhes_cache = diagnostico_map.get("detalhes_cache", pd.DataFrame())
         if not detalhes_cache.empty:
             st.caption("Diagnóstico de colunas por cache (rastreabilidade da auditoria).")
@@ -21453,15 +21167,15 @@ elif menu == "Atualizar Base":
         divergencias_nome = diagnostico_map["divergencias_nome"]
         placeholder_if = diagnostico_map["placeholder_if"]
 
-        st.caption("Conflitos de alias (mesmo alias ligado a múltiplos códigos).")
+        st.caption("Conflitos canônicos (mesmo nome canônico ligado a múltiplos códigos).")
         if conflitos_alias.empty:
-            st.info("Nenhum conflito de alias detectado para os códigos carregados.")
+            st.info("Nenhum conflito canônico detectado para os códigos carregados.")
         else:
             st.dataframe(conflitos_alias, width='stretch', hide_index=True)
 
-        st.caption("Instituições presentes em cache sem mapeamento por código no arquivo de alias.")
+        st.caption("Instituições ainda não resolvidas por código nos caches auditáveis.")
         if sem_alias.empty:
-            st.info("Nenhuma pendência sem alias por código entre os caches auditáveis.")
+            st.info("Nenhuma pendência de resolução por código entre os caches auditáveis.")
         else:
             st.dataframe(sem_alias.head(500), width='stretch', hide_index=True)
             csv_sem_alias = sem_alias.to_csv(index=False).encode("utf-8")
@@ -21753,8 +21467,8 @@ elif menu == "Atualizar Base":
             help="mantém o cache persistido no GitHub Releases.",
         )
 
-        # Para taxas de juros, não precisa de aliases; para outros, precisa
-        pode_extrair = is_taxas_juros or ('dict_aliases' in st.session_state)
+        # A extração não depende mais de alias local.
+        pode_extrair = True
         if not is_taxas_juros and not is_bloprudencial and not periodos_extrair:
             st.error("nenhum período válido selecionado para extração.")
             pode_extrair = False
@@ -22343,7 +22057,7 @@ elif menu == "Atualizar Base":
                             st.code(traceback.format_exc())
 
         else:
-            st.warning("carregue os aliases primeiro (verifique a conexão com Google Sheets)")
+                        st.warning("nenhum período válido selecionado para extração.")
 
         # =============================================================
         # SEÇÃO: PUBLICAR NO GITHUB

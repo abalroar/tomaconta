@@ -12,11 +12,17 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import List, Optional
 
-import pandas as pd
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
 
 from utils.ifdata_cache import CacheManager, gerar_periodos_trimestrais
+from utils.ifdata_cache import (
+    describe_support_window,
+    filter_supported_periods,
+    materialize_critical_screens_cache,
+)
 
 
 DEFAULT_TIPOS = [
@@ -65,49 +71,6 @@ def _gerar_periodos_mensais(inicio: str, fim: str) -> List[str]:
     return periodos
 
 
-def _resolver_aliases_path() -> Path:
-    base = Path(__file__).resolve().parent.parent
-    candidatos = [
-        base / "data" / "Aliases.xlsx",
-        base / "data" / "alias.xlsx",
-        base / "Data" / "Aliases.xlsx",
-        base / "Data" / "alias.xlsx",
-        base / "data_sources" / "Aliases.xlsx",
-    ]
-    for caminho in candidatos:
-        if caminho.exists():
-            return caminho
-    return candidatos[0]
-
-
-def _carregar_aliases() -> Dict[str, str]:
-    path = _resolver_aliases_path()
-    if not path.exists():
-        return {}
-    try:
-        df = pd.read_excel(path)
-    except Exception:
-        return {}
-
-    col_inst = None
-    col_alias = None
-    for c in df.columns:
-        if str(c).strip().lower() in {"instituição", "instituicao", "instituicao_original"}:
-            col_inst = c
-        if str(c).strip().lower() in {"alias banco", "alias", "apelido"}:
-            col_alias = c
-    if not col_inst or not col_alias:
-        return {}
-
-    mapping = {}
-    for _, row in df.iterrows():
-        inst = str(row.get(col_inst, "")).strip()
-        alias = str(row.get(col_alias, "")).strip()
-        if inst and alias:
-            mapping[inst] = alias
-    return mapping
-
-
 def _listar_caches(manager: CacheManager) -> None:
     _print("Caches disponíveis:")
     for nome in manager.listar_caches():
@@ -133,7 +96,6 @@ def main() -> int:
     parser.add_argument("--mensal-fim", help="fim mensal YYYYMM (para bloprudencial)")
 
     parser.add_argument("--force-refresh", action="store_true", help="forçar download (bloprudencial)")
-    parser.add_argument("--sem-aliases", action="store_true", help="não carregar Aliases.xlsx")
 
     args = parser.parse_args()
 
@@ -158,8 +120,7 @@ def main() -> int:
         if args.ano_inicial and args.mes_inicial and args.ano_final and args.mes_final:
             periodos = gerar_periodos_trimestrais(args.ano_inicial, args.mes_inicial, args.ano_final, args.mes_final)
 
-    aliases = {} if args.sem_aliases else _carregar_aliases()
-
+    tipos_atualizados = set()
     for tipo in tipos:
         if tipo == "bloprudencial":
             if not periodos:
@@ -172,7 +133,17 @@ def main() -> int:
             _print("Informe --periodos ou --ano/mes inicial/final para caches trimestrais.")
             return 1
 
-        _print(f"==> Atualizando cache '{tipo}' ({len(periodos)} períodos), modo={args.modo}")
+        periodos_suportados, periodos_ignorados = filter_supported_periods(tipo, list(periodos))
+        if periodos_ignorados:
+            _print(
+                f"[SKIP] {tipo}: ignorando {len(periodos_ignorados)} período(s) fora da janela suportada "
+                f"({describe_support_window(tipo)}): {', '.join(periodos_ignorados[:6])}"
+            )
+        if not periodos_suportados:
+            _print(f"[SKIP] {tipo}: nenhum período suportado após filtrar a janela disponível.")
+            continue
+
+        _print(f"==> Atualizando cache '{tipo}' ({len(periodos_suportados)} períodos), modo={args.modo}")
         kwargs = {}
         if tipo == "bloprudencial":
             kwargs["force_refresh"] = bool(args.force_refresh)
@@ -180,17 +151,35 @@ def main() -> int:
 
         result = manager.extrair_periodos_com_salvamento(
             tipo=tipo,
-            periodos=list(periodos),
+            periodos=list(periodos_suportados),
             modo=args.modo,
             intervalo_salvamento=args.intervalo,
-            dict_aliases=aliases,
             **kwargs,
         )
 
         if result.sucesso:
             _print(f"OK: {result.mensagem}")
+            tipos_atualizados.add(tipo)
         else:
             _print(f"ERRO: {result.mensagem}")
+            return 1
+
+    if tipos_atualizados & {
+        "principal",
+        "capital",
+        "ativo",
+        "passivo",
+        "carteira_pf",
+        "carteira_pj",
+        "carteira_instrumentos",
+        "bloprudencial",
+    }:
+        _print("==> Materializando cache curado de Snapshot/Peers")
+        result_curado = materialize_critical_screens_cache(force=True)
+        if result_curado.sucesso:
+            _print(f"OK: {result_curado.mensagem}")
+        else:
+            _print(f"ERRO ao materializar critical_screens: {result_curado.mensagem}")
             return 1
 
     _print("\\nConcluído.")

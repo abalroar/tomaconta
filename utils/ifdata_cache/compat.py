@@ -234,7 +234,8 @@ def processar_todos_periodos_capital(
         if progress_callback:
             progress_callback(i, len(periodos), periodo)
 
-        resultado = cache.extrair_periodo(periodo, dict_aliases=dict_aliases)
+        _ = dict_aliases
+        resultado = cache.extrair_periodo(periodo)
 
         if resultado.sucesso and resultado.dados is not None:
             dados_todos[periodo] = resultado.dados

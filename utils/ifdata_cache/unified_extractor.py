@@ -430,11 +430,7 @@ def processar_periodo(
                 axis=1
             )
 
-        # 9. Aplicar aliases se fornecido
-        if dict_aliases:
-            df_pivot["NomeInstituicao"] = df_pivot["NomeInstituicao"].apply(
-                lambda x: dict_aliases.get(x, x) if pd.notna(x) else x
-            )
+        # 9. Preservar nome oficial da fonte; alias foi removido do pipeline.
 
         # 10. Adicionar período
         df_pivot["Periodo"] = periodo
