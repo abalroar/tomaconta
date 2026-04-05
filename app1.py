@@ -5449,6 +5449,18 @@ def _preparar_metricas_extra_peers(
     periodos_base = {_periodo_ano_anterior(periodo) for periodo in periodos}
     periodos_ext = [p for p in periodos + sorted(periodos_base) if p]
 
+    # FIX-2: materializa lookup (Instituição, Período) uma única vez por DataFrame.
+    for _df_cache in (
+        cache_ativo,
+        cache_passivo,
+        cache_carteira_pf,
+        cache_carteira_pj,
+        cache_carteira_instr,
+        cache_dre,
+        cache_capital,
+    ):
+        _build_peers_lookup(_df_cache)
+
     def _periodo_to_yyyymm(periodo: str) -> Optional[str]:
         parsed = _parse_periodo(periodo)
         if not parsed:
@@ -6290,6 +6302,20 @@ def _montar_tabela_peers(
     coluna_lucro = _resolver_coluna_peers(df, ["Lucro Líquido Acumulado YTD", "Lucro Líquido"])
     if perf is None:
         perf = {}
+
+    # FIX-2: evita reconstruções/lazy builds por célula.
+    _build_peers_lookup(df)
+    for _df_cache in (
+        (caches_extras or {}).get("ativo"),
+        (caches_extras or {}).get("passivo"),
+        (caches_extras or {}).get("carteira_pf"),
+        (caches_extras or {}).get("carteira_pj"),
+        (caches_extras or {}).get("carteira_instrumentos"),
+        (caches_extras or {}).get("dre"),
+        (caches_extras or {}).get("capital"),
+        (caches_extras or {}).get("bloprudencial"),
+    ):
+        _build_peers_lookup(_df_cache)
 
     t_extra = time.perf_counter()
     extra_values = _preparar_metricas_extra_peers(
@@ -7692,7 +7718,7 @@ def pagina_snapshot():
     st.markdown("### Snapshot")
     st.caption("briefing executivo rápido com os principais indicadores da instituição.")
 
-    df_base = get_analise_base_df()
+    df_base = get_analise_base_df(_cache_version_token("principal"))
     if df_base is None or df_base.empty or "Instituição" not in df_base.columns:
         st.warning("base indisponível para Snapshot.")
         return
@@ -9052,9 +9078,12 @@ def _get_analise_base_df(
     return result
 
 
-def get_analise_base_df(periodos_filter: Optional[list] = None) -> pd.DataFrame:
+def get_analise_base_df(
+    cache_token: Optional[str] = None,
+    periodos_filter: Optional[list] = None,
+) -> pd.DataFrame:
     """Retorna base memoizada para Peers e Scatter."""
-    principal_token = _cache_version_token("principal")
+    principal_token = cache_token if cache_token is not None else _cache_version_token("principal")
     alias_sig = _alias_signature()
     capital_mesclado = bool(st.session_state.get('_dados_capital_mesclados', False))
     return _get_analise_base_df(
@@ -10807,7 +10836,7 @@ elif menu == "Peers (Tabela)":
 
         _t = time.perf_counter()
         t_dados = time.perf_counter()
-        df = get_analise_base_df()
+        df = get_analise_base_df(_cache_version_token("principal"))
         _elapsed = time.perf_counter() - _t
         _log_timing("1_get_analise_base_df", _elapsed)
         print(f"[PEERS_TIMING] 1_get_analise_base_df: {_elapsed:.3f}s")
@@ -10884,7 +10913,10 @@ elif menu == "Peers (Tabela)":
                     for _banco_sel in bancos_selecionados:
                         instituicoes_slice.update(_instituicoes_filtro_snapshot(_banco_sel, dict_aliases))
                     instituicoes_slice_tuple = tuple(sorted(i for i in instituicoes_slice if i))
-                    df = get_analise_base_df(periodos_filter=list(periodos_ext_peers))
+                    df = get_analise_base_df(
+                        _cache_version_token("principal"),
+                        periodos_filter=list(periodos_ext_peers),
+                    )
 
                     # Carregamento já recortado no nível do cache (evita ler dataset inteiro)
                     t_slice = time.perf_counter()
@@ -11402,7 +11434,7 @@ elif menu == "Evolução":
         if not st.session_state.get("dados_capital"):
             carregar_dados_capital()
 
-        df_ev = get_analise_base_df()
+        df_ev = get_analise_base_df(_cache_version_token("principal"))
         if df_ev is None or df_ev.empty:
             st.warning("dados indisponíveis para a aba Evolução.")
             st.stop()
@@ -12154,7 +12186,7 @@ elif menu == "Evolução":
 
 elif menu == "Scatter Plot":
     if _garantir_dados_principais("Scatter Plot"):
-        df = get_analise_base_df()
+        df = get_analise_base_df(_cache_version_token("principal"))
         _log_roe_trace(df, "scatter_df_base")
         df = _garantir_indice_basileia_coluna(df)
         df = _ajustar_basileia_para_scatter(df)
