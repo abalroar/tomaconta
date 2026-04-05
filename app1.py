@@ -1786,6 +1786,173 @@ def _preparar_aliases_para_cache(df_aliases):
     aliases = tuple(df_aliases['Alias Banco'].tolist())
     return content_hash, (instituicoes, aliases)
 
+def _detectar_coluna_codigo_aliases(df_aliases: Optional[pd.DataFrame]) -> Optional[str]:
+    """Detecta coluna de código institucional no Aliases.xlsx."""
+    if df_aliases is None or df_aliases.empty:
+        return None
+    candidatos = ["CodInst", "COD_INST", "Código", "Codigo", "Cod", "COD"]
+    for col in candidatos:
+        if col in df_aliases.columns:
+            return col
+    return None
+
+
+def construir_dict_aliases_por_codigo(df_aliases: Optional[pd.DataFrame]) -> dict[int, str]:
+    """Constrói mapa canônico cod_inst -> alias para uso prioritário na UI."""
+    if df_aliases is None or df_aliases.empty:
+        return {}
+    if "Alias Banco" not in df_aliases.columns:
+        return {}
+    col_cod = _detectar_coluna_codigo_aliases(df_aliases)
+    if not col_cod:
+        return {}
+
+    df_map = df_aliases[[col_cod, "Alias Banco"]].copy()
+    df_map[col_cod] = pd.to_numeric(df_map[col_cod], errors="coerce")
+    df_map = df_map.dropna(subset=[col_cod, "Alias Banco"])
+    if df_map.empty:
+        return {}
+
+    df_map[col_cod] = df_map[col_cod].astype(int)
+    return dict(zip(df_map[col_cod], df_map["Alias Banco"].astype(str)))
+
+
+def _diagnostico_mapeamento_instituicoes(
+    cache_manager,
+    df_aliases: Optional[pd.DataFrame],
+) -> dict:
+    """Gera diagnóstico de cobertura/conflitos do mapeamento institucional."""
+    if cache_manager is None:
+        return {
+            "status": "sem_cache_manager",
+            "cobertura_pct": 0.0,
+            "total_codigos_cache": 0,
+            "total_codigos_alias": 0,
+            "conflitos_alias": pd.DataFrame(),
+            "sem_alias": pd.DataFrame(),
+            "divergencias_nome": pd.DataFrame(),
+            "placeholder_if": pd.DataFrame(),
+            "detalhes_cache": pd.DataFrame(),
+        }
+
+    col_cod_alias = _detectar_coluna_codigo_aliases(df_aliases)
+    alias_cod_df = pd.DataFrame()
+    if (
+        df_aliases is not None
+        and not df_aliases.empty
+        and col_cod_alias
+        and "Alias Banco" in df_aliases.columns
+    ):
+        alias_cod_df = df_aliases[[col_cod_alias, "Instituição", "Alias Banco"]].copy()
+        alias_cod_df[col_cod_alias] = pd.to_numeric(alias_cod_df[col_cod_alias], errors="coerce")
+        alias_cod_df = alias_cod_df.dropna(subset=[col_cod_alias]).copy()
+        if not alias_cod_df.empty:
+            alias_cod_df["cod_inst"] = alias_cod_df[col_cod_alias].astype(int)
+            alias_cod_df = alias_cod_df.drop(columns=[col_cod_alias])
+    codigos_alias = set(alias_cod_df["cod_inst"].dropna().astype(int).tolist()) if not alias_cod_df.empty else set()
+
+    cache_catalogo = []
+    detalhes_cache = []
+    for cache_tipo in ["principal", "capital", "ativo", "passivo", "dre", "bloprudencial"]:
+        resultado = cache_manager.carregar(cache_tipo)
+        if not resultado.sucesso or resultado.dados is None or resultado.dados.empty:
+            detalhes_cache.append(
+                {
+                    "cache": cache_tipo,
+                    "carregado": False,
+                    "registros": 0,
+                    "coluna_codigo": "",
+                    "coluna_nome": "",
+                    "motivo": resultado.mensagem if resultado else "cache vazio/indisponível",
+                }
+            )
+            continue
+        df_cache = resultado.dados
+        col_cod = _snapshot_pick_col(df_cache, ["CodInst", "COD_INST", "cod_inst", "CODINST", "COD_CONGL", "cod_congl"])
+        col_inst = _snapshot_pick_col(df_cache, ["Instituição", "NOME_INSTITUICAO", "NOME_CONGL", "Nome_Congl"])
+        detalhes_cache.append(
+            {
+                "cache": cache_tipo,
+                "carregado": True,
+                "registros": int(len(df_cache)),
+                "coluna_codigo": col_cod or "",
+                "coluna_nome": col_inst or "",
+                "motivo": "" if (col_cod and col_inst) else "colunas obrigatórias ausentes para auditoria por código",
+            }
+        )
+        if not col_cod or not col_inst:
+            continue
+        base = df_cache[[col_cod, col_inst]].copy()
+        base[col_cod] = pd.to_numeric(base[col_cod], errors="coerce")
+        base = base.dropna(subset=[col_cod]).copy()
+        if base.empty:
+            continue
+        base["cod_inst"] = base[col_cod].astype(int)
+        base["nome_cache"] = base[col_inst].astype(str)
+        base["cache"] = cache_tipo
+        cache_catalogo.append(base[["cache", "cod_inst", "nome_cache"]].drop_duplicates())
+
+    if not cache_catalogo:
+        return {
+            "status": "sem_coluna_codigo",
+            "cobertura_pct": 0.0,
+            "total_codigos_cache": 0,
+            "total_codigos_alias": len(codigos_alias),
+            "conflitos_alias": pd.DataFrame(),
+            "sem_alias": pd.DataFrame(),
+            "divergencias_nome": pd.DataFrame(),
+            "placeholder_if": pd.DataFrame(),
+            "detalhes_cache": pd.DataFrame(detalhes_cache),
+        }
+
+    df_catalogo = pd.concat(cache_catalogo, ignore_index=True).drop_duplicates()
+    codigos_catalogo = set(df_catalogo["cod_inst"].dropna().astype(int).tolist())
+    cobertura = (len(codigos_catalogo & codigos_alias) / len(codigos_catalogo) * 100) if codigos_catalogo else 0.0
+
+    conflitos_alias = pd.DataFrame()
+    if not alias_cod_df.empty:
+        conflitos_alias = (
+            alias_cod_df.dropna(subset=["Alias Banco"])
+            .groupby("Alias Banco", as_index=False)["cod_inst"]
+            .nunique()
+            .query("cod_inst > 1")
+            .rename(columns={"cod_inst": "qtd_codigos"})
+            .sort_values("qtd_codigos", ascending=False)
+        )
+
+    sem_alias = df_catalogo[~df_catalogo["cod_inst"].isin(codigos_alias)].copy()
+    sem_alias = sem_alias.sort_values(["cache", "nome_cache"]).reset_index(drop=True)
+
+    divergencias_nome = (
+        df_catalogo.groupby("cod_inst", as_index=False)["nome_cache"]
+        .nunique()
+        .query("nome_cache > 1")
+        .rename(columns={"nome_cache": "qtd_nomes"})
+        .sort_values("qtd_nomes", ascending=False)
+    )
+    if not divergencias_nome.empty:
+        nomes_por_cod = (
+            df_catalogo.groupby("cod_inst")["nome_cache"]
+            .apply(lambda s: " | ".join(sorted(set(s.astype(str)))[:5]))
+            .reset_index(name="amostra_nomes")
+        )
+        divergencias_nome = divergencias_nome.merge(nomes_por_cod, on="cod_inst", how="left")
+
+    placeholder_if = df_catalogo[df_catalogo["nome_cache"].astype(str).str.contains(r"^\[IF\s+\d+\]$", regex=True, na=False)].copy()
+
+    return {
+        "status": "ok",
+        "cobertura_pct": cobertura,
+        "total_codigos_cache": len(codigos_catalogo),
+        "total_codigos_alias": len(codigos_alias),
+        "conflitos_alias": conflitos_alias,
+        "sem_alias": sem_alias,
+        "divergencias_nome": divergencias_nome,
+        "placeholder_if": placeholder_if,
+        "detalhes_cache": pd.DataFrame(detalhes_cache),
+    }
+
+
 def aplicar_aliases_em_periodos(dados_periodos, dict_aliases, mapa_codigos=None):
     if not dados_periodos:
         return dados_periodos
@@ -5281,23 +5448,20 @@ def _aplicar_aliases_df(df: Optional[pd.DataFrame], dict_aliases: dict) -> Optio
     if df is None or df.empty:
         return df
     df_out = _normalizar_nomes_carteira(df.copy())
-    if dict_aliases and "Instituição" in df_out.columns:
-        # Build expanded alias map: both original name and normalized name → alias
-        _alias_map = {}
-        for _nome_orig, _alias_val in dict_aliases.items():
-            if pd.notna(_nome_orig) and pd.notna(_alias_val):
-                _alias_map[_nome_orig] = _alias_val
-                _nome_norm = normalizar_nome_instituicao(_nome_orig)
-                if _nome_norm:
-                    _alias_map[_nome_norm] = _alias_val
+    if "Instituição" not in df_out.columns:
+        return df_out
+
+    dict_aliases_codinst = st.session_state.get("dict_aliases_codinst", {}) or {}
+    col_cod = _snapshot_pick_col(df_out, ["CodInst", "COD_INST", "cod_inst", "CODINST"])
+
+    if dict_aliases_codinst and col_cod:
+        cod_series = pd.to_numeric(df_out[col_cod], errors="coerce")
+        alias_cod = cod_series.map(dict_aliases_codinst)
+        df_out["Instituição"] = alias_cod.fillna(df_out["Instituição"])
+
+    if dict_aliases:
         col = df_out["Instituição"]
-        mapped = col.map(_alias_map)
-        # Where map found no match, try normalizing the source name
-        mask_miss = mapped.isna() & col.notna()
-        if mask_miss.any():
-            norm_series = col[mask_miss].map(normalizar_nome_instituicao)
-            mapped[mask_miss] = norm_series.map(_alias_map)
-        # Fill remaining NaN with original values
+        mapped = col.map(dict_aliases)
         df_out["Instituição"] = mapped.fillna(col)
     return df_out
 
@@ -7232,6 +7396,20 @@ def _snapshot_bloprud_stage3_pdd_por_periodo(
             return stage3_map, pdd_map
         base_txt = df_blop[col_data_base].astype(str).str.replace(r"\D", "", regex=True).str[:6]
         df_blop["Período"] = base_txt.str[4:6] + "/" + base_txt.str[:4]
+
+    # Match principal por código (quando disponível), evitando variações textuais.
+    col_cod_blop = _snapshot_pick_col(df_blop, ["COD_CONGL", "Cod_Congl", "cod_congl", "COD_INST", "CodInst"])
+    dict_aliases_codinst = st.session_state.get("dict_aliases_codinst", {}) or {}
+    if col_cod_blop and dict_aliases_codinst:
+        alias_para_codigos = {}
+        for cod, alias in dict_aliases_codinst.items():
+            alias_para_codigos.setdefault(str(alias), set()).add(int(cod))
+        codigos_alvo = alias_para_codigos.get(str(banco), set())
+        if codigos_alvo:
+            cod_series = pd.to_numeric(df_blop[col_cod_blop], errors="coerce")
+            df_blop = df_blop.loc[cod_series.isin(codigos_alvo)].copy()
+            if df_blop.empty:
+                return stage3_map, pdd_map
 
     def _snapshot_nome_variants(valor: str) -> set[str]:
         base = _normalizar_label_peers(valor)
@@ -9750,12 +9928,11 @@ if 'df_aliases' not in st.session_state:
         df_aliases = aplicar_alias_overrides(df_aliases)
         st.session_state['df_aliases'] = df_aliases
         st.session_state['dict_aliases'] = dict(zip(df_aliases['Instituição'], df_aliases['Alias Banco']))
+        st.session_state['dict_aliases_codinst'] = construir_dict_aliases_por_codigo(df_aliases)
         # Usar funções cacheadas com dados preparados
         alias_hash, alias_data = _preparar_aliases_para_cache(df_aliases)
         dict_aliases_norm = construir_dict_aliases_normalizado(alias_hash, alias_data)
         st.session_state['dict_aliases_norm'] = dict_aliases_norm
-        # Usa lookup robusto como dicionário principal para cobrir variações de nome entre bases.
-        st.session_state['dict_aliases'] = dict_aliases_norm
         cores_hash, cores_data = _preparar_cores_para_cache(df_aliases)
         st.session_state['dict_cores_personalizadas'] = carregar_cores_aliases_local(cores_hash, cores_data)
         st.session_state['colunas_classificacao'] = [c for c in df_aliases.columns if c not in ['Instituição','Alias Banco','Cor','Código Cor']]
@@ -9856,13 +10033,6 @@ def _carregar_dados_periodos_preparados(cache_token: str, alias_sig: tuple):
     # Garante coluna canônica e valores consistentes de ROE entre abas.
     dados_cache = _sincronizar_roe_anualizado(dados_cache)
 
-    if alias_sig:
-        dict_aliases = dict(alias_sig)
-        dados_cache = aplicar_aliases_em_periodos(
-            dados_cache,
-            dict_aliases,
-            mapa_codigos=None,
-        )
     return dados_cache
 
 
@@ -9875,13 +10045,6 @@ def _carregar_dados_capital_preparados(cache_token: str, alias_sig: tuple):
     if not dados_capital:
         return None
 
-    if alias_sig:
-        dict_aliases = dict(alias_sig)
-        dados_capital = aplicar_aliases_em_periodos(
-            dados_capital,
-            dict_aliases,
-            mapa_codigos=None,
-        )
     return dados_capital
 
 
@@ -21261,6 +21424,68 @@ elif menu == "Atualizar Base":
         else:
             st.caption(f"Repositório: `{github_status.get('repo')}` | Tag: `{github_status.get('tag')}`")
 
+    st.markdown("### Mapeamento Instituições")
+    diagnostico_map = _diagnostico_mapeamento_instituicoes(cache_manager, st.session_state.get("df_aliases"))
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.metric("Cobertura por código", f"{diagnostico_map['cobertura_pct']:.1f}%")
+    with c2:
+        st.metric("Códigos nos caches", f"{diagnostico_map['total_codigos_cache']:,}".replace(",", "."))
+    with c3:
+        st.metric("Códigos no alias", f"{diagnostico_map['total_codigos_alias']:,}".replace(",", "."))
+
+    status_diag = diagnostico_map.get("status")
+    if status_diag == "sem_coluna_codigo":
+        st.warning(
+            "Não foi possível calcular cobertura por código com os dados atuais: "
+            "nenhum cache carregado contém simultaneamente coluna de código e coluna de instituição."
+        )
+    elif status_diag == "sem_cache_manager":
+        st.error("Gerenciador de cache indisponível para executar a auditoria de mapeamento.")
+
+    with st.expander("auditoria de mapeamento", expanded=False):
+        detalhes_cache = diagnostico_map.get("detalhes_cache", pd.DataFrame())
+        if not detalhes_cache.empty:
+            st.caption("Diagnóstico de colunas por cache (rastreabilidade da auditoria).")
+            st.dataframe(detalhes_cache, width='stretch', hide_index=True)
+
+        conflitos_alias = diagnostico_map["conflitos_alias"]
+        sem_alias = diagnostico_map["sem_alias"]
+        divergencias_nome = diagnostico_map["divergencias_nome"]
+        placeholder_if = diagnostico_map["placeholder_if"]
+
+        st.caption("Conflitos de alias (mesmo alias ligado a múltiplos códigos).")
+        if conflitos_alias.empty:
+            st.info("Nenhum conflito de alias detectado para os códigos carregados.")
+        else:
+            st.dataframe(conflitos_alias, width='stretch', hide_index=True)
+
+        st.caption("Instituições presentes em cache sem mapeamento por código no arquivo de alias.")
+        if sem_alias.empty:
+            st.info("Nenhuma pendência sem alias por código entre os caches auditáveis.")
+        else:
+            st.dataframe(sem_alias.head(500), width='stretch', hide_index=True)
+            csv_sem_alias = sem_alias.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                "Exportar pendências (CSV)",
+                data=csv_sem_alias,
+                file_name="pendencias_mapeamento_instituicoes.csv",
+                mime="text/csv",
+                key="download_pendencias_mapeamento",
+            )
+
+        st.caption("Divergência de nomes para o mesmo código entre caches.")
+        if divergencias_nome.empty:
+            st.info("Nenhuma divergência de nomenclatura por código nos caches auditáveis.")
+        else:
+            st.dataframe(divergencias_nome, width='stretch', hide_index=True)
+
+        st.caption("Placeholders [IF xxxx] ainda persistidos nos caches.")
+        if placeholder_if.empty:
+            st.info("Nenhum placeholder detectado.")
+        else:
+            st.dataframe(placeholder_if.head(500), width='stretch', hide_index=True)
+
     if senha_input == SENHA_ADMIN:
 
         # =============================================================
@@ -21853,14 +22078,12 @@ elif menu == "Atualizar Base":
 
                     try:
                         if modo_bg:
-                            dict_aliases_bg = dict(st.session_state.get('dict_aliases', {}))
                             def _run_bg_unificado(
                                 periodos_lote_bg,
                                 periodos_restantes_bg,
                                 periodos_totais_bg,
                                 cache_tipo_bg,
                                 modo_bg_local,
-                                dict_aliases_local,
                                 publicar_auto_bg,
                                 gh_token_bg,
                             ):
@@ -21902,7 +22125,7 @@ elif menu == "Atualizar Base":
                                     callback_progresso=callback_progresso_bg,
                                     callback_salvamento=callback_salvamento_bg,
                                     callback_erro=None,
-                                    dict_aliases=dict_aliases_local
+                                    dict_aliases=None
                                 )
 
                                 pendentes_final_bg = periodos_restantes_bg or []
@@ -21970,7 +22193,6 @@ elif menu == "Atualizar Base":
                                     periodos_totais,
                                     cache_selecionado,
                                     modo_atualizacao,
-                                    dict_aliases_bg,
                                     publicar_auto,
                                     gh_token_final,
                                 ),
@@ -21988,7 +22210,7 @@ elif menu == "Atualizar Base":
                             callback_progresso=callback_progresso,
                             callback_salvamento=callback_salvamento,
                             callback_erro=callback_erro,
-                            dict_aliases=st.session_state.get('dict_aliases', {})
+                            dict_aliases=None
                         )
 
                         # Limpar UI de progresso
