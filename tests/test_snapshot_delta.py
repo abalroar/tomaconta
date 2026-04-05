@@ -28,3 +28,18 @@ def test_compute_delta_bps_decimal_scale():
 
 def test_compute_delta_pct_change():
     assert compute_delta(228.7, 217.5, "pct", "pct") == pytest.approx(5.1494, abs=0.001)
+
+
+def test_credito_captacoes_qoq_escala_dec():
+    # Set/25 = 0.4340, Jun/25 = 0.4097 → +2,43 p.p.
+    assert compute_delta(0.4340, 0.4097, "pp", "dec") == pytest.approx(2.43, abs=0.01)
+
+
+def test_credito_captacoes_yoy_escala_dec():
+    # Set/25 = 0.4340, Set/24 = 0.6746 → -24,06 p.p.
+    assert compute_delta(0.4340, 0.6746, "pp", "dec") == pytest.approx(-24.06, abs=0.01)
+
+
+def test_roe_trim_qoq_escala_dec():
+    # Set/25 = 0.1596, Jun/25 = 0.1534 → +0,62 p.p.
+    assert compute_delta(0.1596, 0.1534, "pp", "dec") == pytest.approx(0.62, abs=0.01)

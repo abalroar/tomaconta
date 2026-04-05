@@ -7571,15 +7571,15 @@ def _snapshot_delta_ui(metrica_cfg: dict, valor_atual, valor_base) -> str:
 # ---------------------------------------------------------------------------
 
 SNAPSHOT_METRICS = {
-    "Índice de Basileia": {"tipo_delta": "bps", "escala": "dec"},
-    "ROE trim. anualizado": {"tipo_delta": "pp", "escala": "pct"},
-    "ROE Ac. Anualizado": {"tipo_delta": "pp", "escala": "pct"},
-    "Crédito / Captações": {"tipo_delta": "pp", "escala": "pct"},
-    "Desp. Anualizada Captação / Volume Captação": {"tipo_delta": "pp", "escala": "pct"},
-    "Desp. Anualizada Captações / Volume Captações": {"tipo_delta": "pp", "escala": "pct"},
-    "Perda Esperada / Estágio 3": {"tipo_delta": "pp", "escala": "pct"},
-    "Perda Esperada / Carteira": {"tipo_delta": "pp", "escala": "pct"},
-    "CET1": {"tipo_delta": "bps", "escala": "dec"},
+    "Índice de Basileia":                                {"tipo_delta": "bps", "escala": "dec"},
+    "ROE trim. anualizado":                              {"tipo_delta": "pp",  "escala": "dec"},
+    "ROE Ac. Anualizado":                                {"tipo_delta": "pp",  "escala": "dec"},
+    "Crédito / Captações":                               {"tipo_delta": "pp",  "escala": "dec"},
+    "Desp. Anualizada Captação / Volume Captação":       {"tipo_delta": "pp",  "escala": "dec"},
+    "Desp. Anualizada Captações / Volume Captações":     {"tipo_delta": "pp",  "escala": "dec"},
+    "Perda Esperada / Estágio 3":                        {"tipo_delta": "pp",  "escala": "dec"},
+    "Perda Esperada / Carteira":                         {"tipo_delta": "pp",  "escala": "dec"},
+    "CET1":                                              {"tipo_delta": "bps", "escala": "dec"},
 }
 
 
@@ -7589,7 +7589,7 @@ def _snap_metric_delta_meta(metric_cfg: dict) -> tuple[str, str]:
     meta = SNAPSHOT_METRICS.get(label, {})
     if metric_cfg.get("is_pct", False):
         default_tipo = "bps" if metric_cfg.get("show_bps", False) else "pp"
-        default_escala = "pct"
+        default_escala = "dec"
     else:
         default_tipo = "pct"
         default_escala = "pct"
