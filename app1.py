@@ -9047,7 +9047,7 @@ def _mapear_colunas_capital(df_capital: pd.DataFrame):
     return colunas_encontradas, colunas_faltantes, faltantes_composicao, tem_indice_basileia_precalc
 
 
-def _preparar_df_capital_base() -> pd.DataFrame:
+def _preparar_df_capital_base(periodos_filter: Optional[tuple] = None) -> pd.DataFrame:
     dados_capital = st.session_state.get('dados_capital')
     if not dados_capital:
         cache_token = _cache_version_token("capital")
@@ -9060,6 +9060,16 @@ def _preparar_df_capital_base() -> pd.DataFrame:
     if not dados_capital:
         return pd.DataFrame()
 
+    periodos_set = {str(periodo) for periodo in (periodos_filter or ()) if periodo is not None}
+    if periodos_set:
+        dados_capital = {
+            periodo: df_periodo
+            for periodo, df_periodo in dados_capital.items()
+            if str(periodo) in periodos_set
+        }
+        if not dados_capital:
+            return pd.DataFrame()
+
     dados_periodos = st.session_state.get('dados_periodos')
     if not dados_periodos:
         principal_token = _cache_version_token("principal")
@@ -9067,6 +9077,12 @@ def _preparar_df_capital_base() -> pd.DataFrame:
         dados_periodos = _carregar_dados_periodos_preparados(principal_token, alias_sig)
         if dados_periodos:
             st.session_state['dados_periodos'] = dados_periodos
+    if dados_periodos and periodos_set:
+        dados_periodos = {
+            periodo: df_periodo
+            for periodo, df_periodo in dados_periodos.items()
+            if str(periodo) in periodos_set
+        }
 
     df_capital = pd.concat(dados_capital.values(), ignore_index=True)
     df_capital = normalizar_colunas_capital(df_capital)
@@ -9188,6 +9204,10 @@ def _construir_componentes_capital_rankings(capital_token: str, alias_sig: tuple
     """Pré-calcula componentes de capital para Rankings sem recalcular no render."""
     _ = (capital_token, alias_sig)
     df_capital = _preparar_df_capital_base()
+    return _calcular_componentes_capital_rankings_df(df_capital)
+
+
+def _calcular_componentes_capital_rankings_df(df_capital: pd.DataFrame) -> pd.DataFrame:
     if df_capital is None or df_capital.empty:
         return pd.DataFrame(columns=[
             "Período",
@@ -9286,6 +9306,18 @@ def _construir_componentes_capital_rankings(capital_token: str, alias_sig: tuple
         })
     )
     return df_idx
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _construir_componentes_capital_rankings_slice(
+    capital_token: str,
+    alias_sig: tuple,
+    periodos_filter: tuple,
+) -> pd.DataFrame:
+    """Pré-calcula apenas os períodos necessários para a aba Rankings."""
+    _ = (capital_token, alias_sig)
+    df_capital = _preparar_df_capital_base(periodos_filter=periodos_filter)
+    return _calcular_componentes_capital_rankings_df(df_capital)
 
 
 def normalizar_periodo_chave(periodo: str) -> str:
@@ -9647,20 +9679,155 @@ def _get_evolucao_instituicao_base_df(
     return result
 
 
-def _rankings_expandir_periodos(periodos_selecionados: list) -> tuple:
-    """Expande períodos selecionados com auxiliares necessários para cálculo de ROE."""
-    periodos_set = set()
-    for p in periodos_selecionados:
-        if not p:
+RANKINGS_FAMILY_PRINCIPAL_PREPARED = frozenset(
+    {
+        "Ativo Total",
+        "Carteira de Crédito*",
+        "Core Funding*",
+        "Patrimônio Líquido",
+        "Lucro Líquido Acumulado YTD",
+        "ROE Ac. Anualizado (%)",
+    }
+)
+RANKINGS_FAMILY_CAPITAL_PREPARED = frozenset(
+    {
+        "Índice de Capital Principal (CET1)",
+        "Índice de Capital T1 (%)",
+        "Índice de Basileia Total (%)",
+    }
+)
+RANKINGS_FAMILY_ANALYTICAL = frozenset(
+    {
+        "Lucro Líquido Trimestral",
+        "ROE Trim. Anualizado (%)",
+    }
+)
+
+
+def _rankings_periodos_selecionados(periodos_selecionados: Sequence[str]) -> tuple[str, ...]:
+    return tuple(sorted({str(periodo) for periodo in periodos_selecionados if periodo}))
+
+
+def _rankings_periodo_mesma_representacao(periodo: str, tri_idx: int) -> Optional[str]:
+    parsed = _parse_periodo(periodo)
+    if not parsed:
+        return None
+    parte_txt = str(parsed[0]).strip()
+    if parte_txt in {"03", "06", "09", "12"}:
+        tri_para_parte = {1: 3, 2: 6, 3: 9, 4: 12}
+    else:
+        tri_para_parte = {1: 1, 2: 2, 3: 3, 4: 4}
+    novo_parte = tri_para_parte.get(tri_idx)
+    if novo_parte is None:
+        return None
+    return _periodo_mesma_estrutura(periodo, novo_parte)
+
+
+def _rankings_expandir_periodos_analiticos(
+    periodos_selecionados: Sequence[str],
+    *,
+    incluir_prev_dez: bool,
+    incluir_contexto_trimestral: bool,
+) -> tuple[str, ...]:
+    """Expande apenas os períodos realmente exigidos por métricas analíticas.
+
+    - ROE anualizado: precisa de dezembro do ano anterior para PL médio.
+    - Lucro trimestral / ROE trimestral: precisam do trimestre-base e, para Jun/Dez,
+      também do trimestre imediatamente anterior do mesmo ano para decomposição do YTD.
+    """
+    periodos_set = set(_rankings_periodos_selecionados(periodos_selecionados))
+    for periodo in list(periodos_set):
+        if incluir_prev_dez:
+            periodo_dez = _periodo_dez_ano_anterior(periodo)
+            if periodo_dez:
+                periodos_set.add(periodo_dez)
+
+        if not incluir_contexto_trimestral:
             continue
-        periodos_set.add(p)
-        p_anterior = _periodo_ano_anterior(p)
-        if p_anterior:
-            periodos_set.add(p_anterior)
-        p_dez = _periodo_dez_ano_anterior(p)
-        if p_dez:
-            periodos_set.add(p_dez)
+
+        parsed = _periodo_para_ano_trimestre(periodo)
+        tri_idx = parsed[1] if parsed else None
+        if tri_idx == 2:
+            periodo_aux = _rankings_periodo_mesma_representacao(periodo, 1)
+            if periodo_aux:
+                periodos_set.add(periodo_aux)
+        elif tri_idx == 4:
+            periodo_aux = _rankings_periodo_mesma_representacao(periodo, 3)
+            if periodo_aux:
+                periodos_set.add(periodo_aux)
+
     return tuple(sorted(periodos_set))
+
+
+def _resolve_rankings_source_family(indicador_label: str) -> str:
+    if indicador_label in RANKINGS_FAMILY_PRINCIPAL_PREPARED:
+        return "principal_prepared"
+    if indicador_label in RANKINGS_FAMILY_CAPITAL_PREPARED:
+        return "capital_prepared"
+    if indicador_label in RANKINGS_FAMILY_ANALYTICAL:
+        return "analytical_principal"
+    return "analytical_principal"
+
+
+def _resolve_rankings_source_request(
+    grafico_base: str,
+    indicador_label: str,
+    periodos_resumo: Sequence[str],
+    *,
+    periodo_tabela: Optional[str] = None,
+    modo_tabela: Optional[str] = None,
+) -> dict:
+    """Resolve a família de dados e os períodos auxiliares necessários para Rankings."""
+    if grafico_base == "Tabela":
+        periodo_base = periodo_tabela or (periodos_resumo[0] if periodos_resumo else None)
+        periodos_base = [periodo_base] if periodo_base else []
+        if modo_tabela == "Trimestral":
+            return {
+                "source_kind": "analytical_with_capital",
+                "periodos_filter": _rankings_expandir_periodos_analiticos(
+                    periodos_base,
+                    incluir_prev_dez=True,
+                    incluir_contexto_trimestral=True,
+                ),
+                "needs_capital": True,
+                "perf_label": "rankings_df_source_table_trimestral",
+            }
+        return {
+            "source_kind": "principal_with_capital",
+            "periodos_filter": _rankings_periodos_selecionados(periodos_base),
+            "needs_capital": True,
+            "perf_label": "rankings_df_source_table_acumulado",
+        }
+
+    source_family = _resolve_rankings_source_family(indicador_label)
+    if source_family == "principal_prepared":
+        periodos_filter = (
+            _rankings_expandir_periodos_analiticos(
+                periodos_resumo,
+                incluir_prev_dez=True,
+                incluir_contexto_trimestral=False,
+            )
+            if indicador_label == "ROE Ac. Anualizado (%)"
+            else _rankings_periodos_selecionados(periodos_resumo)
+        )
+        perf_label = "rankings_df_source_principal_prepared"
+    elif source_family == "capital_prepared":
+        periodos_filter = _rankings_periodos_selecionados(periodos_resumo)
+        perf_label = "rankings_df_source_capital_prepared"
+    else:
+        periodos_filter = _rankings_expandir_periodos_analiticos(
+            periodos_resumo,
+            incluir_prev_dez=True,
+            incluir_contexto_trimestral=True,
+        )
+        perf_label = "rankings_df_source_analytical"
+
+    return {
+        "source_kind": source_family,
+        "periodos_filter": periodos_filter,
+        "needs_capital": source_family == "capital_prepared",
+        "perf_label": perf_label,
+    }
 
 
 def get_df_periodo_brincar(periodo: str) -> pd.DataFrame:
@@ -10146,7 +10313,47 @@ def _get_rankings_base_df(
     Reutiliza get_analise_base_df (concat + ROE) e adiciona apenas etapas
     específicas de Rankings: merge de capital e normalização de indicadores.
     """
-    _ = (principal_token, capital_token, capital_mesclado, alias_sig)
+    _ = (capital_mesclado,)
+    df = _get_rankings_analytical_df(
+        principal_token,
+        alias_sig,
+        periodos_filter=periodos_filter,
+    )
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    return _merge_rankings_capital(df, capital_token, alias_sig, periodos_filter)
+
+
+def _merge_rankings_capital(
+    df_base: pd.DataFrame,
+    capital_token: str,
+    alias_sig: tuple,
+    periodos_filter: Optional[tuple] = None,
+) -> pd.DataFrame:
+    if df_base is None or df_base.empty:
+        return pd.DataFrame()
+
+    df = df_base.copy()
+    df_capital_idx = _get_rankings_capital_slice(
+        capital_token,
+        alias_sig,
+        tuple(periodos_filter or ()),
+    )
+    if not df_capital_idx.empty:
+        left_df = df.set_index(["Período", "Instituição"])
+        right_df = df_capital_idx.set_index(["Período", "Instituição"])
+        df = left_df.join(right_df, how="left", rsuffix="_capital_idx").reset_index()
+    return _normalizar_indicadores_rankings(df)
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _get_rankings_analytical_df(
+    principal_token: str,
+    alias_sig: tuple,
+    periodos_filter: Optional[tuple] = None,
+) -> pd.DataFrame:
+    _ = (principal_token, alias_sig)
     df = _get_analise_base_df(
         principal_token,
         alias_sig,
@@ -10155,13 +10362,6 @@ def _get_rankings_base_df(
     )
     if df is None or df.empty:
         return pd.DataFrame()
-
-    df_capital_idx = _construir_componentes_capital_rankings(capital_token, alias_sig)
-    if not df_capital_idx.empty:
-        left_df = df.set_index(["Período", "Instituição"])
-        right_df = df_capital_idx.set_index(["Período", "Instituição"])
-        df = left_df.join(right_df, how="left", rsuffix="_capital_idx").reset_index()
-
     return _normalizar_indicadores_rankings(df)
 
 
@@ -10205,6 +10405,23 @@ def _get_rankings_direct_df(
         return pd.DataFrame()
 
     return _normalizar_indicadores_rankings(df)
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _get_rankings_principal_with_capital_df(
+    principal_token: str,
+    capital_token: str,
+    alias_sig: tuple,
+    periodos_filter: Optional[tuple] = None,
+) -> pd.DataFrame:
+    df = _get_rankings_direct_df(
+        principal_token,
+        alias_sig,
+        periodos_filter=periodos_filter,
+    )
+    if df is None or df.empty:
+        return pd.DataFrame()
+    return _merge_rankings_capital(df, capital_token, alias_sig, periodos_filter)
 
 
 def _normalizar_indicadores_rankings(df: pd.DataFrame) -> pd.DataFrame:
@@ -10281,13 +10498,60 @@ def _get_rankings_capital_slice(
     periodos_filter: tuple,
 ) -> pd.DataFrame:
     """Recorte enxuto de capital para o branch de Basileia em Rankings."""
-    df_capital = _construir_componentes_capital_rankings(capital_token, alias_sig)
+    df_capital = _construir_componentes_capital_rankings_slice(
+        capital_token,
+        alias_sig,
+        tuple(periodos_filter or ()),
+    )
     if df_capital is None or df_capital.empty:
         return pd.DataFrame()
     if not periodos_filter:
-        return df_capital.copy()
+        return _normalizar_indicadores_rankings(df_capital.copy())
     periodos_set = {str(p) for p in periodos_filter if p is not None}
-    return df_capital[df_capital["Período"].astype(str).isin(periodos_set)].copy()
+    df_capital = df_capital[df_capital["Período"].astype(str).isin(periodos_set)].copy()
+    return _normalizar_indicadores_rankings(df_capital)
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _get_rankings_source_df(
+    principal_token: str,
+    capital_token: str,
+    alias_sig: tuple,
+    source_kind: str,
+    periodos_filter: Optional[tuple] = None,
+) -> pd.DataFrame:
+    if source_kind == "principal_prepared":
+        return _get_rankings_direct_df(
+            principal_token,
+            alias_sig,
+            periodos_filter=periodos_filter,
+        )
+    if source_kind == "capital_prepared":
+        return _get_rankings_capital_slice(
+            capital_token,
+            alias_sig,
+            tuple(periodos_filter or ()),
+        )
+    if source_kind == "principal_with_capital":
+        return _get_rankings_principal_with_capital_df(
+            principal_token,
+            capital_token,
+            alias_sig,
+            periodos_filter=periodos_filter,
+        )
+    if source_kind == "analytical_with_capital":
+        return _get_rankings_base_df(
+            principal_token,
+            capital_token,
+            False,
+            alias_sig,
+            periodos_filter=periodos_filter,
+        )
+    return _get_rankings_analytical_df(
+        principal_token,
+        alias_sig,
+        periodos_filter=periodos_filter,
+    )
 
 def carregar_dados_capital():
     if 'dados_capital' in st.session_state and st.session_state['dados_capital']:
@@ -13456,20 +13720,6 @@ elif menu == "Rankings":
     rankings_timer_signature = None
     t0_rankings_timer = None
 
-    # Indicadores que requerem dados de capital (carregados sob demanda)
-    INDICADORES_CAPITAL_RANKINGS = {
-        'Índice de Capital Principal (CET1)',
-        'Índice de Capital T1 (%)',
-        'Índice de Basileia Total (%)',
-    }
-    INDICADORES_DIRETOS_RANKINGS = {
-        'Ativo Total',
-        'Carteira de Crédito*',
-        'Core Funding*',
-        'Patrimônio Líquido',
-        'Lucro Líquido Acumulado YTD',
-    }
-
     if _garantir_dados_principais("Rankings"):
         # PERF: lightweight context for dropdown population (instant)
         _rankings_ctx = _get_rankings_filters_context(
@@ -13570,10 +13820,6 @@ elif menu == "Rankings":
                     indicadores_ordenados,
                     key="indicador_resumo"
                 )
-            # Carregamento de capital sob demanda: Rankings usa slice canônico de capital
-            # sem mesclar toda a base principal no session_state.
-            if indicador_label in INDICADORES_CAPITAL_RANKINGS:
-                carregar_dados_capital()
             coluna_peso_resumo = None
             tipo_media_label = "Média simples"
             modo_ordenacao = "Ordenar por valor"
@@ -13639,6 +13885,22 @@ elif menu == "Rankings":
                     help="Mostra/oculta os valores diretamente nas barras do gráfico.",
                 )
 
+            periodo_tabela_resolvido = st.session_state.get("periodo_tabela_v1")
+            if periodo_tabela_resolvido not in periodos:
+                periodo_tabela_resolvido = periodos[0] if periodos else None
+            modo_tabela_resolvido = st.session_state.get("modo_tabela_v1", "Trimestral")
+            if modo_tabela_resolvido not in {"Trimestral", "Acumulado"}:
+                modo_tabela_resolvido = "Trimestral"
+            rankings_source_request = _resolve_rankings_source_request(
+                grafico_base,
+                indicador_label,
+                periodo_resumo,
+                periodo_tabela=periodo_tabela_resolvido,
+                modo_tabela=modo_tabela_resolvido,
+            )
+            if rankings_source_request["needs_capital"]:
+                carregar_dados_capital()
+
             rankings_timer_signature = (
                 grafico_base,
                 indicador_label,
@@ -13647,6 +13909,8 @@ elif menu == "Rankings":
                 direcao_top,
                 bool(mostrar_data_labels),
                 pool_base,
+                periodo_tabela_resolvido if grafico_base == "Tabela" else None,
+                modo_tabela_resolvido if grafico_base == "Tabela" else None,
             )
             _timer_reset_if_selection_changed(rankings_timer_state_key, rankings_timer_signature)
             _timer_render_caption(
@@ -13658,38 +13922,16 @@ elif menu == "Rankings":
 
             # PERF: deferred load — enriched DataFrame with period filter
             _perf_start("rankings_base_df")
-            usar_caminho_basileia_otimizado = (
-                grafico_base == "Ranking"
-                and indicador_label == "Índice de Basileia Total (%)"
+            _periodos_rankings_filter = rankings_source_request["periodos_filter"]
+            _perf_start(rankings_source_request["perf_label"])
+            df = _get_rankings_source_df(
+                _cache_version_token("principal"),
+                _cache_version_token("capital"),
+                _alias_signature_cache_key(),
+                rankings_source_request["source_kind"],
+                periodos_filter=_periodos_rankings_filter,
             )
-            usar_caminho_direto = indicador_label in INDICADORES_DIRETOS_RANKINGS
-            _periodos_rankings_filter = (
-                tuple(sorted({str(p) for p in periodo_resumo if p}))
-                if (usar_caminho_basileia_otimizado or usar_caminho_direto)
-                else _rankings_expandir_periodos(periodo_resumo)
-            )
-            if usar_caminho_basileia_otimizado:
-                _perf_start("rankings_df_source_basileia")
-                df = _df_periodo_raw.copy() if _df_periodo_raw is not None else pd.DataFrame()
-                print(_perf_log("rankings_df_source_basileia"))
-            elif usar_caminho_direto:
-                _perf_start("rankings_df_source_direct")
-                df = _get_rankings_direct_df(
-                    _cache_version_token("principal"),
-                    _alias_signature_cache_key(),
-                    periodos_filter=_periodos_rankings_filter,
-                )
-                print(_perf_log("rankings_df_source_direct"))
-            else:
-                _perf_start("rankings_df_source_analytical")
-                df = _get_rankings_base_df(
-                    _cache_version_token("principal"),
-                    _cache_version_token("capital"),
-                    False,
-                    _alias_signature_cache_key(),
-                    periodos_filter=_periodos_rankings_filter,
-                )
-                print(_perf_log("rankings_df_source_analytical"))
+            print(_perf_log(rankings_source_request["perf_label"]))
             print(_perf_log("rankings_base_df"))
 
             # Re-resolve indicator column after enrichment (handles column name variants)
@@ -14248,11 +14490,9 @@ elif menu == "Rankings":
             if grafico_base == "Ranking":
                 if indicador_label == "Índice de Basileia Total (%)":
                     periodos_capital = periodo_resumo if len(periodo_resumo) > 1 else [periodo_resumo_base]
-                    df_periodo_cap = _get_rankings_capital_slice(
-                        _cache_version_token("capital"),
-                        _alias_signature_cache_key(),
-                        tuple(periodos_capital),
-                    )
+                    df_periodo_cap = df[
+                        df["Período"].isin(periodos_capital)
+                    ].copy() if "Período" in df.columns else pd.DataFrame()
 
                     if df_periodo_cap.empty:
                         st.info("dados de capital não disponíveis para o ranking.")
@@ -15470,7 +15710,7 @@ elif menu == "Rankings":
                         'Core Funding': next((c for c in ['Core Funding*', 'Core Funding', 'Captações'] if c in df.columns), None),
                         'Patrimônio Líquido': 'Patrimônio Líquido' if 'Patrimônio Líquido' in df.columns else None,
                         'CET1 (%)': next((c for c in ['Índice de Capital Principal (CET1)', 'Índice de Capital Principal'] if c in df.columns), None),
-                        'Basileia (%)': 'Índice de Basileia' if 'Índice de Basileia' in df.columns else None,
+                        'Basileia (%)': next((c for c in ['Índice de Basileia Total (%)', 'Índice de Basileia', 'Índice de Basileia Total'] if c in df.columns), None),
                         'Lucro Líquido Tri.': 'Lucro Líquido Trimestral' if 'Lucro Líquido Trimestral' in df.columns else None,
                         'ROE Tri. An. (%)': next((c for c in ['ROE Trim. Anualizado (%)', 'ROE trimestral anualizado (%)', 'ROE Trimestral An. (%)'] if c in df.columns), None),
                     }
@@ -15481,7 +15721,7 @@ elif menu == "Rankings":
                         'Core Funding': next((c for c in ['Core Funding*', 'Core Funding', 'Captações'] if c in df.columns), None),
                         'Patrimônio Líquido': 'Patrimônio Líquido' if 'Patrimônio Líquido' in df.columns else None,
                         'CET1 (%)': next((c for c in ['Índice de Capital Principal (CET1)', 'Índice de Capital Principal'] if c in df.columns), None),
-                        'Basileia (%)': 'Índice de Basileia' if 'Índice de Basileia' in df.columns else None,
+                        'Basileia (%)': next((c for c in ['Índice de Basileia Total (%)', 'Índice de Basileia', 'Índice de Basileia Total'] if c in df.columns), None),
                         'Lucro Líquido Ac.': 'Lucro Líquido Acumulado YTD' if 'Lucro Líquido Acumulado YTD' in df.columns else None,
                         'ROE Ac. An. (%)': next((c for c in ['ROE Ac. Anualizado (%)', 'ROE Ac. YTD an. (%)'] if c in df.columns), None),
                     }
