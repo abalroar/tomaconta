@@ -9480,6 +9480,30 @@ def _construir_componentes_capital_rankings_slice(
     return _calcular_componentes_capital_rankings_df(df_capital)
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def _construir_indices_capital_unificados_slice(
+    capital_token: str,
+    alias_sig: tuple,
+    periodos_filter: tuple,
+) -> pd.DataFrame:
+    """Fonte fatiada de índices de capital para telas que não precisam do histórico completo."""
+    df_componentes = _construir_componentes_capital_rankings_slice(
+        capital_token,
+        alias_sig,
+        tuple(periodos_filter or ()),
+    )
+    colunas = [
+        "Período",
+        "Instituição",
+        "Índice de Capital Principal (CET1)",
+        "Índice de Capital T1 (%)",
+        "Índice de Basileia Total (%)",
+    ]
+    if df_componentes is None or df_componentes.empty:
+        return pd.DataFrame(columns=colunas)
+    return df_componentes[colunas].copy()
+
+
 def normalizar_periodo_chave(periodo: str) -> str:
     if periodo is None:
         return ""
@@ -9881,6 +9905,25 @@ def _rankings_periodo_mesma_representacao(periodo: str, tri_idx: int) -> Optiona
     if novo_parte is None:
         return None
     return _periodo_mesma_estrutura(periodo, novo_parte)
+
+
+def _expandir_periodos_evolucao_calculo(periodos_exibicao: Sequence[str]) -> tuple[str, ...]:
+    """Inclui dependências temporais usadas para LL YTD semestral e ROE."""
+    periodos_set = {str(periodo) for periodo in periodos_exibicao if periodo}
+    for periodo in list(periodos_set):
+        parsed = _parse_periodo(periodo)
+        if not parsed:
+            continue
+        parte, _, _ = parsed
+        tri_idx = _parte_periodo_para_trimestre_idx(parte)
+        if tri_idx in (3, 4):
+            periodo_jun = _rankings_periodo_mesma_representacao(periodo, 2)
+            if periodo_jun:
+                periodos_set.add(periodo_jun)
+        periodo_dez_anterior = _periodo_dez_ano_anterior(periodo)
+        if periodo_dez_anterior:
+            periodos_set.add(periodo_dez_anterior)
+    return tuple(ordenar_periodos(list(periodos_set), reverso=False))
 
 
 def _rankings_expandir_periodos_analiticos(
@@ -12540,6 +12583,7 @@ elif menu == "Evolução":
             .astype(str)
             .tolist()
         )
+        periodos_calculo_evolucao = _expandir_periodos_evolucao_calculo(periodos_evolucao)
 
         timer_box_evolucao = st.empty()
         evolucao_signature = (instituicao, periodo_inicio, periodo_final)
@@ -12551,7 +12595,7 @@ elif menu == "Evolução":
             principal_token,
             alias_sig,
             instituicao,
-            tuple(periodos_evolucao),
+            tuple(periodos_calculo_evolucao),
         )
         if df_ev is None or df_ev.empty:
             tempo_total_evolucao = time.perf_counter() - t0_evolucao
@@ -12805,7 +12849,14 @@ elif menu == "Evolução":
             pd.to_numeric(df_ano["Carteira de Crédito Bruta"], errors="coerce") / pd.to_numeric(df_ano.get("Patrimônio Líquido"), errors="coerce"),
             np.nan,
         )
-        df_capital_idx = _construir_indices_capital_unificados(_cache_version_token("capital"), _alias_signature_cache_key())
+        periodos_capital_evolucao = tuple(
+            df_ano.get("Período", pd.Series(dtype="object")).dropna().astype(str).unique().tolist()
+        )
+        df_capital_idx = _construir_indices_capital_unificados_slice(
+            _cache_version_token("capital"),
+            _alias_signature_cache_key(),
+            periodos_capital_evolucao,
+        )
         if not df_capital_idx.empty:
             # Merge por chave temporal robusta (Ano/Tri) para cobrir variações de formato de Período
             # entre bases (ex.: "12/2021" vs "4/2021").
@@ -13076,7 +13127,11 @@ elif menu == "Evolução":
         # Memória de cálculo: componentes de cada variável exibida na Evolução (por período/IF selecionados).
         with st.expander("Memória de cálculo — Evolução", expanded=False):
             memoria_rows = []
-            capital_base = _preparar_df_capital_base()
+            capital_base = _construir_componentes_capital_rankings_slice(
+                _cache_version_token("capital"),
+                _alias_signature_cache_key(),
+                tuple(periodos_capital_evolucao),
+            )
             if not capital_base.empty and "Instituição" in capital_base.columns:
                 capital_base = capital_base[capital_base["Instituição"] == instituicao].copy()
             for _, row in df_ano.iterrows():
