@@ -20863,9 +20863,9 @@ elif menu == "Carteira 4.966":
 
         # Obter lista de instituições e períodos
         if 'Instituição' in df_carteira.columns:
-            _dict_aliases_cart = st.session_state.get('dict_aliases', {})
-            instituicoes = ordenar_bancos_com_alias(
-                df_carteira['Instituição'].dropna().unique().tolist(), _dict_aliases_cart
+            instituicoes = sorted(
+                {str(inst).strip() for inst in df_carteira['Instituição'].dropna().tolist() if str(inst).strip()},
+                key=lambda nome: (str(nome)[0].isdigit(), str(nome).casefold()),
             )
         else:
             instituicoes = []
