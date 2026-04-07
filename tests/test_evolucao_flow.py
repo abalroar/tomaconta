@@ -18,6 +18,13 @@ def test_evolucao_expands_calculation_periods_for_semester_ytd_context():
 
 def test_evolucao_uses_sliced_capital_sources_instead_of_full_history():
     source = _app_source()
-    assert "df_capital_idx = _construir_indices_capital_unificados_slice(" in source
-    assert "capital_base = _construir_componentes_capital_rankings_slice(" in source
+    assert "df_capital_idx = _construir_indices_capital_instituicao_slice(" in source
+    assert "capital_base = _construir_componentes_capital_instituicao_slice(" in source
     assert "df_capital_idx = _construir_indices_capital_unificados(_cache_version_token(\"capital\")" not in source
+
+
+def test_evolucao_has_institution_scoped_capital_helper():
+    source = _app_source()
+    assert "def _construir_componentes_capital_instituicao_slice" in source
+    assert "mask_exata = serie_inst.eq(instituicao_str)" in source
+    assert "resolver_nomes_instituicoes_capital(" in source

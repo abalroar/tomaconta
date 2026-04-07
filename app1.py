@@ -9504,6 +9504,102 @@ def _construir_indices_capital_unificados_slice(
     return df_componentes[colunas].copy()
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def _construir_componentes_capital_instituicao_slice(
+    capital_token: str,
+    alias_sig: tuple,
+    periodos_filter: tuple,
+    instituicao: str,
+) -> pd.DataFrame:
+    """Pré-calcula capital apenas para uma IF/períodos, evitando canonicalizar a base inteira."""
+    _ = (capital_token, alias_sig)
+    if not instituicao:
+        return _calcular_componentes_capital_rankings_df(pd.DataFrame())
+
+    dados_capital = _carregar_dados_capital_preparados(capital_token, alias_sig)
+    if not dados_capital:
+        return _calcular_componentes_capital_rankings_df(pd.DataFrame())
+
+    periodos_set = {str(periodo) for periodo in (periodos_filter or ()) if periodo is not None}
+    instituicao_str = str(instituicao)
+    frames_exatos = []
+    frames_para_resolver = []
+
+    for periodo, df_periodo in dados_capital.items():
+        if periodos_set and str(periodo) not in periodos_set:
+            continue
+        if df_periodo is None or df_periodo.empty or "Instituição" not in df_periodo.columns:
+            continue
+
+        serie_inst = df_periodo["Instituição"].astype(str)
+        mask_exata = serie_inst.eq(instituicao_str)
+        if mask_exata.any():
+            df_slice = df_periodo.loc[mask_exata].copy()
+            df_slice["Instituição"] = instituicao_str
+            frames_exatos.append(df_slice)
+        else:
+            frames_para_resolver.append(df_periodo.copy())
+
+    frames = []
+    if frames_exatos:
+        frames.append(pd.concat(frames_exatos, ignore_index=True))
+
+    if frames_para_resolver:
+        df_fallback = pd.concat(frames_para_resolver, ignore_index=True)
+        df_fallback = normalizar_colunas_capital(df_fallback)
+        dados_periodos = st.session_state.get("dados_periodos")
+        if not dados_periodos:
+            principal_token = _cache_version_token("principal")
+            dados_periodos = _carregar_dados_periodos_preparados(principal_token, alias_sig)
+        if dados_periodos and periodos_set:
+            dados_periodos = {
+                periodo: df_periodo
+                for periodo, df_periodo in dados_periodos.items()
+                if str(periodo) in periodos_set
+            }
+        df_fallback = resolver_nomes_instituicoes_capital(
+            df_fallback,
+            st.session_state.get("dict_aliases", {}),
+            st.session_state.get("df_aliases", None),
+            dados_periodos,
+        )
+        df_fallback = df_fallback[df_fallback["Instituição"].astype(str).eq(instituicao_str)].copy()
+        if not df_fallback.empty:
+            frames.append(df_fallback)
+
+    if not frames:
+        return _calcular_componentes_capital_rankings_df(pd.DataFrame())
+
+    df_capital = normalizar_colunas_capital(pd.concat(frames, ignore_index=True))
+    return _calcular_componentes_capital_rankings_df(df_capital)
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _construir_indices_capital_instituicao_slice(
+    capital_token: str,
+    alias_sig: tuple,
+    periodos_filter: tuple,
+    instituicao: str,
+) -> pd.DataFrame:
+    """Fonte fatiada de índices de capital para uma instituição."""
+    df_componentes = _construir_componentes_capital_instituicao_slice(
+        capital_token,
+        alias_sig,
+        tuple(periodos_filter or ()),
+        instituicao,
+    )
+    colunas = [
+        "Período",
+        "Instituição",
+        "Índice de Capital Principal (CET1)",
+        "Índice de Capital T1 (%)",
+        "Índice de Basileia Total (%)",
+    ]
+    if df_componentes is None or df_componentes.empty:
+        return pd.DataFrame(columns=colunas)
+    return df_componentes[colunas].copy()
+
+
 def normalizar_periodo_chave(periodo: str) -> str:
     if periodo is None:
         return ""
@@ -12852,10 +12948,11 @@ elif menu == "Evolução":
         periodos_capital_evolucao = tuple(
             df_ano.get("Período", pd.Series(dtype="object")).dropna().astype(str).unique().tolist()
         )
-        df_capital_idx = _construir_indices_capital_unificados_slice(
+        df_capital_idx = _construir_indices_capital_instituicao_slice(
             _cache_version_token("capital"),
             _alias_signature_cache_key(),
             periodos_capital_evolucao,
+            instituicao,
         )
         if not df_capital_idx.empty:
             # Merge por chave temporal robusta (Ano/Tri) para cobrir variações de formato de Período
@@ -13127,10 +13224,11 @@ elif menu == "Evolução":
         # Memória de cálculo: componentes de cada variável exibida na Evolução (por período/IF selecionados).
         with st.expander("Memória de cálculo — Evolução", expanded=False):
             memoria_rows = []
-            capital_base = _construir_componentes_capital_rankings_slice(
+            capital_base = _construir_componentes_capital_instituicao_slice(
                 _cache_version_token("capital"),
                 _alias_signature_cache_key(),
                 tuple(periodos_capital_evolucao),
+                instituicao,
             )
             if not capital_base.empty and "Instituição" in capital_base.columns:
                 capital_base = capital_base[capital_base["Instituição"] == instituicao].copy()
