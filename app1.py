@@ -21465,6 +21465,12 @@ elif menu == "Taxas de Juros por Produto":
                         .groupby('Instituição Financeira', observed=False)
                         .tail(1)
                     )
+                    def _formatar_taxa_label(valor) -> str:
+                        valor_num = pd.to_numeric(valor, errors='coerce')
+                        if pd.isna(valor_num):
+                            return ""
+                        return f"{float(valor_num):.2f}%".replace(".", ",")
+
                     for _, row_last in df_last.iterrows():
                         banco_nome = row_last['Instituição Financeira']
                         cor_texto = color_discrete_map.get(banco_nome) or '#1f2937'
@@ -21472,7 +21478,7 @@ elif menu == "Taxas de Juros por Produto":
                             x=[row_last['Fim Período']],
                             y=[row_last[tipo_taxa]],
                             mode='text',
-                            text=[banco_nome],
+                            text=[_formatar_taxa_label(row_last[tipo_taxa])],
                             textposition='middle right',
                             textfont=dict(size=10, color=cor_texto),
                             showlegend=False,
