@@ -794,7 +794,13 @@ VARS_PERCENTUAL = [
     # Variáveis de Capital (Relatório 5)
     'Índice de Capital Principal',
     'Índice de Capital Principal (CET1)',
+    'Índice de Capital T1 (%)',
+    'Índice de Capital T1',
     'Índice de Capital Nível I',
+    'Índice de Capital Nivel I',
+    'Índice Capital Nível I',
+    'Índice Capital Nivel I',
+    'Índice Capital T1',
     'Razão de Alavancagem',
     # Métricas derivadas
     *DERIVED_METRICS,
@@ -3504,6 +3510,13 @@ def _delta_percentual_em_bps(variavel: Optional[str]) -> bool:
         "Índice de Basileia",
         "Índice de Capital Principal",
         "Índice de Capital Principal (CET1)",
+        "Índice de Capital T1 (%)",
+        "Índice de Capital T1",
+        "Índice de Capital Nível I",
+        "Índice de Capital Nivel I",
+        "Índice Capital Nível I",
+        "Índice Capital Nivel I",
+        "Índice Capital T1",
     }
 
 
@@ -3536,10 +3549,19 @@ _INDICADORES_SOMENTE_TRI = {'Lucro Líquido Trimestral', 'ROE Trim. Anualizado (
 _INDICADORES_SOMENTE_ACUM = {'Lucro Líquido Acumulado YTD', 'ROE Ac. Anualizado (%)'}
 
 
+def _is_indice_capital_display(variavel: Optional[str]) -> bool:
+    if not variavel:
+        return False
+    return any(
+        token in variavel
+        for token in ("Capital Principal", "CET1")
+    )
+
+
 def _calcular_valores_display(serie: pd.Series, variavel: str, format_info: dict) -> pd.Series:
     if variavel and "Basileia" in variavel:
         return _normalizar_basileia_display(serie)
-    if variavel and ("Capital Principal" in variavel or "CET1" in variavel):
+    if _is_indice_capital_display(variavel):
         return _normalizar_capital_principal_display(serie)
     if variavel in {'Carteira de Crédito / PL', 'Carteira de Crédito Bruta / PL', 'Crédito/PL (%)', 'Crédito/PL', 'Ativo/PL'}:
         return serie * format_info['multiplicador']
