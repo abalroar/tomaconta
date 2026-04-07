@@ -3171,6 +3171,70 @@ def ordenar_bancos_com_alias(bancos: list, dict_aliases: dict = None) -> list:
 
 # --- Defaults helpers ---
 
+ITAU_UNIBANCO_CODINST_DEFAULT = "1000080099"
+ITAU_UNIBANCO_CONGLOMERADO_DEFAULT = "80099 - ITAU"
+ITAU_UNIBANCO_LABEL_DEFAULT = "ITAU - PRUDENCIAL"
+
+
+def _normalizar_codigo_institucional(valor) -> str:
+    """Normaliza CodInst/idBacen para comparação determinística de defaults."""
+    if valor is None or pd.isna(valor):
+        return ""
+    digitos = re.sub(r"\D", "", str(valor))
+    return digitos.lstrip("0") or digitos
+
+
+def _score_label_itau_unibanco(label) -> Optional[int]:
+    """Prioriza Itaú Unibanco sem matching por substring (ex.: Itaúna)."""
+    if label is None or pd.isna(label):
+        return None
+    txt = _normalizar_texto_sem_acento(str(label))
+    txt_simplificado = re.sub(r"[^A-Z0-9]+", " ", txt).strip()
+    tokens = set(txt_simplificado.split())
+
+    if txt in {ITAU_UNIBANCO_LABEL_DEFAULT, "ITAU PRUDENCIAL"}:
+        return 0
+    if {"ITAU", "PRUDENCIAL"}.issubset(tokens):
+        return 1
+    if {"ITAU", "UNIBANCO"}.issubset(tokens):
+        return 2
+    if "ITAU" in tokens and "BANCO" in tokens:
+        return 3
+    if "ITAU" in tokens and not tokens.intersection({"COOPERATIVA", "FUNCIONARIOS", "CREDITO", "ITAUNA"}):
+        return 10
+    return None
+
+
+def _indice_default_itau_unibanco(
+    opcoes: list,
+    *,
+    labels: Optional[list] = None,
+    codigos: Optional[list] = None,
+    fallback_index: int = 0,
+) -> int:
+    """Índice default do Itaú Unibanco usando CodInst/idBacen quando disponível."""
+    if not opcoes:
+        return 0
+
+    alvo_codigo = _normalizar_codigo_institucional(ITAU_UNIBANCO_CODINST_DEFAULT)
+    if codigos is not None:
+        for idx, codigo in enumerate(codigos[: len(opcoes)]):
+            if _normalizar_codigo_institucional(codigo) == alvo_codigo:
+                return idx
+
+    labels_busca = labels if labels is not None else opcoes
+    candidatos = []
+    for idx, label in enumerate(labels_busca[: len(opcoes)]):
+        score = _score_label_itau_unibanco(label)
+        if score is not None:
+            candidatos.append((score, idx))
+    if candidatos:
+        return min(candidatos, key=lambda item: (item[0], item[1]))[1]
+
+    if 0 <= fallback_index < len(opcoes):
+        return fallback_index
+    return 0
+
 # Nomes-alvo para defaults (slug normalizado → possíveis matches)
 _BANCOS_DEFAULT_SLUGS = [
     ("itau", "itaú"),
@@ -8224,15 +8288,7 @@ def pagina_snapshot():
         return
 
     bancos = ordenar_bancos_com_alias(list(bancos_ctx), {})
-    banco_snapshot_default = next(
-        (
-            b
-            for b in bancos
-            if "ITAU" in _normalizar_texto_sem_acento(b) and "UNIBANCO" in _normalizar_texto_sem_acento(b)
-        ),
-        None,
-    )
-    idx_snapshot_default = bancos.index(banco_snapshot_default) if banco_snapshot_default in bancos else 0
+    idx_snapshot_default = _indice_default_itau_unibanco(bancos)
     banco = st.selectbox("Instituição", bancos, index=idx_snapshot_default, key="snapshot_banco")
     timer_box = st.empty()
     snapshot_signature = ("snapshot", banco)
@@ -8311,6 +8367,11 @@ def pagina_snapshot():
     }
 
     diagnostico_snapshot = []
+    dependencias_snapshot_incompletas = set()
+
+    def _add_diagnostico_snapshot(dependencia: str, mensagem: str) -> None:
+        dependencias_snapshot_incompletas.add(dependencia)
+        diagnostico_snapshot.append(mensagem)
 
     def _cache_local_disponivel(tipo_cache: str) -> bool:
         manager_local = get_cache_manager()
@@ -8320,37 +8381,31 @@ def pagina_snapshot():
         return bool(cache_local.arquivo_dados.exists() or cache_local.arquivo_dados_pickle.exists())
 
     if not _cache_local_disponivel("critical_screens"):
-        diagnostico_snapshot.append("arquivo local de critical_screens ausente")
+        _add_diagnostico_snapshot("critical_screens", "arquivo local de critical_screens ausente")
     elif cache_snapshot is None or cache_snapshot.empty:
-        diagnostico_snapshot.append(f"critical_screens sem instituição/períodos correspondentes para {banco}")
+        _add_diagnostico_snapshot(
+            "critical_screens",
+            f"critical_screens sem instituição/períodos correspondentes para {banco}",
+        )
 
     if not any(capital_disp_map.values()):
-        diagnostico_snapshot.append("capital indisponível no cache curado para os períodos selecionados")
+        _add_diagnostico_snapshot("capital", "capital indisponível no cache curado para os períodos selecionados")
 
     if not any(v is not None and not pd.isna(v) for v in perda_esperada_map.values()):
-        diagnostico_snapshot.append("perda esperada indisponível no cache curado para os períodos selecionados")
-    elif not any(blop_disp_map.values()):
-        diagnostico_snapshot.append(f"BLOPRUDENCIAL sem conglomerado correspondente para {banco} nos períodos selecionados")
-    elif not any(qual_disp_map.values()):
-        diagnostico_snapshot.append("qualidade de carteira indisponível no cache curado para os períodos selecionados")
-
-    if diagnostico_snapshot:
-        st.warning(
-            "Snapshot: capital ou qualidade de carteira seguem incompletos para a instituição selecionada."
+        _add_diagnostico_snapshot(
+            "perda esperada",
+            "perda esperada indisponível no cache curado para os períodos selecionados",
         )
-        with st.expander("Diagnóstico do cache curado", expanded=False):
-            st.markdown(
-                "\n".join(
-                    [
-                        "1. Rode `python tools/update_caches_cli.py --all --ano-inicial 2015 --mes-inicial 03 --ano-final 2025 --mes-final 09 --mensal-inicio 201503 --mensal-fim 202509`.",
-                        "2. Verifique se o processo concluiu a materialização de `critical_screens` sem erro.",
-                        "3. Se apenas o BLOPRUDENCIAL faltar, confira se o conglomerado existe com nome oficial equivalente no arquivo mensal.",
-                        "",
-                        "**Diagnóstico encontrado nesta execução:**",
-                    ]
-                    + [f"- {item}" for item in diagnostico_snapshot]
-                )
-            )
+    elif not any(blop_disp_map.values()):
+        _add_diagnostico_snapshot(
+            "BLOPRUDENCIAL/4060",
+            f"BLOPRUDENCIAL sem conglomerado correspondente para {banco} nos períodos selecionados",
+        )
+    elif not any(qual_disp_map.values()):
+        _add_diagnostico_snapshot(
+            "qualidade de carteira",
+            "qualidade de carteira indisponível no cache curado para os períodos selecionados",
+        )
 
     # --- Sparkline data (last 8 quarters) ---
     periodos_sparkline = periodos_banco[:8]
@@ -8541,7 +8596,10 @@ def pagina_snapshot():
         else:
             st.dataframe(df_memoria_snapshot, width='stretch', hide_index=True)
 
-    debug_mode = bool(st.secrets.get("debug_mode", False))
+    try:
+        debug_mode = bool(st.secrets.get("debug_mode", False))
+    except Exception:
+        debug_mode = False
     if debug_mode:
         with st.expander("⚙ Diagnóstico — Auditoria de deltas Snapshot", expanded=False):
             if not anomalias_delta_snapshot:
@@ -8554,6 +8612,25 @@ def pagina_snapshot():
     # ===================================================================
     with st.expander("Origem dos dados e critérios de cálculo", expanded=False):
         st.markdown(_build_provenance_html(), unsafe_allow_html=True)
+
+    if diagnostico_snapshot:
+        dependencias_txt = ", ".join(sorted(dependencias_snapshot_incompletas))
+        st.warning(
+            f"Snapshot: dependências incompletas para a instituição selecionada: {dependencias_txt}."
+        )
+        with st.expander("Diagnóstico do cache curado", expanded=False):
+            st.markdown(
+                "\n".join(
+                    [
+                        "1. Rode `python tools/update_caches_cli.py --all --ano-inicial 2015 --mes-inicial 03 --ano-final 2025 --mes-final 09 --mensal-inicio 201503 --mensal-fim 202509`.",
+                        "2. Verifique se o processo concluiu a materialização de `critical_screens` sem erro.",
+                        "3. Se apenas o BLOPRUDENCIAL faltar, confira se o conglomerado existe com nome oficial equivalente no arquivo mensal.",
+                        "",
+                        "**Diagnóstico encontrado nesta execução:**",
+                    ]
+                    + [f"- {item}" for item in diagnostico_snapshot]
+                )
+            )
 
     tempo_render = time.perf_counter() - t_render
     tempo_total = time.perf_counter() - t0
@@ -12148,7 +12225,7 @@ elif menu == "Conselho e Diretoria":
             mapa_conglomerado[chave] = item
             opcoes_conglomerado.append(chave)
 
-        default_conglomerado = "80099 - ITAU"
+        default_conglomerado = ITAU_UNIBANCO_CONGLOMERADO_DEFAULT
         idx_conglomerado = opcoes_conglomerado.index(default_conglomerado) if default_conglomerado in opcoes_conglomerado else 0
         conglomerado_sel = st.selectbox(
             "Selecione o conglomerado",
@@ -12180,8 +12257,11 @@ elif menu == "Conselho e Diretoria":
             st.warning("Não há instituições LIDER/PARTICIPANTE para este conglomerado.")
         else:
             opcoes_instituicao = [x["label"] for x in instituicoes]
-            default_instituicao = "2523178 - CONSELHO DE ADMINISTRACAO"
-            idx_instituicao = opcoes_instituicao.index(default_instituicao) if default_instituicao in opcoes_instituicao else 0
+            idx_instituicao = _indice_default_itau_unibanco(
+                opcoes_instituicao,
+                labels=[f"{x['label']} {x.get('nome', '')}" for x in instituicoes],
+                codigos=[x.get("id_bacen") for x in instituicoes],
+            )
             inst_sel = st.selectbox(
                 "Selecione a instituição",
                 options=opcoes_instituicao,
@@ -12333,13 +12413,9 @@ elif menu == "Evolução":
             st.stop()
 
         insts = ordenar_bancos_com_alias(instituicoes_contexto, st.session_state.get("dict_aliases", {}))
-        inst_padrao = [i for i in insts if str(i) == "ITAU - PRUDENCIAL"][:1]
-        if not inst_padrao:
-            inst_padrao = [i for i in insts if re.search(r"\bita[uú]\b", str(i).lower())][:1]
-        if not inst_padrao and insts:
-            inst_padrao = [insts[0]]
+        idx_inst_padrao = _indice_default_itau_unibanco(insts)
 
-        instituicao = st.selectbox("instituição", insts, index=insts.index(inst_padrao[0]) if inst_padrao else 0)
+        instituicao = st.selectbox("instituição", insts, index=idx_inst_padrao)
         periodo_final_padrao = periodos_validos.iloc[-1]["Período"]
         idx_inicio_padrao = max(0, len(periodos_dez) - 5)
 
@@ -16864,8 +16940,7 @@ elif menu == "DRE" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo ==
             st.stop()
 
         instituicoes_label = [_formatar_opcao_instituicao_dre(inst_raw) for inst_raw in instituicoes_raw]
-        _default_dre = _encontrar_bancos_default(instituicoes_label, [("itau", "itaú")])
-        _idx_dre = instituicoes_label.index(_default_dre[0]) if _default_dre else 0
+        _idx_dre = _indice_default_itau_unibanco(instituicoes_raw, labels=instituicoes_label)
 
         col_inst, col_ano, col_base = st.columns([1, 1, 1])
         with col_inst:
@@ -20572,9 +20647,11 @@ elif menu == "Carteira 4.966":
             col_inst, col_periodos = st.columns([1, 2])
 
             with col_inst:
+                _idx_carteira_default = _indice_default_itau_unibanco(instituicoes)
                 instituicao_selecionada = st.selectbox(
                     "Instituição",
                     instituicoes,
+                    index=_idx_carteira_default,
                     key="carteira_4966_instituicao"
                 )
 
