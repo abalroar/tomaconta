@@ -34,6 +34,10 @@ PEERS_METRICAS = [
     "Índice de Capital Principal (CET1)",
     "Índice de Basileia Total (%)",
 ]
+PEERS_METRICAS_RENDER = [
+    *PEERS_METRICAS,
+    "Perda Esperada / Est2+3",
+]
 
 SNAPSHOT_INSTITUICAO = "A27 IP - PRUDENCIAL"
 SNAPSHOT_PERIODOS = ["1/2025", "2/2025", "3/2025"]
@@ -211,6 +215,14 @@ def _benchmark_peers_server_path() -> dict:
     sub["render_html_s"] = time.perf_counter() - t0
     sub["html_len"] = len(html)
     sub["faltas"] = sorted(faltas)
+    sub["missing_rendered"] = {
+        periodo: [
+            metrica
+            for metrica in PEERS_METRICAS_RENDER
+            if pd.isna(valores.get((metrica, PEERS_INSTITUICAO, periodo)))
+        ]
+        for periodo in periodos_sel
+    }
     return sub
 
 

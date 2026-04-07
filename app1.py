@@ -791,6 +791,7 @@ VARS_PERCENTUAL = [
     'Carteira de Créd. Class. C4+C5 / Carteira Classificada',
     'PDD / Estágio 3',
     'Perda Esperada / Estágio 3',
+    'Perda Esperada / Est2+3',
     # Variáveis de Capital (Relatório 5)
     'Índice de Capital Principal',
     'Índice de Capital Principal (CET1)',
@@ -905,6 +906,11 @@ PEERS_TABELA_LAYOUT = [
                 "format_key": "Perda Esperada / Estágio 3",
             },
             {
+                "label": "Perda Esperada / Est2+3",
+                "data_keys": [],
+                "format_key": "Perda Esperada / Est2+3",
+            },
+            {
                 "label": "Perda Esperada / Carteira de Crédito*",
                 "data_keys": [],
                 "format_key": "Perda Esperada / Carteira de Crédito Bruta",
@@ -964,6 +970,7 @@ PEERS_GLOSSARIO_RESUMIDO = {
     "Ativos Estágio 2": "Saldo da conta 3312000001 (Cadoc 4060) no período.",
     "Ativos Estágio 3": "Saldo da conta 3313000000 (Cadoc 4060) no período.",
     "Perda Esperada / Estágio 3": "Perda Esperada (Rel. 2) ÷ Ativos Estágio 3 (Cadoc 4060).",
+    "Perda Esperada / Est2+3": "Perda Esperada (Rel. 2) ÷ (Ativos Estágio 2 + Ativos Estágio 3) do Cadoc 4060.",
     "Perda Esperada / Carteira de Crédito*": "Perda Esperada ÷ Carteira de Crédito*.",
     "Ativo Total / PL": "Ativo Total ÷ Patrimônio Líquido.",
     "Carteira de Crédito* / PL": "Carteira de Crédito* ÷ Patrimônio Líquido.",
@@ -971,6 +978,10 @@ PEERS_GLOSSARIO_RESUMIDO = {
     "Índice de Basileia Total (%)": "(CET1 + AT1 + T2) ÷ RWA Total (Rel. 5).",
     "Lucro Líquido Acumulado": "Lucro Líquido acumulado no ano (YTD) até o fim do período (Rel. 1).",
     "ROE Acumulado YTD (%)": "(LL YTD × fator de anualização) ÷ PL Médio.",
+}
+
+PEERS_PERCENT_DECIMALS = {
+    "Perda Esperada / Est2+3": 1,
 }
 
 # Variáveis disponíveis para ponderação (variáveis de tamanho/volume em valores absolutos)
@@ -3777,6 +3788,11 @@ def _resolver_coluna_peers(df: pd.DataFrame, candidatos: list) -> Optional[str]:
 def _formatar_valor_peers(valor, format_key: str, coluna_origem: Optional[str] = None) -> str:
     if valor is None or pd.isna(valor):
         return "N/D"
+    if format_key in PEERS_PERCENT_DECIMALS:
+        try:
+            return _formatar_percentual(float(valor), decimais=PEERS_PERCENT_DECIMALS[format_key])
+        except Exception:
+            return "N/D"
     if format_key == "Ativo/PL":
         try:
             return f"{_formatar_numero_ptbr(float(valor), 2)}x"
@@ -3826,6 +3842,7 @@ def _tooltip_ratio_peers(label, valor_num, valor_den, valor_ratio):
         "Ativo Total / PL": ("Ativo Total", "PL"),
         "Carteira de Crédito* / PL": ("Carteira de Crédito Bruta", "PL"),
         "Perda Esperada / Carteira de Crédito*": ("Perda Esperada", "Carteira de Crédito Bruta"),
+        "Perda Esperada / Est2+3": ("Perda Esperada", "Estágio 2 + Estágio 3"),
         "Carteira de Créd. Class. C4+C5 / Carteira Classificada": ("C4+C5", "Carteira de Crédito Classificada"),
         "Perda Esperada / (Carteira C4 + C5)": ("Perda Esperada", "C4+C5"),
     }
@@ -3842,7 +3859,7 @@ def _tooltip_ratio_peers(label, valor_num, valor_den, valor_ratio):
         if "/ PL" in label or "/PL" in label:
             lines.append(f"= {_formatar_numero_ptbr(float(valor_ratio), decimais=2)}x")
         else:
-            lines.append(f"= {_formatar_percentual(float(valor_ratio), decimais=2)}")
+            lines.append(f"= {_formatar_percentual(float(valor_ratio), decimais=PEERS_PERCENT_DECIMALS.get(label, 2))}")
     else:
         lines.append("= N/A")
     return "\n".join(lines)
@@ -5661,6 +5678,7 @@ def _preparar_metricas_extra_peers(
         "Ativos Estágio 3": {},
         "PDD / Estágio 3": {},
         "Perda Esperada / Estágio 3": {},
+        "Perda Esperada / Est2+3": {},
         "Índice de Capital Principal (CET1)": {},
         "Índice de Basileia Total (%)": {},
     }
@@ -6459,6 +6477,10 @@ def _preparar_metricas_extra_peers(
             extra["Ativos Estágio 3"][chave] = estagio3_mes
             extra["PDD / Estágio 3"][chave] = _calcular_ratio_peers(pdd_total_4060, estagio3_mes)
             extra["Perda Esperada / Estágio 3"][chave] = _calcular_ratio_peers(perda_esperada, estagio3_mes)
+            extra["Perda Esperada / Est2+3"][chave] = _calcular_ratio_peers(
+                perda_esperada,
+                _somar_estagios_2_3_peers(estagio2_mes, estagio3_mes),
+            )
 
             # Capital: Índice de Capital Principal e Índice de Basileia Total
             # Prioridade: calcular da composição (Capital Principal / RWA);
@@ -6528,6 +6550,16 @@ def _calcular_ratio_peers(valor_num, valor_den) -> Optional[float]:
         return float(valor_num) / valor_den_float
     except Exception:
         return None
+
+
+def _somar_estagios_2_3_peers(estagio2, estagio3) -> Optional[float]:
+    valor_est2 = _coerce_numeric_value(estagio2)
+    valor_est3 = _coerce_numeric_value(estagio3)
+    if valor_est2 is None or valor_est3 is None:
+        return None
+    if pd.isna(valor_est2) or pd.isna(valor_est3):
+        return None
+    return float(valor_est2) + float(valor_est3)
 
 
 def _acumular_dre_ytd_peers(
@@ -6673,7 +6705,16 @@ def _preparar_metricas_extra_peers_from_slice(
         for periodo in periodos:
             row = lookup.get((banco, periodo), {})
             for metric in CRITICAL_EXTRA_METRICS:
-                result[metric][(banco, periodo)] = _coerce_numeric_value(row.get(metric))
+                valor = _coerce_numeric_value(row.get(metric))
+                if metric == "Perda Esperada / Est2+3" and (valor is None or pd.isna(valor)):
+                    valor = _calcular_ratio_peers(
+                        row.get("Perda Esperada"),
+                        _somar_estagios_2_3_peers(
+                            row.get("Ativos Estágio 2"),
+                            row.get("Ativos Estágio 3"),
+                        ),
+                    )
+                result[metric][(banco, periodo)] = valor
     return result
 
 
@@ -6802,7 +6843,15 @@ def _montar_tabela_peers(
                         "PDD / Estágio 3": ("PDD Total 4060", "Ativos Estágio 3"),
                         "Perda Esperada / Estágio 3": ("Perda Esperada", "Ativos Estágio 3"),
                     }
-                    if label in extra_values and label in _RATIO_COMPONENTS:
+                    if label == "Perda Esperada / Est2+3" and label in extra_values:
+                        valor = extra_values[label].get((banco, periodo))
+                        valor_num = extra_values.get("Perda Esperada", {}).get((banco, periodo))
+                        valor_den = _somar_estagios_2_3_peers(
+                            extra_values.get("Ativos Estágio 2", {}).get((banco, periodo)),
+                            extra_values.get("Ativos Estágio 3", {}).get((banco, periodo)),
+                        )
+                        tip = _tooltip_ratio_peers(label, valor_num, valor_den, valor)
+                    elif label in extra_values and label in _RATIO_COMPONENTS:
                         valor = extra_values[label].get((banco, periodo))
                         num_key, den_key = _RATIO_COMPONENTS[label]
                         valor_num = extra_values.get(num_key, {}).get((banco, periodo))
@@ -7251,6 +7300,18 @@ def _build_memoria_calculo_curado_metrica(
             conta = "3312000001" if metrica == "Ativos Estágio 2" else "3313000000"
             add("Fonte canônica", "Cadoc 4060", f"Conta {conta}", "Soma de saldo no período", _memoria_fmt_monetario(resultado))
             add("Resultado renderizado", "Snapshot/Peers", metric_column, "Sem transformação adicional", _memoria_fmt_resultado(metrica, resultado))
+            continue
+
+        if metrica == "Perda Esperada / Est2+3":
+            valor_est2 = row.get("Ativos Estágio 2")
+            valor_est3 = row.get("Ativos Estágio 3")
+            denominador = _somar_estagios_2_3_peers(valor_est2, valor_est3)
+            ratio_result = _calcular_ratio_peers(row.get("Perda Esperada"), denominador)
+            add("Numerador", "Cache curado", "Perda Esperada", "Valor renderizado canônico", _memoria_fmt_monetario(row.get("Perda Esperada")))
+            add("Denominador", "Cadoc 4060", "Ativos Estágio 2 — conta 3312000001", "Componente do denominador", _memoria_fmt_monetario(valor_est2))
+            add("Denominador", "Cadoc 4060", "Ativos Estágio 3 — conta 3313000000", "Componente do denominador", _memoria_fmt_monetario(valor_est3))
+            add("Denominador", "Cache curado", "Ativos Estágio 2 + Ativos Estágio 3", "Soma dos componentes do denominador", _memoria_fmt_monetario(denominador))
+            add("Resultado renderizado", "Snapshot/Peers", metrica, "Perda Esperada ÷ (Estágio 2 + Estágio 3)", _memoria_fmt_resultado(metrica, ratio_result if ratio_result is not None else resultado))
             continue
 
         if metrica in {"Perda Esperada / Estágio 3", "Perda Esperada / Carteira de Crédito*", "Perda Esperada / Carteira", "Ativo Total / PL", "Carteira de Crédito* / PL", "Crédito / Captações"}:
@@ -12182,6 +12243,7 @@ elif menu == "Peers (Tabela)":
                             <strong>Ativos Estágio 2</strong> = Saldo da conta 3312000001 (Cadoc 4060) no mês/período selecionado.<br>
                             <strong>Ativos Estágio 3</strong> = Saldo da conta 3313000000 (Cadoc 4060) no mês/período selecionado.<br>
                             <strong>Perda Esperada / Estágio 3</strong> = Perda Esperada (Rel. 2) ÷ Ativos Estágio 3 (Cadoc 4060) do mesmo período.<br>
+                            <strong>Perda Esperada / Est2+3</strong> = Perda Esperada (Rel. 2) ÷ (Ativos Estágio 2 + Ativos Estágio 3) do mesmo período.<br>
                             <br>
                             <em>Alavancagem</em><br>
                             <strong>Ativo Total / PL</strong> = Ativo Total ÷ Patrimônio Líquido.<br>
@@ -23217,6 +23279,7 @@ elif menu == "Glossário":
         {"Indicador": "Ativos Estágio 2", "Aba(s)": "Peers, Glossário", "Fonte": "Cadoc 4060", "Fórmula": "Conta 3312000001", "Unidade": "R$", "Interpretação": "Estoque de ativos em estágio 2.", "Limitação": "Comparabilidade requer mesma régua classificatória.", "Periodicidade": "Mensal/Trimestral"},
         {"Indicador": "Ativos Estágio 3", "Aba(s)": "Peers, Glossário", "Fonte": "Cadoc 4060", "Fórmula": "Conta 3313000000", "Unidade": "R$", "Interpretação": "Estoque de ativos em estágio 3.", "Limitação": "Não substitui análise de recuperação/vintage.", "Periodicidade": "Mensal/Trimestral"},
         {"Indicador": "Perda Esperada / Estágio 3 (%)", "Aba(s)": "Peers, Glossário", "Fonte": "IFData Rel.2 + Cadoc 4060", "Fórmula": "Perda Esperada ÷ Ativos Estágio 3", "Unidade": "%", "Interpretação": "Proxy de cobertura da perda esperada sobre estágio 3.", "Limitação": "Pode haver descasamento temporal entre fontes.", "Periodicidade": "Mensal/Trimestral"},
+        {"Indicador": "Perda Esperada / Est2+3 (%)", "Aba(s)": "Peers, Glossário", "Fonte": "IFData Rel.2 + Cadoc 4060", "Fórmula": "Perda Esperada ÷ (Ativos Estágio 2 + Ativos Estágio 3)", "Unidade": "%", "Interpretação": "Proxy de cobertura da perda esperada sobre estágios 2 e 3 combinados.", "Limitação": "Exige Estágio 2 e Estágio 3 publicados no mesmo período.", "Periodicidade": "Mensal/Trimestral"},
     ])
 
     _render_secao_glossario("5) Alavancagem e Relações de Estrutura", [

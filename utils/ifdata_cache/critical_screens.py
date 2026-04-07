@@ -67,6 +67,7 @@ CRITICAL_EXTRA_METRICS = [
     "Ativos Estágio 3",
     "PDD / Estágio 3",
     "Perda Esperada / Estágio 3",
+    "Perda Esperada / Est2+3",
     "Índice de Capital Principal (CET1)",
     "Índice de Basileia Total (%)",
 ]
@@ -364,6 +365,13 @@ def _sum_values(values: Iterable[object]) -> Optional[float]:
     nums = [_coerce_numeric_value(v) for v in values]
     nums = [v for v in nums if v is not None]
     if not nums:
+        return None
+    return float(sum(nums))
+
+
+def _sum_required_values(values: Iterable[object]) -> Optional[float]:
+    nums = [_coerce_numeric_value(v) for v in values]
+    if any(v is None for v in nums):
         return None
     return float(sum(nums))
 
@@ -1346,6 +1354,10 @@ def build_critical_screens_dataframe(
                 "Ativos Estágio 3": estagio3,
                 "PDD / Estágio 3": _calc_ratio(pdd_total_4060, estagio3),
                 "Perda Esperada / Estágio 3": _calc_ratio(perda_esperada, estagio3),
+                "Perda Esperada / Est2+3": _calc_ratio(
+                    perda_esperada,
+                    _sum_required_values([estagio2, estagio3]),
+                ),
                 "Índice de Capital Principal (CET1)": indice_cap_principal,
                 "Índice de Basileia Total (%)": indice_basileia,
                 "Trace::PL Dez Ano Anterior": pl_dez_anterior,

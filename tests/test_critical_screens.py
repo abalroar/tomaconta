@@ -201,6 +201,7 @@ def test_build_critical_screens_dataframe_materializes_expected_metrics(tmp_path
     assert row["Carteira de Crédito Classificada"] == 300.0
     assert row["Carteira de Créd. Class. C4+C5"] == 15.0
     assert round(row["Perda Esperada / Estágio 3"], 6) == 0.2
+    assert round(row["Perda Esperada / Est2+3"], 6) == round(100.0 / (400.0 + 500.0), 6)
     assert round(row["Índice de Capital Principal (CET1)"], 6) == 0.12
     assert round(row["Índice de Basileia Total (%)"], 6) == 0.17
     assert row["Trace::Ativos Líquidos::Disponibilidades (a)"] == 100.0
