@@ -21390,18 +21390,23 @@ elif menu == "Taxas de Juros por Produto":
                     # Solução: mapa de cores local da aba com color picker em expander.
                     # Impacto: apenas na apresentação do gráfico de linhas.
                     # Testado em: py_compile do app e inspeção estática do fluxo da aba.
-                    taxas_color_state_key = "taxas_juros_color_map"
+                    taxas_color_state_key = "taxas_juros_color_map_v2"
                     if taxas_color_state_key not in st.session_state:
                         st.session_state[taxas_color_state_key] = {}
                     taxas_color_map = st.session_state[taxas_color_state_key]
+                    taxas_palette_nitida = [
+                        "#0057B8", "#D41159", "#00A087", "#F39C12", "#7B2CBF",
+                        "#E31A1C", "#1B9E77", "#111827", "#FF6F00", "#006D77",
+                        "#C1121F", "#2A9D8F", "#3A0CA3", "#A05A00", "#0B3954",
+                    ]
                     with st.expander("🎨 Personalizar cores", expanded=False):
                         for idx_cor_taxas, banco_taxas in enumerate(bancos_sel):
                             banco_norm = normalizar_nome_instituicao(banco_taxas)
-                            cor_inicial = taxas_color_map.get(banco_norm) or px.colors.qualitative.Plotly[idx_cor_taxas % len(px.colors.qualitative.Plotly)]
+                            cor_inicial = taxas_color_map.get(banco_norm) or taxas_palette_nitida[idx_cor_taxas % len(taxas_palette_nitida)]
                             taxas_color_map[banco_norm] = st.color_picker(
                                 banco_taxas,
                                 value=cor_inicial,
-                                key=f"taxas_color_picker_{banco_norm}",
+                                key=f"taxas_v2_color_picker_{banco_norm}",
                             )
 
                     # =============================================================
@@ -21474,13 +21479,14 @@ elif menu == "Taxas de Juros por Produto":
                     for _, row_last in df_last.iterrows():
                         banco_nome = row_last['Instituição Financeira']
                         cor_texto = color_discrete_map.get(banco_nome) or '#1f2937'
+                        label_taxa = _formatar_taxa_label(row_last[tipo_taxa])
                         fig.add_trace(go.Scatter(
                             x=[row_last['Fim Período']],
                             y=[row_last[tipo_taxa]],
                             mode='text',
-                            text=[_formatar_taxa_label(row_last[tipo_taxa])],
+                            text=[f"<b>{label_taxa}</b>" if label_taxa else ""],
                             textposition='middle right',
-                            textfont=dict(size=10, color=cor_texto),
+                            textfont=dict(size=12, color=cor_texto, family="Arial Black, Arial, sans-serif"),
                             showlegend=False,
                             hoverinfo='skip',
                             cliponaxis=False,
