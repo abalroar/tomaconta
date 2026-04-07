@@ -20863,11 +20863,20 @@ elif menu == "Carteira 4.966":
 
         # Obter lista de instituições e períodos
         if 'Instituição' in df_carteira.columns:
+            catalog_map_carteira = build_institution_to_conglomerate_map(APP_DIR)
+            mapa_instituicoes_carteira = {}
+            for inst_raw in df_carteira['Instituição'].dropna().tolist():
+                inst_raw = str(inst_raw).strip()
+                if not inst_raw:
+                    continue
+                inst_exib = canonicalize_institution_name(inst_raw, catalog_map=catalog_map_carteira)
+                mapa_instituicoes_carteira.setdefault(str(inst_exib), set()).add(inst_raw)
             instituicoes = sorted(
-                {str(inst).strip() for inst in df_carteira['Instituição'].dropna().tolist() if str(inst).strip()},
+                mapa_instituicoes_carteira.keys(),
                 key=lambda nome: (str(nome)[0].isdigit(), str(nome).casefold()),
             )
         else:
+            mapa_instituicoes_carteira = {}
             instituicoes = []
 
         col_periodo = 'Período' if 'Período' in df_carteira.columns else 'Periodo'
@@ -20893,7 +20902,8 @@ elif menu == "Carteira 4.966":
                 )
 
             # Filtrar períodos disponíveis para a instituição selecionada
-            df_inst = df_carteira[df_carteira['Instituição'] == instituicao_selecionada]
+            instituicoes_raw_selecionadas = mapa_instituicoes_carteira.get(instituicao_selecionada, {instituicao_selecionada})
+            df_inst = df_carteira[df_carteira['Instituição'].astype(str).str.strip().isin(instituicoes_raw_selecionadas)]
             periodos_inst = ordenar_periodos(df_inst[col_periodo].dropna().unique(), reverso=True)
 
             with col_periodos:
