@@ -9,6 +9,8 @@ from utils.cdsfn_live import (
     build_excel_display_export_cdsfn,
     build_hierarchy_frame_cdsfn,
     build_excel_export_cdsfn,
+    combine_normalized_blocks_cdsfn,
+    combine_reference_periods_cdsfn,
     extract_metadata_cdsfn,
     fetch_documento_cdsfn,
     fetch_instituicoes_cdsfn,
@@ -85,6 +87,25 @@ def _sample_payload() -> dict:
             ]
         },
     }
+
+
+def _sample_payload_second_document() -> dict:
+    payload = _sample_payload()
+    payload["@dataBase"] = "122026"
+    payload["datasBaseReferencia"] = [
+        {"@id": "dt1", "@data": "A122026"},
+        {"@id": "dt2", "@data": "S122026"},
+        {"@id": "dt3", "@data": "A122025"},
+    ]
+    payload["BalancoPatrimonial"]["contas"][0]["valoresIndividualizados"] = [{"@dtBase": "dt1", "@valor": 700000.0}]
+    payload["BalancoPatrimonial"]["contas"][1]["valoresIndividualizados"] = [{"@dtBase": "dt1", "@valor": 120.0}]
+    payload["BalancoPatrimonial"]["contas"][2]["valoresIndividualizados"] = [{"@dtBase": "dt1", "@valor": 1100.0}]
+    payload["BalancoPatrimonial"]["contas"][3]["valoresIndividualizados"] = [{"@dtBase": "dt1", "@valor": 550.0}]
+    payload["DemonstracaoDoResultado"]["contas"][1]["valoresIndividualizados"] = [
+        {"@dtBase": "dt2", "@valor": 220000.0},
+        {"@dtBase": "dt3", "@valor": 217098.0},
+    ]
+    return payload
 
 
 class _DummyResponse:
@@ -260,9 +281,40 @@ def test_build_display_table_cdsfn_uses_selected_columns_only():
 
 def test_build_excel_display_export_cdsfn_returns_bytes():
     payload = _sample_payload()
-    metadata = extract_metadata_cdsfn(payload)
     df_long = normalize_long_cdsfn(payload, "BalancoPatrimonial")
-    df_display = build_display_table_cdsfn(df_long, "BalancoPatrimonial", ["A122025"])
-    excel_bytes = build_excel_display_export_cdsfn(metadata, df_display, sheet_name="BP")
+    df_view, value_cols = build_hierarchy_frame_cdsfn(df_long, "BalancoPatrimonial")
+    excel_bytes = build_excel_display_export_cdsfn(
+        df_view,
+        ["A122025"],
+        column_labels={"A122025": "A dez/25"},
+        sheet_name="BP",
+    )
     assert isinstance(excel_bytes, bytes)
     assert len(excel_bytes) > 100
+
+
+def test_combine_reference_periods_cdsfn_dedupes_and_sorts():
+    refs = combine_reference_periods_cdsfn([_sample_payload(), _sample_payload_second_document()])
+    assert [item["raw"] for item in refs][:3] == ["S122026", "A122026", "S122025"]
+
+
+def test_combine_normalized_blocks_cdsfn_merges_two_documents():
+    df_long = combine_normalized_blocks_cdsfn(
+        [_sample_payload(), _sample_payload_second_document()],
+        "DemonstracaoDoResultado",
+    )
+    assert set(df_long["dt_base_referencia"].dropna()) >= {"A122025", "S122025", "S122026"}
+    receita = df_long[df_long["descricao"] == "Receita com operações de crédito"]
+    assert len(receita) == 3
+
+
+def test_combine_normalized_blocks_cdsfn_raises_on_conflicting_duplicate_values():
+    payload_a = _sample_payload()
+    payload_b = _sample_payload()
+    payload_b["DemonstracaoDoResultado"]["contas"][1]["valoresIndividualizados"][1]["@valor"] = 999999.0
+    try:
+        combine_normalized_blocks_cdsfn([payload_a, payload_b], "DemonstracaoDoResultado")
+    except ValueError as exc:
+        assert "Conflito de valores" in str(exc)
+    else:
+        raise AssertionError("Era esperado conflito explícito ao combinar valores divergentes.")

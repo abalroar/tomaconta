@@ -10,6 +10,7 @@ from typing import Any
 
 import pandas as pd
 import requests
+from utils.formatting import formatar_numero_br
 
 
 BCB_INFORMES_BASE_URL = "https://www3.bcb.gov.br/informes/rest"
@@ -200,6 +201,14 @@ def _reference_display_label(ref: str) -> str:
     return f"{mes_txt}/{ano[-2:]}"
 
 
+def _format_excel_display_value_cdsfn(valor: Any) -> str:
+    valor_num = pd.to_numeric(valor, errors="coerce")
+    if pd.isna(valor_num):
+        return "—"
+    casas = 0 if float(valor_num).is_integer() else 2
+    return formatar_numero_br(float(valor_num), casas=casas)
+
+
 def _build_parent_map(df_long: pd.DataFrame) -> dict[str, str]:
     base = (
         df_long[["nivel", "conta_pai"]]
@@ -325,6 +334,77 @@ def build_display_table_cdsfn(
     if column_labels:
         df_export = df_export.rename(columns=column_labels)
     return df_export
+
+
+def combine_reference_periods_cdsfn(payloads: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    refs_map: dict[str, dict[str, Any]] = {}
+    for payload in payloads:
+        for item in list_reference_periods_cdsfn(payload):
+            raw = str(item.get("raw") or "").strip()
+            if not raw:
+                continue
+            existente = refs_map.get(raw)
+            if existente is None:
+                refs_map[raw] = item
+                continue
+            if (
+                existente.get("prefixo") != item.get("prefixo")
+                or existente.get("label") != item.get("label")
+            ):
+                raise ValueError(f"Referência inconsistente encontrada entre documentos para '{raw}'.")
+    return sorted(refs_map.values(), key=lambda item: item["sort_key"], reverse=True)
+
+
+def combine_normalized_blocks_cdsfn(payloads: list[dict[str, Any]], block_key: str) -> pd.DataFrame:
+    frames: list[pd.DataFrame] = []
+    for payload in payloads:
+        if block_key not in payload:
+            continue
+        frames.append(normalize_long_cdsfn(payload, block_key))
+
+    if not frames:
+        raise KeyError(f"Bloco '{block_key}' não existe em nenhum dos documentos carregados.")
+
+    if len(frames) == 1:
+        return frames[0].copy()
+
+    df_all = pd.concat(frames, ignore_index=True)
+    key_cols = [
+        "cnpj",
+        "codigo_documento",
+        "demonstracao",
+        "bloco_origem",
+        "conta_id",
+        "nivel",
+        "descricao",
+        "conta_pai",
+        "dt_base_referencia",
+    ]
+    merged_rows: list[dict[str, Any]] = []
+
+    for _, grupo in df_all.groupby(key_cols, dropna=False, sort=False):
+        valores_validos = pd.to_numeric(grupo["valor"], errors="coerce").dropna().unique().tolist()
+        if len(valores_validos) > 1:
+            descricao = str(grupo["descricao"].iloc[0] or "")
+            dt_ref = str(grupo["dt_base_referencia"].iloc[0] or "sem_data")
+            raise ValueError(
+                f"Conflito de valores entre documentos para '{descricao}' em '{dt_ref}'."
+            )
+        base = grupo.sort_values(["ordem_conta", "dt_base"], na_position="last").iloc[0].to_dict()
+        base["ordem_conta"] = int(pd.to_numeric(grupo["ordem_conta"], errors="coerce").min())
+        if valores_validos:
+            base["valor"] = valores_validos[0]
+        else:
+            base["valor"] = pd.NA
+        dt_bases_validas = [str(item).strip() for item in grupo["dt_base"].dropna().tolist() if str(item).strip()]
+        base["dt_base"] = dt_bases_validas[0] if dt_bases_validas else None
+        merged_rows.append(base)
+
+    return pd.DataFrame(merged_rows).sort_values(
+        by=["ordem_conta", "nivel", "descricao", "dt_base_referencia", "dt_base"],
+        key=lambda s: s.map(_level_sort_key) if s.name == "nivel" else s,
+        na_position="last",
+    ).reset_index(drop=True)
 
 
 def fetch_instituicoes_cdsfn(
@@ -601,23 +681,113 @@ def pivot_wide_cdsfn(df_long: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_excel_display_export_cdsfn(
-    metadata: dict[str, Any],
-    df_display: pd.DataFrame,
+    df_view: pd.DataFrame,
+    value_columns: list[str],
     *,
+    column_labels: dict[str, str] | None = None,
     sheet_name: str = "Tabela",
 ) -> bytes:
     output = BytesIO()
-    metadata_rows = [
-        {"campo": "cnpj", "valor": metadata.get("cnpj")},
-        {"campo": "codigo_documento", "valor": metadata.get("codigo_documento")},
-        {"campo": "tipo_remessa", "valor": metadata.get("tipo_remessa")},
-        {"campo": "unidade_medida", "valor": metadata.get("unidade_medida")},
-        {"campo": "data_base", "valor": metadata.get("data_base")},
-    ]
-
     with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-        pd.DataFrame(metadata_rows).to_excel(writer, sheet_name="Metadata", index=False)
-        df_display.to_excel(writer, sheet_name=sheet_name[:31], index=False)
+        workbook = writer.book
+        worksheet = workbook.add_worksheet(sheet_name[:31])
+        writer.sheets[sheet_name[:31]] = worksheet
+
+        fmt_header = workbook.add_format(
+            {
+                "bold": True,
+                "font_color": "#FFFFFF",
+                "bg_color": "#111111",
+                "border": 1,
+                "align": "center",
+                "valign": "vcenter",
+            }
+        )
+        fmt_parent_value = workbook.add_format(
+            {
+                "bold": True,
+                "bg_color": "#F6F6F6",
+                "border": 1,
+                "align": "right",
+                "valign": "top",
+            }
+        )
+        fmt_parent_value_negative = workbook.add_format(
+            {
+                "bold": True,
+                "bg_color": "#F6F6F6",
+                "border": 1,
+                "align": "right",
+                "valign": "top",
+                "font_color": "#7A1E2B",
+            }
+        )
+        fmt_leaf_value = workbook.add_format(
+            {
+                "border": 1,
+                "align": "right",
+                "valign": "top",
+            }
+        )
+        fmt_leaf_value_negative = workbook.add_format(
+            {
+                "border": 1,
+                "align": "right",
+                "valign": "top",
+                "font_color": "#7A1E2B",
+            }
+        )
+        text_format_cache: dict[tuple[bool, int], Any] = {}
+
+        def _text_format(is_parent: bool, depth: int):
+            key = (is_parent, depth)
+            cached = text_format_cache.get(key)
+            if cached is not None:
+                return cached
+            props = {
+                "border": 1,
+                "align": "left",
+                "valign": "top",
+                "indent": min(depth, 15),
+            }
+            if is_parent:
+                props["bold"] = True
+                props["bg_color"] = "#F6F6F6"
+            fmt = workbook.add_format(props)
+            text_format_cache[key] = fmt
+            return fmt
+
+        headers = ["Conta"] + [column_labels.get(col, col) if column_labels else col for col in value_columns]
+        for col_idx, header in enumerate(headers):
+            worksheet.write(0, col_idx, header, fmt_header)
+
+        conta_width = len("Conta")
+        value_widths = [len(str(header)) for header in headers[1:]]
+
+        for row_idx, (_, row) in enumerate(df_view.iterrows(), start=1):
+            depth = int(row.get("depth", 0) or 0)
+            has_children = bool(row.get("has_children")) or depth == 0
+            nivel = str(row.get("nivel") or "").strip()
+            descricao = str(row.get("descricao") or "")
+            conta_text = f"{nivel} {descricao}".strip() if nivel else descricao
+            conta_fmt = _text_format(has_children, depth)
+            worksheet.write(row_idx, 0, conta_text, conta_fmt)
+            conta_width = max(conta_width, len(conta_text) + max(depth * 2, 0))
+
+            for col_pos, value_col in enumerate(value_columns, start=1):
+                valor = pd.to_numeric(row.get(value_col), errors="coerce")
+                valor_fmt = _format_excel_display_value_cdsfn(valor)
+                if has_children:
+                    cell_fmt = fmt_parent_value_negative if pd.notna(valor) and float(valor) < 0 else fmt_parent_value
+                else:
+                    cell_fmt = fmt_leaf_value_negative if pd.notna(valor) and float(valor) < 0 else fmt_leaf_value
+                worksheet.write(row_idx, col_pos, valor_fmt, cell_fmt)
+                value_widths[col_pos - 1] = max(value_widths[col_pos - 1], len(str(valor_fmt)))
+
+        worksheet.freeze_panes(1, 1)
+        worksheet.set_column(0, 0, min(max(conta_width + 2, 18), 90))
+        for idx, width in enumerate(value_widths, start=1):
+            worksheet.set_column(idx, idx, min(max(width + 2, 12), 20))
     return output.getvalue()
 
 

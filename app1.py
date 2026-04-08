@@ -139,7 +139,8 @@ from utils.ifdata_cache import (
 )
 from utils.cdsfn_live import (
     CDSFN_BLOCKS,
-    build_display_table_cdsfn,
+    combine_normalized_blocks_cdsfn,
+    combine_reference_periods_cdsfn,
     build_excel_display_export_cdsfn,
     build_hierarchy_frame_cdsfn,
     extract_metadata_cdsfn,
@@ -2448,7 +2449,8 @@ def _render_cdsfn_hierarchy_table(
     .cdsfn-table td:first-child, .cdsfn-table th:first-child {
         text-align: left;
         white-space: nowrap;
-        min-width: 420px;
+        width: max-content;
+        min-width: 0;
     }
     .cdsfn-row-parent td {
         background: #f6f6f6;
@@ -2500,19 +2502,10 @@ def _render_cdsfn_hierarchy_table(
 
 
 def render_tab_cdsfn() -> None:
-    st.markdown("### Caderno 9011 - Teste")
-    st.caption("Consulta ao vivo do documento 9011 no Banco Central do Brasil, com bootstrap local de instituições e renderização contábil hierárquica.")
-
-    with st.expander("Sobre esta aba", expanded=False):
-        st.markdown(
-            """
-            **Fonte primária do documento:** API pública do Banco Central do Brasil (`/informes/rest`).
-
-            **Fluxo:** selecionar IF da base local de instituições -> escolher competência do documento -> baixar o JSON 9011 ao vivo -> validar -> estruturar -> escolher os períodos internos (`A` ou `S`) a justapor.
-
-            **Escopo desta versão:** documento 9011 consultado em tempo real. Sem parquet, sem ingestão em lote e sem cache persistido.
-            """
-        )
+    st.markdown("### Balanco, DRE e DMPL Ind.")
+    st.caption(
+        "Consulta ao vivo do documento 9011 no Banco Central do Brasil, com até 2 documentos carregados ao mesmo tempo e visualização contábil consolidada."
+    )
 
     try:
         df_instituicoes = load_instituicoes_csv_cdsfn(Path("JSON_Lista_Completa.csv"))
@@ -2544,7 +2537,7 @@ def render_tab_cdsfn() -> None:
         codigos=[None for _ in range(len(df_filtrado))],
     )
 
-    col_if, col_periodo = st.columns([2.4, 1])
+    col_if, col_periodo = st.columns([2.2, 1.2])
     with col_if:
         instituicao_sel = st.selectbox(
             "Instituição financeira",
@@ -2553,58 +2546,102 @@ def render_tab_cdsfn() -> None:
             key="cdsfn_live_instituicao",
         )
     with col_periodo:
-        periodo_sel = st.selectbox(
-            "Período (YYYYMM)",
+        periodos_documento_sel = st.multiselect(
+            "Documentos 9011 (YYYYMM)",
             options=_listar_periodos_documento_cdsfn(20),
-            key="cdsfn_live_periodo",
-            help="Competências candidatas em meses de fechamento (03, 06, 09 e 12). A disponibilidade real depende da instituição.",
+            default=_listar_periodos_documento_cdsfn(20)[:1],
+            max_selections=2,
+            key="cdsfn_live_periodos_documento",
+            help="Selecione 1 ou 2 competências do documento 9011 para carregar e consolidar.",
         )
 
     inst_row = mapa_instituicoes.get(instituicao_sel)
     if inst_row is None:
         st.error("Instituição selecionada não encontrada no resultado atual da API.")
         return
+    if not periodos_documento_sel:
+        st.warning("Selecione ao menos uma competência do documento 9011 para carregar.")
+        return
 
-    assinatura = (str(inst_row.get("cnpj") or ""), str(periodo_sel), "9011")
-    botao_baixar = st.button("Baixar documento 9011 ao vivo", key="cdsfn_live_download")
+    assinatura = (str(inst_row.get("cnpj") or ""), tuple(sorted(periodos_documento_sel)), "9011")
+    botao_baixar = st.button("Carregar documentos 9011", key="cdsfn_live_download")
 
     if botao_baixar:
         try:
-            with st.spinner("Baixando documento 9011..."):
-                payload, url_documento = fetch_documento_cdsfn(inst_row.get("cnpj", ""), periodo_sel, "9011")
-            validate_json_cdsfn(payload)
-            metadata = extract_metadata_cdsfn(payload)
-            if metadata.get("codigo_documento") != "9011":
-                raise ValueError(
-                    f"Documento retornado com código {metadata.get('codigo_documento')} em vez de 9011."
-                )
+            payloads_carregados: dict[str, dict] = {}
+            urls_documento: dict[str, str] = {}
+            with st.spinner("Carregando documentos 9011..."):
+                for periodo_doc in periodos_documento_sel:
+                    payload, url_documento = fetch_documento_cdsfn(inst_row.get("cnpj", ""), periodo_doc, "9011")
+                    validate_json_cdsfn(payload)
+                    metadata = extract_metadata_cdsfn(payload)
+                    if metadata.get("codigo_documento") != "9011":
+                        raise ValueError(
+                            f"Documento retornado com código {metadata.get('codigo_documento')} em vez de 9011."
+                        )
+                    payloads_carregados[str(periodo_doc)] = payload
+                    urls_documento[str(periodo_doc)] = url_documento
             st.session_state["cdsfn_live_signature"] = assinatura
-            st.session_state["cdsfn_live_payload"] = payload
-            st.session_state["cdsfn_live_url"] = url_documento
+            st.session_state["cdsfn_live_payloads"] = payloads_carregados
+            st.session_state["cdsfn_live_urls"] = urls_documento
         except Exception as exc:
             st.session_state.pop("cdsfn_live_signature", None)
-            st.session_state.pop("cdsfn_live_payload", None)
-            st.session_state.pop("cdsfn_live_url", None)
+            st.session_state.pop("cdsfn_live_payloads", None)
+            st.session_state.pop("cdsfn_live_urls", None)
             st.error(f"Erro ao baixar/validar o documento 9011: {exc}")
             return
 
     if st.session_state.get("cdsfn_live_signature") != assinatura:
-        st.info("Seleção pronta. Clique em **Baixar documento 9011 ao vivo** para consultar o JSON.")
+        st.info("Seleção pronta. Clique em **Carregar documentos 9011** para consultar os JSONs.")
         return
 
-    payload = st.session_state.get("cdsfn_live_payload")
-    if not isinstance(payload, dict):
-        st.error("Documento 9011 não está disponível no estado da sessão para a seleção atual.")
+    payloads_por_periodo = st.session_state.get("cdsfn_live_payloads")
+    if not isinstance(payloads_por_periodo, dict):
+        st.error("Os documentos 9011 não estão disponíveis no estado da sessão para a seleção atual.")
         return
+    payloads_ordenados = []
+    for periodo_doc in periodos_documento_sel:
+        payload = payloads_por_periodo.get(str(periodo_doc))
+        if not isinstance(payload, dict):
+            st.error(f"Documento 9011 ausente no estado da sessão para o período {periodo_doc}.")
+            return
+        payloads_ordenados.append(payload)
 
     try:
-        metadata = extract_metadata_cdsfn(payload)
-        blocos = list_blocks_cdsfn(payload)
+        metadatas = [extract_metadata_cdsfn(payload) for payload in payloads_ordenados]
     except Exception as exc:
-        st.error(f"Erro ao estruturar o JSON 9011 retornado: {exc}")
+        st.error(f"Erro ao estruturar os JSONs 9011 retornados: {exc}")
+        return
+    metadata = metadatas[0]
+    refs = combine_reference_periods_cdsfn(payloads_ordenados)
+    if not refs:
+        st.error("Os documentos retornados não possuem datasBaseReferencia utilizáveis para montar a visualização contábil.")
         return
 
-    st.caption(f"Documento consultado: `{st.session_state.get('cdsfn_live_url', '')}`")
+    ordem_blocos = [
+        "BalancoPatrimonial",
+        "DemonstracaoDoResultado",
+        "DemonstracaoDasMutacoesDoPatrimonioLiquido",
+        "DemonstracaoDoResultadoAbrangente",
+        "DemonstracaoDosFluxosDeCaixa",
+    ]
+    blocos = []
+    for block_key in ordem_blocos:
+        if any(block_key in payload for payload in payloads_ordenados):
+            blocos.append(
+                {
+                    "block_key": block_key,
+                    "sigla": CDSFN_BLOCKS[block_key]["sigla"],
+                    "label": CDSFN_BLOCKS[block_key]["label"],
+                    "contas": max(
+                        len(payload.get(block_key, {}).get("contas") or [])
+                        for payload in payloads_ordenados
+                        if block_key in payload
+                    ),
+                }
+            )
+
+    st.caption(f"Documentos carregados: **{', '.join(periodos_documento_sel)}**")
     st.caption(
         f"Instituição selecionada: **{inst_row.get('nome', 'N/D')}** | "
         f"CNPJ raiz: **{inst_row.get('cnpj', 'N/D')}** | "
@@ -2614,20 +2651,11 @@ def render_tab_cdsfn() -> None:
     col_meta1, col_meta2, col_meta3, col_meta4 = st.columns(4)
     col_meta1.metric("CNPJ", metadata.get("cnpj") or "N/D")
     col_meta2.metric("Código documento", metadata.get("codigo_documento") or "N/D")
-    col_meta3.metric("Data base", metadata.get("data_base") or "N/D")
+    col_meta3.metric("Docs carregados", ", ".join(periodos_documento_sel))
     col_meta4.metric("Unidade", metadata.get("unidade_medida") or "N/D")
-    if metadata.get("tipo_remessa"):
-        st.caption(f"Tipo de remessa: {metadata['tipo_remessa']}")
-
-    df_datas_ref = pd.DataFrame(metadata.get("datas_base_referencia") or [])
-    if not df_datas_ref.empty:
-        st.caption("Datas base de referência")
-        st.dataframe(df_datas_ref.rename(columns={"id": "dt_base", "data": "referência"}), width="stretch", hide_index=True)
-
-    refs = list_reference_periods_cdsfn(payload)
-    if not refs:
-        st.error("O documento retornado não possui datasBaseReferencia utilizáveis para montar a visualização contábil.")
-        return
+    tipos_remessa = sorted({item.get("tipo_remessa") for item in metadatas if item.get("tipo_remessa")})
+    if tipos_remessa:
+        st.caption(f"Tipo de remessa: {', '.join(tipos_remessa)}")
 
     prefixos_disponiveis = []
     for prefixo in [item.get("prefixo", "") for item in refs]:
@@ -2662,7 +2690,7 @@ def render_tab_cdsfn() -> None:
             options=periodos_disponiveis,
             default=defaults_periodos,
             format_func=lambda valor: labels_periodos.get(valor, valor),
-            key=f"cdsfn_live_periodos_ref_{prefixo_sel}",
+            key=f"cdsfn_live_periodos_ref_{'_'.join(periodos_documento_sel)}_{prefixo_sel}",
             help="Selecione quais referências internas do próprio documento 9011 devem aparecer lado a lado na tabela.",
         )
 
@@ -2688,8 +2716,9 @@ def render_tab_cdsfn() -> None:
     for tab_bloco, bloco_info in zip(tabs_blocos, blocos):
         bloco_key = bloco_info["block_key"]
         with tab_bloco:
+            docs_sem_bloco = [periodo for periodo, payload in zip(periodos_documento_sel, payloads_ordenados) if bloco_key not in payload]
             try:
-                df_long = normalize_long_cdsfn(payload, bloco_key)
+                df_long = combine_normalized_blocks_cdsfn(payloads_ordenados, bloco_key)
                 df_view, value_columns = build_hierarchy_frame_cdsfn(df_long, bloco_key)
             except Exception as exc:
                 st.error(f"Erro ao normalizar a demonstração '{bloco_info['label']}': {exc}")
@@ -2701,75 +2730,36 @@ def render_tab_cdsfn() -> None:
                     df_view_render[periodo_ref] = pd.NA
             value_columns_render = list(periodos_ref_sel)
             column_labels = {col: labels_periodos.get(col, col) for col in value_columns_render}
-            df_display = build_display_table_cdsfn(
-                df_long,
-                bloco_key,
-                value_columns_render,
-                column_labels=column_labels,
-            )
             possui_valor_render = any(df_view_render[col].notna().any() for col in value_columns_render)
 
             st.caption(
                 f"{bloco_info['label']} | {bloco_info['contas']} contas | "
                 f"unidade do documento: {metadata.get('unidade_medida') or 'N/D'}"
             )
-            col_export_csv, col_export_excel = st.columns([1, 1])
-            csv_display = df_display.to_csv(index=False, sep=";", decimal=",")
+            if docs_sem_bloco:
+                st.warning(
+                    "Bloco ausente nos documentos: " + ", ".join(docs_sem_bloco)
+                )
             excel_bytes = build_excel_display_export_cdsfn(
-                metadata,
-                df_display,
+                df_view_render,
+                value_columns_render,
+                column_labels=column_labels,
                 sheet_name=bloco_info["sigla"],
             )
-            with col_export_csv:
-                st.download_button(
-                    "Baixar CSV da visualização",
-                    data=csv_display,
-                    file_name=f"cdsfn_9011_{bloco_info['sigla'].lower()}_{prefixo_sel}_{metadata.get('cnpj','sem_cnpj')}_{periodo_sel}.csv",
-                    mime="text/csv",
-                    key=f"cdsfn_live_download_csv_display_{bloco_key}",
-                    width="stretch",
-                )
-            with col_export_excel:
-                st.download_button(
-                    "Baixar Excel da visualização",
-                    data=excel_bytes,
-                    file_name=f"cdsfn_9011_{bloco_info['sigla'].lower()}_{prefixo_sel}_{metadata.get('cnpj','sem_cnpj')}_{periodo_sel}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    key=f"cdsfn_live_download_excel_display_{bloco_key}",
-                    width="stretch",
-                )
+            st.download_button(
+                "Exportar Excel da visualização",
+                data=excel_bytes,
+                file_name=f"cdsfn_9011_{bloco_info['sigla'].lower()}_{prefixo_sel}_{metadata.get('cnpj','sem_cnpj')}_{'_'.join(periodos_documento_sel)}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key=f"cdsfn_live_download_excel_display_{bloco_key}",
+                width="content",
+            )
 
             if not possui_valor_render:
                 st.warning(
                     "Esta demonstração existe no documento, mas não possui valores para os períodos internos selecionados."
                 )
             _render_cdsfn_hierarchy_table(df_view_render, value_columns_render, column_labels=column_labels)
-
-            with st.expander("Tabela longa estruturada", expanded=False):
-                df_long_debug = df_long[
-                    df_long["dt_base_referencia"].isin(periodos_ref_sel) | df_long["dt_base_referencia"].isna()
-                ].copy()
-                st.dataframe(
-                    df_long_debug[
-                        [
-                            "cnpj",
-                            "codigo_documento",
-                            "demonstracao",
-                            "bloco_origem",
-                            "conta_id",
-                            "nivel",
-                            "descricao",
-                            "conta_pai",
-                            "ordem_conta",
-                            "dt_base",
-                            "dt_base_referencia",
-                            "valor",
-                            "unidade_medida",
-                        ]
-                    ],
-                    width="stretch",
-                    hide_index=True,
-                )
 
 @st.cache_data(ttl=300, show_spinner=False)
 def verificar_caches_github() -> dict:
@@ -11387,7 +11377,7 @@ MENU_PRINCIPAL = [
     "Taxas de Juros por Produto",
     "Crie sua métrica!",
     "Contribuições FGC/FGCoop",
-    "Caderno 9011 - Teste",
+    "Balanco, DRE e DMPL Ind.",
 ]
 
 # Lista de opções do menu secundário (utilitários)
@@ -16829,7 +16819,7 @@ elif menu == "Contribuições FGC/FGCoop":
                             use_container_width=True,
                         )
 
-elif menu == "Caderno 9011 - Teste":
+elif menu == "Balanco, DRE e DMPL Ind.":
     render_tab_cdsfn()
 
 elif menu == "DRE" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo == "Conglomerado Prudencial"):
