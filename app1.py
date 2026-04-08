@@ -2502,7 +2502,7 @@ def _render_cdsfn_hierarchy_table(
 
 
 def render_tab_cdsfn() -> None:
-    st.markdown("### Balanco, DRE e DMPL Ind.")
+    st.markdown("### Balanço, DRE e DMPL (Ind.)")
     st.caption(
         "Consulta ao vivo do documento 9011 no Banco Central do Brasil, com até 2 documentos carregados ao mesmo tempo e visualização contábil consolidada."
     )
@@ -2512,8 +2512,6 @@ def render_tab_cdsfn() -> None:
     except Exception as exc:
         st.error(f"Erro ao carregar a base local de instituições para o Caderno 9011: {exc}")
         return
-
-    st.caption(f"Instituições disponíveis no bootstrap local: {len(df_instituicoes):,}")
 
     termo_busca = st.text_input(
         "Filtrar instituição por nome ou CNPJ",
@@ -2551,16 +2549,21 @@ def render_tab_cdsfn() -> None:
             key="cdsfn_live_instituicao",
         )
     with col_periodo1:
+        idx_periodo_principal_default = (
+            opcoes_periodo_documento.index("202512")
+            if "202512" in opcoes_periodo_documento
+            else 0
+        )
         periodo_documento_principal = st.selectbox(
-            "Documento principal (YYYYMM)",
+            "Período (YYYYMM)",
             options=opcoes_periodo_documento,
-            index=0,
+            index=idx_periodo_principal_default,
             key="cdsfn_live_periodo_documento_principal",
             help="Competência principal do documento 9011 a carregar.",
         )
     with col_periodo2:
         periodo_documento_comparativo = st.selectbox(
-            "Documento comparativo",
+            "Período Anterior",
             options=["(nenhum)"] + opcoes_periodo_documento,
             index=0,
             key="cdsfn_live_periodo_documento_comparativo",
@@ -2579,13 +2582,13 @@ def render_tab_cdsfn() -> None:
         return
 
     assinatura = (str(inst_row.get("cnpj") or ""), tuple(sorted(periodos_documento_sel)), "9011")
-    botao_baixar = st.button("Carregar documentos 9011", key="cdsfn_live_download")
+    botao_baixar = st.button("Carregar infos", key="cdsfn_live_download")
 
     if botao_baixar:
         try:
             payloads_carregados: dict[str, dict] = {}
             urls_documento: dict[str, str] = {}
-            with st.spinner("Carregando documentos 9011..."):
+            with st.spinner("Carregando infos..."):
                 for periodo_doc in periodos_documento_sel:
                     payload, url_documento = fetch_documento_cdsfn(inst_row.get("cnpj", ""), periodo_doc, "9011")
                     validate_json_cdsfn(payload)
@@ -2607,7 +2610,7 @@ def render_tab_cdsfn() -> None:
             return
 
     if st.session_state.get("cdsfn_live_signature") != assinatura:
-        st.info("Seleção pronta. Clique em **Carregar documentos 9011** para consultar os JSONs.")
+        st.info("Seleção pronta. Clique em **Carregar infos** para consultar os JSONs.")
         return
 
     payloads_por_periodo = st.session_state.get("cdsfn_live_payloads")
@@ -2656,18 +2659,6 @@ def render_tab_cdsfn() -> None:
                 }
             )
 
-    st.caption(f"Documentos carregados: **{', '.join(periodos_documento_sel)}**")
-    st.caption(
-        f"Instituição selecionada: **{inst_row.get('nome', 'N/D')}** | "
-        f"CNPJ raiz: **{inst_row.get('cnpj', 'N/D')}** | "
-        f"Situação cadastral local: **{inst_row.get('situacao', 'N/D') or 'N/D'}**"
-    )
-
-    col_meta1, col_meta2, col_meta3, col_meta4 = st.columns(4)
-    col_meta1.metric("CNPJ", metadata.get("cnpj") or "N/D")
-    col_meta2.metric("Código documento", metadata.get("codigo_documento") or "N/D")
-    col_meta3.metric("Docs carregados", ", ".join(periodos_documento_sel))
-    col_meta4.metric("Unidade", metadata.get("unidade_medida") or "N/D")
     tipos_remessa = sorted({item.get("tipo_remessa") for item in metadatas if item.get("tipo_remessa")})
     if tipos_remessa:
         st.caption(f"Tipo de remessa: {', '.join(tipos_remessa)}")
@@ -2684,13 +2675,15 @@ def render_tab_cdsfn() -> None:
     col_tipo, col_refs = st.columns([1, 2.2])
     with col_tipo:
         prefixo_sel = st.radio(
-            "Tipo de referência",
+            "Ref. Info Contábil",
             options=prefixos_disponiveis,
             format_func=_rotulo_tipo_referencia_cdsfn,
             index=prefixos_disponiveis.index(prefixo_default),
             key="cdsfn_live_prefixo_ref",
             horizontal=True,
         )
+    if "S" in prefixos_disponiveis:
+        st.caption("Semestral (S): na DRE, os valores são acumulados por semestre (jan–jun em S06 e jul–dez em S12).")
     refs_filtradas = [item for item in refs if item.get("prefixo") == prefixo_sel]
     if not refs_filtradas:
         st.warning(f"O documento retornado não possui períodos internos do tipo {prefixo_sel}.")
@@ -2698,16 +2691,14 @@ def render_tab_cdsfn() -> None:
 
     periodos_disponiveis = [item["raw"] for item in refs_filtradas]
     labels_periodos = {item["raw"]: item["label"] for item in refs_filtradas}
-    defaults_periodos = periodos_disponiveis[: min(4, len(periodos_disponiveis))]
+    sufixos_periodos_documento = {f"{periodo[4:6]}{periodo[:4]}" for periodo in periodos_documento_sel}
+    periodos_ref_sel = [periodo for periodo in periodos_disponiveis if str(periodo).endswith(tuple(sufixos_periodos_documento))]
     with col_refs:
-        periodos_ref_sel = st.multiselect(
-            "Períodos internos para mostrar e justapor",
-            options=periodos_disponiveis,
-            default=defaults_periodos,
-            format_func=lambda valor: labels_periodos.get(valor, valor),
-            key=f"cdsfn_live_periodos_ref_{'_'.join(periodos_documento_sel)}_{prefixo_sel}",
-            help="Selecione quais referências internas do próprio documento 9011 devem aparecer lado a lado na tabela.",
-        )
+        if periodos_ref_sel:
+            st.caption(
+                "Períodos internos exibidos automaticamente a partir do(s) documento(s) carregado(s): "
+                + ", ".join(labels_periodos.get(valor, valor) for valor in periodos_ref_sel)
+            )
 
     periodos_invalidos = [item for item in periodos_ref_sel if item not in periodos_disponiveis]
     if periodos_invalidos:
@@ -2717,7 +2708,7 @@ def render_tab_cdsfn() -> None:
         )
         return
     if not periodos_ref_sel:
-        st.warning("Selecione ao menos um período interno para renderizar a demonstração.")
+        st.warning("Nenhum período interno compatível com o(s) documento(s) carregado(s) para este tipo de referência.")
         return
 
     blocos_presentes = {item["block_key"] for item in blocos}
@@ -2762,7 +2753,7 @@ def render_tab_cdsfn() -> None:
                 sheet_name=bloco_info["sigla"],
             )
             st.download_button(
-                "Exportar Excel da visualização",
+                "Exportar Excel",
                 data=excel_bytes,
                 file_name=f"cdsfn_9011_{bloco_info['sigla'].lower()}_{prefixo_sel}_{metadata.get('cnpj','sem_cnpj')}_{'_'.join(periodos_documento_sel)}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -11392,7 +11383,7 @@ MENU_PRINCIPAL = [
     "Taxas de Juros por Produto",
     "Crie sua métrica!",
     "Contribuições FGC/FGCoop",
-    "Balanco, DRE e DMPL Ind.",
+    "Balanço, DRE e DMPL (Ind.)",
 ]
 
 # Lista de opções do menu secundário (utilitários)
@@ -11412,6 +11403,8 @@ if st.session_state['menu_atual'] not in TODOS_MENUS:
         st.session_state['menu_atual'] = "Contribuições FGC/FGCoop"
     elif st.session_state['menu_atual'] in {"DRE", "DRE Individual"}:
         st.session_state['menu_atual'] = "DRE (Ind. e Congl.)"
+    elif st.session_state['menu_atual'] == "Balanco, DRE e DMPL Ind.":
+        st.session_state['menu_atual'] = "Balanço, DRE e DMPL (Ind.)"
     else:
         st.session_state['menu_atual'] = "Sobre"
 
@@ -16834,7 +16827,7 @@ elif menu == "Contribuições FGC/FGCoop":
                             use_container_width=True,
                         )
 
-elif menu == "Balanco, DRE e DMPL Ind.":
+elif menu == "Balanço, DRE e DMPL (Ind.)":
     render_tab_cdsfn()
 
 elif menu == "DRE" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo == "Conglomerado Prudencial"):
