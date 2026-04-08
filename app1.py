@@ -21285,7 +21285,7 @@ elif menu == "Taxas de Juros por Produto":
     st.markdown("### Taxas de Juros por Produto")
     st.caption("Histórico dos últimos 12 meses - API do Banco Central do Brasil")
 
-    with st.expander("ℹ️ Sobre os dados", expanded=False):
+    with st.expander("Sobre os dados", expanded=False):
         st.markdown("""
         **Fonte:** API do Banco Central do Brasil - Taxas de Juros
 
@@ -21310,7 +21310,7 @@ elif menu == "Taxas de Juros por Produto":
         data_mais_recente = df_taxas['Fim Período'].max()
         meses_disponiveis = df_taxas['AnoMes'].nunique()
 
-        st.success(f"✅ {len(df_taxas):,} registros | {meses_disponiveis} meses | Até: {data_mais_recente.strftime('%d/%m/%Y')}")
+        st.success(f"{len(df_taxas):,} registros | {meses_disponiveis} meses | Até: {data_mais_recente.strftime('%d/%m/%Y')}")
 
         st.markdown("---")
 
@@ -21548,7 +21548,7 @@ elif menu == "Taxas de Juros por Produto":
                     # =============================================================
                     # TABELA DE DADOS (data mais recente)
                     # =============================================================
-                    with st.expander("📋 Ver ranking atual"):
+                    with st.expander("Ver ranking atual"):
                         df_rank = df_prod_recente[df_prod_recente['Instituição Financeira'].isin(bancos_sel)]
                         cols_mostrar = ['Posição', 'Instituição Financeira', 'Taxa Mensal (%)', 'Taxa Anual (%)']
                         cols_disp = [c for c in cols_mostrar if c in df_rank.columns]
@@ -21559,10 +21559,10 @@ elif menu == "Taxas de Juros por Produto":
                     # =============================================================
                     # EXPORTAÇÃO
                     # =============================================================
-                    with st.expander("📥 Exportar dados"):
+                    with st.expander("Exportar dados"):
                         csv_data = df_chart.to_csv(index=False, sep=';', decimal=',')
                         st.download_button(
-                            label="⬇️ Baixar CSV (histórico)",
+                            label="Baixar CSV (histórico)",
                             data=csv_data,
                             file_name=f"taxas_hist_{segmento_sel}_{produto_sel[:20]}.csv",
                             mime="text/csv",
