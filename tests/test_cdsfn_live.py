@@ -5,12 +5,15 @@ from io import BytesIO
 import pandas as pd
 
 from utils.cdsfn_live import (
+    build_display_table_cdsfn,
+    build_excel_display_export_cdsfn,
     build_hierarchy_frame_cdsfn,
     build_excel_export_cdsfn,
     extract_metadata_cdsfn,
     fetch_documento_cdsfn,
     fetch_instituicoes_cdsfn,
     list_blocks_cdsfn,
+    list_reference_periods_cdsfn,
     load_instituicoes_csv_cdsfn,
     normalize_long_cdsfn,
     pivot_wide_cdsfn,
@@ -63,6 +66,12 @@ def _sample_payload() -> dict:
         },
         "DemonstracaoDoResultado": {
             "contas": [
+                {
+                    "@id": "conta-header",
+                    "@nivel": "1",
+                    "@descricao": "Outros resultados abrangentes",
+                    "@contaPai": "",
+                },
                 {
                     "@id": "conta3",
                     "@nivel": "1.1.1",
@@ -151,13 +160,15 @@ def test_list_blocks_and_normalize_long_cdsfn():
         "nivel",
         "descricao",
         "conta_pai",
+        "ordem_conta",
         "dt_base",
         "dt_base_referencia",
         "valor",
         "unidade_medida",
     ]
-    assert len(df_long) == 2
-    assert set(df_long["dt_base_referencia"]) == {"A122025", "S122025"}
+    assert len(df_long) == 3
+    assert set(df_long["dt_base_referencia"].dropna()) == {"A122025", "S122025"}
+    assert df_long[df_long["conta_id"] == "conta-header"]["valor"].isna().all()
 
 
 def test_pivot_wide_cdsfn_preserves_dates_as_columns():
@@ -227,3 +238,31 @@ def test_build_hierarchy_frame_cdsfn_splits_balance_sections():
     assert set(df_view["section"]) >= {"Ativo", "Passivo", "Patrimônio líquido"}
     ativo_row = df_view[df_view["descricao"] == "Ativo"].iloc[0]
     assert int(ativo_row["depth"]) == 0
+
+
+def test_list_reference_periods_cdsfn_returns_sorted_unique_refs():
+    refs = list_reference_periods_cdsfn(_sample_payload())
+    assert [item["raw"] for item in refs] == ["S122025", "A122025"]
+    assert refs[0]["label"] == "S dez/25"
+
+
+def test_build_display_table_cdsfn_uses_selected_columns_only():
+    df_long = normalize_long_cdsfn(_sample_payload(), "DemonstracaoDoResultado")
+    df_display = build_display_table_cdsfn(
+        df_long,
+        "DemonstracaoDoResultado",
+        ["S122025"],
+        column_labels={"S122025": "S dez/25"},
+    )
+    assert list(df_display.columns) == ["Conta", "S dez/25"]
+    assert "Receita com operações de crédito" in df_display["Conta"].iloc[-1]
+
+
+def test_build_excel_display_export_cdsfn_returns_bytes():
+    payload = _sample_payload()
+    metadata = extract_metadata_cdsfn(payload)
+    df_long = normalize_long_cdsfn(payload, "BalancoPatrimonial")
+    df_display = build_display_table_cdsfn(df_long, "BalancoPatrimonial", ["A122025"])
+    excel_bytes = build_excel_display_export_cdsfn(metadata, df_display, sheet_name="BP")
+    assert isinstance(excel_bytes, bytes)
+    assert len(excel_bytes) > 100

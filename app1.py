@@ -139,14 +139,15 @@ from utils.ifdata_cache import (
 )
 from utils.cdsfn_live import (
     CDSFN_BLOCKS,
+    build_display_table_cdsfn,
+    build_excel_display_export_cdsfn,
     build_hierarchy_frame_cdsfn,
-    build_excel_export_cdsfn,
     extract_metadata_cdsfn,
     fetch_documento_cdsfn,
     list_blocks_cdsfn,
+    list_reference_periods_cdsfn,
     load_instituicoes_csv_cdsfn,
     normalize_long_cdsfn,
-    pivot_wide_cdsfn,
     validate_json_cdsfn,
 )
 import io
@@ -2343,26 +2344,29 @@ def gerar_excel_orgaos_estatutarios(
     return output.getvalue()
 
 
-def _listar_periodos_semestrais_cdsfn(qtd: int = 20) -> list[str]:
+def _listar_periodos_documento_cdsfn(qtd: int = 20) -> list[str]:
     if qtd <= 0:
         return []
 
     agora = _agora_brasilia()
-    if agora.month <= 6:
-        ano = agora.year - 1
-        mes = 12
-    else:
+    quarter_months = [3, 6, 9, 12]
+    candidatos = [m for m in quarter_months if m < agora.month or (m == agora.month and agora.day >= 15)]
+    if candidatos:
+        mes = candidatos[-1]
         ano = agora.year
-        mes = 6
+    else:
+        mes = 12
+        ano = agora.year - 1
 
     periodos: list[str] = []
     for _ in range(qtd):
         periodos.append(f"{ano}{mes:02d}")
-        if mes == 12:
-            mes = 6
-        else:
+        idx = quarter_months.index(mes)
+        if idx == 0:
             mes = 12
             ano -= 1
+        else:
+            mes = quarter_months[idx - 1]
     return periodos
 
 
@@ -2393,7 +2397,21 @@ def _formatar_valor_cdsfn(valor) -> str:
     return formatar_numero_br(float(valor_num), casas=casas)
 
 
-def _render_cdsfn_hierarchy_table(df_view: pd.DataFrame, value_columns: list[str]) -> None:
+def _rotulo_tipo_referencia_cdsfn(prefixo: str) -> str:
+    prefixo = str(prefixo or "").strip().upper()
+    if prefixo == "A":
+        return "Anual (A)"
+    if prefixo == "S":
+        return "Semestral (S)"
+    return prefixo or "Sem prefixo"
+
+
+def _render_cdsfn_hierarchy_table(
+    df_view: pd.DataFrame,
+    value_columns: list[str],
+    *,
+    column_labels: dict[str, str] | None = None,
+) -> None:
     if df_view.empty:
         st.info("Sem linhas para exibir nesta seção.")
         return
@@ -2452,7 +2470,8 @@ def _render_cdsfn_hierarchy_table(df_view: pd.DataFrame, value_columns: list[str
     <div class="cdsfn-table-wrap"><table class="cdsfn-table"><thead><tr><th>Conta</th>
     """
     for col in value_columns:
-        html += f"<th>{_html_mod.escape(str(col))}</th>"
+        header = column_labels.get(col, col) if column_labels else col
+        html += f"<th>{_html_mod.escape(str(header))}</th>"
     html += "</tr></thead><tbody>"
 
     for _, row in df_view.iterrows():
@@ -2489,7 +2508,7 @@ def render_tab_cdsfn() -> None:
             """
             **Fonte primária do documento:** API pública do Banco Central do Brasil (`/informes/rest`).
 
-            **Fluxo:** selecionar IF da base local de instituições -> escolher semestre -> baixar o JSON 9011 ao vivo -> validar -> estruturar.
+            **Fluxo:** selecionar IF da base local de instituições -> escolher competência do documento -> baixar o JSON 9011 ao vivo -> validar -> estruturar -> escolher os períodos internos (`A` ou `S`) a justapor.
 
             **Escopo desta versão:** documento 9011 consultado em tempo real. Sem parquet, sem ingestão em lote e sem cache persistido.
             """
@@ -2536,9 +2555,9 @@ def render_tab_cdsfn() -> None:
     with col_periodo:
         periodo_sel = st.selectbox(
             "Período (YYYYMM)",
-            options=_listar_periodos_semestrais_cdsfn(20),
+            options=_listar_periodos_documento_cdsfn(20),
             key="cdsfn_live_periodo",
-            help="Semestres fechados em junho e dezembro.",
+            help="Competências candidatas em meses de fechamento (03, 06, 09 e 12). A disponibilidade real depende da instituição.",
         )
 
     inst_row = mapa_instituicoes.get(instituicao_sel)
@@ -2605,6 +2624,59 @@ def render_tab_cdsfn() -> None:
         st.caption("Datas base de referência")
         st.dataframe(df_datas_ref.rename(columns={"id": "dt_base", "data": "referência"}), width="stretch", hide_index=True)
 
+    refs = list_reference_periods_cdsfn(payload)
+    if not refs:
+        st.error("O documento retornado não possui datasBaseReferencia utilizáveis para montar a visualização contábil.")
+        return
+
+    prefixos_disponiveis = []
+    for prefixo in [item.get("prefixo", "") for item in refs]:
+        if prefixo and prefixo not in prefixos_disponiveis:
+            prefixos_disponiveis.append(prefixo)
+    if not prefixos_disponiveis:
+        st.error("O documento retornado não possui prefixos de referência válidos (ex.: A ou S).")
+        return
+
+    prefixo_default = "A" if "A" in prefixos_disponiveis else prefixos_disponiveis[0]
+    col_tipo, col_refs = st.columns([1, 2.2])
+    with col_tipo:
+        prefixo_sel = st.radio(
+            "Tipo de referência",
+            options=prefixos_disponiveis,
+            format_func=_rotulo_tipo_referencia_cdsfn,
+            index=prefixos_disponiveis.index(prefixo_default),
+            key="cdsfn_live_prefixo_ref",
+            horizontal=True,
+        )
+    refs_filtradas = [item for item in refs if item.get("prefixo") == prefixo_sel]
+    if not refs_filtradas:
+        st.warning(f"O documento retornado não possui períodos internos do tipo {prefixo_sel}.")
+        return
+
+    periodos_disponiveis = [item["raw"] for item in refs_filtradas]
+    labels_periodos = {item["raw"]: item["label"] for item in refs_filtradas}
+    defaults_periodos = periodos_disponiveis[: min(4, len(periodos_disponiveis))]
+    with col_refs:
+        periodos_ref_sel = st.multiselect(
+            "Períodos internos para mostrar e justapor",
+            options=periodos_disponiveis,
+            default=defaults_periodos,
+            format_func=lambda valor: labels_periodos.get(valor, valor),
+            key=f"cdsfn_live_periodos_ref_{prefixo_sel}",
+            help="Selecione quais referências internas do próprio documento 9011 devem aparecer lado a lado na tabela.",
+        )
+
+    periodos_invalidos = [item for item in periodos_ref_sel if item not in periodos_disponiveis]
+    if periodos_invalidos:
+        st.error(
+            "Há períodos selecionados que não existem para o tipo escolhido no documento atual: "
+            + ", ".join(periodos_invalidos)
+        )
+        return
+    if not periodos_ref_sel:
+        st.warning("Selecione ao menos um período interno para renderizar a demonstração.")
+        return
+
     blocos_presentes = {item["block_key"] for item in blocos}
     blocos_ausentes = [meta["label"] for chave, meta in CDSFN_BLOCKS.items() if chave not in blocos_presentes]
     if blocos_ausentes:
@@ -2618,57 +2690,85 @@ def render_tab_cdsfn() -> None:
         with tab_bloco:
             try:
                 df_long = normalize_long_cdsfn(payload, bloco_key)
-                df_wide = pivot_wide_cdsfn(df_long)
                 df_view, value_columns = build_hierarchy_frame_cdsfn(df_long, bloco_key)
             except Exception as exc:
                 st.error(f"Erro ao normalizar a demonstração '{bloco_info['label']}': {exc}")
                 continue
 
+            df_view_render = df_view.copy()
+            for periodo_ref in periodos_ref_sel:
+                if periodo_ref not in df_view_render.columns:
+                    df_view_render[periodo_ref] = pd.NA
+            value_columns_render = list(periodos_ref_sel)
+            column_labels = {col: labels_periodos.get(col, col) for col in value_columns_render}
+            df_display = build_display_table_cdsfn(
+                df_long,
+                bloco_key,
+                value_columns_render,
+                column_labels=column_labels,
+            )
+            possui_valor_render = any(df_view_render[col].notna().any() for col in value_columns_render)
+
             st.caption(
                 f"{bloco_info['label']} | {bloco_info['contas']} contas | "
                 f"unidade do documento: {metadata.get('unidade_medida') or 'N/D'}"
             )
+            col_export_csv, col_export_excel = st.columns([1, 1])
+            csv_display = df_display.to_csv(index=False, sep=";", decimal=",")
+            excel_bytes = build_excel_display_export_cdsfn(
+                metadata,
+                df_display,
+                sheet_name=bloco_info["sigla"],
+            )
+            with col_export_csv:
+                st.download_button(
+                    "Baixar CSV da visualização",
+                    data=csv_display,
+                    file_name=f"cdsfn_9011_{bloco_info['sigla'].lower()}_{prefixo_sel}_{metadata.get('cnpj','sem_cnpj')}_{periodo_sel}.csv",
+                    mime="text/csv",
+                    key=f"cdsfn_live_download_csv_display_{bloco_key}",
+                    width="stretch",
+                )
+            with col_export_excel:
+                st.download_button(
+                    "Baixar Excel da visualização",
+                    data=excel_bytes,
+                    file_name=f"cdsfn_9011_{bloco_info['sigla'].lower()}_{prefixo_sel}_{metadata.get('cnpj','sem_cnpj')}_{periodo_sel}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key=f"cdsfn_live_download_excel_display_{bloco_key}",
+                    width="stretch",
+                )
 
-            if bloco_key == "BalancoPatrimonial":
-                for secao in ["Ativo", "Passivo", "Patrimônio líquido", "Outras contas"]:
-                    df_secao = df_view[df_view["section"] == secao].copy()
-                    if df_secao.empty:
-                        continue
-                    st.markdown(f"#### {secao}")
-                    _render_cdsfn_hierarchy_table(df_secao, value_columns)
-            else:
-                _render_cdsfn_hierarchy_table(df_view, value_columns)
-
-            with st.expander("Tabela larga estruturada", expanded=False):
-                st.dataframe(df_wide, width="stretch", hide_index=True)
+            if not possui_valor_render:
+                st.warning(
+                    "Esta demonstração existe no documento, mas não possui valores para os períodos internos selecionados."
+                )
+            _render_cdsfn_hierarchy_table(df_view_render, value_columns_render, column_labels=column_labels)
 
             with st.expander("Tabela longa estruturada", expanded=False):
-                st.dataframe(df_long, width="stretch", hide_index=True)
-
-            with st.expander("Exportar demonstração", expanded=False):
-                csv_long = df_long.to_csv(index=False, sep=";", decimal=",")
-                csv_wide = df_wide.to_csv(index=False, sep=";", decimal=",")
-                st.download_button(
-                    "Baixar CSV (formato longo)",
-                    data=csv_long,
-                    file_name=f"cdsfn_9011_{bloco_info['sigla'].lower()}_long_{metadata.get('cnpj','sem_cnpj')}_{periodo_sel}.csv",
-                    mime="text/csv",
-                    key=f"cdsfn_live_download_csv_long_{bloco_key}",
-                )
-                st.download_button(
-                    "Baixar CSV (formato largo)",
-                    data=csv_wide,
-                    file_name=f"cdsfn_9011_{bloco_info['sigla'].lower()}_wide_{metadata.get('cnpj','sem_cnpj')}_{periodo_sel}.csv",
-                    mime="text/csv",
-                    key=f"cdsfn_live_download_csv_wide_{bloco_key}",
-                )
-                excel_bytes = build_excel_export_cdsfn(metadata, df_long, df_wide)
-                st.download_button(
-                    "Baixar Excel",
-                    data=excel_bytes,
-                    file_name=f"cdsfn_9011_{bloco_info['sigla'].lower()}_{metadata.get('cnpj','sem_cnpj')}_{periodo_sel}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    key=f"cdsfn_live_download_excel_{bloco_key}",
+                df_long_debug = df_long[
+                    df_long["dt_base_referencia"].isin(periodos_ref_sel) | df_long["dt_base_referencia"].isna()
+                ].copy()
+                st.dataframe(
+                    df_long_debug[
+                        [
+                            "cnpj",
+                            "codigo_documento",
+                            "demonstracao",
+                            "bloco_origem",
+                            "conta_id",
+                            "nivel",
+                            "descricao",
+                            "conta_pai",
+                            "ordem_conta",
+                            "dt_base",
+                            "dt_base_referencia",
+                            "valor",
+                            "unidade_medida",
+                        ]
+                    ],
+                    width="stretch",
+                    hide_index=True,
                 )
 
 @st.cache_data(ttl=300, show_spinner=False)

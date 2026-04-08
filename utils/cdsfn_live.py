@@ -30,7 +30,7 @@ DEFAULT_HEADERS = {
 }
 
 REQUIRED_TOP_LEVEL_KEYS = ("@cnpj", "@codigoDocumento", "@dataBase")
-REQUIRED_ACCOUNT_KEYS = ("@nivel", "@descricao", "@contaPai", "valoresIndividualizados")
+REQUIRED_ACCOUNT_KEYS = ("@nivel", "@descricao", "@contaPai")
 CSV_REQUIRED_COLUMNS = ("CNPJ", "NOME DA INSTITUICAO")
 
 
@@ -156,6 +156,50 @@ def _level_sort_key(nivel: Any) -> tuple[int, ...]:
     return tuple(partes)
 
 
+def _reference_sort_key(ref: str) -> tuple[int, int, str]:
+    texto = str(ref or "").strip().upper()
+    match = re.search(r"([A-Z])?(\d{2})(\d{4})$", texto)
+    if not match:
+        return (0, 0, texto)
+    prefixo, mes, ano = match.groups()
+    return (int(ano), int(mes), prefixo or "")
+
+
+def _reference_prefix(ref: str) -> str:
+    texto = str(ref or "").strip().upper()
+    if not texto:
+        return ""
+    if texto[0].isalpha():
+        return texto[0]
+    return ""
+
+
+def _reference_display_label(ref: str) -> str:
+    texto = str(ref or "").strip().upper()
+    match = re.search(r"([A-Z])?(\d{2})(\d{4})$", texto)
+    if not match:
+        return texto
+    prefixo, mes, ano = match.groups()
+    mapa_mes = {
+        "01": "jan",
+        "02": "fev",
+        "03": "mar",
+        "04": "abr",
+        "05": "mai",
+        "06": "jun",
+        "07": "jul",
+        "08": "ago",
+        "09": "set",
+        "10": "out",
+        "11": "nov",
+        "12": "dez",
+    }
+    mes_txt = mapa_mes.get(mes, mes)
+    if prefixo:
+        return f"{prefixo} {mes_txt}/{ano[-2:]}"
+    return f"{mes_txt}/{ano[-2:]}"
+
+
 def _build_parent_map(df_long: pd.DataFrame) -> dict[str, str]:
     base = (
         df_long[["nivel", "conta_pai"]]
@@ -203,11 +247,33 @@ def _resolve_balance_section(nivel: str, parent_map: dict[str, str], desc_map: d
     return "Outras contas"
 
 
+def list_reference_periods_cdsfn(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    metadata = extract_metadata_cdsfn(payload)
+    refs = []
+    vistos: set[str] = set()
+    for item in metadata.get("datas_base_referencia", []):
+        raw = str(item.get("data") or item.get("id") or "").strip()
+        if not raw or raw in vistos:
+            continue
+        vistos.add(raw)
+        refs.append(
+            {
+                "id": str(item.get("id") or "").strip(),
+                "raw": raw,
+                "prefixo": _reference_prefix(raw),
+                "label": _reference_display_label(raw),
+                "sort_key": _reference_sort_key(raw),
+            }
+        )
+    refs = sorted(refs, key=lambda item: item["sort_key"], reverse=True)
+    return refs
+
+
 def build_hierarchy_frame_cdsfn(df_long: pd.DataFrame, block_key: str) -> tuple[pd.DataFrame, list[str]]:
     if df_long.empty:
         return pd.DataFrame(), []
 
-    base_cols = ["demonstracao", "nivel", "descricao", "conta_pai", "conta_id"]
+    base_cols = ["demonstracao", "nivel", "descricao", "conta_pai", "conta_id", "ordem_conta"]
     df_wide = pivot_wide_cdsfn(df_long)
     value_columns = [col for col in df_wide.columns if col not in base_cols]
 
@@ -226,9 +292,39 @@ def build_hierarchy_frame_cdsfn(df_long: pd.DataFrame, block_key: str) -> tuple[
     meta["_sort_key"] = meta["nivel"].astype(str).map(_level_sort_key)
 
     merged = meta.merge(df_wide, on=base_cols, how="left")
-    merged = merged.sort_values(["_sort_key", "descricao"], na_position="last").reset_index(drop=True)
+    merged = merged.sort_values(["ordem_conta", "_sort_key", "descricao"], na_position="last").reset_index(drop=True)
     merged = merged.drop(columns=["_sort_key"])
     return merged, value_columns
+
+
+def build_display_table_cdsfn(
+    df_long: pd.DataFrame,
+    block_key: str,
+    periodos_referencia: list[str],
+    *,
+    column_labels: dict[str, str] | None = None,
+) -> pd.DataFrame:
+    df_view, value_columns = build_hierarchy_frame_cdsfn(df_long, block_key)
+    if df_view.empty:
+        return pd.DataFrame()
+
+    periodos_validos = [p for p in periodos_referencia]
+    for periodo in periodos_validos:
+        if periodo not in df_view.columns:
+            df_view[periodo] = pd.NA
+    colunas = ["descricao", "nivel", "depth", "has_children"] + periodos_validos
+    df_export = df_view[colunas].copy()
+
+    def _label_conta(row) -> str:
+        depth = int(row.get("depth", 0) or 0)
+        descricao = str(row.get("descricao") or "")
+        return f"{'   ' * depth}{descricao}"
+
+    df_export.insert(0, "Conta", df_export.apply(_label_conta, axis=1))
+    df_export = df_export.drop(columns=["descricao", "nivel", "depth", "has_children"])
+    if column_labels:
+        df_export = df_export.rename(columns=column_labels)
+    return df_export
 
 
 def fetch_instituicoes_cdsfn(
@@ -356,6 +452,8 @@ def validate_json_cdsfn(payload: Any) -> None:
                     f"Bloco '{bloco}' inválido: conta #{idx} sem campos obrigatórios: {', '.join(faltantes_conta)}."
                 )
             valores = conta.get("valoresIndividualizados")
+            if valores is None:
+                continue
             if not isinstance(valores, list):
                 raise ValueError(f"Bloco '{bloco}' inválido: 'valoresIndividualizados' da conta #{idx} não é lista.")
             for jdx, valor in enumerate(valores):
@@ -414,9 +512,9 @@ def normalize_long_cdsfn(payload: dict[str, Any], block_key: str) -> pd.DataFram
         nivel = str(conta.get("@nivel") or "").strip()
         descricao = str(conta.get("@descricao") or "").strip()
         conta_pai = str(conta.get("@contaPai") or "").strip()
-        valores = conta.get("valoresIndividualizados") or []
+        valores = conta.get("valoresIndividualizados")
 
-        if not valores:
+        if not isinstance(valores, list) or not valores:
             rows.append(
                 {
                     "cnpj": metadata["cnpj"],
@@ -427,6 +525,7 @@ def normalize_long_cdsfn(payload: dict[str, Any], block_key: str) -> pd.DataFram
                     "nivel": nivel,
                     "descricao": descricao,
                     "conta_pai": conta_pai,
+                    "ordem_conta": idx,
                     "dt_base": None,
                     "dt_base_referencia": None,
                     "valor": pd.NA,
@@ -447,6 +546,7 @@ def normalize_long_cdsfn(payload: dict[str, Any], block_key: str) -> pd.DataFram
                     "nivel": nivel,
                     "descricao": descricao,
                     "conta_pai": conta_pai,
+                    "ordem_conta": idx,
                     "dt_base": dt_base,
                     "dt_base_referencia": metadata["datas_base_map"].get(dt_base, dt_base),
                     "valor": pd.to_numeric(valor_item.get("@valor"), errors="coerce"),
@@ -458,7 +558,7 @@ def normalize_long_cdsfn(payload: dict[str, Any], block_key: str) -> pd.DataFram
     if df.empty:
         return df
     return df.sort_values(
-        by=["nivel", "descricao", "dt_base_referencia", "dt_base"],
+        by=["ordem_conta", "nivel", "descricao", "dt_base_referencia", "dt_base"],
         key=lambda s: s.map(_level_sort_key) if s.name == "nivel" else s,
         na_position="last",
     ).reset_index(drop=True)
@@ -473,10 +573,11 @@ def pivot_wide_cdsfn(df_long: pd.DataFrame) -> pd.DataFrame:
                 "descricao",
                 "conta_pai",
                 "conta_id",
+                "ordem_conta",
             ]
         )
 
-    base_cols = ["demonstracao", "nivel", "descricao", "conta_pai", "conta_id"]
+    base_cols = ["demonstracao", "nivel", "descricao", "conta_pai", "conta_id", "ordem_conta"]
     dt_label_col = "dt_base_referencia"
     df_work = df_long.copy()
     df_work[dt_label_col] = df_work[dt_label_col].fillna(df_work["dt_base"]).fillna("sem_data")
@@ -493,10 +594,31 @@ def pivot_wide_cdsfn(df_long: pd.DataFrame) -> pd.DataFrame:
     )
     pivot.columns.name = None
     return pivot.sort_values(
-        by=["nivel", "descricao"],
+        by=["ordem_conta", "nivel", "descricao"],
         key=lambda s: s.map(_level_sort_key) if s.name == "nivel" else s,
         na_position="last",
     ).reset_index(drop=True)
+
+
+def build_excel_display_export_cdsfn(
+    metadata: dict[str, Any],
+    df_display: pd.DataFrame,
+    *,
+    sheet_name: str = "Tabela",
+) -> bytes:
+    output = BytesIO()
+    metadata_rows = [
+        {"campo": "cnpj", "valor": metadata.get("cnpj")},
+        {"campo": "codigo_documento", "valor": metadata.get("codigo_documento")},
+        {"campo": "tipo_remessa", "valor": metadata.get("tipo_remessa")},
+        {"campo": "unidade_medida", "valor": metadata.get("unidade_medida")},
+        {"campo": "data_base", "valor": metadata.get("data_base")},
+    ]
+
+    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+        pd.DataFrame(metadata_rows).to_excel(writer, sheet_name="Metadata", index=False)
+        df_display.to_excel(writer, sheet_name=sheet_name[:31], index=False)
+    return output.getvalue()
 
 
 def build_excel_export_cdsfn(
