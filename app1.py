@@ -2506,7 +2506,7 @@ DEV_HOURS_CACHE_TTL_HOURS = 24
 DEV_HOURS_DEFAULT_CONFIG = {
     "repositorios": ["abalroar/tomaconta-dev", "abalroar/tomaconta", "abalroar/ficadeolho"],
     "limiar_sessao_min": 90,
-    "overhead_sessao_min": 30,
+    "overhead_sessao_min": 20,
     "incluir_merges": False,
 }
 
@@ -11304,6 +11304,27 @@ if menu == "Sobre":
                 </div>
                 <div class="module-desc">crie indicadores e navegue a documentação técnica.</div>
             </div>
+            <div class="module-chip">
+                <div class="module-top">
+                    <span class="module-title">snapshot</span>
+                    <span class="module-pill">briefing</span>
+                </div>
+                <div class="module-desc">indicadores-chave de uma instituição em leitura única e vertical.</div>
+            </div>
+            <div class="module-chip">
+                <div class="module-top">
+                    <span class="module-title">conselho e diretoria</span>
+                    <span class="module-pill">governança</span>
+                </div>
+                <div class="module-desc">composição de órgãos por conglomerado e instituição participante.</div>
+            </div>
+            <div class="module-chip">
+                <div class="module-top">
+                    <span class="module-title">contribuições fgc/fgcoop</span>
+                    <span class="module-pill">garantias</span>
+                </div>
+                <div class="module-desc">contribuições por regime de garantia com comparativo de período.</div>
+            </div>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -11394,7 +11415,7 @@ if menu == "Sobre":
         <ul class="steps-list">
             <li class="steps-item">
                 <div class="steps-num">1</div>
-                <div class="steps-text"><strong>selecione o módulo</strong> com foco no objetivo (rankings, peers, evolução, scatter, dre, carteira 4.966, taxas, conselho ou métrica customizada).</div>
+                <div class="steps-text"><strong>selecione o módulo</strong> com foco no objetivo (snapshot, rankings, peers, evolução, scatter, dre, carteira 4.966, taxas, conselho, fgc ou métrica customizada).</div>
             </li>
             <li class="steps-item">
                 <div class="steps-num">2</div>
@@ -11414,40 +11435,40 @@ if menu == "Sobre":
             </li>
         </ul>
     </div>
-
-    ---
-
-    <div class="stack-panel">
-        <div class="metrics-title">stack tecnológica</div>
-        <table>
-            <thead>
-                <tr>
-                    <th>componente</th>
-                    <th>função</th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr><td><strong>python 3.10+</strong></td><td>linguagem base</td></tr>
-                <tr><td><strong>streamlit</strong></td><td>interface web interativa</td></tr>
-                <tr><td><strong>pandas</strong></td><td>processamento e análise de dados</td></tr>
-                <tr><td><strong>numpy</strong></td><td>computação numérica e vetorização</td></tr>
-                <tr><td><strong>plotly</strong></td><td>visualizações dinâmicas e interativas</td></tr>
-                <tr><td><strong>matplotlib</strong></td><td>gráficos auxiliares e exportações</td></tr>
-                <tr><td><strong>reportlab</strong></td><td>geração de pdfs e scorecards</td></tr>
-                <tr><td><strong>openpyxl / xlsxwriter</strong></td><td>exportação avançada para excel</td></tr>
-                <tr><td><strong>pillow</strong></td><td>tratamento de imagens e assets</td></tr>
-                <tr><td><strong>requests</strong></td><td>integrações http e consumo de apis</td></tr>
-                <tr><td><strong>api bcb olinda</strong></td><td>fonte oficial de dados</td></tr>
-            </tbody>
-        </table>
-    </div>
     """, unsafe_allow_html=True)
 
     st.markdown("---")
+
+    with st.expander("stack tecnológica", expanded=False):
+        st.markdown("""
+        <div class="stack-panel">
+            <table>
+                <thead>
+                    <tr>
+                        <th>componente</th>
+                        <th>função</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td><strong>python 3.10+</strong></td><td>linguagem base</td></tr>
+                    <tr><td><strong>streamlit</strong></td><td>interface web interativa</td></tr>
+                    <tr><td><strong>pandas</strong></td><td>processamento e análise de dados</td></tr>
+                    <tr><td><strong>numpy</strong></td><td>computação numérica e vetorização</td></tr>
+                    <tr><td><strong>plotly</strong></td><td>visualizações dinâmicas e interativas</td></tr>
+                    <tr><td><strong>matplotlib</strong></td><td>gráficos auxiliares e exportações</td></tr>
+                    <tr><td><strong>reportlab</strong></td><td>geração de pdfs e scorecards</td></tr>
+                    <tr><td><strong>openpyxl / xlsxwriter</strong></td><td>exportação avançada para excel</td></tr>
+                    <tr><td><strong>pillow</strong></td><td>tratamento de imagens e assets</td></tr>
+                    <tr><td><strong>requests</strong></td><td>integrações http e consumo de apis</td></tr>
+                    <tr><td><strong>api bcb olinda</strong></td><td>fonte oficial de dados</td></tr>
+                </tbody>
+            </table>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown("---")
     st.markdown("### Investimento de Desenvolvimento")
-    st.caption("Estimativa baseada em sessões de commits no GitHub + **Overhead de Sessão** (tempo de ideação, leitura e navegação).")
-    st.caption("Leitura rápida: agrupamos commits em blocos de trabalho (sessões) e adicionamos um buffer por sessão para representar tempo sem commit.")
-    st.caption("A conta exibida é: **Horas entre commits** + **Overhead de Sessão** = **Total estimado**.")
+    st.caption("Estimativa baseada em commits do GitHub: sessões de trabalho + **Overhead de Sessão** por sessão (ideação, leitura, testes). Total = horas entre commits + overhead.")
 
     config_horas = _carregar_config_estimativa_horas()
     cache_horas = _ler_json_local(DEV_HOURS_CACHE_PATH)
@@ -11528,7 +11549,7 @@ if menu == "Sobre":
     st.caption(
         f"Estimativa baseada em {total_commits_cache if total_commits_cache is not None else '—'} commits e "
         f"{total_sessoes_cache if total_sessoes_cache is not None else '—'} sessões. "
-        f"Inclui overhead de {int(config_horas.get('overhead_sessao_min', 30))} min por sessão."
+        f"Inclui overhead de {int(config_horas.get('overhead_sessao_min', 20))} min por sessão."
     )
 
     with st.expander("Como calculamos?", expanded=False):
@@ -11539,13 +11560,13 @@ Como estimamos o tempo investido no projeto
 Analisamos os commits no GitHub e identificamos blocos de trabalho (sessões).
 Quando o intervalo entre commits passa de **{int(config_horas.get('limiar_sessao_min', 90))} minutos**, iniciamos uma nova sessão.
 
-Em cada sessão adicionamos **Overhead de Sessão** de **{int(config_horas.get('overhead_sessao_min', 30))} min** para representar tempo sem commit:
+Em cada sessão adicionamos **Overhead de Sessão** de **{int(config_horas.get('overhead_sessao_min', 20))} min** para representar tempo sem commit:
 abrir ambiente, retomar contexto, revisar, testar e validar.
 
 Exemplo didático de um dia:
-- Sessão A: 20 min de codificação + 30 min de overhead = 50 min  
-- Sessão B: 1h30 de codificação + 30 min de overhead = 2h00  
-- Sessão C (commit único): 0 min de codificação + 30 min de overhead = 30 min  
+- Sessão A: 20 min de codificação + 20 min de overhead = 40 min
+- Sessão B: 1h30 de codificação + 20 min de overhead = 1h50
+- Sessão C (commit único): 0 min de codificação + 20 min de overhead = 20 min
 """
         )
 
@@ -11573,8 +11594,8 @@ Exemplo didático de um dia:
 **E se a sessão teve só 1 commit?**  
 Aplicamos o overhead como estimativa mínima conservadora.
 
-**30 minutos não é alto para sessão curta?**  
-Esse tempo cobre setup, leitura, teste e fechamento da tarefa, mesmo com pouco código.
+**20 minutos não é pouco para sessão longa?**
+Esse tempo cobre setup, leitura, retomada de contexto e fechamento — conservador por design.
 
 **Por que 90 minutos para separar sessão?**  
 Pausas longas tendem a indicar interrupção real; abaixo disso tratamos como continuidade.
@@ -11655,8 +11676,6 @@ Pausas longas tendem a indicar interrupção real; abaixo disso tratamos como co
                 st.rerun()
             except Exception as exc:
                 st.error(f"Não foi possível recalcular agora: {exc}")
-
-    st.caption(f"Atualizado em: {calculado_em_cache}")
 
     with st.expander("Parâmetros de estimativa", expanded=False):
         col_p1, col_p2 = st.columns(2)
