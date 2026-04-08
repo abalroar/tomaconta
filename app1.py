@@ -21397,7 +21397,7 @@ elif menu == "Taxas de Juros por Produto":
                     taxas_palette_nitida = [
                         "#0057B8", "#D41159", "#00A087", "#F39C12", "#7B2CBF",
                         "#E31A1C", "#1B9E77", "#111827", "#FF6F00", "#006D77",
-                        "#C1121F", "#2A9D8F", "#3A0CA3", "#A05A00", "#0B3954",
+                        "#9B59B6", "#2A9D8F", "#3A0CA3", "#A05A00", "#0B3954",
                     ]
                     with st.expander("🎨 Personalizar cores", expanded=False):
                         for idx_cor_taxas, banco_taxas in enumerate(bancos_sel):
@@ -21448,49 +21448,87 @@ elif menu == "Taxas de Juros por Produto":
                     )
 
                     fig.update_layout(
-                        height=500,
+                        height=560,
                         legend=dict(
                             orientation="h",
                             yanchor="bottom",
-                            y=-0.35,
+                            y=-0.40,
                             xanchor="center",
-                            x=0.5
+                            x=0.5,
+                            font=dict(size=10),
                         ),
                         xaxis_title="",
                         yaxis_title=tipo_taxa,
                         hovermode='x unified',
-                        margin=dict(b=100, r=180)
+                        margin=dict(b=110, r=130, t=60, l=60),
                     )
 
                     fig.update_xaxes(tickformat="%b/%y")
-                    fig.update_traces(marker=dict(size=6))
+                    fig.update_traces(marker=dict(size=5), line=dict(width=1.5))
 
                     df_last = (
                         df_chart.sort_values('Fim Período')
                         .groupby('Instituição Financeira', observed=False)
                         .tail(1)
                     )
+
                     def _formatar_taxa_label(valor) -> str:
                         valor_num = pd.to_numeric(valor, errors='coerce')
                         if pd.isna(valor_num):
                             return ""
                         return f"{float(valor_num):.2f}%".replace(".", ",")
 
-                    for _, row_last in df_last.iterrows():
-                        banco_nome = row_last['Instituição Financeira']
+                    # De-collision: sort by descending value and stagger labels vertically
+                    # so they never overlap, connecting offset labels with a thin leader line.
+                    df_sorted = (
+                        df_last
+                        .assign(_y_num=pd.to_numeric(df_last[tipo_taxa], errors='coerce'))
+                        .sort_values('_y_num', ascending=False)
+                        .reset_index(drop=True)
+                    )
+                    y_vals = df_sorted['_y_num']
+                    valid_y = y_vals.dropna()
+                    y_range = (valid_y.max() - valid_y.min()) if len(valid_y) > 1 else 1.0
+                    min_gap = max(y_range * 0.06, 0.05)
+
+                    staggered_y = []
+                    for _pos in range(len(df_sorted)):
+                        actual = y_vals.iloc[_pos]
+                        if pd.isna(actual):
+                            staggered_y.append(actual)
+                            continue
+                        if _pos == 0 or pd.isna(staggered_y[_pos - 1]):
+                            staggered_y.append(actual)
+                        else:
+                            staggered_y.append(min(actual, staggered_y[_pos - 1] - min_gap))
+
+                    for _idx, row_label in df_sorted.iterrows():
+                        banco_nome = row_label['Instituição Financeira']
                         cor_texto = color_discrete_map.get(banco_nome) or '#1f2937'
-                        label_taxa = _formatar_taxa_label(row_last[tipo_taxa])
-                        fig.add_trace(go.Scatter(
-                            x=[row_last['Fim Período']],
-                            y=[row_last[tipo_taxa]],
-                            mode='text',
-                            text=[f"<b>{label_taxa}</b>" if label_taxa else ""],
-                            textposition='middle right',
-                            textfont=dict(size=12, color=cor_texto, family="Arial Black, Arial, sans-serif"),
-                            showlegend=False,
-                            hoverinfo='skip',
-                            cliponaxis=False,
-                        ))
+                        actual_y = row_label['_y_num']
+                        label_taxa = _formatar_taxa_label(actual_y)
+                        if not label_taxa or pd.isna(actual_y):
+                            continue
+                        label_y = staggered_y[_idx]
+                        has_offset = (not pd.isna(label_y)) and abs(actual_y - label_y) > 0.001
+                        fig.add_annotation(
+                            x=row_label['Fim Período'],
+                            y=actual_y,
+                            ax=52,
+                            ay=label_y,
+                            axref='pixel',
+                            ayref='y',
+                            text=f"<b>{label_taxa}</b>",
+                            xanchor='left',
+                            yanchor='middle',
+                            showarrow=True,
+                            arrowhead=0,
+                            arrowcolor=cor_texto,
+                            arrowwidth=1 if has_offset else 0,
+                            font=dict(size=11, color=cor_texto, family="Arial, sans-serif"),
+                            bgcolor="rgba(255,255,255,0.75)",
+                            borderpad=2,
+                        )
 
                     st.plotly_chart(fig, width='stretch')
 
