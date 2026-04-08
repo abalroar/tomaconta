@@ -137,6 +137,18 @@ from utils.ifdata_cache import (
     canonicalize_institution_name,
     build_institution_to_conglomerate_map,
 )
+from utils.cdsfn_live import (
+    CDSFN_BLOCKS,
+    build_hierarchy_frame_cdsfn,
+    build_excel_export_cdsfn,
+    extract_metadata_cdsfn,
+    fetch_documento_cdsfn,
+    list_blocks_cdsfn,
+    load_instituicoes_csv_cdsfn,
+    normalize_long_cdsfn,
+    pivot_wide_cdsfn,
+    validate_json_cdsfn,
+)
 import io
 import base64
 import subprocess
@@ -2329,6 +2341,335 @@ def gerar_excel_orgaos_estatutarios(
 
     output.seek(0)
     return output.getvalue()
+
+
+def _listar_periodos_semestrais_cdsfn(qtd: int = 20) -> list[str]:
+    if qtd <= 0:
+        return []
+
+    agora = _agora_brasilia()
+    if agora.month <= 6:
+        ano = agora.year - 1
+        mes = 12
+    else:
+        ano = agora.year
+        mes = 6
+
+    periodos: list[str] = []
+    for _ in range(qtd):
+        periodos.append(f"{ano}{mes:02d}")
+        if mes == 12:
+            mes = 6
+        else:
+            mes = 12
+            ano -= 1
+    return periodos
+
+
+def _filtrar_instituicoes_cdsfn(df_instituicoes: pd.DataFrame, termo: str) -> pd.DataFrame:
+    termo = str(termo or "").strip()
+    if not termo:
+        return df_instituicoes
+
+    termo_nome = _normalizar_texto_sem_acento(termo).upper()
+    termo_cnpj = re.sub(r"\D", "", termo)
+
+    mask_nome = df_instituicoes["nome"].fillna("").astype(str).map(
+        lambda valor: termo_nome in _normalizar_texto_sem_acento(valor).upper()
+    )
+    if termo_cnpj:
+        mask_cnpj = df_instituicoes["cnpj"].fillna("").astype(str).str.contains(termo_cnpj, na=False)
+        mask = mask_nome | mask_cnpj
+    else:
+        mask = mask_nome
+    return df_instituicoes[mask].reset_index(drop=True)
+
+
+def _formatar_valor_cdsfn(valor) -> str:
+    valor_num = pd.to_numeric(valor, errors="coerce")
+    if pd.isna(valor_num):
+        return "—"
+    casas = 0 if float(valor_num).is_integer() else 2
+    return formatar_numero_br(float(valor_num), casas=casas)
+
+
+def _render_cdsfn_hierarchy_table(df_view: pd.DataFrame, value_columns: list[str]) -> None:
+    if df_view.empty:
+        st.info("Sem linhas para exibir nesta seção.")
+        return
+
+    html = """
+    <style>
+    .cdsfn-table-wrap {
+        width: 100%;
+        overflow-x: auto;
+        margin-top: 0.4rem;
+        border: 1px solid #d9d9d9;
+        border-radius: 10px;
+    }
+    .cdsfn-table {
+        width: max-content;
+        min-width: 100%;
+        border-collapse: collapse;
+        font-size: 14px;
+        font-family: 'IBM Plex Sans', sans-serif;
+    }
+    .cdsfn-table th, .cdsfn-table td {
+        border: 1px solid #e5e5e5;
+        padding: 8px 10px;
+        text-align: right;
+        vertical-align: top;
+        white-space: nowrap;
+    }
+    .cdsfn-table thead tr:first-child th {
+        background: #111111;
+        color: #ffffff;
+        text-align: center;
+        font-weight: 700;
+    }
+    .cdsfn-table td:first-child, .cdsfn-table th:first-child {
+        text-align: left;
+        white-space: nowrap;
+        min-width: 420px;
+    }
+    .cdsfn-row-parent td {
+        background: #f6f6f6;
+        font-weight: 700;
+    }
+    .cdsfn-row-leaf td:first-child {
+        font-weight: 500;
+    }
+    .cdsfn-negative {
+        color: #7a1e2b;
+        font-weight: 600;
+    }
+    .cdsfn-level-tag {
+        color: #6b7280;
+        font-size: 11px;
+        margin-right: 6px;
+    }
+    </style>
+    <div class="cdsfn-table-wrap"><table class="cdsfn-table"><thead><tr><th>Conta</th>
+    """
+    for col in value_columns:
+        html += f"<th>{_html_mod.escape(str(col))}</th>"
+    html += "</tr></thead><tbody>"
+
+    for _, row in df_view.iterrows():
+        depth = int(row.get("depth", 0) or 0)
+        has_children = bool(row.get("has_children"))
+        row_class = "cdsfn-row-parent" if has_children or depth == 0 else "cdsfn-row-leaf"
+        descricao = _html_mod.escape(str(row.get("descricao") or ""))
+        nivel = _html_mod.escape(str(row.get("nivel") or ""))
+        padding = 14 + (depth * 18)
+        conta_html = (
+            f"<span class='cdsfn-level-tag'>{nivel}</span>"
+            f"<span style='padding-left:{padding}px; display:inline-block;'>{descricao}</span>"
+        )
+        html += f"<tr class='{row_class}'><td>{conta_html}</td>"
+        for col in value_columns:
+            valor = pd.to_numeric(row.get(col), errors="coerce")
+            valor_fmt = _formatar_valor_cdsfn(valor)
+            if pd.notna(valor) and float(valor) < 0:
+                html += f"<td><span class='cdsfn-negative'>{valor_fmt}</span></td>"
+            else:
+                html += f"<td>{valor_fmt}</td>"
+        html += "</tr>"
+
+    html += "</tbody></table></div>"
+    st.markdown(html, unsafe_allow_html=True)
+
+
+def render_tab_cdsfn() -> None:
+    st.markdown("### Caderno 9011 - Teste")
+    st.caption("Consulta ao vivo do documento 9011 no Banco Central do Brasil, com bootstrap local de instituições e renderização contábil hierárquica.")
+
+    with st.expander("Sobre esta aba", expanded=False):
+        st.markdown(
+            """
+            **Fonte primária do documento:** API pública do Banco Central do Brasil (`/informes/rest`).
+
+            **Fluxo:** selecionar IF da base local de instituições -> escolher semestre -> baixar o JSON 9011 ao vivo -> validar -> estruturar.
+
+            **Escopo desta versão:** documento 9011 consultado em tempo real. Sem parquet, sem ingestão em lote e sem cache persistido.
+            """
+        )
+
+    try:
+        df_instituicoes = load_instituicoes_csv_cdsfn(Path("JSON_Lista_Completa.csv"))
+    except Exception as exc:
+        st.error(f"Erro ao carregar a base local de instituições para o Caderno 9011: {exc}")
+        return
+
+    st.caption(f"Instituições disponíveis no bootstrap local: {len(df_instituicoes):,}")
+
+    termo_busca = st.text_input(
+        "Filtrar instituição por nome ou CNPJ",
+        key="cdsfn_live_filtro_instituicao",
+        placeholder="Ex.: Itaú, Bradesco, 05503849",
+    )
+    df_filtrado = _filtrar_instituicoes_cdsfn(df_instituicoes, termo_busca)
+    if df_filtrado.empty:
+        st.warning("Nenhuma instituição encontrada para o filtro informado.")
+        return
+
+    mapa_instituicoes = {row["label"]: row for _, row in df_filtrado.iterrows()}
+    opcoes_instituicao = list(mapa_instituicoes.keys())
+    idx_default = 0
+    if (df_filtrado["cnpj"] == "05503849").any():
+        idx_default = int(df_filtrado.index[df_filtrado["cnpj"] == "05503849"][0])
+    elif opcoes_instituicao:
+        idx_default = _indice_default_itau_unibanco(
+        opcoes_instituicao,
+        labels=[f"{row['label']} {row.get('nome', '')}" for _, row in df_filtrado.iterrows()],
+        codigos=[None for _ in range(len(df_filtrado))],
+    )
+
+    col_if, col_periodo = st.columns([2.4, 1])
+    with col_if:
+        instituicao_sel = st.selectbox(
+            "Instituição financeira",
+            options=opcoes_instituicao,
+            index=idx_default if idx_default < len(opcoes_instituicao) else 0,
+            key="cdsfn_live_instituicao",
+        )
+    with col_periodo:
+        periodo_sel = st.selectbox(
+            "Período (YYYYMM)",
+            options=_listar_periodos_semestrais_cdsfn(20),
+            key="cdsfn_live_periodo",
+            help="Semestres fechados em junho e dezembro.",
+        )
+
+    inst_row = mapa_instituicoes.get(instituicao_sel)
+    if inst_row is None:
+        st.error("Instituição selecionada não encontrada no resultado atual da API.")
+        return
+
+    assinatura = (str(inst_row.get("cnpj") or ""), str(periodo_sel), "9011")
+    botao_baixar = st.button("Baixar documento 9011 ao vivo", key="cdsfn_live_download")
+
+    if botao_baixar:
+        try:
+            with st.spinner("Baixando documento 9011..."):
+                payload, url_documento = fetch_documento_cdsfn(inst_row.get("cnpj", ""), periodo_sel, "9011")
+            validate_json_cdsfn(payload)
+            metadata = extract_metadata_cdsfn(payload)
+            if metadata.get("codigo_documento") != "9011":
+                raise ValueError(
+                    f"Documento retornado com código {metadata.get('codigo_documento')} em vez de 9011."
+                )
+            st.session_state["cdsfn_live_signature"] = assinatura
+            st.session_state["cdsfn_live_payload"] = payload
+            st.session_state["cdsfn_live_url"] = url_documento
+        except Exception as exc:
+            st.session_state.pop("cdsfn_live_signature", None)
+            st.session_state.pop("cdsfn_live_payload", None)
+            st.session_state.pop("cdsfn_live_url", None)
+            st.error(f"Erro ao baixar/validar o documento 9011: {exc}")
+            return
+
+    if st.session_state.get("cdsfn_live_signature") != assinatura:
+        st.info("Seleção pronta. Clique em **Baixar documento 9011 ao vivo** para consultar o JSON.")
+        return
+
+    payload = st.session_state.get("cdsfn_live_payload")
+    if not isinstance(payload, dict):
+        st.error("Documento 9011 não está disponível no estado da sessão para a seleção atual.")
+        return
+
+    try:
+        metadata = extract_metadata_cdsfn(payload)
+        blocos = list_blocks_cdsfn(payload)
+    except Exception as exc:
+        st.error(f"Erro ao estruturar o JSON 9011 retornado: {exc}")
+        return
+
+    st.caption(f"Documento consultado: `{st.session_state.get('cdsfn_live_url', '')}`")
+    st.caption(
+        f"Instituição selecionada: **{inst_row.get('nome', 'N/D')}** | "
+        f"CNPJ raiz: **{inst_row.get('cnpj', 'N/D')}** | "
+        f"Situação cadastral local: **{inst_row.get('situacao', 'N/D') or 'N/D'}**"
+    )
+
+    col_meta1, col_meta2, col_meta3, col_meta4 = st.columns(4)
+    col_meta1.metric("CNPJ", metadata.get("cnpj") or "N/D")
+    col_meta2.metric("Código documento", metadata.get("codigo_documento") or "N/D")
+    col_meta3.metric("Data base", metadata.get("data_base") or "N/D")
+    col_meta4.metric("Unidade", metadata.get("unidade_medida") or "N/D")
+    if metadata.get("tipo_remessa"):
+        st.caption(f"Tipo de remessa: {metadata['tipo_remessa']}")
+
+    df_datas_ref = pd.DataFrame(metadata.get("datas_base_referencia") or [])
+    if not df_datas_ref.empty:
+        st.caption("Datas base de referência")
+        st.dataframe(df_datas_ref.rename(columns={"id": "dt_base", "data": "referência"}), width="stretch", hide_index=True)
+
+    blocos_presentes = {item["block_key"] for item in blocos}
+    blocos_ausentes = [meta["label"] for chave, meta in CDSFN_BLOCKS.items() if chave not in blocos_presentes]
+    if blocos_ausentes:
+        st.warning(f"Blocos não presentes no documento retornado: {', '.join(blocos_ausentes)}")
+
+    mapa_bloco_label = {item["block_key"]: f"{item['sigla']} — {item['label']}" for item in blocos}
+    tabs_blocos = st.tabs([mapa_bloco_label[item["block_key"]] for item in blocos])
+
+    for tab_bloco, bloco_info in zip(tabs_blocos, blocos):
+        bloco_key = bloco_info["block_key"]
+        with tab_bloco:
+            try:
+                df_long = normalize_long_cdsfn(payload, bloco_key)
+                df_wide = pivot_wide_cdsfn(df_long)
+                df_view, value_columns = build_hierarchy_frame_cdsfn(df_long, bloco_key)
+            except Exception as exc:
+                st.error(f"Erro ao normalizar a demonstração '{bloco_info['label']}': {exc}")
+                continue
+
+            st.caption(
+                f"{bloco_info['label']} | {bloco_info['contas']} contas | "
+                f"unidade do documento: {metadata.get('unidade_medida') or 'N/D'}"
+            )
+
+            if bloco_key == "BalancoPatrimonial":
+                for secao in ["Ativo", "Passivo", "Patrimônio líquido", "Outras contas"]:
+                    df_secao = df_view[df_view["section"] == secao].copy()
+                    if df_secao.empty:
+                        continue
+                    st.markdown(f"#### {secao}")
+                    _render_cdsfn_hierarchy_table(df_secao, value_columns)
+            else:
+                _render_cdsfn_hierarchy_table(df_view, value_columns)
+
+            with st.expander("Tabela larga estruturada", expanded=False):
+                st.dataframe(df_wide, width="stretch", hide_index=True)
+
+            with st.expander("Tabela longa estruturada", expanded=False):
+                st.dataframe(df_long, width="stretch", hide_index=True)
+
+            with st.expander("Exportar demonstração", expanded=False):
+                csv_long = df_long.to_csv(index=False, sep=";", decimal=",")
+                csv_wide = df_wide.to_csv(index=False, sep=";", decimal=",")
+                st.download_button(
+                    "Baixar CSV (formato longo)",
+                    data=csv_long,
+                    file_name=f"cdsfn_9011_{bloco_info['sigla'].lower()}_long_{metadata.get('cnpj','sem_cnpj')}_{periodo_sel}.csv",
+                    mime="text/csv",
+                    key=f"cdsfn_live_download_csv_long_{bloco_key}",
+                )
+                st.download_button(
+                    "Baixar CSV (formato largo)",
+                    data=csv_wide,
+                    file_name=f"cdsfn_9011_{bloco_info['sigla'].lower()}_wide_{metadata.get('cnpj','sem_cnpj')}_{periodo_sel}.csv",
+                    mime="text/csv",
+                    key=f"cdsfn_live_download_csv_wide_{bloco_key}",
+                )
+                excel_bytes = build_excel_export_cdsfn(metadata, df_long, df_wide)
+                st.download_button(
+                    "Baixar Excel",
+                    data=excel_bytes,
+                    file_name=f"cdsfn_9011_{bloco_info['sigla'].lower()}_{metadata.get('cnpj','sem_cnpj')}_{periodo_sel}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key=f"cdsfn_live_download_excel_{bloco_key}",
+                )
 
 @st.cache_data(ttl=300, show_spinner=False)
 def verificar_caches_github() -> dict:
@@ -10946,6 +11287,7 @@ MENU_PRINCIPAL = [
     "Taxas de Juros por Produto",
     "Crie sua métrica!",
     "Contribuições FGC/FGCoop",
+    "Caderno 9011 - Teste",
 ]
 
 # Lista de opções do menu secundário (utilitários)
@@ -16386,6 +16728,9 @@ elif menu == "Contribuições FGC/FGCoop":
                             key="exportar_fgc_excel",
                             use_container_width=True,
                         )
+
+elif menu == "Caderno 9011 - Teste":
+    render_tab_cdsfn()
 
 elif menu == "DRE" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo == "Conglomerado Prudencial"):
     st.markdown("### Demonstração de Resultado (DRE)")
