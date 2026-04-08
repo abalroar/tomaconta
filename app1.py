@@ -21419,14 +21419,20 @@ elif menu == "Taxas de Juros por Produto":
                         "#9B59B6", "#2A9D8F", "#3A0CA3", "#A05A00", "#0B3954",
                     ]
                     with st.expander("🎨 Personalizar cores", expanded=False):
-                        for idx_cor_taxas, banco_taxas in enumerate(bancos_sel):
-                            banco_norm = normalizar_nome_instituicao(banco_taxas)
-                            cor_inicial = taxas_color_map.get(banco_norm) or taxas_palette_nitida[idx_cor_taxas % len(taxas_palette_nitida)]
-                            taxas_color_map[banco_norm] = st.color_picker(
-                                banco_taxas,
-                                value=cor_inicial,
-                                key=f"taxas_v2_color_picker_{banco_norm}",
-                            )
+                        colunas_por_linha_taxas = 4
+                        bancos_taxas_enumerados = list(enumerate(bancos_sel))
+                        for inicio_linha in range(0, len(bancos_taxas_enumerados), colunas_por_linha_taxas):
+                            bancos_linha = bancos_taxas_enumerados[inicio_linha:inicio_linha + colunas_por_linha_taxas]
+                            cols_cores_taxas = st.columns(colunas_por_linha_taxas)
+                            for col_cor_taxas, (idx_cor_taxas, banco_taxas) in zip(cols_cores_taxas, bancos_linha):
+                                with col_cor_taxas:
+                                    banco_norm = normalizar_nome_instituicao(banco_taxas)
+                                    cor_inicial = taxas_color_map.get(banco_norm) or taxas_palette_nitida[idx_cor_taxas % len(taxas_palette_nitida)]
+                                    taxas_color_map[banco_norm] = st.color_picker(
+                                        banco_taxas,
+                                        value=cor_inicial,
+                                        key=f"taxas_v2_color_picker_{banco_norm}",
+                                    )
 
                     # =============================================================
                     # TIPO DE TAXA
