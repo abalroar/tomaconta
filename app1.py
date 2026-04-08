@@ -2537,7 +2537,12 @@ def render_tab_cdsfn() -> None:
         codigos=[None for _ in range(len(df_filtrado))],
     )
 
-    col_if, col_periodo = st.columns([2.2, 1.2])
+    opcoes_periodo_documento = _listar_periodos_documento_cdsfn(20)
+    if not opcoes_periodo_documento:
+        st.error("Não foi possível montar a lista de competências candidatas do documento 9011.")
+        return
+
+    col_if, col_periodo1, col_periodo2 = st.columns([2.2, 1.1, 1.1])
     with col_if:
         instituicao_sel = st.selectbox(
             "Instituição financeira",
@@ -2545,22 +2550,32 @@ def render_tab_cdsfn() -> None:
             index=idx_default if idx_default < len(opcoes_instituicao) else 0,
             key="cdsfn_live_instituicao",
         )
-    with col_periodo:
-        periodos_documento_sel = st.multiselect(
-            "Documentos 9011 (YYYYMM)",
-            options=_listar_periodos_documento_cdsfn(20),
-            default=_listar_periodos_documento_cdsfn(20)[:1],
-            max_selections=2,
-            key="cdsfn_live_periodos_documento",
-            help="Selecione 1 ou 2 competências do documento 9011 para carregar e consolidar.",
+    with col_periodo1:
+        periodo_documento_principal = st.selectbox(
+            "Documento principal (YYYYMM)",
+            options=opcoes_periodo_documento,
+            index=0,
+            key="cdsfn_live_periodo_documento_principal",
+            help="Competência principal do documento 9011 a carregar.",
+        )
+    with col_periodo2:
+        periodo_documento_comparativo = st.selectbox(
+            "Documento comparativo",
+            options=["(nenhum)"] + opcoes_periodo_documento,
+            index=0,
+            key="cdsfn_live_periodo_documento_comparativo",
+            help="Documento adicional opcional para consolidar e justapor na mesma visualização.",
         )
 
     inst_row = mapa_instituicoes.get(instituicao_sel)
     if inst_row is None:
         st.error("Instituição selecionada não encontrada no resultado atual da API.")
         return
-    if not periodos_documento_sel:
-        st.warning("Selecione ao menos uma competência do documento 9011 para carregar.")
+    periodos_documento_sel = [str(periodo_documento_principal)]
+    if periodo_documento_comparativo and periodo_documento_comparativo != "(nenhum)":
+        periodos_documento_sel.append(str(periodo_documento_comparativo))
+    if len(set(periodos_documento_sel)) != len(periodos_documento_sel):
+        st.error("O documento comparativo deve ser diferente do documento principal.")
         return
 
     assinatura = (str(inst_row.get("cnpj") or ""), tuple(sorted(periodos_documento_sel)), "9011")
