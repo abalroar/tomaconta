@@ -21511,24 +21511,37 @@ elif menu == "Taxas de Juros por Produto":
                             continue
                         label_y = staggered_y[_idx]
                         has_offset = (not pd.isna(label_y)) and abs(actual_y - label_y) > 0.001
-                        fig.add_annotation(
-                            x=row_label['Fim Período'],
-                            y=actual_y,
-                            ax=52,
-                            ay=label_y,
-                            axref='pixel',
-                            ayref='y',
+                        ann_kwargs = dict(
                             text=f"<b>{label_taxa}</b>",
                             xanchor='left',
                             yanchor='middle',
-                            showarrow=True,
-                            arrowhead=0,
-                            arrowcolor=cor_texto,
-                            arrowwidth=1 if has_offset else 0,
                             font=dict(size=11, color=cor_texto, family="Arial, sans-serif"),
                             bgcolor="rgba(255,255,255,0.75)",
                             borderpad=2,
                         )
+                        if has_offset:
+                            # Leader line from data point to staggered label position
+                            ann_kwargs.update(
+                                x=row_label['Fim Período'],
+                                y=actual_y,
+                                ax=52,
+                                ay=label_y,
+                                axref='pixel',
+                                ayref='y',
+                                showarrow=True,
+                                arrowhead=0,
+                                arrowcolor=cor_texto,
+                                arrowwidth=1,
+                            )
+                        else:
+                            # No stagger — place text directly to the right of the data point
+                            ann_kwargs.update(
+                                x=row_label['Fim Período'],
+                                y=actual_y,
+                                xshift=58,
+                                showarrow=False,
+                            )
+                        fig.add_annotation(**ann_kwargs)
 
                     st.plotly_chart(fig, width='stretch')
 
