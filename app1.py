@@ -24170,13 +24170,35 @@ elif menu == "Glossário":
     st.markdown("## Glossário Central — versão reestruturada (abril/2026)")
     with st.expander("**Contexto de leitura dos dados (visão prudencial)**", expanded=True):
         st.markdown("""
-        Os dados são obtidos principalmente via **Banco Central (IFData/Olinda)**,
-        com complementos de **Cadoc 4060** e mapeamentos COSIF do projeto.
+        Os dados do app vêm principalmente do **IFData/Olinda do Banco Central**, na visão de
+        **Conglomerado Prudencial**, com complementos do **Cadoc 4060** e mapeamentos COSIF do projeto.
 
-        O Toma Conta prioriza a visão de **Conglomerado Prudencial** do IFData.
-        Exemplo: Banco PAN integra o conglomerado prudencial do BTG Pactual.
-        A série principal começa em **março/2015**, quando a visão prudencial passa
-        a ser a referência para comparabilidade.
+        **O que significa “Conglomerado Prudencial”?**
+        É o grupo de instituições controladas por uma mesma líder e supervisionadas de forma consolidada
+        pelo Banco Central. Em outras palavras: o regulador olha o grupo como um todo, não apenas um CNPJ isolado.
+
+        **Na prática, isso muda a leitura:**
+        - Banco PAN aparece dentro do conglomerado prudencial do **BTG Pactual**.
+        - Digio aparece dentro do conglomerado do **Bradesco**, e não como grupo separado.
+        - Em grupos com várias entidades, o dado mais comparável costuma ser o do **conglomerado**, ou do líder prudencial.
+
+        **Por que a série principal começa em março/2015?**
+        Porque é quando o IFData passa a disponibilizar a visão de **Conglomerado Prudencial**.
+        Antes disso, a referência era **Conglomerado Financeiro**. Para grupos maiores, essas duas visões
+        não são diretamente comparáveis, então o app privilegia a série prudencial a partir dessa data.
+        """)
+    with st.expander("**Capital regulatório em linguagem direta**", expanded=False):
+        st.markdown("""
+        As métricas de capital mostram quanta folga patrimonial a instituição tem para absorver risco.
+
+        **Leitura rápida das três principais:**
+        - **CET1**: capital de maior qualidade em relação ao risco ponderado. É a métrica mais “dura”.
+        - **Capital Nível I**: CET1 mais instrumentos adicionais de Nível I.
+        - **Índice de Basileia**: capital regulatório total em relação ao risco ponderado.
+
+        **Como interpretar?**
+        Em geral, quanto maior o índice, maior a folga regulatória. Mas isso **não substitui**
+        análise de liquidez, concentração de risco, qualidade da carteira ou mudanças normativas.
         """)
 
     _cols_gloss = ["Indicador", "Aba(s)", "Fonte", "Fórmula", "Unidade", "Interpretação", "Limitação", "Periodicidade"]
