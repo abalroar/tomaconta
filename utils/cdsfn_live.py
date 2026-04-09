@@ -693,9 +693,12 @@ def build_excel_display_export_cdsfn(
         worksheet = workbook.add_worksheet(sheet_name[:31])
         writer.sheets[sheet_name[:31]] = worksheet
 
+        ui_font = "IBM Plex Sans"
         fmt_header = workbook.add_format(
             {
                 "bold": True,
+                "font_name": ui_font,
+                "font_size": 11,
                 "font_color": "#FFFFFF",
                 "bg_color": "#111111",
                 "border": 1,
@@ -703,41 +706,30 @@ def build_excel_display_export_cdsfn(
                 "valign": "vcenter",
             }
         )
-        fmt_parent_value = workbook.add_format(
-            {
-                "bold": True,
-                "bg_color": "#F6F6F6",
-                "border": 1,
-                "align": "right",
-                "valign": "top",
-            }
-        )
-        fmt_parent_value_negative = workbook.add_format(
-            {
-                "bold": True,
-                "bg_color": "#F6F6F6",
-                "border": 1,
-                "align": "right",
-                "valign": "top",
-                "font_color": "#7A1E2B",
-            }
-        )
-        fmt_leaf_value = workbook.add_format(
-            {
-                "border": 1,
-                "align": "right",
-                "valign": "top",
-            }
-        )
-        fmt_leaf_value_negative = workbook.add_format(
-            {
-                "border": 1,
-                "align": "right",
-                "valign": "top",
-                "font_color": "#7A1E2B",
-            }
-        )
+        value_format_cache: dict[tuple[bool, bool], Any] = {}
         text_format_cache: dict[tuple[bool, int], Any] = {}
+
+        def _value_format(is_parent: bool, negative: bool):
+            key = (is_parent, negative)
+            cached = value_format_cache.get(key)
+            if cached is not None:
+                return cached
+            props = {
+                "font_name": ui_font,
+                "font_size": 11,
+                "border": 1,
+                "align": "right",
+                "valign": "top",
+                "num_format": "#,##0.00",
+            }
+            if is_parent:
+                props["bold"] = True
+                props["bg_color"] = "#F6F6F6"
+            if negative:
+                props["font_color"] = "#7A1E2B"
+            fmt = workbook.add_format(props)
+            value_format_cache[key] = fmt
+            return fmt
 
         def _text_format(is_parent: bool, depth: int):
             key = (is_parent, depth)
@@ -745,6 +737,8 @@ def build_excel_display_export_cdsfn(
             if cached is not None:
                 return cached
             props = {
+                "font_name": ui_font,
+                "font_size": 11,
                 "border": 1,
                 "align": "left",
                 "valign": "top",
@@ -763,6 +757,7 @@ def build_excel_display_export_cdsfn(
 
         conta_width = len("Conta")
         value_widths = [len(str(header)) for header in headers[1:]]
+        worksheet.set_row(0, 22)
 
         for row_idx, (_, row) in enumerate(df_view.iterrows(), start=1):
             depth = int(row.get("depth", 0) or 0)
@@ -773,21 +768,23 @@ def build_excel_display_export_cdsfn(
             conta_fmt = _text_format(has_children, depth)
             worksheet.write(row_idx, 0, conta_text, conta_fmt)
             conta_width = max(conta_width, len(conta_text) + max(depth * 2, 0))
+            worksheet.set_row(row_idx, 20 if has_children else 18)
 
             for col_pos, value_col in enumerate(value_columns, start=1):
                 valor = pd.to_numeric(row.get(value_col), errors="coerce")
-                valor_fmt = _format_excel_display_value_cdsfn(valor)
-                if has_children:
-                    cell_fmt = fmt_parent_value_negative if pd.notna(valor) and float(valor) < 0 else fmt_parent_value
+                negative = bool(pd.notna(valor) and float(valor) < 0)
+                cell_fmt = _value_format(has_children, negative)
+                if pd.isna(valor):
+                    worksheet.write_blank(row_idx, col_pos, None, cell_fmt)
+                    value_widths[col_pos - 1] = max(value_widths[col_pos - 1], len("-"))
                 else:
-                    cell_fmt = fmt_leaf_value_negative if pd.notna(valor) and float(valor) < 0 else fmt_leaf_value
-                worksheet.write(row_idx, col_pos, valor_fmt, cell_fmt)
-                value_widths[col_pos - 1] = max(value_widths[col_pos - 1], len(str(valor_fmt)))
+                    worksheet.write_number(row_idx, col_pos, float(valor), cell_fmt)
+                    value_widths[col_pos - 1] = max(value_widths[col_pos - 1], len(_format_excel_display_value_cdsfn(valor)))
 
         worksheet.freeze_panes(1, 1)
-        worksheet.set_column(0, 0, min(max(conta_width + 2, 18), 90))
+        worksheet.set_column(0, 0, min(max(conta_width + 1, 14), 60))
         for idx, width in enumerate(value_widths, start=1):
-            worksheet.set_column(idx, idx, min(max(width + 2, 12), 20))
+            worksheet.set_column(idx, idx, min(max(width + 2, 12), 18))
     return output.getvalue()
 
 

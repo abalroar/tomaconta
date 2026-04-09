@@ -3,6 +3,7 @@ from __future__ import annotations
 from io import BytesIO
 
 import pandas as pd
+from openpyxl import load_workbook
 
 from utils.cdsfn_live import (
     build_display_table_cdsfn,
@@ -291,6 +292,14 @@ def test_build_excel_display_export_cdsfn_returns_bytes():
     )
     assert isinstance(excel_bytes, bytes)
     assert len(excel_bytes) > 100
+    wb = load_workbook(BytesIO(excel_bytes))
+    ws = wb["BP"]
+    assert ws["A1"].value == "Conta"
+    assert ws["B1"].value == "A dez/25"
+    assert ws["A2"].font.bold is True
+    assert ws["A2"].fill.fgColor.rgb in {"FFF6F6F6", "00F6F6F6"}
+    assert ws["B2"].value == 656719
+    assert ws["B2"].number_format == "#,##0.00"
 
 
 def test_combine_reference_periods_cdsfn_dedupes_and_sorts():

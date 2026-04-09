@@ -2428,7 +2428,6 @@ def _render_cdsfn_hierarchy_table(
     }
     .cdsfn-table {
         width: max-content;
-        min-width: 100%;
         border-collapse: collapse;
         font-size: 14px;
         font-family: 'IBM Plex Sans', sans-serif;
@@ -2449,8 +2448,7 @@ def _render_cdsfn_hierarchy_table(
     .cdsfn-table td:first-child, .cdsfn-table th:first-child {
         text-align: left;
         white-space: nowrap;
-        width: max-content;
-        min-width: 0;
+        width: auto;
     }
     .cdsfn-row-parent td {
         background: #f6f6f6;
