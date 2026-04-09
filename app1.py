@@ -2418,80 +2418,6 @@ def _render_cdsfn_hierarchy_table(
         st.info("Sem linhas para exibir nesta seção.")
         return
 
-    rows = [dict(item) for item in df_view.to_dict("records")]
-    niveis_validos = {str(row.get("nivel") or "").strip() for row in rows}
-    children_by_parent_level: dict[str, list[dict[str, Any]]] = {}
-    for row in rows:
-        nivel = str(row.get("nivel") or "").strip()
-        parent = str(row.get("conta_pai") or "").strip()
-        if parent and parent in niveis_validos:
-            children_by_parent_level.setdefault(parent, []).append(row)
-
-    table_seed = f"{block_key or 'cdsfn'}|{len(rows)}|{'|'.join(value_columns)}"
-    table_id = f"cdsfn-tree-{hashlib.md5(table_seed.encode('utf-8')).hexdigest()[:10]}"
-    level_to_row_id: dict[str, str] = {}
-    for idx, row in enumerate(rows):
-        nivel = str(row.get("nivel") or "").strip()
-        row_id = f"{table_id}-row-{idx}"
-        row["_row_id"] = row_id
-        if nivel:
-            level_to_row_id[nivel] = row_id
-    for row in rows:
-        nivel = str(row.get("nivel") or "").strip()
-        parent_level = str(row.get("conta_pai") or "").strip()
-        depth = int(row.get("depth", 0) or 0)
-        has_children = bool(children_by_parent_level.get(nivel))
-        default_expanded = bool(has_children and (block_key != "BalancoPatrimonial" or depth == 0))
-        row["_parent_row_id"] = level_to_row_id.get(parent_level, "")
-        row["_has_children"] = has_children
-        row["_default_expanded"] = default_expanded
-
-    def _render_value_cells(row: dict[str, Any]) -> str:
-        cells = []
-        for col in value_columns:
-            valor = pd.to_numeric(row.get(col), errors="coerce")
-            valor_fmt = _formatar_valor_cdsfn(valor)
-            if pd.notna(valor) and float(valor) < 0:
-                cells.append(f"<td><span class='cdsfn-negative'>{valor_fmt}</span></td>")
-            else:
-                cells.append(f"<td>{valor_fmt}</td>")
-        return "".join(cells)
-
-    def _render_rows_html() -> str:
-        parts: list[str] = []
-        for row in rows:
-            row_id = str(row.get("_row_id") or "")
-            parent_row_id = str(row.get("_parent_row_id") or "")
-            depth = int(row.get("depth", 0) or 0)
-            nivel = str(row.get("nivel") or "").strip()
-            descricao = _html_mod.escape(str(row.get("descricao") or ""))
-            has_children = bool(row.get("_has_children"))
-            expanded = bool(row.get("_default_expanded"))
-            row_class = "cdsfn-row-parent" if has_children or depth == 0 else "cdsfn-row-leaf"
-            indent_px = max(depth, 0) * 18
-            toggle_html = "<span class='cdsfn-toggle-slot'></span>"
-            if has_children:
-                chevron = "▾" if expanded else "▸"
-                toggle_html = (
-                    f"<button type='button' class='cdsfn-toggle' data-row-id='{_html_mod.escape(row_id)}' "
-                    f"aria-expanded={'true' if expanded else 'false'} title='Expandir/recolher subcontas'>{chevron}</button>"
-                )
-            conta_html = (
-                "<div class='cdsfn-account'>"
-                + f"<span class='cdsfn-indent' style='width:{indent_px}px;'></span>"
-                + toggle_html
-                + f"<span class='cdsfn-level-tag'>{_html_mod.escape(nivel)}</span>"
-                + f"<span class='cdsfn-desc'>{descricao}</span>"
-                + "</div>"
-            )
-            parts.append(
-                f"<tr class='{row_class}' data-row-id='{_html_mod.escape(row_id)}' "
-                f"data-parent-id='{_html_mod.escape(parent_row_id)}' "
-                f"data-expanded={'1' if expanded else '0'} data-has-children={'1' if has_children else '0'}>"
-                f"<td>{conta_html}</td>{_render_value_cells(row)}</tr>"
-            )
-        return "".join(parts)
-
     html = """
     <style>
     .cdsfn-table-wrap {
@@ -2536,148 +2462,40 @@ def _render_cdsfn_hierarchy_table(
         color: #7a1e2b;
         font-weight: 600;
     }
-    .cdsfn-account {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        min-width: 0;
-    }
-    .cdsfn-indent {
-        display: inline-block;
-        flex: 0 0 auto;
-        height: 1px;
-    }
-    .cdsfn-toggle,
-    .cdsfn-toggle-slot {
-        width: 18px;
-        min-width: 18px;
-        height: 18px;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        flex: 0 0 18px;
-    }
-    .cdsfn-toggle {
-        border: none;
-        background: transparent;
-        border-radius: 4px;
-        color: #4b5563;
-        cursor: pointer;
-        font-size: 12px;
-        line-height: 1;
-        padding: 0;
-    }
-    .cdsfn-toggle:hover {
-        background: #eceff3;
-    }
     .cdsfn-level-tag {
         color: #6b7280;
         font-size: 11px;
-        min-width: 44px;
-        text-align: right;
-        flex: 0 0 44px;
-    }
-    .cdsfn-desc {
-        color: #1f2937;
-        flex: 0 1 auto;
+        margin-right: 6px;
     }
     </style>
     """
-    html += f"<div class='cdsfn-table-wrap' id='{table_id}'><table class='cdsfn-table'><thead><tr><th>Conta</th>"
+    html += "<div class='cdsfn-table-wrap'><table class='cdsfn-table'><thead><tr><th>Conta</th>"
     for col in value_columns:
         header = column_labels.get(col, col) if column_labels else col
         html += f"<th>{_html_mod.escape(str(header))}</th>"
-    html += "</tr></thead><tbody>" + _render_rows_html() + "</tbody></table></div>"
-    html += f"""
-    <script>
-    (function() {{
-        var root = document.getElementById('{table_id}');
-        if (!root || root.dataset.treeInit === '1') return;
-        root.dataset.treeInit = '1';
+    html += "</tr></thead><tbody>"
+    for _, row in df_view.iterrows():
+        depth = int(row.get("depth", 0) or 0)
+        has_children = bool(row.get("has_children"))
+        row_class = "cdsfn-row-parent" if has_children or depth == 0 else "cdsfn-row-leaf"
+        descricao = _html_mod.escape(str(row.get("descricao") or ""))
+        nivel = _html_mod.escape(str(row.get("nivel") or ""))
+        padding = 14 + (depth * 18)
+        conta_html = (
+            f"<span class='cdsfn-level-tag'>{nivel}</span>"
+            f"<span style='padding-left:{padding}px; display:inline-block;'>{descricao}</span>"
+        )
+        html += f"<tr class='{row_class}'><td>{conta_html}</td>"
+        for col in value_columns:
+            valor = pd.to_numeric(row.get(col), errors="coerce")
+            valor_fmt = _formatar_valor_cdsfn(valor)
+            if pd.notna(valor) and float(valor) < 0:
+                html += f"<td><span class='cdsfn-negative'>{valor_fmt}</span></td>"
+            else:
+                html += f"<td>{valor_fmt}</td>"
+        html += "</tr>"
 
-        var rows = Array.from(root.querySelectorAll('tr[data-row-id]'));
-        var rowsById = Object.create(null);
-        var childrenById = Object.create(null);
-
-        rows.forEach(function(row) {{
-            rowsById[row.dataset.rowId] = row;
-        }});
-        rows.forEach(function(row) {{
-            var parentId = row.dataset.parentId;
-            if (!parentId) return;
-            if (!childrenById[parentId]) childrenById[parentId] = [];
-            childrenById[parentId].push(row.dataset.rowId);
-        }});
-
-        function setExpanded(rowId, expanded) {{
-            var row = rowsById[rowId];
-            if (!row) return;
-            row.dataset.expanded = expanded ? '1' : '0';
-            var btn = row.querySelector('.cdsfn-toggle');
-            if (!btn) return;
-            btn.textContent = expanded ? '▾' : '▸';
-            btn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
-        }}
-
-        function hideBranch(rowId) {{
-            var childIds = childrenById[rowId] || [];
-            childIds.forEach(function(childId) {{
-                var childRow = rowsById[childId];
-                if (!childRow) return;
-                childRow.style.display = 'none';
-                hideBranch(childId);
-            }});
-        }}
-
-        function refreshBranch(rowId) {{
-            var row = rowsById[rowId];
-            if (!row) return;
-            var expanded = row.dataset.expanded === '1';
-            var childIds = childrenById[rowId] || [];
-            childIds.forEach(function(childId) {{
-                var childRow = rowsById[childId];
-                if (!childRow) return;
-                childRow.style.display = expanded ? '' : 'none';
-                if (!expanded) {{
-                    hideBranch(childId);
-                    return;
-                }}
-                if (childRow.dataset.expanded === '1') {{
-                    refreshBranch(childId);
-                }} else {{
-                    hideBranch(childId);
-                }}
-            }});
-        }}
-
-        rows.forEach(function(row) {{
-            if (row.dataset.parentId) {{
-                row.style.display = 'none';
-            }} else {{
-                row.style.display = '';
-            }}
-        }});
-        rows.forEach(function(row) {{
-            if (!row.dataset.parentId && row.dataset.hasChildren === '1') {{
-                refreshBranch(row.dataset.rowId);
-            }}
-        }});
-
-        root.addEventListener('click', function(event) {{
-            var button = event.target.closest('.cdsfn-toggle');
-            if (!button) return;
-            var rowId = button.dataset.rowId;
-            var row = rowsById[rowId];
-            if (!row) return;
-            var expanded = row.dataset.expanded === '1';
-            setExpanded(rowId, !expanded);
-            refreshBranch(rowId);
-            event.preventDefault();
-            event.stopPropagation();
-        }}, true);
-    }})();
-    </script>
-    """
+    html += "</tbody></table></div>"
     st.markdown(html, unsafe_allow_html=True)
 
 
