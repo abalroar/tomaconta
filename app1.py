@@ -2412,6 +2412,7 @@ def _render_cdsfn_hierarchy_table(
     value_columns: list[str],
     *,
     column_labels: dict[str, str] | None = None,
+    block_key: str | None = None,
 ) -> None:
     if df_view.empty:
         st.info("Sem linhas para exibir nesta seção.")
@@ -2440,46 +2441,45 @@ def _render_cdsfn_hierarchy_table(
                 cells.append(f"<td>{valor_fmt}</td>")
         return "".join(cells)
 
-    def _render_row_table(rows_subset: list[dict[str, Any]], *, nested: bool) -> str:
-        table_class = "cdsfn-table cdsfn-subtable" if nested else "cdsfn-table"
-        parts = [f"<table class='{table_class}'>"]
-        if not nested:
-            parts.append("<thead><tr><th>Conta</th>")
-            for col in value_columns:
-                header = column_labels.get(col, col) if column_labels else col
-                parts.append(f"<th>{_html_mod.escape(str(header))}</th>")
-            parts.append("</tr></thead>")
-        parts.append("<tbody>")
+    def _render_row(row: dict[str, Any]) -> str:
+        depth = int(row.get("depth", 0) or 0)
+        nivel = str(row.get("nivel") or "").strip()
+        descricao = _html_mod.escape(str(row.get("descricao") or ""))
+        has_children = bool(children_by_parent.get(nivel, []))
+        row_class = "cdsfn-row-parent" if has_children or depth == 0 else "cdsfn-row-leaf"
+        padding = 14 + (depth * 18)
+        conta_html = (
+            f"<span class='cdsfn-level-tag'>{_html_mod.escape(nivel)}</span>"
+            f"<span style='padding-left:{padding}px; display:inline-block;'>{descricao}</span>"
+        )
+        return f"<tr class='{row_class}'><td>{conta_html}</td>{_render_value_cells(row)}</tr>"
 
+    def _render_flat_rows(rows_subset: list[dict[str, Any]]) -> str:
+        return "".join(_render_row(row) for row in rows_subset)
+
+    def _render_balance_rows(rows_subset: list[dict[str, Any]]) -> str:
+        parts: list[str] = []
         for row in rows_subset:
             depth = int(row.get("depth", 0) or 0)
             nivel = str(row.get("nivel") or "").strip()
-            descricao = _html_mod.escape(str(row.get("descricao") or ""))
             filhos = children_by_parent.get(nivel, [])
-            has_children = bool(filhos)
-            row_class = "cdsfn-row-parent" if has_children or depth == 0 else "cdsfn-row-leaf"
-            padding = 14 + (depth * 18)
-            conta_html = (
-                f"<span class='cdsfn-level-tag'>{_html_mod.escape(nivel)}</span>"
-                f"<span style='padding-left:{padding}px; display:inline-block;'>{descricao}</span>"
+            parts.append(_render_row(row))
+            if not filhos:
+                continue
+            if depth == 0:
+                parts.append(_render_balance_rows(filhos))
+                continue
+            summary_text = f"Subcontas ({len(filhos)})"
+            nested_table = "<table class='cdsfn-table cdsfn-subtable'><tbody>" + _render_balance_rows(filhos) + "</tbody></table>"
+            parts.append(
+                "<tr class='cdsfn-children-shell'><td colspan='"
+                + str(1 + len(value_columns))
+                + "'>"
+                + "<details class='cdsfn-details'>"
+                + f"<summary>{summary_text}</summary>"
+                + f"<div class='cdsfn-subtable-wrap'>{nested_table}</div>"
+                + "</details></td></tr>"
             )
-            parts.append(f"<tr class='{row_class}'><td>{conta_html}</td>{_render_value_cells(row)}</tr>")
-
-            if has_children:
-                open_attr = " open" if depth == 0 else ""
-                summary_text = f"Subcontas de {descricao} ({len(filhos)})"
-                nested_table = _render_row_table(filhos, nested=True)
-                parts.append(
-                    "<tr class='cdsfn-children-shell'><td colspan='"
-                    + str(1 + len(value_columns))
-                    + "'>"
-                    + f"<details class='cdsfn-details'{open_attr}>"
-                    + f"<summary>{summary_text}</summary>"
-                    + f"<div class='cdsfn-subtable-wrap'>{nested_table}</div>"
-                    + "</details></td></tr>"
-                )
-
-        parts.append("</tbody></table>")
         return "".join(parts)
 
     html = """
@@ -2543,18 +2543,18 @@ def _render_cdsfn_hierarchy_table(
     .cdsfn-details > summary {
         cursor: pointer;
         list-style-position: inside;
-        padding: 6px 10px 6px 16px;
-        background: #fafafa;
+        padding: 5px 10px 5px 16px;
+        background: #fbfbfb;
         color: #374151;
-        font-size: 12px;
+        font-size: 11px;
         font-weight: 600;
-        border-top: 1px solid #ececec;
+        border-top: 1px solid #efefef;
     }
     .cdsfn-details[open] > summary {
-        border-bottom: 1px solid #ececec;
+        border-bottom: 1px solid #efefef;
     }
     .cdsfn-subtable-wrap {
-        padding-left: 10px;
+        padding-left: 6px;
         background: #ffffff;
     }
     .cdsfn-subtable {
@@ -2562,14 +2562,23 @@ def _render_cdsfn_hierarchy_table(
     }
     </style>
     """
-    html += "<div class='cdsfn-table-wrap'>" + _render_row_table(root_rows, nested=False) + "</div>"
+    html += "<div class='cdsfn-table-wrap'><table class='cdsfn-table'><thead><tr><th>Conta</th>"
+    for col in value_columns:
+        header = column_labels.get(col, col) if column_labels else col
+        html += f"<th>{_html_mod.escape(str(header))}</th>"
+    html += "</tr></thead><tbody>"
+    if block_key == "BalancoPatrimonial":
+        html += _render_balance_rows(root_rows)
+    else:
+        html += _render_flat_rows(rows)
+    html += "</tbody></table></div>"
     st.markdown(html, unsafe_allow_html=True)
 
 
 def render_tab_cdsfn() -> None:
     st.markdown("### Balanço, DRE e DMPL (Ind.)")
     st.caption(
-        "Consulta ao vivo do documento 9011 no Banco Central do Brasil, com até 2 documentos carregados ao mesmo tempo e visualização contábil consolidada."
+        "Documento 9011 ao vivo do Banco Central, com comparação entre até 2 períodos."
     )
 
     try:
@@ -2725,8 +2734,6 @@ def render_tab_cdsfn() -> None:
             )
 
     tipos_remessa = sorted({item.get("tipo_remessa") for item in metadatas if item.get("tipo_remessa")})
-    if tipos_remessa:
-        st.caption(f"Tipo de remessa: {', '.join(tipos_remessa)}")
 
     prefixos_disponiveis = []
     for prefixo in [item.get("prefixo", "") for item in refs]:
@@ -2747,8 +2754,6 @@ def render_tab_cdsfn() -> None:
             key="cdsfn_live_prefixo_ref",
             horizontal=True,
         )
-    if "S" in prefixos_disponiveis:
-        st.caption("Semestral (S): na DRE, os valores são acumulados por semestre (jan–jun em S06 e jul–dez em S12).")
     refs_filtradas = [item for item in refs if item.get("prefixo") == prefixo_sel]
     if not refs_filtradas:
         st.warning(f"O documento retornado não possui períodos internos do tipo {prefixo_sel}.")
@@ -2758,13 +2763,6 @@ def render_tab_cdsfn() -> None:
     labels_periodos = {item["raw"]: item["label"] for item in refs_filtradas}
     sufixos_periodos_documento = {f"{periodo[4:6]}{periodo[:4]}" for periodo in periodos_documento_sel}
     periodos_ref_sel = [periodo for periodo in periodos_disponiveis if str(periodo).endswith(tuple(sufixos_periodos_documento))]
-    with col_refs:
-        if periodos_ref_sel:
-            st.caption(
-                "Períodos internos exibidos automaticamente a partir do(s) documento(s) carregado(s): "
-                + ", ".join(labels_periodos.get(valor, valor) for valor in periodos_ref_sel)
-            )
-
     periodos_invalidos = [item for item in periodos_ref_sel if item not in periodos_disponiveis]
     if periodos_invalidos:
         st.error(
@@ -2775,6 +2773,15 @@ def render_tab_cdsfn() -> None:
     if not periodos_ref_sel:
         st.warning("Nenhum período interno compatível com o(s) documento(s) carregado(s) para este tipo de referência.")
         return
+
+    linha_estado = []
+    if tipos_remessa:
+        linha_estado.append(f"Remessa: {', '.join(tipos_remessa)}")
+    linha_estado.append(f"Referência: {_rotulo_tipo_referencia_cdsfn(prefixo_sel)}")
+    linha_estado.append("Períodos: " + ", ".join(labels_periodos.get(valor, valor) for valor in periodos_ref_sel))
+    st.caption(" | ".join(linha_estado))
+    if prefixo_sel == "S":
+        st.caption("Na DRE, S06 acumula jan–jun e S12 acumula jul–dez.")
 
     blocos_presentes = {item["block_key"] for item in blocos}
     blocos_ausentes = [meta["label"] for chave, meta in CDSFN_BLOCKS.items() if chave not in blocos_presentes]
@@ -2803,10 +2810,7 @@ def render_tab_cdsfn() -> None:
             column_labels = {col: labels_periodos.get(col, col) for col in value_columns_render}
             possui_valor_render = any(df_view_render[col].notna().any() for col in value_columns_render)
 
-            st.caption(
-                f"{bloco_info['label']} | {bloco_info['contas']} contas | "
-                f"unidade do documento: {metadata.get('unidade_medida') or 'N/D'}"
-            )
+            st.caption(f"{bloco_info['contas']} contas | unidade: {metadata.get('unidade_medida') or 'N/D'}")
             if docs_sem_bloco:
                 st.warning(
                     "Bloco ausente nos documentos: " + ", ".join(docs_sem_bloco)
@@ -2830,7 +2834,12 @@ def render_tab_cdsfn() -> None:
                 st.warning(
                     "Esta demonstração existe no documento, mas não possui valores para os períodos internos selecionados."
                 )
-            _render_cdsfn_hierarchy_table(df_view_render, value_columns_render, column_labels=column_labels)
+            _render_cdsfn_hierarchy_table(
+                df_view_render,
+                value_columns_render,
+                column_labels=column_labels,
+                block_key=bloco_key,
+            )
 
 @st.cache_data(ttl=300, show_spinner=False)
 def verificar_caches_github() -> dict:
