@@ -2417,6 +2417,71 @@ def _render_cdsfn_hierarchy_table(
         st.info("Sem linhas para exibir nesta seção.")
         return
 
+    rows = [dict(item) for item in df_view.to_dict("records")]
+    niveis_validos = {str(row.get("nivel") or "").strip() for row in rows}
+    children_by_parent: dict[str, list[dict[str, Any]]] = {}
+    root_rows: list[dict[str, Any]] = []
+    for row in rows:
+        nivel = str(row.get("nivel") or "").strip()
+        parent = str(row.get("conta_pai") or "").strip()
+        if parent and parent in niveis_validos:
+            children_by_parent.setdefault(parent, []).append(row)
+        else:
+            root_rows.append(row)
+
+    def _render_value_cells(row: dict[str, Any]) -> str:
+        cells = []
+        for col in value_columns:
+            valor = pd.to_numeric(row.get(col), errors="coerce")
+            valor_fmt = _formatar_valor_cdsfn(valor)
+            if pd.notna(valor) and float(valor) < 0:
+                cells.append(f"<td><span class='cdsfn-negative'>{valor_fmt}</span></td>")
+            else:
+                cells.append(f"<td>{valor_fmt}</td>")
+        return "".join(cells)
+
+    def _render_row_table(rows_subset: list[dict[str, Any]], *, nested: bool) -> str:
+        table_class = "cdsfn-table cdsfn-subtable" if nested else "cdsfn-table"
+        parts = [f"<table class='{table_class}'>"]
+        if not nested:
+            parts.append("<thead><tr><th>Conta</th>")
+            for col in value_columns:
+                header = column_labels.get(col, col) if column_labels else col
+                parts.append(f"<th>{_html_mod.escape(str(header))}</th>")
+            parts.append("</tr></thead>")
+        parts.append("<tbody>")
+
+        for row in rows_subset:
+            depth = int(row.get("depth", 0) or 0)
+            nivel = str(row.get("nivel") or "").strip()
+            descricao = _html_mod.escape(str(row.get("descricao") or ""))
+            filhos = children_by_parent.get(nivel, [])
+            has_children = bool(filhos)
+            row_class = "cdsfn-row-parent" if has_children or depth == 0 else "cdsfn-row-leaf"
+            padding = 14 + (depth * 18)
+            conta_html = (
+                f"<span class='cdsfn-level-tag'>{_html_mod.escape(nivel)}</span>"
+                f"<span style='padding-left:{padding}px; display:inline-block;'>{descricao}</span>"
+            )
+            parts.append(f"<tr class='{row_class}'><td>{conta_html}</td>{_render_value_cells(row)}</tr>")
+
+            if has_children:
+                open_attr = " open" if depth == 0 else ""
+                summary_text = f"Subcontas de {descricao} ({len(filhos)})"
+                nested_table = _render_row_table(filhos, nested=True)
+                parts.append(
+                    "<tr class='cdsfn-children-shell'><td colspan='"
+                    + str(1 + len(value_columns))
+                    + "'>"
+                    + f"<details class='cdsfn-details'{open_attr}>"
+                    + f"<summary>{summary_text}</summary>"
+                    + f"<div class='cdsfn-subtable-wrap'>{nested_table}</div>"
+                    + "</details></td></tr>"
+                )
+
+        parts.append("</tbody></table>")
+        return "".join(parts)
+
     html = """
     <style>
     .cdsfn-table-wrap {
@@ -2466,36 +2531,38 @@ def _render_cdsfn_hierarchy_table(
         font-size: 11px;
         margin-right: 6px;
     }
+    .cdsfn-children-shell td {
+        padding: 0;
+        border: none;
+        background: #ffffff;
+    }
+    .cdsfn-details {
+        margin: 0;
+        padding: 0;
+    }
+    .cdsfn-details > summary {
+        cursor: pointer;
+        list-style-position: inside;
+        padding: 6px 10px 6px 16px;
+        background: #fafafa;
+        color: #374151;
+        font-size: 12px;
+        font-weight: 600;
+        border-top: 1px solid #ececec;
+    }
+    .cdsfn-details[open] > summary {
+        border-bottom: 1px solid #ececec;
+    }
+    .cdsfn-subtable-wrap {
+        padding-left: 10px;
+        background: #ffffff;
+    }
+    .cdsfn-subtable {
+        margin: 0;
+    }
     </style>
-    <div class="cdsfn-table-wrap"><table class="cdsfn-table"><thead><tr><th>Conta</th>
     """
-    for col in value_columns:
-        header = column_labels.get(col, col) if column_labels else col
-        html += f"<th>{_html_mod.escape(str(header))}</th>"
-    html += "</tr></thead><tbody>"
-
-    for _, row in df_view.iterrows():
-        depth = int(row.get("depth", 0) or 0)
-        has_children = bool(row.get("has_children"))
-        row_class = "cdsfn-row-parent" if has_children or depth == 0 else "cdsfn-row-leaf"
-        descricao = _html_mod.escape(str(row.get("descricao") or ""))
-        nivel = _html_mod.escape(str(row.get("nivel") or ""))
-        padding = 14 + (depth * 18)
-        conta_html = (
-            f"<span class='cdsfn-level-tag'>{nivel}</span>"
-            f"<span style='padding-left:{padding}px; display:inline-block;'>{descricao}</span>"
-        )
-        html += f"<tr class='{row_class}'><td>{conta_html}</td>"
-        for col in value_columns:
-            valor = pd.to_numeric(row.get(col), errors="coerce")
-            valor_fmt = _formatar_valor_cdsfn(valor)
-            if pd.notna(valor) and float(valor) < 0:
-                html += f"<td><span class='cdsfn-negative'>{valor_fmt}</span></td>"
-            else:
-                html += f"<td>{valor_fmt}</td>"
-        html += "</tr>"
-
-    html += "</tbody></table></div>"
+    html += "<div class='cdsfn-table-wrap'>" + _render_row_table(root_rows, nested=False) + "</div>"
     st.markdown(html, unsafe_allow_html=True)
 
 
