@@ -2,7 +2,7 @@ import importlib
 import math
 import hashlib
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Dict, Optional, List, Sequence
+from typing import Any, Dict, Optional, List, Sequence, Mapping, Iterable
 import streamlit as st
 import pandas as pd
 import os
@@ -138,8 +138,16 @@ from utils.ifdata_cache import (
     build_institution_to_conglomerate_map,
 )
 from utils.ifdata_cache.derived_metrics import materialize_derived_metrics_cache
-from utils.ifdata_cache.diagnostics import build_runtime_manifest
+from utils.ifdata_cache.diagnostics import build_runtime_manifest, max_period_from_values
 from utils.ifdata_cache.institutions import canonicalize_institution_dataframe
+from utils.ifdata_cache.release_ops import (
+    collect_release_assets,
+    get_postprocess_targets,
+    get_publishable_bundle,
+    materialize_for_publication,
+    upload_release_assets,
+    write_release_manifest,
+)
 from utils.ifdata_cache.release_config import get_release_config
 from utils.cdsfn_live import (
     CDSFN_BLOCKS,
@@ -1531,122 +1539,157 @@ def forcar_recarregar_cache():
         return True
     return False
 
-def upload_cache_github(cache_manager: CacheManager, tipo_cache: str, gh_token: str = None) -> Tuple[bool, str]:
-    """Publica cache (parquet + metadata) no GitHub Releases.
+def _expected_periods_publicacao(
+    cache_manager: CacheManager,
+    tipo_cache: str,
+    periodos: Optional[Iterable[str]] = None,
+) -> dict[str, str]:
+    valores = [str(periodo).strip() for periodo in (periodos or []) if str(periodo or "").strip()]
+    if not valores:
+        info = cache_manager.info(tipo_cache) if cache_manager else {}
+        valores = [str(periodo).strip() for periodo in (info.get("periodos") or []) if str(periodo or "").strip()]
 
-    Retorna (sucesso, mensagem).
-    """
-    cache = cache_manager.get_cache(tipo_cache) if cache_manager else None
-    if cache is None:
-        return False, f"cache '{tipo_cache}' não encontrado"
+    periodo_final = max_period_from_values(valores)
+    if not periodo_final:
+        return {}
 
-    data_path = cache.arquivo_dados
-    metadata_path = cache.arquivo_metadata
+    periodo_ref = str(periodo_final).replace("/", "")
+    if len(periodo_ref) >= 6 and periodo_ref[-2:] in {"03", "06", "09", "12"}:
+        return {"quarterly": str(periodo_final)}
+    if tipo_cache == "bloprudencial":
+        return {"monthly": str(periodo_final)}
+    return {}
 
-    if not data_path.exists():
-        return False, f"arquivo parquet não encontrado para '{tipo_cache}' (gere o cache com pyarrow)"
-    if not metadata_path.exists():
-        return False, f"metadata.json não encontrada para '{tipo_cache}'"
 
-    repo = _resolver_release_repo()
-    tag = _resolver_release_tag()
-    asset_data_name = f"{tipo_cache}_dados.parquet"
-    asset_metadata_name = f"{tipo_cache}_metadata.json"
+def _resumo_publicacao_consistente(tipo_cache: str) -> str:
+    targets = get_postprocess_targets([tipo_cache])
+    dependentes = [cache_name for cache_name in targets if cache_name != tipo_cache]
+    if not dependentes:
+        return "Publicação direta do cache selecionado + `manifest.json`."
+    return (
+        f"Publicação consistente: `{tipo_cache}` + {', '.join(f'`{cache_name}`' for cache_name in dependentes)} "
+        "quando a materialização e os gates estiverem válidos."
+    )
 
-    cache_size = data_path.stat().st_size
 
-    ok_validacao, msg_validacao = _validar_token_release_github(repo, gh_token, tag=tag)
+def _publicar_bundle_release(
+    cache_manager: CacheManager,
+    *,
+    caches_selecionados: Iterable[str],
+    gh_token: Optional[str],
+    expected_periods: Optional[Mapping[str, str]] = None,
+    materialization_details: Optional[Sequence[Mapping[str, Any]]] = None,
+) -> Tuple[bool, str, dict]:
+    selected = list(dict.fromkeys(str(cache_name).strip() for cache_name in caches_selecionados if str(cache_name or "").strip()))
+    if not selected:
+        return False, "nenhum cache selecionado para publicação.", {}
+
+    release_cfg = _release_config_app()
+    ok_validacao, msg_validacao = _validar_token_release_github(release_cfg.repo, gh_token, tag=release_cfg.tag)
     if not ok_validacao:
-        return False, msg_validacao
+        return False, msg_validacao, {}
+
+    manifest_path, manifest_payload = write_release_manifest(
+        cache_manager,
+        release_config=release_cfg,
+        expected_periods=expected_periods,
+        selected_caches=selected,
+        materialization_details=materialization_details,
+        include_hashes=True,
+    )
+    publishable_caches, skipped_targets = get_publishable_bundle(
+        selected,
+        materialization_details=materialization_details,
+        manifest_payload=manifest_payload,
+    )
+    if not publishable_caches:
+        return False, "nenhum cache elegível para publicação após validação.", {
+            "manifest_path": str(manifest_path),
+            "manifest": manifest_payload,
+            "skipped_targets": skipped_targets,
+            "selected": selected,
+        }
 
     try:
-        result = subprocess.run(['gh', 'auth', 'status'], capture_output=True, text=True, timeout=10)
-        gh_available = result.returncode == 0
+        assets = collect_release_assets(
+            cache_manager,
+            publishable_caches,
+            manifest_path=manifest_path,
+        )
+        upload_result = upload_release_assets(
+            repo=release_cfg.repo,
+            tag=release_cfg.tag,
+            assets=assets,
+            token=str(gh_token or "").strip(),
+        )
+    except FileNotFoundError as exc:
+        return False, f"asset local ausente: {exc}", {
+            "manifest_path": str(manifest_path),
+            "manifest": manifest_payload,
+            "skipped_targets": skipped_targets,
+            "selected": selected,
+        }
+    except Exception as exc:
+        return False, f"falha ao publicar bundle: {exc}", {
+            "manifest_path": str(manifest_path),
+            "manifest": manifest_payload,
+            "skipped_targets": skipped_targets,
+            "selected": selected,
+        }
 
-        if gh_available:
-            subprocess.run(
-                ['gh', 'release', 'delete-asset', tag, asset_data_name, '-y', '-R', repo],
-                capture_output=True, text=True, timeout=30
-            )
-            subprocess.run(
-                ['gh', 'release', 'delete-asset', tag, asset_metadata_name, '-y', '-R', repo],
-                capture_output=True, text=True, timeout=30
-            )
+    extras = ""
+    if skipped_targets:
+        extras = f" | não publicados: {'; '.join(skipped_targets)}"
+    return True, (
+        f"bundle publicado em {release_cfg.repo}@{release_cfg.tag}: "
+        f"{', '.join(publishable_caches)} + manifest.json{extras}"
+    ), {
+        "manifest_path": str(manifest_path),
+        "manifest": manifest_payload,
+        "skipped_targets": skipped_targets,
+        "selected": selected,
+        "published_caches": publishable_caches,
+        "assets": upload_result.get("assets", []),
+    }
 
-            result = subprocess.run(
-                ['gh', 'release', 'upload', tag, f"{data_path}#{asset_data_name}", '--clobber', '-R', repo],
-                capture_output=True, text=True, timeout=120
-            )
-            if result.returncode != 0:
-                return False, f"erro ao fazer upload do cache: {result.stderr}"
 
-            subprocess.run(
-                ['gh', 'release', 'upload', tag, f"{metadata_path}#{asset_metadata_name}", '--clobber', '-R', repo],
-                capture_output=True, text=True, timeout=30
-            )
+def _materializar_dependencias_publicacao(
+    cache_manager: CacheManager,
+    *,
+    tipo_cache: str,
+) -> list[dict]:
+    return materialize_for_publication(
+        cache_manager,
+        cache_names=[tipo_cache],
+        base_dir=cache_manager.base_dir if cache_manager else None,
+        force=True,
+        save_bundled=True,
+    )
 
-            return True, f"cache '{tipo_cache}' enviado para {repo}@{tag} ({cache_size / 1024 / 1024:.1f} MB)"
 
-    except FileNotFoundError:
-        pass
-    except subprocess.TimeoutExpired:
-        return False, "timeout ao executar gh CLI"
-    except Exception as e:
-        return False, f"erro ao usar gh CLI: {str(e)}"
+def _render_materialization_details(details: Sequence[Mapping[str, Any]]) -> None:
+    if not details:
+        st.caption("Nenhum cache derivado/curado precisa ser recalculado para esta seleção.")
+        return
 
-    if gh_token:
-        try:
-            headers = {
-                'Authorization': f'token {gh_token}',
-                'Accept': 'application/vnd.github.v3+json'
-            }
+    for item in details:
+        cache_name = str(item.get("cache") or "-")
+        status = str(item.get("status") or "desconhecido").upper()
+        message = str(item.get("message") or "")
+        prefix = "OK" if status == "OK" else "ERRO"
+        st.caption(f"{prefix} | `{cache_name}`: {message}")
 
-            release_url = f"https://api.github.com/repos/{repo}/releases/tags/{tag}"
-            r = requests.get(release_url, headers=headers, timeout=30)
-            if r.status_code != 200:
-                return False, f"tag/release '{tag}' não encontrada em '{repo}'. Ação: crie a tag/release e tente novamente."
 
-            release_data = r.json()
-            upload_url = release_data['upload_url'].replace('{?name,label}', '')
-
-            for asset in release_data.get('assets', []):
-                if asset['name'] in [asset_data_name, asset_metadata_name]:
-                    delete_url = f"https://api.github.com/repos/{repo}/releases/assets/{asset['id']}"
-                    requests.delete(delete_url, headers=headers, timeout=30)
-
-            upload_headers = {
-                'Authorization': f'token {gh_token}',
-                'Content-Type': 'application/octet-stream'
-            }
-
-            with open(data_path, 'rb') as f:
-                r = requests.post(
-                    f"{upload_url}?name={asset_data_name}",
-                    headers=upload_headers,
-                    data=f,
-                    timeout=300
-                )
-                if r.status_code not in [200, 201]:
-                    return False, f"falha de upload do asset parquet ({r.status_code}) em {repo}@{tag}"
-
-            with open(metadata_path, 'rb') as f:
-                r = requests.post(
-                    f"{upload_url}?name={asset_metadata_name}",
-                    headers=upload_headers,
-                    data=f,
-                    timeout=60
-                )
-                if r.status_code not in [200, 201]:
-                    return False, f"falha de upload do asset metadata ({r.status_code}) em {repo}@{tag}"
-
-            return True, f"cache '{tipo_cache}' enviado para {repo}@{tag} ({cache_size / 1024 / 1024:.1f} MB)"
-
-        except requests.exceptions.Timeout:
-            return False, "erro de rede/timeout ao publicar no GitHub. Ação: verifique conectividade e tente novamente."
-        except Exception as e:
-            return False, f"erro ao usar API do github: {str(e)}"
-
-    return False, "token GitHub ausente. Ação: configure `GITHUB_TOKEN`, `GH_TOKEN` ou `GITHUB_PAT`."
+def upload_cache_github(cache_manager: CacheManager, tipo_cache: str, gh_token: str = None) -> Tuple[bool, str]:
+    """Publica somente o cache selecionado + manifest via API do GitHub."""
+    sucesso, mensagem, _ = _publicar_bundle_release(
+        cache_manager,
+        caches_selecionados=[tipo_cache],
+        gh_token=gh_token,
+        expected_periods=_expected_periods_publicacao(cache_manager, tipo_cache),
+        materialization_details=[],
+    )
+    return sucesso, mensagem
 
 
 def preparar_download_cache_local(cache_manager: CacheManager, tipo_cache: str) -> Optional[dict]:
@@ -23479,11 +23522,20 @@ elif menu == "Atualizar Base":
         st.markdown("#### 4. Executar extração")
 
         publicar_auto = st.checkbox(
-            "publicar automaticamente no GitHub ao concluir (recomendado)",
+            "publicar automaticamente pacote consistente no GitHub ao concluir",
             value=True if (gh_token_final and token_validado) else False,
             key="publicar_auto",
-            help="mantém o cache persistido no GitHub Releases.",
+            help="publica o cache selecionado, tenta recalcular dependentes e envia também `manifest.json`.",
         )
+        st.caption(_resumo_publicacao_consistente(cache_selecionado))
+
+        if st.button("recalcular dependentes agora", width='stretch', key="btn_materializar_dependentes"):
+            with st.spinner("recalculando caches derivados/curados dependentes..."):
+                detalhes_materializacao = _materializar_dependencias_publicacao(
+                    cache_manager,
+                    tipo_cache=cache_selecionado,
+                )
+            _render_materialization_details(detalhes_materializacao)
 
         # A extração não depende mais de alias local.
         pode_extrair = True
@@ -23697,6 +23749,33 @@ elif menu == "Atualizar Base":
                                     info_extra={"competencias": periodos_extrair},
                                 )
 
+                        if publicar_auto and gh_token_final and token_validado:
+                            detalhes_materializacao = _materializar_dependencias_publicacao(
+                                cache_manager,
+                                tipo_cache=cache_selecionado,
+                            )
+                            with st.expander("dependências recalculadas", expanded=False):
+                                _render_materialization_details(detalhes_materializacao)
+                            with st.spinner("publicando pacote consistente no GitHub Releases..."):
+                                sucesso_pub, msg_pub, ctx_pub = _publicar_bundle_release(
+                                    cache_manager,
+                                    caches_selecionados=[cache_selecionado],
+                                    gh_token=gh_token_final,
+                                    expected_periods=_expected_periods_publicacao(
+                                        cache_manager,
+                                        cache_selecionado,
+                                        periodos_extrair,
+                                    ),
+                                    materialization_details=detalhes_materializacao,
+                                )
+                                if sucesso_pub:
+                                    st.success(f"✅ {msg_pub}")
+                                    skipped_targets = ctx_pub.get("skipped_targets") or []
+                                    if skipped_targets:
+                                        st.warning(f"Dependências não publicadas neste ciclo: {'; '.join(skipped_targets)}")
+                                else:
+                                    st.warning(f"⚠️ falha ao publicar: {msg_pub}")
+
                     except Exception as e:
                         progress_bar.empty()
                         status_text.empty()
@@ -23774,6 +23853,18 @@ elif menu == "Atualizar Base":
                                     with st.expander("📋 Log de extração", expanded=False):
                                         for log_line in logs_extracao:
                                             st.text(log_line)
+
+                                    if publicar_auto and gh_token_final and token_validado:
+                                        with st.spinner("publicando cache no GitHub Releases..."):
+                                            sucesso_pub, msg_pub = upload_cache_github(
+                                                cache_manager,
+                                                cache_selecionado,
+                                                gh_token_final,
+                                            )
+                                            if sucesso_pub:
+                                                st.success(f"✅ {msg_pub}")
+                                            else:
+                                                st.warning(f"⚠️ falha ao publicar: {msg_pub}")
                                 else:
                                     st.error(f"Erro ao salvar cache: {save_result.mensagem}")
                             else:
@@ -23895,7 +23986,21 @@ elif menu == "Atualizar Base":
                                         })
 
                                     if publicar_auto_bg and gh_token_bg and not pendentes_final_bg:
-                                        sucesso_pub_bg, msg_pub_bg = upload_cache_github(cache_manager, cache_tipo_bg, gh_token_bg)
+                                        detalhes_materializacao_bg = _materializar_dependencias_publicacao(
+                                            cache_manager,
+                                            tipo_cache=cache_tipo_bg,
+                                        )
+                                        sucesso_pub_bg, msg_pub_bg, _ = _publicar_bundle_release(
+                                            cache_manager,
+                                            caches_selecionados=[cache_tipo_bg],
+                                            gh_token=gh_token_bg,
+                                            expected_periods=_expected_periods_publicacao(
+                                                cache_manager,
+                                                cache_tipo_bg,
+                                                periodos_totais_bg,
+                                            ),
+                                            materialization_details=detalhes_materializacao_bg,
+                                        )
                                         _salvar_status_atualizacao({
                                             "running": False,
                                             "progress": 1.0,
@@ -24023,6 +24128,7 @@ elif menu == "Atualizar Base":
                                 if dados_dict:
                                     st.session_state['dados_capital'] = dados_dict
 
+                            extracao_completa = True
                             if not is_taxas_juros and not is_bloprudencial:
                                 concluidos.update(periodos_lote)
                                 pendentes_final = [p for p in periodos_totais if p not in concluidos]
@@ -24031,6 +24137,7 @@ elif menu == "Atualizar Base":
                                 if not pendentes_final:
                                     _limpar_checkpoint_atualizacao()
                                 else:
+                                    extracao_completa = False
                                     _salvar_checkpoint_atualizacao({
                                         "cache_tipo": cache_selecionado,
                                         "periodos": periodos_totais,
@@ -24043,17 +24150,38 @@ elif menu == "Atualizar Base":
                                         st.session_state["_retomar_checkpoint_inline"] = cache_selecionado
                                         st.rerun()
 
-                            if publicar_auto and gh_token_final and token_validado:
-                                with st.spinner("publicando cache no GitHub Releases..."):
-                                    sucesso_pub, msg_pub = upload_cache_github(
+                            detalhes_materializacao = []
+                            if extracao_completa:
+                                detalhes_materializacao = _materializar_dependencias_publicacao(
+                                    cache_manager,
+                                    tipo_cache=cache_selecionado,
+                                )
+                                if detalhes_materializacao:
+                                    with st.expander("dependências recalculadas", expanded=False):
+                                        _render_materialization_details(detalhes_materializacao)
+
+                            if publicar_auto and gh_token_final and token_validado and extracao_completa:
+                                with st.spinner("publicando pacote consistente no GitHub Releases..."):
+                                    sucesso_pub, msg_pub, ctx_pub = _publicar_bundle_release(
                                         cache_manager,
-                                        cache_selecionado,
-                                        gh_token_final
+                                        caches_selecionados=[cache_selecionado],
+                                        gh_token=gh_token_final,
+                                        expected_periods=_expected_periods_publicacao(
+                                            cache_manager,
+                                            cache_selecionado,
+                                            periodos_totais,
+                                        ),
+                                        materialization_details=detalhes_materializacao,
                                     )
                                     if sucesso_pub:
                                         st.success(f"✅ {msg_pub}")
+                                        skipped_targets = ctx_pub.get("skipped_targets") or []
+                                        if skipped_targets:
+                                            st.warning(f"Dependências não publicadas neste ciclo: {'; '.join(skipped_targets)}")
                                     else:
                                         st.warning(f"⚠️ falha ao publicar: {msg_pub}")
+                            elif publicar_auto and gh_token_final and token_validado and not extracao_completa:
+                                st.info("Publicação automática adiada: ainda existem períodos pendentes neste cache.")
                             elif publicar_auto and gh_token_final and not token_validado:
                                 st.warning("Publicação automática ignorada: pré-validação do token falhou. Corrija o erro exibido acima.")
 
@@ -24081,7 +24209,19 @@ elif menu == "Atualizar Base":
         # SEÇÃO: PUBLICAR NO GITHUB
         # =============================================================
         with st.expander("publicação manual no GitHub", expanded=False):
-            st.caption("Use esta ação apenas quando você não quiser depender da publicação automática.")
+            st.caption("Use esta ação para publicar o cache selecionado com o melhor pacote consistente disponível.")
+            st.caption(_resumo_publicacao_consistente(cache_selecionado))
+            checkpoint_pub = _carregar_checkpoint_atualizacao() or {}
+            checkpoint_pub_pendente = (
+                checkpoint_pub.get("cache_tipo") == cache_selecionado
+                and bool(checkpoint_pub.get("pendentes"))
+            )
+            if checkpoint_pub_pendente:
+                st.warning(
+                    f"Há extração parcial pendente para `{cache_selecionado}` "
+                    f"({len(checkpoint_pub.get('pendentes') or [])} período(s)). "
+                    "Finalize ou reinicie a extração antes de publicar."
+                )
 
             # Recuperar token do session_state
             token_para_upload = st.session_state.get('_gh_token_unificado')
@@ -24095,20 +24235,31 @@ elif menu == "Atualizar Base":
             col_pub1, col_pub2 = st.columns([3, 1])
             with col_pub1:
                 if st.button(
-                    f"Enviar '{cache_selecionado}' para GitHub",
+                    f"Publicar pacote de '{cache_selecionado}'",
                     width='stretch',
                     key="btn_enviar_github_unificado",
-                    disabled=(not token_para_upload or not token_para_upload_validado)
+                    disabled=(not token_para_upload or not token_para_upload_validado or checkpoint_pub_pendente)
                 ):
-                    with st.spinner(f"enviando cache '{cache_selecionado}' para github releases..."):
-                        sucesso, mensagem = upload_cache_github(
+                    with st.spinner(f"recalculando dependências e publicando '{cache_selecionado}' no github releases..."):
+                        detalhes_materializacao = _materializar_dependencias_publicacao(
                             cache_manager,
-                            cache_selecionado,
-                            token_para_upload
+                            tipo_cache=cache_selecionado,
                         )
+                        sucesso, mensagem, ctx_pub = _publicar_bundle_release(
+                            cache_manager,
+                            caches_selecionados=[cache_selecionado],
+                            gh_token=token_para_upload,
+                            expected_periods=_expected_periods_publicacao(cache_manager, cache_selecionado),
+                            materialization_details=detalhes_materializacao,
+                        )
+                        with st.expander("detalhes da materialização", expanded=False):
+                            _render_materialization_details(detalhes_materializacao)
                         if sucesso:
                             st.toast(mensagem, icon="🚀")
                             st.balloons()
+                            skipped_targets = ctx_pub.get("skipped_targets") or []
+                            if skipped_targets:
+                                st.warning(f"Dependências não publicadas neste ciclo: {'; '.join(skipped_targets)}")
                         else:
                             st.toast(mensagem, icon="⚠️")
             with col_pub2:
