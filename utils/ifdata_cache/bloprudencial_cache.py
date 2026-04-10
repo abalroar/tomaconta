@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import List
 
@@ -9,6 +10,7 @@ import pandas as pd
 
 from .base import BaseCache, CacheConfig, CacheResult
 from .bloprudencial import load_bloprudencial_df
+from .release_config import get_release_config
 
 
 BLOPRUDENCIAL_CONFIG = CacheConfig(
@@ -17,7 +19,7 @@ BLOPRUDENCIAL_CONFIG = CacheConfig(
     subdir="bloprudencial",
     arquivo_dados="dados.parquet",
     arquivo_metadata="metadata.json",
-    github_url_base="https://github.com/abalroar/tomaconta/releases/download/v1.0-cache",
+    github_url_base=None,
     max_idade_horas=168.0,
     colunas_obrigatorias=["Período", "DATA_BASE"],
 )
@@ -27,7 +29,9 @@ class BloprudencialCache(BaseCache):
     """Cache parquet para dados BLOPRUDENCIAL carregados do módulo dedicado."""
 
     def __init__(self, base_dir: Path):
-        super().__init__(BLOPRUDENCIAL_CONFIG, base_dir)
+        release_config = get_release_config()
+        runtime_config = replace(BLOPRUDENCIAL_CONFIG, github_url_base=release_config.release_base_url)
+        super().__init__(runtime_config, base_dir)
 
     def baixar_remoto(self) -> CacheResult:
         # Sem artefato remoto publicado por padrão; o fluxo principal é extração local.

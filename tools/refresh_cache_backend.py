@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import time
 import shutil
 import subprocess
@@ -22,26 +23,48 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Iterable, List
 
+import requests
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from utils.ifdata_cache import CacheManager, gerar_periodos_trimestrais
 from utils.ifdata_cache import (
+    build_runtime_manifest,
+    count_placeholder_names,
     describe_support_window,
     filter_supported_periods,
+    find_placeholder_rows,
+    get_release_config,
+    materialize_derived_metrics_cache,
     materialize_critical_screens_cache,
 )
 
 DEFAULT_TIPOS = [
     "principal",
+    "principal_individual",
     "capital",
     "ativo",
     "passivo",
     "dre",
+    "dre_individual",
     "carteira_pf",
     "carteira_pj",
     "carteira_instrumentos",
     "bloprudencial",
+]
+
+DERIVED_SPECS = [
+    {
+        "tipo": "derived_metrics",
+        "dre_cache_name": "dre",
+        "principal_cache_name": "principal",
+    },
+    {
+        "tipo": "derived_metrics_individual",
+        "dre_cache_name": "dre_individual",
+        "principal_cache_name": "principal_individual",
+    },
 ]
 
 
@@ -194,6 +217,146 @@ def _gerar_periodos_mensais(inicio: str, fim: str) -> List[str]:
     return out
 
 
+def _github_token() -> tuple[str | None, str]:
+    for key in ("GITHUB_TOKEN", "GH_TOKEN", "GITHUB_PAT"):
+        value = os.getenv(key)
+        if value and value.strip():
+            return value.strip(), key
+    return None, ""
+
+
+def _release_assets_for_cache(manager: CacheManager, cache_name: str) -> list[tuple[Path, str]]:
+    cache = manager.get_cache(cache_name)
+    if cache is None:
+        raise ValueError(f"cache não configurado: {cache_name}")
+    data_path = cache.arquivo_dados if cache.arquivo_dados.exists() else cache.arquivo_dados_pickle
+    if not data_path.exists():
+        raise FileNotFoundError(f"arquivo de dados ausente para {cache_name}: {data_path}")
+    if not cache.arquivo_metadata.exists():
+        raise FileNotFoundError(f"metadata ausente para {cache_name}: {cache.arquivo_metadata}")
+    data_asset = f"{cache_name}_dados.parquet" if data_path.suffix == ".parquet" else f"{cache_name}_cache.pkl"
+    return [
+        (data_path, data_asset),
+        (cache.arquivo_metadata, f"{cache_name}_metadata.json"),
+    ]
+
+
+def _upload_release_assets(
+    *,
+    repo: str,
+    tag: str,
+    assets: list[tuple[Path, str]],
+    token: str,
+) -> dict:
+    headers = {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github.v3+json",
+    }
+    release_url = f"https://api.github.com/repos/{repo}/releases/tags/{tag}"
+    response = requests.get(release_url, headers=headers, timeout=30)
+    if response.status_code != 200:
+        raise RuntimeError(f"release alvo indisponível em {repo}@{tag} (HTTP {response.status_code})")
+
+    release_data = response.json()
+    upload_url = str(release_data["upload_url"]).replace("{?name,label}", "")
+    existing_assets = {asset["name"]: asset["id"] for asset in release_data.get("assets", [])}
+    uploaded: list[str] = []
+
+    for path, asset_name in assets:
+        asset_id = existing_assets.get(asset_name)
+        if asset_id is not None:
+            delete_url = f"https://api.github.com/repos/{repo}/releases/assets/{asset_id}"
+            delete_resp = requests.delete(delete_url, headers=headers, timeout=30)
+            if delete_resp.status_code not in {204, 404}:
+                raise RuntimeError(f"falha ao remover asset antigo {asset_name} ({delete_resp.status_code})")
+
+        upload_headers = {
+            "Authorization": f"token {token}",
+            "Content-Type": "application/octet-stream",
+        }
+        with path.open("rb") as handle:
+            upload_resp = requests.post(
+                f"{upload_url}?name={asset_name}",
+                headers=upload_headers,
+                data=handle,
+                timeout=300,
+            )
+        if upload_resp.status_code not in {200, 201}:
+            raise RuntimeError(f"falha ao publicar asset {asset_name} ({upload_resp.status_code})")
+        uploaded.append(asset_name)
+
+    return {"repo": repo, "tag": tag, "assets": uploaded}
+
+
+def _materialize_post_refresh_assets(base_dir: Path, manager: CacheManager) -> list[dict]:
+    detalhes: list[dict] = []
+
+    for spec in DERIVED_SPECS:
+        result = materialize_derived_metrics_cache(
+            base_dir=base_dir,
+            manager=manager,
+            derived_cache_name=spec["tipo"],
+            dre_cache_name=spec["dre_cache_name"],
+            principal_cache_name=spec["principal_cache_name"],
+            force=True,
+        )
+        detalhes.append(
+            {
+                "tipo": spec["tipo"],
+                "status": "ok" if result.sucesso else "erro",
+                "mensagem": result.mensagem,
+                "periodos": 0,
+                "periodos_ignorados": [],
+                "lotes": 1,
+                "lotes_ok": 1 if result.sucesso else 0,
+            }
+        )
+        if not result.sucesso:
+            return detalhes
+
+    result_curado = materialize_critical_screens_cache(
+        base_dir=base_dir,
+        manager=manager,
+        force=True,
+        save_bundled=True,
+    )
+    detalhes.append(
+        {
+            "tipo": "critical_screens",
+            "status": "ok" if result_curado.sucesso else "erro",
+            "mensagem": result_curado.mensagem,
+            "periodos": 0,
+            "periodos_ignorados": [],
+            "lotes": 1,
+            "lotes_ok": 1 if result_curado.sucesso else 0,
+        }
+    )
+    return detalhes
+
+
+def _placeholder_validations(manager: CacheManager) -> dict[str, dict]:
+    validations: dict[str, dict] = {}
+    for cache_name in ("principal", "capital"):
+        result = manager.carregar(cache_name)
+        if not result.sucesso or result.dados is None:
+            validations[cache_name] = {
+                "success": False,
+                "count": None,
+                "message": result.mensagem,
+                "examples": [],
+            }
+            continue
+        placeholders = find_placeholder_rows(result.dados, max_rows=20)
+        count = count_placeholder_names(result.dados)
+        validations[cache_name] = {
+            "success": count == 0,
+            "count": count,
+            "message": "ok" if count == 0 else f"{count} placeholder(s) remanescente(s)",
+            "examples": placeholders.to_dict("records") if not placeholders.empty else [],
+        }
+    return validations
+
+
 def _run_refresh(args: argparse.Namespace, base_dir: Path) -> int:
     pre_snapshot = _create_snapshot(
         base_dir=base_dir,
@@ -338,6 +501,18 @@ def _run_refresh(args: argparse.Namespace, base_dir: Path) -> int:
             _print(f"[ERRO] {tipo}: {erro_fatal}")
             break
 
+    release_config = get_release_config()
+    expected_periods = {
+        "quarterly": f"{args.ano_final}{args.mes_final}",
+        "monthly": args.mensal_fim,
+    }
+    publication = {
+        "requested": bool(args.publish),
+        "repo": release_config.repo,
+        "tag": release_config.tag,
+        "status": "skip" if not args.publish else "pending",
+        "assets": [],
+    }
     summary = {
         "run_id": run_id,
         "executed_at_utc": datetime.now(timezone.utc).isoformat(),
@@ -345,7 +520,10 @@ def _run_refresh(args: argparse.Namespace, base_dir: Path) -> int:
         "modo": "overwrite",
         "snapshot_pre": pre_snapshot.name,
         "snapshot_post": None,
-        "tipos": DEFAULT_TIPOS,
+        "tipos_extraidos": DEFAULT_TIPOS,
+        "tipos_materializados": [spec["tipo"] for spec in DERIVED_SPECS] + ["critical_screens"],
+        "release": release_config.to_dict(),
+        "expected_periods": expected_periods,
         "periodo_trimestral": {
             "inicio": f"{args.ano_inicial}{args.mes_inicial}",
             "fim": f"{args.ano_final}{args.mes_final}",
@@ -355,45 +533,97 @@ def _run_refresh(args: argparse.Namespace, base_dir: Path) -> int:
             "fim": args.mensal_fim,
         },
         "detalhes": detalhes,
+        "runtime_manifest": {},
+        "placeholder_validations": {},
+        "publication": publication,
         "status": "ok" if all(d["status"] in {"ok", "dry-run", "skip"} for d in detalhes) else "erro",
     }
 
     manifest_path = base_dir / "data" / "cache_versions" / "last_refresh_manifest.json"
     run_manifest_path = base_dir / "data" / "cache_versions" / "runs" / f"{run_id}.json"
-    if not args.dry_run:
-        if summary["status"] == "ok":
-            result_curado = materialize_critical_screens_cache(
-                base_dir=base_dir,
-                manager=manager,
-                force=True,
-                save_bundled=True,
-            )
-            detalhes.append(
-                {
-                    "tipo": "critical_screens",
-                    "status": "ok" if result_curado.sucesso else "erro",
-                    "mensagem": result_curado.mensagem,
-                    "periodos": 0,
-                    "periodos_ignorados": [],
-                    "lotes": 1,
-                    "lotes_ok": 1 if result_curado.sucesso else 0,
-                }
-            )
-            if not result_curado.sucesso:
+    global_manifest_path = base_dir / "data" / "cache" / "manifest.json"
+
+    if not args.dry_run and summary["status"] == "ok":
+        post_refresh_details = _materialize_post_refresh_assets(base_dir, manager)
+        detalhes.extend(post_refresh_details)
+        if any(item["status"] == "erro" for item in post_refresh_details):
+            summary["status"] = "erro"
+
+    if not args.dry_run and summary["status"] == "ok":
+        summary["runtime_manifest"] = build_runtime_manifest(
+            manager,
+            release_config=release_config,
+            expected_periods={"quarterly": expected_periods["quarterly"]},
+            include_hashes=True,
+        )
+        summary["placeholder_validations"] = _placeholder_validations(manager)
+
+        gates_ok = all(gate.get("success") for gate in summary["runtime_manifest"].get("gates", {}).values())
+        placeholders_ok = all(
+            check.get("success")
+            for check in summary["placeholder_validations"].values()
+        )
+        if not gates_ok:
+            summary["status"] = "erro"
+        if not placeholders_ok:
+            summary["status"] = "erro"
+
+        global_manifest = {
+            "run_id": run_id,
+            "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+            "git_head": _git_head(base_dir),
+            "release": release_config.to_dict(),
+            "expected_periods": expected_periods,
+            "caches": summary["runtime_manifest"].get("caches", {}),
+            "gates": summary["runtime_manifest"].get("gates", {}),
+            "placeholder_validations": summary["placeholder_validations"],
+        }
+        _save_manifest(global_manifest_path, global_manifest)
+
+        if summary["status"] == "ok" and args.publish:
+            token, token_source = _github_token()
+            if not token:
                 summary["status"] = "erro"
-            post_snapshot = _create_snapshot(
-                base_dir=base_dir,
-                label=f"post-{args.snapshot_label}",
-                reason=f"snapshot após refresh completo (run={run_id})",
-                dry_run=args.dry_run,
-            )
-            summary["snapshot_post"] = post_snapshot.name
+                publication["status"] = "erro"
+                publication["message"] = "token GitHub ausente para publicação"
+            else:
+                try:
+                    assets: list[tuple[Path, str]] = []
+                    for cache_name in DEFAULT_TIPOS + [spec["tipo"] for spec in DERIVED_SPECS] + ["critical_screens"]:
+                        assets.extend(_release_assets_for_cache(manager, cache_name))
+                    assets.append((global_manifest_path, "manifest.json"))
+                    upload_result = _upload_release_assets(
+                        repo=release_config.repo,
+                        tag=release_config.tag,
+                        assets=assets,
+                        token=token,
+                    )
+                    publication["status"] = "ok"
+                    publication["token_source"] = token_source
+                    publication["assets"] = upload_result["assets"]
+                except Exception as exc:
+                    summary["status"] = "erro"
+                    publication["status"] = "erro"
+                    publication["message"] = str(exc)
+
+    if not args.dry_run and summary["status"] == "ok":
+        post_snapshot = _create_snapshot(
+            base_dir=base_dir,
+            label=f"post-{args.snapshot_label}",
+            reason=f"snapshot após refresh completo (run={run_id})",
+            dry_run=args.dry_run,
+        )
+        summary["snapshot_post"] = post_snapshot.name
+
+    if not args.dry_run:
         _save_manifest(manifest_path, summary)
         _save_manifest(run_manifest_path, summary)
+
     if summary["status"] == "ok":
         _print(f"[OK] refresh completo finalizado. Manifest: {manifest_path}")
         _print(f"[OK] snapshot anterior: {summary['snapshot_pre']} | snapshot novo: {summary['snapshot_post']}")
         return 0
+
     _print(f"[ERRO] refresh terminou com falhas. Manifest: {manifest_path}")
     _print(f"[ERRO] use --restore-snapshot {summary['snapshot_pre']} para rollback rápido")
     return 1
@@ -424,6 +654,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--retry-max", type=int, default=2, help="repetições por lote em caso de erro")
     parser.add_argument("--retry-delay", type=int, default=3, help="segundos entre tentativas")
+    parser.add_argument("--publish", action="store_true", help="publica os artefatos válidos no GitHub Release configurado")
     parser.add_argument("--dry-run", action="store_true", help="simula sem alterar arquivos")
     return parser
 

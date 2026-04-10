@@ -130,12 +130,16 @@ from utils.ifdata_cache import (
     DERIVED_METRICS_FORMAT,
     DERIVED_METRICS_FORMULAS,
     build_derived_metrics,
+    materialize_derived_metrics_cache,
     load_derived_metrics_slice,
     CRITICAL_EXTRA_METRICS,
     materialize_critical_screens_cache,
     get_critical_screens_runtime_status,
     canonicalize_institution_name,
+    canonicalize_institution_dataframe,
     build_institution_to_conglomerate_map,
+    build_runtime_manifest,
+    get_release_config,
 )
 from utils.cdsfn_live import (
     CDSFN_BLOCKS,
@@ -151,6 +155,7 @@ from utils.cdsfn_live import (
     normalize_long_cdsfn,
     validate_json_cdsfn,
 )
+from utils.pessoas_juridicas_api import consultar_pessoas_juridicas
 import io
 import base64
 import subprocess
@@ -1909,50 +1914,13 @@ def resolver_nomes_instituicoes_capital(df_capital, dict_aliases, df_aliases=Non
     if "Instituição" not in df_capital.columns:
         return df_capital
 
-    df_result = df_capital.copy()
-    mapa_dados_periodos = {}
-    if dados_periodos:
-        for periodo, df_periodo in dados_periodos.items():
-            _ = periodo
-            if "Instituição" in df_periodo.columns and "CodInst" in df_periodo.columns:
-                for _, row in df_periodo.iterrows():
-                    cod = row.get("CodInst")
-                    nome = row.get("Instituição")
-                    if pd.notna(cod) and pd.notna(nome) and not str(nome).startswith("[IF"):
-                        cod_str = str(int(cod)) if isinstance(cod, float) else str(cod)
-                        if cod_str not in mapa_dados_periodos:
-                            mapa_dados_periodos[cod_str] = nome
-
-    catalog_map = build_institution_to_conglomerate_map(APP_DIR)
-
-    def resolver_nome(nome, codinst=None):
-        if pd.isna(nome):
-            return nome
-
-        nome_str = str(nome).strip()
-        match = re.match(r"\[IF\s+([A-Za-z0-9]+)\]", nome_str)
-        if match:
-            cod_extraido = match.group(1)
-            if cod_extraido in mapa_dados_periodos:
-                nome_str = str(mapa_dados_periodos[cod_extraido]).strip()
-        elif codinst is not None and pd.notna(codinst):
-            cod_str = str(int(codinst)) if isinstance(codinst, float) else str(codinst)
-            if cod_str in mapa_dados_periodos:
-                nome_str = str(mapa_dados_periodos[cod_str]).strip()
-
-        return canonicalize_institution_name(nome_str, catalog_map=catalog_map)
-
-    if "CodInst" in df_result.columns:
-        df_result["Instituição"] = df_result.apply(
-            lambda row: resolver_nome(row["Instituição"], row.get("CodInst")),
-            axis=1,
-        )
-    else:
-        df_result["Instituição"] = df_result["Instituição"].apply(
-            lambda nome: resolver_nome(nome)
-        )
-
-    return df_result
+    extra_frames = list(dados_periodos.values()) if dados_periodos else []
+    return canonicalize_institution_dataframe(
+        df_capital,
+        catalog_map=build_institution_to_conglomerate_map(APP_DIR),
+        base_dir=APP_DIR,
+        extra_frames=extra_frames,
+    )
 
 
 
@@ -2295,14 +2263,26 @@ def _render_orgaos_tabela_html(df_orgaos: pd.DataFrame, cor_linha: str = "#F4F1E
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
+def consultar_orgaos_estatutarios_result(cnpj: str, id_bacen: str = "") -> dict:
+    resultado = consultar_pessoas_juridicas(cnpj, id_bacen=id_bacen)
+    payload = resultado.payload if resultado.sucesso and isinstance(resultado.payload, dict) else {}
+    df_orgaos = _extrair_orgaos_do_json(payload)
+    return {
+        "sucesso": resultado.sucesso,
+        "status": resultado.status,
+        "mensagem": resultado.mensagem,
+        "status_code": resultado.status_code,
+        "method": resultado.method,
+        "payload": payload,
+        "df_orgaos": df_orgaos,
+    }
+
+
 def consultar_orgaos_estatutarios(cnpj: str, id_bacen: str = "") -> pd.DataFrame:
-    url = f"https://www3.bcb.gov.br/informes/rest/pessoasJuridicas?cnpj={cnpj}"
-    if id_bacen:
-        url = f"{url}&idBacen={id_bacen}"
-    resposta = requests.get(url, timeout=40)
-    resposta.raise_for_status()
-    payload = json.loads(resposta.text)
-    return _extrair_orgaos_do_json(payload)
+    resultado = consultar_orgaos_estatutarios_result(cnpj, id_bacen=id_bacen)
+    if not resultado.get("sucesso"):
+        raise RuntimeError(str(resultado.get("mensagem") or "API de pessoas jurídicas indisponível"))
+    return resultado.get("df_orgaos", pd.DataFrame())
 
 
 def gerar_excel_orgaos_estatutarios(
@@ -2772,22 +2752,28 @@ def verificar_caches_github() -> dict:
     Retorna dict com status de cada cache no GitHub (sem autenticação, apenas leitura pública).
     Verifica todos os 8 tipos de cache disponíveis.
     """
-    repo = _resolver_release_repo()
-    tag = _resolver_release_tag()
+    release_cfg = _release_config_app()
+    repo = release_cfg.repo
+    tag = release_cfg.tag
 
     # Tipos monitorados no release/status (inclui BLOPRUDENCIAL e derivadas para visibilidade operacional)
     tipos_cache = [
         'principal', 'capital', 'ativo', 'passivo', 'dre',
+        'dre_individual', 'principal_individual',
         'carteira_pf', 'carteira_pj', 'carteira_instrumentos',
-        'bloprudencial', 'derived_metrics', 'derived_metrics_individual'
+        'bloprudencial', 'derived_metrics', 'derived_metrics_individual',
+        'critical_screens'
     ]
 
     result = {
         'release_existe': False,
         'repo': repo,
         'tag': tag,
+        'repo_source': release_cfg.repo_source,
+        'tag_source': release_cfg.tag_source,
         'erro': None,
-        'caches': {}
+        'caches': {},
+        'manifesto': {'existe': False, 'tamanho': 0, 'tamanho_fmt': 'N/A'},
     }
 
     # Inicializar todos os caches como não existentes
@@ -2819,7 +2805,7 @@ def verificar_caches_github() -> dict:
 
             # Identificar tipo de cache pelo nome do asset
             for tipo in tipos_cache:
-                if nome_asset.startswith(f'{tipo}_dados'):
+                if nome_asset.startswith(f'{tipo}_dados') or nome_asset.startswith(f'{tipo}_cache'):
                     result['caches'][tipo] = {
                         'existe': True,
                         'tamanho': size,
@@ -2827,6 +2813,13 @@ def verificar_caches_github() -> dict:
                         'nome_asset': nome_asset
                     }
                     break
+            if nome_asset == "manifest.json":
+                result['manifesto'] = {
+                    'existe': True,
+                    'tamanho': size,
+                    'tamanho_fmt': size_fmt,
+                    'nome_asset': nome_asset,
+                }
 
         # Atualizar referências de compatibilidade
         result['cache_principal'] = result['caches']['principal']
@@ -2840,36 +2833,17 @@ def verificar_caches_github() -> dict:
     return result
 
 
+def _release_config_app():
+    """Resolve configuração efetiva de release usada por upload e download."""
+    return get_release_config(secrets_provider=st.secrets)
+
+
 def _resolver_release_repo() -> str:
-    """Resolve repositório de release com prioridade para env e fallback em secrets."""
-    repo_env = os.getenv("TOMACONTA_RELEASE_REPO")
-    if repo_env:
-        return repo_env.strip()
-
-    try:
-        repo_secret = st.secrets.get("TOMACONTA_RELEASE_REPO")
-        if repo_secret:
-            return str(repo_secret).strip()
-    except Exception:
-        pass
-
-    return "abalroar/tomaconta"
+    return _release_config_app().repo
 
 
 def _resolver_release_tag() -> str:
-    """Resolve tag de release com prioridade para env e fallback em secrets."""
-    tag_env = os.getenv("TOMACONTA_RELEASE_TAG")
-    if tag_env:
-        return tag_env.strip()
-
-    try:
-        tag_secret = st.secrets.get("TOMACONTA_RELEASE_TAG")
-        if tag_secret:
-            return str(tag_secret).strip()
-    except Exception:
-        pass
-
-    return "v1.0-cache"
+    return _release_config_app().tag
 
 
 def _obter_token_github() -> Tuple[Optional[str], str]:
@@ -10818,16 +10792,28 @@ def ensure_derived_metrics_cache(
         return cache_derivado, msg, {}
 
     _perf_start("derived_metrics_build")
-    df_derived, stats = build_derived_metrics(resultado_dre.dados, resultado_principal.dados)
+    resultado_materializacao = materialize_derived_metrics_cache(
+        manager=manager,
+        derived_cache_name=derived_cache_name,
+        dre_cache_name=dre_cache_name,
+        principal_cache_name=principal_cache_name,
+        force=True,
+    )
     elapsed = _perf_end("derived_metrics_build")
+    if not resultado_materializacao.sucesso:
+        return cache_derivado, resultado_materializacao.mensagem, {}
 
-    info_extra = {
-        "denominador_zero_ou_nan": stats.denominador_zero_ou_nan,
-        "period_type": stats.period_type,
-        "periodos_detectados": stats.periodos_detectados,
-        "tempo_execucao_s": round(elapsed, 3),
-    }
-    cache_derivado.salvar_local(df_derived, fonte="derivado", info_extra=info_extra)
+    metadata_atual = _load_cache_metadata(cache_derivado)
+    extra = metadata_atual.setdefault("extra", {})
+    extra["tempo_execucao_s"] = round(elapsed, 3)
+    if cache_derivado.arquivo_metadata.exists():
+        try:
+            cache_derivado.arquivo_metadata.write_text(
+                json.dumps(metadata_atual, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+        except Exception:
+            pass
     return cache_derivado, None, _load_cache_metadata(cache_derivado)
 
 
@@ -11294,7 +11280,11 @@ def _normalizar_indicadores_rankings(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty:
         return pd.DataFrame()
 
-    df_out = df.copy()
+    df_out = canonicalize_institution_dataframe(
+        df,
+        catalog_map=build_institution_to_conglomerate_map(APP_DIR),
+        base_dir=APP_DIR,
+    )
 
     def _coalesce_colunas(colunas_candidatas: list[str]) -> Optional[pd.Series]:
         serie_out = None
@@ -13113,13 +13103,21 @@ elif menu == "Conselho e Diretoria":
                 )
 
                 try:
-                    df_orgaos = consultar_orgaos_estatutarios(inst_obj["cnpj"], inst_obj.get("id_bacen", ""))
-                    if df_orgaos.empty:
-                        st.warning("A API não retornou membros de órgãos estatutários para esta instituição.")
+                    resultado_orgaos = consultar_orgaos_estatutarios_result(
+                        inst_obj["cnpj"],
+                        inst_obj.get("id_bacen", ""),
+                    )
+                    if not resultado_orgaos.get("sucesso"):
+                        st.error(str(resultado_orgaos.get("mensagem") or "API de pessoas jurídicas indisponível."))
+                        st.caption("Estado técnico: fonte indisponível/contrato alterado. Não interpretar como ausência de membros.")
                     else:
-                        orgaos_disponiveis = (
-                            df_orgaos[["OrgaoId", "OrgaoNome"]]
-                            .drop_duplicates()
+                        df_orgaos = resultado_orgaos.get("df_orgaos", pd.DataFrame())
+                        if df_orgaos.empty:
+                            st.warning("A fonte respondeu, mas não retornou membros estatutários para esta instituição.")
+                        else:
+                            orgaos_disponiveis = (
+                                df_orgaos[["OrgaoId", "OrgaoNome"]]
+                                .drop_duplicates()
                             .sort_values(["OrgaoNome", "OrgaoId"], na_position="last")
                             .reset_index(drop=True)
                         )
@@ -13149,34 +13147,34 @@ elif menu == "Conselho e Diretoria":
                                     mask = mask_nome
                                 df_filtrado = df_orgaos[mask].copy()
 
-                        df_filtrado = _ordenar_cargos_estatutarios(df_filtrado)
+                            df_filtrado = _ordenar_cargos_estatutarios(df_filtrado)
 
-                        if df_filtrado.empty:
-                            st.info(f"Sem registros para '{orgao_sel}' nesta instituição.")
-                        else:
-                            st.caption(
-                                f"Órgãos retornados pela fonte primária: {len(orgaos_disponiveis)} | "
-                                + ", ".join(op for op in mapa_opcoes.keys())
-                            )
-                            st.markdown(
-                                _render_orgaos_tabela_html(df_filtrado[["Nome", "Cargo"]], cor_linha=cor_linha),
-                                unsafe_allow_html=True,
-                            )
+                            if df_filtrado.empty:
+                                st.info(f"Sem registros para '{orgao_sel}' nesta instituição.")
+                            else:
+                                st.caption(
+                                    f"Órgãos retornados pela fonte primária: {len(orgaos_disponiveis)} | "
+                                    + ", ".join(op for op in mapa_opcoes.keys())
+                                )
+                                st.markdown(
+                                    _render_orgaos_tabela_html(df_filtrado[["Nome", "Cargo"]], cor_linha=cor_linha),
+                                    unsafe_allow_html=True,
+                                )
 
-                            data_extracao = _agora_brasilia().strftime('%d/%m/%Y')
-                            excel_bytes = gerar_excel_orgaos_estatutarios(
-                                df_filtrado,
-                                titulo=f"Órgãos Estatutários - {inst_obj['nome']} ({orgao_sel})",
-                                cor_fundo=cor_linha,
-                                data_extracao=data_extracao,
-                            )
-                            st.download_button(
-                                "Download Excel",
-                                data=excel_bytes,
-                                file_name=f"orgaos_estatutarios_{inst_obj['cnpj']}_{_agora_brasilia().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                key="download_orgaos_estatutarios",
-                            )
+                                data_extracao = _agora_brasilia().strftime('%d/%m/%Y')
+                                excel_bytes = gerar_excel_orgaos_estatutarios(
+                                    df_filtrado,
+                                    titulo=f"Órgãos Estatutários - {inst_obj['nome']} ({orgao_sel})",
+                                    cor_fundo=cor_linha,
+                                    data_extracao=data_extracao,
+                                )
+                                st.download_button(
+                                    "Download Excel",
+                                    data=excel_bytes,
+                                    file_name=f"orgaos_estatutarios_{inst_obj['cnpj']}_{_agora_brasilia().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                    key="download_orgaos_estatutarios",
+                                )
                 except Exception as exc:
                     st.error(f"Erro ao consultar API de pessoas jurídicas: {exc}")
 
@@ -23051,6 +23049,10 @@ elif menu == "Atualizar Base":
     if 'cache_manager' not in st.session_state:
         st.session_state['cache_manager'] = CacheManager()
     cache_manager = st.session_state['cache_manager']
+    release_cfg = _release_config_app()
+    runtime_manifest = build_runtime_manifest(cache_manager, release_config=release_cfg)
+    runtime_caches = runtime_manifest.get("caches", {})
+    runtime_gates = runtime_manifest.get("gates", {})
 
     cache_curado = cache_manager.get_cache("critical_screens")
     if cache_curado is not None and (cache_curado.arquivo_dados.exists() or cache_curado.arquivo_dados_pickle.exists()):
@@ -23076,6 +23078,7 @@ elif menu == "Atualizar Base":
         info = cache_manager.info(tipo_cache)
         cache_info = caches_info.get(tipo_cache, {})
         gh_info = gh_caches.get(tipo_cache, {})
+        runtime_info = runtime_caches.get(tipo_cache, {})
         existe_local = info.get("existe", False)
         existe_github = gh_info.get("existe", False)
         periodo_inicial, periodo_final = _intervalo_periodos_cache(info) if existe_local else ("-", "-")
@@ -23088,6 +23091,9 @@ elif menu == "Atualizar Base":
             "Versão local": _versao_local_cache(info) if existe_local else "-",
             "Período inicial": periodo_inicial,
             "Período final": periodo_final,
+            "Período máximo": runtime_info.get("max_period") or periodo_final,
+            "Fonte local": runtime_info.get("source") or info.get("fonte") or "-",
+            "Atualizado em": runtime_info.get("timestamp") or info.get("timestamp_salvamento") or "-",
             "Períodos": str(info.get("total_periodos", 0)) if existe_local else "-",
             "Registros": str(info.get("total_registros", 0)) if existe_local else "-",
             "Tamanho GH": gh_info.get("tamanho_fmt", "-") if existe_github else "-",
@@ -23105,6 +23111,11 @@ elif menu == "Atualizar Base":
     with col_r3:
         st.metric("Somente local", total_efemero)
 
+    st.caption(
+        f"Release ativo em runtime: `{release_cfg.repo}@{release_cfg.tag}` "
+        f"(repo={release_cfg.repo_source} | tag={release_cfg.tag_source})"
+    )
+
     if total_efemero > 0:
         caches_efemeros = [s["Cache"] for s in status_data if s["Status"] == "Somente local"]
         st.warning(
@@ -23119,7 +23130,30 @@ elif menu == "Atualizar Base":
         if not github_status.get('release_existe'):
             st.error(f"Release não acessível: {github_status.get('erro', 'erro desconhecido')}")
         else:
-            st.caption(f"Repositório: `{github_status.get('repo')}` | Tag: `{github_status.get('tag')}`")
+            st.caption(
+                f"Repositório: `{github_status.get('repo')}` | Tag: `{github_status.get('tag')}` | "
+                f"Manifesto global: {'Sim' if github_status.get('manifesto', {}).get('existe') else 'Não'}"
+            )
+
+    with st.expander("diagnóstico operacional de release", expanded=False):
+        runtime_rows = []
+        for cache_name, record in runtime_caches.items():
+            runtime_rows.append(
+                {
+                    "Cache": cache_name,
+                    "Fonte local": record.get("source"),
+                    "Período máximo": record.get("max_period") or "-",
+                    "Timestamp": record.get("timestamp") or "-",
+                    "Registros": record.get("record_count") or 0,
+                    "Períodos": record.get("period_count") or 0,
+                    "SHA256": (record.get("sha256") or "")[:12],
+                }
+            )
+        if runtime_rows:
+            st.dataframe(pd.DataFrame(runtime_rows), width="stretch", hide_index=True)
+        for gate_key, gate in runtime_gates.items():
+            status_txt = "OK" if gate.get("success") else "ERRO"
+            st.caption(f"{status_txt} | {gate.get('label')}: {gate.get('message')}")
 
     st.markdown("### Canonização de Instituições")
     diagnostico_map = _diagnostico_mapeamento_instituicoes(cache_manager, st.session_state.get("df_aliases"))

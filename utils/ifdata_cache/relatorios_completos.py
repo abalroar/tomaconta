@@ -18,7 +18,7 @@ no formato exato que os gráficos esperam:
 """
 
 import logging
-import os
+from dataclasses import replace
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -26,6 +26,7 @@ import pandas as pd
 import requests
 
 from .base import BaseCache, CacheConfig, CacheResult
+from .release_config import get_release_config
 
 logger = logging.getLogger("ifdata_cache")
 
@@ -50,18 +51,19 @@ class RelatorioCompletoCache(BaseCache):
         tipo_instituicao: int = 1,
         manter_codinst: bool = True,
     ):
-        super().__init__(config, base_dir)
+        release_config = get_release_config()
+        runtime_config = replace(config, github_url_base=release_config.release_base_url)
+        super().__init__(runtime_config, base_dir)
         self.relatorio_num = relatorio_num
         self.tipo_instituicao = tipo_instituicao
         self.manter_codinst = manter_codinst
-
-        release_repo = os.getenv("TOMACONTA_RELEASE_REPO", "abalroar/tomaconta")
-        raw_repo = os.getenv("TOMACONTA_RAW_REPO", "abalroar/tomaconta")
-        release_base = f"https://github.com/{release_repo}/releases/download/v1.0-cache"
+        self.release_repo = release_config.repo
+        self.release_tag = release_config.tag
+        release_base = release_config.release_base_url
 
         # URLs em ordem de prioridade:
         # 1. Parquet do repositório raw (configurável)
-        self.github_raw_url = f"https://raw.githubusercontent.com/{raw_repo}/main/data/cache/{self.config.nome}/dados.parquet"
+        self.github_raw_url = f"https://raw.githubusercontent.com/{release_config.raw_repo}/main/data/cache/{self.config.nome}/dados.parquet"
         # 2. Parquet dos releases (prod por padrão)
         self.github_release_parquet_url = f"{release_base}/{self.config.nome}_dados.parquet"
         # 3. Pickle dos releases (compat legado)
@@ -70,7 +72,7 @@ class RelatorioCompletoCache(BaseCache):
 
     def baixar_remoto(self) -> CacheResult:
         """Baixa dados do GitHub (tenta repositório primeiro, depois releases)."""
-        self._log("info", "Tentando baixar do GitHub...")
+        self._log("info", f"Tentando baixar do GitHub (repo={self.release_repo}, tag={self.release_tag})...")
 
         # 1. Tentar parquet do repositório
         if self.repo_raw_enabled:
@@ -355,7 +357,7 @@ ATIVO_CONFIG = CacheConfig(
     subdir="ativo",
     arquivo_dados="dados.parquet",
     arquivo_metadata="metadata.json",
-    github_url_base="https://github.com/abalroar/tomaconta/releases/download/v1.0-cache",
+    github_url_base=None,
     max_idade_horas=168.0,
     colunas_obrigatorias=["Período"],  # Formato de exibição com acento
     api_url="https://olinda.bcb.gov.br/olinda/servico/IFDATA/versao/v1/odata",
@@ -369,7 +371,7 @@ PASSIVO_CONFIG = CacheConfig(
     subdir="passivo",
     arquivo_dados="dados.parquet",
     arquivo_metadata="metadata.json",
-    github_url_base="https://github.com/abalroar/tomaconta/releases/download/v1.0-cache",
+    github_url_base=None,
     max_idade_horas=168.0,
     colunas_obrigatorias=["Período"],
     api_url="https://olinda.bcb.gov.br/olinda/servico/IFDATA/versao/v1/odata",
@@ -383,7 +385,7 @@ DRE_CONFIG = CacheConfig(
     subdir="dre",
     arquivo_dados="dados.parquet",
     arquivo_metadata="metadata.json",
-    github_url_base="https://github.com/abalroar/tomaconta/releases/download/v1.0-cache",
+    github_url_base=None,
     max_idade_horas=168.0,
     colunas_obrigatorias=["Período"],
     api_url="https://olinda.bcb.gov.br/olinda/servico/IFDATA/versao/v1/odata",
@@ -396,7 +398,7 @@ DRE_INDIVIDUAL_CONFIG = CacheConfig(
     subdir="dre_individual",
     arquivo_dados="dados.parquet",
     arquivo_metadata="metadata.json",
-    github_url_base="https://github.com/abalroar/tomaconta/releases/download/v1.0-cache",
+    github_url_base=None,
     max_idade_horas=168.0,
     colunas_obrigatorias=["Período"],
     api_url="https://olinda.bcb.gov.br/olinda/servico/IFDATA/versao/v1/odata",
@@ -410,7 +412,7 @@ CARTEIRA_PF_CONFIG = CacheConfig(
     subdir="carteira_pf",
     arquivo_dados="dados.parquet",
     arquivo_metadata="metadata.json",
-    github_url_base="https://github.com/abalroar/tomaconta/releases/download/v1.0-cache",
+    github_url_base=None,
     max_idade_horas=168.0,
     colunas_obrigatorias=["Período"],
     api_url="https://olinda.bcb.gov.br/olinda/servico/IFDATA/versao/v1/odata",
@@ -424,7 +426,7 @@ CARTEIRA_PJ_CONFIG = CacheConfig(
     subdir="carteira_pj",
     arquivo_dados="dados.parquet",
     arquivo_metadata="metadata.json",
-    github_url_base="https://github.com/abalroar/tomaconta/releases/download/v1.0-cache",
+    github_url_base=None,
     max_idade_horas=168.0,
     colunas_obrigatorias=["Período"],
     api_url="https://olinda.bcb.gov.br/olinda/servico/IFDATA/versao/v1/odata",
@@ -438,7 +440,7 @@ CARTEIRA_INSTRUMENTOS_CONFIG = CacheConfig(
     subdir="carteira_instrumentos",
     arquivo_dados="dados.parquet",
     arquivo_metadata="metadata.json",
-    github_url_base="https://github.com/abalroar/tomaconta/releases/download/v1.0-cache",
+    github_url_base=None,
     max_idade_horas=168.0,
     colunas_obrigatorias=["Período"],
     api_url="https://olinda.bcb.gov.br/olinda/servico/IFDATA/versao/v1/odata",

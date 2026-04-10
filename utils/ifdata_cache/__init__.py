@@ -116,6 +116,7 @@ from .derived_metrics import (
     DERIVED_METRICS_FORMAT,
     DERIVED_METRICS_FORMULAS,
     build_derived_metrics,
+    materialize_derived_metrics_cache,
     load_derived_metrics_slice,
 )
 from .critical_screens import (
@@ -141,6 +142,27 @@ from .institutions import (
     build_institution_to_conglomerate_map,
     canonicalize_institution_name,
     canonicalize_institution_series,
+    canonicalize_institution_dataframe,
+    is_placeholder_institution_name,
+)
+from .release_config import (
+    ReleaseConfig,
+    get_release_config,
+    build_release_base_url,
+    build_release_asset_url,
+)
+from .diagnostics import (
+    PLACEHOLDER_IF_PATTERN,
+    DEFAULT_GATE_SPECS,
+    period_sort_key,
+    normalize_period_reference,
+    max_period_from_values,
+    max_period_from_metadata,
+    collect_cache_diagnostics,
+    evaluate_alignment_gates,
+    build_runtime_manifest,
+    count_placeholder_names,
+    find_placeholder_rows,
 )
 
 # Extrator autônomo (novo sistema)
@@ -301,6 +323,7 @@ __all__ = [
     "DERIVED_METRICS_FORMAT",
     "DERIVED_METRICS_FORMULAS",
     "build_derived_metrics",
+    "materialize_derived_metrics_cache",
     "load_derived_metrics_slice",
     "CriticalScreensCache",
     "CRITICAL_EXTRA_METRICS",
@@ -319,6 +342,23 @@ __all__ = [
     "build_institution_to_conglomerate_map",
     "canonicalize_institution_name",
     "canonicalize_institution_series",
+    "canonicalize_institution_dataframe",
+    "is_placeholder_institution_name",
+    "ReleaseConfig",
+    "get_release_config",
+    "build_release_base_url",
+    "build_release_asset_url",
+    "PLACEHOLDER_IF_PATTERN",
+    "DEFAULT_GATE_SPECS",
+    "period_sort_key",
+    "normalize_period_reference",
+    "max_period_from_values",
+    "max_period_from_metadata",
+    "collect_cache_diagnostics",
+    "evaluate_alignment_gates",
+    "build_runtime_manifest",
+    "count_placeholder_names",
+    "find_placeholder_rows",
     # Extrator autônomo
     "extrair_cadastro",
     "extrair_valores",
