@@ -18,7 +18,7 @@ from typing import Dict, Iterable, List, Optional, Tuple
 
 import pandas as pd
 
-from .base import BaseCache, CacheConfig
+from .base import BaseCache, CacheConfig, CacheResult
 from .metric_registry import (
     get_derived_metric_labels,
     get_derived_metric_format_map,
@@ -119,6 +119,58 @@ class DerivedMetricsStats:
     periodos_detectados: List[str]
     period_type: str
     total_registros: int
+
+
+def materialize_derived_metrics_cache(
+    *,
+    base_dir: Path | None = None,
+    manager: "CacheManager" | None = None,
+    derived_cache_name: str = "derived_metrics",
+    dre_cache_name: str = "dre",
+    principal_cache_name: str = "principal",
+    force: bool = False,
+) -> CacheResult:
+    """Recalcula e salva o cache derivado a partir de DRE + principal."""
+    root = Path(base_dir).resolve() if base_dir else Path(__file__).resolve().parents[2]
+    from .manager import CacheManager
+
+    cache_manager = manager or CacheManager(root)
+    cache_derivado = cache_manager.get_cache(derived_cache_name)
+    if cache_derivado is None:
+        return CacheResult(
+            sucesso=False,
+            mensagem=f"cache derivado '{derived_cache_name}' não configurado",
+            fonte="nenhum",
+        )
+
+    if cache_derivado.existe() and not force:
+        return cache_derivado.carregar_local()
+
+    resultado_dre = cache_manager.carregar(dre_cache_name)
+    if not resultado_dre.sucesso or resultado_dre.dados is None:
+        return CacheResult(
+            sucesso=False,
+            mensagem=f"{dre_cache_name}: {resultado_dre.mensagem}",
+            fonte="nenhum",
+        )
+
+    resultado_principal = cache_manager.carregar(principal_cache_name)
+    if not resultado_principal.sucesso or resultado_principal.dados is None:
+        return CacheResult(
+            sucesso=False,
+            mensagem=f"{principal_cache_name}: {resultado_principal.mensagem}",
+            fonte="nenhum",
+        )
+
+    df_derived, stats = build_derived_metrics(resultado_dre.dados, resultado_principal.dados)
+    info_extra = {
+        "denominador_zero_ou_nan": stats.denominador_zero_ou_nan,
+        "period_type": stats.period_type,
+        "periodos_detectados": stats.periodos_detectados,
+        "cache_origem_dre": dre_cache_name,
+        "cache_origem_principal": principal_cache_name,
+    }
+    return cache_derivado.salvar_local(df_derived, fonte="derivado", info_extra=info_extra)
 
 
 def _normalize_label(texto: str) -> str:

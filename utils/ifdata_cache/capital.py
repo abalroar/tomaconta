@@ -6,7 +6,7 @@ Produz dados no formato exato que os gráficos do app1.py esperam.
 """
 
 import logging
-import os
+from dataclasses import replace
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -14,6 +14,7 @@ import pandas as pd
 import requests
 
 from .base import BaseCache, CacheConfig, CacheResult
+from .release_config import get_release_config
 
 logger = logging.getLogger("ifdata_cache")
 
@@ -48,7 +49,7 @@ CAPITAL_CONFIG = CacheConfig(
     subdir="capital",
     arquivo_dados="dados.parquet",
     arquivo_metadata="metadata.json",
-    github_url_base="https://github.com/abalroar/tomaconta/releases/download/v1.0-cache",
+    github_url_base=None,
     max_idade_horas=720.0,
     colunas_obrigatorias=["Período"],
     campos_mapeamento=CAMPOS_CAPITAL,
@@ -67,15 +68,17 @@ class CapitalCache(BaseCache):
     """
 
     def __init__(self, base_dir: Path, manter_codinst: bool = True):
-        super().__init__(CAPITAL_CONFIG, base_dir)
+        release_config = get_release_config()
+        runtime_config = replace(CAPITAL_CONFIG, github_url_base=release_config.release_base_url)
+        super().__init__(runtime_config, base_dir)
         self.manter_codinst = manter_codinst
-        release_repo = os.getenv("TOMACONTA_RELEASE_REPO", "abalroar/tomaconta")
-        raw_repo = os.getenv("TOMACONTA_RAW_REPO", "abalroar/tomaconta")
-        release_base = f"https://github.com/{release_repo}/releases/download/v1.0-cache"
+        self.release_repo = release_config.repo
+        self.release_tag = release_config.tag
+        release_base = release_config.release_base_url
 
         # URLs em ordem de prioridade:
         # 1. Parquet do repositório raw (configurável)
-        self.github_raw_url = f"https://raw.githubusercontent.com/{raw_repo}/main/data/cache/capital/dados.parquet"
+        self.github_raw_url = f"https://raw.githubusercontent.com/{release_config.raw_repo}/main/data/cache/capital/dados.parquet"
         # 2. Parquet dos releases (prod por padrão)
         self.github_release_parquet_url = f"{release_base}/capital_dados.parquet"
         # 3. Pickle dos releases (compat legado)
@@ -84,7 +87,7 @@ class CapitalCache(BaseCache):
 
     def baixar_remoto(self) -> CacheResult:
         """Baixa dados do GitHub (tenta múltiplas fontes em ordem de prioridade)."""
-        self._log("info", "Tentando baixar do GitHub...")
+        self._log("info", f"Tentando baixar do GitHub (repo={self.release_repo}, tag={self.release_tag})...")
 
         # 1. Tentar parquet do repositório raw
         if self.repo_raw_enabled:

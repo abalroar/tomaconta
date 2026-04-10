@@ -11,10 +11,14 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Dict, Iterable, List, Tuple
 
+import pandas as pd
 import requests
+
+from utils.ifdata_extractor import parece_codigo_instituicao, resolver_nome_instituicao
 
 
 CONGLOMERADOS_API_URL = "https://www3.bcb.gov.br/informes/rest/conglomerados"
+PLACEHOLDER_IF_PATTERN = re.compile(r"^\[IF\s+([A-Za-z0-9]+)\]$", re.IGNORECASE)
 
 _GENERIC_TOKENS = {
     "A",
@@ -275,3 +279,85 @@ def canonicalize_institution_series(
     """Resolve uma sequência de nomes para nomes canônicos."""
     catalog = catalog_map if catalog_map is not None else build_institution_to_conglomerate_map(base_dir)
     return [canonicalize_institution_name(nome, catalog_map=catalog, base_dir=base_dir) for nome in nomes]
+
+
+def is_placeholder_institution_name(nome: str | None) -> bool:
+    texto = str(nome or "").strip()
+    if not texto:
+        return False
+    return bool(PLACEHOLDER_IF_PATTERN.fullmatch(texto))
+
+
+def build_code_to_name_map(
+    *frames: pd.DataFrame | None,
+    code_columns: Iterable[str] = ("CodInst", "COD_INST", "cod_inst", "CODINST"),
+    name_columns: Iterable[str] = ("Instituição", "NomeInstituicao", "NomeInstituição", "NOME_INSTITUICAO"),
+) -> Dict[str, str]:
+    mapping: Dict[str, str] = {}
+    code_cols = list(code_columns)
+    name_cols = list(name_columns)
+
+    for frame in frames:
+        if frame is None or frame.empty:
+            continue
+        code_col = next((col for col in code_cols if col in frame.columns), None)
+        name_col = next((col for col in name_cols if col in frame.columns), None)
+        if not code_col or not name_col:
+            continue
+        base = frame[[code_col, name_col]].dropna(subset=[code_col]).copy()
+        if base.empty:
+            continue
+        for _, row in base.iterrows():
+            code_val = row.get(code_col)
+            name_val = str(row.get(name_col) or "").strip()
+            if not name_val:
+                continue
+            if is_placeholder_institution_name(name_val) or parece_codigo_instituicao(name_val):
+                continue
+            try:
+                code_key = str(int(float(code_val)))
+            except Exception:
+                code_key = str(code_val).strip()
+            if code_key and code_key not in mapping:
+                mapping[code_key] = name_val
+    return mapping
+
+
+def canonicalize_institution_dataframe(
+    df: pd.DataFrame | None,
+    *,
+    catalog_map: Dict[str, str] | None = None,
+    base_dir: Path | None = None,
+    name_column: str = "Instituição",
+    extra_frames: Iterable[pd.DataFrame | None] = (),
+) -> pd.DataFrame:
+    if df is None or df.empty or name_column not in df.columns:
+        return df.copy() if isinstance(df, pd.DataFrame) else pd.DataFrame()
+
+    catalog = catalog_map if catalog_map is not None else build_institution_to_conglomerate_map(base_dir)
+    out = df.copy()
+    code_to_name = build_code_to_name_map(out, *list(extra_frames))
+    code_columns = [col for col in ("CodInst", "COD_INST", "cod_inst", "CODINST") if col in out.columns]
+
+    def _resolve_name(row: pd.Series) -> str:
+        raw_name = str(row.get(name_column) or "").strip()
+        code_key = ""
+        for code_col in code_columns:
+            code_val = row.get(code_col)
+            if pd.isna(code_val):
+                continue
+            try:
+                code_key = str(int(float(code_val)))
+            except Exception:
+                code_key = str(code_val).strip()
+            if code_key:
+                break
+
+        nome_base = raw_name
+        if (is_placeholder_institution_name(raw_name) or parece_codigo_instituicao(raw_name)) and code_key:
+            nome_base = code_to_name.get(code_key) or resolver_nome_instituicao(code_key, raw_name)
+
+        return canonicalize_institution_name(nome_base, catalog_map=catalog, base_dir=base_dir)
+
+    out[name_column] = out.apply(_resolve_name, axis=1)
+    return out

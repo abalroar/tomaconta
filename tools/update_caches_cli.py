@@ -21,16 +21,19 @@ from utils.ifdata_cache import CacheManager, gerar_periodos_trimestrais
 from utils.ifdata_cache import (
     describe_support_window,
     filter_supported_periods,
+    materialize_derived_metrics_cache,
     materialize_critical_screens_cache,
 )
 
 
 DEFAULT_TIPOS = [
     "principal",
+    "principal_individual",
     "capital",
     "ativo",
     "passivo",
     "dre",
+    "dre_individual",
     "carteira_pf",
     "carteira_pj",
     "carteira_instrumentos",
@@ -164,11 +167,38 @@ def main() -> int:
             _print(f"ERRO: {result.mensagem}")
             return 1
 
+    if tipos_atualizados & {"principal", "dre"}:
+        _print("==> Recalculando derived_metrics")
+        result_derivado = materialize_derived_metrics_cache(manager=manager, force=True)
+        if result_derivado.sucesso:
+            _print(f"OK: {result_derivado.mensagem}")
+        else:
+            _print(f"ERRO ao materializar derived_metrics: {result_derivado.mensagem}")
+            return 1
+
+    if tipos_atualizados & {"principal_individual", "dre_individual"}:
+        _print("==> Recalculando derived_metrics_individual")
+        result_derivado_ind = materialize_derived_metrics_cache(
+            manager=manager,
+            derived_cache_name="derived_metrics_individual",
+            dre_cache_name="dre_individual",
+            principal_cache_name="principal_individual",
+            force=True,
+        )
+        if result_derivado_ind.sucesso:
+            _print(f"OK: {result_derivado_ind.mensagem}")
+        else:
+            _print(f"ERRO ao materializar derived_metrics_individual: {result_derivado_ind.mensagem}")
+            return 1
+
     if tipos_atualizados & {
         "principal",
         "capital",
         "ativo",
         "passivo",
+        "dre",
+        "principal_individual",
+        "dre_individual",
         "carteira_pf",
         "carteira_pj",
         "carteira_instrumentos",
