@@ -21,9 +21,9 @@ from utils.ifdata_cache import CacheManager, gerar_periodos_trimestrais
 from utils.ifdata_cache import (
     describe_support_window,
     filter_supported_periods,
-    materialize_derived_metrics_cache,
     materialize_critical_screens_cache,
 )
+from utils.ifdata_cache.derived_metrics import materialize_derived_metrics_cache
 
 
 DEFAULT_TIPOS = [

@@ -130,17 +130,17 @@ from utils.ifdata_cache import (
     DERIVED_METRICS_FORMAT,
     DERIVED_METRICS_FORMULAS,
     build_derived_metrics,
-    materialize_derived_metrics_cache,
     load_derived_metrics_slice,
     CRITICAL_EXTRA_METRICS,
     materialize_critical_screens_cache,
     get_critical_screens_runtime_status,
     canonicalize_institution_name,
-    canonicalize_institution_dataframe,
     build_institution_to_conglomerate_map,
-    build_runtime_manifest,
-    get_release_config,
 )
+from utils.ifdata_cache.derived_metrics import materialize_derived_metrics_cache
+from utils.ifdata_cache.diagnostics import build_runtime_manifest
+from utils.ifdata_cache.institutions import canonicalize_institution_dataframe
+from utils.ifdata_cache.release_config import get_release_config
 from utils.cdsfn_live import (
     CDSFN_BLOCKS,
     combine_normalized_blocks_cdsfn,

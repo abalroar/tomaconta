@@ -30,15 +30,17 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from utils.ifdata_cache import CacheManager, gerar_periodos_trimestrais
 from utils.ifdata_cache import (
-    build_runtime_manifest,
-    count_placeholder_names,
     describe_support_window,
     filter_supported_periods,
-    find_placeholder_rows,
-    get_release_config,
-    materialize_derived_metrics_cache,
     materialize_critical_screens_cache,
 )
+from utils.ifdata_cache.derived_metrics import materialize_derived_metrics_cache
+from utils.ifdata_cache.diagnostics import (
+    build_runtime_manifest,
+    count_placeholder_names,
+    find_placeholder_rows,
+)
+from utils.ifdata_cache.release_config import get_release_config
 
 DEFAULT_TIPOS = [
     "principal",
