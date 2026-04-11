@@ -136,6 +136,8 @@ from utils.ifdata_cache import (
     get_critical_screens_runtime_status,
     canonicalize_institution_name,
     build_institution_to_conglomerate_map,
+    filter_supported_periods,
+    describe_support_window,
 )
 from utils.ifdata_cache.derived_metrics import materialize_derived_metrics_cache
 from utils.ifdata_cache.diagnostics import build_runtime_manifest, max_period_from_values
@@ -1678,6 +1680,157 @@ def _render_materialization_details(details: Sequence[Mapping[str, Any]]) -> Non
         message = str(item.get("message") or "")
         prefix = "OK" if status == "OK" else "ERRO"
         st.caption(f"{prefix} | `{cache_name}`: {message}")
+
+
+def _runbook_atualizacao_seq_rows() -> list[dict[str, str]]:
+    return [
+        {
+            "Ordem": "1",
+            "Etapa": "Bases trimestrais",
+            "Caches": "principal, capital, ativo, passivo, dre",
+            "Regra": "Atualizar tudo até o mesmo período final antes de derivar qualquer cache curado.",
+        },
+        {
+            "Ordem": "2",
+            "Etapa": "Carteiras",
+            "Caches": "carteira_pf, carteira_pj, carteira_instrumentos",
+            "Regra": "Usar incremental por padrão. Janela suportada começa em 1/2025 (202503).",
+        },
+        {
+            "Ordem": "3",
+            "Etapa": "Base individual",
+            "Caches": "principal_individual, dre_individual",
+            "Regra": "Necessária para DRE individual e para derived_metrics_individual.",
+        },
+        {
+            "Ordem": "4",
+            "Etapa": "Mensal prudencial",
+            "Caches": "bloprudencial",
+            "Regra": "Atualizar a competência final do trimestre; persistir o parquet antes de materializar.",
+        },
+        {
+            "Ordem": "5",
+            "Etapa": "Derivação final",
+            "Caches": "derived_metrics, derived_metrics_individual, critical_screens",
+            "Regra": "Rodar só depois de todas as bases estarem salvas localmente e alinhadas.",
+        },
+        {
+            "Ordem": "6",
+            "Etapa": "Validação e publicação",
+            "Caches": "manifest + release assets",
+            "Regra": "Publicar apenas com os gates verdes no mesmo período alvo.",
+        },
+    ]
+
+
+def _runbook_atualizacao_ritmo_rows() -> list[dict[str, str]]:
+    return [
+        {
+            "Evento": "Saiu IFData trimestral novo",
+            "Frequência": "1x por trimestre",
+            "Ação": "Atualizar bases trimestrais, carteiras, bases individuais, bloprudencial do mês final, derivar e publicar.",
+        },
+        {
+            "Evento": "Saiu BLOPRUDENCIAL mensal novo",
+            "Frequência": "Mensal, se necessário",
+            "Ação": "Atualizar bloprudencial. Se quiser refletir isso em Snapshot/Peers do trimestre corrente, rematerializar critical_screens.",
+        },
+        {
+            "Evento": "Falhou só a publicação",
+            "Frequência": "Sob demanda",
+            "Ação": "Não reextrair. Validar gates e repetir apenas a publicação manual.",
+        },
+        {
+            "Evento": "Precisa corrigir período antigo",
+            "Frequência": "Sob demanda",
+            "Ação": "Preferir incremental focado. Usar overwrite só para rebuild controlado do cache.",
+        },
+    ]
+
+
+def _runbook_atualizacao_crash_rows() -> list[dict[str, str]]:
+    return [
+        {
+            "Sintoma": "Snapshot/Peers continuam antigos",
+            "Causa provável": "critical_screens não foi rematerializado após atualizar bases.",
+            "Resposta": "Salvar todas as bases localmente, persistir bloprudencial e materializar critical_screens no fim.",
+        },
+        {
+            "Sintoma": "Rankings ou Scatter quebram com períodos diferentes",
+            "Causa provável": "principal/capital/dre estão desalinhados.",
+            "Resposta": "Não publicar. Atualizar os caches faltantes até o mesmo período máximo e rerodar os derivados.",
+        },
+        {
+            "Sintoma": "Carteira PF/PJ/4.966 falha no overwrite histórico",
+            "Causa provável": "janela começou antes de 1/2025 (202503), quando esses relatórios ainda não existiam.",
+            "Resposta": "Usar incremental ou limitar a janela ao suporte real do relatório.",
+        },
+        {
+            "Sintoma": "FGC/FGCoop funciona localmente e quebra após restart/deploy",
+            "Causa provável": "bloprudencial ficou só no bruto local ou só em sessão.",
+            "Resposta": "Persistir `bloprudencial` no cache manager e publicar o pacote final.",
+        },
+        {
+            "Sintoma": "DRE individual some",
+            "Causa provável": "principal_individual e dre_individual ausentes ou antigos.",
+            "Resposta": "Atualizar ambos e deixar derived_metrics_individual ser recalculado.",
+        },
+        {
+            "Sintoma": "Publicação sobe, mas produção continua antiga",
+            "Causa provável": "release/tag errados, token ruim ou caches só locais.",
+            "Resposta": "Checar repo/tag/token, manifesto global e se ainda há itens 'Somente local'.",
+        },
+    ]
+
+
+def _render_runbook_atualizar_base(
+    *,
+    runtime_gates: Mapping[str, Mapping[str, Any]],
+    total_efemero: int,
+    release_cfg,
+) -> None:
+    gates_ok = sum(1 for gate in runtime_gates.values() if gate.get("success"))
+    total_gates = len(runtime_gates)
+
+    st.markdown("### Runbook Operacional")
+    st.info(
+        "Regra de ouro: atualize bases primeiro, derive/publice só no fim. "
+        "Se os gates não fecharem no mesmo período, a atualização ainda não terminou."
+    )
+
+    col_g1, col_g2, col_g3 = st.columns(3)
+    with col_g1:
+        st.metric("Gates verdes", f"{gates_ok}/{total_gates}")
+    with col_g2:
+        st.metric("Somente local", total_efemero)
+    with col_g3:
+        st.metric("Release alvo", release_cfg.tag)
+
+    with st.expander("sequência recomendada", expanded=True):
+        st.dataframe(pd.DataFrame(_runbook_atualizacao_seq_rows()), width="stretch", hide_index=True)
+        st.caption("Fluxo seguro: bases -> mensal prudencial -> derivados/curado -> validação -> publicação.")
+
+    with st.expander("ritmo recomendado", expanded=False):
+        st.dataframe(pd.DataFrame(_runbook_atualizacao_ritmo_rows()), width="stretch", hide_index=True)
+
+    with st.expander("crashes comuns e resposta rápida", expanded=False):
+        st.dataframe(pd.DataFrame(_runbook_atualizacao_crash_rows()), width="stretch", hide_index=True)
+
+    with st.expander("definição de pronto", expanded=False):
+        st.markdown(
+            "\n".join(
+                [
+                    "- Todos os gates críticos em `OK` no mesmo período-alvo.",
+                    "- Nenhum cache crítico apenas em `Somente local` antes do publish final.",
+                    "- `critical_screens` materializado depois das bases e do `bloprudencial`.",
+                    "- `principal`, `capital`, `dre` e derivados apontando para o mesmo período máximo.",
+                    "- Release/tag corretos e `manifest.json` acessível no destino.",
+                ]
+            )
+        )
+        for gate_key, gate in runtime_gates.items():
+            status_txt = "OK" if gate.get("success") else "ERRO"
+            st.caption(f"{status_txt} | {gate.get('label')}: {gate.get('message')}")
 
 
 def upload_cache_github(cache_manager: CacheManager, tipo_cache: str, gh_token: str = None) -> Tuple[bool, str]:
@@ -23238,6 +23391,12 @@ elif menu == "Atualizar Base":
             status_txt = "OK" if gate.get("success") else "ERRO"
             st.caption(f"{status_txt} | {gate.get('label')}: {gate.get('message')}")
 
+    _render_runbook_atualizar_base(
+        runtime_gates=runtime_gates,
+        total_efemero=total_efemero,
+        release_cfg=release_cfg,
+    )
+
     st.markdown("### Canonização de Instituições")
     diagnostico_map = _diagnostico_mapeamento_instituicoes(cache_manager, st.session_state.get("df_aliases"))
     c1, c2, c3 = st.columns(3)
@@ -23492,6 +23651,23 @@ elif menu == "Atualizar Base":
             periodos_extrair = gerar_periodos_cache(ano_i, mes_i, ano_f, mes_f)
             if periodos_extrair:
                 st.caption(f"Serão extraídos {len(periodos_extrair)} períodos: {periodos_extrair[0][4:6]}/{periodos_extrair[0][:4]} até {periodos_extrair[-1][4:6]}/{periodos_extrair[-1][:4]}")
+                periodos_suportados, periodos_ignorados = filter_supported_periods(cache_selecionado, periodos_extrair)
+                if periodos_ignorados:
+                    periodo_min = periodos_ignorados[0]
+                    periodo_max = periodos_ignorados[-1]
+                    st.warning(
+                        f"`{cache_selecionado}` {describe_support_window(cache_selecionado)}. "
+                        f"{len(periodos_ignorados)} período(s) fora da janela serão ignorados "
+                        f"({periodo_min} até {periodo_max})."
+                    )
+                    periodos_extrair = periodos_suportados
+                    if periodos_extrair:
+                        st.caption(
+                            f"Janela efetiva após filtro: {periodos_extrair[0][4:6]}/{periodos_extrair[0][:4]} "
+                            f"até {periodos_extrair[-1][4:6]}/{periodos_extrair[-1][:4]}."
+                        )
+                    else:
+                        st.error("Nenhum período suportado restou para este cache na janela escolhida.")
 
         # =============================================================
         # CONFIGURAÇÕES AVANÇADAS
