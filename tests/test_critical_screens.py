@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -11,6 +12,7 @@ from utils.ifdata_cache.critical_screens import (
     build_critical_screens_dataframe,
     critical_screens_needs_refresh,
     get_critical_screens_runtime_status,
+    load_critical_screens_slice,
     materialize_critical_screens_cache,
 )
 
@@ -435,6 +437,115 @@ def test_runtime_status_prefers_bundle_without_forcing_refresh(tmp_path: Path):
     assert not status["local_ready"]
     assert not status["can_materialize_from_local_sources"]
     assert status["mode"] == "bootstrap_bundle"
+
+
+def test_runtime_status_prefers_newer_bundle_over_stale_local(tmp_path: Path):
+    cache = CriticalScreensCache(tmp_path)
+    stale_df = pd.DataFrame(
+        [
+            {
+                "Instituição": "ITAU - PRUDENCIAL",
+                "Período": "3/2025",
+                "InstituiçãoKey": "ITAU PRUDENCIAL",
+            }
+        ]
+    )
+    fresh_df = pd.DataFrame(
+        [
+            {
+                "Instituição": "ITAU - PRUDENCIAL",
+                "Período": "4/2025",
+                "InstituiçãoKey": "ITAU PRUDENCIAL",
+            }
+        ]
+    )
+
+    save_result = cache.salvar_local(
+        stale_df,
+        fonte="materialized",
+        info_extra={"schema_version": CRITICAL_SCREENS_SCHEMA_VERSION},
+    )
+    assert save_result.sucesso
+
+    stale_metadata = json.loads(cache.arquivo_metadata.read_text(encoding="utf-8"))
+    stale_metadata["timestamp_salvamento"] = "2026-04-11T10:00:00"
+    cache.arquivo_metadata.write_text(json.dumps(stale_metadata, ensure_ascii=False), encoding="utf-8")
+
+    cache.bundled_dir.mkdir(parents=True, exist_ok=True)
+    fresh_df.to_parquet(cache.bundled_data_file, index=False)
+    bundled_metadata = {
+        "timestamp_salvamento": "2026-04-11T11:00:00",
+        "fonte": "materialized",
+        "total_registros": len(fresh_df),
+        "colunas": list(fresh_df.columns),
+        "formato": "parquet",
+        "periodos": ["4/2025"],
+        "total_periodos": 1,
+        "extra": {"schema_version": CRITICAL_SCREENS_SCHEMA_VERSION},
+    }
+    cache.bundled_metadata_file.write_text(json.dumps(bundled_metadata, ensure_ascii=False), encoding="utf-8")
+
+    status = get_critical_screens_runtime_status(base_dir=tmp_path, manager=_FakeManager(blop_df=None, blop_exists=False))
+    assert status["local_ready"]
+    assert status["bundle_ready"]
+    assert status["bundle_newer_than_local"]
+    assert status["mode"] == "bootstrap_bundle"
+
+
+def test_load_critical_screens_slice_replaces_stale_local_with_newer_bundle(tmp_path: Path):
+    cache = CriticalScreensCache(tmp_path)
+    stale_df = pd.DataFrame(
+        [
+            {
+                "Instituição": "ITAU - PRUDENCIAL",
+                "Período": "3/2025",
+                "InstituiçãoKey": "ITAU PRUDENCIAL",
+            }
+        ]
+    )
+    fresh_df = pd.DataFrame(
+        [
+            {
+                "Instituição": "ITAU - PRUDENCIAL",
+                "Período": "4/2025",
+                "InstituiçãoKey": "ITAU PRUDENCIAL",
+            }
+        ]
+    )
+
+    save_result = cache.salvar_local(
+        stale_df,
+        fonte="materialized",
+        info_extra={"schema_version": CRITICAL_SCREENS_SCHEMA_VERSION},
+    )
+    assert save_result.sucesso
+
+    stale_metadata = json.loads(cache.arquivo_metadata.read_text(encoding="utf-8"))
+    stale_metadata["timestamp_salvamento"] = "2026-04-11T10:00:00"
+    cache.arquivo_metadata.write_text(json.dumps(stale_metadata, ensure_ascii=False), encoding="utf-8")
+
+    cache.bundled_dir.mkdir(parents=True, exist_ok=True)
+    fresh_df.to_parquet(cache.bundled_data_file, index=False)
+    bundled_metadata = {
+        "timestamp_salvamento": "2026-04-11T11:00:00",
+        "fonte": "materialized",
+        "total_registros": len(fresh_df),
+        "colunas": list(fresh_df.columns),
+        "formato": "parquet",
+        "periodos": ["4/2025"],
+        "total_periodos": 1,
+        "extra": {"schema_version": CRITICAL_SCREENS_SCHEMA_VERSION},
+    }
+    cache.bundled_metadata_file.write_text(json.dumps(bundled_metadata, ensure_ascii=False), encoding="utf-8")
+
+    slice_df = load_critical_screens_slice(base_dir=tmp_path, periodos=["4/2025"])
+    assert not slice_df.empty
+    assert slice_df["Período"].tolist() == ["4/2025"]
+
+    local_result = cache.carregar_local()
+    assert local_result.sucesso
+    assert local_result.dados is not None
+    assert local_result.dados["Período"].tolist() == ["4/2025"]
 
 
 def test_materialize_critical_screens_fails_fast_without_local_sources(tmp_path: Path):

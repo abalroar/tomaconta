@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 import json
 import logging
 import re
@@ -15,6 +16,7 @@ import pandas as pd
 from .availability import display_period_to_api, filter_supported_periods
 from .base import BaseCache, CacheConfig, CacheResult
 from .bloprudencial import load_bloprudencial_df_cached
+from .diagnostics import max_period_from_metadata, normalize_period_reference
 from .derived_metrics import (
     _acumular_dre_ytd_por_periodo,
     _anualizar_serie_por_periodo,
@@ -239,6 +241,41 @@ def _critical_screens_schema_valid(metadata: Optional[dict]) -> bool:
     return extra.get("schema_version") == CRITICAL_SCREENS_SCHEMA_VERSION
 
 
+def _parse_metadata_timestamp(metadata: Optional[dict]) -> Optional[datetime]:
+    if not metadata:
+        return None
+    texto = str(metadata.get("timestamp_salvamento") or "").strip()
+    if not texto:
+        return None
+    try:
+        return datetime.fromisoformat(texto.replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+def _bundle_is_newer_than_local(
+    local_metadata: Optional[dict],
+    bundled_metadata: Optional[dict],
+) -> bool:
+    if not _critical_screens_schema_valid(bundled_metadata):
+        return False
+    if not _critical_screens_schema_valid(local_metadata):
+        return True
+
+    local_period_ref = normalize_period_reference(max_period_from_metadata(local_metadata))
+    bundled_period_ref = normalize_period_reference(max_period_from_metadata(bundled_metadata))
+    if bundled_period_ref and bundled_period_ref != local_period_ref:
+        return bundled_period_ref > local_period_ref
+
+    local_ts = _parse_metadata_timestamp(local_metadata)
+    bundled_ts = _parse_metadata_timestamp(bundled_metadata)
+    if local_ts is None:
+        return bundled_ts is not None
+    if bundled_ts is None:
+        return False
+    return bundled_ts > local_ts
+
+
 def _missing_local_source_caches(cache_manager: "CacheManager") -> list[str]:
     missing: list[str] = []
     for cache_name in CRITICAL_SOURCE_TYPES:
@@ -270,10 +307,14 @@ def get_critical_screens_runtime_status(
 
     local_ready = cache.existe() and _critical_screens_schema_valid(local_metadata)
     bundle_ready = cache.bundle_available() and _critical_screens_schema_valid(bundled_metadata)
+    bundle_newer_than_local = bundle_ready and _bundle_is_newer_than_local(local_metadata, bundled_metadata)
     missing_local_sources = _missing_local_source_caches(cache_manager)
     can_materialize_from_local_sources = not missing_local_sources
 
-    if local_ready:
+    if bundle_newer_than_local:
+        mode = "bootstrap_bundle"
+        message = "artefato bundled de critical_screens está mais novo e deve substituir o cache local"
+    elif local_ready:
         mode = "use_local"
         message = "artefato local de critical_screens está pronto para runtime"
     elif bundle_ready:
@@ -293,6 +334,7 @@ def get_critical_screens_runtime_status(
         "cache": cache,
         "local_ready": local_ready,
         "bundle_ready": bundle_ready,
+        "bundle_newer_than_local": bundle_newer_than_local,
         "can_materialize_from_local_sources": can_materialize_from_local_sources,
         "missing_local_source_caches": missing_local_sources,
         "mode": mode,
@@ -1555,7 +1597,10 @@ def load_critical_screens_slice(
     """Carrega recorte do cache curado sem abrir todo o dataset em memória."""
     root = Path(base_dir).resolve() if base_dir else Path(__file__).resolve().parents[2]
     cache = CriticalScreensCache(root)
-    if not cache.existe():
+    status = get_critical_screens_runtime_status(base_dir=root)
+    if status.get("mode") == "bootstrap_bundle":
+        cache.bootstrap_local_from_bundle()
+    elif not cache.existe():
         cache.bootstrap_local_from_bundle()
     if not cache.arquivo_dados.exists():
         resultado = cache.carregar_local()

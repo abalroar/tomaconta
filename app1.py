@@ -6281,16 +6281,16 @@ def _garantir_cache_telas_criticas(menu_nome: str) -> bool:
     status = get_critical_screens_runtime_status(manager=manager)
     cache = status.get("cache")
 
-    if status.get("local_ready"):
-        return True
-
-    if cache is not None and status.get("bundle_ready"):
+    if cache is not None and status.get("mode") == "bootstrap_bundle":
         bootstrap_result = cache.bootstrap_local_from_bundle()
         if bootstrap_result.sucesso:
             return True
         st.error(f"critical_screens: {bootstrap_result.mensagem}")
         st.caption("o app não continuará para rematerialização remota automática no boot.")
         return False
+
+    if status.get("local_ready"):
+        return True
 
     if not status.get("can_materialize_from_local_sources"):
         faltantes = status.get("missing_local_source_caches") or []
