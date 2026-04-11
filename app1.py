@@ -4446,6 +4446,87 @@ def _carregar_bloprud_conta_por_periodos(
     if not periodos_yyyymm:
         return pd.DataFrame(columns=["DATA_BASE", "Instituição", "CONTA", "NOME_CONTA", "VALOR_CONTA"])
 
+    def _normalizar_bloprud_frame(df_ym: pd.DataFrame, *, yyyymm_fallback: str = "") -> pd.DataFrame:
+        if df_ym is None or df_ym.empty:
+            return pd.DataFrame(columns=["DATA_BASE", "Instituição", "CONTA", "NOME_CONTA", "VALOR_CONTA"])
+
+        col_conta = _bloprud_pick_col(df_ym, ["CONTA", "Conta", "codigo_conta", "COD_CONTA"])
+        col_nome_conta = _bloprud_pick_col(df_ym, ["NOME_CONTA", "Nome_Conta", "nome_conta"])
+        col_saldo = _bloprud_pick_col(df_ym, ["SALDO", "Saldo", "VALOR", "Valor"])
+        col_data_base = _bloprud_pick_col(df_ym, ["DATA_BASE", "Data_Base", "data_base"])
+        col_inst = _bloprud_pick_col(df_ym, ["NOME_INSTITUICAO", "Instituição", "Instituicao"])
+        col_congl = _bloprud_pick_col(df_ym, ["NOME_CONGL", "Nome_Congl", "nome_congl"])
+
+        if not col_conta or not col_saldo or (not col_inst and not col_congl):
+            return pd.DataFrame(columns=["DATA_BASE", "Instituição", "CONTA", "NOME_CONTA", "VALOR_CONTA"])
+
+        tmp = df_ym.copy()
+        tmp["_conta"] = tmp[col_conta].astype(str).str.replace(r"\D", "", regex=True)
+        if conta_norm:
+            tmp = tmp[tmp["_conta"] == conta_norm].copy()
+        if tmp.empty:
+            return pd.DataFrame(columns=["DATA_BASE", "Instituição", "CONTA", "NOME_CONTA", "VALOR_CONTA"])
+
+        tmp["VALOR_CONTA"] = pd.to_numeric(tmp[col_saldo], errors="coerce")
+
+        if col_data_base:
+            tmp["DATA_BASE"] = tmp[col_data_base].astype(str).str.replace(r"\D", "", regex=True).str[:6]
+        else:
+            tmp["DATA_BASE"] = str(yyyymm_fallback)
+
+        if col_inst:
+            inst_series = tmp[col_inst].astype(str).str.strip()
+        else:
+            inst_series = pd.Series([""] * len(tmp), index=tmp.index)
+        if col_congl:
+            congl_series = tmp[col_congl].astype(str).str.strip()
+        else:
+            congl_series = pd.Series([""] * len(tmp), index=tmp.index)
+
+        tmp["Instituição"] = inst_series.where(inst_series.ne(""), congl_series)
+        if col_nome_conta:
+            tmp["NOME_CONTA"] = tmp[col_nome_conta].astype(str).str.strip()
+        else:
+            tmp["NOME_CONTA"] = ""
+        tmp["CONTA"] = tmp["_conta"]
+        return tmp[["DATA_BASE", "Instituição", "CONTA", "NOME_CONTA", "VALOR_CONTA"]].dropna(
+            subset=["DATA_BASE", "Instituição", "CONTA"]
+        )
+
+    manager = get_cache_manager()
+    cache_bloprud = manager.get_cache("bloprudencial") if manager else None
+    if cache_bloprud is not None and cache_bloprud.existe():
+        resultado_cache = cache_bloprud.carregar_local()
+        if resultado_cache.sucesso and resultado_cache.dados is not None and not resultado_cache.dados.empty:
+            df_cache = resultado_cache.dados.copy()
+            periodos_validos = {p for p in (_validar_yyyymm_str(ym) for ym in sorted(set(periodos_yyyymm))) if p}
+            if "DATA_BASE" in df_cache.columns:
+                df_cache["DATA_BASE"] = df_cache["DATA_BASE"].astype(str).str.replace(r"\D", "", regex=True).str[:6]
+                if periodos_validos:
+                    df_cache = df_cache[df_cache["DATA_BASE"].isin(periodos_validos)].copy()
+            elif "Período" in df_cache.columns:
+                df_cache["DATA_BASE"] = df_cache["Período"].astype(str).str.replace(r"\D", "", regex=True).str[:6]
+                if periodos_validos:
+                    df_cache = df_cache[df_cache["DATA_BASE"].isin(periodos_validos)].copy()
+            df_cache_norm = _normalizar_bloprud_frame(df_cache)
+            if not df_cache_norm.empty:
+                base = df_cache_norm.copy()
+                base["DATA_BASE"] = base["DATA_BASE"].astype(str).str.replace(r"\D", "", regex=True).str[:6]
+                base = base[base["DATA_BASE"].map(_validar_yyyymm_str).notna()].copy()
+                base["NOME_CONTA"] = base["NOME_CONTA"].fillna("").astype(str).str.strip()
+                nome_map = (
+                    base.groupby("CONTA", dropna=False)["NOME_CONTA"]
+                    .agg(lambda s: next((nome for nome in s if nome), ""))
+                    .to_dict()
+                )
+                ag = (
+                    base.groupby(["DATA_BASE", "Instituição", "CONTA"], dropna=False)["VALOR_CONTA"]
+                    .sum(min_count=1)
+                    .reset_index()
+                )
+                ag["NOME_CONTA"] = ag["CONTA"].map(nome_map).fillna("")
+                return ag
+
     from utils.ifdata_cache import load_bloprudencial_df_cached
 
     dfs = []
@@ -4458,50 +4539,9 @@ def _carregar_bloprud_conta_por_periodos(
             cache_dir="data/cache/bcb_bloprudencial",
             force_refresh=False,
         )
-        if df_ym is None or df_ym.empty:
-            continue
-
-        col_conta = _bloprud_pick_col(df_ym, ["CONTA", "Conta", "codigo_conta", "COD_CONTA"])
-        col_nome_conta = _bloprud_pick_col(df_ym, ["NOME_CONTA", "Nome_Conta", "nome_conta"])
-        col_saldo = _bloprud_pick_col(df_ym, ["SALDO", "Saldo", "VALOR", "Valor"])
-        col_data_base = _bloprud_pick_col(df_ym, ["DATA_BASE", "Data_Base", "data_base"])
-        col_inst = _bloprud_pick_col(df_ym, ["NOME_INSTITUICAO", "Instituição", "Instituicao"])
-        col_congl = _bloprud_pick_col(df_ym, ["NOME_CONGL", "Nome_Congl", "nome_congl"])
-
-        if not col_conta or not col_saldo or (not col_inst and not col_congl):
-            continue
-
-        tmp = df_ym.copy()
-        tmp["_conta"] = tmp[col_conta].astype(str).str.replace(r"\D", "", regex=True)
-        if conta_norm:
-            tmp = tmp[tmp["_conta"] == conta_norm].copy()
+        tmp = _normalizar_bloprud_frame(df_ym, yyyymm_fallback=yyyymm)
         if tmp.empty:
             continue
-        tmp["VALOR_CONTA"] = pd.to_numeric(tmp[col_saldo], errors="coerce")
-
-        if col_data_base:
-            tmp["DATA_BASE"] = tmp[col_data_base].astype(str).str.replace(r"\D", "", regex=True).str[:6]
-        else:
-            tmp["DATA_BASE"] = yyyymm
-
-        if col_inst:
-            inst_series = tmp[col_inst].astype(str).str.strip()
-        else:
-            inst_series = pd.Series([""] * len(tmp), index=tmp.index)
-        if col_congl:
-            congl_series = tmp[col_congl].astype(str).str.strip()
-        else:
-            congl_series = pd.Series([""] * len(tmp), index=tmp.index)
-        tmp["Instituição"] = inst_series.where(inst_series.ne(""), congl_series)
-        if col_nome_conta:
-            tmp["NOME_CONTA"] = tmp[col_nome_conta].astype(str).str.strip()
-        else:
-            tmp["NOME_CONTA"] = ""
-        tmp["CONTA"] = tmp["_conta"]
-
-        tmp = tmp[["DATA_BASE", "Instituição", "CONTA", "NOME_CONTA", "VALOR_CONTA"]].dropna(
-            subset=["DATA_BASE", "Instituição", "CONTA"]
-        )
         dfs.append(tmp)
 
     if not dfs:

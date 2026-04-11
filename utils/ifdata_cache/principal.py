@@ -74,11 +74,11 @@ class PrincipalCache(BaseCache):
         release_base = release_config.release_base_url
 
         # URLs em ordem de prioridade:
-        # 1. Parquet do repositório raw (configurável)
-        self.github_raw_url = f"https://raw.githubusercontent.com/{release_config.raw_repo}/main/data/cache/{repo_prefix}/dados.parquet"
-        # 2. Parquet dos releases (prod por padrão)
-        self.github_release_parquet_url = f"{release_base}/{repo_prefix}_dados.parquet"
+        # 1. Parquet dos releases (fonte canônica publicada)
+        # 2. Parquet do repositório raw (fallback legado)
         # 3. Pickle dos releases (compat legado)
+        self.github_raw_url = f"https://raw.githubusercontent.com/{release_config.raw_repo}/main/data/cache/{repo_prefix}/dados.parquet"
+        self.github_release_parquet_url = f"{release_base}/{repo_prefix}_dados.parquet"
         self.github_release_url = f"{release_base}/{repo_prefix}_cache.pkl"
         # Apenas o cache principal consolidado é versionado no checkout do repositório.
         self.repo_raw_enabled = repo_prefix == "principal"
@@ -87,16 +87,16 @@ class PrincipalCache(BaseCache):
         """Baixa dados do GitHub (tenta múltiplas fontes em ordem de prioridade)."""
         self._log("info", f"Tentando baixar do GitHub (repo={self.release_repo}, tag={self.release_tag})...")
 
-        # 1. Tentar parquet do repositório raw
+        # 1. Tentar parquet dos releases
+        resultado = self._baixar_parquet_release()
+        if resultado.sucesso:
+            return resultado
+
+        # 2. Fallback: tentar parquet do repositório raw
         if self.repo_raw_enabled:
             resultado = self._baixar_parquet_repo()
             if resultado.sucesso:
                 return resultado
-
-        # 2. Tentar parquet dos releases
-        resultado = self._baixar_parquet_release()
-        if resultado.sucesso:
-            return resultado
 
         # 3. Fallback: pickle dos releases
         resultado = self._baixar_pickle_releases(self.github_release_url, "releases")

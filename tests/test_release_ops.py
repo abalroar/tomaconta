@@ -1,8 +1,10 @@
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 from utils.ifdata_cache.release_config import ReleaseConfig
 from utils.ifdata_cache.release_ops import (
+    _hydrate_source_caches,
     collect_release_assets,
     get_postprocess_targets,
     get_publishable_bundle,
@@ -28,6 +30,51 @@ class _FakeManager:
         return self._caches.get(cache_name)
 
 
+class _HydrateCache:
+    def __init__(self, *, exists: bool = True, local_success: bool = True, name: str = "cache"):
+        self._exists = exists
+        self._local_success = local_success
+        self.name = name
+        self.local_loads = 0
+
+    def existe(self):
+        return self._exists
+
+    def carregar_local(self):
+        self.local_loads += 1
+        if self._local_success:
+            return SimpleNamespace(
+                sucesso=True,
+                dados={"cache": self.name, "origin": "local"},
+                mensagem="local ok",
+                fonte="cache_local",
+            )
+        return SimpleNamespace(
+            sucesso=False,
+            dados=None,
+            mensagem="local falhou",
+            fonte="nenhum",
+        )
+
+
+class _HydrateManager:
+    def __init__(self, caches):
+        self._caches = caches
+        self.calls = []
+
+    def get_cache(self, cache_name: str):
+        return self._caches.get(cache_name)
+
+    def carregar(self, cache_name: str, forcar_remoto: bool = False):
+        self.calls.append((cache_name, forcar_remoto))
+        return SimpleNamespace(
+            sucesso=True,
+            dados={"cache": cache_name, "origin": "remote"},
+            mensagem="remoto ok",
+            fonte="github_releases",
+        )
+
+
 def test_get_postprocess_targets_maps_base_caches():
     assert get_postprocess_targets(["principal"]) == ["derived_metrics", "critical_screens"]
     assert get_postprocess_targets(["dre_individual"]) == ["derived_metrics_individual"]
@@ -51,6 +98,38 @@ def test_get_publishable_bundle_skips_failed_gate_targets():
 
     assert publishable == ["principal", "critical_screens"]
     assert warnings == ["derived_metrics: esperado 202512, encontrado 202509"]
+
+
+def test_hydrate_source_caches_prefers_existing_local_sources():
+    principal = _HydrateCache(name="principal")
+    capital = _HydrateCache(name="capital")
+    manager = _HydrateManager({"principal": principal, "capital": capital})
+
+    details, failures = _hydrate_source_caches(
+        manager,
+        ["principal", "capital"],
+        local_first=["principal"],
+    )
+
+    assert failures == []
+    assert manager.calls == []
+    assert principal.local_loads == 1
+    assert capital.local_loads == 1
+    assert {item["cache"]: item["forced_remote"] for item in details} == {
+        "principal": False,
+        "capital": False,
+    }
+
+
+def test_hydrate_source_caches_falls_back_to_remote_when_local_missing():
+    manager = _HydrateManager({"capital": _HydrateCache(name="capital", exists=False)})
+
+    details, failures = _hydrate_source_caches(manager, ["capital"])
+
+    assert failures == []
+    assert manager.calls == [("capital", True)]
+    assert details[0]["source"] == "github_releases"
+    assert details[0]["forced_remote"] is True
 
 
 def test_write_manifest_and_collect_assets(tmp_path: Path, monkeypatch):

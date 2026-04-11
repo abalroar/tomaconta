@@ -112,7 +112,21 @@ def _hydrate_source_caches(
     failures: list[str] = []
 
     for cache_name in _sorted_cache_names(cache_names):
-        result = manager.carregar(cache_name, forcar_remoto=cache_name not in prefer_local)
+        cache = manager.get_cache(cache_name) if manager else None
+        forced_remote = False
+
+        # Para materialização/publicação consistente, sempre preferimos a fonte
+        # local quando ela já existe. Isso evita misturar um cache recém-atualizado
+        # com dependências antigas baixadas do release remoto.
+        if cache is not None and cache.existe():
+            result = cache.carregar_local()
+            if not result.sucesso and cache_name not in prefer_local:
+                forced_remote = True
+                result = manager.carregar(cache_name, forcar_remoto=True)
+        else:
+            forced_remote = cache_name not in prefer_local
+            result = manager.carregar(cache_name, forcar_remoto=forced_remote)
+
         ok = bool(result.sucesso and result.dados is not None)
         details.append(
             {
@@ -120,7 +134,7 @@ def _hydrate_source_caches(
                 "status": "ok" if ok else "erro",
                 "message": result.mensagem,
                 "source": result.fonte,
-                "forced_remote": cache_name not in prefer_local,
+                "forced_remote": forced_remote,
             }
         )
         if not ok:

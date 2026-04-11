@@ -1,7 +1,7 @@
 {
-  "timestamp_salvamento": "2026-03-31T13:26:58.841686",
-  "fonte": "api",
-  "total_registros": 59252,
+  "timestamp_salvamento": "2026-04-11T18:15:48.237871",
+  "fonte": "github_releases",
+  "total_registros": 60658,
   "colunas": [
     "Instituição",
     "Período",
@@ -20,7 +20,8 @@
     "Crédito/PL (%)",
     "Passivo Exigível",
     "Patrimônio de Referência para Comparação com o RWA (e)",
-    "Títulos e Valores Mobiliários"
+    "Títulos e Valores Mobiliários",
+    "CodInst"
   ],
   "formato": "parquet",
   "periodos": [
@@ -66,10 +67,8 @@
     "4/2021",
     "4/2022",
     "4/2023",
-    "4/2024"
+    "4/2024",
+    "4/2025"
   ],
-  "total_periodos": 43,
-  "extra": {
-    "operacao": "Salvamento final: 09/2025 até 09/2025"
-  }
+  "total_periodos": 44
 }
