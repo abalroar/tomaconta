@@ -213,6 +213,71 @@ def test_build_critical_screens_dataframe_materializes_expected_metrics(tmp_path
     assert bool(row["QualidadeCarteiraDisponivel"])
 
 
+def test_build_critical_screens_dataframe_resolves_passivo_placeholder_via_principal_codinst():
+    principal = pd.DataFrame(
+        [
+            {
+                "Instituição": "ITAU - PRUDENCIAL",
+                "Período": "4/2024",
+                "Ativo Total": 1800.0,
+                "Patrimônio Líquido": 200.0,
+                "Lucro Líquido Acumulado YTD": 40.0,
+            },
+            {
+                "Instituição": "ITAU - PRUDENCIAL",
+                "Período": "4/2025",
+                "CodInst": "C0080099",
+                "Ativo Total": 1900.0,
+                "Patrimônio Líquido": 220.0,
+                "Lucro Líquido Acumulado YTD": 44.0,
+            },
+        ]
+    )
+    ativo = pd.DataFrame(
+        [
+            {
+                "Instituição": "ITAU - PRUDENCIAL",
+                "Período": "4/2025",
+                "Valor Contábil Bruto (e1)": 1000.0,
+                "Valor Contábil Bruto (f1)": 200.0,
+                "Valor Contábil Bruto (g1)": 300.0,
+                "Valor Contábil Bruto (h1)": 400.0,
+            }
+        ]
+    )
+    passivo = pd.DataFrame(
+        [
+            {
+                "Instituição": "[IF C0080099]",
+                "Período": "4/2025",
+                "CodInst": "C0080099",
+                "Captações (e) = (a) + (b) + (c) + (d)": 2100.0,
+                "Instrumentos de Dívida Elegíveis a Capital (h)": 40.0,
+            }
+        ]
+    )
+
+    result = build_critical_screens_dataframe(
+        df_principal=principal,
+        df_ativo=ativo,
+        df_passivo=passivo,
+        df_capital=pd.DataFrame(),
+        df_dre=pd.DataFrame(),
+        df_carteira_pf=pd.DataFrame(),
+        df_carteira_pj=pd.DataFrame(),
+        df_carteira_instrumentos=pd.DataFrame(),
+        df_bloprudencial=pd.DataFrame(),
+    )
+
+    row = result[result["Período"] == "4/2025"].iloc[0]
+    assert row["Instituição"] == "ITAU - PRUDENCIAL"
+    assert row["Core Funding"] == 2140.0
+    assert row["Core Funding*"] == 2140.0
+    assert row["Trace::Core Funding::Captações (e)"] == 2100.0
+    assert row["Trace::Core Funding::Instrumentos de Dívida Elegíveis a Capital (h)"] == 40.0
+    assert round(row["Crédito / Captações"], 6) == round(1900.0 / 2140.0, 6)
+
+
 class _FakeBlopCache:
     def __init__(self, exists: bool, stamp: str = "2026-04-05T12:00:00"):
         self._exists = exists

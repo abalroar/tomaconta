@@ -24,7 +24,12 @@ from .derived_metrics import (
     _prepare_base_dre,
     _prepare_base_principal,
 )
-from .institutions import build_institution_to_conglomerate_map, canonicalize_institution_name, normalize_institution_name
+from .institutions import (
+    build_institution_to_conglomerate_map,
+    canonicalize_institution_dataframe,
+    canonicalize_institution_name,
+    normalize_institution_name,
+)
 
 if TYPE_CHECKING:
     from .manager import CacheManager
@@ -541,8 +546,10 @@ def _prepare_frame(
     df: Optional[pd.DataFrame],
     catalog_map: Dict[str, str],
     *,
+    base_dir: Path | None = None,
     canonicalize_names: bool = True,
     dedupe: bool = True,
+    extra_frames: Iterable[pd.DataFrame | None] = (),
 ) -> pd.DataFrame:
     if df is None or df.empty:
         return pd.DataFrame()
@@ -551,14 +558,28 @@ def _prepare_frame(
         return pd.DataFrame()
 
     out["InstituiçãoRaw"] = out["Instituição"].astype(str).str.strip()
+    extra_frames = tuple(extra_frames or ())
 
     if canonicalize_names:
-        nomes_brutos = out["InstituiçãoRaw"].astype(str)
-        mapa_canonico = {
-            nome: canonicalize_institution_name(nome, catalog_map=catalog_map)
-            for nome in nomes_brutos.dropna().unique().tolist()
-        }
-        out["Instituição"] = nomes_brutos.map(mapa_canonico).fillna(nomes_brutos)
+        if extra_frames:
+            # Em publicações recentes o Passivo pode chegar com placeholders
+            # "[IF ...]". Nesses casos, usamos o principal como autoridade
+            # de nomes por CodInst antes de montar o lookup textual do curado.
+            out = canonicalize_institution_dataframe(
+                out,
+                catalog_map=catalog_map,
+                base_dir=base_dir,
+                name_column="Instituição",
+                extra_frames=extra_frames,
+            )
+            out["Instituição"] = out["Instituição"].astype(str).str.strip()
+        else:
+            nomes_brutos = out["InstituiçãoRaw"].astype(str)
+            mapa_canonico = {
+                nome: canonicalize_institution_name(nome, catalog_map=catalog_map)
+                for nome in nomes_brutos.dropna().unique().tolist()
+            }
+            out["Instituição"] = nomes_brutos.map(mapa_canonico).fillna(nomes_brutos)
     else:
         out["Instituição"] = out["InstituiçãoRaw"].astype(str).str.strip()
 
@@ -983,7 +1004,9 @@ def build_critical_screens_dataframe(
     root = Path(base_dir).resolve() if base_dir else Path(__file__).resolve().parents[2]
     catalog_map = build_institution_to_conglomerate_map(root)
 
-    base = _prepare_frame(df_principal, catalog_map, canonicalize_names=True)
+    auxiliary_reference_frames = (df_principal,)
+
+    base = _prepare_frame(df_principal, catalog_map, base_dir=root, canonicalize_names=True)
     if base.empty:
         return pd.DataFrame(
             columns=[
@@ -997,12 +1020,12 @@ def build_critical_screens_dataframe(
         )
     base = _normalize_principal_metrics(base)
 
-    ativo = _prepare_frame(df_ativo, catalog_map)
-    passivo = _prepare_frame(df_passivo, catalog_map)
-    capital = _prepare_frame(df_capital, catalog_map)
-    carteira_pf = _prepare_frame(df_carteira_pf, catalog_map)
-    carteira_pj = _prepare_frame(df_carteira_pj, catalog_map)
-    carteira_instr = _prepare_frame(df_carteira_instrumentos, catalog_map)
+    ativo = _prepare_frame(df_ativo, catalog_map, base_dir=root, extra_frames=auxiliary_reference_frames)
+    passivo = _prepare_frame(df_passivo, catalog_map, base_dir=root, extra_frames=auxiliary_reference_frames)
+    capital = _prepare_frame(df_capital, catalog_map, base_dir=root, extra_frames=auxiliary_reference_frames)
+    carteira_pf = _prepare_frame(df_carteira_pf, catalog_map, base_dir=root, extra_frames=auxiliary_reference_frames)
+    carteira_pj = _prepare_frame(df_carteira_pj, catalog_map, base_dir=root, extra_frames=auxiliary_reference_frames)
+    carteira_instr = _prepare_frame(df_carteira_instrumentos, catalog_map, base_dir=root, extra_frames=auxiliary_reference_frames)
     blop_lookup = _build_bloprud_lookup(df_bloprudencial, catalog_map)
     desp_capt_lookup = _build_desp_capt_lookup(df_dre, df_principal, catalog_map)
 
@@ -1551,14 +1574,14 @@ def materialize_critical_screens_cache(
 
     catalog_map = build_institution_to_conglomerate_map(root)
     canonical_audit = _collect_variant_audit(
-        _prepare_frame(loaded["principal"], catalog_map, dedupe=False),
-        _prepare_frame(loaded["ativo"], catalog_map, dedupe=False),
-        _prepare_frame(loaded["passivo"], catalog_map, dedupe=False),
-        _prepare_frame(loaded["capital"], catalog_map, dedupe=False),
-        _prepare_frame(loaded["dre"], catalog_map, dedupe=False),
-        _prepare_frame(loaded["carteira_pf"], catalog_map, dedupe=False),
-        _prepare_frame(loaded["carteira_pj"], catalog_map, dedupe=False),
-        _prepare_frame(loaded["carteira_instrumentos"], catalog_map, dedupe=False),
+        _prepare_frame(loaded["principal"], catalog_map, base_dir=root, dedupe=False),
+        _prepare_frame(loaded["ativo"], catalog_map, base_dir=root, dedupe=False, extra_frames=(loaded["principal"],)),
+        _prepare_frame(loaded["passivo"], catalog_map, base_dir=root, dedupe=False, extra_frames=(loaded["principal"],)),
+        _prepare_frame(loaded["capital"], catalog_map, base_dir=root, dedupe=False, extra_frames=(loaded["principal"],)),
+        _prepare_frame(loaded["dre"], catalog_map, base_dir=root, dedupe=False),
+        _prepare_frame(loaded["carteira_pf"], catalog_map, base_dir=root, dedupe=False, extra_frames=(loaded["principal"],)),
+        _prepare_frame(loaded["carteira_pj"], catalog_map, base_dir=root, dedupe=False, extra_frames=(loaded["principal"],)),
+        _prepare_frame(loaded["carteira_instrumentos"], catalog_map, base_dir=root, dedupe=False, extra_frames=(loaded["principal"],)),
     )
 
     info_extra = {
