@@ -22437,13 +22437,16 @@ elif menu == "Taxas de Juros por Produto":
                     # =============================================================
                     # TABELA DE DADOS (data mais recente)
                     # =============================================================
-                    with st.expander("Ver ranking atual"):
-                        df_rank = df_prod_recente[df_prod_recente['Instituição Financeira'].isin(bancos_sel)]
-                        cols_mostrar = ['Posição', 'Instituição Financeira', 'Taxa Mensal (%)', 'Taxa Anual (%)']
-                        cols_disp = [c for c in cols_mostrar if c in df_rank.columns]
-                        df_display = df_rank[cols_disp].sort_values('Posição' if 'Posição' in cols_disp else tipo_taxa)
-                        st.caption(f"Ranking em {data_mais_recente.strftime('%d/%m/%Y')}:")
-                        st.dataframe(df_display, width='stretch', hide_index=True)
+                    st.markdown("#### Ranking atual")
+                    df_rank = df_prod_recente[df_prod_recente['Instituição Financeira'].isin(bancos_sel)]
+                    cols_mostrar = ['Posição', 'Instituição Financeira', 'Taxa Mensal (%)', 'Taxa Anual (%)']
+                    cols_disp = [c for c in cols_mostrar if c in df_rank.columns]
+                    df_display = df_rank[cols_disp].sort_values('Posição' if 'Posição' in cols_disp else tipo_taxa)
+                    st.caption(
+                        f"Posição das instituições selecionadas na fotografia mais recente: "
+                        f"{data_mais_recente.strftime('%d/%m/%Y')}."
+                    )
+                    st.dataframe(df_display, width='stretch', hide_index=True)
 
                     # =============================================================
                     # EXPORTAÇÃO
