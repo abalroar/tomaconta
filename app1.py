@@ -23200,11 +23200,44 @@ elif menu == "Taxas de Juros (Beta Leve)":
         keep = set(periodos[-int(meses):])
         return df[df['AnoMes'].isin(keep)].copy()
 
-    def _color_map_taxas_beta(bancos: List[str]) -> Dict[str, str]:
-        return {
-            banco: TAXAS_BETA_PALETTE[idx % len(TAXAS_BETA_PALETTE)]
-            for idx, banco in enumerate(bancos)
-        }
+    def _color_map_taxas_beta(
+        bancos: List[str],
+        *,
+        custom_colors: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, str]:
+        color_map: Dict[str, str] = {}
+        custom_colors = custom_colors or {}
+        for idx, banco in enumerate(bancos):
+            banco_norm = normalizar_nome_instituicao(banco)
+            color_map[banco] = custom_colors.get(banco_norm) or TAXAS_BETA_PALETTE[idx % len(TAXAS_BETA_PALETTE)]
+        return color_map
+
+    def _configurar_cores_taxas_beta(bancos: List[str]) -> Dict[str, str]:
+        taxas_beta_color_state_key = "taxas_beta_color_map_v1"
+        if taxas_beta_color_state_key not in st.session_state:
+            st.session_state[taxas_beta_color_state_key] = {}
+        taxas_beta_color_map = st.session_state[taxas_beta_color_state_key]
+
+        with st.expander("🎨 Personalizar cores", expanded=False):
+            colunas_por_linha_beta = 4
+            bancos_beta_enumerados = list(enumerate(bancos))
+            for inicio_linha in range(0, len(bancos_beta_enumerados), colunas_por_linha_beta):
+                bancos_linha = bancos_beta_enumerados[inicio_linha:inicio_linha + colunas_por_linha_beta]
+                cols_cores_beta = st.columns(colunas_por_linha_beta)
+                for col_cor_beta, (idx_cor_beta, banco_beta) in zip(cols_cores_beta, bancos_linha):
+                    with col_cor_beta:
+                        banco_norm = normalizar_nome_instituicao(banco_beta)
+                        cor_inicial = (
+                            taxas_beta_color_map.get(banco_norm)
+                            or TAXAS_BETA_PALETTE[idx_cor_beta % len(TAXAS_BETA_PALETTE)]
+                        )
+                        taxas_beta_color_map[banco_norm] = st.color_picker(
+                            banco_beta,
+                            value=cor_inicial,
+                            key=f"taxas_beta_color_picker_{banco_norm}",
+                        )
+
+        return taxas_beta_color_map
 
     def _adicionar_rotulos_finais_taxas_beta(fig, df: pd.DataFrame, y_col: str, color_map: Dict[str, str]) -> None:
         if df.empty or y_col not in df.columns:
@@ -23733,6 +23766,7 @@ elif menu == "Taxas de Juros (Beta Leve)":
                 if not bancos_sel_beta:
                     st.warning("Selecione ao menos um banco para visualizar o histórico.")
                 else:
+                    taxas_beta_custom_colors = _configurar_cores_taxas_beta(bancos_sel_beta)
                     meses_disponiveis_beta = sorted(df_hist_beta_mensal['AnoMes'].dropna().unique().tolist())
                     limite_meses_beta = 60 if usa_cache_historico_beta else 12
                     max_meses_beta = max(1, min(limite_meses_beta, len(meses_disponiveis_beta)))
@@ -23761,7 +23795,10 @@ elif menu == "Taxas de Juros (Beta Leve)":
                         .copy()
                     )
                     df_chart_beta = _selecionar_janela_mensal_beta(df_chart_beta, janela_meses_beta)
-                    color_map_beta = _color_map_taxas_beta(bancos_sel_beta)
+                    color_map_beta = _color_map_taxas_beta(
+                        bancos_sel_beta,
+                        custom_colors=taxas_beta_custom_colors,
+                    )
 
                     df_rank_beta_display = (
                         df_rank_beta[df_rank_beta['Instituição Financeira'].isin(bancos_sel_beta)][
