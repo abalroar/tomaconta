@@ -195,6 +195,11 @@ reduce_taxas_juros_to_monthly_snapshot = taxas_juros_module.reduce_taxas_juros_t
 TaxasJurosHistoricoCache = getattr(taxas_juros_historico_module, "TaxasJurosHistoricoCache", None)
 load_taxas_juros_historico_slice = getattr(taxas_juros_historico_module, "load_taxas_juros_historico_slice", None)
 load_taxas_juros_historico_dimension = getattr(taxas_juros_historico_module, "load_taxas_juros_historico_dimension", None)
+load_taxas_juros_historico_recent_daily_display = getattr(
+    taxas_juros_historico_module,
+    "load_taxas_juros_historico_recent_daily_display",
+    None,
+)
 build_taxas_juros_display_frame = getattr(
     taxas_juros_historico_module,
     "build_taxas_juros_display_frame",
@@ -23204,14 +23209,18 @@ elif menu == "Taxas de Juros (Beta Leve)":
     def _adicionar_rotulos_finais_taxas_beta(fig, df: pd.DataFrame, y_col: str, color_map: Dict[str, str]) -> None:
         if df.empty or y_col not in df.columns:
             return
+        latest_base = df.copy()
+        latest_base["_y_num"] = pd.to_numeric(latest_base[y_col], errors='coerce')
+        latest_base = latest_base.dropna(subset=['_y_num'])
+        if latest_base.empty:
+            return
         latest = (
-            df.sort_values('Fim Período')
+            latest_base.sort_values('Fim Período')
             .groupby('Instituição Financeira', observed=False)
             .tail(1)
             .copy()
         )
-        latest['_y_num'] = pd.to_numeric(latest[y_col], errors='coerce')
-        latest = latest.dropna(subset=['_y_num']).sort_values('_y_num', ascending=False).reset_index(drop=True)
+        latest = latest.sort_values('_y_num', ascending=False).reset_index(drop=True)
         if latest.empty:
             return
 
@@ -23429,6 +23438,117 @@ elif menu == "Taxas de Juros (Beta Leve)":
             "pages_loaded": 0,
             "hit_page_limit": False,
             "errors": {},
+        }
+
+    def _resolver_bancos_beta_por_chave(df_rank: pd.DataFrame, bancos_selecionados: List[str]) -> tuple[list[str], dict[str, str]]:
+        if df_rank.empty or "Chave Instituição" not in df_rank.columns:
+            return [], {}
+        base = (
+            df_rank[["Instituição Financeira", "Chave Instituição"]]
+            .dropna()
+            .drop_duplicates(subset=["Instituição Financeira"], keep="first")
+            .copy()
+        )
+        name_to_key = (
+            base.set_index("Instituição Financeira")["Chave Instituição"]
+            .astype(str)
+            .to_dict()
+        )
+        selected_keys = []
+        label_by_key = {}
+        for banco in bancos_selecionados:
+            key = name_to_key.get(str(banco))
+            if not key:
+                continue
+            selected_keys.append(str(key))
+            label_by_key[str(key)] = str(banco)
+        return selected_keys, label_by_key
+
+    @st.cache_data(ttl=900, show_spinner="Carregando série diária dos últimos 3 meses...")
+    def _buscar_taxas_beta_diario_3m_cache(
+        codigo_segmento: str,
+        codigo_modalidade: str,
+        institution_keys: tuple[str, ...],
+        institution_labels: tuple[tuple[str, str], ...],
+        meses_referencia: int = 3,
+    ):
+        cache = _obter_cache_taxas_historico_beta()
+        if cache is None or load_taxas_juros_historico_recent_daily_display is None:
+            return pd.DataFrame(), {"rows_returned": 0, "source": "indisponivel", "error": "helper ausente"}
+        try:
+            df_display, meta = load_taxas_juros_historico_recent_daily_display(
+                cache,
+                codigo_segmento=str(codigo_segmento),
+                codigo_modalidade=str(codigo_modalidade),
+                institution_keys=list(institution_keys),
+                institution_label_by_key=dict(institution_labels),
+                lookback_months=int(meses_referencia),
+            )
+        except Exception as exc:
+            return pd.DataFrame(), {"rows_returned": 0, "source": "historico_cache", "error": str(exc)}
+
+        meta = dict(meta or {})
+        meta["source"] = "historico_cache"
+        return df_display, meta
+
+    def _montar_taxas_beta_diario_3m_live(
+        df_hist: pd.DataFrame,
+        *,
+        bancos_selecionados: List[str],
+        anchor_date: pd.Timestamp,
+        meses_referencia: int = 3,
+    ) -> tuple[pd.DataFrame, dict[str, object]]:
+        if df_hist.empty or pd.isna(anchor_date):
+            return pd.DataFrame(), {
+                "rows_returned": 0,
+                "anchor_date": None,
+                "window_start": None,
+                "calendar_points": 0,
+                "source": "live_slice",
+            }
+
+        window_start = anchor_date - pd.DateOffset(months=int(meses_referencia))
+        df_window = df_hist[
+            (df_hist["Fim Período"] >= window_start)
+            & (df_hist["Fim Período"] <= anchor_date)
+        ].copy()
+        if df_window.empty:
+            return pd.DataFrame(), {
+                "rows_returned": 0,
+                "anchor_date": str(anchor_date.date()),
+                "window_start": str(window_start.date()),
+                "calendar_points": 0,
+                "source": "live_slice",
+            }
+
+        calendar = (
+            df_window[["Início Período", "Fim Período"]]
+            .dropna()
+            .drop_duplicates()
+            .sort_values(["Fim Período", "Início Período"])
+            .reset_index(drop=True)
+        )
+        base_grid = (
+            pd.DataFrame({"Instituição Financeira": list(bancos_selecionados)})
+            .assign(_join_key=1)
+            .merge(calendar.assign(_join_key=1), on="_join_key", how="inner")
+            .drop(columns=["_join_key"])
+        )
+        cols_merge = [col for col in df_window.columns if col not in {"Início Período", "Fim Período", "Instituição Financeira"}]
+        df_daily = base_grid.merge(
+            df_window[
+                ["Instituição Financeira", "Início Período", "Fim Período", *cols_merge]
+            ],
+            on=["Instituição Financeira", "Início Período", "Fim Período"],
+            how="left",
+        )
+        df_daily = df_daily.sort_values(["Instituição Financeira", "Fim Período"], kind="stable").reset_index(drop=True)
+        return df_daily, {
+            "rows_returned": int(len(df_daily)),
+            "anchor_date": str(anchor_date.date()),
+            "window_start": str(window_start.date()),
+            "calendar_points": int(len(calendar)),
+            "source": "live_slice",
         }
 
     st.markdown("### Taxas de Juros (Beta Leve)")
@@ -23649,6 +23769,10 @@ elif menu == "Taxas de Juros (Beta Leve)":
                         ]
                         .copy()
                     )
+                    selected_keys_beta, label_by_key_beta = _resolver_bancos_beta_por_chave(df_rank_beta, bancos_sel_beta)
+                    df_daily_beta = pd.DataFrame()
+                    meta_daily_beta: dict[str, object] = {}
+                    daily_has_values_beta = False
 
                     valor_rank = pd.to_numeric(df_rank_beta_display[tipo_taxa_beta], errors='coerce') if tipo_taxa_beta in df_rank_beta_display.columns else pd.Series(dtype='float64')
                     if not df_rank_beta_display.empty and not valor_rank.dropna().empty:
@@ -23770,6 +23894,97 @@ elif menu == "Taxas de Juros (Beta Leve)":
                     )
                     st.dataframe(df_rank_beta_display, width='stretch', hide_index=True)
 
+                    st.markdown("#### Série diária · últimos 3 meses")
+                    if usa_cache_historico_beta and selected_keys_beta:
+                        df_daily_beta, meta_daily_beta = _buscar_taxas_beta_diario_3m_cache(
+                            codigo_segmento_beta,
+                            str(produto_beta_valor),
+                            tuple(selected_keys_beta),
+                            tuple(sorted(label_by_key_beta.items())),
+                        )
+                    else:
+                        df_daily_beta, meta_daily_beta = _montar_taxas_beta_diario_3m_live(
+                            df_hist_beta_raw,
+                            bancos_selecionados=bancos_sel_beta,
+                            anchor_date=data_mais_recente_beta,
+                        )
+
+                    daily_values_beta = (
+                        pd.to_numeric(df_daily_beta[tipo_taxa_beta], errors='coerce')
+                        if not df_daily_beta.empty and tipo_taxa_beta in df_daily_beta.columns
+                        else pd.Series(dtype='float64')
+                    )
+                    daily_has_values_beta = not daily_values_beta.dropna().empty
+                    if df_daily_beta.empty or not daily_has_values_beta:
+                        st.info("Sem série diária disponível para os bancos selecionados nos últimos 3 meses.")
+                        if meta_daily_beta.get("error"):
+                            st.caption(f"Erro retornado: {meta_daily_beta['error']}")
+                    else:
+                        fig_daily_beta = px.line(
+                            df_daily_beta,
+                            x='Fim Período',
+                            y=tipo_taxa_beta,
+                            color='Instituição Financeira',
+                            markers=True,
+                            template='plotly_white',
+                            color_discrete_map=color_map_beta,
+                            labels={
+                                'Fim Período': 'Data',
+                                tipo_taxa_beta: tipo_taxa_beta,
+                                'Instituição Financeira': 'Instituição',
+                            },
+                            title=f"{_formatar_modalidade_beta(produto_beta)} · últimos 3 meses ancorados na última data disponível",
+                        )
+                        fig_daily_beta.update_layout(
+                            height=460,
+                            xaxis_title="",
+                            yaxis_title=tipo_taxa_beta,
+                            hovermode='x unified',
+                            legend=dict(
+                                orientation="h",
+                                yanchor="bottom",
+                                y=-0.30,
+                                xanchor="center",
+                                x=0.5,
+                                font=dict(size=10),
+                            ),
+                            margin=dict(b=90, r=70, t=60, l=60),
+                        )
+                        fig_daily_beta.update_xaxes(tickformat="%d/%m/%y")
+                        fig_daily_beta.update_traces(line=dict(width=2.0), marker=dict(size=4))
+                        _adicionar_rotulos_finais_taxas_beta(fig_daily_beta, df_daily_beta, tipo_taxa_beta, color_map_beta)
+                        st.plotly_chart(fig_daily_beta, width='stretch')
+                        anchor_daily_label = meta_daily_beta.get("anchor_date") or data_mais_recente_beta.strftime('%Y-%m-%d')
+                        window_daily_label = meta_daily_beta.get("window_start") or "-"
+                        anchor_source_label = (
+                            "base histórica"
+                            if meta_daily_beta.get("source") == "historico_cache"
+                            else "recorte carregado"
+                        )
+                        st.caption(
+                            f"Janela diária ancorada na última data disponível da {anchor_source_label}: {anchor_daily_label}. "
+                            f"Período exibido desde {window_daily_label} | "
+                            f"{meta_daily_beta.get('calendar_points', 0):,} datas oficiais | "
+                            f"{len(df_daily_beta):,} linhas no gráfico."
+                        )
+                        with st.expander("Tabela diária dos últimos 3 meses", expanded=False):
+                            st.dataframe(
+                                df_daily_beta[
+                                    [
+                                        col
+                                        for col in [
+                                            'Fim Período',
+                                            'Instituição Financeira',
+                                            'Taxa Mensal (%)',
+                                            'Taxa Anual (%)',
+                                        ]
+                                        if col in df_daily_beta.columns
+                                    ]
+                                ],
+                                width='stretch',
+                                hide_index=True,
+                            )
+
                     if carregar_detalhe_beta:
                         granularidade_beta = st.radio(
                             "Detalhe recente",
@@ -23860,6 +24075,15 @@ elif menu == "Taxas de Juros (Beta Leve)":
                             mime="text/csv",
                             key="tj_beta_download_mensal",
                         )
+                        if daily_has_values_beta:
+                            csv_diario_beta = df_daily_beta.to_csv(index=False, sep=';', decimal=',')
+                            st.download_button(
+                                label="Baixar CSV (diário últimos 3M)",
+                                data=csv_diario_beta,
+                                file_name=f"taxas_beta_diario_3m_{segmento_beta}_{produto_beta[:20]}.csv",
+                                mime="text/csv",
+                                key="tj_beta_download_diario_3m",
+                            )
 
 elif menu == "Crie sua métrica!":
     if _garantir_dados_principais("Crie sua métrica!"):

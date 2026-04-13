@@ -11,6 +11,8 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from utils.ifdata_cache.taxas_juros_historico import (
     TaxasJurosHistoricoCache,
     _build_odata_url,
+    get_taxas_juros_historico_anchor_date,
+    load_taxas_juros_historico_recent_daily_display,
     normalize_taxas_juros_historico_frame,
 )
 
@@ -167,3 +169,126 @@ def test_materialize_history_runs_in_chunks_and_finalizes(monkeypatch, tmp_path)
     assert cache.dimension_paths()["parametros"].exists() is True
     assert cache.dimension_paths()["datas"].exists() is True
     assert cache.dimension_paths()["instituicoes"].exists() is True
+
+
+def test_get_taxas_juros_historico_anchor_date_uses_daily_dimension_max(tmp_path):
+    cache = TaxasJurosHistoricoCache(tmp_path)
+    cache.cache_dir.mkdir(parents=True, exist_ok=True)
+
+    pd.DataFrame(
+        {
+            "inicio_periodo": pd.to_datetime(["2026-03-17", "2026-03-24", "2026-02-01"]),
+            "fim_periodo": pd.to_datetime(["2026-03-21", "2026-03-27", "2026-02-28"]),
+            "tipo_modalidade": ["D", "D", "M"],
+            "ano_inicio": pd.Series([2026, 2026, 2026], dtype="Int16"),
+        }
+    ).to_parquet(cache.dimension_paths()["datas"], index=False)
+
+    anchor = get_taxas_juros_historico_anchor_date(cache, tipo_modalidade="D")
+
+    assert anchor == pd.Timestamp("2026-03-27")
+
+
+def test_load_taxas_juros_historico_recent_daily_display_preserves_official_gaps(tmp_path):
+    cache = TaxasJurosHistoricoCache(tmp_path)
+    cache.cache_dir.mkdir(parents=True, exist_ok=True)
+
+    pd.DataFrame(
+        {
+            "inicio_periodo": pd.to_datetime(["2026-01-05", "2026-01-12", "2026-01-19"]),
+            "fim_periodo": pd.to_datetime(["2026-01-09", "2026-01-16", "2026-01-23"]),
+            "tipo_modalidade": ["D", "D", "D"],
+            "ano_inicio": pd.Series([2026, 2026, 2026], dtype="Int16"),
+        }
+    ).to_parquet(cache.dimension_paths()["datas"], index=False)
+
+    pd.DataFrame(
+        [
+            {
+                "tipo_modalidade": "D",
+                "inicio_periodo": pd.Timestamp("2026-01-05"),
+                "fim_periodo": pd.Timestamp("2026-01-09"),
+                "ano_inicio": 2026,
+                "codigo_segmento": "1",
+                "segmento": "Pessoa Física",
+                "codigo_modalidade": "402101",
+                "modalidade": "Cheque especial",
+                "institution_key": "cnpj8:11111111",
+                "institution_key_quality": "cnpj8",
+                "cnpj8_raw": "11111111",
+                "instituicao_nome_observado": "Banco A antigo",
+                "posicao": 1,
+                "taxa_juros_ao_mes": 7.5,
+                "taxa_juros_ao_ano": 138.0,
+                "run_id": "run-1",
+                "ingested_at": pd.Timestamp("2026-01-24T00:00:00Z"),
+            },
+            {
+                "tipo_modalidade": "D",
+                "inicio_periodo": pd.Timestamp("2026-01-19"),
+                "fim_periodo": pd.Timestamp("2026-01-23"),
+                "ano_inicio": 2026,
+                "codigo_segmento": "1",
+                "segmento": "Pessoa Física",
+                "codigo_modalidade": "402101",
+                "modalidade": "Cheque especial",
+                "institution_key": "cnpj8:11111111",
+                "institution_key_quality": "cnpj8",
+                "cnpj8_raw": "11111111",
+                "instituicao_nome_observado": "Banco A novo",
+                "posicao": 1,
+                "taxa_juros_ao_mes": 7.3,
+                "taxa_juros_ao_ano": 135.0,
+                "run_id": "run-1",
+                "ingested_at": pd.Timestamp("2026-01-24T00:00:00Z"),
+            },
+            {
+                "tipo_modalidade": "D",
+                "inicio_periodo": pd.Timestamp("2026-01-12"),
+                "fim_periodo": pd.Timestamp("2026-01-16"),
+                "ano_inicio": 2026,
+                "codigo_segmento": "1",
+                "segmento": "Pessoa Física",
+                "codigo_modalidade": "402101",
+                "modalidade": "Cheque especial",
+                "institution_key": "cnpj8:22222222",
+                "institution_key_quality": "cnpj8",
+                "cnpj8_raw": "22222222",
+                "instituicao_nome_observado": "Banco B legado",
+                "posicao": 2,
+                "taxa_juros_ao_mes": 8.1,
+                "taxa_juros_ao_ano": 154.0,
+                "run_id": "run-1",
+                "ingested_at": pd.Timestamp("2026-01-24T00:00:00Z"),
+            },
+        ]
+    ).to_parquet(cache.arquivo_dados, index=False)
+
+    display, meta = load_taxas_juros_historico_recent_daily_display(
+        cache,
+        codigo_segmento="1",
+        codigo_modalidade="402101",
+        institution_keys=["cnpj8:11111111", "cnpj8:22222222"],
+        institution_label_by_key={
+            "cnpj8:11111111": "Banco A",
+            "cnpj8:22222222": "Banco B",
+        },
+        lookback_months=3,
+    )
+
+    assert meta["anchor_date"] == "2026-01-23"
+    assert meta["calendar_points"] == 3
+    assert len(display) == 6
+    assert set(display["Instituição Financeira"].unique()) == {"Banco A", "Banco B"}
+
+    banco_a = display[display["Instituição Financeira"] == "Banco A"].sort_values("Fim Período")
+    banco_b = display[display["Instituição Financeira"] == "Banco B"].sort_values("Fim Período")
+
+    taxas_a = banco_a["Taxa Mensal (%)"].reset_index(drop=True)
+    taxas_b = banco_b["Taxa Mensal (%)"].reset_index(drop=True)
+    assert taxas_a.iloc[0] == 7.5
+    assert pd.isna(taxas_a.iloc[1])
+    assert taxas_a.iloc[2] == 7.3
+    assert pd.isna(taxas_b.iloc[0])
+    assert taxas_b.iloc[1] == 8.1
+    assert pd.isna(taxas_b.iloc[2])

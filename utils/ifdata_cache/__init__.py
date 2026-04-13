@@ -86,7 +86,9 @@ from .taxas_juros_historico import (
     fetch_taxas_juros_datas_disponiveis,
     fetch_taxas_juros_historico_window,
     fetch_taxas_juros_parametros_consulta,
+    get_taxas_juros_historico_anchor_date,
     load_taxas_juros_historico_dimension,
+    load_taxas_juros_historico_recent_daily_display,
     load_taxas_juros_historico_slice,
     normalize_taxas_juros_historico_frame,
 )
@@ -306,9 +308,11 @@ __all__ = [
     "fetch_taxas_juros_datas_disponiveis",
     "fetch_taxas_juros_parametros_consulta",
     "fetch_taxas_juros_historico_window",
+    "get_taxas_juros_historico_anchor_date",
     "normalize_taxas_juros_historico_frame",
     "load_taxas_juros_historico_slice",
     "load_taxas_juros_historico_dimension",
+    "load_taxas_juros_historico_recent_daily_display",
     "build_taxas_juros_display_frame",
     # Implementacoes - BLOPRUDENCIAL
     "build_bloprudencial_url",

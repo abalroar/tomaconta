@@ -393,6 +393,8 @@ def load_taxas_juros_historico_slice(
     instituicoes_observadas: Optional[Sequence[str]] = None,
     inicio_periodo_min: Optional[str] = None,
     inicio_periodo_max: Optional[str] = None,
+    fim_periodo_min: Optional[str] = None,
+    fim_periodo_max: Optional[str] = None,
     columns: Optional[Sequence[str]] = None,
 ) -> pd.DataFrame:
     if not cache.arquivo_dados.exists():
@@ -417,6 +419,10 @@ def load_taxas_juros_historico_slice(
             filtros.append(ds.field("inicio_periodo") >= pd.Timestamp(inicio_periodo_min).to_pydatetime())
         if inicio_periodo_max:
             filtros.append(ds.field("inicio_periodo") <= pd.Timestamp(inicio_periodo_max).to_pydatetime())
+        if fim_periodo_min:
+            filtros.append(ds.field("fim_periodo") >= pd.Timestamp(fim_periodo_min).to_pydatetime())
+        if fim_periodo_max:
+            filtros.append(ds.field("fim_periodo") <= pd.Timestamp(fim_periodo_max).to_pydatetime())
 
         filtro_final = None
         for extra in filtros:
@@ -439,6 +445,10 @@ def load_taxas_juros_historico_slice(
             df = df[df["inicio_periodo"] >= pd.Timestamp(inicio_periodo_min)]
         if inicio_periodo_max:
             df = df[df["inicio_periodo"] <= pd.Timestamp(inicio_periodo_max)]
+        if fim_periodo_min:
+            df = df[df["fim_periodo"] >= pd.Timestamp(fim_periodo_min)]
+        if fim_periodo_max:
+            df = df[df["fim_periodo"] <= pd.Timestamp(fim_periodo_max)]
         return df.reset_index(drop=True)
 
 
@@ -451,6 +461,162 @@ def load_taxas_juros_historico_dimension(
     if path is None or not path.exists():
         return pd.DataFrame()
     return pd.read_parquet(path)
+
+
+def get_taxas_juros_historico_anchor_date(
+    cache: "TaxasJurosHistoricoCache",
+    *,
+    tipo_modalidade: str = "D",
+) -> pd.Timestamp:
+    df_datas = load_taxas_juros_historico_dimension(cache, name="datas")
+    if df_datas.empty or "fim_periodo" not in df_datas.columns:
+        return pd.NaT
+
+    datas = df_datas.copy()
+    if tipo_modalidade and "tipo_modalidade" in datas.columns:
+        datas = datas[datas["tipo_modalidade"].astype(str) == str(tipo_modalidade)]
+    if datas.empty:
+        return pd.NaT
+
+    anchor = pd.to_datetime(datas["fim_periodo"], errors="coerce").max()
+    return pd.Timestamp(anchor) if pd.notna(anchor) else pd.NaT
+
+
+def load_taxas_juros_historico_recent_daily_display(
+    cache: "TaxasJurosHistoricoCache",
+    *,
+    codigo_segmento: str,
+    codigo_modalidade: str,
+    institution_keys: Sequence[str],
+    institution_label_by_key: Optional[Dict[str, str]] = None,
+    lookback_months: int = 3,
+) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+    selected_keys = [str(value) for value in institution_keys if str(value).strip()]
+    if not selected_keys:
+        return pd.DataFrame(columns=list(FACT_TO_DISPLAY_RENAME.values())), {
+            "rows_returned": 0,
+            "anchor_date": None,
+            "window_start": None,
+            "calendar_points": 0,
+            "selected_institutions": 0,
+        }
+
+    anchor_date = get_taxas_juros_historico_anchor_date(cache, tipo_modalidade="D")
+    if pd.isna(anchor_date):
+        return pd.DataFrame(columns=list(FACT_TO_DISPLAY_RENAME.values())), {
+            "rows_returned": 0,
+            "anchor_date": None,
+            "window_start": None,
+            "calendar_points": 0,
+            "selected_institutions": len(selected_keys),
+        }
+
+    window_start = anchor_date - pd.DateOffset(months=int(lookback_months))
+    df_datas = load_taxas_juros_historico_dimension(cache, name="datas")
+    df_datas = df_datas.copy()
+    if "tipo_modalidade" in df_datas.columns:
+        df_datas = df_datas[df_datas["tipo_modalidade"].astype(str) == "D"]
+    if "fim_periodo" in df_datas.columns:
+        df_datas["fim_periodo"] = pd.to_datetime(df_datas["fim_periodo"], errors="coerce")
+    if "inicio_periodo" in df_datas.columns:
+        df_datas["inicio_periodo"] = pd.to_datetime(df_datas["inicio_periodo"], errors="coerce")
+    df_datas = (
+        df_datas[
+            (df_datas["fim_periodo"] >= window_start)
+            & (df_datas["fim_periodo"] <= anchor_date)
+        ][["inicio_periodo", "fim_periodo"]]
+        .dropna()
+        .drop_duplicates()
+        .sort_values(["fim_periodo", "inicio_periodo"])
+        .reset_index(drop=True)
+    )
+    if df_datas.empty:
+        return pd.DataFrame(columns=list(FACT_TO_DISPLAY_RENAME.values())), {
+            "rows_returned": 0,
+            "anchor_date": str(anchor_date.date()),
+            "window_start": str(window_start.date()),
+            "calendar_points": 0,
+            "selected_institutions": len(selected_keys),
+        }
+
+    df_fact = load_taxas_juros_historico_slice(
+        cache,
+        codigo_segmento=str(codigo_segmento),
+        codigo_modalidade=str(codigo_modalidade),
+        institution_keys=selected_keys,
+        fim_periodo_min=str(window_start.date()),
+        fim_periodo_max=str(anchor_date.date()),
+    )
+
+    label_map = {str(key): str(value) for key, value in (institution_label_by_key or {}).items()}
+    observed_lookup: Dict[str, str] = {}
+    if not df_fact.empty and {"institution_key", "instituicao_nome_observado"}.issubset(df_fact.columns):
+        observed_lookup = (
+            df_fact[["institution_key", "instituicao_nome_observado"]]
+            .dropna()
+            .drop_duplicates(subset=["institution_key"], keep="last")
+            .set_index("institution_key")["instituicao_nome_observado"]
+            .astype(str)
+            .to_dict()
+        )
+
+    date_grid = df_datas.reset_index(drop=True).reset_index().rename(columns={"index": "_date_idx"})
+    institution_grid = pd.DataFrame({"institution_key": selected_keys})
+    institution_grid["_join_key"] = 1
+    date_grid["_join_key"] = 1
+    base_grid = (
+        institution_grid
+        .merge(date_grid, on="_join_key", how="inner")
+        .drop(columns=["_join_key", "_date_idx"])
+    )
+
+    if df_fact.empty:
+        merged = base_grid.copy()
+    else:
+        merged = base_grid.merge(
+            df_fact,
+            on=["institution_key", "inicio_periodo", "fim_periodo"],
+            how="left",
+            suffixes=("", "_fact"),
+        )
+
+    merged["codigo_segmento"] = str(codigo_segmento)
+    merged["codigo_modalidade"] = str(codigo_modalidade)
+    merged["institution_key"] = merged["institution_key"].astype("string")
+
+    observed_series = (
+        merged["instituicao_nome_observado"]
+        if "instituicao_nome_observado" in merged.columns
+        else pd.Series(pd.NA, index=merged.index, dtype="string")
+    )
+    merged["instituicao_nome_observado"] = (
+        merged["institution_key"].astype(str).map(label_map)
+        .fillna(observed_series)
+        .fillna(merged["institution_key"].astype(str).map(observed_lookup))
+        .fillna(merged["institution_key"].astype(str))
+        .astype("string")
+    )
+
+    for col in ("segmento", "modalidade"):
+        if col in merged.columns:
+            non_null = merged[col].dropna()
+            if not non_null.empty:
+                merged[col] = merged[col].fillna(non_null.iloc[0])
+
+    display = build_taxas_juros_display_frame(merged)
+    if not display.empty and "Fim Período" in display.columns:
+        display = (
+            display.sort_values(["Instituição Financeira", "Fim Período"], kind="stable")
+            .reset_index(drop=True)
+        )
+
+    return display, {
+        "rows_returned": int(len(display)),
+        "anchor_date": str(anchor_date.date()),
+        "window_start": str(window_start.date()),
+        "calendar_points": int(len(df_datas)),
+        "selected_institutions": int(len(selected_keys)),
+    }
 
 
 class TaxasJurosHistoricoCache(BaseCache):
