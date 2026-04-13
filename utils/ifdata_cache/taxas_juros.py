@@ -12,6 +12,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import urlencode, quote
 
 from .base import BaseCache, CacheConfig, CacheResult
 
@@ -424,6 +425,266 @@ class TaxasJurosCache(BaseCache):
                 "truncado": has_more and page >= 49
             }
         )
+
+
+def _escape_odata_literal(value: str) -> str:
+    """Escapa aspas simples para literais string em OData."""
+    return str(value).replace("'", "''")
+
+
+def _rename_taxas_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Aplica o layout de colunas usado pela aba de taxas."""
+    rename_map = {
+        'InicioPeriodo': 'Início Período',
+        'FimPeriodo': 'Fim Período',
+        'Segmento': 'Segmento',
+        'Modalidade': 'Produto',
+        'Posicao': 'Posição',
+        'InstituicaoFinanceira': 'Instituição Financeira',
+        'TaxaJurosAoMes': 'Taxa Mensal (%)',
+        'TaxaJurosAoAno': 'Taxa Anual (%)',
+        'cnpj8': 'CNPJ'
+    }
+    return df.rename(columns=rename_map)
+
+
+def _optimize_taxas_frame(df: pd.DataFrame) -> pd.DataFrame:
+    """Reduz footprint de memória para frames escopados de taxas."""
+    if df.empty:
+        return df
+
+    optimized = df.copy()
+    for col in ('Início Período', 'Fim Período'):
+        if col in optimized.columns:
+            optimized[col] = pd.to_datetime(optimized[col], errors='coerce')
+
+    for col in ('Taxa Mensal (%)', 'Taxa Anual (%)'):
+        if col in optimized.columns:
+            optimized[col] = pd.to_numeric(optimized[col], errors='coerce').astype('float32')
+
+    if 'Posição' in optimized.columns:
+        optimized['Posição'] = pd.to_numeric(optimized['Posição'], errors='coerce').astype('Int16')
+
+    return optimized
+
+
+def fetch_taxas_juros_scoped(
+    *,
+    data_inicio: str,
+    data_fim: Optional[str] = None,
+    segmento: Optional[str] = None,
+    modalidade: Optional[str] = None,
+    instituicao: Optional[str] = None,
+    select_fields: Optional[List[str]] = None,
+    page_size: int = 5000,
+    max_pages: int = 6,
+    timeout: int = REQUEST_TIMEOUT,
+) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+    """Busca dados escopados da API do BCB com filtros no servidor.
+
+    O objetivo aqui é suportar consultas leves da UI, evitando a estratégia
+    antiga de baixar o universo inteiro e filtrar depois no Streamlit.
+    """
+    select_fields = select_fields or [
+        "InicioPeriodo",
+        "FimPeriodo",
+        "Segmento",
+        "Modalidade",
+        "Posicao",
+        "InstituicaoFinanceira",
+        "TaxaJurosAoMes",
+        "TaxaJurosAoAno",
+        "cnpj8",
+    ]
+
+    filters = []
+    if segmento:
+        filters.append(f"Segmento eq '{_escape_odata_literal(segmento)}'")
+    if modalidade:
+        filters.append(f"Modalidade eq '{_escape_odata_literal(modalidade)}'")
+    if instituicao:
+        filters.append(f"InstituicaoFinanceira eq '{_escape_odata_literal(instituicao)}'")
+
+    frames: List[pd.DataFrame] = []
+    rows_fetched = 0
+    pages_loaded = 0
+    hit_page_limit = False
+    error_message = ""
+
+    for page in range(max_pages):
+        params = {
+            "$format": "json",
+            "$top": int(page_size),
+            "$skip": int(page * page_size),
+            "$select": ",".join(select_fields),
+            "$orderby": "FimPeriodo desc",
+            "dataInicioPeriodo": f"'{data_inicio}'",
+        }
+        if filters:
+            params["$filter"] = " and ".join(filters)
+
+        try:
+            query_string = urlencode(params, quote_via=quote, safe="(),'$")
+            response = requests.get(f"{API_URL}?{query_string}", timeout=timeout)
+            response.raise_for_status()
+            payload = response.json()
+        except Exception as exc:
+            error_message = str(exc)
+            break
+
+        rows = payload.get("value") or []
+        if not rows:
+            break
+
+        frames.append(pd.DataFrame.from_records(rows))
+        rows_fetched += len(rows)
+        pages_loaded += 1
+
+        if len(rows) < page_size:
+            break
+
+        if page == max_pages - 1:
+            hit_page_limit = True
+
+    if not frames:
+        return pd.DataFrame(), {
+            "rows_fetched": 0,
+            "pages_loaded": pages_loaded,
+            "page_size": page_size,
+            "max_pages": max_pages,
+            "hit_page_limit": hit_page_limit,
+            "error": error_message,
+        }
+
+    df = pd.concat(frames, ignore_index=True)
+    df = _rename_taxas_columns(df)
+    df = _optimize_taxas_frame(df)
+
+    if data_fim and 'Fim Período' in df.columns:
+        data_fim_dt = pd.to_datetime(data_fim, errors='coerce')
+        if not pd.isna(data_fim_dt):
+            df = df[df['Fim Período'] <= data_fim_dt].copy()
+
+    if {'Fim Período', 'Produto'}.issubset(df.columns):
+        sort_cols = ['Fim Período', 'Produto']
+        asc = [False, True]
+        if 'Posição' in df.columns:
+            sort_cols.append('Posição')
+            asc.append(True)
+        df = df.sort_values(sort_cols, ascending=asc, na_position='last').reset_index(drop=True)
+
+    return df, {
+        "rows_fetched": rows_fetched,
+        "rows_returned": int(len(df)),
+        "pages_loaded": pages_loaded,
+        "page_size": page_size,
+        "max_pages": max_pages,
+        "hit_page_limit": hit_page_limit,
+        "error": error_message,
+    }
+
+
+def fetch_taxas_juros_for_institutions(
+    *,
+    instituicoes: List[str],
+    data_inicio: str,
+    data_fim: Optional[str] = None,
+    segmento: Optional[str] = None,
+    modalidade: Optional[str] = None,
+    select_fields: Optional[List[str]] = None,
+    page_size: int = 1000,
+    max_pages_per_institution: int = 3,
+    timeout: int = REQUEST_TIMEOUT,
+) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+    """Busca dados escopados no servidor para uma lista pequena de instituições.
+
+    Uso ideal: recortes recentes de 3 a 12 bancos escolhidos pelo usuário.
+    Isso reduz bastante o volume frente à consulta ampla por produto.
+    """
+    frames: List[pd.DataFrame] = []
+    total_rows_fetched = 0
+    total_rows_returned = 0
+    total_pages_loaded = 0
+    hit_any_page_limit = False
+    errors: Dict[str, str] = {}
+    per_institution: List[Dict[str, Any]] = []
+
+    for instituicao in instituicoes:
+        df_inst, meta_inst = fetch_taxas_juros_scoped(
+            data_inicio=data_inicio,
+            data_fim=data_fim,
+            segmento=segmento,
+            modalidade=modalidade,
+            instituicao=instituicao,
+            select_fields=select_fields,
+            page_size=page_size,
+            max_pages=max_pages_per_institution,
+            timeout=timeout,
+        )
+        if not df_inst.empty:
+            frames.append(df_inst)
+
+        total_rows_fetched += int(meta_inst.get("rows_fetched", 0) or 0)
+        total_rows_returned += int(meta_inst.get("rows_returned", 0) or 0)
+        total_pages_loaded += int(meta_inst.get("pages_loaded", 0) or 0)
+        hit_any_page_limit = hit_any_page_limit or bool(meta_inst.get("hit_page_limit"))
+        if meta_inst.get("error"):
+            errors[instituicao] = str(meta_inst["error"])
+
+        per_institution.append(
+            {
+                "instituicao": instituicao,
+                "rows_returned": int(meta_inst.get("rows_returned", 0) or 0),
+                "pages_loaded": int(meta_inst.get("pages_loaded", 0) or 0),
+                "hit_page_limit": bool(meta_inst.get("hit_page_limit")),
+                "error": meta_inst.get("error", ""),
+            }
+        )
+
+    if not frames:
+        return pd.DataFrame(), {
+            "rows_fetched": total_rows_fetched,
+            "rows_returned": total_rows_returned,
+            "pages_loaded": total_pages_loaded,
+            "hit_page_limit": hit_any_page_limit,
+            "errors": errors,
+            "per_institution": per_institution,
+        }
+
+    df = pd.concat(frames, ignore_index=True)
+    if {'Fim Período', 'Instituição Financeira'}.issubset(df.columns):
+        df = df.sort_values(['Fim Período', 'Instituição Financeira']).reset_index(drop=True)
+
+    return df, {
+        "rows_fetched": total_rows_fetched,
+        "rows_returned": total_rows_returned,
+        "pages_loaded": total_pages_loaded,
+        "hit_page_limit": hit_any_page_limit,
+        "errors": errors,
+        "per_institution": per_institution,
+    }
+
+
+def reduce_taxas_juros_to_monthly_snapshot(df: pd.DataFrame) -> pd.DataFrame:
+    """Mantém a última observação disponível de cada mês por banco/produto."""
+    if df is None or df.empty or 'Fim Período' not in df.columns:
+        return pd.DataFrame() if df is None else df.copy()
+
+    monthly = df.copy()
+    monthly['Fim Período'] = pd.to_datetime(monthly['Fim Período'], errors='coerce')
+    monthly = monthly.dropna(subset=['Fim Período'])
+    monthly['AnoMes'] = monthly['Fim Período'].dt.to_period('M')
+
+    group_cols = ['AnoMes', 'Instituição Financeira']
+    for optional_col in ('Segmento', 'Produto'):
+        if optional_col in monthly.columns:
+            group_cols.insert(0, optional_col)
+
+    idx = monthly.groupby(group_cols, observed=False)['Fim Período'].idxmax()
+    reduced = monthly.loc[idx].copy()
+    reduced['Mês'] = reduced['Fim Período'].dt.strftime('%b/%y')
+    reduced = reduced.sort_values(['Fim Período', 'Instituição Financeira']).reset_index(drop=True)
+    return reduced
 
 
 def buscar_modalidades_disponiveis(dias_amostra: int = 60) -> List[str]:

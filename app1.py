@@ -166,6 +166,12 @@ from utils.cdsfn_live import (
     validate_json_cdsfn,
 )
 from utils.pessoas_juridicas_api import consultar_pessoas_juridicas
+from utils.ifdata_cache.taxas_juros import (
+    fetch_taxas_juros_for_institutions,
+    fetch_taxas_juros_scoped,
+    formatar_nome_modalidade,
+    reduce_taxas_juros_to_monthly_snapshot,
+)
 from rating import QUALITATIVE_QUESTIONS, build_audit_tables, build_audit_trail_markdown, calculate_rating, list_available_rating_periods, load_rating_input_dataframe, map_rating_inputs, period_to_display_label
 from rating.engine import get_size_bucket
 import io
@@ -12261,7 +12267,8 @@ MENU_PRINCIPAL = [
     "Scatter Plot",
     "DRE (Ind. e Congl.)",
     "Carteira 4.966",
-    "Taxas de Juros por Produto",
+    "Taxas de Juros (Beta Leve)",
+    "Taxas de Juros por Produto (Legado)",
     "Crie sua métrica!",
     "Contas COSIF",
     "Balanço, DRE e DMPL (Ind.)",
@@ -12275,7 +12282,9 @@ TODOS_MENUS = MENU_PRINCIPAL + MENU_SECUNDARIO
 # Validar menu_atual
 if st.session_state['menu_atual'] not in TODOS_MENUS:
     if st.session_state['menu_atual'] == "Taxas de Juros":
-        st.session_state['menu_atual'] = "Taxas de Juros por Produto"
+        st.session_state['menu_atual'] = "Taxas de Juros (Beta Leve)"
+    elif st.session_state['menu_atual'] == "Taxas de Juros por Produto":
+        st.session_state['menu_atual'] = "Taxas de Juros por Produto (Legado)"
     elif st.session_state['menu_atual'] == "Atualização Base":
         st.session_state['menu_atual'] = "Atualizar Base"
     elif st.session_state['menu_atual'] == "Painel":
@@ -22642,7 +22651,7 @@ elif menu == "Carteira 4.966":
         if info and not info.get("erro"):
             st.caption(f"Status do cache: {info}")
 
-elif menu == "Taxas de Juros por Produto":
+elif menu == "Taxas de Juros por Produto (Legado)":
     # =========================================================================
     # ABA TAXAS DE JUROS POR PRODUTO - Extração direta da API do BCB
     # Dropdowns cascateados: Segmento → Produto → Bancos
@@ -22735,8 +22744,15 @@ elif menu == "Taxas de Juros por Produto":
         except Exception as e:
             return pd.DataFrame()
 
-    st.markdown("### Taxas de Juros por Produto")
+    st.markdown("### Taxas de Juros por Produto (Legado)")
     st.caption("Histórico dos últimos 12 meses - API do Banco Central do Brasil")
+    st.warning(
+        "Esta é a versão legada e mais pesada da aba. Para uso diário, prefira `Taxas de Juros (Beta Leve)`, "
+        "que consulta em etapas e reduz bastante o risco de carga excessiva."
+    )
+    if st.button("Abrir Taxas de Juros (Beta Leve)", key="tj_legado_ir_beta", width='stretch'):
+        st.session_state['menu_atual'] = "Taxas de Juros (Beta Leve)"
+        st.rerun()
 
     with st.expander("Sobre os dados", expanded=False):
         st.markdown("""
@@ -23029,6 +23045,519 @@ elif menu == "Taxas de Juros por Produto":
                             file_name=f"taxas_hist_{segmento_sel}_{produto_sel[:20]}.csv",
                             mime="text/csv",
                             key="tj_download_csv"
+                        )
+
+elif menu == "Taxas de Juros (Beta Leve)":
+    # =========================================================================
+    # ABA TAXAS DE JUROS (BETA LEVE)
+    # Estratégia: consultas progressivas com filtro no servidor do BCB.
+    # Evita baixar o universo inteiro antes da escolha de segmento/produto.
+    # =========================================================================
+    SEGMENTOS_TAXAS_BETA = ["PESSOA FÍSICA", "PESSOA JURÍDICA"]
+    TAXAS_BETA_PALETTE = [
+        "#0B3954", "#D1495B", "#2A9D8F", "#F4A261", "#5C4D7D",
+        "#0077B6", "#6D597A", "#1D3557", "#3A7D44", "#C97A00",
+        "#A4243B", "#0081A7",
+    ]
+
+    def _formatar_modalidade_beta(nome: str) -> str:
+        if not nome:
+            return nome
+        return formatar_nome_modalidade(nome)
+
+    def _reduzir_taxas_beta_semanal(df: pd.DataFrame) -> pd.DataFrame:
+        if df.empty or 'Fim Período' not in df.columns:
+            return df.copy()
+        weekly = df.copy()
+        weekly['AnoSemana'] = weekly['Fim Período'].dt.to_period('W')
+        idx = weekly.groupby(
+            ['Instituição Financeira', 'AnoSemana'],
+            observed=False,
+        )['Fim Período'].idxmax()
+        return (
+            weekly.loc[idx]
+            .sort_values(['Fim Período', 'Instituição Financeira'])
+            .reset_index(drop=True)
+        )
+
+    def _selecionar_janela_mensal_beta(df: pd.DataFrame, meses: int) -> pd.DataFrame:
+        if df.empty or 'AnoMes' not in df.columns:
+            return df.copy()
+        periodos = sorted(df['AnoMes'].dropna().unique().tolist())
+        keep = set(periodos[-int(meses):])
+        return df[df['AnoMes'].isin(keep)].copy()
+
+    def _color_map_taxas_beta(bancos: List[str]) -> Dict[str, str]:
+        return {
+            banco: TAXAS_BETA_PALETTE[idx % len(TAXAS_BETA_PALETTE)]
+            for idx, banco in enumerate(bancos)
+        }
+
+    def _adicionar_rotulos_finais_taxas_beta(fig, df: pd.DataFrame, y_col: str, color_map: Dict[str, str]) -> None:
+        if df.empty or y_col not in df.columns:
+            return
+        latest = (
+            df.sort_values('Fim Período')
+            .groupby('Instituição Financeira', observed=False)
+            .tail(1)
+            .copy()
+        )
+        latest['_y_num'] = pd.to_numeric(latest[y_col], errors='coerce')
+        latest = latest.dropna(subset=['_y_num']).sort_values('_y_num', ascending=False).reset_index(drop=True)
+        if latest.empty:
+            return
+
+        y_range = latest['_y_num'].max() - latest['_y_num'].min() if len(latest) > 1 else 1.0
+        min_gap = max(y_range * 0.05, 0.04)
+        target_y = []
+        for pos, (_, row) in enumerate(latest.iterrows()):
+            actual = row['_y_num']
+            if pos == 0:
+                target_y.append(actual)
+            else:
+                target_y.append(min(actual, target_y[-1] - min_gap))
+
+        for idx, row in latest.iterrows():
+            banco = row['Instituição Financeira']
+            color = color_map.get(banco, '#1f2937')
+            fig.add_annotation(
+                x=row['Fim Período'],
+                y=row['_y_num'],
+                text=f"<b>{float(row['_y_num']):.2f}%</b>".replace(".", ","),
+                xanchor='left',
+                yanchor='middle',
+                showarrow=True,
+                arrowhead=0,
+                ax=46,
+                ay=target_y[idx],
+                axref='pixel',
+                ayref='y',
+                arrowcolor=color,
+                arrowwidth=1,
+                bgcolor="rgba(255,255,255,0.82)",
+                borderpad=2,
+                font=dict(size=10, color=color, family="Arial, sans-serif"),
+            )
+
+    @st.cache_data(ttl=1800, show_spinner="Consultando catálogo recente no BCB...")
+    def _buscar_taxas_beta_catalogo_produtos(segmento: str, dias_catalogo: int = 45):
+        data_inicio = (datetime.now() - timedelta(days=int(dias_catalogo))).strftime('%Y-%m-%d')
+        return fetch_taxas_juros_scoped(
+            data_inicio=data_inicio,
+            segmento=segmento,
+            select_fields=[
+                "FimPeriodo",
+                "Segmento",
+                "Modalidade",
+            ],
+            page_size=15000,
+            max_pages=4,
+            timeout=45,
+        )
+
+    @st.cache_data(ttl=1800, show_spinner="Carregando histórico enxuto do produto...")
+    def _buscar_taxas_beta_historico_produto(segmento: str, produto: str, dias_historico: int = 400):
+        data_inicio = (datetime.now() - timedelta(days=int(dias_historico))).strftime('%Y-%m-%d')
+        return fetch_taxas_juros_scoped(
+            data_inicio=data_inicio,
+            data_fim=datetime.now().strftime('%Y-%m-%d'),
+            segmento=segmento,
+            modalidade=produto,
+            select_fields=[
+                "InicioPeriodo",
+                "FimPeriodo",
+                "Segmento",
+                "Modalidade",
+                "Posicao",
+                "InstituicaoFinanceira",
+                "TaxaJurosAoMes",
+                "TaxaJurosAoAno",
+                "cnpj8",
+            ],
+            page_size=5000,
+            max_pages=6,
+            timeout=60,
+        )
+
+    @st.cache_data(ttl=900, show_spinner="Carregando detalhe recente do produto...")
+    def _buscar_taxas_beta_detalhe_recente(segmento: str, produto: str, instituicoes_key: tuple[str, ...], dias_recente: int = 60):
+        data_inicio = (datetime.now() - timedelta(days=int(dias_recente))).strftime('%Y-%m-%d')
+        return fetch_taxas_juros_for_institutions(
+            instituicoes=list(instituicoes_key),
+            data_inicio=data_inicio,
+            data_fim=datetime.now().strftime('%Y-%m-%d'),
+            segmento=segmento,
+            modalidade=produto,
+            select_fields=[
+                "FimPeriodo",
+                "Segmento",
+                "Modalidade",
+                "Posicao",
+                "InstituicaoFinanceira",
+                "TaxaJurosAoMes",
+                "TaxaJurosAoAno",
+            ],
+            page_size=500,
+            max_pages_per_institution=2,
+            timeout=45,
+        )
+
+    st.markdown("### Taxas de Juros (Beta Leve)")
+    st.caption("Consultas progressivas no servidor do BCB: segmento → produto → bancos. Sem baixar o universo inteiro para a RAM do Streamlit.")
+
+    with st.expander("Sobre a beta", expanded=False):
+        st.markdown(
+            """
+            **Objetivo:** maximizar dado ao vivo com carga controlada.
+
+            **Guardrails desta aba:**
+            - catálogo recente restrito a janela curta e poucas colunas;
+            - histórico completo só depois da escolha do produto;
+            - detalhe recente opcional e sob demanda;
+            - limites explícitos de paginação por consulta.
+
+            **Trade-off:** se o volume de um produto específico exceder o limite seguro da beta,
+            a aba prioriza estabilidade e mostra aviso de possível truncamento.
+            """
+        )
+
+    col_cfg1, col_cfg2, col_cfg3 = st.columns([1.1, 1.2, 1.1])
+    with col_cfg1:
+        segmento_beta = st.selectbox(
+            "1️⃣ Segmento",
+            options=SEGMENTOS_TAXAS_BETA,
+            key="tj_beta_segmento",
+        )
+    with col_cfg2:
+        tipo_taxa_beta = st.radio(
+            "2️⃣ Taxa",
+            ["Taxa Mensal (%)", "Taxa Anual (%)"],
+            horizontal=True,
+            key="tj_beta_tipo_taxa",
+        )
+    with col_cfg3:
+        carregar_detalhe_beta = st.toggle(
+            "Detalhe recente (60 dias)",
+            value=False,
+            key="tj_beta_toggle_recente",
+            help="Busca um recorte mais granular apenas do produto já selecionado.",
+        )
+
+    df_catalogo_beta, meta_catalogo_beta = _buscar_taxas_beta_catalogo_produtos(segmento_beta)
+
+    if df_catalogo_beta.empty:
+        st.warning("Não foi possível montar o catálogo recente de produtos do BCB para este segmento.")
+        if meta_catalogo_beta.get("error"):
+            st.caption(f"Erro retornado: {meta_catalogo_beta['error']}")
+    else:
+        data_catalogo_beta = df_catalogo_beta['Fim Período'].max()
+        df_catalogo_recente_beta = df_catalogo_beta[df_catalogo_beta['Fim Período'] == data_catalogo_beta].copy()
+        produtos_beta = sorted(df_catalogo_recente_beta['Produto'].dropna().unique().tolist())
+
+        st.success(
+            f"Catálogo leve: {len(produtos_beta)} produtos | "
+            f"amostra mais recente em {data_catalogo_beta.strftime('%d/%m/%Y')} | "
+            f"{meta_catalogo_beta.get('rows_returned', len(df_catalogo_beta)):,} linhas recebidas."
+        )
+        if meta_catalogo_beta.get("hit_page_limit"):
+            st.warning(
+                "A consulta de catálogo atingiu o limite seguro de paginação da beta. "
+                "Alguns produtos podem não ter aparecido; se isso acontecer, reduzo ainda mais o fluxo."
+            )
+
+        produto_beta = st.selectbox(
+            "3️⃣ Produto",
+            options=produtos_beta,
+            format_func=_formatar_modalidade_beta,
+            key="tj_beta_produto",
+        )
+
+        if produto_beta:
+            df_hist_beta_raw, meta_hist_beta = _buscar_taxas_beta_historico_produto(
+                segmento_beta,
+                produto_beta,
+            )
+
+            if df_hist_beta_raw.empty:
+                st.warning("Nenhum histórico retornado para o produto selecionado.")
+                if meta_hist_beta.get("error"):
+                    st.caption(f"Erro retornado: {meta_hist_beta['error']}")
+            else:
+                df_hist_beta_mensal = reduce_taxas_juros_to_monthly_snapshot(df_hist_beta_raw)
+                data_mais_recente_beta = df_hist_beta_raw['Fim Período'].max()
+                df_rank_beta = df_hist_beta_raw[df_hist_beta_raw['Fim Período'] == data_mais_recente_beta].copy()
+
+                if 'Posição' in df_rank_beta.columns and not df_rank_beta.empty:
+                    df_rank_beta = df_rank_beta.sort_values('Posição', ascending=True, na_position='last')
+                else:
+                    df_rank_beta = df_rank_beta.sort_values('Instituição Financeira')
+
+                bancos_disponiveis_beta = df_rank_beta['Instituição Financeira'].dropna().unique().tolist()
+                top_bancos_beta = bancos_disponiveis_beta[:8]
+                dict_aliases = st.session_state.get('dict_aliases', {})
+                bancos_ordenados_beta = ordenar_bancos_com_alias(bancos_disponiveis_beta, dict_aliases)
+
+                st.markdown(f"#### {_formatar_modalidade_beta(produto_beta)}")
+                col_stat1, col_stat2, col_stat3, col_stat4 = st.columns(4)
+                with col_stat1:
+                    st.metric("Linhas carregadas", f"{len(df_hist_beta_raw):,}")
+                with col_stat2:
+                    st.metric("Pontos mensais", f"{len(df_hist_beta_mensal):,}")
+                with col_stat3:
+                    st.metric("Instituições", df_hist_beta_raw['Instituição Financeira'].nunique())
+                with col_stat4:
+                    st.metric("Última data", data_mais_recente_beta.strftime('%d/%m/%Y'))
+
+                if meta_hist_beta.get("hit_page_limit"):
+                    st.warning(
+                        "O histórico deste produto atingiu o limite seguro da beta. "
+                        "A visualização continua útil, mas pode não representar 100% das linhas disponíveis."
+                    )
+
+                bancos_sel_beta = st.multiselect(
+                    "4️⃣ Bancos exibidos (máx 12)",
+                    options=bancos_ordenados_beta,
+                    default=[b for b in top_bancos_beta if b in bancos_ordenados_beta],
+                    max_selections=12,
+                    key="tj_beta_bancos",
+                    help="Pré-seleção com os bancos mais bem posicionados na data mais recente.",
+                )
+
+                if not bancos_sel_beta:
+                    st.warning("Selecione ao menos um banco para visualizar o histórico.")
+                else:
+                    meses_disponiveis_beta = sorted(df_hist_beta_mensal['AnoMes'].dropna().unique().tolist())
+                    max_meses_beta = max(1, min(12, len(meses_disponiveis_beta)))
+                    col_view1, col_view2 = st.columns([1.4, 1.0])
+                    with col_view1:
+                        modo_visual_beta = st.radio(
+                            "5️⃣ Visualização",
+                            ["Linha comparativa", "Painéis por banco", "Ranking atual"],
+                            horizontal=True,
+                            key="tj_beta_modo_visual",
+                        )
+                    with col_view2:
+                        janela_meses_beta = st.slider(
+                            "Janela mensal",
+                            min_value=1,
+                            max_value=max_meses_beta,
+                            value=min(6, max_meses_beta),
+                            key="tj_beta_janela_meses",
+                        )
+
+                    df_chart_beta = (
+                        df_hist_beta_mensal[
+                            df_hist_beta_mensal['Instituição Financeira'].isin(bancos_sel_beta)
+                        ]
+                        .sort_values('Fim Período')
+                        .copy()
+                    )
+                    df_chart_beta = _selecionar_janela_mensal_beta(df_chart_beta, janela_meses_beta)
+                    color_map_beta = _color_map_taxas_beta(bancos_sel_beta)
+
+                    df_rank_beta_display = (
+                        df_rank_beta[df_rank_beta['Instituição Financeira'].isin(bancos_sel_beta)][
+                            [col for col in ['Posição', 'Instituição Financeira', 'Taxa Mensal (%)', 'Taxa Anual (%)'] if col in df_rank_beta.columns]
+                        ]
+                        .copy()
+                    )
+
+                    valor_rank = pd.to_numeric(df_rank_beta_display[tipo_taxa_beta], errors='coerce') if tipo_taxa_beta in df_rank_beta_display.columns else pd.Series(dtype='float64')
+                    if not df_rank_beta_display.empty and not valor_rank.dropna().empty:
+                        idx_min = valor_rank.idxmin()
+                        idx_max = valor_rank.idxmax()
+                        melhor_banco = str(df_rank_beta_display.loc[idx_min, 'Instituição Financeira'])
+                        pior_banco = str(df_rank_beta_display.loc[idx_max, 'Instituição Financeira'])
+                        melhor_valor = float(valor_rank.loc[idx_min])
+                        pior_valor = float(valor_rank.loc[idx_max])
+                        spread_valor = pior_valor - melhor_valor
+                        col_kpi1, col_kpi2, col_kpi3 = st.columns(3)
+                        with col_kpi1:
+                            st.metric("Melhor taxa atual", f"{melhor_valor:.2f}%".replace(".", ","))
+                            st.caption(melhor_banco)
+                        with col_kpi2:
+                            st.metric("Pior taxa atual", f"{pior_valor:.2f}%".replace(".", ","))
+                            st.caption(pior_banco)
+                        with col_kpi3:
+                            st.metric("Spread selecionado", f"{spread_valor:.2f} p.p.".replace(".", ","))
+
+                    if modo_visual_beta == "Linha comparativa":
+                        fig_beta = px.line(
+                            df_chart_beta,
+                            x='Fim Período',
+                            y=tipo_taxa_beta,
+                            color='Instituição Financeira',
+                            markers=True,
+                            template='plotly_white',
+                            color_discrete_map=color_map_beta,
+                            labels={
+                                'Fim Período': 'Data',
+                                tipo_taxa_beta: tipo_taxa_beta,
+                                'Instituição Financeira': 'Instituição',
+                            },
+                            title=f"{_formatar_modalidade_beta(produto_beta)} · visão mensal comparativa",
+                        )
+                        fig_beta.update_layout(
+                            height=520,
+                            xaxis_title="",
+                            yaxis_title=tipo_taxa_beta,
+                            hovermode='x unified',
+                            legend=dict(
+                                orientation="h",
+                                yanchor="bottom",
+                                y=-0.35,
+                                xanchor="center",
+                                x=0.5,
+                                font=dict(size=10),
+                            ),
+                            margin=dict(b=105, r=70, t=60, l=60),
+                        )
+                        fig_beta.update_xaxes(dtick="M1", tickformat="%b/%y")
+                        fig_beta.update_traces(line=dict(width=2.2), marker=dict(size=6))
+                        _adicionar_rotulos_finais_taxas_beta(fig_beta, df_chart_beta, tipo_taxa_beta, color_map_beta)
+                        st.plotly_chart(fig_beta, width='stretch')
+                    elif modo_visual_beta == "Painéis por banco":
+                        facet_wrap_beta = 2 if len(bancos_sel_beta) <= 4 else 3
+                        fig_beta = px.line(
+                            df_chart_beta,
+                            x='Fim Período',
+                            y=tipo_taxa_beta,
+                            facet_col='Instituição Financeira',
+                            facet_col_wrap=facet_wrap_beta,
+                            color='Instituição Financeira',
+                            markers=True,
+                            template='plotly_white',
+                            color_discrete_map=color_map_beta,
+                            labels={
+                                'Fim Período': 'Data',
+                                tipo_taxa_beta: tipo_taxa_beta,
+                                'Instituição Financeira': 'Instituição',
+                            },
+                            title=f"{_formatar_modalidade_beta(produto_beta)} · painéis por banco",
+                        )
+                        fig_beta.update_layout(
+                            height=max(460, 240 * math.ceil(len(bancos_sel_beta) / facet_wrap_beta)),
+                            xaxis_title="",
+                            yaxis_title=tipo_taxa_beta,
+                            showlegend=False,
+                            margin=dict(b=70, r=20, t=60, l=50),
+                        )
+                        fig_beta.update_xaxes(dtick="M1", tickformat="%b/%y")
+                        fig_beta.update_traces(line=dict(width=2.0), marker=dict(size=5))
+                        fig_beta.for_each_annotation(lambda ann: ann.update(text=ann.text.split("=")[-1]))
+                        st.plotly_chart(fig_beta, width='stretch')
+                    else:
+                        df_rank_chart = df_rank_beta_display.copy()
+                        df_rank_chart['_valor_plot'] = pd.to_numeric(df_rank_chart[tipo_taxa_beta], errors='coerce')
+                        df_rank_chart = df_rank_chart.dropna(subset=['_valor_plot']).sort_values('_valor_plot', ascending=True)
+                        fig_beta = px.bar(
+                            df_rank_chart,
+                            x='_valor_plot',
+                            y='Instituição Financeira',
+                            color='Instituição Financeira',
+                            orientation='h',
+                            text='_valor_plot',
+                            template='plotly_white',
+                            color_discrete_map=color_map_beta,
+                            title=f"{_formatar_modalidade_beta(produto_beta)} · ranking atual das selecionadas",
+                            labels={'_valor_plot': tipo_taxa_beta, 'Instituição Financeira': 'Instituição'},
+                        )
+                        fig_beta.update_traces(
+                            texttemplate='%{text:.2f}%',
+                            textposition='outside',
+                            cliponaxis=False,
+                        )
+                        fig_beta.update_layout(
+                            height=max(360, 36 * len(df_rank_chart) + 120),
+                            xaxis_title=tipo_taxa_beta,
+                            yaxis_title="",
+                            showlegend=False,
+                            margin=dict(b=40, r=40, t=60, l=40),
+                        )
+                        st.plotly_chart(fig_beta, width='stretch')
+
+                    st.markdown("#### Ranking atual")
+                    st.caption(
+                        f"Fotografia mais recente do produto em {data_mais_recente_beta.strftime('%d/%m/%Y')}."
+                    )
+                    st.dataframe(df_rank_beta_display, width='stretch', hide_index=True)
+
+                    if carregar_detalhe_beta:
+                        granularidade_beta = st.radio(
+                            "Detalhe recente",
+                            ["Último ponto da semana", "Todos os pontos disponíveis"],
+                            horizontal=True,
+                            key="tj_beta_granularidade_recente",
+                        )
+                        df_recent_beta_raw, meta_recent_beta = _buscar_taxas_beta_detalhe_recente(
+                            segmento_beta,
+                            produto_beta,
+                            tuple(sorted(bancos_sel_beta)),
+                        )
+                        df_recent_beta = df_recent_beta_raw.sort_values('Fim Período').copy()
+                        if granularidade_beta == "Último ponto da semana":
+                            df_recent_beta = _reduzir_taxas_beta_semanal(df_recent_beta)
+
+                        if df_recent_beta.empty:
+                            st.info("Sem detalhe recente disponível para os bancos selecionados.")
+                            errors_beta = meta_recent_beta.get("errors") or {}
+                            if errors_beta:
+                                st.caption(f"Erros retornados: {errors_beta}")
+                        else:
+                            fig_recent_beta = px.line(
+                                df_recent_beta,
+                                x='Fim Período',
+                                y=tipo_taxa_beta,
+                                color='Instituição Financeira',
+                                markers=True,
+                                template='plotly_white',
+                                color_discrete_sequence=TAXAS_BETA_PALETTE,
+                                labels={
+                                    'Fim Período': 'Data',
+                                    tipo_taxa_beta: tipo_taxa_beta,
+                                    'Instituição Financeira': 'Instituição',
+                                },
+                                title=f"{_formatar_modalidade_beta(produto_beta)} · detalhe recente (60 dias)",
+                            )
+                            fig_recent_beta.update_layout(
+                                height=440,
+                                xaxis_title="",
+                                yaxis_title=tipo_taxa_beta,
+                                hovermode='x unified',
+                                legend=dict(
+                                    orientation="h",
+                                    yanchor="bottom",
+                                    y=-0.30,
+                                    xanchor="center",
+                                    x=0.5,
+                                    font=dict(size=10),
+                                ),
+                                margin=dict(b=90, r=30, t=60, l=60),
+                            )
+                            fig_recent_beta.update_traces(line=dict(width=2.0), marker=dict(size=5))
+                            st.plotly_chart(fig_recent_beta, width='stretch')
+                            st.caption(
+                                f"Detalhe recente: {len(df_recent_beta):,} linhas plotadas "
+                                f"para {len(bancos_sel_beta)} banco(s) | "
+                                f"{meta_recent_beta.get('pages_loaded', 0)} página(s) consultadas no total."
+                            )
+                            if meta_recent_beta.get("hit_page_limit"):
+                                st.warning(
+                                    "O detalhe recente atingiu o limite seguro da beta. "
+                                    "Se isso acontecer com frequência, o próximo passo é refinar ainda mais o escopo por banco."
+                                )
+                            errors_beta = meta_recent_beta.get("errors") or {}
+                            if errors_beta:
+                                st.caption(f"Algumas instituições retornaram erro: {errors_beta}")
+
+                    with st.expander("Exportar dados"):
+                        csv_mensal_beta = df_chart_beta.to_csv(index=False, sep=';', decimal=',')
+                        st.download_button(
+                            label="Baixar CSV (visão mensal beta)",
+                            data=csv_mensal_beta,
+                            file_name=f"taxas_beta_mensal_{segmento_beta}_{produto_beta[:20]}.csv",
+                            mime="text/csv",
+                            key="tj_beta_download_mensal",
                         )
 
 elif menu == "Crie sua métrica!":
@@ -24109,6 +24638,10 @@ elif menu == "Atualizar Base":
         # Taxas de Juros usa seleção de data (diário), demais usam trimestral
         if is_taxas_juros:
             st.caption("⚠️ Taxas de Juros: extração completa de TODOS os produtos e TODAS as instituições")
+            st.warning(
+                "Este fluxo de atualização é pesado e voltado a reconstrução de cache completo. "
+                "Para análise ao vivo no app, use a aba `Taxas de Juros (Beta Leve)`."
+            )
 
             col_data1, col_data2 = st.columns(2)
 
@@ -24613,7 +25146,11 @@ elif menu == "Atualizar Base":
                                     cache_taxas.limpar_local()
 
                                 # Salvar os dados
-                                save_result = cache_taxas.salvar_local(resultado.dados, resultado.metadata)
+                                save_result = cache_taxas.salvar_local(
+                                    resultado.dados,
+                                    fonte="api",
+                                    info_extra=resultado.metadata,
+                                )
 
                                 save_status.empty()
 
