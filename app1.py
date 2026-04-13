@@ -166,6 +166,19 @@ from utils.cdsfn_live import (
     validate_json_cdsfn,
 )
 from utils.pessoas_juridicas_api import consultar_pessoas_juridicas
+from rating import (
+    MODEL_DISCLOSURES,
+    QUALITATIVE_QUESTIONS,
+    build_audit_tables,
+    build_audit_trail_markdown,
+    build_variable_mapping_table,
+    calculate_rating,
+    list_available_rating_periods,
+    load_rating_input_dataframe,
+    map_rating_inputs,
+    period_to_display_label,
+)
+from rating.engine import get_size_bucket
 import io
 import base64
 import subprocess
@@ -11725,9 +11738,394 @@ with col_header:
         </div>
     """, unsafe_allow_html=True)
 
+
+@st.cache_data(ttl=900, show_spinner=False)
+def _get_test_period_options(critical_token: str) -> tuple[str, ...]:
+    _ = critical_token
+    return tuple(list_available_rating_periods())
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def _load_test_period_dataframe(critical_token: str, period: str) -> pd.DataFrame:
+    _ = critical_token
+    return load_rating_input_dataframe(period)
+
+
+def _formatar_test_rating_valor(campo: str, valor) -> str:
+    campo_txt = str(campo or "")
+    if valor is None or pd.isna(valor):
+        return "N/A"
+    if campo_txt in {
+        "Ativo Total",
+        "Core Funding",
+        "Core Funding (prev)",
+        "Carteira de Crédito Bruta",
+        "Carteira de Crédito Bruta (prev)",
+        "Perda Esperada",
+        "Perda Esperada (prev)",
+        "Ativos Estágio 3",
+        "Ativos Estágio 3 (prev)",
+    }:
+        return _formatar_monetario_br_inteligente(valor, decimais=2)
+    if campo_txt in {
+        "Índice de Capital Principal (CET1)",
+        "Índice de Basileia Total (%)",
+        "ROE Ac. Anualizado (%)",
+        "Crédito / Captações",
+        "Perda Esperada / Carteira de Crédito Bruta",
+        "Perda Esperada / Carteira de Crédito Bruta (prev)",
+    }:
+        return _formatar_percentual(valor, decimais=2)
+    return _formatar_numero_ptbr(valor, decimais=4)
+
+
+def _build_test_input_tables(mapped_payload: dict) -> tuple[pd.DataFrame, pd.DataFrame]:
+    raw_rows = []
+    for campo, valor in (mapped_payload.get("raw_inputs") or {}).items():
+        raw_rows.append(
+            {
+                "Campo bruto": campo,
+                "Valor": _formatar_test_rating_valor(campo, valor),
+            }
+        )
+
+    mapped_rows = []
+    for chave, payload in (mapped_payload.get("mapped_inputs") or {}).items():
+        mapped_rows.append(
+            {
+                "Input do modelo": chave,
+                "Display": payload.get("display_label"),
+                "Valor": _formatar_test_rating_valor(str(payload.get("display_label") or chave), payload.get("value")),
+                "Fonte": payload.get("source_field") or "N/A",
+                "Tipo": payload.get("source_kind") or "N/A",
+                "Observação": payload.get("note") or "",
+            }
+        )
+    return pd.DataFrame(raw_rows), pd.DataFrame(mapped_rows)
+
+
+def _question_options_by_id() -> dict[str, dict]:
+    return {str(question["id"]): question for question in QUALITATIVE_QUESTIONS}
+
+
+def _format_test_question_option(question: dict, option_code: str) -> str:
+    if not option_code:
+        return "Selecione uma resposta"
+    option = next((item for item in question["options"] if str(item["code"]) == str(option_code)), None)
+    if option is None:
+        return str(option_code)
+    provisoria = " | provisório" if option.get("provisional") else ""
+    return f"{option['code']} | {option['label']} ({option['score']:+.2f}){provisoria}"
+
+
+def _render_test_qualitative_form(key_prefix: str) -> tuple[dict[str, str], bool, pd.DataFrame]:
+    answers: dict[str, str] = {}
+    preview_rows: list[dict[str, str]] = []
+    cols = st.columns(2)
+
+    for idx, question in enumerate(QUALITATIVE_QUESTIONS):
+        with cols[idx % 2]:
+            qid = str(question["id"])
+            options = [""] + [str(item["code"]) for item in question["options"]]
+            selected = st.selectbox(
+                f"{question['label']} - {question['title']}",
+                options=options,
+                index=0,
+                format_func=lambda code, q=question: _format_test_question_option(q, code),
+                key=f"{key_prefix}_{qid}",
+            )
+            st.caption(str(question.get("note") or ""))
+            if selected:
+                answers[qid] = selected
+                option = next((item for item in question["options"] if str(item["code"]) == selected), None)
+                if option is not None:
+                    preview_rows.append(
+                        {
+                            "Pergunta": f"{question['label']} - {question['title']}",
+                            "Resposta": str(option["label"]),
+                            "Impacto": f"{float(option['score']):+.2f}",
+                            "Grupo": str(question["group"]),
+                        }
+                    )
+
+    all_answered = len(answers) == len(QUALITATIVE_QUESTIONS)
+    return answers, all_answered, pd.DataFrame(preview_rows)
+
+
+def _resultado_batch_rating_df(results: list[dict]) -> pd.DataFrame:
+    rows = []
+    for result in results:
+        mapped_inputs = result.get("mapped_inputs") or {}
+        rows.append(
+            {
+                "Instituição": result.get("institution_name"),
+                "ConglomeradoId": result.get("institution_id") or "",
+                "Status": result.get("status"),
+                "Rating": result.get("final_numeric_rating"),
+                "Label secundário": result.get("secondary_label") or "",
+                "Score bruto": round(float(result["raw_final_score"]), 4) if result.get("raw_final_score") is not None else None,
+                "Score inicial": result.get("starting_score"),
+                "Porte": (result.get("size_bucket") or {}).get("label") or "",
+                "Fonte CET1": (mapped_inputs.get("cet1") or {}).get("source_kind") or "",
+                "Fonte NPL": (mapped_inputs.get("npl_creation") or {}).get("source_kind") or "",
+                "Fonte funding": (mapped_inputs.get("funding_structural_ratio") or {}).get("source_kind") or "",
+                "Campos faltantes": ", ".join(result.get("missing_quantitative_inputs") or []),
+            }
+        )
+    df_out = pd.DataFrame(rows)
+    if df_out.empty:
+        return df_out
+    ordem_status = {"ok": 0, "incomplete": 1}
+    df_out["_ordem_status"] = df_out["Status"].map(lambda valor: ordem_status.get(str(valor), 9))
+    df_out["_rating_sort"] = pd.to_numeric(df_out["Rating"], errors="coerce").fillna(-1)
+    df_out = df_out.sort_values(["_ordem_status", "_rating_sort", "Instituição"], ascending=[True, False, True])
+    return df_out.drop(columns=["_ordem_status", "_rating_sort"])
+
+
+def pagina_test():
+    st.markdown("### test")
+    st.caption(
+        "sandbox do rating reverso usando apenas a base prudencial já materializada em `critical_screens`."
+    )
+    st.warning(
+        "Implementação provisória: o repositório não contém o workbook/engine original do rating. "
+        "A aba expõe todas as proxies, fallbacks e aproximações usadas."
+    )
+
+    if not _garantir_cache_telas_criticas("test"):
+        return
+
+    critical_token = _cache_version_token("critical_screens")
+    period_options = list(_get_test_period_options(critical_token))
+    if not period_options:
+        st.warning("nenhum período disponível em `critical_screens`.")
+        return
+
+    with st.expander("Diagnóstico do modelo e mapeamento de dados", expanded=False):
+        st.markdown("\n".join([f"- {item}" for item in MODEL_DISCLOSURES]))
+        st.dataframe(build_variable_mapping_table(), hide_index=True, use_container_width=True)
+
+    col_mode, col_period = st.columns([1.0, 1.2])
+    with col_mode:
+        modo = st.radio(
+            "Modo",
+            ["Instituição", "Batch"],
+            horizontal=True,
+            key="test_rating_mode",
+        )
+    with col_period:
+        periodo_selecionado = st.selectbox(
+            "Período",
+            period_options,
+            index=0,
+            format_func=period_to_display_label,
+            key="test_rating_period",
+        )
+
+    df_periodo = _load_test_period_dataframe(critical_token, periodo_selecionado)
+    if df_periodo is None or df_periodo.empty:
+        st.warning("não foi possível carregar o recorte do período selecionado.")
+        return
+
+    st.caption(
+        f"Período selecionado: {period_to_display_label(periodo_selecionado)} "
+        f"(chave interna do cache: {periodo_selecionado}). "
+        f"{len(df_periodo):,} conglomerados prudenciais disponíveis."
+    )
+
+    if modo == "Instituição":
+        instituicoes = sorted(df_periodo["Instituição"].dropna().astype(str).unique().tolist())
+        banco = st.selectbox(
+            "Conglomerado prudencial",
+            instituicoes,
+            index=0 if instituicoes else None,
+            key="test_rating_instituicao",
+        )
+        if not banco:
+            st.info("selecione uma instituição.")
+            return
+
+        registro = (
+            df_periodo[df_periodo["Instituição"].astype(str) == str(banco)]
+            .iloc[0]
+            .to_dict()
+        )
+        mapped_payload = map_rating_inputs(registro)
+        raw_table, mapped_table = _build_test_input_tables(mapped_payload)
+
+        ativos = (mapped_payload.get("mapped_inputs") or {}).get("total_assets", {}).get("value")
+        size_bucket = get_size_bucket(float(ativos)) if ativos is not None else None
+        col_a, col_b, col_c, col_d = st.columns(4)
+        with col_a:
+            st.metric("ConglomeradoId", mapped_payload.get("institution_id") or "N/A")
+        with col_b:
+            st.metric("Período anterior", mapped_payload.get("previous_period") or "N/A")
+        with col_c:
+            st.metric("Porte", size_bucket["label"] if size_bucket else "N/A")
+        with col_d:
+            st.metric("Score inicial", size_bucket["starting_score"] if size_bucket else "N/A")
+
+        col_raw, col_map = st.columns(2)
+        with col_raw:
+            st.markdown("**Dados brutos usados**")
+            st.dataframe(raw_table, hide_index=True, use_container_width=True)
+        with col_map:
+            st.markdown("**Inputs do modelo e disclosures**")
+            st.dataframe(mapped_table, hide_index=True, use_container_width=True)
+
+        if mapped_payload.get("missing_inputs"):
+            st.warning(
+                "inputs quantitativos indisponíveis antes do cálculo: "
+                + ", ".join(mapped_payload["missing_inputs"])
+            )
+
+        st.markdown("**Perguntas qualitativas (Q1 a Q6)**")
+        answers, all_answered, preview_df = _render_test_qualitative_form("test_rating_single")
+        if not preview_df.empty:
+            st.dataframe(preview_df, hide_index=True, use_container_width=True)
+
+        if not all_answered:
+            st.info("responda as seis perguntas qualitativas para calcular o rating.")
+            return
+
+        result = calculate_rating(mapped_payload, answers)
+        audit_tables = build_audit_tables(result)
+        audit_markdown = build_audit_trail_markdown(result)
+
+        if result.get("status") != "ok":
+            st.error(
+                "não foi possível calcular o rating desta instituição com os dados atualmente disponíveis. "
+                "Revise os campos faltantes acima."
+            )
+            return
+
+        col_r1, col_r2, col_r3, col_r4 = st.columns(4)
+        with col_r1:
+            st.metric("Score bruto", _formatar_numero_ptbr(result["raw_final_score"], decimais=4))
+        with col_r2:
+            st.metric("Score arredondado", result["rounded_final_score"])
+        with col_r3:
+            st.metric("Rating final (1-25)", result["final_numeric_rating"])
+        with col_r4:
+            st.metric("Label secundário", result.get("secondary_label") or "N/A")
+
+        st.markdown("**Contribuições do score**")
+        st.dataframe(audit_tables["contributions"], hide_index=True, use_container_width=True)
+        st.markdown("**Substituições, proxies e fallbacks**")
+        st.dataframe(audit_tables["replacements"], hide_index=True, use_container_width=True)
+
+        with st.expander("Memória completa de cálculo", expanded=True):
+            st.code(audit_markdown, language="markdown")
+            st.download_button(
+                "Baixar auditoria (.md)",
+                data=audit_markdown.encode("utf-8"),
+                file_name=f"rating_audit_{str(banco).replace(' ', '_')}_{periodo_selecionado.replace('/', '-')}.md",
+                mime="text/markdown",
+                key="test_rating_single_download_md",
+            )
+
+    else:
+        st.markdown("**Template qualitativo global do cenário**")
+        answers, all_answered, preview_df = _render_test_qualitative_form("test_rating_batch")
+        if not preview_df.empty:
+            st.dataframe(preview_df, hide_index=True, use_container_width=True)
+
+        assinatura_batch = (
+            str(periodo_selecionado),
+            tuple(sorted((k, v) for k, v in answers.items())),
+            int(len(df_periodo)),
+        )
+        if st.button("Calcular batch do período", key="test_rating_batch_run", width="stretch"):
+            if not all_answered:
+                st.warning("responda as seis perguntas qualitativas antes de rodar o batch.")
+            else:
+                with st.spinner("calculando rating para o período selecionado..."):
+                    resultados = []
+                    for registro in df_periodo.to_dict("records"):
+                        mapped_payload = map_rating_inputs(registro)
+                        resultado = calculate_rating(mapped_payload, answers)
+                        resultado["audit_trail_markdown"] = build_audit_trail_markdown(resultado)
+                        resultados.append(resultado)
+                st.session_state["test_rating_batch_state"] = {
+                    "signature": assinatura_batch,
+                    "results": resultados,
+                }
+
+        batch_state = st.session_state.get("test_rating_batch_state") or {}
+        if batch_state.get("signature") != assinatura_batch:
+            st.info("defina o template qualitativo e clique em calcular para gerar o batch.")
+            return
+
+        resultados = list(batch_state.get("results") or [])
+        if not resultados:
+            st.warning("nenhum resultado calculado para o batch.")
+            return
+
+        df_resultados = _resultado_batch_rating_df(resultados)
+        total = len(resultados)
+        concluidos = int(sum(1 for item in resultados if item.get("status") == "ok"))
+        incompletos = total - concluidos
+
+        col_b1, col_b2, col_b3 = st.columns(3)
+        with col_b1:
+            st.metric("Instituições no período", total)
+        with col_b2:
+            st.metric("Ratings calculados", concluidos)
+        with col_b3:
+            st.metric("Não calculados", incompletos)
+
+        st.dataframe(df_resultados, hide_index=True, use_container_width=True)
+        st.download_button(
+            "Baixar batch (.csv)",
+            data=df_resultados.to_csv(index=False).encode("utf-8"),
+            file_name=f"rating_batch_{periodo_selecionado.replace('/', '-')}.csv",
+            mime="text/csv",
+            key="test_rating_batch_download_csv",
+        )
+
+        opcoes_inspecao = df_resultados["Instituição"].dropna().astype(str).tolist()
+        if not opcoes_inspecao:
+            return
+        banco_inspecao = st.selectbox(
+            "Inspecionar auditoria de uma instituição do batch",
+            opcoes_inspecao,
+            key="test_rating_batch_institution",
+        )
+        resultado_inspecao = next(
+            (item for item in resultados if str(item.get("institution_name")) == str(banco_inspecao)),
+            None,
+        )
+        if resultado_inspecao is None:
+            return
+
+        st.markdown("**Resumo da instituição selecionada**")
+        col_i1, col_i2, col_i3, col_i4 = st.columns(4)
+        with col_i1:
+            st.metric("Status", resultado_inspecao.get("status") or "N/A")
+        with col_i2:
+            st.metric("Rating", resultado_inspecao.get("final_numeric_rating") or "N/A")
+        with col_i3:
+            st.metric("Score bruto", _formatar_numero_ptbr(resultado_inspecao.get("raw_final_score"), decimais=4))
+        with col_i4:
+            st.metric("Label secundário", resultado_inspecao.get("secondary_label") or "N/A")
+
+        audit_tables = build_audit_tables(resultado_inspecao)
+        st.dataframe(audit_tables["contributions"], hide_index=True, use_container_width=True)
+        with st.expander("Memória completa de cálculo", expanded=False):
+            st.code(resultado_inspecao.get("audit_trail_markdown") or "", language="markdown")
+            st.download_button(
+                "Baixar auditoria selecionada (.md)",
+                data=(resultado_inspecao.get("audit_trail_markdown") or "").encode("utf-8"),
+                file_name=f"rating_audit_{str(banco_inspecao).replace(' ', '_')}_{periodo_selecionado.replace('/', '-')}.md",
+                mime="text/markdown",
+                key="test_rating_batch_download_md",
+            )
+
+
 # Lista de opções do menu principal (análise)
 MENU_PRINCIPAL = [
     "Snapshot",
+    "test",
     "Rankings",
     "Peers (Tabela)",
     "Conselho e Diretoria",
@@ -11869,6 +12267,7 @@ st.markdown("---")
 
 CACHE_DEPENDENCIAS_POR_ABA = {
     "Snapshot": ["critical_screens"],
+    "test": ["critical_screens"],
     "Rankings": ["principal", "capital"],
     "Peers (Tabela)": ["critical_screens"],
     "Evolução": ["principal", "passivo", "ativo", "capital"],
@@ -12864,6 +13263,9 @@ elif False and menu == "Painel":
 
 # GUARDA DO DISPATCHER: cada rótulo de `menu` deve aparecer uma única vez
 # neste bloco `if/elif` para evitar branches mortos e comportamento inesperado.
+elif menu == "test":
+    pagina_test()
+
 elif menu == "Snapshot":
     pagina_snapshot()
 
