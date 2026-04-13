@@ -23239,6 +23239,202 @@ elif menu == "Taxas de Juros (Beta Leve)":
 
         return taxas_beta_color_map
 
+    def _render_taxas_beta_kpi_card(title: str, banco: str, valor: str, *, accent_color: str) -> None:
+        st.markdown(
+            f"""
+            <div style="
+                padding: 0.70rem 0.85rem;
+                border: 1px solid rgba(15, 23, 42, 0.10);
+                border-radius: 14px;
+                background: #ffffff;
+                min-height: 92px;
+            ">
+                <div style="
+                    font-size: 0.72rem;
+                    font-weight: 600;
+                    text-transform: uppercase;
+                    letter-spacing: 0.04em;
+                    color: #64748b;
+                    margin-bottom: 0.20rem;
+                ">{_html_mod.escape(title)}</div>
+                <div style="
+                    font-size: 0.90rem;
+                    font-weight: 600;
+                    color: #0f172a;
+                    line-height: 1.25;
+                    margin-bottom: 0.35rem;
+                ">{_html_mod.escape(banco)}</div>
+                <div style="
+                    font-size: 1.20rem;
+                    font-weight: 700;
+                    color: {accent_color};
+                    line-height: 1.0;
+                ">{_html_mod.escape(valor)}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    def _sanitizar_nome_aba_excel_taxas_beta(nome: str, fallback: str = "dados") -> str:
+        nome_limpo = re.sub(r"[\[\]:*?/\\]", "", str(nome or "").strip())
+        nome_limpo = nome_limpo[:31].strip()
+        return nome_limpo or fallback
+
+    def _build_taxas_beta_ranking_excel(
+        *,
+        segmento: str,
+        produto: str,
+        data_referencia: pd.Timestamp,
+        df_rank: pd.DataFrame,
+    ) -> bytes:
+        df_export = df_rank.copy()
+        for col in ("Posição", "Taxa Mensal (%)", "Taxa Anual (%)"):
+            if col in df_export.columns:
+                df_export[col] = pd.to_numeric(df_export[col], errors="coerce")
+
+        contexto = pd.DataFrame(
+            {
+                "Campo": ["Segmento", "Produto", "Data de referência", "Linhas exportadas"],
+                "Valor": [
+                    str(segmento),
+                    str(_formatar_modalidade_beta(produto)),
+                    pd.Timestamp(data_referencia).strftime("%d/%m/%Y") if pd.notna(data_referencia) else "",
+                    int(len(df_export)),
+                ],
+            }
+        )
+
+        buffer = BytesIO()
+        with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
+            contexto.to_excel(writer, sheet_name="contexto", index=False)
+            df_export.to_excel(writer, sheet_name="ranking_atual", index=False)
+
+            workbook = writer.book
+            header_fmt = workbook.add_format({"bold": True, "bg_color": "#EEF2FF", "border": 1})
+            int_fmt = workbook.add_format({"num_format": "0"})
+            num_fmt = workbook.add_format({"num_format": "0.00"})
+
+            ws_contexto = writer.sheets["contexto"]
+            ws_contexto.set_column(0, 0, 22)
+            ws_contexto.set_column(1, 1, 34)
+
+            ws_rank = writer.sheets["ranking_atual"]
+            for col_idx, col_name in enumerate(df_export.columns):
+                ws_rank.write(0, col_idx, col_name, header_fmt)
+            ws_rank.freeze_panes(1, 0)
+            ws_rank.autofilter(0, 0, len(df_export), max(len(df_export.columns) - 1, 0))
+            if "Posição" in df_export.columns:
+                pos_idx = df_export.columns.get_loc("Posição")
+                ws_rank.set_column(pos_idx, pos_idx, 10, int_fmt)
+            if "Instituição Financeira" in df_export.columns:
+                inst_idx = df_export.columns.get_loc("Instituição Financeira")
+                ws_rank.set_column(inst_idx, inst_idx, 34)
+            for taxa_col in ("Taxa Mensal (%)", "Taxa Anual (%)"):
+                if taxa_col in df_export.columns:
+                    taxa_idx = df_export.columns.get_loc(taxa_col)
+                    ws_rank.set_column(taxa_idx, taxa_idx, 16, num_fmt)
+
+        buffer.seek(0)
+        return buffer.getvalue()
+
+    def _build_taxas_beta_daily_matrix(
+        *,
+        df_daily: pd.DataFrame,
+        tipo_taxa: str,
+        bancos_ordem: List[str],
+    ) -> pd.DataFrame:
+        if df_daily.empty or tipo_taxa not in df_daily.columns:
+            return pd.DataFrame()
+
+        df_export = df_daily[["Instituição Financeira", "Fim Período", tipo_taxa]].copy()
+        df_export["Fim Período"] = pd.to_datetime(df_export["Fim Período"], errors="coerce")
+        df_export[tipo_taxa] = pd.to_numeric(df_export[tipo_taxa], errors="coerce")
+        df_export = df_export.dropna(subset=["Fim Período"])
+        if df_export.empty:
+            return pd.DataFrame()
+
+        periodos = sorted(pd.to_datetime(df_export["Fim Período"].dropna().unique()).tolist())
+        matriz = df_export.pivot_table(
+            index="Instituição Financeira",
+            columns="Fim Período",
+            values=tipo_taxa,
+            aggfunc="last",
+            observed=False,
+        )
+        matriz = matriz.reindex(index=list(bancos_ordem))
+        matriz = matriz.reindex(columns=periodos)
+        matriz.columns = [pd.Timestamp(col).strftime("%d/%m/%Y") for col in matriz.columns]
+        matriz.index.name = "Instituição Financeira"
+        return matriz.reset_index()
+
+    def _build_taxas_beta_daily_excel(
+        *,
+        segmento: str,
+        produto: str,
+        tipo_taxa: str,
+        anchor_date: str,
+        window_start: str,
+        bancos_ordem: List[str],
+        df_daily: pd.DataFrame,
+    ) -> bytes:
+        matriz = _build_taxas_beta_daily_matrix(
+            df_daily=df_daily,
+            tipo_taxa=tipo_taxa,
+            bancos_ordem=bancos_ordem,
+        )
+
+        contexto = pd.DataFrame(
+            {
+                "Campo": [
+                    "Segmento",
+                    "Produto",
+                    "Série exportada",
+                    "Data âncora",
+                    "Início da janela",
+                    "Bancos selecionados",
+                    "Períodos exportados",
+                ],
+                "Valor": [
+                    str(segmento),
+                    str(_formatar_modalidade_beta(produto)),
+                    str(tipo_taxa),
+                    str(anchor_date or ""),
+                    str(window_start or ""),
+                    int(len(bancos_ordem)),
+                    int(max(len(matriz.columns) - 1, 0)),
+                ],
+            }
+        )
+
+        buffer = BytesIO()
+        with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
+            contexto.to_excel(writer, sheet_name="contexto", index=False)
+            sheet_name = _sanitizar_nome_aba_excel_taxas_beta(
+                _formatar_modalidade_beta(produto),
+                fallback="serie_diaria",
+            )
+            matriz.to_excel(writer, sheet_name=sheet_name, index=False)
+
+            workbook = writer.book
+            header_fmt = workbook.add_format({"bold": True, "bg_color": "#EEF2FF", "border": 1})
+            num_fmt = workbook.add_format({"num_format": "0.00"})
+
+            ws_contexto = writer.sheets["contexto"]
+            ws_contexto.set_column(0, 0, 22)
+            ws_contexto.set_column(1, 1, 36)
+
+            ws_daily = writer.sheets[sheet_name]
+            for col_idx, col_name in enumerate(matriz.columns):
+                ws_daily.write(0, col_idx, col_name, header_fmt)
+            ws_daily.freeze_panes(1, 1)
+            ws_daily.autofilter(0, 0, len(matriz), max(len(matriz.columns) - 1, 0))
+            ws_daily.set_column(0, 0, 34)
+            if len(matriz.columns) > 1:
+                ws_daily.set_column(1, len(matriz.columns) - 1, 12, num_fmt)
+
+        buffer.seek(0)
+        return buffer.getvalue()
+
     def _adicionar_rotulos_finais_taxas_beta(fig, df: pd.DataFrame, y_col: str, color_map: Dict[str, str]) -> None:
         if df.empty or y_col not in df.columns:
             return
@@ -23607,13 +23803,13 @@ elif menu == "Taxas de Juros (Beta Leve)":
     col_cfg1, col_cfg2, col_cfg3 = st.columns([1.1, 1.2, 1.1])
     with col_cfg1:
         segmento_beta = st.selectbox(
-            "1️⃣ Segmento",
+            "Segmento",
             options=SEGMENTOS_TAXAS_BETA,
             key="tj_beta_segmento",
         )
     with col_cfg2:
         tipo_taxa_beta = st.radio(
-            "2️⃣ Taxa",
+            "Taxa",
             ["Taxa Mensal (%)", "Taxa Anual (%)"],
             horizontal=True,
             key="tj_beta_tipo_taxa",
@@ -23694,7 +23890,7 @@ elif menu == "Taxas de Juros (Beta Leve)":
                 )
 
         produto_beta_valor = st.selectbox(
-            "3️⃣ Produto",
+            "Produto",
             options=produtos_beta,
             format_func=lambda codigo: _formatar_modalidade_beta(produto_lookup_beta.get(str(codigo), str(codigo))),
             key="tj_beta_produto",
@@ -23755,7 +23951,7 @@ elif menu == "Taxas de Juros (Beta Leve)":
                     )
 
                 bancos_sel_beta = st.multiselect(
-                    "4️⃣ Bancos exibidos (máx 12)",
+                    "Bancos exibidos (máx 12)",
                     options=bancos_ordenados_beta,
                     default=[b for b in top_bancos_beta if b in bancos_ordenados_beta],
                     max_selections=12,
@@ -23773,7 +23969,7 @@ elif menu == "Taxas de Juros (Beta Leve)":
                     col_view1, col_view2 = st.columns([1.4, 1.0])
                     with col_view1:
                         modo_visual_beta = st.radio(
-                            "5️⃣ Visualização",
+                            "Visualização",
                             ["Linha comparativa", "Painéis por banco", "Ranking atual"],
                             horizontal=True,
                             key="tj_beta_modo_visual",
@@ -23809,7 +24005,6 @@ elif menu == "Taxas de Juros (Beta Leve)":
                     selected_keys_beta, label_by_key_beta = _resolver_bancos_beta_por_chave(df_rank_beta, bancos_sel_beta)
                     df_daily_beta = pd.DataFrame()
                     meta_daily_beta: dict[str, object] = {}
-                    daily_has_values_beta = False
 
                     valor_rank = pd.to_numeric(df_rank_beta_display[tipo_taxa_beta], errors='coerce') if tipo_taxa_beta in df_rank_beta_display.columns else pd.Series(dtype='float64')
                     if not df_rank_beta_display.empty and not valor_rank.dropna().empty:
@@ -23819,16 +24014,21 @@ elif menu == "Taxas de Juros (Beta Leve)":
                         pior_banco = str(df_rank_beta_display.loc[idx_max, 'Instituição Financeira'])
                         melhor_valor = float(valor_rank.loc[idx_min])
                         pior_valor = float(valor_rank.loc[idx_max])
-                        spread_valor = pior_valor - melhor_valor
-                        col_kpi1, col_kpi2, col_kpi3 = st.columns(3)
+                        col_kpi1, col_kpi2 = st.columns(2)
                         with col_kpi1:
-                            st.metric("Melhor taxa atual", f"{melhor_valor:.2f}%".replace(".", ","))
-                            st.caption(melhor_banco)
+                            _render_taxas_beta_kpi_card(
+                                "Melhor taxa atual",
+                                melhor_banco,
+                                f"{melhor_valor:.2f}%".replace(".", ","),
+                                accent_color="#0B6E4F",
+                            )
                         with col_kpi2:
-                            st.metric("Pior taxa atual", f"{pior_valor:.2f}%".replace(".", ","))
-                            st.caption(pior_banco)
-                        with col_kpi3:
-                            st.metric("Spread selecionado", f"{spread_valor:.2f} p.p.".replace(".", ","))
+                            _render_taxas_beta_kpi_card(
+                                "Pior taxa atual",
+                                pior_banco,
+                                f"{pior_valor:.2f}%".replace(".", ","),
+                                accent_color="#8A1C1C",
+                            )
 
                     if modo_visual_beta == "Linha comparativa":
                         fig_beta = px.line(
@@ -23925,11 +24125,32 @@ elif menu == "Taxas de Juros (Beta Leve)":
                         )
                         st.plotly_chart(fig_beta, width='stretch')
 
-                    st.markdown("#### Ranking atual")
-                    st.caption(
-                        f"Fotografia mais recente do produto em {data_mais_recente_beta.strftime('%d/%m/%Y')}."
+                    ranking_excel_beta = _build_taxas_beta_ranking_excel(
+                        segmento=segmento_beta,
+                        produto=produto_beta,
+                        data_referencia=data_mais_recente_beta,
+                        df_rank=df_rank_beta_display,
                     )
-                    st.dataframe(df_rank_beta_display, width='stretch', hide_index=True)
+                    with st.expander("Ranking atual", expanded=False):
+                        st.download_button(
+                            label="Exportar Excel do ranking",
+                            data=ranking_excel_beta,
+                            file_name=f"taxas_beta_ranking_{segmento_beta}_{produto_beta[:20]}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            key="tj_beta_download_ranking_excel",
+                        )
+                        st.dataframe(
+                            df_rank_beta_display,
+                            width='stretch',
+                            hide_index=True,
+                            height=min(420, 42 + 35 * max(len(df_rank_beta_display), 1)),
+                            column_config={
+                                "Posição": st.column_config.NumberColumn("Posição", format="%d"),
+                                "Instituição Financeira": st.column_config.TextColumn("Instituição Financeira"),
+                                "Taxa Mensal (%)": st.column_config.NumberColumn("Taxa Mensal (%)", format="%.2f"),
+                                "Taxa Anual (%)": st.column_config.NumberColumn("Taxa Anual (%)", format="%.2f"),
+                            },
+                        )
 
                     st.markdown("#### Série diária · últimos 3 meses")
                     if usa_cache_historico_beta and selected_keys_beta:
@@ -23946,13 +24167,11 @@ elif menu == "Taxas de Juros (Beta Leve)":
                             anchor_date=data_mais_recente_beta,
                         )
 
-                    daily_values_beta = (
-                        pd.to_numeric(df_daily_beta[tipo_taxa_beta], errors='coerce')
-                        if not df_daily_beta.empty and tipo_taxa_beta in df_daily_beta.columns
-                        else pd.Series(dtype='float64')
-                    )
-                    daily_has_values_beta = not daily_values_beta.dropna().empty
-                    if df_daily_beta.empty or not daily_has_values_beta:
+                    df_daily_beta_valid = pd.DataFrame()
+                    if not df_daily_beta.empty and tipo_taxa_beta in df_daily_beta.columns:
+                        df_daily_beta_valid = df_daily_beta.dropna(subset=[tipo_taxa_beta]).copy()
+                    daily_has_values_beta = not df_daily_beta_valid.empty
+                    if not daily_has_values_beta:
                         st.info("Sem série diária disponível para os bancos selecionados nos últimos 3 meses.")
                         if meta_daily_beta.get("error"):
                             st.caption(f"Erro retornado: {meta_daily_beta['error']}")
@@ -24003,6 +24222,22 @@ elif menu == "Taxas de Juros (Beta Leve)":
                             f"Período exibido desde {window_daily_label} | "
                             f"{meta_daily_beta.get('calendar_points', 0):,} datas oficiais | "
                             f"{len(df_daily_beta):,} linhas no gráfico."
+                        )
+                        daily_excel_beta = _build_taxas_beta_daily_excel(
+                            segmento=segmento_beta,
+                            produto=produto_beta,
+                            tipo_taxa=tipo_taxa_beta,
+                            anchor_date=str(anchor_daily_label),
+                            window_start=str(window_daily_label),
+                            bancos_ordem=bancos_sel_beta,
+                            df_daily=df_daily_beta,
+                        )
+                        st.download_button(
+                            label="Exportar Excel da série diária",
+                            data=daily_excel_beta,
+                            file_name=f"taxas_beta_diario_3m_{segmento_beta}_{produto_beta[:20]}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            key="tj_beta_download_diario_excel",
                         )
                         with st.expander("Tabela diária dos últimos 3 meses", expanded=False):
                             st.dataframe(
@@ -24058,7 +24293,7 @@ elif menu == "Taxas de Juros (Beta Leve)":
                                 color='Instituição Financeira',
                                 markers=True,
                                 template='plotly_white',
-                                color_discrete_sequence=TAXAS_BETA_PALETTE,
+                                color_discrete_map=color_map_beta,
                                 labels={
                                     'Fim Período': 'Data',
                                     tipo_taxa_beta: tipo_taxa_beta,
@@ -24112,15 +24347,6 @@ elif menu == "Taxas de Juros (Beta Leve)":
                             mime="text/csv",
                             key="tj_beta_download_mensal",
                         )
-                        if daily_has_values_beta:
-                            csv_diario_beta = df_daily_beta.to_csv(index=False, sep=';', decimal=',')
-                            st.download_button(
-                                label="Baixar CSV (diário últimos 3M)",
-                                data=csv_diario_beta,
-                                file_name=f"taxas_beta_diario_3m_{segmento_beta}_{produto_beta[:20]}.csv",
-                                mime="text/csv",
-                                key="tj_beta_download_diario_3m",
-                            )
 
 elif menu == "Crie sua métrica!":
     if _garantir_dados_principais("Crie sua métrica!"):
