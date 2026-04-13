@@ -166,12 +166,7 @@ from utils.cdsfn_live import (
     validate_json_cdsfn,
 )
 from utils.pessoas_juridicas_api import consultar_pessoas_juridicas
-from utils.ifdata_cache.taxas_juros import (
-    fetch_taxas_juros_for_institutions,
-    fetch_taxas_juros_scoped,
-    formatar_nome_modalidade,
-    reduce_taxas_juros_to_monthly_snapshot,
-)
+from utils.ifdata_cache import taxas_juros as taxas_juros_module
 from rating import QUALITATIVE_QUESTIONS, build_audit_tables, build_audit_trail_markdown, calculate_rating, list_available_rating_periods, load_rating_input_dataframe, map_rating_inputs, period_to_display_label
 from rating.engine import get_size_bucket
 import io
@@ -189,6 +184,107 @@ import numpy as np
 import xlsxwriter
 from PIL import Image as PILImage
 from io import BytesIO
+
+fetch_taxas_juros_scoped = taxas_juros_module.fetch_taxas_juros_scoped
+formatar_nome_modalidade = taxas_juros_module.formatar_nome_modalidade
+reduce_taxas_juros_to_monthly_snapshot = taxas_juros_module.reduce_taxas_juros_to_monthly_snapshot
+
+if hasattr(taxas_juros_module, "fetch_taxas_juros_for_institutions"):
+    fetch_taxas_juros_for_institutions = taxas_juros_module.fetch_taxas_juros_for_institutions
+else:
+    def fetch_taxas_juros_for_institutions(
+        *,
+        instituicoes: List[str],
+        data_inicio: str,
+        data_fim: Optional[str] = None,
+        segmento: Optional[str] = None,
+        modalidade: Optional[str] = None,
+        select_fields: Optional[List[str]] = None,
+        page_size: int = 1000,
+        max_pages_per_institution: int = 3,
+        timeout: int = 120,
+    ):
+        """Fallback compatível com deploys onde o helper novo ainda não existe."""
+        frames = []
+        total_rows_fetched = 0
+        total_rows_returned = 0
+        total_pages_loaded = 0
+        hit_any_page_limit = False
+        errors = {}
+        per_institution = []
+
+        for instituicao in instituicoes:
+            try:
+                df_inst, meta_inst = fetch_taxas_juros_scoped(
+                    data_inicio=data_inicio,
+                    data_fim=data_fim,
+                    segmento=segmento,
+                    modalidade=modalidade,
+                    instituicao=instituicao,
+                    select_fields=select_fields,
+                    page_size=page_size,
+                    max_pages=max_pages_per_institution,
+                    timeout=timeout,
+                )
+            except TypeError:
+                df_inst, meta_inst = fetch_taxas_juros_scoped(
+                    data_inicio=data_inicio,
+                    data_fim=data_fim,
+                    segmento=segmento,
+                    modalidade=modalidade,
+                    select_fields=select_fields,
+                    page_size=page_size,
+                    max_pages=max_pages_per_institution,
+                    timeout=timeout,
+                )
+                if not df_inst.empty and 'Instituição Financeira' in df_inst.columns:
+                    df_inst = df_inst[df_inst['Instituição Financeira'] == instituicao].copy()
+                    meta_inst = {
+                        **meta_inst,
+                        "rows_returned": int(len(df_inst)),
+                    }
+            if not df_inst.empty:
+                frames.append(df_inst)
+
+            total_rows_fetched += int(meta_inst.get("rows_fetched", 0) or 0)
+            total_rows_returned += int(meta_inst.get("rows_returned", 0) or 0)
+            total_pages_loaded += int(meta_inst.get("pages_loaded", 0) or 0)
+            hit_any_page_limit = hit_any_page_limit or bool(meta_inst.get("hit_page_limit"))
+            if meta_inst.get("error"):
+                errors[instituicao] = str(meta_inst["error"])
+
+            per_institution.append(
+                {
+                    "instituicao": instituicao,
+                    "rows_returned": int(meta_inst.get("rows_returned", 0) or 0),
+                    "pages_loaded": int(meta_inst.get("pages_loaded", 0) or 0),
+                    "hit_page_limit": bool(meta_inst.get("hit_page_limit")),
+                    "error": meta_inst.get("error", ""),
+                }
+            )
+
+        if not frames:
+            return pd.DataFrame(), {
+                "rows_fetched": total_rows_fetched,
+                "rows_returned": total_rows_returned,
+                "pages_loaded": total_pages_loaded,
+                "hit_page_limit": hit_any_page_limit,
+                "errors": errors,
+                "per_institution": per_institution,
+            }
+
+        df = pd.concat(frames, ignore_index=True)
+        if {'Fim Período', 'Instituição Financeira'}.issubset(df.columns):
+            df = df.sort_values(['Fim Período', 'Instituição Financeira']).reset_index(drop=True)
+
+        return df, {
+            "rows_fetched": total_rows_fetched,
+            "rows_returned": total_rows_returned,
+            "pages_loaded": total_pages_loaded,
+            "hit_page_limit": hit_any_page_limit,
+            "errors": errors,
+            "per_institution": per_institution,
+        }
 
 st.set_page_config(page_title="🏦 👀 toma.conta!", page_icon="👁️", layout="wide", initial_sidebar_state="expanded")
 
