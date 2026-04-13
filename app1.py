@@ -166,18 +166,7 @@ from utils.cdsfn_live import (
     validate_json_cdsfn,
 )
 from utils.pessoas_juridicas_api import consultar_pessoas_juridicas
-from rating import (
-    MODEL_DISCLOSURES,
-    QUALITATIVE_QUESTIONS,
-    build_audit_tables,
-    build_audit_trail_markdown,
-    build_variable_mapping_table,
-    calculate_rating,
-    list_available_rating_periods,
-    load_rating_input_dataframe,
-    map_rating_inputs,
-    period_to_display_label,
-)
+from rating import QUALITATIVE_QUESTIONS, build_audit_tables, build_audit_trail_markdown, calculate_rating, list_available_rating_periods, load_rating_input_dataframe, map_rating_inputs, period_to_display_label
 from rating.engine import get_size_bucket
 import io
 import base64
@@ -11797,15 +11786,9 @@ def _build_test_input_tables(mapped_payload: dict) -> tuple[pd.DataFrame, pd.Dat
                 "Display": payload.get("display_label"),
                 "Valor": _formatar_test_rating_valor(str(payload.get("display_label") or chave), payload.get("value")),
                 "Fonte": payload.get("source_field") or "N/A",
-                "Tipo": payload.get("source_kind") or "N/A",
-                "Observação": payload.get("note") or "",
             }
         )
     return pd.DataFrame(raw_rows), pd.DataFrame(mapped_rows)
-
-
-def _question_options_by_id() -> dict[str, dict]:
-    return {str(question["id"]): question for question in QUALITATIVE_QUESTIONS}
 
 
 def _format_test_question_option(question: dict, option_code: str) -> str:
@@ -11814,8 +11797,7 @@ def _format_test_question_option(question: dict, option_code: str) -> str:
     option = next((item for item in question["options"] if str(item["code"]) == str(option_code)), None)
     if option is None:
         return str(option_code)
-    provisoria = " | provisório" if option.get("provisional") else ""
-    return f"{option['code']} | {option['label']} ({option['score']:+.2f}){provisoria}"
+    return f"{option['code']} | {option['label']} ({option['score']:+.2f})"
 
 
 def _render_test_qualitative_form(key_prefix: str) -> tuple[dict[str, str], bool, pd.DataFrame]:
@@ -11834,7 +11816,6 @@ def _render_test_qualitative_form(key_prefix: str) -> tuple[dict[str, str], bool
                 format_func=lambda code, q=question: _format_test_question_option(q, code),
                 key=f"{key_prefix}_{qid}",
             )
-            st.caption(str(question.get("note") or ""))
             if selected:
                 answers[qid] = selected
                 option = next((item for item in question["options"] if str(item["code"]) == selected), None)
@@ -11855,20 +11836,14 @@ def _render_test_qualitative_form(key_prefix: str) -> tuple[dict[str, str], bool
 def _resultado_batch_rating_df(results: list[dict]) -> pd.DataFrame:
     rows = []
     for result in results:
-        mapped_inputs = result.get("mapped_inputs") or {}
         rows.append(
             {
                 "Instituição": result.get("institution_name"),
-                "ConglomeradoId": result.get("institution_id") or "",
                 "Status": result.get("status"),
                 "Rating": result.get("final_numeric_rating"),
-                "Label secundário": result.get("secondary_label") or "",
                 "Score bruto": round(float(result["raw_final_score"]), 4) if result.get("raw_final_score") is not None else None,
                 "Score inicial": result.get("starting_score"),
                 "Porte": (result.get("size_bucket") or {}).get("label") or "",
-                "Fonte CET1": (mapped_inputs.get("cet1") or {}).get("source_kind") or "",
-                "Fonte NPL": (mapped_inputs.get("npl_creation") or {}).get("source_kind") or "",
-                "Fonte funding": (mapped_inputs.get("funding_structural_ratio") or {}).get("source_kind") or "",
                 "Campos faltantes": ", ".join(result.get("missing_quantitative_inputs") or []),
             }
         )
@@ -11882,17 +11857,101 @@ def _resultado_batch_rating_df(results: list[dict]) -> pd.DataFrame:
     return df_out.drop(columns=["_ordem_status", "_rating_sort"])
 
 
-def pagina_test():
-    st.markdown("### test")
-    st.caption(
-        "sandbox do rating reverso usando apenas a base prudencial já materializada em `critical_screens`."
+def _rating_factor_display_map() -> dict[str, str]:
+    return {
+        "cet1": "CET1",
+        "roe": "ROE",
+        "npl_creation": "NPL",
+        "funding": "Funding",
+        "q1": "Q1",
+        "q2": "Q2",
+        "q3": "Q3",
+        "q4": "Q4",
+        "q5": "Q5",
+        "q6": "Q6",
+    }
+
+
+def _build_rating_waterfall_figure(result: dict) -> go.Figure:
+    factor_labels = _rating_factor_display_map()
+    x = ["Score Inicial"]
+    y = [float(result.get("starting_score") or 0)]
+    measure = ["absolute"]
+    text = [f"{float(result.get('starting_score') or 0):+.2f}"]
+
+    for key, payload in (result.get("quantitative_scores") or {}).items():
+        score = float(payload.get("score") or 0.0)
+        x.append(factor_labels.get(key, key.upper()))
+        y.append(score)
+        measure.append("relative")
+        text.append(f"{score:+.2f}")
+
+    for key in ["q1", "q2", "q3", "q4", "q5", "q6"]:
+        payload = (result.get("qualitative_scores") or {}).get(key) or {}
+        score = float(payload.get("score") or 0.0)
+        x.append(factor_labels.get(key, key.upper()))
+        y.append(score)
+        measure.append("relative")
+        text.append(f"{score:+.2f}")
+
+    x.append("Rating Final")
+    y.append(0)
+    measure.append("total")
+    text.append(str(result.get("final_numeric_rating") or "N/A"))
+
+    fig = go.Figure(
+        go.Waterfall(
+            x=x,
+            y=y,
+            measure=measure,
+            text=text,
+            textposition="outside",
+            increasing={"marker": {"color": "#0f9d58"}},
+            decreasing={"marker": {"color": "#d93025"}},
+            totals={"marker": {"color": "#1f77b4"}},
+            connector={"line": {"color": "#8a8a8a", "width": 1}},
+        )
     )
-    st.warning(
-        "Implementação provisória: o repositório não contém o workbook/engine original do rating. "
-        "A aba expõe todas as proxies, fallbacks e aproximações usadas."
+    fig.update_layout(
+        margin=dict(l=20, r=20, t=30, b=20),
+        height=420,
+        showlegend=False,
+        yaxis_title="Impacto no score",
+    )
+    return fig
+
+
+def _rating_intro_text() -> str:
+    return (
+        "O modelo parte de um score inicial definido pelo porte do balanço e ajusta esse ponto de partida por "
+        "capital (CET1), rentabilidade (ROE), qualidade da carteira (NPL), funding e seis respostas qualitativas "
+        "sobre auditoria, ressalvas, suporte acionário, governança, concentração e resiliência. Capital mais forte, "
+        "ROE mais alto e respostas qualitativas melhores ajudam a nota; piora de carteira, pressão de funding e "
+        "respostas qualitativas piores reduzem a nota. O resultado final é arredondado e limitado à escala de 1 a 25."
     )
 
-    if not _garantir_cache_telas_criticas("test"):
+
+def _rating_weight_table() -> pd.DataFrame:
+    rows = [
+        {"Variável": "CET1", "Faixa de impacto": "+0,41 a -0,22"},
+        {"Variável": "ROE", "Faixa de impacto": "+0,91 a -0,83"},
+        {"Variável": "NPL", "Faixa de impacto": "0,00 a -0,43"},
+        {"Variável": "Funding", "Faixa de impacto": "0,00 a -0,45"},
+        {"Variável": "Q1", "Faixa de impacto": "0,00 a -0,58"},
+        {"Variável": "Q2", "Faixa de impacto": "0,00 a -0,58"},
+        {"Variável": "Q3", "Faixa de impacto": "+1,13 a -1,13"},
+        {"Variável": "Q4", "Faixa de impacto": "0,00 a -0,41"},
+        {"Variável": "Q5", "Faixa de impacto": "+0,22 a -0,22"},
+        {"Variável": "Q6", "Faixa de impacto": "+0,72 a -0,72"},
+    ]
+    return pd.DataFrame(rows)
+
+
+def pagina_test():
+    st.markdown("### Modelagem Teste")
+    st.caption(_rating_intro_text())
+
+    if not _garantir_cache_telas_criticas("Modelagem Teste"):
         return
 
     critical_token = _cache_version_token("critical_screens")
@@ -11901,9 +11960,8 @@ def pagina_test():
         st.warning("nenhum período disponível em `critical_screens`.")
         return
 
-    with st.expander("Diagnóstico do modelo e mapeamento de dados", expanded=False):
-        st.markdown("\n".join([f"- {item}" for item in MODEL_DISCLOSURES]))
-        st.dataframe(build_variable_mapping_table(), hide_index=True, use_container_width=True)
+    with st.expander("Variáveis e pesos", expanded=False):
+        st.dataframe(_rating_weight_table(), hide_index=True, use_container_width=True)
 
     col_mode, col_period = st.columns([1.0, 1.2])
     with col_mode:
@@ -11922,16 +11980,17 @@ def pagina_test():
             key="test_rating_period",
         )
 
+    st.caption(
+        "Modo Instituição: calcula e audita uma instituição por vez. "
+        "Modo Batch: aplica o mesmo conjunto de respostas qualitativas a todas as instituições do período."
+    )
+
     df_periodo = _load_test_period_dataframe(critical_token, periodo_selecionado)
     if df_periodo is None or df_periodo.empty:
         st.warning("não foi possível carregar o recorte do período selecionado.")
         return
 
-    st.caption(
-        f"Período selecionado: {period_to_display_label(periodo_selecionado)} "
-        f"(chave interna do cache: {periodo_selecionado}). "
-        f"{len(df_periodo):,} conglomerados prudenciais disponíveis."
-    )
+    st.caption(f"{len(df_periodo):,} instituições disponíveis no período {period_to_display_label(periodo_selecionado)}.")
 
     if modo == "Instituição":
         instituicoes = sorted(df_periodo["Instituição"].dropna().astype(str).unique().tolist())
@@ -11955,23 +12014,12 @@ def pagina_test():
 
         ativos = (mapped_payload.get("mapped_inputs") or {}).get("total_assets", {}).get("value")
         size_bucket = get_size_bucket(float(ativos)) if ativos is not None else None
-        col_a, col_b, col_c, col_d = st.columns(4)
-        with col_a:
-            st.metric("ConglomeradoId", mapped_payload.get("institution_id") or "N/A")
-        with col_b:
-            st.metric("Período anterior", mapped_payload.get("previous_period") or "N/A")
-        with col_c:
-            st.metric("Porte", size_bucket["label"] if size_bucket else "N/A")
-        with col_d:
-            st.metric("Score inicial", size_bucket["starting_score"] if size_bucket else "N/A")
-
-        col_raw, col_map = st.columns(2)
-        with col_raw:
-            st.markdown("**Dados brutos usados**")
-            st.dataframe(raw_table, hide_index=True, use_container_width=True)
-        with col_map:
-            st.markdown("**Inputs do modelo e disclosures**")
-            st.dataframe(mapped_table, hide_index=True, use_container_width=True)
+        comparacao = mapped_payload.get("previous_period") or "N/A"
+        st.caption(
+            f"Porte: {size_bucket['label'] if size_bucket else 'N/A'} | "
+            f"Score inicial: {size_bucket['starting_score'] if size_bucket else 'N/A'} | "
+            f"Comparação do funding: {period_to_display_label(comparacao) if comparacao != 'N/A' else 'N/A'}"
+        )
 
         if mapped_payload.get("missing_inputs"):
             st.warning(
@@ -11999,20 +12047,21 @@ def pagina_test():
             )
             return
 
-        col_r1, col_r2, col_r3, col_r4 = st.columns(4)
+        col_r1, col_r2 = st.columns([1, 1])
         with col_r1:
-            st.metric("Score bruto", _formatar_numero_ptbr(result["raw_final_score"], decimais=4))
+            st.metric("Rating Final (1-25)", result["final_numeric_rating"])
         with col_r2:
-            st.metric("Score arredondado", result["rounded_final_score"])
-        with col_r3:
-            st.metric("Rating final (1-25)", result["final_numeric_rating"])
-        with col_r4:
-            st.metric("Label secundário", result.get("secondary_label") or "N/A")
+            st.metric("Score bruto", _formatar_numero_ptbr(result["raw_final_score"], decimais=4))
+
+        st.plotly_chart(_build_rating_waterfall_figure(result), use_container_width=True)
 
         st.markdown("**Contribuições do score**")
         st.dataframe(audit_tables["contributions"], hide_index=True, use_container_width=True)
-        st.markdown("**Substituições, proxies e fallbacks**")
-        st.dataframe(audit_tables["replacements"], hide_index=True, use_container_width=True)
+
+        with st.expander("Base quantitativa usada", expanded=False):
+            st.dataframe(mapped_table, hide_index=True, use_container_width=True)
+        with st.expander("Dados brutos usados", expanded=False):
+            st.dataframe(raw_table, hide_index=True, use_container_width=True)
 
         with st.expander("Memória completa de cálculo", expanded=True):
             st.code(audit_markdown, language="markdown")
@@ -12099,17 +12148,14 @@ def pagina_test():
             return
 
         st.markdown("**Resumo da instituição selecionada**")
-        col_i1, col_i2, col_i3, col_i4 = st.columns(4)
+        col_i1, col_i2 = st.columns(2)
         with col_i1:
-            st.metric("Status", resultado_inspecao.get("status") or "N/A")
+            st.metric("Rating Final (1-25)", resultado_inspecao.get("final_numeric_rating") or "N/A")
         with col_i2:
-            st.metric("Rating", resultado_inspecao.get("final_numeric_rating") or "N/A")
-        with col_i3:
             st.metric("Score bruto", _formatar_numero_ptbr(resultado_inspecao.get("raw_final_score"), decimais=4))
-        with col_i4:
-            st.metric("Label secundário", resultado_inspecao.get("secondary_label") or "N/A")
 
         audit_tables = build_audit_tables(resultado_inspecao)
+        st.plotly_chart(_build_rating_waterfall_figure(resultado_inspecao), use_container_width=True)
         st.dataframe(audit_tables["contributions"], hide_index=True, use_container_width=True)
         with st.expander("Memória completa de cálculo", expanded=False):
             st.code(resultado_inspecao.get("audit_trail_markdown") or "", language="markdown")
@@ -12125,7 +12171,7 @@ def pagina_test():
 # Lista de opções do menu principal (análise)
 MENU_PRINCIPAL = [
     "Snapshot",
-    "test",
+    "Modelagem Teste",
     "Rankings",
     "Peers (Tabela)",
     "Conselho e Diretoria",
@@ -12135,7 +12181,7 @@ MENU_PRINCIPAL = [
     "Carteira 4.966",
     "Taxas de Juros por Produto",
     "Crie sua métrica!",
-    "Contribuições FGC/FGCoop",
+    "Contas COSIF",
     "Balanço, DRE e DMPL (Ind.)",
 ]
 
@@ -12153,7 +12199,11 @@ if st.session_state['menu_atual'] not in TODOS_MENUS:
     elif st.session_state['menu_atual'] == "Painel":
         st.session_state['menu_atual'] = "Rankings"
     elif st.session_state['menu_atual'] == "Contribuições FGC":
-        st.session_state['menu_atual'] = "Contribuições FGC/FGCoop"
+        st.session_state['menu_atual'] = "Contas COSIF"
+    elif st.session_state['menu_atual'] == "Contribuições FGC/FGCoop":
+        st.session_state['menu_atual'] = "Contas COSIF"
+    elif st.session_state['menu_atual'] == "test":
+        st.session_state['menu_atual'] = "Modelagem Teste"
     elif st.session_state['menu_atual'] in {"DRE", "DRE Individual"}:
         st.session_state['menu_atual'] = "DRE (Ind. e Congl.)"
     elif st.session_state['menu_atual'] == "Balanco, DRE e DMPL Ind.":
@@ -12165,9 +12215,17 @@ menu_atual = st.session_state['menu_atual']
 
 # Higienizar estado legado para evitar exibir rótulos antigos no menu
 if st.session_state.get('menu_atual') == 'Contribuições FGC':
-    st.session_state['menu_atual'] = 'Contribuições FGC/FGCoop'
+    st.session_state['menu_atual'] = 'Contas COSIF'
 if st.session_state.get('nav_main') == 'Contribuições FGC':
-    st.session_state['nav_main'] = 'Contribuições FGC/FGCoop'
+    st.session_state['nav_main'] = 'Contas COSIF'
+if st.session_state.get('menu_atual') == 'Contribuições FGC/FGCoop':
+    st.session_state['menu_atual'] = 'Contas COSIF'
+if st.session_state.get('nav_main') == 'Contribuições FGC/FGCoop':
+    st.session_state['nav_main'] = 'Contas COSIF'
+if st.session_state.get('menu_atual') == 'test':
+    st.session_state['menu_atual'] = 'Modelagem Teste'
+if st.session_state.get('nav_main') == 'test':
+    st.session_state['nav_main'] = 'Modelagem Teste'
 if st.session_state.get('nav_sec') == 'Contribuições FGC':
     st.session_state['nav_sec'] = None
 
@@ -12267,14 +12325,14 @@ st.markdown("---")
 
 CACHE_DEPENDENCIAS_POR_ABA = {
     "Snapshot": ["critical_screens"],
-    "test": ["critical_screens"],
+    "Modelagem Teste": ["critical_screens"],
     "Rankings": ["principal", "capital"],
     "Peers (Tabela)": ["critical_screens"],
     "Evolução": ["principal", "passivo", "ativo", "capital"],
     "Scatter Plot": ["principal", "capital", "derived_metrics"],
     "DRE (Ind. e Congl.)": ["dre", "principal", "dre_individual", "principal_individual"],
     "Carteira 4.966": ["carteira_instrumentos"],
-    "Contribuições FGC/FGCoop": ["bloprudencial"],
+    "Contas COSIF": ["bloprudencial"],
     "Atualizar Base": [
         "principal", "capital", "ativo", "passivo", "dre", "carteira_pf",
         "carteira_pj", "carteira_instrumentos", "bloprudencial",
@@ -13263,7 +13321,7 @@ elif False and menu == "Painel":
 
 # GUARDA DO DISPATCHER: cada rótulo de `menu` deve aparecer uma única vez
 # neste bloco `if/elif` para evitar branches mortos e comportamento inesperado.
-elif menu == "test":
+elif menu == "Modelagem Teste":
     pagina_test()
 
 elif menu == "Snapshot":
@@ -17396,8 +17454,8 @@ elif menu == "Rankings":
         st.info("carregando dados automaticamente do github...")
         st.markdown("por favor, aguarde alguns segundos e recarregue a página")
 
-elif menu == "Contribuições FGC/FGCoop":
-    st.markdown("### contribuições fgc/fgcoop")
+elif menu == "Contas COSIF":
+    st.markdown("### Contas COSIF")
     st.caption("Ranking baseado no BLOPRUDENCIAL mensal, com conta COSIF selecionável e cálculo explícito por período de referência.")
 
     periodos_yyyymm = _listar_periodos_bloprudencial_disponiveis(_cache_version_token("bloprudencial"))

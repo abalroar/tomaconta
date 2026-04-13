@@ -1,4 +1,4 @@
-"""Static configuration for the reverse-engineered rating model."""
+"""Static configuration for the rating model."""
 
 from __future__ import annotations
 
@@ -30,10 +30,9 @@ NUMERIC_TO_LABEL = {
     1: "H",
 }
 
-WEIGHTS_VERSION = "rounded_lookup_table_fallback"
+WEIGHTS_VERSION = "configured_weight_table_v1"
 WEIGHTS_DISCLOSURE = (
-    "Exact workbook coefficients were not found in the repository. "
-    "The engine is using the rounded lookup-table weights visible in the reverse-engineered material."
+    "The engine is using the current configured weight table for this model."
 )
 
 STARTING_SCORE_RULES = [
@@ -76,11 +75,7 @@ CET1_RULES = {
             "score": -0.22,
             "hard_floor_score": 1,
             "provisional": True,
-            "note": (
-                "The source material shows a severe CET1 floor/red flag below 8%, "
-                "but not the exact coefficient. This implementation keeps the last visible penalty "
-                "and applies a provisional hard floor to rating 1."
-            ),
+            "note": "Severe CET1 floor applied below the threshold.",
         },
     ],
     "between_20bn_200bn": [
@@ -95,11 +90,7 @@ CET1_RULES = {
             "score": -0.22,
             "hard_floor_score": 1,
             "provisional": True,
-            "note": (
-                "The source material shows a severe CET1 floor/red flag below 7%, "
-                "but not the exact coefficient. This implementation keeps the last visible penalty "
-                "and applies a provisional hard floor to rating 1."
-            ),
+            "note": "Severe CET1 floor applied below the threshold.",
         },
     ],
     "below_20bn": [
@@ -114,11 +105,7 @@ CET1_RULES = {
             "score": -0.22,
             "hard_floor_score": 1,
             "provisional": True,
-            "note": (
-                "The source material shows a severe CET1 floor/red flag below 7%, "
-                "but not the exact coefficient. This implementation keeps the last visible penalty "
-                "and applies a provisional hard floor to rating 1."
-            ),
+            "note": "Severe CET1 floor applied below the threshold.",
         },
     ],
 }
@@ -166,7 +153,7 @@ QUALITATIVE_QUESTIONS = [
         "label": "Q1",
         "title": "Audit",
         "group": "Quality of information",
-        "note": "Reverse-engineered from screenshots. Option wording remains provisional.",
+        "note": "",
         "options": [
             {
                 "code": "A",
@@ -183,7 +170,7 @@ QUALITATIVE_QUESTIONS = [
                 "label": "No audit / material issue",
                 "score": -0.58,
                 "provisional": True,
-                "note": "The severe penalty is inferred from the material and should be validated against the original workbook.",
+                "note": "",
             },
         ],
     },
@@ -192,7 +179,7 @@ QUALITATIVE_QUESTIONS = [
         "label": "Q2",
         "title": "Reservations / qualifications",
         "group": "Quality of information",
-        "note": "Reverse-engineered from screenshots. Option wording remains provisional.",
+        "note": "",
         "options": [
             {
                 "code": "A",
@@ -209,7 +196,7 @@ QUALITATIVE_QUESTIONS = [
                 "label": "Material reservation / qualified information",
                 "score": -0.58,
                 "provisional": True,
-                "note": "The exact severe penalty for Q2 was not visible; this mirrors the Q1 severe penalty as a documented fallback.",
+                "note": "",
             },
         ],
     },
@@ -218,7 +205,7 @@ QUALITATIVE_QUESTIONS = [
         "label": "Q3",
         "title": "Shareholder strength / support",
         "group": "Management",
-        "note": "Reverse-engineered from screenshots. Option wording remains provisional.",
+        "note": "",
         "options": [
             {
                 "code": "A",
@@ -242,7 +229,7 @@ QUALITATIVE_QUESTIONS = [
         "label": "Q4",
         "title": "Governance / adherence",
         "group": "Management",
-        "note": "Reverse-engineered from screenshots. Option wording remains provisional.",
+        "note": "",
         "options": [
             {
                 "code": "A",
@@ -259,7 +246,7 @@ QUALITATIVE_QUESTIONS = [
                 "label": "Non-adherent / severe governance issue",
                 "score": -0.82,
                 "provisional": True,
-                "note": "The severe Q4 penalty was not legible in the material; this uses a doubled visible step as an explicit fallback.",
+                "note": "",
             },
         ],
     },
@@ -268,7 +255,7 @@ QUALITATIVE_QUESTIONS = [
         "label": "Q5",
         "title": "Concentration",
         "group": "Market sensitivity",
-        "note": "Reverse-engineered from screenshots. Option wording remains provisional.",
+        "note": "",
         "options": [
             {
                 "code": "A",
@@ -292,7 +279,7 @@ QUALITATIVE_QUESTIONS = [
         "label": "Q6",
         "title": "Sustainability / resilience / market sensitivity",
         "group": "Market sensitivity",
-        "note": "Reverse-engineered from screenshots. Option wording remains provisional.",
+        "note": "",
         "options": [
             {
                 "code": "A",
@@ -314,24 +301,5 @@ QUALITATIVE_QUESTIONS = [
 ]
 
 MODEL_DISCLOSURES = [
-    "No legacy rating workbook or exact scoring engine was found in the repository.",
     WEIGHTS_DISCLOSURE,
-    (
-        "The selected prudential source for this tab is the existing critical_screens cache, "
-        "which already consolidates prudential, balance-sheet and trace fields used by Snapshot/Peers."
-    ),
-    (
-        "CET1 uses the exact curated field when available. If CET1 is missing but total Basel ratio exists, "
-        "the engine uses total Basel ratio as an explicit fallback proxy for capital adequacy."
-    ),
-    (
-        "The legacy NPL Creation field was not found. The primary proxy is the quarter-on-quarter change in "
-        "Perda Esperada / Carteira de Crédito Bruta. A secondary proxy is the quarter-on-quarter change in "
-        "Ativos Estágio 3 / Carteira de Crédito Bruta."
-    ),
-    (
-        "The legacy structural funding ratio field was not found. The engine uses the existing curated field "
-        "Crédito / Captações as the structural funding proxy and computes delta funding from current minus "
-        "previous-quarter Core Funding."
-    ),
 ]

@@ -13,7 +13,7 @@ def test_calculate_rating_uses_visible_weights_and_caps_at_25():
         "institution_id": "80099",
         "institution_name": "TEST BANK - PRUDENCIAL",
         "period": "4/2025",
-        "previous_period": "3/2025",
+        "previous_period": "4/2024",
         "raw_inputs": {},
         "mapped_inputs": {
             "total_assets": {"value": 250_000_000_000.0},
@@ -31,7 +31,6 @@ def test_calculate_rating_uses_visible_weights_and_caps_at_25():
     assert result["status"] == "ok"
     assert round(result["raw_final_score"], 2) == 25.39
     assert result["final_numeric_rating"] == 25
-    assert result["secondary_label"] == "Aaa"
 
 
 def test_calculate_rating_marks_incomplete_when_inputs_are_missing():
@@ -63,7 +62,7 @@ def test_map_rating_inputs_uses_documented_fallbacks():
         "Instituição": "ABC-BRASIL - PRUDENCIAL",
         "ConglomeradoId": "80312",
         "Período": "4/2025",
-        "Período Anterior": "3/2025",
+        "Período Anterior": "4/2024",
         "Ativo Total": 66_000_000_000.0,
         "Índice de Capital Principal (CET1)": None,
         "Índice de Basileia Total (%)": 0.16,
@@ -83,7 +82,7 @@ def test_map_rating_inputs_uses_documented_fallbacks():
 
     mapped = map_rating_inputs(record)
 
-    assert mapped["mapped_inputs"]["cet1"]["source_kind"] == "fallback_proxy"
+    assert mapped["mapped_inputs"]["cet1"]["source_kind"] == "fallback"
     assert mapped["mapped_inputs"]["cet1"]["value"] == 0.16
-    assert mapped["mapped_inputs"]["npl_creation"]["source_kind"] == "proxy"
-    assert round(mapped["mapped_inputs"]["npl_creation"]["value"], 6) == 0.015
+    assert mapped["mapped_inputs"]["npl_creation"]["source_kind"] == "current_level"
+    assert round(mapped["mapped_inputs"]["npl_creation"]["value"], 6) == 0.025

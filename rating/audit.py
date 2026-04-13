@@ -1,4 +1,4 @@
-"""Audit-trail rendering helpers for the reverse-engineered rating."""
+"""Audit-trail rendering helpers for the rating model."""
 
 from __future__ import annotations
 
@@ -93,17 +93,16 @@ def build_audit_tables(calc_result: Mapping[str, Any]) -> dict[str, pd.DataFrame
 
 def build_audit_trail_markdown(calc_result: Mapping[str, Any]) -> str:
     lines: list[str] = []
-    lines.append("# Rating audit trail")
+    lines.append("# Memória de cálculo do rating")
     lines.append("")
-    lines.append(f"- Institution: {calc_result.get('institution_name') or 'N/A'}")
-    lines.append(f"- Institution ID: {calc_result.get('institution_id') or 'N/A'}")
-    lines.append(f"- Period: {calc_result.get('period') or 'N/A'}")
+    lines.append(f"- Instituição: {calc_result.get('institution_name') or 'N/A'}")
+    lines.append(f"- Período: {calc_result.get('period') or 'N/A'}")
     previous_period = calc_result.get("previous_period") or "N/A"
-    lines.append(f"- Previous period used for deltas: {previous_period}")
+    lines.append(f"- Base de comparação do funding: {previous_period}")
     lines.append(f"- Status: {calc_result.get('status') or 'N/A'}")
     lines.append("")
 
-    lines.append("## Raw data used")
+    lines.append("## Dados brutos usados")
     raw_inputs = dict(calc_result.get("raw_inputs") or {})
     for key, value in raw_inputs.items():
         formatter = _fmt_number
@@ -114,7 +113,7 @@ def build_audit_trail_markdown(calc_result: Mapping[str, Any]) -> str:
         lines.append(f"- {key} = {formatter(value)}")
     lines.append("")
 
-    lines.append("## Derived classifications")
+    lines.append("## Classificações derivadas")
     size_bucket = calc_result.get("size_bucket") or {}
     lines.append(f"- size_bucket = {size_bucket.get('key') or 'N/A'}")
     lines.append(f"- starting_score = {calc_result.get('starting_score')}")
@@ -122,7 +121,7 @@ def build_audit_trail_markdown(calc_result: Mapping[str, Any]) -> str:
         lines.append(f"- {factor}_bucket = {payload.get('bucket')}")
     lines.append("")
 
-    lines.append("## Score contributions")
+    lines.append("## Contribuições")
     lines.append(f"- starting_score = {calc_result.get('starting_score')}")
     for factor, payload in (calc_result.get("quantitative_scores") or {}).items():
         lines.append(f"- P({factor}) = {float(payload.get('score', 0.0)):+.2f}")
@@ -130,29 +129,23 @@ def build_audit_trail_markdown(calc_result: Mapping[str, Any]) -> str:
         lines.append(f"- P({factor.upper()}) = {float(payload.get('score', 0.0)):+.2f}")
     lines.append("")
 
-    lines.append("## Final arithmetic")
+    lines.append("## Resultado final")
     raw_score = calc_result.get("raw_final_score")
     rounded_score = calc_result.get("rounded_final_score")
     final_score = calc_result.get("final_numeric_rating")
     lines.append(f"- raw_final_score = {_fmt_number(raw_score, 4)}")
     lines.append(f"- rounded_final_score = {rounded_score}")
     lines.append(f"- bounded_final_score = {final_score}")
-    secondary_label = calc_result.get("secondary_label")
-    if secondary_label:
-        lines.append(f"- secondary_label = {secondary_label}")
     if calc_result.get("hard_floor_applied"):
         lines.append("- hard_floor = applied")
     lines.append("")
 
-    lines.append("## Data replacement disclosure")
+    lines.append("## Origem dos inputs")
     replacements = list(calc_result.get("replacements") or [])
     for item in replacements:
-        lines.append(
-            f"- {item.get('display_label')}: [{item.get('source_kind')}] "
-            f"{item.get('source_field')} -> {item.get('note')}"
-        )
+        lines.append(f"- {item.get('display_label')}: {item.get('source_field')}")
     lines.append("")
-    lines.append(f"## Coefficient version")
+    lines.append("## Versão da tabela de pesos")
     lines.append(f"- {calc_result.get('weights_version')}")
     lines.append(f"- {calc_result.get('weights_disclosure')}")
     return "\n".join(lines)

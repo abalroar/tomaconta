@@ -1,21 +1,11 @@
-"""Pure scoring engine for the reverse-engineered rating model."""
+"""Pure scoring engine for the rating model."""
 
 from __future__ import annotations
 
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any, Mapping
 
-from .config import (
-    CET1_RULES,
-    FUNDING_RULES,
-    NPL_CREATION_RULES,
-    NUMERIC_TO_LABEL,
-    QUALITATIVE_QUESTIONS,
-    ROE_RULES,
-    STARTING_SCORE_RULES,
-    WEIGHTS_DISCLOSURE,
-    WEIGHTS_VERSION,
-)
+from .config import CET1_RULES, FUNDING_RULES, NPL_CREATION_RULES, QUALITATIVE_QUESTIONS, ROE_RULES, STARTING_SCORE_RULES, WEIGHTS_DISCLOSURE, WEIGHTS_VERSION
 
 
 def _match_rule(value: float, rules: list[dict[str, Any]]) -> dict[str, Any]:
@@ -183,7 +173,6 @@ def calculate_rating(
             "qualitative_scores": qualitative_scores,
             "raw_final_score": None,
             "final_numeric_rating": None,
-            "secondary_label": None,
             "status": "incomplete",
             "missing_quantitative_inputs": missing_quantitative,
             "missing_qualitative_inputs": missing_qualitative,
@@ -240,7 +229,6 @@ def calculate_rating(
         "raw_final_score": raw_final_score,
         "rounded_final_score": rounded_score,
         "final_numeric_rating": bounded_score,
-        "secondary_label": NUMERIC_TO_LABEL.get(bounded_score),
         "status": "ok",
         "missing_quantitative_inputs": [],
         "missing_qualitative_inputs": [],

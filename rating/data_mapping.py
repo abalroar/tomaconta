@@ -1,4 +1,4 @@
-"""Mapping between the reverse-engineered model and existing app fields."""
+"""Mapping between the rating model and existing app fields."""
 
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ def period_to_display_label(period: str) -> str:
     return f"{month}/{year.strip()}"
 
 
-def get_previous_quarter_period(period: str) -> str | None:
+def get_previous_year_same_period(period: str) -> str | None:
     text = str(period or "").strip()
     if "/" not in text:
         return None
@@ -49,9 +49,7 @@ def get_previous_quarter_period(period: str) -> str | None:
         year_int = int(year)
     except ValueError:
         return None
-    if quarter <= 1:
-        return f"4/{year_int - 1}"
-    return f"{quarter - 1}/{year_int}"
+    return f"{quarter}/{year_int - 1}"
 
 
 def _load_critical_screens_metadata(base_dir: Path | None = None) -> dict[str, Any]:
@@ -89,7 +87,7 @@ def load_rating_input_dataframe(period: str, base_dir: Path | None = None) -> pd
     if current is None or current.empty:
         return pd.DataFrame()
 
-    previous_period = get_previous_quarter_period(str(period))
+    previous_period = get_previous_year_same_period(str(period))
     previous = (
         load_critical_screens_slice(base_dir=root, periodos=[previous_period])
         if previous_period
@@ -151,45 +149,39 @@ def build_variable_mapping_table() -> pd.DataFrame:
     rows = [
         {
             "Model variable": "Total assets",
-            "Current app field / proxy": "Ativo Total",
+            "Current app field": "Ativo Total",
             "Type": "exact",
             "Notes": "Curated prudential field from critical_screens.",
         },
         {
             "Model variable": "CET1",
-            "Current app field / proxy": "Índice de Capital Principal (CET1)",
-            "Type": "exact",
-            "Notes": "If missing, the app falls back to Índice de Basileia Total (%).",
+        "Current app field": "Índice de Capital Principal (CET1)",
+        "Type": "exact",
+        "Notes": "If missing, the app uses Índice de Basileia Total (%).",
         },
         {
             "Model variable": "RoE",
-            "Current app field / proxy": "ROE Ac. Anualizado (%)",
+            "Current app field": "ROE Ac. Anualizado (%)",
             "Type": "exact",
             "Notes": "Uses the current curated profitability field already exposed in Snapshot/Peers.",
         },
         {
             "Model variable": "NPL Creation",
-            "Current app field / proxy": "Delta of Perda Esperada / Carteira de Crédito Bruta",
-            "Type": "proxy",
-            "Notes": "Primary approximation because the exact legacy NPL Creation field was not found.",
-        },
-        {
-            "Model variable": "NPL Creation fallback",
-            "Current app field / proxy": "Delta of (Ativos Estágio 3 / Carteira de Crédito Bruta)",
-            "Type": "proxy",
-            "Notes": "Secondary approximation if the expected-loss ratio is unavailable.",
+            "Current app field": "Perda Esperada / Carteira de Crédito Bruta",
+            "Type": "current level",
+            "Notes": "Current carteira-quality indicator used in the model.",
         },
         {
             "Model variable": "Funding delta",
-            "Current app field / proxy": "Current Core Funding - previous-quarter Core Funding",
+            "Current app field": "Current Core Funding - same quarter previous year Core Funding",
             "Type": "transformed",
-            "Notes": "Derived from the curated Core Funding field because delta is not stored directly.",
+            "Notes": "Current period against the same quarter of the previous year.",
         },
         {
             "Model variable": "Structural funding ratio",
-            "Current app field / proxy": "Crédito / Captações",
-            "Type": "proxy",
-            "Notes": "Used as the closest available structural funding ratio in the current app.",
+            "Current app field": "Crédito / Captações",
+            "Type": "current level",
+            "Notes": "Current structural funding ratio used in the model.",
         },
     ]
     return pd.DataFrame(rows)
@@ -199,7 +191,7 @@ def map_rating_inputs(record: Mapping[str, Any]) -> dict[str, Any]:
     row = dict(record)
     institution = str(row.get("Instituição") or "").strip()
     period = str(row.get("Período") or row.get("Período Selecionado") or "").strip()
-    previous_period = str(row.get("Período Anterior") or get_previous_quarter_period(period) or "").strip()
+    previous_period = str(row.get("Período Anterior") or get_previous_year_same_period(period) or "").strip()
 
     raw_inputs = {
         "institution_name": institution,
@@ -231,14 +223,14 @@ def map_rating_inputs(record: Mapping[str, Any]) -> dict[str, Any]:
             "display_label": "Total assets",
             "source_field": "Ativo Total",
             "source_kind": "exact",
-            "note": "Using the curated Ativo Total field from critical_screens.",
+            "note": "Using the curated Ativo Total field.",
         },
         "roe": {
             "value": raw_inputs["ROE Ac. Anualizado (%)"],
             "display_label": "RoE",
             "source_field": "ROE Ac. Anualizado (%)",
             "source_kind": "exact",
-            "note": "Using the curated ROE Ac. Anualizado (%) field from critical_screens.",
+            "note": "Using the curated ROE Ac. Anualizado (%) field.",
         },
     }
 
@@ -250,18 +242,15 @@ def map_rating_inputs(record: Mapping[str, Any]) -> dict[str, Any]:
             "display_label": "CET1",
             "source_field": "Índice de Capital Principal (CET1)",
             "source_kind": "exact",
-            "note": "Using the exact CET1 field from critical_screens.",
+            "note": "Using the current CET1 field.",
         }
     elif basel is not None:
         mapped_inputs["cet1"] = {
             "value": basel,
             "display_label": "CET1",
             "source_field": "Índice de Basileia Total (%)",
-            "source_kind": "fallback_proxy",
-            "note": (
-                "CET1 is missing for this institution/period. Using Índice de Basileia Total (%) "
-                "as an explicit capital-adequacy fallback proxy."
-            ),
+            "source_kind": "fallback",
+            "note": "CET1 is missing for this institution/period. Using Índice de Basileia Total (%).",
         }
     else:
         mapped_inputs["cet1"] = {
@@ -283,9 +272,9 @@ def map_rating_inputs(record: Mapping[str, Any]) -> dict[str, Any]:
         "source_field": "Core Funding",
         "source_kind": "transformed" if funding_delta is not None else "missing",
         "note": (
-            "Computed as current Core Funding minus previous-quarter Core Funding."
+            "Computed as current Core Funding minus same quarter previous year Core Funding."
             if funding_delta is not None
-            else "Current or previous-quarter Core Funding is unavailable."
+            else "Current or comparison-period Core Funding is unavailable."
         ),
         "components": {"current": current_core, "previous": previous_core},
     }
@@ -295,9 +284,9 @@ def map_rating_inputs(record: Mapping[str, Any]) -> dict[str, Any]:
         "value": credito_capt,
         "display_label": "Structural funding ratio",
         "source_field": "Crédito / Captações",
-        "source_kind": "proxy" if credito_capt is not None else "missing",
+        "source_kind": "current_level" if credito_capt is not None else "missing",
         "note": (
-            "Using Crédito / Captações as the closest available structural funding ratio in the current app."
+            "Using the current Crédito / Captações field."
             if credito_capt is not None
             else "Crédito / Captações is unavailable."
         ),
@@ -315,43 +304,29 @@ def map_rating_inputs(record: Mapping[str, Any]) -> dict[str, Any]:
         }
     else:
         current_loss_ratio = raw_inputs["Perda Esperada / Carteira de Crédito Bruta"]
-        previous_loss_ratio = raw_inputs["Perda Esperada / Carteira de Crédito Bruta (prev)"]
-        if current_loss_ratio is not None and previous_loss_ratio is not None:
+        if current_loss_ratio is not None:
             mapped_inputs["npl_creation"] = {
-                "value": current_loss_ratio - previous_loss_ratio,
+                "value": current_loss_ratio,
                 "display_label": "NPL Creation",
                 "source_field": "Perda Esperada / Carteira de Crédito Bruta",
-                "source_kind": "proxy",
-                "note": (
-                    "Exact NPL Creation was not found. Using the quarter-on-quarter change in "
-                    "Perda Esperada / Carteira de Crédito Bruta as the primary proxy."
-                ),
-                "components": {"current": current_loss_ratio, "previous": previous_loss_ratio},
+                "source_kind": "current_level",
+                "note": "Using the current carteira-quality ratio available for the period.",
             }
         else:
             current_stage3_ratio = _safe_ratio(
                 raw_inputs["Ativos Estágio 3"],
                 raw_inputs["Carteira de Crédito Bruta"],
             )
-            previous_stage3_ratio = _safe_ratio(
-                raw_inputs["Ativos Estágio 3 (prev)"],
-                raw_inputs["Carteira de Crédito Bruta (prev)"],
-            )
-            stage3_delta = None
-            if current_stage3_ratio is not None and previous_stage3_ratio is not None:
-                stage3_delta = current_stage3_ratio - previous_stage3_ratio
             mapped_inputs["npl_creation"] = {
-                "value": stage3_delta,
+                "value": current_stage3_ratio,
                 "display_label": "NPL Creation",
                 "source_field": "Ativos Estágio 3 / Carteira de Crédito Bruta",
-                "source_kind": "proxy" if stage3_delta is not None else "missing",
+                "source_kind": "fallback" if current_stage3_ratio is not None else "missing",
                 "note": (
-                    "Exact NPL Creation was not found. Using the quarter-on-quarter change in "
-                    "Ativos Estágio 3 / Carteira de Crédito Bruta as a secondary proxy."
-                    if stage3_delta is not None
-                    else "No exact or proxy NPL Creation input is available for this institution/period."
+                    "Using the current Stage 3 / Carteira ratio."
+                    if current_stage3_ratio is not None
+                    else "No NPL input is available for this institution/period."
                 ),
-                "components": {"current": current_stage3_ratio, "previous": previous_stage3_ratio},
             }
 
     disclosures = []

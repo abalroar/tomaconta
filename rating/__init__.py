@@ -1,4 +1,4 @@
-"""Reverse-engineered rating helpers."""
+"""Rating helpers."""
 
 from .audit import build_audit_tables, build_audit_trail_markdown
 from .config import MODEL_DISCLOSURES, NUMERIC_TO_LABEL, QUALITATIVE_QUESTIONS
