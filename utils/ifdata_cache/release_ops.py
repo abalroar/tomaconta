@@ -289,10 +289,17 @@ def release_assets_for_cache(manager, cache_name: str) -> list[tuple[Path, str]]
         raise FileNotFoundError(f"metadata ausente para {cache_name}: {cache.arquivo_metadata}")
 
     data_asset = f"{cache_name}_dados.parquet" if data_path.suffix == ".parquet" else f"{cache_name}_cache.pkl"
-    return [
+    assets = [
         (data_path, data_asset),
         (cache.arquivo_metadata, f"{cache_name}_metadata.json"),
     ]
+    extra_assets_fn = getattr(cache, "extra_release_assets", None)
+    if callable(extra_assets_fn):
+        for path, asset_name in extra_assets_fn():
+            if not path.exists():
+                raise FileNotFoundError(f"asset extra ausente para {cache_name}: {path}")
+            assets.append((path, asset_name))
+    return assets
 
 
 def collect_release_assets(

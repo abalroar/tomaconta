@@ -96,6 +96,13 @@ CACHES_INFO = {
         "todas_variaveis": True,
         "periodicidade": "diaria",  # Janelas de 5 dias úteis
     },
+    "taxas_juros_historico": {
+        "nome_exibicao": "Taxas de Juros Histórico (Batch BCB)",
+        "descricao": "Histórico consolidado de taxas por instituição financeira",
+        "relatorio": None,
+        "todas_variaveis": True,
+        "periodicidade": "diaria",
+    },
     "derived_metrics": {
         "nome_exibicao": "Métricas Derivadas",
         "descricao": "Indicadores derivados (DRE + Resumo)",
@@ -162,6 +169,7 @@ class CacheManager:
             CarteiraInstrumentosCache,
         )
         from .taxas_juros import TaxasJurosCache
+        from .taxas_juros_historico import TaxasJurosHistoricoCache
         from .derived_metrics import DerivedMetricsCache, DerivedMetricsIndividualCache
         from .critical_screens import CriticalScreensCache
         from .balancetes import BalancetesCache
@@ -183,6 +191,7 @@ class CacheManager:
 
         # Cache de Taxas de Juros (API BCB diferente)
         self.registrar(TaxasJurosCache(self.base_dir))
+        self.registrar(TaxasJurosHistoricoCache(self.base_dir))
         # Cache de métricas derivadas (DRE + Resumo)
         self.registrar(DerivedMetricsCache(self.base_dir))
         self.registrar(DerivedMetricsIndividualCache(self.base_dir))

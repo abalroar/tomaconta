@@ -80,6 +80,16 @@ from .taxas_juros import (
     formatar_nome_modalidade,
     MODALIDADES_CONHECIDAS,
 )
+from .taxas_juros_historico import (
+    TaxasJurosHistoricoCache,
+    build_taxas_juros_display_frame,
+    fetch_taxas_juros_datas_disponiveis,
+    fetch_taxas_juros_historico_window,
+    fetch_taxas_juros_parametros_consulta,
+    load_taxas_juros_historico_dimension,
+    load_taxas_juros_historico_slice,
+    normalize_taxas_juros_historico_frame,
+)
 
 from .bloprudencial import (
     build_bloprudencial_url,
@@ -288,10 +298,18 @@ __all__ = [
     "listar_relatorios_completos",
     # Implementacoes - Taxas de Juros
     "TaxasJurosCache",
+    "TaxasJurosHistoricoCache",
     "buscar_modalidades_taxas_juros",
     "buscar_instituicoes_taxas_juros",
     "formatar_nome_modalidade",
     "MODALIDADES_CONHECIDAS",
+    "fetch_taxas_juros_datas_disponiveis",
+    "fetch_taxas_juros_parametros_consulta",
+    "fetch_taxas_juros_historico_window",
+    "normalize_taxas_juros_historico_frame",
+    "load_taxas_juros_historico_slice",
+    "load_taxas_juros_historico_dimension",
+    "build_taxas_juros_display_frame",
     # Implementacoes - BLOPRUDENCIAL
     "build_bloprudencial_url",
     "download_bloprudencial_zip",

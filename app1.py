@@ -167,6 +167,10 @@ from utils.cdsfn_live import (
 )
 from utils.pessoas_juridicas_api import consultar_pessoas_juridicas
 from utils.ifdata_cache import taxas_juros as taxas_juros_module
+try:
+    from utils.ifdata_cache import taxas_juros_historico as taxas_juros_historico_module
+except Exception:  # pragma: no cover - fallback defensivo para deploys defasados
+    taxas_juros_historico_module = None
 from rating import QUALITATIVE_QUESTIONS, build_audit_tables, build_audit_trail_markdown, calculate_rating, list_available_rating_periods, load_rating_input_dataframe, map_rating_inputs, period_to_display_label
 from rating.engine import get_size_bucket
 import io
@@ -188,6 +192,14 @@ from io import BytesIO
 fetch_taxas_juros_scoped = taxas_juros_module.fetch_taxas_juros_scoped
 formatar_nome_modalidade = taxas_juros_module.formatar_nome_modalidade
 reduce_taxas_juros_to_monthly_snapshot = taxas_juros_module.reduce_taxas_juros_to_monthly_snapshot
+TaxasJurosHistoricoCache = getattr(taxas_juros_historico_module, "TaxasJurosHistoricoCache", None)
+load_taxas_juros_historico_slice = getattr(taxas_juros_historico_module, "load_taxas_juros_historico_slice", None)
+load_taxas_juros_historico_dimension = getattr(taxas_juros_historico_module, "load_taxas_juros_historico_dimension", None)
+build_taxas_juros_display_frame = getattr(
+    taxas_juros_historico_module,
+    "build_taxas_juros_display_frame",
+    lambda df: df.copy() if isinstance(df, pd.DataFrame) else pd.DataFrame(),
+)
 
 if hasattr(taxas_juros_module, "fetch_taxas_juros_for_institutions"):
     fetch_taxas_juros_for_institutions = taxas_juros_module.fetch_taxas_juros_for_institutions
@@ -23298,22 +23310,144 @@ elif menu == "Taxas de Juros (Beta Leve)":
             timeout=45,
         )
 
+    def _obter_cache_taxas_historico_beta():
+        try:
+            cache = get_cache_manager().get_cache("taxas_juros_historico")
+            if cache is not None:
+                return cache
+        except Exception:
+            pass
+        if TaxasJurosHistoricoCache is None:
+            return None
+        try:
+            return TaxasJurosHistoricoCache(Path(__file__).resolve().parent)
+        except Exception:
+            return None
+
+    def _filtrar_segmento_historico_beta(df: pd.DataFrame, segmento: str) -> pd.DataFrame:
+        if df.empty or "segmento" not in df.columns:
+            return pd.DataFrame()
+        mask = df["segmento"].astype(str).str.upper() == str(segmento).upper()
+        return df[mask].copy()
+
+    @st.cache_data(ttl=1800, show_spinner="Verificando cache histórico de taxas...")
+    def _carregar_taxas_beta_catalogo_historico():
+        cache = _obter_cache_taxas_historico_beta()
+        if cache is None or load_taxas_juros_historico_dimension is None:
+            return pd.DataFrame(), pd.DataFrame(), {"available": False, "source": "indisponivel", "error": "helper ausente"}
+
+        bootstrap_fn = getattr(cache, "bootstrap_local_assets", None)
+        if callable(bootstrap_fn):
+            bootstrap_result = bootstrap_fn(force=False)
+            if not bootstrap_result.sucesso and not cache.existe():
+                return pd.DataFrame(), pd.DataFrame(), {
+                    "available": False,
+                    "source": "release_inacessivel",
+                    "error": bootstrap_result.mensagem,
+                }
+        elif not cache.existe():
+            return pd.DataFrame(), pd.DataFrame(), {"available": False, "source": "sem_cache_local", "error": "cache ausente"}
+
+        try:
+            df_param = load_taxas_juros_historico_dimension(cache, name="parametros")
+            df_datas = load_taxas_juros_historico_dimension(cache, name="datas")
+        except Exception as exc:
+            return pd.DataFrame(), pd.DataFrame(), {"available": False, "source": "erro_dimensoes", "error": str(exc)}
+
+        if df_param.empty or df_datas.empty:
+            return pd.DataFrame(), pd.DataFrame(), {
+                "available": False,
+                "source": "dimensoes_vazias",
+                "error": "dimensões do cache histórico não encontradas",
+            }
+
+        return df_param, df_datas, {
+            "available": True,
+            "source": "historico_cache",
+            "rows_parametros": int(len(df_param)),
+            "rows_datas": int(len(df_datas)),
+            "cache_path": str(cache.arquivo_dados),
+        }
+
+    @st.cache_data(ttl=1800, show_spinner="Carregando histórico do produto a partir do cache...")
+    def _buscar_taxas_beta_historico_produto_cache(codigo_segmento: str, codigo_modalidade: str):
+        cache = _obter_cache_taxas_historico_beta()
+        if cache is None or load_taxas_juros_historico_slice is None:
+            return pd.DataFrame(), {"rows_returned": 0, "source": "indisponivel", "error": "helper ausente"}
+        try:
+            df_fact = load_taxas_juros_historico_slice(
+                cache,
+                codigo_segmento=str(codigo_segmento),
+                codigo_modalidade=str(codigo_modalidade),
+            )
+        except Exception as exc:
+            return pd.DataFrame(), {"rows_returned": 0, "source": "historico_cache", "error": str(exc)}
+
+        df_display = build_taxas_juros_display_frame(df_fact)
+        if {'Fim Período', 'Produto'}.issubset(df_display.columns):
+            sort_cols = ['Fim Período', 'Produto']
+            asc = [True, True]
+            if 'Posição' in df_display.columns:
+                sort_cols.append('Posição')
+                asc.append(True)
+            df_display = df_display.sort_values(sort_cols, ascending=asc, na_position='last').reset_index(drop=True)
+
+        return df_display, {
+            "rows_returned": int(len(df_display)),
+            "source": "historico_cache",
+            "error": "",
+        }
+
+    @st.cache_data(ttl=900, show_spinner="Carregando detalhe recente a partir do cache...")
+    def _buscar_taxas_beta_detalhe_recente_cache(
+        codigo_segmento: str,
+        codigo_modalidade: str,
+        instituicoes_key: tuple[str, ...],
+        dias_recente: int = 60,
+    ):
+        cache = _obter_cache_taxas_historico_beta()
+        if cache is None or load_taxas_juros_historico_slice is None:
+            return pd.DataFrame(), {"rows_returned": 0, "source": "indisponivel", "error": "helper ausente"}
+        inicio_min = (datetime.now() - timedelta(days=int(dias_recente))).strftime("%Y-%m-%d")
+        try:
+            df_fact = load_taxas_juros_historico_slice(
+                cache,
+                codigo_segmento=str(codigo_segmento),
+                codigo_modalidade=str(codigo_modalidade),
+                instituicoes_observadas=list(instituicoes_key),
+                inicio_periodo_min=inicio_min,
+            )
+        except Exception as exc:
+            return pd.DataFrame(), {"rows_returned": 0, "source": "historico_cache", "error": str(exc)}
+
+        df_display = build_taxas_juros_display_frame(df_fact)
+        if "Fim Período" in df_display.columns:
+            df_display = df_display.sort_values("Fim Período").reset_index(drop=True)
+        return df_display, {
+            "rows_returned": int(len(df_display)),
+            "source": "historico_cache",
+            "pages_loaded": 0,
+            "hit_page_limit": False,
+            "errors": {},
+        }
+
     st.markdown("### Taxas de Juros (Beta Leve)")
-    st.caption("Consultas progressivas no servidor do BCB: segmento → produto → bancos. Sem baixar o universo inteiro para a RAM do Streamlit.")
+    st.caption(
+        "Usa o cache histórico consolidado quando disponível; caso contrário, cai para consultas progressivas no servidor do BCB."
+    )
 
     with st.expander("Sobre a beta", expanded=False):
         st.markdown(
             """
-            **Objetivo:** maximizar dado ao vivo com carga controlada.
+            **Objetivo:** servir histórico amplo sem puxar a API bruta a cada interação.
 
             **Guardrails desta aba:**
-            - catálogo recente restrito a janela curta e poucas colunas;
-            - histórico completo só depois da escolha do produto;
+            - preferência por cache histórico local/publicado;
+            - fallback para consultas progressivas só quando o cache histórico não estiver disponível;
             - detalhe recente opcional e sob demanda;
-            - limites explícitos de paginação por consulta.
+            - limites explícitos de paginação no fallback ao vivo.
 
-            **Trade-off:** se o volume de um produto específico exceder o limite seguro da beta,
-            a aba prioriza estabilidade e mostra aviso de possível truncamento.
+            **Trade-off:** o modo ao vivo leve continua existindo como contingência, mas a fonte preferida agora é o histórico batch.
             """
         )
 
@@ -23339,40 +23473,92 @@ elif menu == "Taxas de Juros (Beta Leve)":
             help="Busca um recorte mais granular apenas do produto já selecionado.",
         )
 
-    df_catalogo_beta, meta_catalogo_beta = _buscar_taxas_beta_catalogo_produtos(segmento_beta)
+    df_param_hist_beta, df_datas_hist_beta, meta_catalogo_hist_beta = _carregar_taxas_beta_catalogo_historico()
+    usa_cache_historico_beta = bool(meta_catalogo_hist_beta.get("available"))
+    codigo_segmento_beta = ""
+    produto_lookup_beta: Dict[str, str] = {}
 
-    if df_catalogo_beta.empty:
-        st.warning("Não foi possível montar o catálogo recente de produtos do BCB para este segmento.")
-        if meta_catalogo_beta.get("error"):
-            st.caption(f"Erro retornado: {meta_catalogo_beta['error']}")
-    else:
-        data_catalogo_beta = df_catalogo_beta['Fim Período'].max()
-        df_catalogo_recente_beta = df_catalogo_beta[df_catalogo_beta['Fim Período'] == data_catalogo_beta].copy()
-        produtos_beta = sorted(df_catalogo_recente_beta['Produto'].dropna().unique().tolist())
-
-        st.success(
-            f"Catálogo leve: {len(produtos_beta)} produtos | "
-            f"amostra mais recente em {data_catalogo_beta.strftime('%d/%m/%Y')} | "
-            f"{meta_catalogo_beta.get('rows_returned', len(df_catalogo_beta)):,} linhas recebidas."
-        )
-        if meta_catalogo_beta.get("hit_page_limit"):
-            st.warning(
-                "A consulta de catálogo atingiu o limite seguro de paginação da beta. "
-                "Alguns produtos podem não ter aparecido; se isso acontecer, reduzo ainda mais o fluxo."
+    if usa_cache_historico_beta:
+        df_param_segmento_beta = _filtrar_segmento_historico_beta(df_param_hist_beta, segmento_beta)
+        if not df_param_segmento_beta.empty:
+            codigo_segmento_beta = str(df_param_segmento_beta["codigo_segmento"].astype(str).iloc[0])
+            df_produtos_beta = (
+                df_param_segmento_beta[
+                    df_param_segmento_beta["tipo_modalidade"].astype(str) == "D"
+                ][["codigo_modalidade", "modalidade"]]
+                .drop_duplicates()
+                .sort_values("modalidade")
+                .reset_index(drop=True)
             )
+            produto_lookup_beta = {
+                str(row["codigo_modalidade"]): str(row["modalidade"])
+                for _, row in df_produtos_beta.iterrows()
+            }
+            produtos_beta = list(produto_lookup_beta.keys())
+            data_catalogo_beta = pd.to_datetime(df_datas_hist_beta["fim_periodo"], errors="coerce").max()
+        else:
+            produtos_beta = []
+            data_catalogo_beta = pd.NaT
+    else:
+        df_catalogo_beta, meta_catalogo_beta = _buscar_taxas_beta_catalogo_produtos(segmento_beta)
+        if df_catalogo_beta.empty:
+            produtos_beta = []
+            data_catalogo_beta = pd.NaT
+        else:
+            data_catalogo_beta = df_catalogo_beta['Fim Período'].max()
+            df_catalogo_recente_beta = df_catalogo_beta[df_catalogo_beta['Fim Período'] == data_catalogo_beta].copy()
+            produtos_beta = sorted(df_catalogo_recente_beta['Produto'].dropna().unique().tolist())
+        produto_lookup_beta = {str(produto): str(produto) for produto in produtos_beta}
 
-        produto_beta = st.selectbox(
+    if not produtos_beta:
+        if usa_cache_historico_beta:
+            st.warning("O cache histórico existe, mas não retornou produtos para este segmento.")
+            if meta_catalogo_hist_beta.get("error"):
+                st.caption(f"Erro retornado: {meta_catalogo_hist_beta['error']}")
+        else:
+            st.warning("Não foi possível montar o catálogo recente de produtos do BCB para este segmento.")
+            if meta_catalogo_hist_beta.get("error"):
+                st.caption(f"Falha do cache histórico: {meta_catalogo_hist_beta['error']}")
+            if 'meta_catalogo_beta' in locals() and meta_catalogo_beta.get("error"):
+                st.caption(f"Erro retornado: {meta_catalogo_beta['error']}")
+    else:
+        if usa_cache_historico_beta:
+            st.success(
+                f"Catálogo histórico: {len(produtos_beta)} produtos | "
+                f"última janela conhecida em {data_catalogo_beta.strftime('%d/%m/%Y') if pd.notna(data_catalogo_beta) else '-'}."
+            )
+            st.caption("Fonte atual: cache histórico consolidado.")
+        else:
+            st.success(
+                f"Catálogo leve: {len(produtos_beta)} produtos | "
+                f"amostra mais recente em {data_catalogo_beta.strftime('%d/%m/%Y')} | "
+                f"{meta_catalogo_beta.get('rows_returned', len(df_catalogo_beta)):,} linhas recebidas."
+            )
+            if meta_catalogo_beta.get("hit_page_limit"):
+                st.warning(
+                    "A consulta de catálogo atingiu o limite seguro de paginação da beta. "
+                    "Alguns produtos podem não ter aparecido; se isso acontecer, reduzo ainda mais o fluxo."
+                )
+
+        produto_beta_valor = st.selectbox(
             "3️⃣ Produto",
             options=produtos_beta,
-            format_func=_formatar_modalidade_beta,
+            format_func=lambda codigo: _formatar_modalidade_beta(produto_lookup_beta.get(str(codigo), str(codigo))),
             key="tj_beta_produto",
         )
+        produto_beta = produto_lookup_beta.get(str(produto_beta_valor), str(produto_beta_valor))
 
-        if produto_beta:
-            df_hist_beta_raw, meta_hist_beta = _buscar_taxas_beta_historico_produto(
-                segmento_beta,
-                produto_beta,
-            )
+        if produto_beta_valor:
+            if usa_cache_historico_beta:
+                df_hist_beta_raw, meta_hist_beta = _buscar_taxas_beta_historico_produto_cache(
+                    codigo_segmento_beta,
+                    str(produto_beta_valor),
+                )
+            else:
+                df_hist_beta_raw, meta_hist_beta = _buscar_taxas_beta_historico_produto(
+                    segmento_beta,
+                    produto_beta,
+                )
 
             if df_hist_beta_raw.empty:
                 st.warning("Nenhum histórico retornado para o produto selecionado.")
@@ -23403,6 +23589,11 @@ elif menu == "Taxas de Juros (Beta Leve)":
                     st.metric("Instituições", df_hist_beta_raw['Instituição Financeira'].nunique())
                 with col_stat4:
                     st.metric("Última data", data_mais_recente_beta.strftime('%d/%m/%Y'))
+                st.caption(
+                    "Fonte em uso: cache histórico consolidado."
+                    if usa_cache_historico_beta
+                    else "Fonte em uso: consulta leve ao vivo no BCB."
+                )
 
                 if meta_hist_beta.get("hit_page_limit"):
                     st.warning(
@@ -23423,7 +23614,8 @@ elif menu == "Taxas de Juros (Beta Leve)":
                     st.warning("Selecione ao menos um banco para visualizar o histórico.")
                 else:
                     meses_disponiveis_beta = sorted(df_hist_beta_mensal['AnoMes'].dropna().unique().tolist())
-                    max_meses_beta = max(1, min(12, len(meses_disponiveis_beta)))
+                    limite_meses_beta = 60 if usa_cache_historico_beta else 12
+                    max_meses_beta = max(1, min(limite_meses_beta, len(meses_disponiveis_beta)))
                     col_view1, col_view2 = st.columns([1.4, 1.0])
                     with col_view1:
                         modo_visual_beta = st.radio(
@@ -23585,11 +23777,18 @@ elif menu == "Taxas de Juros (Beta Leve)":
                             horizontal=True,
                             key="tj_beta_granularidade_recente",
                         )
-                        df_recent_beta_raw, meta_recent_beta = _buscar_taxas_beta_detalhe_recente(
-                            segmento_beta,
-                            produto_beta,
-                            tuple(sorted(bancos_sel_beta)),
-                        )
+                        if usa_cache_historico_beta:
+                            df_recent_beta_raw, meta_recent_beta = _buscar_taxas_beta_detalhe_recente_cache(
+                                codigo_segmento_beta,
+                                str(produto_beta_valor),
+                                tuple(sorted(bancos_sel_beta)),
+                            )
+                        else:
+                            df_recent_beta_raw, meta_recent_beta = _buscar_taxas_beta_detalhe_recente(
+                                segmento_beta,
+                                produto_beta,
+                                tuple(sorted(bancos_sel_beta)),
+                            )
                         df_recent_beta = df_recent_beta_raw.sort_values('Fim Período').copy()
                         if granularidade_beta == "Último ponto da semana":
                             df_recent_beta = _reduzir_taxas_beta_semanal(df_recent_beta)
@@ -23632,11 +23831,17 @@ elif menu == "Taxas de Juros (Beta Leve)":
                             )
                             fig_recent_beta.update_traces(line=dict(width=2.0), marker=dict(size=5))
                             st.plotly_chart(fig_recent_beta, width='stretch')
-                            st.caption(
-                                f"Detalhe recente: {len(df_recent_beta):,} linhas plotadas "
-                                f"para {len(bancos_sel_beta)} banco(s) | "
-                                f"{meta_recent_beta.get('pages_loaded', 0)} página(s) consultadas no total."
-                            )
+                            if usa_cache_historico_beta:
+                                st.caption(
+                                    f"Detalhe recente: {len(df_recent_beta):,} linhas plotadas "
+                                    f"para {len(bancos_sel_beta)} banco(s) a partir do cache histórico."
+                                )
+                            else:
+                                st.caption(
+                                    f"Detalhe recente: {len(df_recent_beta):,} linhas plotadas "
+                                    f"para {len(bancos_sel_beta)} banco(s) | "
+                                    f"{meta_recent_beta.get('pages_loaded', 0)} página(s) consultadas no total."
+                                )
                             if meta_recent_beta.get("hit_page_limit"):
                                 st.warning(
                                     "O detalhe recente atingiu o limite seguro da beta. "
@@ -24677,6 +24882,7 @@ elif menu == "Atualizar Base":
             "carteira_pj": "Carteira PJ (Rel. 13) - TODAS as variáveis",
             "carteira_instrumentos": "Carteira Instrumentos 4.966 (Rel. 16) - TODAS as variáveis",
             "taxas_juros": "Taxas de Juros (API BCB) - TODOS produtos/instituições",
+            "taxas_juros_historico": "Taxas de Juros Histórico (Batch) - ConsultaUnificada + cache publicado",
             "bloprudencial": "Conglomerados Prudenciais (BLOPRUDENCIAL) - CSV mensal",
         }
         caches_dropdown = [cache for cache in caches_disponiveis if cache in opcoes_cache]
@@ -24690,6 +24896,7 @@ elif menu == "Atualizar Base":
 
         # Flag para identificar tipo de extração
         is_taxas_juros = (cache_selecionado == "taxas_juros")
+        is_taxas_juros_historico = (cache_selecionado == "taxas_juros_historico")
         is_bloprudencial = (cache_selecionado == "bloprudencial")
 
         # Mostrar status do cache selecionado
@@ -24732,7 +24939,66 @@ elif menu == "Atualizar Base":
         st.markdown("#### 3. Selecione o período de extração")
 
         # Taxas de Juros usa seleção de data (diário), demais usam trimestral
-        if is_taxas_juros:
+        if is_taxas_juros_historico:
+            st.caption("Taxas de Juros Histórico: ingestão batch por janelas diárias oficiais (`ConsultaDatas` + `ConsultaUnificada`).")
+            st.info(
+                "Fluxo recomendado para reconstrução robusta do histórico. "
+                "O processamento é resumível e pode ser executado em chunks para evitar travamentos."
+            )
+
+            col_data1, col_data2 = st.columns(2)
+            hoje = datetime.now()
+            data_minima_tj_hist = datetime(2012, 1, 2)
+
+            with col_data1:
+                data_inicio_tj_hist = st.date_input(
+                    "Data inicial",
+                    value=max(data_minima_tj_hist.date(), (hoje - timedelta(days=365 * 4)).date()),
+                    min_value=data_minima_tj_hist.date(),
+                    max_value=hoje.date(),
+                    key="taxas_juros_hist_data_inicio_extracao",
+                    format="DD/MM/YYYY",
+                )
+
+            with col_data2:
+                data_fim_tj_hist = st.date_input(
+                    "Data final",
+                    value=hoje.date(),
+                    min_value=data_minima_tj_hist.date(),
+                    max_value=hoje.date(),
+                    key="taxas_juros_hist_data_fim_extracao",
+                    format="DD/MM/YYYY",
+                )
+
+            col_hist_1, col_hist_2 = st.columns(2)
+            with col_hist_1:
+                max_janelas_tj_hist = st.number_input(
+                    "Máx. de janelas por execução",
+                    min_value=10,
+                    max_value=500,
+                    value=180,
+                    step=10,
+                    key="taxas_juros_hist_max_janelas",
+                    help="Chunk seguro por execução. O progresso fica salvo em staging.",
+                )
+            with col_hist_2:
+                reprocessar_cauda_tj_hist = st.number_input(
+                    "Reprocessar últimas janelas",
+                    min_value=0,
+                    max_value=120,
+                    value=20,
+                    step=5,
+                    key="taxas_juros_hist_cauda",
+                    help="Reconsulta uma cauda móvel para capturar revisões retroativas do BCB.",
+                )
+
+            st.caption(
+                f"Janela selecionada: {data_inicio_tj_hist.strftime('%d/%m/%Y')} até {data_fim_tj_hist.strftime('%d/%m/%Y')} | "
+                f"chunk atual de até {int(max_janelas_tj_hist)} janela(s) por execução."
+            )
+            periodos_extrair = None
+
+        elif is_taxas_juros:
             st.caption("⚠️ Taxas de Juros: extração completa de TODOS os produtos e TODAS as instituições")
             st.warning(
                 "Este fluxo de atualização é pesado e voltado a reconstrução de cache completo. "
@@ -24874,7 +25140,7 @@ elif menu == "Atualizar Base":
         # =============================================================
         # CONFIGURAÇÕES AVANÇADAS
         # =============================================================
-        if not is_taxas_juros:
+        if not is_taxas_juros and not is_taxas_juros_historico:
             with st.expander("configurações avançadas"):
                 intervalo_save = st.slider(
                     "salvar a cada N períodos",
@@ -24957,7 +25223,7 @@ elif menu == "Atualizar Base":
 
         # A extração não depende mais de alias local.
         pode_extrair = True
-        if not is_taxas_juros and not is_bloprudencial and not periodos_extrair:
+        if not is_taxas_juros and not is_taxas_juros_historico and not is_bloprudencial and not periodos_extrair:
             st.error("nenhum período válido selecionado para extração.")
             pode_extrair = False
 
@@ -25021,7 +25287,7 @@ elif menu == "Atualizar Base":
                 st.stop()
 
             modo_lotes = False
-            if not is_taxas_juros and not is_bloprudencial and periodos_extrair and len(periodos_extrair) > 12:
+            if not is_taxas_juros and not is_taxas_juros_historico and not is_bloprudencial and periodos_extrair and len(periodos_extrair) > 12:
                 modo_lotes = st.checkbox(
                     "executar em lotes menores (recomendado para intervalos longos)",
                     value=True,
@@ -25053,7 +25319,7 @@ elif menu == "Atualizar Base":
                 erros_encontrados = []
                 logs_extracao = []
 
-                if not is_taxas_juros and not is_bloprudencial:
+                if not is_taxas_juros and not is_taxas_juros_historico and not is_bloprudencial:
                     periodos_totais = periodos_extrair
                     concluidos = set(checkpoint.get("concluidos") or [])
                     if retomar and checkpoint_pendentes:
@@ -25199,6 +25465,96 @@ elif menu == "Atualizar Base":
                         status_text.empty()
                         save_status.empty()
                         st.error(f"Erro na extração BLOPRUDENCIAL: {e}")
+
+                elif is_taxas_juros_historico:
+                    from utils.ifdata_cache import TaxasJurosHistoricoCache
+
+                    def callback_progresso_tj_hist(progress, message):
+                        progress_bar.progress(min(progress, 1.0))
+                        status_text.text(message)
+
+                    def callback_log_tj_hist(message):
+                        logs_extracao.append(message)
+                        with log_container:
+                            st.caption(f"📝 {message}")
+
+                    st.info(
+                        f"Iniciando chunk histórico de Taxas de Juros de "
+                        f"{data_inicio_tj_hist.strftime('%d/%m/%Y')} até {data_fim_tj_hist.strftime('%d/%m/%Y')} "
+                        f"(máx. {int(max_janelas_tj_hist)} janelas nesta execução)."
+                    )
+
+                    try:
+                        cache_taxas_hist = cache_manager.get_cache("taxas_juros_historico")
+                        if cache_taxas_hist is None:
+                            cache_taxas_hist = TaxasJurosHistoricoCache(Path.cwd())
+
+                        resultado = cache_taxas_hist.materialize_history(
+                            data_inicio=data_inicio_tj_hist.strftime('%Y-%m-%d'),
+                            data_fim=data_fim_tj_hist.strftime('%Y-%m-%d'),
+                            overwrite=(modo_atualizacao == "overwrite"),
+                            max_windows_per_run=int(max_janelas_tj_hist),
+                            reprocess_tail_windows=int(reprocessar_cauda_tj_hist),
+                            progress_callback=callback_progresso_tj_hist,
+                            log_callback=callback_log_tj_hist,
+                        )
+
+                        progress_bar.empty()
+                        status_text.empty()
+                        save_status.empty()
+
+                        if resultado.sucesso:
+                            meta_hist = resultado.metadata or {}
+                            if meta_hist.get("finalized"):
+                                st.success(f"✅ {resultado.mensagem}")
+                            else:
+                                st.warning(f"⏸️ {resultado.mensagem}")
+
+                            col_hist_stat1, col_hist_stat2, col_hist_stat3, col_hist_stat4 = st.columns(4)
+                            with col_hist_stat1:
+                                st.metric("Janelas restantes", int(meta_hist.get("remaining_windows", 0) or 0))
+                            with col_hist_stat2:
+                                st.metric("Processadas nesta execução", int(meta_hist.get("processed_this_run", 0) or 0))
+                            with col_hist_stat3:
+                                st.metric("Total de linhas", f"{int(meta_hist.get('total_registros', 0) or 0):,}")
+                            with col_hist_stat4:
+                                st.metric("Janelas totais", int(meta_hist.get("total_periodos", meta_hist.get("total_periodos_alvo", 0)) or 0))
+
+                            if meta_hist.get("finalized") and publicar_auto and gh_token_final and token_validado:
+                                with st.spinner("publicando cache histórico no GitHub Releases..."):
+                                    sucesso_pub, msg_pub = upload_cache_github(
+                                        cache_manager,
+                                        cache_selecionado,
+                                        gh_token_final,
+                                    )
+                                    if sucesso_pub:
+                                        st.success(f"✅ {msg_pub}")
+                                    else:
+                                        st.warning(f"⚠️ falha ao publicar: {msg_pub}")
+
+                            failures_hist = meta_hist.get("failures") or []
+                            if failures_hist:
+                                with st.expander("Falhas detectadas neste chunk", expanded=False):
+                                    st.json(failures_hist)
+                        else:
+                            st.error(f"Erro na materialização histórica: {resultado.mensagem}")
+                            failures_hist = (resultado.metadata or {}).get("failures") or []
+                            if failures_hist:
+                                with st.expander("Falhas detectadas neste chunk", expanded=True):
+                                    st.json(failures_hist)
+
+                        if logs_extracao:
+                            with st.expander("📋 Log de materialização", expanded=False):
+                                for log_line in logs_extracao:
+                                    st.text(log_line)
+
+                    except Exception as e:
+                        progress_bar.empty()
+                        status_text.empty()
+                        save_status.empty()
+                        st.error(f"Erro durante materialização histórica: {e}")
+                        import traceback
+                        st.code(traceback.format_exc())
 
                 elif is_taxas_juros:
                     from utils.ifdata_cache import TaxasJurosCache
