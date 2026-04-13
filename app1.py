@@ -22274,10 +22274,27 @@ elif menu == "Carteira 4.966":
         ("C3", "C3"),
         ("C4", "C4"),
         ("C5", "C5"),
+        ("Inadimplência", "Inadimplência"),
+        ("Ativos Problemáticos", "Ativos problemáticos"),
         ("Carteira Não Informada", "Carteira não Informada ou não se Aplica"),
         ("Carteira no Exterior", "Total Exterior"),
         ("Total não Individualizado", "Total não Individualizado"),
         ("Carteira Total", "Total Geral"),
+    ]
+
+    GLOSSARIO_CARTEIRA_4966 = [
+        {
+            "Variável": "Inadimplência",
+            "Definição": "Somatório das operações de crédito a vencer e vencidas que possuam alguma parcela vencida há mais de 90 dias.",
+        },
+        {
+            "Variável": "Ativos Problemáticos",
+            "Definição": "Somatório das operações de crédito classificadas pelas instituições financeiras como ativos problemáticos.",
+        },
+        {
+            "Variável": "% Carteira Total",
+            "Definição": "Participação de cada linha em relação ao Total Geral do mesmo período.",
+        },
     ]
 
     df_carteira = load_carteira_4966_data()
@@ -22594,6 +22611,17 @@ elif menu == "Carteira 4.966":
                         file_name=f"Carteira_4966_{instituicao_selecionada.replace(' ', '_')[:30]}_dados_brutos_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         key="download_excel_carteira_4966_raw"
+                    )
+
+                with st.expander("Mini-glossário", expanded=False):
+                    st.dataframe(
+                        pd.DataFrame(GLOSSARIO_CARTEIRA_4966),
+                        hide_index=True,
+                        use_container_width=True,
+                    )
+                    st.caption(
+                        "Fonte: Banco Central do Brasil, IFData 2025-2030, relatório 16, PDF "
+                        "`trel202512_130_0.pdf`."
                     )
 
             else:
