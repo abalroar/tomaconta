@@ -107,7 +107,7 @@ def score_funding(delta_funding: float, structural_ratio: float) -> dict[str, An
         "value": delta,
         "bucket": str(rule["bucket"]),
         "score": float(rule["score"]),
-        "note": f"structural_ratio={ratio:.6f}",
+        "note": f"credito_captacoes={ratio:.6f}",
         "provisional": False,
     }
 

@@ -31,14 +31,12 @@ NUMERIC_TO_LABEL = {
 }
 
 WEIGHTS_VERSION = "configured_weight_table_v1"
-WEIGHTS_DISCLOSURE = (
-    "The engine is using the current configured weight table for this model."
-)
+WEIGHTS_DISCLOSURE = "O motor está usando a tabela de pesos configurada para esta modelagem."
 
 STARTING_SCORE_RULES = [
     {
         "key": "above_200bn",
-        "label": "Above R$ 200bn",
+        "label": "Acima de R$ 200 bi",
         "min_assets": 200_000_000_000.0,
         "max_assets": None,
         "starting_score": 22,
@@ -46,7 +44,7 @@ STARTING_SCORE_RULES = [
     },
     {
         "key": "between_20bn_200bn",
-        "label": "R$ 20bn to R$ 200bn",
+        "label": "Entre R$ 20 bi e R$ 200 bi",
         "min_assets": 20_000_000_000.0,
         "max_assets": 200_000_000_000.0,
         "starting_score": 19,
@@ -54,7 +52,7 @@ STARTING_SCORE_RULES = [
     },
     {
         "key": "below_20bn",
-        "label": "Below R$ 20bn",
+        "label": "Abaixo de R$ 20 bi",
         "min_assets": None,
         "max_assets": 20_000_000_000.0,
         "starting_score": 16,
@@ -126,22 +124,22 @@ NPL_CREATION_RULES = [
 
 FUNDING_RULES = [
     {
-        "bucket": "Delta funding >= 0",
+        "bucket": "Variação % do funding >= 0",
         "score": 0.00,
         "condition": "delta_non_negative",
     },
     {
-        "bucket": "Delta funding < 0 and structural ratio > 95%",
+        "bucket": "Funding negativo e Crédito / Captações > 95%",
         "score": 0.00,
         "condition": "delta_negative_ratio_above_95",
     },
     {
-        "bucket": "Delta funding < 0 and structural ratio between 95% and 85%",
+        "bucket": "Funding negativo e Crédito / Captações entre 95% e 85%",
         "score": -0.23,
         "condition": "delta_negative_ratio_between_95_85",
     },
     {
-        "bucket": "Delta funding < 0 and structural ratio < 85%",
+        "bucket": "Funding negativo e Crédito / Captações < 85%",
         "score": -0.45,
         "condition": "delta_negative_ratio_below_85",
     },
@@ -151,23 +149,23 @@ QUALITATIVE_QUESTIONS = [
     {
         "id": "q1",
         "label": "Q1",
-        "title": "Audit",
-        "group": "Quality of information",
+        "title": "Auditoria",
+        "group": "Qualidade da informação",
         "note": "",
         "options": [
             {
                 "code": "A",
-                "label": "First-line / no relevant audit issue",
+                "label": "Auditoria sem ressalva relevante",
                 "score": 0.00,
             },
             {
                 "code": "B",
-                "label": "Second-line / one relevant issue",
+                "label": "Auditoria com ressalva relevante",
                 "score": -0.22,
             },
             {
                 "code": "C",
-                "label": "No audit / material issue",
+                "label": "Sem auditoria ou com problema material",
                 "score": -0.58,
                 "provisional": True,
                 "note": "",
@@ -177,23 +175,23 @@ QUALITATIVE_QUESTIONS = [
     {
         "id": "q2",
         "label": "Q2",
-        "title": "Reservations / qualifications",
-        "group": "Quality of information",
+        "title": "Ressalvas",
+        "group": "Qualidade da informação",
         "note": "",
         "options": [
             {
                 "code": "A",
-                "label": "No relevant reservation",
+                "label": "Sem ressalva relevante",
                 "score": 0.00,
             },
             {
                 "code": "B",
-                "label": "One relevant reservation",
+                "label": "Uma ressalva relevante",
                 "score": -0.22,
             },
             {
                 "code": "C",
-                "label": "Material reservation / qualified information",
+                "label": "Ressalva material",
                 "score": -0.58,
                 "provisional": True,
                 "note": "",
@@ -203,23 +201,23 @@ QUALITATIVE_QUESTIONS = [
     {
         "id": "q3",
         "label": "Q3",
-        "title": "Shareholder strength / support",
-        "group": "Management",
+        "title": "Suporte acionário",
+        "group": "Gestão",
         "note": "",
         "options": [
             {
                 "code": "A",
-                "label": "Strong shareholder support",
+                "label": "Suporte forte do acionista",
                 "score": 1.13,
             },
             {
                 "code": "B",
-                "label": "Neutral / limited support",
+                "label": "Suporte neutro ou limitado",
                 "score": 0.00,
             },
             {
                 "code": "C",
-                "label": "Weak support / reputation risk",
+                "label": "Suporte fraco ou risco reputacional",
                 "score": -1.13,
             },
         ],
@@ -227,23 +225,23 @@ QUALITATIVE_QUESTIONS = [
     {
         "id": "q4",
         "label": "Q4",
-        "title": "Governance / adherence",
-        "group": "Management",
+        "title": "Governança",
+        "group": "Gestão",
         "note": "",
         "options": [
             {
                 "code": "A",
-                "label": "Full adherence",
+                "label": "Aderência plena",
                 "score": 0.00,
             },
             {
                 "code": "B",
-                "label": "Partial adherence",
+                "label": "Aderência parcial",
                 "score": -0.41,
             },
             {
                 "code": "C",
-                "label": "Non-adherent / severe governance issue",
+                "label": "Não aderente ou com problema grave",
                 "score": -0.82,
                 "provisional": True,
                 "note": "",
@@ -253,23 +251,23 @@ QUALITATIVE_QUESTIONS = [
     {
         "id": "q5",
         "label": "Q5",
-        "title": "Concentration",
-        "group": "Market sensitivity",
+        "title": "Concentração",
+        "group": "Sensibilidade de mercado",
         "note": "",
         "options": [
             {
                 "code": "A",
-                "label": "Diversified / favorable concentration profile",
+                "label": "Perfil diversificado",
                 "score": 0.22,
             },
             {
                 "code": "B",
-                "label": "Neutral concentration profile",
+                "label": "Perfil neutro",
                 "score": 0.00,
             },
             {
                 "code": "C",
-                "label": "High concentration / fragile profile",
+                "label": "Alta concentração",
                 "score": -0.22,
             },
         ],
@@ -277,23 +275,23 @@ QUALITATIVE_QUESTIONS = [
     {
         "id": "q6",
         "label": "Q6",
-        "title": "Sustainability / resilience / market sensitivity",
-        "group": "Market sensitivity",
+        "title": "Resiliência de mercado",
+        "group": "Sensibilidade de mercado",
         "note": "",
         "options": [
             {
                 "code": "A",
-                "label": "Resilient / favorable market reference",
+                "label": "Perfil resiliente",
                 "score": 0.72,
             },
             {
                 "code": "B",
-                "label": "Neutral",
+                "label": "Perfil neutro",
                 "score": 0.00,
             },
             {
                 "code": "C",
-                "label": "Fragile market position",
+                "label": "Perfil frágil",
                 "score": -0.72,
             },
         ],

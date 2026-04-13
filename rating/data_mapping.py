@@ -98,7 +98,9 @@ def load_rating_input_dataframe(period: str, base_dir: Path | None = None) -> pd
         "Instituição",
         "Core Funding",
         "Crédito / Captações",
+        "ROE Ac. Anualizado (%)",
         "Perda Esperada / Carteira de Crédito Bruta",
+        "Ativos Estágio 2",
         "Ativos Estágio 3",
         "Carteira de Crédito Bruta",
         "Perda Esperada",
@@ -145,6 +147,20 @@ def _safe_ratio(num: Any, den: Any) -> float | None:
     return num_f / den_f
 
 
+def _safe_pct_change(current: Any, previous: Any) -> float | None:
+    current_f = _safe_float(current)
+    previous_f = _safe_float(previous)
+    if current_f is None or previous_f is None:
+        return None
+    if previous_f == 0:
+        if current_f > 0:
+            return 1.0
+        if current_f == 0:
+            return 0.0
+        return None
+    return (current_f / previous_f) - 1.0
+
+
 def build_variable_mapping_table() -> pd.DataFrame:
     rows = [
         {
@@ -155,25 +171,25 @@ def build_variable_mapping_table() -> pd.DataFrame:
         },
         {
             "Model variable": "CET1",
-        "Current app field": "Índice de Capital Principal (CET1)",
-        "Type": "exact",
-        "Notes": "If missing, the app uses Índice de Basileia Total (%).",
+            "Current app field": "Índice de Capital Principal (CET1)",
+            "Type": "exact",
+            "Notes": "If missing, the app uses Índice de Basileia Total (%).",
         },
         {
             "Model variable": "RoE",
             "Current app field": "ROE Ac. Anualizado (%)",
             "Type": "exact",
-            "Notes": "Uses the current curated profitability field already exposed in Snapshot/Peers.",
+            "Notes": "Current period value, audited against the same quarter of the previous year.",
         },
         {
             "Model variable": "NPL Creation",
-            "Current app field": "Perda Esperada / Carteira de Crédito Bruta",
+            "Current app field": "(Ativos Estágio 2 + Ativos Estágio 3) / Carteira de Crédito Bruta",
             "Type": "current level",
-            "Notes": "Current carteira-quality indicator used in the model.",
+            "Notes": "Preferred carteira-quality criterion in the selected period.",
         },
         {
             "Model variable": "Funding delta",
-            "Current app field": "Current Core Funding - same quarter previous year Core Funding",
+            "Current app field": "%Δ Core Funding vs same quarter previous year",
             "Type": "transformed",
             "Notes": "Current period against the same quarter of the previous year.",
         },
@@ -202,6 +218,7 @@ def map_rating_inputs(record: Mapping[str, Any]) -> dict[str, Any]:
         "Índice de Capital Principal (CET1)": _safe_float(row.get("Índice de Capital Principal (CET1)")),
         "Índice de Basileia Total (%)": _safe_float(row.get("Índice de Basileia Total (%)")),
         "ROE Ac. Anualizado (%)": _safe_float(row.get("ROE Ac. Anualizado (%)")),
+        "ROE Ac. Anualizado (%) (prev)": _safe_float(row.get("ROE Ac. Anualizado (%) (prev)")),
         "Core Funding": _safe_float(row.get("Core Funding")),
         "Core Funding (prev)": _safe_float(row.get("Core Funding (prev)")),
         "Crédito / Captações": _safe_float(row.get("Crédito / Captações")),
@@ -209,6 +226,8 @@ def map_rating_inputs(record: Mapping[str, Any]) -> dict[str, Any]:
         "Perda Esperada / Carteira de Crédito Bruta (prev)": _safe_float(
             row.get("Perda Esperada / Carteira de Crédito Bruta (prev)")
         ),
+        "Ativos Estágio 2": _safe_float(row.get("Ativos Estágio 2")),
+        "Ativos Estágio 2 (prev)": _safe_float(row.get("Ativos Estágio 2 (prev)")),
         "Ativos Estágio 3": _safe_float(row.get("Ativos Estágio 3")),
         "Ativos Estágio 3 (prev)": _safe_float(row.get("Ativos Estágio 3 (prev)")),
         "Carteira de Crédito Bruta": _safe_float(row.get("Carteira de Crédito Bruta")),
@@ -220,17 +239,21 @@ def map_rating_inputs(record: Mapping[str, Any]) -> dict[str, Any]:
     mapped_inputs: dict[str, dict[str, Any]] = {
         "total_assets": {
             "value": raw_inputs["Ativo Total"],
-            "display_label": "Total assets",
+            "display_label": "Ativo Total",
             "source_field": "Ativo Total",
             "source_kind": "exact",
-            "note": "Using the curated Ativo Total field.",
+            "note": "Ativo total do período selecionado.",
         },
         "roe": {
             "value": raw_inputs["ROE Ac. Anualizado (%)"],
-            "display_label": "RoE",
+            "display_label": "ROE Ac. Anualizado (%)",
             "source_field": "ROE Ac. Anualizado (%)",
             "source_kind": "exact",
-            "note": "Using the curated ROE Ac. Anualizado (%) field.",
+            "note": "ROE acumulado anualizado do período, auditado contra o mesmo trimestre do ano anterior.",
+            "components": {
+                "current": raw_inputs["ROE Ac. Anualizado (%)"],
+                "previous": raw_inputs["ROE Ac. Anualizado (%) (prev)"],
+            },
         },
     }
 
@@ -242,7 +265,7 @@ def map_rating_inputs(record: Mapping[str, Any]) -> dict[str, Any]:
             "display_label": "CET1",
             "source_field": "Índice de Capital Principal (CET1)",
             "source_kind": "exact",
-            "note": "Using the current CET1 field.",
+            "note": "Índice de Capital Principal do período selecionado.",
         }
     elif basel is not None:
         mapped_inputs["cet1"] = {
@@ -250,7 +273,7 @@ def map_rating_inputs(record: Mapping[str, Any]) -> dict[str, Any]:
             "display_label": "CET1",
             "source_field": "Índice de Basileia Total (%)",
             "source_kind": "fallback",
-            "note": "CET1 is missing for this institution/period. Using Índice de Basileia Total (%).",
+            "note": "CET1 indisponível no período; usando Índice de Basileia Total (%).",
         }
     else:
         mapped_inputs["cet1"] = {
@@ -258,23 +281,26 @@ def map_rating_inputs(record: Mapping[str, Any]) -> dict[str, Any]:
             "display_label": "CET1",
             "source_field": "",
             "source_kind": "missing",
-            "note": "CET1 and total Basel ratio are both unavailable.",
+            "note": "CET1 e Índice de Basileia Total (%) indisponíveis.",
         }
 
     current_core = raw_inputs["Core Funding"]
     previous_core = raw_inputs["Core Funding (prev)"]
-    funding_delta = None
-    if current_core is not None and previous_core is not None:
-        funding_delta = current_core - previous_core
+    funding_delta = _safe_pct_change(current_core, previous_core)
     mapped_inputs["funding_delta"] = {
         "value": funding_delta,
-        "display_label": "Funding delta",
+        "display_label": "Variação % Core Funding",
         "source_field": "Core Funding",
         "source_kind": "transformed" if funding_delta is not None else "missing",
         "note": (
-            "Computed as current Core Funding minus same quarter previous year Core Funding."
+            "Calculado como variação percentual do Core Funding contra o mesmo trimestre do ano anterior. "
+            "Quando a base comparativa é zero, a rotina classifica a direção da variação como não negativa."
+            if funding_delta is not None and previous_core == 0
+            else (
+            "Calculado como variação percentual do Core Funding contra o mesmo trimestre do ano anterior."
             if funding_delta is not None
-            else "Current or comparison-period Core Funding is unavailable."
+            else "Core Funding do período atual ou do mesmo trimestre do ano anterior indisponível."
+            )
         ),
         "components": {"current": current_core, "previous": previous_core},
     }
@@ -282,13 +308,13 @@ def map_rating_inputs(record: Mapping[str, Any]) -> dict[str, Any]:
     credito_capt = raw_inputs["Crédito / Captações"]
     mapped_inputs["funding_structural_ratio"] = {
         "value": credito_capt,
-        "display_label": "Structural funding ratio",
+        "display_label": "Crédito / Captações",
         "source_field": "Crédito / Captações",
         "source_kind": "current_level" if credito_capt is not None else "missing",
         "note": (
-            "Using the current Crédito / Captações field."
+            "Relação estrutural usada para graduar a penalização de funding."
             if credito_capt is not None
-            else "Crédito / Captações is unavailable."
+            else "Crédito / Captações indisponível."
         ),
     }
 
@@ -297,35 +323,44 @@ def map_rating_inputs(record: Mapping[str, Any]) -> dict[str, Any]:
     if exact_source is not None:
         mapped_inputs["npl_creation"] = {
             "value": _safe_float(row.get(exact_source)),
-            "display_label": "NPL Creation",
+            "display_label": "NPL (Estágio 2+3 / Carteira)",
             "source_field": exact_source,
             "source_kind": "exact",
-            "note": "Using an exact NPL Creation field found in the dataset.",
+            "note": "Campo exato de NPL encontrado no dataset.",
         }
     else:
-        current_loss_ratio = raw_inputs["Perda Esperada / Carteira de Crédito Bruta"]
-        if current_loss_ratio is not None:
+        estagio2 = _safe_float(raw_inputs["Ativos Estágio 2"])
+        estagio3 = _safe_float(raw_inputs["Ativos Estágio 3"])
+        carteira = raw_inputs["Carteira de Crédito Bruta"]
+        current_stage23_ratio = (
+            _safe_ratio(estagio2 + estagio3, carteira)
+            if estagio2 is not None and estagio3 is not None
+            else None
+        )
+        if current_stage23_ratio is not None:
             mapped_inputs["npl_creation"] = {
-                "value": current_loss_ratio,
-                "display_label": "NPL Creation",
-                "source_field": "Perda Esperada / Carteira de Crédito Bruta",
+                "value": current_stage23_ratio,
+                "display_label": "NPL (Estágio 2+3 / Carteira)",
+                "source_field": "(Ativos Estágio 2 + Ativos Estágio 3) / Carteira de Crédito Bruta",
                 "source_kind": "current_level",
-                "note": "Using the current carteira-quality ratio available for the period.",
+                "note": "Critério preferencial de qualidade de carteira no período selecionado.",
+                "components": {
+                    "estagio_2": estagio2,
+                    "estagio_3": estagio3,
+                    "carteira": carteira,
+                },
             }
         else:
-            current_stage3_ratio = _safe_ratio(
-                raw_inputs["Ativos Estágio 3"],
-                raw_inputs["Carteira de Crédito Bruta"],
-            )
+            current_loss_ratio = raw_inputs["Perda Esperada / Carteira de Crédito Bruta"]
             mapped_inputs["npl_creation"] = {
-                "value": current_stage3_ratio,
-                "display_label": "NPL Creation",
-                "source_field": "Ativos Estágio 3 / Carteira de Crédito Bruta",
-                "source_kind": "fallback" if current_stage3_ratio is not None else "missing",
+                "value": current_loss_ratio,
+                "display_label": "NPL (Estágio 2+3 / Carteira)",
+                "source_field": "Perda Esperada / Carteira de Crédito Bruta",
+                "source_kind": "fallback" if current_loss_ratio is not None else "missing",
                 "note": (
-                    "Using the current Stage 3 / Carteira ratio."
-                    if current_stage3_ratio is not None
-                    else "No NPL input is available for this institution/period."
+                    "Campo de qualidade de carteira disponível no período selecionado."
+                    if current_loss_ratio is not None
+                    else "Sem insumo de NPL disponível para esta instituição/período."
                 ),
             }
 

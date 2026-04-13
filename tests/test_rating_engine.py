@@ -67,11 +67,14 @@ def test_map_rating_inputs_uses_documented_fallbacks():
         "Índice de Capital Principal (CET1)": None,
         "Índice de Basileia Total (%)": 0.16,
         "ROE Ac. Anualizado (%)": 0.15,
+        "ROE Ac. Anualizado (%) (prev)": 0.12,
         "Core Funding": 100.0,
         "Core Funding (prev)": 90.0,
         "Crédito / Captações": 0.80,
         "Perda Esperada / Carteira de Crédito Bruta": 0.025,
         "Perda Esperada / Carteira de Crédito Bruta (prev)": 0.010,
+        "Ativos Estágio 2": None,
+        "Ativos Estágio 2 (prev)": None,
         "Ativos Estágio 3": None,
         "Ativos Estágio 3 (prev)": None,
         "Carteira de Crédito Bruta": 50.0,
@@ -84,5 +87,32 @@ def test_map_rating_inputs_uses_documented_fallbacks():
 
     assert mapped["mapped_inputs"]["cet1"]["source_kind"] == "fallback"
     assert mapped["mapped_inputs"]["cet1"]["value"] == 0.16
-    assert mapped["mapped_inputs"]["npl_creation"]["source_kind"] == "current_level"
+    assert round(mapped["mapped_inputs"]["funding_delta"]["value"], 6) == round((100.0 / 90.0) - 1.0, 6)
+    assert mapped["mapped_inputs"]["npl_creation"]["source_kind"] == "fallback"
     assert round(mapped["mapped_inputs"]["npl_creation"]["value"], 6) == 0.025
+
+
+def test_map_rating_inputs_prioritizes_stage23_ratio_for_npl():
+    record = {
+        "Instituição": "TESTE - PRUDENCIAL",
+        "ConglomeradoId": "99999",
+        "Período": "4/2025",
+        "Período Anterior": "4/2024",
+        "Ativo Total": 10_000_000_000.0,
+        "Índice de Capital Principal (CET1)": 0.14,
+        "Índice de Basileia Total (%)": 0.16,
+        "ROE Ac. Anualizado (%)": 0.11,
+        "ROE Ac. Anualizado (%) (prev)": 0.09,
+        "Core Funding": 100.0,
+        "Core Funding (prev)": 100.0,
+        "Crédito / Captações": 0.80,
+        "Perda Esperada / Carteira de Crédito Bruta": 0.025,
+        "Ativos Estágio 2": 6.0,
+        "Ativos Estágio 3": 4.0,
+        "Carteira de Crédito Bruta": 100.0,
+    }
+
+    mapped = map_rating_inputs(record)
+
+    assert mapped["mapped_inputs"]["npl_creation"]["source_kind"] == "current_level"
+    assert round(mapped["mapped_inputs"]["npl_creation"]["value"], 6) == 0.10

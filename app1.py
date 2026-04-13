@@ -11752,6 +11752,8 @@ def _formatar_test_rating_valor(campo: str, valor) -> str:
         "Carteira de Crédito Bruta (prev)",
         "Perda Esperada",
         "Perda Esperada (prev)",
+        "Ativos Estágio 2",
+        "Ativos Estágio 2 (prev)",
         "Ativos Estágio 3",
         "Ativos Estágio 3 (prev)",
     }:
@@ -11760,9 +11762,12 @@ def _formatar_test_rating_valor(campo: str, valor) -> str:
         "Índice de Capital Principal (CET1)",
         "Índice de Basileia Total (%)",
         "ROE Ac. Anualizado (%)",
+        "ROE Ac. Anualizado (%) (prev)",
         "Crédito / Captações",
         "Perda Esperada / Carteira de Crédito Bruta",
         "Perda Esperada / Carteira de Crédito Bruta (prev)",
+        "Variação % Core Funding",
+        "NPL (Estágio 2+3 / Carteira)",
     }:
         return _formatar_percentual(valor, decimais=2)
     return _formatar_numero_ptbr(valor, decimais=4)
@@ -11863,12 +11868,12 @@ def _rating_factor_display_map() -> dict[str, str]:
         "roe": "ROE",
         "npl_creation": "NPL",
         "funding": "Funding",
-        "q1": "Q1",
-        "q2": "Q2",
-        "q3": "Q3",
-        "q4": "Q4",
-        "q5": "Q5",
-        "q6": "Q6",
+        "q1": "Auditoria",
+        "q2": "Ressalvas",
+        "q3": "Suporte acionário",
+        "q4": "Governança",
+        "q5": "Concentração",
+        "q6": "Resiliência",
     }
 
 
@@ -11914,7 +11919,7 @@ def _build_rating_waterfall_figure(result: dict) -> go.Figure:
     )
     fig.update_layout(
         margin=dict(l=20, r=20, t=30, b=20),
-        height=420,
+        height=360,
         showlegend=False,
         yaxis_title="Impacto no score",
     )
@@ -11923,28 +11928,90 @@ def _build_rating_waterfall_figure(result: dict) -> go.Figure:
 
 def _rating_intro_text() -> str:
     return (
-        "O modelo parte de um score inicial definido pelo porte do balanço e ajusta esse ponto de partida por "
-        "capital (CET1), rentabilidade (ROE), qualidade da carteira (NPL), funding e seis respostas qualitativas "
-        "sobre auditoria, ressalvas, suporte acionário, governança, concentração e resiliência. Capital mais forte, "
-        "ROE mais alto e respostas qualitativas melhores ajudam a nota; piora de carteira, pressão de funding e "
-        "respostas qualitativas piores reduzem a nota. O resultado final é arredondado e limitado à escala de 1 a 25."
+        "O modelo começa com um score inicial definido pelo porte e ajusta esse ponto de partida por CET1, ROE "
+        "acumulado anualizado, NPL, funding e seis respostas qualitativas. Capital e rentabilidade mais altos "
+        "tendem a melhorar a nota; piora da qualidade da carteira, pressão de funding e respostas qualitativas "
+        "mais fracas reduzem o score. O resultado final é arredondado e limitado à escala de 1 a 25."
     )
 
 
-def _rating_weight_table() -> pd.DataFrame:
-    rows = [
-        {"Variável": "CET1", "Faixa de impacto": "+0,41 a -0,22"},
-        {"Variável": "ROE", "Faixa de impacto": "+0,91 a -0,83"},
-        {"Variável": "NPL", "Faixa de impacto": "0,00 a -0,43"},
-        {"Variável": "Funding", "Faixa de impacto": "0,00 a -0,45"},
-        {"Variável": "Q1", "Faixa de impacto": "0,00 a -0,58"},
-        {"Variável": "Q2", "Faixa de impacto": "0,00 a -0,58"},
-        {"Variável": "Q3", "Faixa de impacto": "+1,13 a -1,13"},
-        {"Variável": "Q4", "Faixa de impacto": "0,00 a -0,41"},
-        {"Variável": "Q5", "Faixa de impacto": "+0,22 a -0,22"},
-        {"Variável": "Q6", "Faixa de impacto": "+0,72 a -0,72"},
-    ]
-    return pd.DataFrame(rows)
+def _rating_starting_score_table() -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {"Porte": "Acima de R$ 200 bi", "Score inicial": 22},
+            {"Porte": "Entre R$ 20 bi e R$ 200 bi", "Score inicial": 19},
+            {"Porte": "Abaixo de R$ 20 bi", "Score inicial": 16},
+        ]
+    )
+
+
+def _rating_quantitative_table() -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {
+                "Variável": "CET1",
+                "Campo usado": "Índice de Capital Principal (CET1)",
+                "Janela / comparação": "Período selecionado",
+                "Lógica": "Faixas por porte. Capital mais alto sustenta score melhor.",
+                "Faixa de impacto": "+0,41 a -0,22",
+            },
+            {
+                "Variável": "ROE",
+                "Campo usado": "ROE Ac. Anualizado (%)",
+                "Janela / comparação": "Período selecionado, auditado contra o mesmo trimestre do ano anterior",
+                "Lógica": "Rentabilidade mais alta melhora a nota; ROE negativo penaliza mais.",
+                "Faixa de impacto": "+0,91 a -0,83",
+            },
+            {
+                "Variável": "NPL",
+                "Campo usado": "(Ativos Estágio 2 + Ativos Estágio 3) / Carteira de Crédito Bruta",
+                "Janela / comparação": "Período selecionado",
+                "Lógica": "Maior proporção de créditos em estágio 2 e 3 piora a nota. A base quantitativa usada mostra o campo efetivamente consumido.",
+                "Faixa de impacto": "0,00 a -0,43",
+            },
+            {
+                "Variável": "Funding",
+                "Campo usado": "%Δ Core Funding e Crédito / Captações",
+                "Janela / comparação": "Core Funding do período vs mesmo trimestre do ano anterior",
+                "Lógica": "Funding não negativo não penaliza. Funding negativo usa Crédito / Captações para graduar a penalização.",
+                "Faixa de impacto": "0,00 a -0,45",
+            },
+        ]
+    )
+
+
+def _rating_qualitative_table() -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {"Pergunta": "Q1 - Auditoria", "Melhor cenário": "Auditoria sem ressalva relevante", "Pior cenário": "Sem auditoria ou com problema material", "Faixa de impacto": "0,00 a -0,58"},
+            {"Pergunta": "Q2 - Ressalvas", "Melhor cenário": "Sem ressalva relevante", "Pior cenário": "Ressalva material", "Faixa de impacto": "0,00 a -0,58"},
+            {"Pergunta": "Q3 - Suporte acionário", "Melhor cenário": "Suporte forte do acionista", "Pior cenário": "Suporte fraco ou risco reputacional", "Faixa de impacto": "+1,13 a -1,13"},
+            {"Pergunta": "Q4 - Governança", "Melhor cenário": "Aderência plena", "Pior cenário": "Não aderente ou com problema grave", "Faixa de impacto": "0,00 a -0,82"},
+            {"Pergunta": "Q5 - Concentração", "Melhor cenário": "Perfil diversificado", "Pior cenário": "Alta concentração", "Faixa de impacto": "+0,22 a -0,22"},
+            {"Pergunta": "Q6 - Resiliência de mercado", "Melhor cenário": "Perfil resiliente", "Pior cenário": "Perfil frágil", "Faixa de impacto": "+0,72 a -0,72"},
+        ]
+    )
+
+
+def _split_rating_contributions_tables(contributions_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    if contributions_df is None or contributions_df.empty:
+        return pd.DataFrame(), pd.DataFrame()
+
+    factor_map = _rating_factor_display_map()
+    quantitative = contributions_df[contributions_df["Block"].astype(str) == "Quantitative"].copy()
+    qualitative = contributions_df[contributions_df["Block"].astype(str) == "Qualitative"].copy()
+
+    if not quantitative.empty:
+        quantitative["Fator"] = quantitative["Factor"].astype(str).map(lambda valor: factor_map.get(valor, valor))
+        quantitative["Impacto"] = quantitative["Score"].astype(float).map(lambda valor: f"{valor:+.2f}")
+        quantitative = quantitative.rename(columns={"Bucket": "Faixa"})[["Fator", "Faixa", "Impacto"]]
+
+    if not qualitative.empty:
+        qualitative["Pergunta"] = qualitative["Factor"].astype(str).map(lambda valor: factor_map.get(valor, valor))
+        qualitative["Impacto"] = qualitative["Score"].astype(float).map(lambda valor: f"{valor:+.2f}")
+        qualitative = qualitative.rename(columns={"Bucket": "Resposta"})[["Pergunta", "Resposta", "Impacto"]]
+
+    return quantitative, qualitative
 
 
 def pagina_test():
@@ -11961,7 +12028,12 @@ def pagina_test():
         return
 
     with st.expander("Variáveis e pesos", expanded=False):
-        st.dataframe(_rating_weight_table(), hide_index=True, use_container_width=True)
+        st.markdown("**Score inicial por porte**")
+        st.dataframe(_rating_starting_score_table(), hide_index=True, use_container_width=True)
+        st.markdown("**Variáveis quantitativas**")
+        st.dataframe(_rating_quantitative_table(), hide_index=True, use_container_width=True)
+        st.markdown("**Perguntas qualitativas**")
+        st.dataframe(_rating_qualitative_table(), hide_index=True, use_container_width=True)
 
     col_mode, col_period = st.columns([1.0, 1.2])
     with col_mode:
@@ -11989,8 +12061,6 @@ def pagina_test():
     if df_periodo is None or df_periodo.empty:
         st.warning("não foi possível carregar o recorte do período selecionado.")
         return
-
-    st.caption(f"{len(df_periodo):,} instituições disponíveis no período {period_to_display_label(periodo_selecionado)}.")
 
     if modo == "Instituição":
         instituicoes = sorted(df_periodo["Instituição"].dropna().astype(str).unique().tolist())
@@ -12030,7 +12100,8 @@ def pagina_test():
         st.markdown("**Perguntas qualitativas (Q1 a Q6)**")
         answers, all_answered, preview_df = _render_test_qualitative_form("test_rating_single")
         if not preview_df.empty:
-            st.dataframe(preview_df, hide_index=True, use_container_width=True)
+            with st.expander("Resumo das respostas qualitativas", expanded=False):
+                st.dataframe(preview_df, hide_index=True, use_container_width=True)
 
         if not all_answered:
             st.info("responda as seis perguntas qualitativas para calcular o rating.")
@@ -12053,10 +12124,15 @@ def pagina_test():
         with col_r2:
             st.metric("Score bruto", _formatar_numero_ptbr(result["raw_final_score"], decimais=4))
 
-        st.plotly_chart(_build_rating_waterfall_figure(result), use_container_width=True)
-
-        st.markdown("**Contribuições do score**")
-        st.dataframe(audit_tables["contributions"], hide_index=True, use_container_width=True)
+        contrib_quant, contrib_qual = _split_rating_contributions_tables(audit_tables["contributions"])
+        col_chart, col_contrib = st.columns([1, 1])
+        with col_chart:
+            st.plotly_chart(_build_rating_waterfall_figure(result), use_container_width=True)
+        with col_contrib:
+            st.markdown("**Contribuições quantitativas**")
+            st.dataframe(contrib_quant, hide_index=True, use_container_width=True)
+            st.markdown("**Contribuições qualitativas**")
+            st.dataframe(contrib_qual, hide_index=True, use_container_width=True)
 
         with st.expander("Base quantitativa usada", expanded=False):
             st.dataframe(mapped_table, hide_index=True, use_container_width=True)
@@ -12077,7 +12153,8 @@ def pagina_test():
         st.markdown("**Template qualitativo global do cenário**")
         answers, all_answered, preview_df = _render_test_qualitative_form("test_rating_batch")
         if not preview_df.empty:
-            st.dataframe(preview_df, hide_index=True, use_container_width=True)
+            with st.expander("Resumo das respostas qualitativas", expanded=False):
+                st.dataframe(preview_df, hide_index=True, use_container_width=True)
 
         assinatura_batch = (
             str(periodo_selecionado),
@@ -12115,12 +12192,10 @@ def pagina_test():
         concluidos = int(sum(1 for item in resultados if item.get("status") == "ok"))
         incompletos = total - concluidos
 
-        col_b1, col_b2, col_b3 = st.columns(3)
+        col_b1, col_b2 = st.columns(2)
         with col_b1:
-            st.metric("Instituições no período", total)
-        with col_b2:
             st.metric("Ratings calculados", concluidos)
-        with col_b3:
+        with col_b2:
             st.metric("Não calculados", incompletos)
 
         st.dataframe(df_resultados, hide_index=True, use_container_width=True)
@@ -12155,8 +12230,15 @@ def pagina_test():
             st.metric("Score bruto", _formatar_numero_ptbr(resultado_inspecao.get("raw_final_score"), decimais=4))
 
         audit_tables = build_audit_tables(resultado_inspecao)
-        st.plotly_chart(_build_rating_waterfall_figure(resultado_inspecao), use_container_width=True)
-        st.dataframe(audit_tables["contributions"], hide_index=True, use_container_width=True)
+        contrib_quant, contrib_qual = _split_rating_contributions_tables(audit_tables["contributions"])
+        col_chart, col_contrib = st.columns([1, 1])
+        with col_chart:
+            st.plotly_chart(_build_rating_waterfall_figure(resultado_inspecao), use_container_width=True)
+        with col_contrib:
+            st.markdown("**Contribuições quantitativas**")
+            st.dataframe(contrib_quant, hide_index=True, use_container_width=True)
+            st.markdown("**Contribuições qualitativas**")
+            st.dataframe(contrib_qual, hide_index=True, use_container_width=True)
         with st.expander("Memória completa de cálculo", expanded=False):
             st.code(resultado_inspecao.get("audit_trail_markdown") or "", language="markdown")
             st.download_button(
