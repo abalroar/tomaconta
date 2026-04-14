@@ -134,6 +134,7 @@ from utils.ifdata_cache import (
     CRITICAL_EXTRA_METRICS,
     materialize_critical_screens_cache,
     get_critical_screens_runtime_status,
+    resolve_depositos_totais_value,
     canonicalize_institution_name,
     build_institution_to_conglomerate_map,
     filter_supported_periods,
@@ -1114,13 +1115,13 @@ PEERS_GLOSSARIO_RESUMIDO = {
     "Ativos Líquidos": "Disponibilidades (a) + Aplicações Interfinanceiras de Liquidez (b) + TVM (c) no Rel. 2.",
     "Carteira de Crédito*": "Até 2024: Crédito Bruta + Arrendamento Bruta + Outros Créditos Líquidos de Provisão. 2025+: Valor Contábil Bruto (e1+f1+g1+h1) no Rel. 2.",
     "Perda Esperada": "Soma de perdas esperadas e ajustes de valor justo das bases e/f/g/h no Rel. 2.",
-    "Depósitos Totais": "Depósitos (e) no Rel. 3; fallback para soma dos subtipos quando necessário.",
+    "Depósitos Totais": "Prioriza a linha agregada oficial disponível no Rel. 3; só usa soma a1..a6 quando nenhum agregado oficial estiver preenchido na linha.",
     "Core Funding*": "Até 2024: Captações (e). 2025+: Captações (e) + Dívida Subordinada (h) no Rel. 3.",
     "Patrimônio Líquido (PL)": "Patrimônio Líquido do balanço principal (Rel. 1).",
-    "Ativos Estágio 2": "Saldo da conta 3312000001 (Cadoc 4060) no período.",
-    "Ativos Estágio 3": "Saldo da conta 3313000000 (Cadoc 4060) no período.",
-    "Perda Esperada / Estágio 3": "Perda Esperada (Rel. 2) ÷ Ativos Estágio 3 (Cadoc 4060).",
-    "Perda Esperada / Est2+3": "Perda Esperada (Rel. 2) ÷ (Ativos Estágio 2 + Ativos Estágio 3) do Cadoc 4060.",
+    "Ativos Estágio 2": "Saldo da conta 3312000001 (Cadoc 4060) no período, quando a fonte mensal publicar o estágio e houver match prudencial confiável.",
+    "Ativos Estágio 3": "Saldo da conta 3313000000 (Cadoc 4060) no período, quando a fonte mensal publicar o estágio e houver match prudencial confiável.",
+    "Perda Esperada / Estágio 3": "Perda Esperada (Rel. 2) ÷ Ativos Estágio 3 (Cadoc 4060), somente quando numerador e denominador estiverem disponíveis.",
+    "Perda Esperada / Est2+3": "Perda Esperada (Rel. 2) ÷ (Ativos Estágio 2 + Ativos Estágio 3) do Cadoc 4060, somente com cobertura prudencial válida.",
     "Perda Esperada / Carteira de Crédito*": "Perda Esperada ÷ Carteira de Crédito*.",
     "Ativo Total / PL": "Ativo Total ÷ Patrimônio Líquido.",
     "Carteira de Crédito* / PL": "Carteira de Crédito* ÷ Patrimônio Líquido.",
@@ -4549,6 +4550,19 @@ def _resolver_coluna_peers(df: pd.DataFrame, candidatos: list) -> Optional[str]:
     return None
 
 
+def _resolver_colunas_peers(df: pd.DataFrame, candidatos: list) -> list[str]:
+    if df is None or df.empty:
+        return []
+    resolved: list[str] = []
+    seen: set[str] = set()
+    for candidato in candidatos:
+        coluna = _resolver_coluna_peers(df, [candidato])
+        if coluna and coluna not in seen:
+            resolved.append(coluna)
+            seen.add(coluna)
+    return resolved
+
+
 def _formatar_valor_peers(valor, format_key: str, coluna_origem: Optional[str] = None) -> str:
     if valor is None or pd.isna(valor):
         return "N/D"
@@ -7106,9 +7120,9 @@ def _preparar_metricas_extra_peers(
         ],
     )
 
-    # Depósitos Totais: Depósitos (e) do relatório de Passivo (Rel. 3)
-    # Nota: coluna pode aparecer com variações de nome ao longo do tempo no IFData.
-    col_depositos_passivo = _resolver_coluna_peers(
+    # Depósitos Totais: prioriza a linha agregada oficial disponível por linha
+    # e só cai para soma a1..a6 quando nenhum agregado oficial estiver preenchido.
+    cols_depositos_passivo = _resolver_colunas_peers(
         cache_passivo,
         [
             "Depósitos (e)",
@@ -7289,7 +7303,7 @@ def _preparar_metricas_extra_peers(
         col_disp_ativo, col_aplic_ativo, col_tvm_ativo,
     ] + perda_colunas
     cols_passivo_pivot = [
-        col_depositos_passivo, col_dep_a1, col_dep_a2, col_dep_a3, col_dep_a4, col_dep_a5, col_dep_a6,
+        *cols_depositos_passivo, col_dep_a1, col_dep_a2, col_dep_a3, col_dep_a4, col_dep_a5, col_dep_a6,
         col_capt_passivo, col_instr_passivo,
     ]
     cols_capital_pivot = [
@@ -7348,18 +7362,21 @@ def _preparar_metricas_extra_peers(
             ])
             extra["Ativos Líquidos"][chave] = ativos_liquidos
 
-            # Depósitos Totais = Depósitos (e) do relatório de Passivo (Rel. 3)
-            depositos_totais = _lk_get(lk_passivo, banco, periodo, col_depositos_passivo)
-            if depositos_totais is None or pd.isna(_coerce_numeric_value(depositos_totais)):
-                depositos_totais = _somar_valores([
-                    _lk_get(lk_passivo, banco, periodo, col_dep_a1),
-                    _lk_get(lk_passivo, banco, periodo, col_dep_a2),
-                    _lk_get(lk_passivo, banco, periodo, col_dep_a3),
-                    _lk_get(lk_passivo, banco, periodo, col_dep_a4),
-                    _lk_get(lk_passivo, banco, periodo, col_dep_a5),
-                    _lk_get(lk_passivo, banco, periodo, col_dep_a6),
-                ])
-            extra["Depósitos Totais"][chave] = _coerce_numeric_value(depositos_totais)
+            depositos_totais = resolve_depositos_totais_value(
+                aggregate_candidates=[
+                    (col_name, _lk_get(lk_passivo, banco, periodo, col_name))
+                    for col_name in cols_depositos_passivo
+                ],
+                component_values={
+                    "Depósitos à Vista (a1)": _lk_get(lk_passivo, banco, periodo, col_dep_a1),
+                    "Depósitos de Poupança (a2)": _lk_get(lk_passivo, banco, periodo, col_dep_a2),
+                    "Depósitos Interfinanceiros (a3)": _lk_get(lk_passivo, banco, periodo, col_dep_a3),
+                    "Depósitos a Prazo (a4)": _lk_get(lk_passivo, banco, periodo, col_dep_a4),
+                    "Outros Depósitos (a5)": _lk_get(lk_passivo, banco, periodo, col_dep_a5),
+                    "Depósitos Outros (a6)": _lk_get(lk_passivo, banco, periodo, col_dep_a6),
+                },
+            )
+            extra["Depósitos Totais"][chave] = _coerce_numeric_value(depositos_totais.get("value"))
 
             # Core Funding (Captações; 2025+ inclui dívida subordinada h)
             cap_val = _lk_get(lk_passivo, banco, periodo, col_capt_passivo)
@@ -8207,9 +8224,19 @@ def _build_memoria_calculo_curado_metrica(
             continue
 
         if metrica == "Depósitos Totais":
-            deposito_e = row.get("Trace::Depósitos Totais::Depósitos (e)")
-            if deposito_e is not None and not pd.isna(deposito_e):
-                add("Fonte canônica", "BCB IFData Rel. 3", "Depósitos (e)", "Linha agregada publicada", _memoria_fmt_monetario(deposito_e))
+            deposito_status = str(row.get("Trace::Depósitos Totais::Status") or "").strip()
+            deposito_campo = str(row.get("Trace::Depósitos Totais::Campo Selecionado") or "").strip()
+            deposito_agregado = row.get("Trace::Depósitos Totais::Agregado Oficial")
+            deposito_soma = row.get("Trace::Depósitos Totais::Soma Subtipos")
+            deposito_conflito = row.get("Trace::Depósitos Totais::Conflito vs Soma (%)")
+            if deposito_status == "official_aggregate" and deposito_agregado is not None and not pd.isna(deposito_agregado):
+                campo_label = deposito_campo or "Linha agregada oficial"
+                add("Fonte canônica", "BCB IFData Rel. 3", campo_label, "Linha agregada oficial publicada e selecionada por linha", _memoria_fmt_monetario(deposito_agregado))
+                if deposito_soma is not None and not pd.isna(deposito_soma):
+                    conflito_fmt = "N/D"
+                    if deposito_conflito is not None and not pd.isna(deposito_conflito):
+                        conflito_fmt = _formatar_percentual(float(deposito_conflito), decimais=2)
+                    add("Checagem analítica", "BCB IFData Rel. 3", "Soma dos subtipos (a1..a6)", f"Comparação de consistência com a linha agregada oficial | divergência = {conflito_fmt}", _memoria_fmt_monetario(deposito_soma))
             else:
                 comps = [
                     ("Trace::Depósitos Totais::Depósitos à Vista (a1)", "Depósitos à Vista (a1)"),
@@ -8221,7 +8248,9 @@ def _build_memoria_calculo_curado_metrica(
                 ]
                 for col, label in comps:
                     add("Componente", "BCB IFData Rel. 3", label, "Soma simples", _memoria_fmt_monetario(row.get(col)))
-            add("Resultado renderizado", "Snapshot/Peers", "Depósitos Totais", "Linha agregada ou soma a1..a6", _memoria_fmt_resultado(metrica, resultado))
+                if deposito_status == "fallback_components":
+                    add("Regra aplicada", "Cache curado", "Fallback analítico", "Sem agregado oficial preenchido na linha; soma dos subtipos a1..a6", _memoria_fmt_monetario(deposito_soma))
+            add("Resultado renderizado", "Snapshot/Peers", "Depósitos Totais", "Agregado oficial por linha quando disponível; fallback para soma a1..a6 apenas sem agregado oficial", _memoria_fmt_resultado(metrica, resultado))
             continue
 
         if metrica == "Core Funding*":
@@ -8233,6 +8262,13 @@ def _build_memoria_calculo_curado_metrica(
 
         if metrica in {"Ativos Estágio 2", "Ativos Estágio 3"}:
             conta = "3312000001" if metrica == "Ativos Estágio 2" else "3313000000"
+            blop_status = str(row.get("Trace::Bloprudencial::Status") or "").strip()
+            if (resultado is None or pd.isna(resultado)) and blop_status:
+                diagnosticos = {
+                    "source_structurally_unavailable": "Cadoc 4060/estágios não publicado na fonte mensal para este período.",
+                    "institution_match_missing": "Cadoc 4060 existe no período, mas não houve correspondência prudencial confiável para a instituição.",
+                }
+                add("Diagnóstico", "Cadoc 4060", "Disponibilidade prudencial", diagnosticos.get(blop_status, blop_status), "N/D")
             add("Fonte canônica", "Cadoc 4060", f"Conta {conta}", "Soma de saldo no período", _memoria_fmt_monetario(resultado))
             add("Resultado renderizado", "Snapshot/Peers", metric_column, "Sem transformação adicional", _memoria_fmt_resultado(metrica, resultado))
             continue
@@ -8242,6 +8278,15 @@ def _build_memoria_calculo_curado_metrica(
             valor_est3 = row.get("Ativos Estágio 3")
             denominador = _somar_estagios_2_3_peers(valor_est2, valor_est3)
             ratio_result = _calcular_ratio_peers(row.get("Perda Esperada"), denominador)
+            qualidade_status = str(row.get("Trace::Qualidade Carteira::Status") or "").strip()
+            if (resultado is None or pd.isna(resultado)) and qualidade_status:
+                diagnosticos = {
+                    "source_structurally_unavailable": "Ativos de estágio não publicados na fonte mensal para este período.",
+                    "institution_match_missing": "Ativos de estágio não foram conciliados para a instituição neste período.",
+                    "loss_source_unavailable": "Perda Esperada indisponível no IFData Rel. 2 para o período.",
+                    "denominator_unavailable": "Denominador indisponível para a razão no período.",
+                }
+                add("Diagnóstico", "Cache curado", "Disponibilidade da métrica", diagnosticos.get(qualidade_status, qualidade_status), "N/D")
             add("Numerador", "Cache curado", "Perda Esperada", "Valor renderizado canônico", _memoria_fmt_monetario(row.get("Perda Esperada")))
             add("Denominador", "Cadoc 4060", "Ativos Estágio 2 — conta 3312000001", "Componente do denominador", _memoria_fmt_monetario(valor_est2))
             add("Denominador", "Cadoc 4060", "Ativos Estágio 3 — conta 3313000000", "Componente do denominador", _memoria_fmt_monetario(valor_est3))
@@ -8260,6 +8305,16 @@ def _build_memoria_calculo_curado_metrica(
             }
             num_col, den_col, formula = ratio_map[metrica]
             ratio_result = _calcular_ratio_peers(row.get(num_col), row.get(den_col))
+            if metrica.startswith("Perda Esperada /"):
+                qualidade_status = str(row.get("Trace::Qualidade Carteira::Status") or "").strip()
+                if (resultado is None or pd.isna(resultado)) and qualidade_status:
+                    diagnosticos = {
+                        "source_structurally_unavailable": "Cadoc 4060/estágios não publicado na fonte mensal para este período.",
+                        "institution_match_missing": "Não houve correspondência prudencial confiável para a instituição neste período.",
+                        "loss_source_unavailable": "Perda Esperada indisponível no IFData Rel. 2 para o período.",
+                        "denominator_unavailable": "Denominador indisponível para a razão no período.",
+                    }
+                    add("Diagnóstico", "Cache curado", "Disponibilidade da métrica", diagnosticos.get(qualidade_status, qualidade_status), "N/D")
             add("Numerador", "Cache curado", num_col, "Valor renderizado canônico", _memoria_fmt_monetario(row.get(num_col)))
             add("Denominador", "Cache curado", den_col, "Valor renderizado canônico", _memoria_fmt_monetario(row.get(den_col)))
             add("Resultado renderizado", "Snapshot/Peers", metrica, formula, _memoria_fmt_resultado(metrica, ratio_result if ratio_result is not None else resultado))
@@ -9375,12 +9430,20 @@ def pagina_snapshot():
         p: bool(_critical_metric_value(critical_lookup, banco, p, "BloprudencialDisponivel"))
         for p in periodos_snapshot
     }
+    blop_status_map = {
+        p: str(_critical_metric_value(critical_lookup, banco, p, "Trace::Bloprudencial::Status") or "").strip()
+        for p in periodos_snapshot
+    }
     capital_disp_map = {
         p: bool(_critical_metric_value(critical_lookup, banco, p, "CapitalDisponivel"))
         for p in periodos_snapshot
     }
     qual_disp_map = {
         p: bool(_critical_metric_value(critical_lookup, banco, p, "QualidadeCarteiraDisponivel"))
+        for p in periodos_snapshot
+    }
+    qual_status_map = {
+        p: str(_critical_metric_value(critical_lookup, banco, p, "Trace::Qualidade Carteira::Status") or "").strip()
         for p in periodos_snapshot
     }
 
@@ -9414,10 +9477,26 @@ def pagina_snapshot():
             "perda esperada",
             "perda esperada indisponível no cache curado para os períodos selecionados",
         )
+    elif any(status == "source_structurally_unavailable" for status in blop_status_map.values()):
+        periodos_sem_fonte = [
+            periodo_para_exibicao(periodo)
+            for periodo, status in blop_status_map.items()
+            if status == "source_structurally_unavailable"
+        ]
+        _add_diagnostico_snapshot(
+            "BLOPRUDENCIAL/4060",
+            "Cadoc 4060/estágios não publicado na base mensal disponível para "
+            + ", ".join(periodos_sem_fonte),
+        )
     elif not any(blop_disp_map.values()):
         _add_diagnostico_snapshot(
             "BLOPRUDENCIAL/4060",
             f"BLOPRUDENCIAL sem conglomerado correspondente para {banco} nos períodos selecionados",
+        )
+    elif any(status == "institution_match_missing" for status in qual_status_map.values()):
+        _add_diagnostico_snapshot(
+            "qualidade de carteira",
+            "há publicação prudencial no período, mas a conciliação com o conglomerado selecionado não foi confiável em pelo menos um recorte.",
         )
     elif not any(qual_disp_map.values()):
         _add_diagnostico_snapshot(
@@ -9816,7 +9895,10 @@ def _gerar_excel_peers_tabela(
         start_col = col_idx
         end_col = col_idx + len(periodos) - 1
         if start_col <= end_col:
-            worksheet.merge_range(row_idx, start_col, row_idx, end_col, banco, header_fmt)
+            if start_col == end_col:
+                worksheet.write(row_idx, start_col, banco, header_fmt)
+            else:
+                worksheet.merge_range(row_idx, start_col, row_idx, end_col, banco, header_fmt)
         col_idx = end_col + 1
     row_idx += 1
 
@@ -9879,10 +9961,10 @@ def _gerar_excel_peers_dados_puros(
     colunas_usadas: dict,
     delta_flags: dict,
 ) -> BytesIO:
-    """Exporta tabela Peers em paridade visual (mesma string formatada exibida no UI)."""
+    """Exporta tabela Peers com valores numéricos, sem layout visual."""
     output = BytesIO()
     workbook = xlsxwriter.Workbook(output, {"in_memory": True})
-    worksheet = workbook.add_worksheet("dados_puros")
+    worksheet = workbook.add_worksheet("dados_numericos")
 
     n_cols = 1 + len(bancos) * len(periodos)
     border = {"border": 1, "border_color": "#dddddd"}
@@ -9896,21 +9978,37 @@ def _gerar_excel_peers_dados_puros(
         {"bold": True, "align": "left", "valign": "vcenter", "bg_color": "#ff5a00", "font_color": "white", "font_size": 10, **border}
     )
     label_fmt = workbook.add_format({"align": "left", "valign": "vcenter", **border})
-    num_fmt = workbook.add_format({"align": "right", "valign": "vcenter", "num_format": "#.##0", **border})
     empty_fmt = workbook.add_format({"align": "right", "valign": "vcenter", **border})
+    number_formats = {
+        "money": workbook.add_format({"align": "right", "valign": "vcenter", "num_format": "#,##0.00", **border}),
+        "percent_1": workbook.add_format({"align": "right", "valign": "vcenter", "num_format": "0.0%", **border}),
+        "percent_2": workbook.add_format({"align": "right", "valign": "vcenter", "num_format": "0.00%", **border}),
+        "multiple": workbook.add_format({"align": "right", "valign": "vcenter", "num_format": "0.00x", **border}),
+    }
+
+    def _raw_format_key(format_key: str):
+        if format_key in PEERS_PERCENT_DECIMALS:
+            dec = PEERS_PERCENT_DECIMALS[format_key]
+            return number_formats["percent_1" if dec == 1 else "percent_2"]
+        if format_key in ("Ativo/PL", "Crédito/PL (%)", "Carteira de Crédito Bruta / PL"):
+            return number_formats["multiple"]
+        return number_formats["money"]
 
     worksheet.set_column(0, 0, 38)
     worksheet.set_column(1, max(1, n_cols - 1), 18)
 
     # Cabeçalho: bancos
     row_idx = 0
-    worksheet.write(row_idx, 0, "Dados Puros", header_fmt)
+    worksheet.write(row_idx, 0, "Dados Numéricos", header_fmt)
     col_idx = 1
     for banco in bancos:
         start_col = col_idx
         end_col = col_idx + len(periodos) - 1
         if start_col <= end_col:
-            worksheet.merge_range(row_idx, start_col, row_idx, end_col, banco, header_fmt)
+            if start_col == end_col:
+                worksheet.write(row_idx, start_col, banco, header_fmt)
+            else:
+                worksheet.merge_range(row_idx, start_col, row_idx, end_col, banco, header_fmt)
         col_idx = end_col + 1
     row_idx += 1
 
@@ -9934,14 +10032,11 @@ def _gerar_excel_peers_dados_puros(
                 for periodo in periodos:
                     chave = (row["label"], banco, periodo)
                     valor = valores.get(chave)
-                    coluna = colunas_usadas.get(row["label"])
-                    valor_fmt = _formatar_valor_peers(valor, row["format_key"], coluna_origem=coluna)
-                    delta_flag = delta_flags.get(chave)
-                    if delta_flag == "up":
-                        valor_fmt = f"{valor_fmt} ▲"
-                    elif delta_flag == "down":
-                        valor_fmt = f"{valor_fmt} ▼"
-                    worksheet.write(row_idx, col_idx, valor_fmt, empty_fmt)
+                    valor_num = _coerce_numeric_value(valor)
+                    if valor_num is None or pd.isna(valor_num):
+                        worksheet.write_blank(row_idx, col_idx, None, empty_fmt)
+                    else:
+                        worksheet.write_number(row_idx, col_idx, float(valor_num), _raw_format_key(row["format_key"]))
                     col_idx += 1
             row_idx += 1
 
@@ -9949,9 +10044,13 @@ def _gerar_excel_peers_dados_puros(
     worksheet.freeze_panes(2, 1)
 
     nota_ws = workbook.add_worksheet("nota")
-    nota_ws.write(0, 0, "* Carteira de Crédito: 2000–2024 = Crédito Bruta + Arrendamento Bruta + Outros Créditos Líquidos de Provisão (base líquida, sem detalhamento — comparação imprecisa).")
-    nota_ws.write(1, 0, "2025+ = Valor Contábil Bruto (e1+f1+g1+h1), onde: e = Operações de Crédito; f = Arrendamento; g = Outras Ops.; h = Transações de Pagamentos.")
-    nota_ws.write(2, 0, "Core Funding*: até 2024 = Captações (e); 2025+ = Captações (e) + Dívida Subordinada (h) no Relatório de Passivo (Rel. 3). Captações (e) = (a) + (b) + (c) + (d).")
+    nota_ws.write(0, 0, "Esta planilha exporta valores numéricos, sem setas, badges ou layout visual.")
+    nota_ws.write(1, 0, "Valores monetários permanecem em R$ absolutos; percentuais estão em escala decimal com formatação percentual do Excel; razões em x usam formato numérico.")
+    nota_ws.write(2, 0, "Carteira de Crédito: 2000–2024 = Crédito Bruta + Arrendamento Bruta + Outros Créditos Líquidos de Provisão (base líquida, sem detalhamento — comparação imprecisa).")
+    nota_ws.write(3, 0, "2025+ = Valor Contábil Bruto (e1+f1+g1+h1), onde: e = Operações de Crédito; f = Arrendamento; g = Outras Ops.; h = Transações de Pagamentos.")
+    nota_ws.write(4, 0, "Core Funding*: até 2024 = Captações (e); 2025+ = Captações (e) + Dívida Subordinada (h) no Relatório de Passivo (Rel. 3). Captações (e) = (a) + (b) + (c) + (d).")
+    nota_ws.write(5, 0, "Depósitos Totais: prioriza a linha agregada oficial por instituição/período; só usa soma a1..a6 quando não houver agregado oficial preenchido.")
+    nota_ws.write(6, 0, "As setas de variação continuam disponíveis apenas no arquivo visual da tabela.")
 
     workbook.close()
     output.seek(0)
@@ -11948,6 +12047,8 @@ def _build_test_input_tables(mapped_payload: dict) -> tuple[pd.DataFrame, pd.Dat
                 "Display": payload.get("display_label"),
                 "Valor": _formatar_test_rating_valor(str(payload.get("display_label") or chave), payload.get("value")),
                 "Fonte": payload.get("source_field") or "N/A",
+                "Tipo de fonte": payload.get("source_kind") or "N/A",
+                "Observação": payload.get("note") or "",
             }
         )
     return pd.DataFrame(raw_rows), pd.DataFrame(mapped_rows)
@@ -12213,7 +12314,7 @@ def pagina_test():
                     {
                         "Bloco": "NPL",
                         "Fonte": "Cadoc 4060 + IFData Rel. 2",
-                        "Cálculo / regra": "(Ativos Estágio 2 + Ativos Estágio 3) ÷ Carteira de Crédito Bruta.",
+                        "Cálculo / regra": "Prioriza (Ativos Estágio 2 + Ativos Estágio 3) ÷ Carteira de Crédito Bruta; se esse insumo faltar, a auditoria explicita quando a engine caiu para a proxy Perda Esperada / Carteira de Crédito Bruta.",
                     },
                     {
                         "Bloco": "Funding",
@@ -13873,9 +13974,9 @@ elif menu == "Peers (Tabela)":
                                 width="stretch",
                             )
                         with col_exp2:
-                            st.caption("Dados puros (sem formatação)")
+                            st.caption("Dados numéricos (sem layout visual)")
                             st.download_button(
-                                label="Download Dados Puros",
+                                label="Download Dados Numéricos",
                                 data=exports_payload["excel_raw"],
                                 file_name=f"peers_dados_puros_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -13963,7 +14064,7 @@ elif menu == "Peers (Tabela)":
                             e = Operações de Crédito; f = Operações de Arrendamento Financeiro; g = Outras Operações com Características de Concessão de Crédito; h = Valores a Receber de Transações de Pagamentos - Usuários Finais (Pós-pago).<br>
                             <em>Nota:</em> Para 2000–2024, usamos Carteira de Crédito Bruta + Carteira de Arrendamento Bruta + Outros Créditos Líquidos de Provisão (Rel. 2). A partir de 2025, usamos Valor Contábil Bruto (e1+f1+g1+h1).<br>
                             <strong>Carteira de Crédito Classificada</strong> = Total da Carteira de Pessoa Física (Rel. 11) + Total da Carteira de Pessoa Jurídica (Rel. 13).<br>
-                            <strong>Depósitos Totais</strong> = Depósitos (e) no relatório de Passivo (Rel. 3), conforme o IFData. Quando indisponível, soma Depósitos à Vista (a1) + Poupança (a2) + Interfinanceiros (a3) + a Prazo (a4) + Outros (a5/a6).<br>
+                            <strong>Depósitos Totais</strong> = prioriza a linha agregada oficial disponível por instituição/período no relatório de Passivo (Rel. 3). Só usa a soma de Depósitos à Vista (a1) + Poupança (a2) + Interfinanceiros (a3) + a Prazo (a4) + Outros (a5/a6) quando nenhum agregado oficial estiver preenchido na linha.<br>
                             <strong>Core Funding*</strong> = Captações (e) no Relatório Passivo; a partir de 2025, soma-se Dívida Subordinada (h). Captações (e) = (a) + (b) + (c) + (d), onde:<br>
                             (a) Depósitos (inclui À Vista, Poupança, DI, Dep. a Prazo, Contas de Pagamento Pré-Paga e Outros); (b) Obrigações por Operações Compromissadas; (c) Recursos de Aceite e Emissão de Títulos (inclui LCIs, LCAs, LFs e TVMs no Exterior); (d) Obrigações por Empréstimos e Repasses; (h) Instrumentos de Dívida Elegíveis a Capital.<br>
                             <strong>Patrimônio Líquido (PL)</strong> = Patrimônio Líquido do balanço principal (Rel. 1).<br>
@@ -13972,10 +14073,10 @@ elif menu == "Peers (Tabela)":
                             <strong>Perda Esperada</strong> = Soma das linhas Perda Esperada (e2), Hedge de Valor Justo (e3), Ajuste a Valor Justo (e4), Perda Esperada (f2), Hedge de Valor Justo (f3), Perda Esperada (g2), Hedge de Valor Justo (g3), Ajuste a Valor Justo (g4) e Perda Esperada (h2), no relatório de Ativo (Rel. 2).<br>
                             Base (e,f,g,h) refere-se a Operações de Crédito, Operações de Arrendamento Financeiro, Outras Operações com Características de Concessão de Crédito e Valores a Receber de Transações de Pagamentos - Usuários Finais (Pós-pago).<br>
                             <strong>Perda Esperada / Carteira de Crédito*</strong> = Perda Esperada ÷ Carteira de Crédito*.<br>
-                            <strong>Ativos Estágio 2</strong> = Saldo da conta 3312000001 (Cadoc 4060) no mês/período selecionado.<br>
-                            <strong>Ativos Estágio 3</strong> = Saldo da conta 3313000000 (Cadoc 4060) no mês/período selecionado.<br>
-                            <strong>Perda Esperada / Estágio 3</strong> = Perda Esperada (Rel. 2) ÷ Ativos Estágio 3 (Cadoc 4060) do mesmo período.<br>
-                            <strong>Perda Esperada / Est2+3</strong> = Perda Esperada (Rel. 2) ÷ (Ativos Estágio 2 + Ativos Estágio 3) do mesmo período.<br>
+                            <strong>Ativos Estágio 2</strong> = Saldo da conta 3312000001 (Cadoc 4060) no mês/período selecionado, quando a fonte mensal publicar o estágio e houver match prudencial confiável.<br>
+                            <strong>Ativos Estágio 3</strong> = Saldo da conta 3313000000 (Cadoc 4060) no mês/período selecionado, quando a fonte mensal publicar o estágio e houver match prudencial confiável.<br>
+                            <strong>Perda Esperada / Estágio 3</strong> = Perda Esperada (Rel. 2) ÷ Ativos Estágio 3 (Cadoc 4060) do mesmo período, apenas quando numerador e denominador estiverem disponíveis.<br>
+                            <strong>Perda Esperada / Est2+3</strong> = Perda Esperada (Rel. 2) ÷ (Ativos Estágio 2 + Ativos Estágio 3) do mesmo período, apenas com cobertura prudencial válida.<br>
                             <br>
                             <em>Alavancagem</em><br>
                             <strong>Ativo Total / PL</strong> = Ativo Total ÷ Patrimônio Líquido.<br>
@@ -26938,7 +27039,7 @@ elif menu == "Glossário":
         {"Indicador": "Ativos Líquidos", "Aba(s)": "Snapshot, Peers (Tabela), Glossário", "Fonte": "IFData Rel.2", "Fórmula": "Disponibilidades (a) + AIL (b) + TVM (c)", "Unidade": "R$", "Interpretação": "Aproximação de ativos de maior liquidez.", "Limitação": "Não substitui métricas regulatórias de liquidez.", "Periodicidade": "Trimestral"},
         {"Indicador": "Carteira de Crédito Bruta", "Aba(s)": "Snapshot, Peers (Tabela), Evolução, Glossário, Modelo de Rating", "Fonte": "IFData Rel.2", "Fórmula": "Até 2024: d1+e1+f; 2025+: e1+f1+g1+h1", "Unidade": "R$", "Interpretação": "Volume bruto de exposição em crédito.", "Limitação": "Quebra metodológica entre janelas históricas.", "Periodicidade": "Trimestral"},
         {"Indicador": "Carteira de Crédito* (Peers)", "Aba(s)": "Peers (Tabela), Evolução", "Fonte": "IFData Rel.2", "Fórmula": "Alias visual da Carteira de Crédito Bruta", "Unidade": "R$", "Interpretação": "Nome contextual de UI para o mesmo conceito canônico.", "Limitação": "Asterisco é convenção local da aba.", "Periodicidade": "Trimestral"},
-        {"Indicador": "Depósitos Totais", "Aba(s)": "Snapshot, Peers (Tabela), Glossário", "Fonte": "IFData Rel.3", "Fórmula": "Linha agregada ou soma dos subtipos", "Unidade": "R$", "Interpretação": "Principal bloco de funding bancário tradicional.", "Limitação": "Composição varia entre instituições/períodos.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Depósitos Totais", "Aba(s)": "Snapshot, Peers (Tabela), Glossário", "Fonte": "IFData Rel.3", "Fórmula": "Prioriza linha agregada oficial por linha; fallback para soma a1..a6 só sem agregado oficial", "Unidade": "R$", "Interpretação": "Principal bloco de funding bancário tradicional.", "Limitação": "Rótulo do agregado muda ao longo da série; fallback não equivale a dado oficial publicado.", "Periodicidade": "Trimestral"},
         {"Indicador": "Core Funding", "Aba(s)": "Snapshot, Peers (Tabela), Evolução, Glossário, Modelo de Rating", "Fonte": "IFData Rel.3", "Fórmula": "Até 2024: Captações (e); 2025+: (e)+(h)", "Unidade": "R$", "Interpretação": "Base estrutural de captação para métricas de funding.", "Limitação": "Mudança de escopo em 2025.", "Periodicidade": "Trimestral"},
         {"Indicador": "Patrimônio Líquido (PL)", "Aba(s)": "Snapshot, Peers (Tabela), Evolução, DRE (Ind. e Congl.), Glossário", "Fonte": "IFData Rel.1", "Fórmula": "Valor reportado", "Unidade": "R$", "Interpretação": "Base patrimonial para rentabilidade e alavancagem.", "Limitação": "Pode refletir eventos contábeis pontuais.", "Periodicidade": "Trimestral"},
     ])
@@ -26953,11 +27054,11 @@ elif menu == "Glossário":
 
     _render_secao_glossario("4) Qualidade de Carteira", [
         {"Indicador": "Perda Esperada", "Aba(s)": "Snapshot, Peers (Tabela), Glossário, Modelo de Rating", "Fonte": "IFData Rel.2", "Fórmula": "Soma das parcelas de perda esperada/ajustes e,f,g,h", "Unidade": "R$", "Interpretação": "Montante contábil de perdas esperadas no recorte.", "Limitação": "Depende de premissas/modelos contábeis.", "Periodicidade": "Trimestral"},
-        {"Indicador": "Ativos Estágio 2", "Aba(s)": "Snapshot, Peers (Tabela), Glossário, Modelo de Rating", "Fonte": "Cadoc 4060", "Fórmula": "Conta 3312000001", "Unidade": "R$", "Interpretação": "Estoque de ativos em estágio 2.", "Limitação": "Comparabilidade requer mesma régua classificatória.", "Periodicidade": "Mensal/Trimestral"},
-        {"Indicador": "Ativos Estágio 3", "Aba(s)": "Snapshot, Peers (Tabela), Glossário, Modelo de Rating", "Fonte": "Cadoc 4060", "Fórmula": "Conta 3313000000", "Unidade": "R$", "Interpretação": "Estoque de ativos em estágio 3.", "Limitação": "Não substitui análise de recuperação/vintage.", "Periodicidade": "Mensal/Trimestral"},
-        {"Indicador": "NPL (Estágio 2+3 / Carteira)", "Aba(s)": "Modelo de Rating, Glossário", "Fonte": "Cadoc 4060 + IFData Rel.2", "Fórmula": "(Ativos Estágio 2 + Ativos Estágio 3) ÷ Carteira de Crédito Bruta", "Unidade": "%", "Interpretação": "Proxy de deterioração da carteira usada como fator quantitativo no rating.", "Limitação": "Combina fontes com periodicidade distinta e depende de disponibilidade do 4060.", "Periodicidade": "Mensal/Trimestral"},
-        {"Indicador": "Perda Esperada / Estágio 3 (%)", "Aba(s)": "Peers (Tabela), Glossário", "Fonte": "IFData Rel.2 + Cadoc 4060", "Fórmula": "Perda Esperada ÷ Ativos Estágio 3", "Unidade": "%", "Interpretação": "Proxy de cobertura da perda esperada sobre estágio 3.", "Limitação": "Pode haver descasamento temporal entre fontes.", "Periodicidade": "Mensal/Trimestral"},
-        {"Indicador": "Perda Esperada / Est2+3 (%)", "Aba(s)": "Peers (Tabela), Glossário", "Fonte": "IFData Rel.2 + Cadoc 4060", "Fórmula": "Perda Esperada ÷ (Ativos Estágio 2 + Ativos Estágio 3)", "Unidade": "%", "Interpretação": "Proxy de cobertura da perda esperada sobre estágios 2 e 3 combinados.", "Limitação": "Exige Estágio 2 e Estágio 3 publicados no mesmo período.", "Periodicidade": "Mensal/Trimestral"},
+        {"Indicador": "Ativos Estágio 2", "Aba(s)": "Snapshot, Peers (Tabela), Glossário, Modelo de Rating", "Fonte": "Cadoc 4060", "Fórmula": "Conta 3312000001", "Unidade": "R$", "Interpretação": "Estoque de ativos em estágio 2.", "Limitação": "Pode ficar estruturalmente indisponível em parte da série mensal ou sem match prudencial confiável.", "Periodicidade": "Mensal/Trimestral"},
+        {"Indicador": "Ativos Estágio 3", "Aba(s)": "Snapshot, Peers (Tabela), Glossário, Modelo de Rating", "Fonte": "Cadoc 4060", "Fórmula": "Conta 3313000000", "Unidade": "R$", "Interpretação": "Estoque de ativos em estágio 3.", "Limitação": "Pode ficar estruturalmente indisponível em parte da série mensal ou sem match prudencial confiável.", "Periodicidade": "Mensal/Trimestral"},
+        {"Indicador": "NPL (Estágio 2+3 / Carteira)", "Aba(s)": "Modelo de Rating, Glossário", "Fonte": "Cadoc 4060 + IFData Rel.2", "Fórmula": "(Ativos Estágio 2 + Ativos Estágio 3) ÷ Carteira de Crédito Bruta", "Unidade": "%", "Interpretação": "Proxy de deterioração da carteira usada como fator quantitativo no rating.", "Limitação": "Combina fontes com periodicidade distinta, depende de disponibilidade do 4060 e hoje pode cair para proxy explícita em auditoria quando o estágio não existir.", "Periodicidade": "Mensal/Trimestral"},
+        {"Indicador": "Perda Esperada / Estágio 3 (%)", "Aba(s)": "Peers (Tabela), Glossário", "Fonte": "IFData Rel.2 + Cadoc 4060", "Fórmula": "Perda Esperada ÷ Ativos Estágio 3", "Unidade": "%", "Interpretação": "Proxy de cobertura da perda esperada sobre estágio 3.", "Limitação": "Não deve ser exibido como comparável quando o 4060 estiver estruturalmente ausente ou sem match prudencial confiável.", "Periodicidade": "Mensal/Trimestral"},
+        {"Indicador": "Perda Esperada / Est2+3 (%)", "Aba(s)": "Peers (Tabela), Glossário", "Fonte": "IFData Rel.2 + Cadoc 4060", "Fórmula": "Perda Esperada ÷ (Ativos Estágio 2 + Ativos Estágio 3)", "Unidade": "%", "Interpretação": "Proxy de cobertura da perda esperada sobre estágios 2 e 3 combinados.", "Limitação": "Exige Estágio 2 e Estágio 3 publicados no mesmo período e match prudencial confiável.", "Periodicidade": "Mensal/Trimestral"},
     ])
 
     _render_secao_glossario("5) Alavancagem e Relações de Estrutura", [

@@ -8,7 +8,7 @@ import logging
 import re
 import shutil
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Mapping, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -91,6 +91,27 @@ CRITICAL_BASE_METRICS = [
     "Desp Captação / Captação",
 ]
 
+DEPOSITOS_TOTAIS_AGGREGATE_CANDIDATES = [
+    "Depósitos (e)",
+    "Depositos (e)",
+    "Depósitos (a)",
+    "Depósitos Totais (a)",
+    "Depósito Total (a)",
+    "Depositos (a)",
+    "Deposito Total (a)",
+    "Depósitos",
+    "Depositos",
+]
+
+DEPOSITOS_TOTAIS_COMPONENTS = [
+    ("Depósitos à Vista (a1)", "Trace::Depósitos Totais::Depósitos à Vista (a1)"),
+    ("Depósitos de Poupança (a2)", "Trace::Depósitos Totais::Depósitos de Poupança (a2)"),
+    ("Depósitos Interfinanceiros (a3)", "Trace::Depósitos Totais::Depósitos Interfinanceiros (a3)"),
+    ("Depósitos a Prazo (a4)", "Trace::Depósitos Totais::Depósitos a Prazo (a4)"),
+    ("Outros Depósitos (a5)", "Trace::Depósitos Totais::Outros Depósitos (a5)"),
+    ("Depósitos Outros (a6)", "Trace::Depósitos Totais::Depósitos Outros (a6)"),
+]
+
 CRITICAL_TRACE_COLUMNS = [
     "InstituiçãoRaw",
     "Trace::PL Dez Ano Anterior",
@@ -115,12 +136,19 @@ CRITICAL_TRACE_COLUMNS = [
     "Trace::Perda Esperada::Ajuste a Valor Justo (g4)",
     "Trace::Perda Esperada::Perda Esperada (h2)",
     "Trace::Depósitos Totais::Depósitos (e)",
+    "Trace::Depósitos Totais::Agregado Oficial",
+    "Trace::Depósitos Totais::Campo Selecionado",
+    "Trace::Depósitos Totais::Status",
+    "Trace::Depósitos Totais::Soma Subtipos",
+    "Trace::Depósitos Totais::Conflito vs Soma (%)",
     "Trace::Depósitos Totais::Depósitos à Vista (a1)",
     "Trace::Depósitos Totais::Depósitos de Poupança (a2)",
     "Trace::Depósitos Totais::Depósitos Interfinanceiros (a3)",
     "Trace::Depósitos Totais::Depósitos a Prazo (a4)",
     "Trace::Depósitos Totais::Outros Depósitos (a5)",
     "Trace::Depósitos Totais::Depósitos Outros (a6)",
+    "Trace::Bloprudencial::Status",
+    "Trace::Qualidade Carteira::Status",
     "Trace::Core Funding::Captações (e)",
     "Trace::Core Funding::Instrumentos de Dívida Elegíveis a Capital (h)",
     "Trace::Capital::Capital Principal",
@@ -396,6 +424,21 @@ def _pick_exact_col(df: Optional[pd.DataFrame], candidates: Sequence[str]) -> Op
     return None
 
 
+def _pick_exact_cols(df: Optional[pd.DataFrame], candidates: Sequence[str]) -> List[str]:
+    if df is None or df.empty:
+        return []
+    normalized = {normalize_institution_name(str(col)): col for col in df.columns}
+    resolved: List[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        key = normalize_institution_name(candidate)
+        col = normalized.get(key)
+        if col and col not in seen:
+            resolved.append(col)
+            seen.add(col)
+    return resolved
+
+
 def _coerce_numeric_value(value) -> Optional[float]:
     if value is None or pd.isna(value):
         return None
@@ -429,6 +472,46 @@ def _calc_ratio(valor_num, valor_den) -> Optional[float]:
     if num is None or den is None or den == 0:
         return None
     return float(num) / float(den)
+
+
+def resolve_depositos_totais_value(
+    *,
+    aggregate_candidates: Sequence[tuple[str, object]],
+    component_values: Mapping[str, object],
+) -> Dict[str, Any]:
+    aggregate_field: Optional[str] = None
+    aggregate_value: Optional[float] = None
+
+    for field_name, raw_value in aggregate_candidates:
+        value = _coerce_numeric_value(raw_value)
+        if value is not None:
+            aggregate_field = str(field_name)
+            aggregate_value = value
+            break
+
+    components_sum = _sum_values(component_values.values())
+    conflict_pct = None
+    if aggregate_value is not None and components_sum is not None and aggregate_value != 0:
+        conflict_pct = abs(components_sum - aggregate_value) / abs(aggregate_value)
+
+    if aggregate_value is not None:
+        value = aggregate_value
+        source_kind = "official_aggregate"
+    elif components_sum is not None:
+        value = components_sum
+        source_kind = "fallback_components"
+    else:
+        value = None
+        source_kind = "missing"
+
+    return {
+        "value": value,
+        "source_kind": source_kind,
+        "source_field": aggregate_field,
+        "aggregate_value": aggregate_value,
+        "components_sum": components_sum,
+        "aggregate_components_diff_pct": conflict_pct,
+    }
 
 
 def _period_part_to_quarter_idx(value) -> Optional[int]:
@@ -468,6 +551,90 @@ def _annualization_factor(months) -> float | pd.Series:
     if months == 12:
         return 1.0
     return 12 / months if months and months > 0 else 1.0
+
+
+def _collect_bloprud_period_status(df_bloprudencial: Optional[pd.DataFrame]) -> Dict[str, Dict[str, bool]]:
+    if df_bloprudencial is None or df_bloprudencial.empty:
+        return {}
+
+    col_data_base = _pick_col(df_bloprudencial, ["DATA_BASE", "Data_Base", "data_base"])
+    col_conta = _pick_col(df_bloprudencial, ["CONTA", "Conta", "codigo_conta", "COD_CONTA"])
+    col_documento = _pick_col(df_bloprudencial, ["DOCUMENTO", "Documento", "doc", "cadoc"])
+    if not col_data_base or not col_conta:
+        return {}
+
+    df_work = df_bloprudencial.copy()
+    if col_documento:
+        docs = pd.to_numeric(df_work[col_documento], errors="coerce")
+        mask_4060 = docs == 4060
+        if mask_4060.any():
+            df_work = df_work.loc[mask_4060].copy()
+
+    if df_work.empty:
+        return {}
+
+    df_work["_yyyymm"] = df_work[col_data_base].astype(str).str.replace(r"\D", "", regex=True).str[:6]
+    df_work["_conta"] = df_work[col_conta].astype(str).str.replace(r"\D", "", regex=True)
+    grouped = df_work.groupby("_yyyymm", dropna=False)["_conta"].agg(lambda values: set(values.dropna().tolist()))
+
+    out: Dict[str, Dict[str, bool]] = {}
+    for yyyymm, contas in grouped.items():
+        if not yyyymm or str(yyyymm) == "None":
+            continue
+        contas_set = {str(conta) for conta in contas}
+        out[str(yyyymm)] = {
+            "has_pdd": bool({"1490000004", "1890000006"} & contas_set),
+            "has_stage2": "3312000001" in contas_set,
+            "has_stage3": "3313000000" in contas_set,
+        }
+    return out
+
+
+def _validate_critical_screens_semantics(df: Optional[pd.DataFrame]) -> Dict[str, int]:
+    if df is None or df.empty:
+        return {}
+
+    issues: Dict[str, int] = {}
+
+    deposit_status = df.get("Trace::Depósitos Totais::Status")
+    deposit_value = pd.to_numeric(df.get("Depósitos Totais"), errors="coerce")
+    deposit_agg = pd.to_numeric(df.get("Trace::Depósitos Totais::Agregado Oficial"), errors="coerce")
+    deposit_sum = pd.to_numeric(df.get("Trace::Depósitos Totais::Soma Subtipos"), errors="coerce")
+
+    if deposit_status is not None:
+        deposit_status_str = deposit_status.fillna("").astype(str)
+        missing_status = int((deposit_value.notna() & deposit_status_str.eq("")).sum())
+        if missing_status:
+            issues["depositos_missing_status"] = missing_status
+
+        exact_without_agg = int(((deposit_status_str == "official_aggregate") & deposit_agg.isna()).sum())
+        if exact_without_agg:
+            issues["depositos_exact_without_aggregate"] = exact_without_agg
+
+        fallback_without_sum = int(((deposit_status_str == "fallback_components") & deposit_sum.isna()).sum())
+        if fallback_without_sum:
+            issues["depositos_fallback_without_components"] = fallback_without_sum
+
+    blop_status = df.get("Trace::Bloprudencial::Status")
+    if blop_status is not None:
+        blop_status_str = blop_status.fillna("").astype(str)
+        stage3 = pd.to_numeric(df.get("Ativos Estágio 3"), errors="coerce")
+        pdd_total = pd.to_numeric(df.get("PDD Total 4060"), errors="coerce")
+        impossible_prudential = int(
+            ((blop_status_str == "source_structurally_unavailable") & (stage3.notna() | pdd_total.notna())).sum()
+        )
+        if impossible_prudential:
+            issues["bloprud_structural_status_with_values"] = impossible_prudential
+
+    qual_status = df.get("Trace::Qualidade Carteira::Status")
+    if qual_status is not None:
+        qual_status_str = qual_status.fillna("").astype(str)
+        perda = pd.to_numeric(df.get("Perda Esperada"), errors="coerce")
+        invalid_quality = int(((qual_status_str == "available") & perda.isna()).sum())
+        if invalid_quality:
+            issues["qualidade_available_without_perda"] = invalid_quality
+
+    return issues
 
 
 def _normalize_principal_metrics(df: pd.DataFrame) -> pd.DataFrame:
@@ -1047,18 +1214,7 @@ def build_critical_screens_dataframe(
             "Títulos e Valores Mobiliários",
         ],
     )
-    col_depositos_passivo = _pick_exact_col(
-        passivo,
-        [
-            "Depósitos (e)",
-            "Depositos (e)",
-            "Depósitos (a)",
-            "Depósitos Totais (a)",
-            "Depósito Total (a)",
-            "Depositos (a)",
-            "Deposito Total (a)",
-        ],
-    )
+    cols_depositos_passivo = _pick_exact_cols(passivo, DEPOSITOS_TOTAIS_AGGREGATE_CANDIDATES)
     col_dep_a1 = _pick_col(passivo, ["Depósitos à Vista (a1)", "Depositos a Vista (a1)", "Depósitos à Vista", "Depositos a Vista"])
     col_dep_a2 = _pick_col(passivo, ["Depósitos de Poupança (a2)", "Depositos de Poupanca (a2)", "Depósitos de Poupança"])
     col_dep_a3 = _pick_col(passivo, ["Depósitos Interfinanceiros (a3)", "Depositos Interfinanceiros (a3)"])
@@ -1207,7 +1363,7 @@ def build_critical_screens_dataframe(
     )
     lk_passivo = _prepare_lookup(
         passivo,
-        [col_depositos_passivo, col_dep_a1, col_dep_a2, col_dep_a3, col_dep_a4, col_dep_a5, col_dep_a6, col_capt_passivo, col_instr_passivo],
+        [*cols_depositos_passivo, col_dep_a1, col_dep_a2, col_dep_a3, col_dep_a4, col_dep_a5, col_dep_a6, col_capt_passivo, col_instr_passivo],
     )
     lk_capital = _prepare_lookup(
         capital,
@@ -1216,6 +1372,7 @@ def build_critical_screens_dataframe(
     lk_pf = _prepare_lookup(carteira_pf, [col_pf_total])
     lk_pj = _prepare_lookup(carteira_pj, [col_pj_total])
     lk_instr = _prepare_lookup(carteira_instr, [col_c4, col_c5])
+    blop_period_status = _collect_bloprud_period_status(df_bloprudencial)
 
     base = base.sort_values(["Período", "InstituiçãoKey", "Instituição"]).reset_index(drop=True)
     rows = []
@@ -1291,25 +1448,35 @@ def build_critical_screens_dataframe(
                 trace_tvm,
             ]
         )
-        trace_dep_e = _coerce_numeric_value(_lk_get(lk_passivo, institution_key, periodo, col_depositos_passivo))
         trace_dep_a1 = _coerce_numeric_value(_lk_get(lk_passivo, institution_key, periodo, col_dep_a1))
         trace_dep_a2 = _coerce_numeric_value(_lk_get(lk_passivo, institution_key, periodo, col_dep_a2))
         trace_dep_a3 = _coerce_numeric_value(_lk_get(lk_passivo, institution_key, periodo, col_dep_a3))
         trace_dep_a4 = _coerce_numeric_value(_lk_get(lk_passivo, institution_key, periodo, col_dep_a4))
         trace_dep_a5 = _coerce_numeric_value(_lk_get(lk_passivo, institution_key, periodo, col_dep_a5))
         trace_dep_a6 = _coerce_numeric_value(_lk_get(lk_passivo, institution_key, periodo, col_dep_a6))
-        depositos_totais = trace_dep_e
-        if _coerce_numeric_value(depositos_totais) is None:
-            depositos_totais = _sum_values(
-                [
-                    trace_dep_a1,
-                    trace_dep_a2,
-                    trace_dep_a3,
-                    trace_dep_a4,
-                    trace_dep_a5,
-                    trace_dep_a6,
-                ]
-            )
+        deposit_resolution = resolve_depositos_totais_value(
+            aggregate_candidates=[
+                (
+                    col_name,
+                    _coerce_numeric_value(_lk_get(lk_passivo, institution_key, periodo, col_name)),
+                )
+                for col_name in cols_depositos_passivo
+            ],
+            component_values={
+                "Depósitos à Vista (a1)": trace_dep_a1,
+                "Depósitos de Poupança (a2)": trace_dep_a2,
+                "Depósitos Interfinanceiros (a3)": trace_dep_a3,
+                "Depósitos a Prazo (a4)": trace_dep_a4,
+                "Outros Depósitos (a5)": trace_dep_a5,
+                "Depósitos Outros (a6)": trace_dep_a6,
+            },
+        )
+        trace_dep_e = deposit_resolution["aggregate_value"]
+        depositos_totais = deposit_resolution["value"]
+        depositos_status = str(deposit_resolution["source_kind"] or "")
+        depositos_field = deposit_resolution["source_field"]
+        depositos_component_sum = deposit_resolution["components_sum"]
+        depositos_conflict_pct = deposit_resolution["aggregate_components_diff_pct"]
 
         trace_cap_e = _coerce_numeric_value(_lk_get(lk_passivo, institution_key, periodo, col_capt_passivo))
         trace_instr_h = _coerce_numeric_value(_lk_get(lk_passivo, institution_key, periodo, col_instr_passivo))
@@ -1351,6 +1518,14 @@ def build_critical_screens_dataframe(
         estagio2 = blop_lookup.get((str(periodo_api), institution_key, "3312000001")) if periodo_api else None
         estagio3 = blop_lookup.get((str(periodo_api), institution_key, "3313000000")) if periodo_api else None
         pdd_total_4060 = _sum_values([pdd_credito, pdd_outros])
+        blop_status_info = blop_period_status.get(str(periodo_api or ""), {})
+        has_blop_source_period = any(bool(v) for v in blop_status_info.values())
+        if any(v is not None for v in [pdd_credito, pdd_outros, estagio1, estagio2, estagio3]):
+            blop_status = "available"
+        elif has_blop_source_period:
+            blop_status = "institution_match_missing"
+        else:
+            blop_status = "source_structurally_unavailable"
 
         indice_cap_principal = None
         val_cp = _coerce_numeric_value(_lk_get(lk_capital, institution_key, periodo, col_cap_principal))
@@ -1382,6 +1557,14 @@ def build_critical_screens_dataframe(
         desp_capt_anual = _coerce_numeric_value(desp_capt_row.get("Trace::Desp Captação::Despesa Anualizada"))
         capt_media_ytd = _coerce_numeric_value(desp_capt_row.get("Trace::Desp Captação::Captações Média YTD"))
         credito_capt = _calc_ratio(carteira_bruta, core_funding)
+        if perda_esperada is None:
+            qualidade_status = "loss_source_unavailable"
+        elif blop_status != "available":
+            qualidade_status = blop_status
+        elif _calc_ratio(perda_esperada, estagio3) is None and _calc_ratio(perda_esperada, _sum_required_values([estagio2, estagio3])) is None:
+            qualidade_status = "denominator_unavailable"
+        else:
+            qualidade_status = "available"
 
         rows.append(
             {
@@ -1447,12 +1630,19 @@ def build_critical_screens_dataframe(
                 "Trace::Perda Esperada::Ajuste a Valor Justo (g4)": trace_perda_g4,
                 "Trace::Perda Esperada::Perda Esperada (h2)": trace_perda_h2,
                 "Trace::Depósitos Totais::Depósitos (e)": trace_dep_e,
+                "Trace::Depósitos Totais::Agregado Oficial": trace_dep_e,
+                "Trace::Depósitos Totais::Campo Selecionado": depositos_field,
+                "Trace::Depósitos Totais::Status": depositos_status,
+                "Trace::Depósitos Totais::Soma Subtipos": depositos_component_sum,
+                "Trace::Depósitos Totais::Conflito vs Soma (%)": depositos_conflict_pct,
                 "Trace::Depósitos Totais::Depósitos à Vista (a1)": trace_dep_a1,
                 "Trace::Depósitos Totais::Depósitos de Poupança (a2)": trace_dep_a2,
                 "Trace::Depósitos Totais::Depósitos Interfinanceiros (a3)": trace_dep_a3,
                 "Trace::Depósitos Totais::Depósitos a Prazo (a4)": trace_dep_a4,
                 "Trace::Depósitos Totais::Outros Depósitos (a5)": trace_dep_a5,
                 "Trace::Depósitos Totais::Depósitos Outros (a6)": trace_dep_a6,
+                "Trace::Bloprudencial::Status": blop_status,
+                "Trace::Qualidade Carteira::Status": qualidade_status,
                 "Trace::Core Funding::Captações (e)": trace_cap_e,
                 "Trace::Core Funding::Instrumentos de Dívida Elegíveis a Capital (h)": trace_instr_h,
                 "Trace::Capital::Capital Principal": val_cp,
@@ -1583,6 +1773,15 @@ def materialize_critical_screens_cache(
         _prepare_frame(loaded["carteira_pj"], catalog_map, base_dir=root, dedupe=False, extra_frames=(loaded["principal"],)),
         _prepare_frame(loaded["carteira_instrumentos"], catalog_map, base_dir=root, dedupe=False, extra_frames=(loaded["principal"],)),
     )
+    semantic_issues = _validate_critical_screens_semantics(curated)
+    if semantic_issues:
+        issues_txt = ", ".join(f"{key}={value}" for key, value in sorted(semantic_issues.items()))
+        return CacheResult(
+            sucesso=False,
+            mensagem=f"Falha na validação semântica de critical_screens: {issues_txt}",
+            dados=curated,
+            fonte="materialized",
+        )
 
     info_extra = {
         "tipos_origem": SOURCE_CACHE_TYPES,
@@ -1596,6 +1795,7 @@ def materialize_critical_screens_cache(
         "canonical_variants": canonical_audit.get("canonical_variants", {}),
         "raw_to_canonical": canonical_audit.get("raw_to_canonical", {}),
         "dedupe_conflicts": canonical_audit.get("dedupe_conflicts", {}),
+        "semantic_checks": semantic_issues,
     }
     result = cache.salvar_local(curated, fonte="materialized", info_extra=info_extra)
     if result.sucesso and save_bundled:

@@ -90,6 +90,7 @@ def test_map_rating_inputs_uses_documented_fallbacks():
     assert round(mapped["mapped_inputs"]["funding_delta"]["value"], 6) == round((100.0 / 90.0) - 1.0, 6)
     assert mapped["mapped_inputs"]["npl_creation"]["source_kind"] == "fallback"
     assert round(mapped["mapped_inputs"]["npl_creation"]["value"], 6) == 0.025
+    assert "Proxy fallback" in mapped["mapped_inputs"]["npl_creation"]["note"]
 
 
 def test_map_rating_inputs_prioritizes_stage23_ratio_for_npl():

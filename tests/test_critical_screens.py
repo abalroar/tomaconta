@@ -194,6 +194,9 @@ def test_build_critical_screens_dataframe_materializes_expected_metrics(tmp_path
     assert round(row["ROE trimestral anualizado (%)"], 6) == round((10.0 * 4.0) / ((220.0 + 200.0) / 2.0), 6)
     assert row["Ativos Líquidos"] == 600.0
     assert row["Depósitos Totais"] == 106.0
+    assert row["Trace::Depósitos Totais::Status"] == "fallback_components"
+    assert row["Trace::Depósitos Totais::Campo Selecionado"] is None
+    assert row["Trace::Depósitos Totais::Soma Subtipos"] == 106.0
     assert row["Core Funding*"] == 550.0
     assert round(row["Crédito / Captações"], 6) == round(1900.0 / 550.0, 6)
     assert round(row["Desp Captação / Captação"], 6) == round((11.0 * 4.0) / 500.0, 6)
@@ -211,6 +214,99 @@ def test_build_critical_screens_dataframe_materializes_expected_metrics(tmp_path
     assert bool(row["CapitalDisponivel"])
     assert bool(row["BloprudencialDisponivel"])
     assert bool(row["QualidadeCarteiraDisponivel"])
+
+
+def test_build_critical_screens_dataframe_prefers_row_level_official_deposit_aggregate():
+    principal = pd.DataFrame(
+        [
+            {
+                "Instituição": "TEST BANK - PRUDENCIAL",
+                "Período": "4/2024",
+                "Ativo Total": 1000.0,
+                "Patrimônio Líquido": 100.0,
+                "Lucro Líquido Acumulado YTD": 20.0,
+            },
+        ]
+    )
+    passivo = pd.DataFrame(
+        [
+            {
+                "Instituição": "TEST BANK - PRUDENCIAL",
+                "Período": "4/2024",
+                "Depósitos (a)": None,
+                "Depósito Total (a)": 120.0,
+                "Depósitos à Vista (a1)": 10.0,
+                "Depósitos de Poupança (a2)": 20.0,
+                "Depósitos Interfinanceiros (a3)": 30.0,
+                "Depósitos a Prazo (a4)": 40.0,
+                "Outros Depósitos (a5)": 5.0,
+                "Depósitos Outros (a6)": 1.0,
+            }
+        ]
+    )
+
+    result = build_critical_screens_dataframe(
+        df_principal=principal,
+        df_ativo=pd.DataFrame(),
+        df_passivo=passivo,
+        df_capital=pd.DataFrame(),
+        df_dre=pd.DataFrame(),
+        df_carteira_pf=pd.DataFrame(),
+        df_carteira_pj=pd.DataFrame(),
+        df_carteira_instrumentos=pd.DataFrame(),
+        df_bloprudencial=pd.DataFrame(),
+    )
+
+    row = result.iloc[0]
+    assert row["Depósitos Totais"] == 120.0
+    assert row["Trace::Depósitos Totais::Status"] == "official_aggregate"
+    assert row["Trace::Depósitos Totais::Campo Selecionado"] == "Depósito Total (a)"
+    assert row["Trace::Depósitos Totais::Agregado Oficial"] == 120.0
+    assert row["Trace::Depósitos Totais::Soma Subtipos"] == 106.0
+    assert round(row["Trace::Depósitos Totais::Conflito vs Soma (%)"], 6) == round(abs(106.0 - 120.0) / 120.0, 6)
+
+
+def test_build_critical_screens_dataframe_marks_structural_prudential_unavailability():
+    principal = pd.DataFrame(
+        [
+            {
+                "Instituição": "TEST BANK - PRUDENCIAL",
+                "Período": "4/2024",
+                "Ativo Total": 1000.0,
+                "Patrimônio Líquido": 100.0,
+                "Lucro Líquido Acumulado YTD": 20.0,
+            },
+        ]
+    )
+    ativo = pd.DataFrame(
+        [
+            {
+                "Instituição": "TEST BANK - PRUDENCIAL",
+                "Período": "4/2024",
+                "Operações de Crédito (d1)": 500.0,
+                "Arrendamento Mercantil a Receber (e1)": 50.0,
+                "Outros Créditos - Líquido de Provisão (f)": 25.0,
+                "Perda Esperada (e2)": 10.0,
+            },
+        ]
+    )
+
+    result = build_critical_screens_dataframe(
+        df_principal=principal,
+        df_ativo=ativo,
+        df_passivo=pd.DataFrame(),
+        df_capital=pd.DataFrame(),
+        df_dre=pd.DataFrame(),
+        df_carteira_pf=pd.DataFrame(),
+        df_carteira_pj=pd.DataFrame(),
+        df_carteira_instrumentos=pd.DataFrame(),
+        df_bloprudencial=pd.DataFrame(),
+    )
+
+    row = result.iloc[0]
+    assert row["Trace::Bloprudencial::Status"] == "source_structurally_unavailable"
+    assert row["Trace::Qualidade Carteira::Status"] == "source_structurally_unavailable"
+    assert pd.isna(row["Perda Esperada / Estágio 3"])
 
 
 def test_build_critical_screens_dataframe_resolves_passivo_placeholder_via_principal_codinst():

@@ -139,6 +139,7 @@ from .critical_screens import (
     load_critical_screens_slice,
     critical_screens_needs_refresh,
     get_critical_screens_runtime_status,
+    resolve_depositos_totais_value,
 )
 from .availability import (
     MIN_API_PERIOD_BY_CACHE,

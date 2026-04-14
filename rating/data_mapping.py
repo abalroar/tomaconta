@@ -358,7 +358,7 @@ def map_rating_inputs(record: Mapping[str, Any]) -> dict[str, Any]:
                 "source_field": "Perda Esperada / Carteira de Crédito Bruta",
                 "source_kind": "fallback" if current_loss_ratio is not None else "missing",
                 "note": (
-                    "Campo de qualidade de carteira disponível no período selecionado."
+                    "Proxy fallback: o NPL por estágios não estava disponível e o modelo usou Perda Esperada / Carteira de Crédito Bruta."
                     if current_loss_ratio is not None
                     else "Sem insumo de NPL disponível para esta instituição/período."
                 ),
