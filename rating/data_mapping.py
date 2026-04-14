@@ -351,17 +351,21 @@ def map_rating_inputs(record: Mapping[str, Any]) -> dict[str, Any]:
                 },
             }
         else:
-            current_loss_ratio = raw_inputs["Perda Esperada / Carteira de Crédito Bruta"]
             mapped_inputs["npl_creation"] = {
-                "value": current_loss_ratio,
+                "value": None,
                 "display_label": "NPL (Estágio 2+3 / Carteira)",
-                "source_field": "Perda Esperada / Carteira de Crédito Bruta",
-                "source_kind": "fallback" if current_loss_ratio is not None else "missing",
+                "source_field": "(Ativos Estágio 2 + Ativos Estágio 3) / Carteira de Crédito Bruta",
+                "source_kind": "missing",
                 "note": (
-                    "Proxy fallback: o NPL por estágios não estava disponível e o modelo usou Perda Esperada / Carteira de Crédito Bruta."
-                    if current_loss_ratio is not None
-                    else "Sem insumo de NPL disponível para esta instituição/período."
+                    "NPL por estágios indisponível; o modelo não usa Perda Esperada / Carteira de Crédito Bruta "
+                    "como proxy para este fator e o rating fica incompleto sem esse insumo."
                 ),
+                "components": {
+                    "estagio_2": estagio2,
+                    "estagio_3": estagio3,
+                    "carteira": carteira,
+                    "perda_esperada_ratio_disponivel": raw_inputs["Perda Esperada / Carteira de Crédito Bruta"],
+                },
             }
 
     disclosures = []

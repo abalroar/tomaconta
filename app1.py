@@ -134,6 +134,8 @@ from utils.ifdata_cache import (
     CRITICAL_EXTRA_METRICS,
     materialize_critical_screens_cache,
     get_critical_screens_runtime_status,
+    resolve_carteira_credito_bruta_value,
+    resolve_core_funding_value,
     resolve_depositos_totais_value,
     canonicalize_institution_name,
     build_institution_to_conglomerate_map,
@@ -1113,10 +1115,10 @@ PEERS_TABELA_LAYOUT = [
 PEERS_GLOSSARIO_RESUMIDO = {
     "Ativo Total": "Ativo Total do balanço principal (Rel. 1).",
     "Ativos Líquidos": "Disponibilidades (a) + Aplicações Interfinanceiras de Liquidez (b) + TVM (c) no Rel. 2.",
-    "Carteira de Crédito*": "Até 2024: Crédito Bruta + Arrendamento Bruta + Outros Créditos Líquidos de Provisão. 2025+: Valor Contábil Bruto (e1+f1+g1+h1) no Rel. 2.",
+    "Carteira de Crédito*": "Até 2024: Crédito Bruta + Arrendamento Bruta + Outros Créditos Líquidos de Provisão. 2025+: Valor Contábil Bruto (e1+f1+g1+h1) no Rel. 2; se a regra canônica do período ficar incompleta, o fallback líquido e+f+g+h é marcado explicitamente.",
     "Perda Esperada": "Soma de perdas esperadas e ajustes de valor justo das bases e/f/g/h no Rel. 2.",
     "Depósitos Totais": "Prioriza a linha agregada oficial disponível no Rel. 3; só usa soma a1..a6 quando nenhum agregado oficial estiver preenchido na linha.",
-    "Core Funding*": "Até 2024: Captações (e). 2025+: Captações (e) + Dívida Subordinada (h) no Rel. 3.",
+    "Core Funding*": "Até 2024: Captações (e). 2025+: Captações (e) + Instrumentos de Dívida Elegíveis a Capital (h) no Rel. 3, sem tratar componente ausente como zero.",
     "Patrimônio Líquido (PL)": "Patrimônio Líquido do balanço principal (Rel. 1).",
     "Ativos Estágio 2": "Saldo da conta 3312000001 (Cadoc 4060) no período, quando a fonte mensal publicar o estágio e houver match prudencial confiável.",
     "Ativos Estágio 3": "Saldo da conta 3313000000 (Cadoc 4060) no período, quando a fonte mensal publicar o estágio e houver match prudencial confiável.",
@@ -5866,6 +5868,18 @@ def _somar_valores(valores: list) -> Optional[float]:
     return float(sum(numeros))
 
 
+def _somar_valores_requeridos(valores: list) -> Optional[float]:
+    numeros = []
+    for valor in valores:
+        val_num = _coerce_numeric_value(valor)
+        if val_num is None or pd.isna(val_num):
+            return None
+        numeros.append(float(val_num))
+    if not numeros:
+        return None
+    return float(sum(numeros))
+
+
 def _periodo_ano_int(periodo_txt: str) -> Optional[int]:
     parsed = _parse_periodo(periodo_txt)
     if not parsed:
@@ -5882,7 +5896,7 @@ def _calcular_core_funding(
     col_instr: Optional[str],
     lk_passivo: Optional[dict] = None,
 ) -> Optional[float]:
-    """Core Funding por período: até 2024 usa Captações (e); 2025+ usa Captações (e) + Dívida Subordinada (h)."""
+    """Core Funding por período: até 2024 usa Captações (e); 2025+ exige Captações (e) + Instrumentos de Dívida Elegíveis a Capital (h)."""
     if cache_passivo is None or cache_passivo.empty:
         return None
     ano_ref = _periodo_ano_int(periodo)
@@ -5898,7 +5912,13 @@ def _calcular_core_funding(
         instr_val = row.get(col_instr) if (row is not None and col_instr) else None
     else:
         instr_val = _obter_valor_peers(cache_passivo, instituicao, periodo, col_instr) if col_instr else None
-    return _somar_valores([cap_val, instr_val])
+    return _coerce_numeric_value(
+        resolve_core_funding_value(
+            year_ref=ano_ref,
+            captacoes_value=cap_val,
+            instrumentos_value=instr_val,
+        ).get("value")
+    )
 
 
 def _prefer_carteira_bruta(colunas: list) -> str:
@@ -6032,7 +6052,7 @@ def _scatter_compor_texto_label(
 
 def _scatter_metric_criteria(label_exibicao: str) -> str:
     criterios = {
-        "Core Funding": "Captações (e) no Relatório de Passivo; a partir de 2025, soma-se Dívida Subordinada (h).",
+        "Core Funding": "Captações (e) no Relatório de Passivo; a partir de 2025, exige-se Captações (e) + Instrumentos de Dívida Elegíveis a Capital (h).",
         "Carteira de Crédito Classificada": "Prioriza Carteira de Crédito Classificada/Carteira de Crédito*; fallback para Carteira de Crédito Bruta/Carteira de Crédito, conforme disponibilidade da base.",
         "ROE YTD Ac. Anualizado (%)": "(LL YTD × fator de anualização) ÷ PL Médio.",
         "Crédito/Ativo (%)": "Carteira de Crédito ÷ Ativo Total.",
@@ -6096,18 +6116,53 @@ def _anexar_carteira_credito_bruta(dados_periodos: dict) -> dict:
     col_f1 = _resolver_coluna_peers(df_ativo, ["Valor Contábil Bruto (f1)", "Valor Contabil Bruto (f1)"])
     col_g1 = _resolver_coluna_peers(df_ativo, ["Valor Contábil Bruto (g1)", "Valor Contabil Bruto (g1)"])
     col_h1 = _resolver_coluna_peers(df_ativo, ["Valor Contábil Bruto (h1)", "Valor Contabil Bruto (h1)"])
-    if not all([col_e1, col_f1, col_g1, col_h1]):
+    col_d1 = _resolver_coluna_peers(df_ativo, ["Operações de Crédito (d1)", "Operacoes de Credito (d1)"])
+    col_e1_alt = _resolver_coluna_peers(df_ativo, ["Arrendamento Mercantil a Receber (e1)", "Arrendamento Mercantil a Receber"])
+    col_f_old = _resolver_coluna_peers(
+        df_ativo,
+        ["Outros Créditos - Líquido de Provisão (f)", "Outros Creditos - Liquido de Provisao (f)", "Outros Créditos - Líquido de Provisão"],
+    )
+    col_e = _resolver_coluna_peers(df_ativo, ["Operações de Crédito (e)", "Operacoes de Credito (e)"])
+    col_f = _resolver_coluna_peers(df_ativo, ["Operações de Arrendamento Financeiro (f)", "Operacoes de Arrendamento Financeiro (f)"])
+    col_g = _resolver_coluna_peers(
+        df_ativo,
+        ["Outras Operações com Características de Concessão de Crédito (g)", "Outras Operacoes com Caracteristicas de Concessao de Credito (g)"],
+    )
+    col_h = _resolver_coluna_peers(
+        df_ativo,
+        ["Valores a Receber de Transações de Pagamentos - Usuários Finais (Pós-pago) (h)", "Valores a Receber de Transacoes de Pagamentos - Usuarios Finais (Pos-pago) (h)"],
+    )
+
+    cols_relevantes = [
+        "Instituição",
+        "Período",
+        *[col for col in [col_e1, col_f1, col_g1, col_h1, col_d1, col_e1_alt, col_f_old, col_e, col_f, col_g, col_h] if col],
+    ]
+    if len(cols_relevantes) <= 2:
         return dados_periodos
 
-    df_bruta = df_ativo[["Instituição", "Período", col_e1, col_f1, col_g1, col_h1]].copy()
-    for col in [col_e1, col_f1, col_g1, col_h1]:
+    df_bruta = df_ativo[cols_relevantes].copy()
+    valor_cols = [col for col in cols_relevantes if col not in {"Instituição", "Período"}]
+    for col in valor_cols:
         df_bruta[col] = pd.to_numeric(df_bruta[col], errors="coerce")
-    df_bruta["Carteira de Crédito Bruta"] = (
-        df_bruta[col_e1].fillna(0)
-        + df_bruta[col_f1].fillna(0)
-        + df_bruta[col_g1].fillna(0)
-        + df_bruta[col_h1].fillna(0)
-    )
+
+    def _resolve_row(row: pd.Series) -> object:
+        return resolve_carteira_credito_bruta_value(
+            year_ref=_periodo_ano_int(row.get("Período")),
+            legacy_credito_value=row.get(col_d1) if col_d1 else None,
+            legacy_arrendamento_value=row.get(col_e1_alt) if col_e1_alt else None,
+            legacy_outros_value=row.get(col_f_old) if col_f_old else None,
+            vcb_credito_value=row.get(col_e1) if col_e1 else None,
+            vcb_arrendamento_value=row.get(col_f1) if col_f1 else None,
+            vcb_outras_ops_value=row.get(col_g1) if col_g1 else None,
+            vcb_pagamentos_value=row.get(col_h1) if col_h1 else None,
+            net_credito_value=row.get(col_e) if col_e else None,
+            net_arrendamento_value=row.get(col_f) if col_f else None,
+            net_outras_ops_value=row.get(col_g) if col_g else None,
+            net_pagamentos_value=row.get(col_h) if col_h else None,
+        ).get("value")
+
+    df_bruta["Carteira de Crédito Bruta"] = df_bruta.apply(_resolve_row, axis=1)
     df_bruta = df_bruta[["Instituição", "Período", "Carteira de Crédito Bruta"]]
     # Garante unicidade por período/instituição para evitar InvalidIndexError no map
     df_bruta = (
@@ -6188,12 +6243,14 @@ def _anexar_core_funding(dados_periodos: dict) -> dict:
     df_tmp["_cap"] = pd.to_numeric(df_passivo[col_capt], errors="coerce")
     df_tmp["_instr"] = pd.to_numeric(df_passivo[col_instr], errors="coerce") if col_instr else pd.NA
     df_tmp["_ano"] = df_tmp["Período"].astype(str).map(_periodo_ano_int)
-    df_tmp["Core Funding"] = df_tmp["_cap"]
-    mask_2025 = df_tmp["_ano"].notna() & (df_tmp["_ano"] >= 2025)
-    if col_instr:
-        df_tmp.loc[mask_2025, "Core Funding"] = (
-            df_tmp.loc[mask_2025, "_cap"].fillna(0) + df_tmp.loc[mask_2025, "_instr"].fillna(0)
-        )
+    df_tmp["Core Funding"] = [
+        resolve_core_funding_value(
+            year_ref=int(ano_ref) if pd.notna(ano_ref) else None,
+            captacoes_value=cap_val,
+            instrumentos_value=instr_val,
+        ).get("value")
+        for ano_ref, cap_val, instr_val in zip(df_tmp["_ano"], df_tmp["_cap"], df_tmp["_instr"])
+    ]
 
     df_core = (
         df_tmp.groupby(["Período", "Instituição"], as_index=False)["Core Funding"]
@@ -7167,7 +7224,7 @@ def _preparar_metricas_extra_peers(
         ["Depósitos Outros (a6)", "Depositos Outros (a6)"],
     )
 
-    # Core Funding: Captações (e); 2025+ inclui Dívida Subordinada (h)
+    # Core Funding: Captações (e); 2025+ inclui Instrumentos de Dívida Elegíveis a Capital (h)
     col_capt_passivo = _resolver_coluna_peers(
         cache_passivo,
         [
@@ -7330,26 +7387,20 @@ def _preparar_metricas_extra_peers(
             extra["Carteira de Crédito Classificada"][chave] = carteira_classificada
 
             ano_ref = _periodo_ano_int(periodo)
-            if ano_ref is not None and ano_ref <= 2024:
-                carteira_bruta = _somar_valores([
-                    _lk_get(lk_ativo, banco, periodo, col_credito_bruta_d1),
-                    _lk_get(lk_ativo, banco, periodo, col_credito_bruta_e1_alt),
-                    _lk_get(lk_ativo, banco, periodo, col_credito_bruta_f),
-                ])
-            else:
-                carteira_bruta = _somar_valores([
-                    _lk_get(lk_ativo, banco, periodo, col_credito_bruta_e1),
-                    _lk_get(lk_ativo, banco, periodo, col_credito_bruta_f1),
-                    _lk_get(lk_ativo, banco, periodo, col_credito_bruta_g1),
-                    _lk_get(lk_ativo, banco, periodo, col_credito_bruta_h1),
-                ])
-            if carteira_bruta is None:
-                carteira_bruta = _somar_valores([
-                    _lk_get(lk_ativo, banco, periodo, col_credito_net_e),
-                    _lk_get(lk_ativo, banco, periodo, col_credito_net_f),
-                    _lk_get(lk_ativo, banco, periodo, col_credito_net_g),
-                    _lk_get(lk_ativo, banco, periodo, col_credito_net_h),
-                ])
+            carteira_bruta = resolve_carteira_credito_bruta_value(
+                year_ref=ano_ref,
+                legacy_credito_value=_lk_get(lk_ativo, banco, periodo, col_credito_bruta_d1),
+                legacy_arrendamento_value=_lk_get(lk_ativo, banco, periodo, col_credito_bruta_e1_alt),
+                legacy_outros_value=_lk_get(lk_ativo, banco, periodo, col_credito_bruta_f),
+                vcb_credito_value=_lk_get(lk_ativo, banco, periodo, col_credito_bruta_e1),
+                vcb_arrendamento_value=_lk_get(lk_ativo, banco, periodo, col_credito_bruta_f1),
+                vcb_outras_ops_value=_lk_get(lk_ativo, banco, periodo, col_credito_bruta_g1),
+                vcb_pagamentos_value=_lk_get(lk_ativo, banco, periodo, col_credito_bruta_h1),
+                net_credito_value=_lk_get(lk_ativo, banco, periodo, col_credito_net_e),
+                net_arrendamento_value=_lk_get(lk_ativo, banco, periodo, col_credito_net_f),
+                net_outras_ops_value=_lk_get(lk_ativo, banco, periodo, col_credito_net_g),
+                net_pagamentos_value=_lk_get(lk_ativo, banco, periodo, col_credito_net_h),
+            ).get("value")
             extra["Carteira de Crédito Bruta"][chave] = carteira_bruta
             extra["Carteira de Crédito*"][chave] = carteira_bruta
 
@@ -7378,13 +7429,14 @@ def _preparar_metricas_extra_peers(
             )
             extra["Depósitos Totais"][chave] = _coerce_numeric_value(depositos_totais.get("value"))
 
-            # Core Funding (Captações; 2025+ inclui dívida subordinada h)
+            # Core Funding (até 2024 = Captações; 2025+ exige Captações + dívida subordinada h)
             cap_val = _lk_get(lk_passivo, banco, periodo, col_capt_passivo)
-            if ano_ref is None or ano_ref <= 2024:
-                core_funding = _coerce_numeric_value(cap_val)
-            else:
-                instr_val = _lk_get(lk_passivo, banco, periodo, col_instr_passivo)
-                core_funding = _somar_valores([cap_val, instr_val])
+            instr_val = _lk_get(lk_passivo, banco, periodo, col_instr_passivo)
+            core_funding = resolve_core_funding_value(
+                year_ref=ano_ref,
+                captacoes_value=cap_val,
+                instrumentos_value=instr_val,
+            ).get("value")
             extra["Core Funding"][chave] = _coerce_numeric_value(core_funding)
             extra["Core Funding*"][chave] = _coerce_numeric_value(core_funding)
 
@@ -7565,6 +7617,37 @@ def _acumular_dre_ytd_peers(
     if valor_jun_num is None or pd.isna(valor_jun_num):
         return None
     return float(valor_num) + float(valor_jun_num)
+
+
+def _compute_ytd_irregular_ifdata_frame(df: pd.DataFrame) -> pd.DataFrame:
+    """Reconstrói YTD semestral do Rel. 4 sem imputar junho ausente como zero."""
+    if df.empty:
+        return df.copy()
+
+    out = df.copy()
+    parsed = out["Periodo"].apply(_parse_periodo)
+    out["ano"] = parsed.apply(lambda x: x[1] if x else pd.NA).astype("Int64")
+    out["mes"] = parsed.apply(
+        lambda x: ({1: 3, 2: 6, 3: 9, 4: 12}.get(_parte_periodo_para_trimestre_idx(x[0]), int(x[0])) if x else pd.NA)
+    ).astype("Int64")
+    out["valor"] = pd.to_numeric(out["valor"], errors="coerce")
+    out = out.sort_values(["Instituicao", "Label", "ano", "mes", "Periodo"], na_position="last")
+    out["ytd"] = out["valor"]
+
+    mask_set_dez = out["mes"].isin([9, 12])
+    if mask_set_dez.any():
+        keys = ["Instituicao", "Label", "ano"]
+        jun = (
+            out[out["mes"] == 6][keys + ["valor"]]
+            .rename(columns={"valor": "valor_jun"})
+            .drop_duplicates(subset=keys, keep="last")
+        )
+        out = out.merge(jun, on=keys, how="left")
+        out.loc[mask_set_dez, "ytd"] = out.loc[mask_set_dez, "valor"] + out.loc[mask_set_dez, "valor_jun"]
+        out.loc[mask_set_dez & out["valor_jun"].isna(), "ytd"] = np.nan
+        out = out.drop(columns=["valor_jun"])
+
+    return out
 
 
 def _anualizar_valor_dre(valor, periodo: str) -> Optional[float]:
@@ -7895,6 +7978,7 @@ def _render_peers_table_html(
     delta_flags: dict,
     delta_context: Optional[dict] = None,
     tooltips: Optional[dict] = None,
+    status_markers: Optional[dict] = None,
 ):
     colunas_total = 1 + len(bancos) * len(periodos)
     html = """
@@ -7957,6 +8041,18 @@ def _render_peers_table_html(
     .delta-neg { color: #dc3545; margin-left: 4px; }
     .peers-table td.has-tip {
         cursor: help;
+    }
+    .peers-table .status-mark {
+        margin-left: 3px;
+        font-size: 11px;
+        font-weight: 700;
+        vertical-align: super;
+    }
+    .peers-table .status-mark--fallback {
+        color: #6f4e37;
+    }
+    .peers-table .status-mark--unavailable {
+        color: #7a1f1f;
     }
     .peers-table .metric-with-info {
         display: inline-flex;
@@ -8028,11 +8124,16 @@ def _render_peers_table_html(
                     tip = tip_base
                     if delta_tip:
                         tip = f"{tip_base}\n\n{delta_tip}".strip() if tip_base else delta_tip
+                    status_marker = (status_markers or {}).get(chave, "")
+                    marker_html = ""
+                    if status_marker:
+                        marker_class = "status-mark--fallback" if status_marker == "*" else "status-mark--unavailable"
+                        marker_html = f'<span class="status-mark {marker_class}" aria-label="Status analítico">{_html_mod.escape(status_marker)}</span>'
                     if tip:
                         tip_attr = _html_mod.escape(tip, quote=True).replace("\n", "&#10;")
-                        html += f'<td class="has-tip" title="{tip_attr}">{valor_fmt}{delta_html}</td>'
+                        html += f'<td class="has-tip" title="{tip_attr}">{valor_fmt}{marker_html}{delta_html}</td>'
                     else:
-                        html += f"<td>{valor_fmt}{delta_html}</td>"
+                        html += f"<td>{valor_fmt}{marker_html}{delta_html}</td>"
 
             html += "</tr>"
 
@@ -8185,24 +8286,37 @@ def _build_memoria_calculo_curado_metrica(
             continue
 
         if metrica in {"Carteira de Crédito*", "Carteira de Crédito"}:
-            ano_ref = _periodo_ano_int(periodo)
-            if ano_ref is not None and ano_ref <= 2024:
+            carteira_status = str(row.get("Trace::Carteira::Status") or "").strip()
+            carteira_field = str(row.get("Trace::Carteira::Campo Selecionado") or "").strip()
+            if carteira_status == "fallback_net_components":
                 comps = [
-                    ("Trace::Carteira::Operações de Crédito (d1)", "Operações de Crédito (d1)"),
-                    ("Trace::Carteira::Arrendamento Mercantil a Receber (e1)", "Arrendamento Mercantil a Receber (e1)"),
-                    ("Trace::Carteira::Outros Créditos - Líquido de Provisão (f)", "Outros Créditos - Líquido de Provisão (f)"),
+                    ("Trace::Carteira::Operações de Crédito (e)", "Operações de Crédito (e)"),
+                    ("Trace::Carteira::Operações de Arrendamento Financeiro (f)", "Operações de Arrendamento Financeiro (f)"),
+                    ("Trace::Carteira::Outras Operações com Características de Concessão de Crédito (g)", "Outras Operações com Características de Concessão de Crédito (g)"),
+                    ("Trace::Carteira::Valores a Receber de Transações de Pagamentos - Usuários Finais (Pós-pago) (h)", "Valores a Receber de Transações de Pagamentos - Usuários Finais (Pós-pago) (h)"),
                 ]
-                formula = "d1 + e1 + f"
-            else:
+                formula = carteira_field or "Fallback para componentes líquidos e+f+g+h"
+            elif carteira_status == "official_vcb_components":
                 comps = [
                     ("Trace::Carteira::Valor Contábil Bruto (e1)", "Valor Contábil Bruto (e1)"),
                     ("Trace::Carteira::Valor Contábil Bruto (f1)", "Valor Contábil Bruto (f1)"),
                     ("Trace::Carteira::Valor Contábil Bruto (g1)", "Valor Contábil Bruto (g1)"),
                     ("Trace::Carteira::Valor Contábil Bruto (h1)", "Valor Contábil Bruto (h1)"),
                 ]
-                formula = "e1 + f1 + g1 + h1"
+                formula = carteira_field or "e1 + f1 + g1 + h1"
+            else:
+                comps = [
+                    ("Trace::Carteira::Operações de Crédito (d1)", "Operações de Crédito (d1)"),
+                    ("Trace::Carteira::Arrendamento Mercantil a Receber (e1)", "Arrendamento Mercantil a Receber (e1)"),
+                    ("Trace::Carteira::Outros Créditos - Líquido de Provisão (f)", "Outros Créditos - Líquido de Provisão (f)"),
+                ]
+                formula = carteira_field or "d1 + e1 + f"
             for col, label in comps:
                 add("Componente", "BCB IFData Rel. 2", label, "Soma simples", _memoria_fmt_monetario(row.get(col)))
+            if carteira_status == "missing_required_component":
+                add("Diagnóstico", "BCB IFData Rel. 2", "Disponibilidade da carteira", "Um ou mais componentes obrigatórios da carteira bruta ficaram ausentes no período; o valor permanece indisponível.", "N/D")
+            elif carteira_status == "fallback_net_components":
+                add("Regra aplicada", "Cache curado", "Fallback analítico", "Sem componentes brutos completos para a regra canônica do período; a base caiu explicitamente para os componentes líquidos e+f+g+h.", _memoria_fmt_monetario(resultado))
             add("Resultado renderizado", "Snapshot/Peers", metric_column, formula, _memoria_fmt_resultado(metrica, resultado))
             continue
 
@@ -8254,10 +8368,15 @@ def _build_memoria_calculo_curado_metrica(
             continue
 
         if metrica == "Core Funding*":
+            core_status = str(row.get("Trace::Core Funding::Status") or "").strip()
             add("Componente", "BCB IFData Rel. 3", "Captações (e)", "Base principal de funding", _memoria_fmt_monetario(row.get("Trace::Core Funding::Captações (e)")))
             if _periodo_ano_int(periodo) and _periodo_ano_int(periodo) >= 2025:
                 add("Componente", "BCB IFData Rel. 3", "Instrumentos de Dívida Elegíveis a Capital (h)", "Complemento pós-2025", _memoria_fmt_monetario(row.get("Trace::Core Funding::Instrumentos de Dívida Elegíveis a Capital (h)")))
-            add("Resultado renderizado", "Snapshot/Peers", "Core Funding*", "Captações (e) + Instrumentos (h) quando aplicável", _memoria_fmt_resultado(metrica, resultado))
+            if core_status == "missing_required_component":
+                add("Diagnóstico", "BCB IFData Rel. 3", "Disponibilidade do funding", "Em 2025+, o Core Funding exige Captações (e) e Instrumentos (h); como um dos componentes faltou, o valor foi mantido como N/D.", "N/D")
+            elif core_status == "missing":
+                add("Diagnóstico", "BCB IFData Rel. 3", "Disponibilidade do funding", "Sem insumo suficiente de Captações (e) para calcular o Core Funding do período.", "N/D")
+            add("Resultado renderizado", "Snapshot/Peers", "Core Funding*", "Até 2024 usa Captações (e); em 2025+ só soma (e)+(h) quando os dois componentes estiverem disponíveis.", _memoria_fmt_resultado(metrica, resultado))
             continue
 
         if metrica in {"Ativos Estágio 2", "Ativos Estágio 3"}:
@@ -8393,6 +8512,332 @@ def _build_memoria_calculo_peers_tabela_metrica(
     return _build_memoria_calculo_curado_metrica(df_base, banco, periodos, metrica)
 
 
+def _build_peers_export_status_rows(
+    *,
+    df_base: pd.DataFrame,
+    bancos: list[str],
+    periodos: list[str],
+    valores: dict,
+    colunas_usadas: dict,
+) -> list[dict]:
+    if df_base is None or df_base.empty:
+        return []
+
+    lookup = _critical_metric_lookup(df_base)
+    rows: list[dict] = []
+
+    for section in PEERS_TABELA_LAYOUT:
+        for metric_row in section["rows"]:
+            metric_label = str(metric_row["label"])
+            format_key = str(metric_row["format_key"])
+            metric_column = _snapshot_metric_to_curated_column(metric_label)
+            for banco in bancos:
+                for periodo in periodos:
+                    key = (metric_label, banco, periodo)
+                    valor = valores.get(key)
+                    base_row = lookup.get((banco, periodo), {}) or {}
+                    status = "curated_value" if valor is not None and not pd.isna(valor) else "missing"
+                    source = str(colunas_usadas.get(metric_label) or metric_column or metric_label)
+                    note = ""
+
+                    if metric_label == "Depósitos Totais":
+                        deposit_status = str(base_row.get("Trace::Depósitos Totais::Status") or "").strip()
+                        deposit_field = str(base_row.get("Trace::Depósitos Totais::Campo Selecionado") or "").strip()
+                        if deposit_status:
+                            status = deposit_status
+                        if deposit_status == "official_aggregate":
+                            source = deposit_field or "Linha agregada oficial"
+                            note = "Valor vindo da linha agregada oficial selecionada por instituição/período."
+                        elif deposit_status == "fallback_components":
+                            source = "Soma dos subtipos a1..a6"
+                            note = "Sem agregado oficial preenchido na linha; valor calculado pela soma dos subtipos de depósitos."
+                        elif deposit_status == "missing":
+                            source = deposit_field or "Depósitos Totais"
+                            note = "Sem agregado oficial preenchido e sem componentes suficientes para fallback."
+
+                    elif metric_label == "Carteira de Crédito*":
+                        carteira_status = str(base_row.get("Trace::Carteira::Status") or "").strip()
+                        carteira_field = str(base_row.get("Trace::Carteira::Campo Selecionado") or "").strip()
+                        if carteira_status:
+                            status = carteira_status
+                        if carteira_status in {"official_legacy_components", "official_vcb_components"}:
+                            source = carteira_field or "Carteira de Crédito Bruta"
+                            note = "Valor reconstruído pela regra canônica do período a partir do Relatório de Ativo."
+                        elif carteira_status == "fallback_net_components":
+                            source = carteira_field or "Fallback líquido e+f+g+h"
+                            note = "Sem componentes brutos completos para a regra canônica do período; valor caiu explicitamente para a soma líquida e+f+g+h."
+                        elif carteira_status == "missing_required_component":
+                            source = carteira_field or "Carteira de Crédito Bruta"
+                            note = "Um ou mais componentes obrigatórios da carteira bruta ficaram ausentes no período."
+
+                    elif metric_label == "Core Funding*":
+                        core_status = str(base_row.get("Trace::Core Funding::Status") or "").strip()
+                        core_field = str(base_row.get("Trace::Core Funding::Campo Selecionado") or "").strip()
+                        if core_status:
+                            status = core_status
+                        if core_status == "official_captacoes":
+                            source = core_field or "Captações (e)"
+                            note = "Até 2024, o indicador usa apenas Captações (e)."
+                        elif core_status == "official_components":
+                            source = core_field or "Captações (e) + Instrumentos de Dívida Elegíveis a Capital (h)"
+                            note = "Em 2025+, o indicador foi calculado com os dois componentes requeridos."
+                        elif core_status == "missing_required_component":
+                            source = core_field or "Captações (e) + Instrumentos de Dívida Elegíveis a Capital (h)"
+                            note = "Em 2025+, ausência de um dos componentes requeridos manteve o indicador indisponível."
+                        elif core_status == "missing":
+                            source = core_field or "Captações (e)"
+                            note = "Sem insumo suficiente no Relatório de Passivo para o período."
+
+                    elif metric_label in {"Ativos Estágio 2", "Ativos Estágio 3"}:
+                        blop_status = str(base_row.get("Trace::Bloprudencial::Status") or "").strip()
+                        if blop_status:
+                            status = blop_status
+                        source = "Cadoc 4060"
+                        note = "Conta 3312000001." if metric_label == "Ativos Estágio 2" else "Conta 3313000000."
+                        if blop_status == "source_structurally_unavailable":
+                            note += " Fonte mensal estruturalmente indisponível no período."
+                        elif blop_status == "institution_match_missing":
+                            note += " Não houve correspondência prudencial confiável para a instituição."
+
+                    elif metric_label in {"Perda Esperada / Estágio 3", "Perda Esperada / Est2+3"}:
+                        qual_status = str(base_row.get("Trace::Qualidade Carteira::Status") or "").strip()
+                        if qual_status:
+                            status = qual_status
+                        source = metric_column
+                        diagnostics = {
+                            "available": "Razão calculada com numerador e denominador disponíveis.",
+                            "source_structurally_unavailable": "Ativos de estágio não publicados na fonte mensal do período.",
+                            "institution_match_missing": "Sem correspondência prudencial confiável para a instituição.",
+                            "loss_source_unavailable": "Perda Esperada indisponível no IFData Rel. 2 para o período.",
+                            "denominator_unavailable": "Denominador da razão indisponível no período.",
+                        }
+                        note = diagnostics.get(status, "")
+
+                    elif metric_label == "Crédito / Captações":
+                        core_status = str(base_row.get("Trace::Core Funding::Status") or "").strip()
+                        source = "Carteira de Crédito Bruta ÷ Core Funding*"
+                        if (valor is None or pd.isna(valor)) and core_status in {"missing_required_component", "missing"}:
+                            status = core_status
+                            if core_status == "missing_required_component":
+                                note = "Razão indisponível porque o Core Funding pós-2025 ficou incompleto."
+                            else:
+                                note = "Razão indisponível porque o Core Funding não pôde ser calculado."
+                        else:
+                            status = "derived_from_curated"
+                            note = "Razão calculada a partir dos valores curados de carteira e funding."
+
+                    if status == "missing" and not note:
+                        note = "Sem valor disponível na base curada para a instituição/período selecionados."
+
+                    rows.append(
+                        {
+                            "Instituição": banco,
+                            "Período": periodo_para_exibicao(periodo),
+                            "Período Raw": periodo,
+                            "Indicador": metric_label,
+                            "Valor": valor,
+                            "Status analítico": status,
+                            "Fonte analítica": source,
+                            "Observação": note,
+                            "Format key": format_key,
+                        }
+                    )
+
+    return rows
+
+
+def _build_peers_status_lookup(
+    *,
+    df_base: pd.DataFrame,
+    bancos: list[str],
+    periodos: list[str],
+    valores: dict,
+    colunas_usadas: dict,
+) -> dict[tuple[str, str, str], dict]:
+    rows = _build_peers_export_status_rows(
+        df_base=df_base,
+        bancos=bancos,
+        periodos=periodos,
+        valores=valores,
+        colunas_usadas=colunas_usadas,
+    )
+    return {
+        (str(row.get("Indicador")), str(row.get("Instituição")), str(row.get("Período Raw"))): row
+        for row in rows
+    }
+
+
+def _merge_peers_analytical_tooltips(
+    *,
+    tooltips: dict,
+    status_lookup: Optional[dict[tuple[str, str, str], dict]] = None,
+) -> tuple[dict, dict, dict]:
+    merged = dict(tooltips or {})
+    status_markers: dict[tuple[str, str, str], str] = {}
+    marker_presence = {"fallback": False, "unavailable": False}
+    if not status_lookup:
+        return merged, status_markers, marker_presence
+
+    fallback_statuses = {"fallback_components", "fallback_net_components"}
+    unavailable_statuses = {
+        "missing",
+        "missing_required_component",
+        "source_structurally_unavailable",
+        "institution_match_missing",
+        "loss_source_unavailable",
+        "denominator_unavailable",
+    }
+    neutral_statuses = {
+        "curated_value",
+        "derived_from_curated",
+        "available",
+        "official_aggregate",
+        "official_legacy_components",
+        "official_vcb_components",
+        "official_captacoes",
+        "official_components",
+    }
+
+    for key, payload in status_lookup.items():
+        status = str(payload.get("Status analítico") or "").strip()
+        source = str(payload.get("Fonte analítica") or "").strip()
+        note = str(payload.get("Observação") or "").strip()
+        base_tip = str(merged.get(key) or "").strip()
+
+        marker = ""
+        if status in fallback_statuses:
+            marker = "*"
+            marker_presence["fallback"] = True
+        elif status in unavailable_statuses and note:
+            marker = "†"
+            marker_presence["unavailable"] = True
+
+        if marker:
+            status_markers[key] = marker
+
+        analytic_parts = []
+        if status and status not in neutral_statuses:
+            analytic_parts.append(f"Status analítico: {status}")
+        if source and (marker or status not in neutral_statuses):
+            analytic_parts.append(f"Fonte analítica: {source}")
+        if note:
+            analytic_parts.append(note)
+        analytic_tip = "\n".join(analytic_parts).strip()
+        if analytic_tip:
+            merged[key] = f"{analytic_tip}\n\n{base_tip}".strip() if base_tip else analytic_tip
+
+    return merged, status_markers, marker_presence
+
+
+def _build_peers_visual_status_artifacts(
+    *,
+    df_base: Optional[pd.DataFrame],
+    bancos: list[str],
+    periodos: list[str],
+    valores: dict,
+    colunas_usadas: dict,
+) -> tuple[dict[tuple[str, str, str], str], dict[str, bool]]:
+    if df_base is None or df_base.empty:
+        return {}, {"fallback": False, "unavailable": False}
+
+    status_lookup = _build_peers_status_lookup(
+        df_base=df_base,
+        bancos=bancos,
+        periodos=periodos,
+        valores=valores,
+        colunas_usadas=colunas_usadas,
+    )
+    _, status_markers, marker_presence = _merge_peers_analytical_tooltips(
+        tooltips={},
+        status_lookup=status_lookup,
+    )
+    return status_markers, marker_presence
+
+
+def _decorate_peers_visual_value(
+    valor_fmt: str,
+    *,
+    delta_flag: Optional[str] = None,
+    status_marker: str = "",
+) -> str:
+    decorated = str(valor_fmt)
+    if status_marker:
+        decorated = f"{decorated}{status_marker}"
+    if delta_flag == "up":
+        decorated = f"{decorated} ▲"
+    elif delta_flag == "down":
+        decorated = f"{decorated} ▼"
+    return decorated
+
+
+def _write_analytical_status_sheet(
+    workbook: xlsxwriter.Workbook,
+    *,
+    rows: list[dict],
+    sheet_name: str = "status_analitico",
+) -> None:
+    if not rows:
+        return
+
+    border = {"border": 1, "border_color": "#dddddd"}
+    header = workbook.add_format(
+        {"bold": True, "align": "center", "valign": "vcenter", "bg_color": "#111111", "font_color": "white", **border}
+    )
+    text_fmt = workbook.add_format({"align": "left", "valign": "top", "text_wrap": True, **border})
+    num_fmt = workbook.add_format({"align": "right", "valign": "top", "num_format": "#,##0.00", **border})
+    pct1_fmt = workbook.add_format({"align": "right", "valign": "top", "num_format": "0.0%", **border})
+    pct2_fmt = workbook.add_format({"align": "right", "valign": "top", "num_format": "0.00%", **border})
+    mult_fmt = workbook.add_format({"align": "right", "valign": "top", "num_format": "0.00x", **border})
+
+    status_ws = workbook.add_worksheet(sheet_name)
+    headers = [
+        "Instituição",
+        "Período",
+        "Indicador",
+        "Valor",
+        "Status analítico",
+        "Fonte analítica",
+        "Observação",
+    ]
+    for col_idx, label in enumerate(headers):
+        status_ws.write(0, col_idx, label, header)
+
+    status_ws.set_column(0, 0, 28)
+    status_ws.set_column(1, 1, 14)
+    status_ws.set_column(2, 2, 32)
+    status_ws.set_column(3, 3, 16)
+    status_ws.set_column(4, 4, 24)
+    status_ws.set_column(5, 5, 42)
+    status_ws.set_column(6, 6, 72)
+
+    for row_idx, row in enumerate(rows, start=1):
+        status_ws.write(row_idx, 0, row.get("Instituição"), text_fmt)
+        status_ws.write(row_idx, 1, row.get("Período"), text_fmt)
+        status_ws.write(row_idx, 2, row.get("Indicador"), text_fmt)
+
+        valor_num = _coerce_numeric_value(row.get("Valor"))
+        format_key = str(row.get("Format key") or "")
+        if valor_num is None or pd.isna(valor_num):
+            status_ws.write_blank(row_idx, 3, None, text_fmt)
+        elif format_key in PEERS_PERCENT_DECIMALS:
+            dec = PEERS_PERCENT_DECIMALS[format_key]
+            status_ws.write_number(row_idx, 3, float(valor_num), pct1_fmt if dec == 1 else pct2_fmt)
+        elif format_key in {"percent", "percent_1"}:
+            status_ws.write_number(row_idx, 3, float(valor_num), pct1_fmt)
+        elif format_key == "percent_2":
+            status_ws.write_number(row_idx, 3, float(valor_num), pct2_fmt)
+        elif format_key in {"Ativo/PL", "Crédito/PL (%)", "Carteira de Crédito Bruta / PL", "multiple"}:
+            status_ws.write_number(row_idx, 3, float(valor_num), mult_fmt)
+        else:
+            status_ws.write_number(row_idx, 3, float(valor_num), num_fmt)
+
+        status_ws.write(row_idx, 4, row.get("Status analítico"), text_fmt)
+        status_ws.write(row_idx, 5, row.get("Fonte analítica"), text_fmt)
+        status_ws.write(row_idx, 6, row.get("Observação"), text_fmt)
+
+    status_ws.freeze_panes(1, 0)
+
+
 def _periodo_trimestre_anterior(periodo: Optional[str], periodos_disponiveis: list[str]) -> Optional[str]:
     """Retorna o período imediatamente anterior (QoQ) respeitando o formato disponível."""
     if not periodo:
@@ -8475,6 +8920,73 @@ def _formatar_valor_snapshot(metrica_cfg: dict, valor) -> str:
     return _formatar_valor_peers(valor, format_key, coluna_origem=coluna_origem)
 
 
+def _snapshot_metric_status_note(
+    *,
+    label: str,
+    periodo_ref: str,
+    valor_atual: object,
+    capital_disp_map: Optional[dict[str, bool]] = None,
+    qual_status_map: Optional[dict[str, str]] = None,
+    core_status_map: Optional[dict[str, str]] = None,
+    carteira_status_map: Optional[dict[str, str]] = None,
+    perda_esperada_map: Optional[dict[str, object]] = None,
+) -> tuple[str, str]:
+    if valor_atual is not None and not pd.isna(valor_atual):
+        return "", ""
+
+    capital_disp_map = capital_disp_map or {}
+    qual_status_map = qual_status_map or {}
+    core_status_map = core_status_map or {}
+    carteira_status_map = carteira_status_map or {}
+    perda_esperada_map = perda_esperada_map or {}
+
+    if label in {"Índice de Basileia", "CET1"} and not bool(capital_disp_map.get(periodo_ref)):
+        return "†", "Sem registro utilizável no Rel. 5 para a instituição/período; o indicador permanece indisponível."
+
+    if label == "Carteira de Crédito":
+        carteira_status = str(carteira_status_map.get(periodo_ref) or "").strip()
+        if carteira_status == "missing_required_component":
+            return "†", "Carteira de Crédito Bruta indisponível: faltou ao menos um componente obrigatório do Rel. 2 para a regra canônica do período."
+        if carteira_status == "missing":
+            return "†", "Carteira de Crédito Bruta indisponível por ausência de insumo suficiente no Rel. 2."
+
+    if label == "Crédito / Captações":
+        core_status = str(core_status_map.get(periodo_ref) or "").strip()
+        if core_status == "missing_required_component":
+            return "†", "Core Funding indisponível: em 2025+, falta um dos componentes obrigatórios do Rel. 3."
+        if core_status == "missing":
+            return "†", "Core Funding indisponível por ausência de insumo suficiente no Rel. 3."
+        carteira_status = str(carteira_status_map.get(periodo_ref) or "").strip()
+        if carteira_status == "missing_required_component":
+            return "†", "Carteira de Crédito Bruta indisponível: faltou ao menos um componente obrigatório do Rel. 2 para a regra canônica do período."
+        if carteira_status == "missing":
+            return "†", "Carteira de Crédito Bruta indisponível por ausência de insumo suficiente no Rel. 2."
+
+    if label == "Perda Esperada / Estágio 3":
+        qual_status = str(qual_status_map.get(periodo_ref) or "").strip()
+        status_notes = {
+            "source_structurally_unavailable": "Cadoc 4060/estágios não é publicado na base mensal disponível para este período.",
+            "institution_match_missing": "Há publicação prudencial no período, mas não houve correspondência confiável com a instituição selecionada.",
+            "loss_source_unavailable": "Perda Esperada indisponível no Rel. 2 para o período.",
+            "denominator_unavailable": "Ativos de estágio indisponíveis para compor o denominador da razão.",
+            "missing": "Sem insumo prudencial suficiente para calcular a razão no período.",
+        }
+        if qual_status in status_notes:
+            return "†", status_notes[qual_status]
+
+    if label == "Perda Esperada / Carteira":
+        perda_esperada = _coerce_numeric_value(perda_esperada_map.get(periodo_ref))
+        if perda_esperada is None:
+            return "†", "Perda Esperada indisponível no Rel. 2 para o período; a razão permanece indisponível."
+        carteira_status = str(carteira_status_map.get(periodo_ref) or "").strip()
+        if carteira_status == "missing_required_component":
+            return "†", "Carteira de Crédito Bruta indisponível: faltou ao menos um componente obrigatório do Rel. 2 para a regra canônica do período."
+        if carteira_status == "missing":
+            return "†", "Carteira de Crédito Bruta indisponível por ausência de insumo suficiente no Rel. 2."
+
+    return "†", "Sem valor disponível no cache curado para a instituição/período selecionados."
+
+
 def _snapshot_pick_col(df: Optional[pd.DataFrame], candidatos: list[str]) -> Optional[str]:
     return _resolver_coluna_peers(df, candidatos)
 
@@ -8503,26 +9015,20 @@ def _snapshot_carteira_bruta_por_periodo(
 
     for periodo in periodos:
         ano_ref = _periodo_ano_int(periodo)
-        if ano_ref is not None and ano_ref <= 2024:
-            valor = _somar_valores([
-                _obter_valor_peers(cache_ativo, banco, periodo, col_d1),
-                _obter_valor_peers(cache_ativo, banco, periodo, col_e1_alt),
-                _obter_valor_peers(cache_ativo, banco, periodo, col_f_old),
-            ])
-        else:
-            valor = _somar_valores([
-                _obter_valor_peers(cache_ativo, banco, periodo, col_e1),
-                _obter_valor_peers(cache_ativo, banco, periodo, col_f1),
-                _obter_valor_peers(cache_ativo, banco, periodo, col_g1),
-                _obter_valor_peers(cache_ativo, banco, periodo, col_h1),
-            ])
-        if valor is None:
-            valor = _somar_valores([
-                _obter_valor_peers(cache_ativo, banco, periodo, col_e),
-                _obter_valor_peers(cache_ativo, banco, periodo, col_f),
-                _obter_valor_peers(cache_ativo, banco, periodo, col_g),
-                _obter_valor_peers(cache_ativo, banco, periodo, col_h),
-            ])
+        valor = resolve_carteira_credito_bruta_value(
+            year_ref=ano_ref,
+            legacy_credito_value=_obter_valor_peers(cache_ativo, banco, periodo, col_d1),
+            legacy_arrendamento_value=_obter_valor_peers(cache_ativo, banco, periodo, col_e1_alt),
+            legacy_outros_value=_obter_valor_peers(cache_ativo, banco, periodo, col_f_old),
+            vcb_credito_value=_obter_valor_peers(cache_ativo, banco, periodo, col_e1),
+            vcb_arrendamento_value=_obter_valor_peers(cache_ativo, banco, periodo, col_f1),
+            vcb_outras_ops_value=_obter_valor_peers(cache_ativo, banco, periodo, col_g1),
+            vcb_pagamentos_value=_obter_valor_peers(cache_ativo, banco, periodo, col_h1),
+            net_credito_value=_obter_valor_peers(cache_ativo, banco, periodo, col_e),
+            net_arrendamento_value=_obter_valor_peers(cache_ativo, banco, periodo, col_f),
+            net_outras_ops_value=_obter_valor_peers(cache_ativo, banco, periodo, col_g),
+            net_pagamentos_value=_obter_valor_peers(cache_ativo, banco, periodo, col_h),
+        ).get("value")
         out[periodo] = valor
     return out
 
@@ -8954,6 +9460,8 @@ def _render_snap_card(
     source = metric_cfg.get("source", "")
     comparison = metric_cfg.get("comparison", "qoq")
     delta_kind, delta_scale = _snap_metric_delta_meta(metric_cfg)
+    status_note = str(metric_cfg.get("status_note") or "").strip()
+    status_marker = str(metric_cfg.get("status_marker") or "").strip()
 
     valor_atual = serie.get(periodo_atual)
     valor_fmt = _formatar_valor_snapshot(metric_cfg, valor_atual)
@@ -8988,19 +9496,24 @@ def _render_snap_card(
 
     # Info tooltip
     info_html = ""
-    if source:
-        safe_source = source.replace('"', '&quot;').replace("'", "&#39;")
+    tooltip_parts = [part for part in [source, status_note] if part]
+    if tooltip_parts:
+        safe_source = "\n\n".join(tooltip_parts).replace('"', '&quot;').replace("'", "&#39;")
         info_html = (
             f'<span class="snap-card__info">i'
             f'<span class="snap-tip">{safe_source}</span></span>'
         )
+    value_marker_html = ""
+    if status_marker:
+        marker_class = "snap-card__status-mark--unavailable" if status_marker == "†" else "snap-card__status-mark--fallback"
+        value_marker_html = f'<span class="snap-card__status-mark {marker_class}">{_html_mod.escape(status_marker)}</span>'
 
     return f"""<div class="snap-card {status_cls} {hero_cls}">
   <div class="snap-card__header">
     <span class="snap-card__label">{label}</span>{info_html}
   </div>
   <div class="snap-card__spark-row">
-    <span class="snap-card__value">{valor_fmt}</span>
+    <span class="snap-card__value">{valor_fmt}{value_marker_html}</span>
     {spark_html}
   </div>
   <div class="snap-card__comparisons">
@@ -9017,7 +9530,7 @@ def _render_snap_grid(cards_html: list, grid_class: str) -> str:
 
 _SNAPSHOT_PROVENANCE = [
     ("Ativo Total", "BCB IFData Rel. 1 — Balanço Patrimonial", "Valor direto", "↑ = melhora (maior porte)"),
-    ("Carteira de Crédito", "BCB IFData Rel. 2 — Ativo Detalhado", "Até 2024: Crédito Bruta + Arrendamento Bruta + Outros Créditos Líquidos de Provisão; 2025+: Valor Contábil Bruto (e1+f1+g1+h1)", "↑ = melhora (maior carteira)"),
+    ("Carteira de Crédito", "BCB IFData Rel. 2 — Ativo Detalhado", "Até 2024: Crédito Bruta + Arrendamento Bruta + Outros Créditos Líquidos de Provisão; 2025+: Valor Contábil Bruto (e1+f1+g1+h1). Se a regra canônica do período ficar incompleta, o fallback líquido e+f+g+h é explicitamente sinalizado.", "↑ = melhora (maior carteira)"),
     ("Patrimônio Líquido", "BCB IFData Rel. 1 — Balanço Patrimonial", "Valor direto", "↑ = melhora (maior solidez)"),
     ("Índice de Basileia", "BCB IFData Rel. 5 — Patrimônio de Referência", "(CP + CC + N2) ÷ RWA Total", "↑ = melhora (maior folga de capital)"),
     ("Lucro Líquido Trimestral", "BCB IFData Rel. 1 + decomposição semestral", "LL_YTD(t) − LL_YTD(t−1) conforme regime Bacen", "↑ = melhora"),
@@ -9115,6 +9628,21 @@ _SNAPSHOT_V2_CSS = """
     font-weight: 400;
     color: #212529;
     line-height: 1.1;
+}
+
+.snap-card__status-mark {
+    margin-left: 4px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    vertical-align: super;
+}
+
+.snap-card__status-mark--unavailable {
+    color: #7a1f1f;
+}
+
+.snap-card__status-mark--fallback {
+    color: #6f4e37;
 }
 
 .snap-card--hero .snap-card__value {
@@ -9426,6 +9954,14 @@ def pagina_snapshot():
     perda_est3_map = _critical_metric_map(cache_snapshot, banco, periodos_snapshot, "Perda Esperada / Estágio 3")
     perda_carteira_map = _critical_metric_map(cache_snapshot, banco, periodos_snapshot, "Perda Esperada / Carteira de Crédito*")
     perda_esperada_map = _critical_metric_map(cache_snapshot, banco, periodos_snapshot, "Perda Esperada")
+    carteira_status_map = {
+        p: str(_critical_metric_value(critical_lookup, banco, p, "Trace::Carteira::Status") or "").strip()
+        for p in periodos_snapshot
+    }
+    core_status_map = {
+        p: str(_critical_metric_value(critical_lookup, banco, p, "Trace::Core Funding::Status") or "").strip()
+        for p in periodos_snapshot
+    }
     blop_disp_map = {
         p: bool(_critical_metric_value(critical_lookup, banco, p, "BloprudencialDisponivel"))
         for p in periodos_snapshot
@@ -9504,6 +10040,22 @@ def pagina_snapshot():
             "qualidade de carteira indisponível no cache curado para os períodos selecionados",
         )
 
+    def _snapshot_apply_status(cfg: dict) -> dict:
+        cfg_out = dict(cfg)
+        marker, note = _snapshot_metric_status_note(
+            label=str(cfg.get("label") or ""),
+            periodo_ref=periodo_atual,
+            valor_atual=(cfg.get("serie") or {}).get(periodo_atual),
+            capital_disp_map=capital_disp_map,
+            qual_status_map=qual_status_map,
+            core_status_map=core_status_map,
+            carteira_status_map=carteira_status_map,
+            perda_esperada_map=perda_esperada_map,
+        )
+        cfg_out["status_marker"] = marker
+        cfg_out["status_note"] = note
+        return cfg_out
+
     # --- Sparkline data (last 8 quarters) ---
     periodos_sparkline = periodos_banco[:8]
     df_spark = df_bank_all[df_bank_all["Período"].isin(periodos_sparkline)].copy()
@@ -9561,6 +10113,7 @@ def pagina_snapshot():
          "serie": bas_map, "is_pct": True, "show_bps": True,
          "source": "BCB IFData Rel. 5 — (CP+CC+N2) ÷ RWA Total"},
     ]
+    hero_metrics = [_snapshot_apply_status(cfg) for cfg in hero_metrics]
     hero_sparklines = [spark_ativo, spark_carteira, spark_pl, spark_basileia]
 
     hero_cards = [
@@ -9587,6 +10140,7 @@ def pagina_snapshot():
          "comparison": "yoy", "serie": roe_ac_map, "is_pct": True, "coluna_origem": "ROE Ac. Anualizado (%)",
          "source": "(LL YTD × Fator Anualização) ÷ PL Médio × 100"},
     ]
+    profit_metrics = [_snapshot_apply_status(cfg) for cfg in profit_metrics]
 
     profit_sparklines = [spark_lucro_tri, spark_lucro_ytd, spark_roe_tri, spark_roe_ac]
     profit_cards = [
@@ -9639,6 +10193,13 @@ def pagina_snapshot():
             ],
         },
     ]
+    supporting_sections = [
+        {
+            **sec,
+            "rows": [_snapshot_apply_status(cfg) for cfg in sec["rows"]],
+        }
+        for sec in supporting_sections
+    ]
 
     section_sparklines = {
         "Funding": [spark_credito_capt, spark_desp_capt],
@@ -9665,6 +10226,9 @@ def pagina_snapshot():
             for i, cfg in enumerate(sec["rows"])
         ]
         st.markdown(_render_snap_grid(cards, "snap-grid--supporting"), unsafe_allow_html=True)
+
+    if any(str(cfg.get("status_marker") or "").strip() for cfg in (hero_metrics + profit_metrics + [row for sec in supporting_sections for row in sec["rows"]])):
+        st.caption("† = indicador indisponível com causa identificada. Passe o mouse no ícone `i` do card para ver a limitação/fonte.")
 
     todas_metricas_snapshot = hero_metrics + profit_metrics + [row for sec in supporting_sections for row in sec["rows"]]
     anomalias_delta_snapshot = _audit_deltas_snapshot(
@@ -9741,9 +10305,17 @@ def _gerar_imagem_peers_tabela(
     valores: dict,
     colunas_usadas: dict,
     delta_flags: dict,
+    df_base: Optional[pd.DataFrame] = None,
     scale: float = 1.0,
 ):
     """Gera imagem PNG da tabela peers para exportação."""
+    status_markers, marker_presence = _build_peers_visual_status_artifacts(
+        df_base=df_base,
+        bancos=list(bancos),
+        periodos=list(periodos),
+        valores=valores,
+        colunas_usadas=colunas_usadas,
+    )
     header_row_1 = ["R$ MM e %"]
     for banco in bancos:
         for idx in range(len(periodos)):
@@ -9771,12 +10343,12 @@ def _gerar_imagem_peers_tabela(
                     coluna = colunas_usadas.get(row["label"])
                     valor = valores.get(chave)
                     valor_fmt = _formatar_valor_peers(valor, row["format_key"], coluna_origem=coluna)
-                    delta_flag = None
                     delta_flag = delta_flags.get(chave)
-                    if delta_flag == "up":
-                        valor_fmt = f"{valor_fmt} ▲"
-                    elif delta_flag == "down":
-                        valor_fmt = f"{valor_fmt} ▼"
+                    valor_fmt = _decorate_peers_visual_value(
+                        valor_fmt,
+                        delta_flag=delta_flag,
+                        status_marker=status_markers.get(chave, ""),
+                    )
                     linha.append(valor_fmt)
                     deltas.append(delta_flag)
             rows.append(linha)
@@ -9793,7 +10365,14 @@ def _gerar_imagem_peers_tabela(
         col_widths.append(max(base, min(0.35, max_len * 0.012)))
 
     fig_width = max(10, sum(col_widths) * 10 * scale)
-    fig_height = max(3, n_rows * 0.32 * scale)
+    footer_lines = []
+    if marker_presence.get("fallback"):
+        footer_lines.append("* fallback analítico explícito")
+    if marker_presence.get("unavailable"):
+        footer_lines.append("† indisponibilidade com causa identificada")
+
+    footer_extra = 0.38 * scale * len(footer_lines) if footer_lines else 0.0
+    fig_height = max(3, n_rows * 0.32 * scale + footer_extra)
     fig, ax = plt.subplots(figsize=(fig_width, fig_height))
     ax.axis("off")
 
@@ -9839,6 +10418,18 @@ def _gerar_imagem_peers_tabela(
                 elif delta_flag == "down":
                     cell.get_text().set_color("#dc3545")
 
+    if footer_lines:
+        fig.subplots_adjust(bottom=min(0.18, 0.08 + 0.04 * len(footer_lines)))
+        fig.text(
+            0.01,
+            0.01,
+            " | ".join(footer_lines) + ". Consulte o export analítico para a origem detalhada.",
+            ha="left",
+            va="bottom",
+            fontsize=max(8.0, 8.5 * scale),
+            color="#444444",
+        )
+
     buffer = BytesIO()
     fig.savefig(buffer, format="png", dpi=int(180 * scale), bbox_inches="tight")
     plt.close(fig)
@@ -9852,10 +10443,18 @@ def _gerar_excel_peers_tabela(
     valores: dict,
     colunas_usadas: dict,
     delta_flags: dict,
+    df_base: Optional[pd.DataFrame] = None,
 ) -> BytesIO:
     output = BytesIO()
     workbook = xlsxwriter.Workbook(output, {"in_memory": True})
     worksheet = workbook.add_worksheet("peers_tabela")
+    status_markers, marker_presence = _build_peers_visual_status_artifacts(
+        df_base=df_base,
+        bancos=list(bancos),
+        periodos=list(periodos),
+        valores=valores,
+        colunas_usadas=colunas_usadas,
+    )
 
     n_cols = 1 + len(bancos) * len(periodos)
     border = {"border": 1, "border_color": "#dddddd"}
@@ -9910,7 +10509,14 @@ def _gerar_excel_peers_tabela(
             col_idx += 1
     row_idx += 1
 
-    nota = "* Carteira de Crédito: 2000–2024 = Crédito Bruta + Arrendamento Bruta + Outros Créditos Líquidos de Provisão (base líquida, sem detalhamento — comparação imprecisa). 2025+ = VCB (e1+f1+g1+h1), onde e = Crédito, f = Arrendamento, g = Outras Ops., h = Transações de Pgto. | Core Funding*: até 2024 = Captações (e); 2025+ = Captações (e) + Dívida Subordinada (h). Captações (e) = (a) + (b) + (c) + (d)."
+    nota = "* Carteira de Crédito: 2000–2024 = Crédito Bruta + Arrendamento Bruta + Outros Créditos Líquidos de Provisão (base líquida, sem detalhamento — comparação imprecisa). 2025+ = VCB (e1+f1+g1+h1), onde e = Crédito, f = Arrendamento, g = Outras Ops., h = Transações de Pgto.; se a regra canônica do período ficar incompleta, o fallback líquido e+f+g+h aparece explicitamente no status analítico. | Core Funding*: até 2024 = Captações (e); 2025+ = Captações (e) + Instrumentos de Dívida Elegíveis a Capital (h). Captações (e) = (a) + (b) + (c) + (d). Componente ausente pós-2025 não é tratado como zero."
+    visual_legends = []
+    if marker_presence.get("fallback"):
+        visual_legends.append("* fallback analítico explícito")
+    if marker_presence.get("unavailable"):
+        visual_legends.append("† indisponibilidade com causa identificada")
+    if visual_legends:
+        nota += " | Símbolos visuais: " + "; ".join(visual_legends) + ". Ver aba status_analitico."
     worksheet.merge_range(row_idx, 0, row_idx, n_cols - 1, nota, workbook.add_format({"font_size": 9, "font_color": "#666666"}))
     row_idx += 1
 
@@ -9936,11 +10542,14 @@ def _gerar_excel_peers_tabela(
                     delta_flag = delta_flags.get(chave)
                     cell_fmt = base_fmt
                     if delta_flag == "up":
-                        valor_fmt = f"{valor_fmt} ▲"
                         cell_fmt = base_fmt_up
                     elif delta_flag == "down":
-                        valor_fmt = f"{valor_fmt} ▼"
                         cell_fmt = base_fmt_down
+                    valor_fmt = _decorate_peers_visual_value(
+                        valor_fmt,
+                        delta_flag=delta_flag,
+                        status_marker=status_markers.get(chave, ""),
+                    )
                     worksheet.write(row_idx, col_idx, valor_fmt, cell_fmt)
                     col_idx += 1
             row_idx += 1
@@ -9948,6 +10557,16 @@ def _gerar_excel_peers_tabela(
 
     # congelar cabeçalho e primeira coluna
     worksheet.freeze_panes(4, 1)
+
+    if df_base is not None and not df_base.empty:
+        status_rows = _build_peers_export_status_rows(
+            df_base=df_base,
+            bancos=bancos,
+            periodos=periodos,
+            valores=valores,
+            colunas_usadas=colunas_usadas,
+        )
+        _write_analytical_status_sheet(workbook, rows=status_rows, sheet_name="status_analitico")
 
     workbook.close()
     output.seek(0)
@@ -9960,6 +10579,7 @@ def _gerar_excel_peers_dados_puros(
     valores: dict,
     colunas_usadas: dict,
     delta_flags: dict,
+    df_base: Optional[pd.DataFrame] = None,
 ) -> BytesIO:
     """Exporta tabela Peers com valores numéricos, sem layout visual."""
     output = BytesIO()
@@ -10048,11 +10668,514 @@ def _gerar_excel_peers_dados_puros(
     nota_ws.write(1, 0, "Valores monetários permanecem em R$ absolutos; percentuais estão em escala decimal com formatação percentual do Excel; razões em x usam formato numérico.")
     nota_ws.write(2, 0, "Carteira de Crédito: 2000–2024 = Crédito Bruta + Arrendamento Bruta + Outros Créditos Líquidos de Provisão (base líquida, sem detalhamento — comparação imprecisa).")
     nota_ws.write(3, 0, "2025+ = Valor Contábil Bruto (e1+f1+g1+h1), onde: e = Operações de Crédito; f = Arrendamento; g = Outras Ops.; h = Transações de Pagamentos.")
-    nota_ws.write(4, 0, "Core Funding*: até 2024 = Captações (e); 2025+ = Captações (e) + Dívida Subordinada (h) no Relatório de Passivo (Rel. 3). Captações (e) = (a) + (b) + (c) + (d).")
+    nota_ws.write(4, 0, "Core Funding*: até 2024 = Captações (e); 2025+ = Captações (e) + Instrumentos de Dívida Elegíveis a Capital (h) no Relatório de Passivo (Rel. 3). Captações (e) = (a) + (b) + (c) + (d). Componente ausente pós-2025 não é tratado como zero.")
     nota_ws.write(5, 0, "Depósitos Totais: prioriza a linha agregada oficial por instituição/período; só usa soma a1..a6 quando não houver agregado oficial preenchido.")
-    nota_ws.write(6, 0, "As setas de variação continuam disponíveis apenas no arquivo visual da tabela.")
+    nota_ws.write(6, 0, "A aba `status_analitico` lista a origem e o status dos indicadores quando houver fallback, indisponibilidade ou derivação relevante.")
+    nota_ws.write(7, 0, "As setas de variação continuam disponíveis apenas no arquivo visual da tabela.")
+
+    if df_base is not None and not df_base.empty:
+        status_rows = _build_peers_export_status_rows(
+            df_base=df_base,
+            bancos=bancos,
+            periodos=periodos,
+            valores=valores,
+            colunas_usadas=colunas_usadas,
+        )
+        _write_analytical_status_sheet(workbook, rows=status_rows, sheet_name="status_analitico")
 
     workbook.close()
+    output.seek(0)
+    return output
+
+
+def _build_evolucao_export_status_rows(
+    *,
+    instituicao: str,
+    df_ano: pd.DataFrame,
+    core_funding_trace_map: Optional[dict[str, dict]] = None,
+    carteira_trace_map: Optional[dict[str, dict]] = None,
+) -> list[dict]:
+    if df_ano is None or df_ano.empty:
+        return []
+
+    core_funding_trace_map = core_funding_trace_map or {}
+    carteira_trace_map = carteira_trace_map or {}
+    rows: list[dict] = []
+
+    def _append(metric_label: str, periodo_label: str, value: object, status: str, source: str, note: str, format_key: str) -> None:
+        rows.append(
+            {
+                "Instituição": instituicao,
+                "Período": periodo_label,
+                "Indicador": metric_label,
+                "Valor": value,
+                "Status analítico": status,
+                "Fonte analítica": source,
+                "Observação": note,
+                "Format key": format_key,
+            }
+        )
+
+    for _, row in df_ano.iterrows():
+        periodo_ref = str(row.get("Período") or "")
+        periodo_label = str(row.get("LabelPeriodo") or periodo_para_exibicao(periodo_ref))
+        ll_val = _coerce_numeric_value(row.get("Lucro Líquido Acumulado YTD"))
+        pl_val = _coerce_numeric_value(row.get("Patrimônio Líquido"))
+        cart_val = _coerce_numeric_value(row.get("Carteira de Crédito Bruta"))
+        core_val = _coerce_numeric_value(row.get("Core Funding"))
+        roe_val = _coerce_numeric_value(row.get("ROE Ac. Anualizado (%)"))
+        cart_pl_val = _coerce_numeric_value(row.get("Carteira de Crédito Bruta / PL"))
+        cet1_val = _coerce_numeric_value(row.get("Índice de Capital Principal (CET1)"))
+        t1_val = _coerce_numeric_value(row.get("Índice de Capital T1 (%)"))
+        bas_val = _coerce_numeric_value(row.get("Índice de Basileia Total (%)"))
+
+        _append(
+            "Lucro Líquido Acumulado",
+            periodo_label,
+            ll_val,
+            "curated_value" if ll_val is not None else "missing",
+            "Lucro Líquido Acumulado YTD",
+            "Valor acumulado no ano exibido na aba Evolução." if ll_val is not None else "Sem valor disponível na base curada para o período.",
+            "money",
+        )
+        _append(
+            "Patrimônio Líquido",
+            periodo_label,
+            pl_val,
+            "curated_value" if pl_val is not None else "missing",
+            "Patrimônio Líquido",
+            "Valor contábil do patrimônio líquido no período." if pl_val is not None else "Sem valor disponível na base curada para o período.",
+            "money",
+        )
+        cart_trace = carteira_trace_map.get(periodo_ref, {}) or {}
+        cart_status = str(cart_trace.get("status") or ("derived_from_relatorio_ativo" if cart_val is not None else "missing"))
+        cart_source = str(cart_trace.get("source") or "Rel. 2 (Carteira de Crédito Bruta)")
+        cart_note = str(cart_trace.get("note") or "")
+        if not cart_note:
+            cart_note = {
+                "official_legacy_components": "Até 2024, o indicador foi reconstruído pelos componentes canônicos d1+e1+f do Rel. 2.",
+                "official_vcb_components": "Em 2025+, o indicador foi reconstruído pelos componentes canônicos VCB e1+f1+g1+h1 do Rel. 2.",
+                "fallback_net_components": "Sem componentes brutos completos para a regra canônica do período; o valor caiu explicitamente para os componentes líquidos e+f+g+h.",
+                "missing_required_component": "Um ou mais componentes obrigatórios da carteira bruta ficaram ausentes no Rel. 2 para o período.",
+                "missing": "Sem insumo suficiente do Relatório de Ativo para reconstruir a carteira no período.",
+            }.get(cart_status, "")
+        _append(
+            "Carteira de Crédito*",
+            periodo_label,
+            cart_val,
+            cart_status,
+            cart_source,
+            cart_note,
+            "money",
+        )
+
+        core_trace = core_funding_trace_map.get(periodo_ref, {}) or {}
+        core_status = str(core_trace.get("status") or ("curated_value" if core_val is not None else "missing"))
+        core_source = str(core_trace.get("source") or "Core Funding*")
+        core_note = str(core_trace.get("note") or "")
+        if not core_note:
+            core_note = {
+                "official_captacoes": "Até 2024, o indicador usa apenas Captações (e).",
+                "official_components": "Em 2025+, o indicador foi calculado com Captações (e) e Instrumentos de Dívida Elegíveis a Capital (h).",
+                "missing_required_component": "Em 2025+, ausência de um dos componentes requeridos manteve o indicador indisponível.",
+                "missing": "Sem insumo suficiente no Relatório de Passivo para o período.",
+                "fallback_capitacoes_view": "A visualização caiu defensivamente para Captações porque a reconstrução completa pelo Rel. 3 não ficou disponível.",
+            }.get(core_status, "")
+        _append(
+            "Core Funding*",
+            periodo_label,
+            core_val,
+            core_status,
+            core_source,
+            core_note,
+            "money",
+        )
+        _append(
+            "ROE Ac. Anualizado (%)",
+            periodo_label,
+            roe_val,
+            "derived_from_curated" if roe_val is not None else "missing",
+            "(Lucro Líquido Acumulado YTD × fator de anualização) ÷ PL médio",
+            (
+                "ROE anualizado calculado a partir do lucro acumulado YTD, fator de anualização e PL médio."
+                if roe_val is not None
+                else "Sem insumo suficiente ou denominador válido para o cálculo do ROE anualizado."
+            ),
+            "percent_2",
+        )
+        cart_pl_status = "derived_from_curated"
+        cart_pl_source = "Carteira de Crédito* ÷ Patrimônio Líquido"
+        if cart_pl_val is not None:
+            if cart_status == "fallback_net_components":
+                cart_pl_status = "fallback_net_components"
+                cart_pl_note = "Razão calculada com Carteira de Crédito* derivada explicitamente do fallback líquido e+f+g+h e Patrimônio Líquido disponível."
+            else:
+                cart_pl_note = "Razão calculada a partir da Carteira de Crédito* e do Patrimônio Líquido."
+        else:
+            if cart_status in {"missing_required_component", "missing"}:
+                cart_pl_status = cart_status
+                cart_pl_note = (
+                    "Razão indisponível porque a Carteira de Crédito* não pôde ser reconstruída com insumo suficiente do Rel. 2."
+                )
+            elif pl_val is None or pd.isna(pl_val) or float(pl_val) == 0.0:
+                cart_pl_status = "denominator_unavailable"
+                cart_pl_note = "Razão indisponível por ausência de patrimônio líquido utilizável no denominador."
+            else:
+                cart_pl_status = "denominator_unavailable"
+                cart_pl_note = "Razão indisponível por ausência de carteira, patrimônio líquido ou denominador não válido."
+        _append(
+            "Carteira de Crédito* / PL",
+            periodo_label,
+            cart_pl_val,
+            cart_pl_status,
+            cart_pl_source,
+            cart_pl_note,
+            "multiple",
+        )
+        capital_missing_note = "Sem registro utilizável no Rel. 5 para a instituição/período; a aba exibe N/D."
+        _append(
+            "Índice de Capital Principal (CET1)",
+            periodo_label,
+            cet1_val,
+            "capital_report_available" if cet1_val is not None else "capital_report_missing",
+            "Rel. 5 (Capital Principal ÷ RWA Total)",
+            "Índice calculado/exibido com base no Rel. 5." if cet1_val is not None else capital_missing_note,
+            "percent_2",
+        )
+        _append(
+            "Índice de Capital T1 (%)",
+            periodo_label,
+            t1_val,
+            "capital_report_available" if t1_val is not None else "capital_report_missing",
+            "Rel. 5 ((Capital Principal + Capital Complementar) ÷ RWA Total)",
+            "Índice calculado/exibido com base no Rel. 5." if t1_val is not None else capital_missing_note,
+            "percent_2",
+        )
+        _append(
+            "Índice de Basileia Total (%)",
+            periodo_label,
+            bas_val,
+            "capital_report_available" if bas_val is not None else "capital_report_missing",
+            "Rel. 5 ((Capital Principal + Capital Complementar + Capital Nível II) ÷ RWA Total)",
+            "Índice calculado/exibido com base no Rel. 5." if bas_val is not None else capital_missing_note,
+            "percent_2",
+        )
+
+    return rows
+
+
+def _build_evolucao_visual_status_lookup(
+    *,
+    instituicao: str,
+    df_ano: Optional[pd.DataFrame],
+    core_funding_trace_map: Optional[dict[str, dict]] = None,
+    carteira_trace_map: Optional[dict[str, dict]] = None,
+) -> dict[tuple[str, str], dict]:
+    rows = _build_evolucao_export_status_rows(
+        instituicao=instituicao,
+        df_ano=df_ano if df_ano is not None else pd.DataFrame(),
+        core_funding_trace_map=core_funding_trace_map,
+        carteira_trace_map=carteira_trace_map,
+    )
+    return {
+        (str(row.get("Indicador")), str(row.get("Período"))): row
+        for row in rows
+    }
+
+
+def _decorate_evolucao_visual_table(
+    df_show: pd.DataFrame,
+    periodos_cols: list[str],
+    *,
+    instituicao: str,
+    df_ano: Optional[pd.DataFrame],
+    core_funding_trace_map: Optional[dict[str, dict]] = None,
+    carteira_trace_map: Optional[dict[str, dict]] = None,
+) -> tuple[pd.DataFrame, dict[tuple[str, str], str], dict[str, bool]]:
+    if df_show is None or df_show.empty:
+        return df_show, {}, {"fallback": False, "unavailable": False}
+
+    status_lookup = _build_evolucao_visual_status_lookup(
+        instituicao=instituicao,
+        df_ano=df_ano,
+        core_funding_trace_map=core_funding_trace_map,
+        carteira_trace_map=carteira_trace_map,
+    )
+    decorated = df_show.copy()
+    cell_tooltips: dict[tuple[str, str], str] = {}
+    marker_presence = {"fallback": False, "unavailable": False}
+
+    fallback_statuses = {"fallback_capitacoes_view", "fallback_net_components"}
+    unavailable_statuses = {
+        "missing",
+        "missing_required_component",
+        "denominator_unavailable",
+        "capital_report_missing",
+    }
+    neutral_statuses = {
+        "curated_value",
+        "derived_from_curated",
+        "derived_from_relatorio_ativo",
+        "capital_report_available",
+        "official_captacoes",
+        "official_components",
+        "official_legacy_components",
+        "official_vcb_components",
+    }
+
+    for row_idx, row in decorated.iterrows():
+        metric_label = str(row.get("Métrica") or "")
+        for periodo_label in periodos_cols:
+            key = (metric_label, str(periodo_label))
+            payload = status_lookup.get(key)
+            if not payload:
+                continue
+
+            status = str(payload.get("Status analítico") or "").strip()
+            source = str(payload.get("Fonte analítica") or "").strip()
+            note = str(payload.get("Observação") or "").strip()
+            marker = ""
+            if status in fallback_statuses:
+                marker = "*"
+                marker_presence["fallback"] = True
+            elif status in unavailable_statuses and note:
+                marker = "†"
+                marker_presence["unavailable"] = True
+
+            base_value = str(decorated.at[row_idx, periodo_label])
+            if marker and not base_value.endswith(marker):
+                decorated.at[row_idx, periodo_label] = f"{base_value}{marker}"
+
+            analytic_parts = []
+            if status and status not in neutral_statuses:
+                analytic_parts.append(f"Status analítico: {status}")
+            if source and (marker or status not in neutral_statuses):
+                analytic_parts.append(f"Fonte analítica: {source}")
+            if note:
+                analytic_parts.append(note)
+            if analytic_parts:
+                cell_tooltips[key] = "\n".join(analytic_parts).strip()
+
+    return decorated, cell_tooltips, marker_presence
+
+
+def _gerar_excel_evolucao_dados_puros(
+    *,
+    instituicao: str,
+    df_graph: pd.DataFrame,
+    df_metric: pd.DataFrame,
+    df_ano: pd.DataFrame,
+    core_funding_trace_map: Optional[dict[str, dict]] = None,
+    carteira_trace_map: Optional[dict[str, dict]] = None,
+) -> BytesIO:
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+        df_graph.to_excel(writer, index=False, sheet_name="grafico_dados")
+        df_metric.to_excel(writer, index=False, sheet_name="tabela_metricas")
+        nota_df = pd.DataFrame(
+            {
+                "nota": [
+                    "* Carteira de Crédito: 2000–2024 = Crédito Bruta + Arrendamento Bruta + Outros Créditos Líquidos de Provisão (base líquida, sem detalhamento — comparação imprecisa).",
+                    "2025+ = Valor Contábil Bruto (e1+f1+g1+h1), onde: e = Operações de Crédito; f = Arrendamento; g = Outras Ops.; h = Transações de Pagamentos. Se os componentes canônicos ficarem incompletos, o status analítico explicita eventual fallback líquido e+f+g+h.",
+                    "Core Funding*: até 2024 = Captações (e); 2025+ = Captações (e) + Instrumentos de Dívida Elegíveis a Capital (h) no Relatório de Passivo (Rel. 3), sem tratar componente ausente como zero. Se o Rel. 3 falhar inteiro nesta aba, há fallback explícito para Captações.",
+                    "A aba `status_analitico` lista a origem e o status dos indicadores quando houver fallback, indisponibilidade ou derivação relevante.",
+                ]
+            }
+        )
+        nota_df.to_excel(writer, index=False, sheet_name="nota")
+        status_rows = _build_evolucao_export_status_rows(
+            instituicao=instituicao,
+            df_ano=df_ano,
+            core_funding_trace_map=core_funding_trace_map,
+            carteira_trace_map=carteira_trace_map,
+        )
+        _write_analytical_status_sheet(writer.book, rows=status_rows, sheet_name="status_analitico")
+    output.seek(0)
+    return output
+
+
+def _build_rankings_export_status_rows(
+    *,
+    periodo_ref: str,
+    indicador_label: str,
+    indicador_col: str,
+    bancos_referencia: list[str],
+    df_source: pd.DataFrame,
+    df_exported: pd.DataFrame,
+) -> list[dict]:
+    rows: list[dict] = []
+    periodo_label = periodo_para_exibicao(periodo_ref)
+    format_info = get_axis_format(indicador_col)
+    if format_info.get("ticksuffix") == "%":
+        format_key = "percent_2"
+    elif format_info.get("ticksuffix") == "x":
+        format_key = "multiple"
+    else:
+        format_key = "money"
+
+    source_lookup: dict[str, object] = {}
+    if df_source is not None and not df_source.empty and indicador_col in df_source.columns:
+        df_source_norm = df_source.copy()
+        df_source_norm["Instituição"] = df_source_norm["Instituição"].astype(str)
+        df_source_norm["Período"] = df_source_norm["Período"].astype(str)
+        df_source_norm = df_source_norm[df_source_norm["Período"].eq(str(periodo_ref))]
+        for banco_ref, df_bank in df_source_norm.groupby("Instituição", observed=False):
+            serie = pd.to_numeric(df_bank[indicador_col], errors="coerce")
+            valor = next((float(v) for v in serie.tolist() if pd.notna(v)), None)
+            source_lookup[str(banco_ref)] = valor
+
+    exported_lookup = {
+        str(row["Instituição"]): _coerce_numeric_value(row.get("Valor"))
+        for _, row in (df_exported if df_exported is not None else pd.DataFrame()).iterrows()
+    }
+    bancos_iter = bancos_referencia or sorted(exported_lookup.keys())
+    for banco in bancos_iter:
+        valor_exportado = exported_lookup.get(str(banco))
+        valor_source = source_lookup.get(str(banco))
+        if valor_exportado is not None:
+            status = "included"
+            valor = valor_exportado
+            note = "Instituição entrou no ranking com valor válido para o indicador no período selecionado."
+        elif str(banco) in source_lookup:
+            status = "indicator_missing"
+            valor = valor_source
+            note = "Instituição foi omitida do ranking por ausência de valor válido para o indicador no período selecionado."
+        else:
+            status = "institution_period_missing"
+            valor = None
+            note = "Instituição não teve linha utilizável no dataset filtrado para o período selecionado."
+        rows.append(
+            {
+                "Instituição": banco,
+                "Período": periodo_label,
+                "Indicador": indicador_label,
+                "Valor": valor,
+                "Status analítico": status,
+                "Fonte analítica": indicador_col,
+                "Observação": note,
+                "Format key": format_key,
+            }
+        )
+
+    return rows
+
+
+def _gerar_excel_rankings_dados_puros(
+    *,
+    df_export: pd.DataFrame,
+    periodo_ref: str,
+    indicador_label: str,
+    indicador_col: str,
+    bancos_referencia: list[str],
+    df_source: pd.DataFrame,
+) -> BytesIO:
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+        df_export.to_excel(writer, index=False, sheet_name="ranking")
+        nota_df = pd.DataFrame(
+            {
+                "nota": [
+                    "Esta planilha exporta os valores numéricos do ranking exibido na tela.",
+                    "A aba `status_analitico` informa quais instituições entraram no ranking e quais foram omitidas por ausência do indicador no período selecionado.",
+                ]
+            }
+        )
+        nota_df.to_excel(writer, index=False, sheet_name="nota")
+        status_rows = _build_rankings_export_status_rows(
+            periodo_ref=periodo_ref,
+            indicador_label=indicador_label,
+            indicador_col=indicador_col,
+            bancos_referencia=bancos_referencia,
+            df_source=df_source,
+            df_exported=df_export,
+        )
+        _write_analytical_status_sheet(writer.book, rows=status_rows, sheet_name="status_analitico")
+    output.seek(0)
+    return output
+
+
+def _build_rankings_capital_export_status_rows(
+    *,
+    periodos_ref: list[str],
+    bancos_referencia: list[str],
+    df_source: pd.DataFrame,
+    df_exported: pd.DataFrame,
+) -> list[dict]:
+    rows: list[dict] = []
+    exported_lookup = {
+        (str(row.get("Instituição")), str(row.get("Período"))): _coerce_numeric_value(row.get("Índice de Basileia Total (%)"))
+        for _, row in (df_exported if df_exported is not None else pd.DataFrame()).iterrows()
+    }
+    source_lookup: dict[tuple[str, str], object] = {}
+    if df_source is not None and not df_source.empty and "Índice de Basileia Total (%)" in df_source.columns:
+        df_source_norm = df_source.copy()
+        df_source_norm["Instituição"] = df_source_norm["Instituição"].astype(str)
+        df_source_norm["Período"] = df_source_norm["Período"].astype(str)
+        for _, row in df_source_norm.iterrows():
+            source_lookup[(str(row.get("Instituição")), str(row.get("Período")))] = _coerce_numeric_value(
+                row.get("Índice de Basileia Total (%)")
+            )
+
+    for periodo_ref in periodos_ref:
+        periodo_label = periodo_para_exibicao(periodo_ref)
+        for banco in bancos_referencia:
+            key = (str(banco), str(periodo_ref))
+            valor_exportado = exported_lookup.get(key)
+            valor_source = source_lookup.get(key)
+            if valor_exportado is not None:
+                status = "included"
+                valor = valor_exportado
+                note = "Instituição entrou no ranking de capital com Índice de Basileia válido no período selecionado."
+            elif key in source_lookup:
+                status = "capital_indicator_missing"
+                valor = valor_source
+                note = "Instituição foi omitida do ranking de capital por ausência de Índice de Basileia válido no período selecionado."
+            else:
+                status = "institution_period_missing"
+                valor = None
+                note = "Instituição não teve linha utilizável do Rel. 5 no dataset filtrado para o período selecionado."
+            rows.append(
+                {
+                    "Instituição": banco,
+                    "Período": periodo_label,
+                    "Indicador": "Índice de Basileia Total (%)",
+                    "Valor": valor,
+                    "Status analítico": status,
+                    "Fonte analítica": "Rel. 5 (Índice de Basileia Total (%))",
+                    "Observação": note,
+                    "Format key": "percent_2",
+                }
+            )
+
+    return rows
+
+
+def _gerar_excel_rankings_capital_dados_puros(
+    *,
+    df_export: pd.DataFrame,
+    periodos_ref: list[str],
+    bancos_referencia: list[str],
+    df_source: pd.DataFrame,
+) -> BytesIO:
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+        df_export.to_excel(writer, index=False, sheet_name="indice_basileia")
+        nota_df = pd.DataFrame(
+            {
+                "nota": [
+                    "Esta planilha exporta os valores numéricos do ranking de capital exibido na tela.",
+                    "A aba `status_analitico` informa quais instituições entraram no ranking e quais foram omitidas por ausência do Índice de Basileia no período selecionado.",
+                ]
+            }
+        )
+        nota_df.to_excel(writer, index=False, sheet_name="nota")
+        status_rows = _build_rankings_capital_export_status_rows(
+            periodos_ref=periodos_ref,
+            bancos_referencia=bancos_referencia,
+            df_source=df_source,
+            df_exported=df_export,
+        )
+        _write_analytical_status_sheet(writer.book, rows=status_rows, sheet_name="status_analitico")
     output.seek(0)
     return output
 
@@ -10063,6 +11186,10 @@ def _gerar_excel_evolucao_tabela_visual(
     instituicao: str,
     periodo_inicio: str,
     periodo_final: str,
+    df_ano: Optional[pd.DataFrame] = None,
+    core_funding_trace_map: Optional[dict[str, dict]] = None,
+    carteira_trace_map: Optional[dict[str, dict]] = None,
+    marker_presence: Optional[dict[str, bool]] = None,
 ) -> BytesIO:
     """Exporta a tabela de Evolução em layout visual (similar ao Excel visual de Peers)."""
     output = BytesIO()
@@ -10110,7 +11237,14 @@ def _gerar_excel_evolucao_tabela_visual(
     worksheet.merge_range(row_idx, 0, row_idx, n_cols - 1, titulo, title_fmt)
     row_idx += 1
 
-    nota = "* Carteira de Crédito: 2000–2024 = Crédito Bruta + Arrendamento Bruta + Outros Créditos Líquidos de Provisão. 2025+ = VCB (e1+f1+g1+h1). Core Funding*: até 2024 = Captações (e); 2025+ = Captações (e) + Dívida Subordinada (h). Captações (e) = (a) + (b) + (c) + (d)."
+    nota = "* Carteira de Crédito: 2000–2024 = Crédito Bruta + Arrendamento Bruta + Outros Créditos Líquidos de Provisão. 2025+ = VCB (e1+f1+g1+h1); se a regra canônica do período ficar incompleta, o fallback líquido e+f+g+h aparece explicitamente no status analítico. Core Funding*: até 2024 = Captações (e); 2025+ = Captações (e) + Instrumentos de Dívida Elegíveis a Capital (h). Captações (e) = (a) + (b) + (c) + (d). Componente ausente pós-2025 não é tratado como zero."
+    visual_legends = []
+    if (marker_presence or {}).get("fallback"):
+        visual_legends.append("* fallback analítico explícito")
+    if (marker_presence or {}).get("unavailable"):
+        visual_legends.append("† indisponibilidade com causa identificada")
+    if visual_legends:
+        nota += " | Símbolos visuais: " + "; ".join(visual_legends) + ". Ver aba status_analitico."
     worksheet.merge_range(row_idx, 0, row_idx, n_cols - 1, nota, workbook.add_format({"font_size": 9, "font_color": "#666666"}))
     row_idx += 1
 
@@ -10133,12 +11267,24 @@ def _gerar_excel_evolucao_tabela_visual(
         row_idx += 1
 
     worksheet.freeze_panes(2, 1)
+    if df_ano is not None and not df_ano.empty:
+        status_rows = _build_evolucao_export_status_rows(
+            instituicao=instituicao,
+            df_ano=df_ano,
+            core_funding_trace_map=core_funding_trace_map,
+            carteira_trace_map=carteira_trace_map,
+        )
+        _write_analytical_status_sheet(workbook, rows=status_rows, sheet_name="status_analitico")
     workbook.close()
     output.seek(0)
     return output
 
 
-def _gerar_png_tabela_evolucao(df_show: pd.DataFrame, periodos_cols: list[str]) -> Optional[bytes]:
+def _gerar_png_tabela_evolucao(
+    df_show: pd.DataFrame,
+    periodos_cols: list[str],
+    marker_presence: Optional[dict[str, bool]] = None,
+) -> Optional[bytes]:
     """Renderiza a tabela de evolução (visual) como PNG."""
     if df_show is None or df_show.empty:
         return None
@@ -10146,10 +11292,17 @@ def _gerar_png_tabela_evolucao(df_show: pd.DataFrame, periodos_cols: list[str]) 
     df_disp = df_show.copy()
     cols = ["Métrica"] + periodos_cols
     df_disp = df_disp[cols]
+    marker_presence = marker_presence or {"fallback": False, "unavailable": False}
 
     n_rows, n_cols = df_disp.shape
     fig_width = min(18, max(8, n_cols * 1.6))
-    fig_height = min(10, max(3, n_rows * 0.5))
+    footer_lines = []
+    if marker_presence.get("fallback"):
+        footer_lines.append("* fallback analítico explícito")
+    if marker_presence.get("unavailable"):
+        footer_lines.append("† indisponibilidade com causa identificada")
+    footer_extra = 0.38 * len(footer_lines) if footer_lines else 0.0
+    fig_height = min(10, max(3, n_rows * 0.5 + footer_extra))
     fig, ax = plt.subplots(figsize=(fig_width, fig_height))
     ax.axis("off")
 
@@ -10173,6 +11326,18 @@ def _gerar_png_tabela_evolucao(df_show: pd.DataFrame, periodos_cols: list[str]) 
                 cell.set_text_props(ha="left")
             if row % 2 == 0:
                 cell.set_facecolor("#f8f9fa")
+
+    if footer_lines:
+        fig.subplots_adjust(bottom=min(0.18, 0.08 + 0.04 * len(footer_lines)))
+        fig.text(
+            0.01,
+            0.01,
+            " | ".join(footer_lines) + ". Consulte o export analítico para a origem detalhada.",
+            ha="left",
+            va="bottom",
+            fontsize=8.0,
+            color="#444444",
+        )
 
     buf = io.BytesIO()
     fig.tight_layout()
@@ -12054,6 +13219,20 @@ def _build_test_input_tables(mapped_payload: dict) -> tuple[pd.DataFrame, pd.Dat
     return pd.DataFrame(raw_rows), pd.DataFrame(mapped_rows)
 
 
+def _format_missing_rating_inputs(
+    mapped_inputs: dict[str, dict],
+    missing_keys: list[str] | tuple[str, ...] | None,
+) -> str:
+    if not missing_keys:
+        return ""
+    labels: list[str] = []
+    for key in missing_keys:
+        payload = mapped_inputs.get(str(key)) or {}
+        label = str(payload.get("display_label") or _rating_factor_display_map().get(str(key), str(key)))
+        labels.append(label)
+    return ", ".join(labels)
+
+
 def _format_test_question_option(question: dict, option_code: str) -> str:
     if not option_code:
         return "Selecione uma resposta"
@@ -12099,6 +13278,10 @@ def _render_test_qualitative_form(key_prefix: str) -> tuple[dict[str, str], bool
 def _resultado_batch_rating_df(results: list[dict]) -> pd.DataFrame:
     rows = []
     for result in results:
+        missing_labels = _format_missing_rating_inputs(
+            dict(result.get("mapped_inputs") or {}),
+            list(result.get("missing_quantitative_inputs") or []),
+        )
         rows.append(
             {
                 "Instituição": result.get("institution_name"),
@@ -12107,7 +13290,7 @@ def _resultado_batch_rating_df(results: list[dict]) -> pd.DataFrame:
                 "Score bruto": round(float(result["raw_final_score"]), 4) if result.get("raw_final_score") is not None else None,
                 "Score inicial": result.get("starting_score"),
                 "Porte": (result.get("size_bucket") or {}).get("label") or "",
-                "Campos faltantes": ", ".join(result.get("missing_quantitative_inputs") or []),
+                "Campos faltantes": missing_labels,
             }
         )
     df_out = pd.DataFrame(rows)
@@ -12224,7 +13407,7 @@ def _rating_quantitative_table() -> pd.DataFrame:
                 "Variável": "NPL",
                 "Campo usado": "(Ativos Estágio 2 + Ativos Estágio 3) / Carteira de Crédito Bruta",
                 "Janela / comparação": "Período selecionado",
-                "Lógica": "Maior proporção de créditos em estágio 2 e 3 piora a nota. A base quantitativa usada mostra o campo efetivamente consumido.",
+                "Lógica": "Maior proporção de créditos em estágio 2 e 3 piora a nota. Se esse insumo não existir, o rating fica incompleto; Perda Esperada / Carteira não substitui o NPL.",
                 "Faixa de impacto": "0,00 a -0,43",
             },
             {
@@ -12314,7 +13497,7 @@ def pagina_test():
                     {
                         "Bloco": "NPL",
                         "Fonte": "Cadoc 4060 + IFData Rel. 2",
-                        "Cálculo / regra": "Prioriza (Ativos Estágio 2 + Ativos Estágio 3) ÷ Carteira de Crédito Bruta; se esse insumo faltar, a auditoria explicita quando a engine caiu para a proxy Perda Esperada / Carteira de Crédito Bruta.",
+                        "Cálculo / regra": "Usa (Ativos Estágio 2 + Ativos Estágio 3) ÷ Carteira de Crédito Bruta. Se esse insumo não existir, o fator NPL fica indisponível e o rating não é calculado.",
                     },
                     {
                         "Bloco": "Funding",
@@ -12395,9 +13578,13 @@ def pagina_test():
         )
 
         if mapped_payload.get("missing_inputs"):
+            missing_labels = _format_missing_rating_inputs(
+                dict(mapped_payload.get("mapped_inputs") or {}),
+                list(mapped_payload.get("missing_inputs") or []),
+            )
             st.warning(
                 "inputs quantitativos indisponíveis antes do cálculo: "
-                + ", ".join(mapped_payload["missing_inputs"])
+                + missing_labels
             )
 
         st.markdown("**Perguntas qualitativas (Q1 a Q6)**")
@@ -12415,10 +13602,28 @@ def pagina_test():
         audit_markdown = build_audit_trail_markdown(result)
 
         if result.get("status") != "ok":
+            missing_labels = _format_missing_rating_inputs(
+                dict(result.get("mapped_inputs") or {}),
+                list(result.get("missing_quantitative_inputs") or []),
+            )
             st.error(
                 "não foi possível calcular o rating desta instituição com os dados atualmente disponíveis. "
-                "Revise os campos faltantes acima."
+                "Campos faltantes: "
+                + (missing_labels or "N/A")
             )
+            with st.expander("Base quantitativa usada", expanded=True):
+                st.dataframe(mapped_table, hide_index=True, use_container_width=True)
+            with st.expander("Dados brutos usados", expanded=False):
+                st.dataframe(raw_table, hide_index=True, use_container_width=True)
+            with st.expander("Memória completa de cálculo", expanded=True):
+                st.code(audit_markdown, language="markdown")
+                st.download_button(
+                    "Baixar auditoria (.md)",
+                    data=audit_markdown.encode("utf-8"),
+                    file_name=f"rating_audit_{str(banco).replace(' ', '_')}_{periodo_selecionado.replace('/', '-')}.md",
+                    mime="text/markdown",
+                    key="test_rating_single_download_md_incomplete",
+                )
             return
 
         col_r1, col_r2 = st.columns([1, 1])
@@ -12533,15 +13738,31 @@ def pagina_test():
             st.metric("Score bruto", _formatar_numero_ptbr(resultado_inspecao.get("raw_final_score"), decimais=4))
 
         audit_tables = build_audit_tables(resultado_inspecao)
-        contrib_quant, contrib_qual = _split_rating_contributions_tables(audit_tables["contributions"])
-        col_chart, col_contrib = st.columns([1, 1])
-        with col_chart:
-            st.plotly_chart(_build_rating_waterfall_figure(resultado_inspecao), use_container_width=True)
-        with col_contrib:
-            st.markdown("**Contribuições quantitativas**")
-            st.dataframe(contrib_quant, hide_index=True, use_container_width=True)
-            st.markdown("**Contribuições qualitativas**")
-            st.dataframe(contrib_qual, hide_index=True, use_container_width=True)
+        raw_table, mapped_table = _build_test_input_tables(resultado_inspecao)
+        if resultado_inspecao.get("status") != "ok":
+            missing_labels = _format_missing_rating_inputs(
+                dict(resultado_inspecao.get("mapped_inputs") or {}),
+                list(resultado_inspecao.get("missing_quantitative_inputs") or []),
+            )
+            st.warning(
+                "rating não calculado para esta instituição no batch. "
+                "Campos faltantes: "
+                + (missing_labels or "N/A")
+            )
+        else:
+            contrib_quant, contrib_qual = _split_rating_contributions_tables(audit_tables["contributions"])
+            col_chart, col_contrib = st.columns([1, 1])
+            with col_chart:
+                st.plotly_chart(_build_rating_waterfall_figure(resultado_inspecao), use_container_width=True)
+            with col_contrib:
+                st.markdown("**Contribuições quantitativas**")
+                st.dataframe(contrib_quant, hide_index=True, use_container_width=True)
+                st.markdown("**Contribuições qualitativas**")
+                st.dataframe(contrib_qual, hide_index=True, use_container_width=True)
+        with st.expander("Base quantitativa usada", expanded=False):
+            st.dataframe(mapped_table, hide_index=True, use_container_width=True)
+        with st.expander("Dados brutos usados", expanded=False):
+            st.dataframe(raw_table, hide_index=True, use_container_width=True)
         with st.expander("Memória completa de cálculo", expanded=False):
             st.code(resultado_inspecao.get("audit_trail_markdown") or "", language="markdown")
             st.download_button(
@@ -13889,6 +15110,17 @@ elif menu == "Peers (Tabela)":
 
                     _t = time.perf_counter()
                     t_format = time.perf_counter()
+                    status_lookup = _build_peers_status_lookup(
+                        df_base=df,
+                        bancos=bancos_selecionados,
+                        periodos=periodos_selecionados,
+                        valores=valores,
+                        colunas_usadas=colunas_usadas,
+                    )
+                    tooltips_ui, status_markers, marker_presence = _merge_peers_analytical_tooltips(
+                        tooltips=tooltips,
+                        status_lookup=status_lookup,
+                    )
                     html_tabela = _render_peers_table_html(
                         bancos_selecionados,
                         periodos_selecionados,
@@ -13896,7 +15128,8 @@ elif menu == "Peers (Tabela)":
                         colunas_usadas,
                         delta_flags,
                         delta_context,
-                        tooltips,
+                        tooltips_ui,
+                        status_markers,
                     )
                     _elapsed = time.perf_counter() - _t
                     _log_timing("6_render_html", _elapsed)
@@ -13909,6 +15142,13 @@ elif menu == "Peers (Tabela)":
                     _log_timing("7_dispatch_html_streamlit", _elapsed)
                     print(f"[PEERS_TIMING] 7_dispatch_html_streamlit: {_elapsed:.3f}s")
                     _perf_peers_stage(peers_perf, "f_render_tabela", t_render)
+                    if marker_presence.get("fallback") or marker_presence.get("unavailable"):
+                        notas_status = []
+                        if marker_presence.get("fallback"):
+                            notas_status.append("* = valor com fallback analítico explícito")
+                        if marker_presence.get("unavailable"):
+                            notas_status.append("† = indisponibilidade com causa identificada")
+                        st.caption(" | ".join(notas_status) + ". Passe o mouse sobre a célula para ver a origem/limitação.")
 
                     t_ui_aux_peers = time.perf_counter()
                     st.markdown("#### Exportar")
@@ -13931,6 +15171,7 @@ elif menu == "Peers (Tabela)":
                             valores,
                             colunas_usadas,
                             delta_flags,
+                            df_base=df,
                         )
                         _perf_peers_stage(peers_perf, "g_preparo_export", t_export_fmt)
                         _log_timing("8_export_excel_tabela", time.perf_counter() - t_export_fmt)
@@ -13942,6 +15183,7 @@ elif menu == "Peers (Tabela)":
                             valores,
                             colunas_usadas,
                             delta_flags,
+                            df_base=df,
                         )
                         _perf_peers_stage(peers_perf, "g_preparo_export", t_export_raw)
                         _log_timing("9_export_dados_puros", time.perf_counter() - t_export_raw)
@@ -13953,6 +15195,7 @@ elif menu == "Peers (Tabela)":
                             valores,
                             colunas_usadas,
                             delta_flags,
+                            df_base=df,
                         )
                         _perf_peers_stage(peers_perf, "g_preparo_export", t_export_png)
                         _log_timing("10_export_png", time.perf_counter() - t_export_png)
@@ -14060,12 +15303,12 @@ elif menu == "Peers (Tabela)":
                             <em>Balanço</em><br>
                             <strong>Ativo Total</strong> = Ativo Total do balanço principal (Rel. 1, IFData).<br>
                             <strong>Ativos Líquidos</strong> = Disponibilidades (a) + Aplicações Interfinanceiras de Liquidez (b) + Títulos e Valores Mobiliários (c), no relatório de Ativo (Rel. 2).<br>
-                            <strong>Carteira de Crédito*</strong> = Soma do Valor Contábil Bruto (e1+f1+g1+h1) no Relatório de Ativo (Rel. 2), onde:<br>
+                            <strong>Carteira de Crédito*</strong> = Até 2024, Crédito Bruta + Arrendamento Bruta + Outros Créditos Líquidos de Provisão; em 2025+, soma do Valor Contábil Bruto (e1+f1+g1+h1) no Relatório de Ativo (Rel. 2). Se a regra canônica do período ficar incompleta, o fallback líquido e+f+g+h é explicitamente sinalizado.<br>
                             e = Operações de Crédito; f = Operações de Arrendamento Financeiro; g = Outras Operações com Características de Concessão de Crédito; h = Valores a Receber de Transações de Pagamentos - Usuários Finais (Pós-pago).<br>
                             <em>Nota:</em> Para 2000–2024, usamos Carteira de Crédito Bruta + Carteira de Arrendamento Bruta + Outros Créditos Líquidos de Provisão (Rel. 2). A partir de 2025, usamos Valor Contábil Bruto (e1+f1+g1+h1).<br>
                             <strong>Carteira de Crédito Classificada</strong> = Total da Carteira de Pessoa Física (Rel. 11) + Total da Carteira de Pessoa Jurídica (Rel. 13).<br>
                             <strong>Depósitos Totais</strong> = prioriza a linha agregada oficial disponível por instituição/período no relatório de Passivo (Rel. 3). Só usa a soma de Depósitos à Vista (a1) + Poupança (a2) + Interfinanceiros (a3) + a Prazo (a4) + Outros (a5/a6) quando nenhum agregado oficial estiver preenchido na linha.<br>
-                            <strong>Core Funding*</strong> = Captações (e) no Relatório Passivo; a partir de 2025, soma-se Dívida Subordinada (h). Captações (e) = (a) + (b) + (c) + (d), onde:<br>
+                            <strong>Core Funding*</strong> = Captações (e) no Relatório Passivo; a partir de 2025, exige-se Captações (e) + Instrumentos de Dívida Elegíveis a Capital (h). Captações (e) = (a) + (b) + (c) + (d), onde:<br>
                             (a) Depósitos (inclui À Vista, Poupança, DI, Dep. a Prazo, Contas de Pagamento Pré-Paga e Outros); (b) Obrigações por Operações Compromissadas; (c) Recursos de Aceite e Emissão de Títulos (inclui LCIs, LCAs, LFs e TVMs no Exterior); (d) Obrigações por Empréstimos e Repasses; (h) Instrumentos de Dívida Elegíveis a Capital.<br>
                             <strong>Patrimônio Líquido (PL)</strong> = Patrimônio Líquido do balanço principal (Rel. 1).<br>
                             <br>
@@ -14434,6 +15677,7 @@ elif menu == "Evolução":
         # Core Funding: Captações (e) + Instrumentos de Dívida Elegíveis a Capital (h) do Passivo (Rel. 3)
         core_funding_series = None
         core_funding_memoria_map = {}
+        core_funding_trace_map = {}
         core_funding_fallback_reason = None
         try:
             periodos_evo = df_ano.get("Período", pd.Series(dtype="object")).dropna().unique().tolist()
@@ -14473,15 +15717,17 @@ elif menu == "Evolução":
                     ].copy()
                     cap_val = pd.to_numeric(df_cap_per.get(col_capt), errors="coerce").sum(min_count=1) if col_capt else np.nan
                     ins_val = pd.to_numeric(df_cap_per.get(col_instr), errors="coerce").sum(min_count=1) if col_instr else np.nan
-                    core_map[periodo] = _calcular_core_funding(
-                        cache_passivo,
-                        instituicao,
-                        periodo,
-                        col_capt,
-                        col_instr,
-                        lk_passivo=lk_passivo,
+                    core_resolved = resolve_core_funding_value(
+                        year_ref=_periodo_ano_int(periodo),
+                        captacoes_value=cap_val,
+                        instrumentos_value=ins_val,
                     )
+                    core_map[periodo] = core_resolved.get("value")
                     core_funding_memoria_map[periodo] = {"captacoes": cap_val, "instr_capital": ins_val}
+                    core_funding_trace_map[str(periodo)] = {
+                        "status": core_resolved.get("source_kind"),
+                        "source": core_resolved.get("source_field"),
+                    }
                 core_funding_series = df_ano.get("Período", pd.Series(index=df_ano.index)).map(core_map)
             else:
                 core_funding_fallback_reason = "colunas estruturantes do Rel. 3 indisponíveis"
@@ -14494,16 +15740,58 @@ elif menu == "Evolução":
             core_funding_memoria_map = {}
             if core_funding_fallback_reason is None:
                 core_funding_fallback_reason = "cache de passivo indisponível"
+            for _, row_ano in df_ano.iterrows():
+                periodo_ref = str(row_ano.get("Período") or "")
+                cap_value = _coerce_numeric_value(row_ano.get("Captações"))
+                core_funding_trace_map[periodo_ref] = {
+                    "status": "fallback_capitacoes_view" if cap_value is not None else "missing",
+                    "source": "Captações (base da aba Evolução)",
+                    "note": (
+                        "A visualização caiu defensivamente para Captações porque a reconstrução completa pelo Rel. 3 não ficou disponível."
+                        if cap_value is not None
+                        else "Sem Captações disponíveis para sustentar o fallback desta visualização."
+                    ),
+                }
         df_ano["Core Funding"] = core_funding_series
         if core_funding_fallback_reason:
             st.caption(
                 "Core Funding* em fallback para Captações nesta visualização, "
                 f"porque a reconstrução pelo Rel. 3 não ficou disponível ({core_funding_fallback_reason})."
             )
+        else:
+            periodos_core_missing_component = [
+                str(row_label)
+                for _, row_label in df_ano.loc[
+                    df_ano["Período"].astype(str).map(lambda p: core_funding_trace_map.get(str(p), {}).get("status"))
+                    == "missing_required_component",
+                    "LabelPeriodo",
+                ].dropna().items()
+            ]
+            if periodos_core_missing_component:
+                st.caption(
+                    "Core Funding* indisponível para "
+                    + ", ".join(periodos_core_missing_component)
+                    + " por ausência de um dos componentes obrigatórios do Rel. 3."
+                )
+            periodos_core_missing_source = [
+                str(row_label)
+                for _, row_label in df_ano.loc[
+                    df_ano["Período"].astype(str).map(lambda p: core_funding_trace_map.get(str(p), {}).get("status"))
+                    == "missing",
+                    "LabelPeriodo",
+                ].dropna().items()
+            ]
+            if periodos_core_missing_source:
+                st.caption(
+                    "Core Funding* indisponível para "
+                    + ", ".join(periodos_core_missing_source)
+                    + " por ausência de insumo suficiente no Rel. 3."
+                )
 
         # Carteira de Crédito Bruta: preferir cálculo direto do Rel. 2 (Ativo)
         carteira_bruta_series = None
         carteira_memoria_map = {}
+        carteira_trace_map = {}
         try:
             periodos_evo = df_ano.get("Período", pd.Series(dtype="object")).dropna().unique().tolist()
 
@@ -14563,38 +15851,67 @@ elif menu == "Evolução":
             if col_e1 or col_f1 or col_g1 or col_h1:
                 cache_ativo = cache_ativo.copy()
                 cache_ativo["_tri_key"] = cache_ativo.get("Período", pd.Series(dtype="object")).astype(str).map(_periodo_tri_key)
-                carteira_vcb = (
-                    pd.to_numeric(cache_ativo.get(col_e1), errors="coerce").fillna(0)
-                    + pd.to_numeric(cache_ativo.get(col_f1), errors="coerce").fillna(0)
-                    + pd.to_numeric(cache_ativo.get(col_g1), errors="coerce").fillna(0)
-                    + pd.to_numeric(cache_ativo.get(col_h1), errors="coerce").fillna(0)
-                )
-                carteira_old = None
-                if col_d1 or col_e1_alt or col_f_outros:
-                    carteira_old = (
-                        pd.to_numeric(cache_ativo.get(col_d1), errors="coerce").fillna(0)
-                        + pd.to_numeric(cache_ativo.get(col_e1_alt), errors="coerce").fillna(0)
-                        + pd.to_numeric(cache_ativo.get(col_f_outros), errors="coerce").fillna(0)
-                    )
-                carteira_net = None
-                if col_e or col_f or col_g or col_h:
-                    carteira_net = (
-                        pd.to_numeric(cache_ativo.get(col_e), errors="coerce").fillna(0)
-                        + pd.to_numeric(cache_ativo.get(col_f), errors="coerce").fillna(0)
-                        + pd.to_numeric(cache_ativo.get(col_g), errors="coerce").fillna(0)
-                        + pd.to_numeric(cache_ativo.get(col_h), errors="coerce").fillna(0)
-                    )
-                # Regra por ano: até 2024 usa d1+e1+f (outros créditos líqu. prov.).
-                # A partir de 2025 usa VCB (e1+f1+g1+h1). Fallbacks para net quando necessário.
                 anos = cache_ativo.get("Período", pd.Series(dtype="object")).astype(str).map(_periodo_ano_int)
-                use_old = anos <= 2024
-                base_old = carteira_old if carteira_old is not None else carteira_net
-                base_new = carteira_vcb
-                if carteira_net is not None:
-                    base_new = base_new.mask(base_new <= 0, carteira_net)
-                cache_ativo["_carteira_bruta"] = base_new
-                if base_old is not None:
-                    cache_ativo.loc[use_old, "_carteira_bruta"] = base_old[use_old]
+                for col_name in [col_d1, col_e1_alt, col_f_outros, col_e1, col_f1, col_g1, col_h1, col_e, col_f, col_g, col_h]:
+                    if col_name:
+                        cache_ativo[col_name] = pd.to_numeric(cache_ativo.get(col_name), errors="coerce")
+                cache_ativo["_carteira_bruta"] = [
+                    resolve_carteira_credito_bruta_value(
+                        year_ref=int(ano_ref) if pd.notna(ano_ref) else None,
+                        legacy_credito_value=row.get(col_d1) if col_d1 else None,
+                        legacy_arrendamento_value=row.get(col_e1_alt) if col_e1_alt else None,
+                        legacy_outros_value=row.get(col_f_outros) if col_f_outros else None,
+                        vcb_credito_value=row.get(col_e1) if col_e1 else None,
+                        vcb_arrendamento_value=row.get(col_f1) if col_f1 else None,
+                        vcb_outras_ops_value=row.get(col_g1) if col_g1 else None,
+                        vcb_pagamentos_value=row.get(col_h1) if col_h1 else None,
+                        net_credito_value=row.get(col_e) if col_e else None,
+                        net_arrendamento_value=row.get(col_f) if col_f else None,
+                        net_outras_ops_value=row.get(col_g) if col_g else None,
+                        net_pagamentos_value=row.get(col_h) if col_h else None,
+                    ).get("value")
+                    for ano_ref, (_, row) in zip(anos, cache_ativo.iterrows())
+                ]
+                cache_ativo["_carteira_status"] = [
+                    str(
+                        resolve_carteira_credito_bruta_value(
+                            year_ref=int(ano_ref) if pd.notna(ano_ref) else None,
+                            legacy_credito_value=row.get(col_d1) if col_d1 else None,
+                            legacy_arrendamento_value=row.get(col_e1_alt) if col_e1_alt else None,
+                            legacy_outros_value=row.get(col_f_outros) if col_f_outros else None,
+                            vcb_credito_value=row.get(col_e1) if col_e1 else None,
+                            vcb_arrendamento_value=row.get(col_f1) if col_f1 else None,
+                            vcb_outras_ops_value=row.get(col_g1) if col_g1 else None,
+                            vcb_pagamentos_value=row.get(col_h1) if col_h1 else None,
+                            net_credito_value=row.get(col_e) if col_e else None,
+                            net_arrendamento_value=row.get(col_f) if col_f else None,
+                            net_outras_ops_value=row.get(col_g) if col_g else None,
+                            net_pagamentos_value=row.get(col_h) if col_h else None,
+                        ).get("source_kind")
+                        or ""
+                    )
+                    for ano_ref, (_, row) in zip(anos, cache_ativo.iterrows())
+                ]
+                cache_ativo["_carteira_source"] = [
+                    str(
+                        resolve_carteira_credito_bruta_value(
+                            year_ref=int(ano_ref) if pd.notna(ano_ref) else None,
+                            legacy_credito_value=row.get(col_d1) if col_d1 else None,
+                            legacy_arrendamento_value=row.get(col_e1_alt) if col_e1_alt else None,
+                            legacy_outros_value=row.get(col_f_outros) if col_f_outros else None,
+                            vcb_credito_value=row.get(col_e1) if col_e1 else None,
+                            vcb_arrendamento_value=row.get(col_f1) if col_f1 else None,
+                            vcb_outras_ops_value=row.get(col_g1) if col_g1 else None,
+                            vcb_pagamentos_value=row.get(col_h1) if col_h1 else None,
+                            net_credito_value=row.get(col_e) if col_e else None,
+                            net_arrendamento_value=row.get(col_f) if col_f else None,
+                            net_outras_ops_value=row.get(col_g) if col_g else None,
+                            net_pagamentos_value=row.get(col_h) if col_h else None,
+                        ).get("source_field")
+                        or ""
+                    )
+                    for ano_ref, (_, row) in zip(anos, cache_ativo.iterrows())
+                ]
                 bruta_map = (
                     cache_ativo.groupby("_tri_key", dropna=True)["_carteira_bruta"]
                     .sum(min_count=1)
@@ -14609,6 +15926,18 @@ elif menu == "Evolução":
                     cache_ativo["_f1"] = pd.to_numeric(cache_ativo.get(col_f1), errors="coerce") if col_f1 else np.nan
                     cache_ativo["_g1"] = pd.to_numeric(cache_ativo.get(col_g1), errors="coerce") if col_g1 else np.nan
                     cache_ativo["_h1"] = pd.to_numeric(cache_ativo.get(col_h1), errors="coerce") if col_h1 else np.nan
+                    cache_ativo["_net_e"] = pd.to_numeric(cache_ativo.get(col_e), errors="coerce") if col_e else np.nan
+                    cache_ativo["_net_f"] = pd.to_numeric(cache_ativo.get(col_f), errors="coerce") if col_f else np.nan
+                    cache_ativo["_net_g"] = pd.to_numeric(cache_ativo.get(col_g), errors="coerce") if col_g else np.nan
+                    cache_ativo["_net_h"] = pd.to_numeric(cache_ativo.get(col_h), errors="coerce") if col_h else np.nan
+
+                    def _agg_nonempty_text(series: pd.Series) -> str:
+                        for value in series.tolist():
+                            texto = str(value or "").strip()
+                            if texto:
+                                return texto
+                        return ""
+
                     comp_df = cache_ativo.groupby("_tri_key", dropna=True).agg(
                         d1=("_d1", "sum"),
                         e1_alt=("_e1_alt", "sum"),
@@ -14617,11 +15946,35 @@ elif menu == "Evolução":
                         f1=("_f1", "sum"),
                         g1=("_g1", "sum"),
                         h1=("_h1", "sum"),
+                        net_e=("_net_e", "sum"),
+                        net_f=("_net_f", "sum"),
+                        net_g=("_net_g", "sum"),
+                        net_h=("_net_h", "sum"),
+                        status=("_carteira_status", _agg_nonempty_text),
+                        source=("_carteira_source", _agg_nonempty_text),
                     ).reset_index()
                     carteira_memoria_map = {
                         str(r["_tri_key"]): {
                             "d1": r["d1"], "e1_alt": r["e1_alt"], "f_outros": r["f_outros"],
                             "e1": r["e1"], "f1": r["f1"], "g1": r["g1"], "h1": r["h1"],
+                            "net_e": r["net_e"], "net_f": r["net_f"], "net_g": r["net_g"], "net_h": r["net_h"],
+                            "status": r["status"], "source": r["source"],
+                        }
+                        for _, r in comp_df.iterrows()
+                    }
+                    carteira_trace_map = {
+                        str(r["_tri_key"]): {
+                            "status": r["status"],
+                            "source": r["source"],
+                            "note": (
+                                "Sem componentes brutos completos para a regra canônica do período; valor caiu explicitamente para a soma líquida e+f+g+h."
+                                if str(r["status"] or "").strip() == "fallback_net_components"
+                                else (
+                                    "Um ou mais componentes obrigatórios da carteira bruta ficaram ausentes no Rel. 2 para o período."
+                                    if str(r["status"] or "").strip() == "missing_required_component"
+                                    else ""
+                                )
+                            ),
                         }
                         for _, r in comp_df.iterrows()
                     }
@@ -14759,7 +16112,7 @@ elif menu == "Evolução":
                 name="Carteira de Crédito*",
                 line=dict(color="#ff5a00", width=2, shape="spline", smoothing=1.15),
                 marker=dict(size=8, color="#ff5a00"),
-                connectgaps=True,
+                connectgaps=False,
                 yaxis="y2",
             )
         )
@@ -14771,7 +16124,7 @@ elif menu == "Evolução":
                 name="Core Funding*",
                 line=dict(color="#222222", width=2, shape="spline", smoothing=1.15),
                 marker=dict(size=8, color="#222222"),
-                connectgaps=True,
+                connectgaps=False,
                 yaxis="y2",
             )
         )
@@ -14831,7 +16184,7 @@ elif menu == "Evolução":
         })
         evolucao_glossario = {
             "ROE Ac. Anualizado (%)": "Retorno sobre PL: (Lucro Líquido Acumulado YTD × fator de anualização) ÷ PL médio.",
-            "Carteira de Crédito* / PL": "Carteira de Crédito Bruta ÷ Patrimônio Líquido.",
+            "Carteira de Crédito* / PL": "Carteira de Crédito Bruta ÷ Patrimônio Líquido. Se a carteira vier de fallback líquido e+f+g+h, a célula é marcada explicitamente.",
             "Índice de Capital Principal (CET1)": "Capital Principal ÷ RWA Total (Rel. 5).",
             "Índice de Capital T1 (%)": "(Capital Principal + Capital Complementar) ÷ RWA Total (Rel. 5).",
             "Índice de Basileia Total (%)": "(Capital Principal + Capital Complementar + Capital Nível II) ÷ RWA Total (Rel. 5).",
@@ -14878,8 +16231,20 @@ elif menu == "Evolução":
             df_show[c] = [ _fmt_evol(v, m) for v,m in zip(df_metric[c], df_metric["Métrica"]) ]
 
         periodos_cols = list(df_show.columns[1:])
+        df_show_visual, evol_cell_tooltips, evol_marker_presence = _decorate_evolucao_visual_table(
+            df_show,
+            periodos_cols,
+            instituicao=instituicao,
+            df_ano=df_ano,
+            core_funding_trace_map=core_funding_trace_map,
+            carteira_trace_map=carteira_trace_map,
+        )
 
-        def _render_evolucao_table_html(df_show_local: pd.DataFrame, periodos_local: list) -> str:
+        def _render_evolucao_table_html(
+            df_show_local: pd.DataFrame,
+            periodos_local: list,
+            cell_tooltips: Optional[dict[tuple[str, str], str]] = None,
+        ) -> str:
             html = """
             <style>
             .evol-table-wrap { width: 100%; overflow-x: auto; margin-top: 10px; }
@@ -14903,6 +16268,7 @@ elif menu == "Evolução":
                 text-align: left; box-shadow: 0 2px 8px rgba(0,0,0,0.25); pointer-events: none; line-height: 1.5;
             }
             .evol-table .metric-info:hover .tip-text { display: block; }
+            .evol-table td.has-tip { cursor: help; }
             </style>
             <div class="evol-table-wrap"><table class="evol-table"><thead><tr><th>Métrica</th>
             """
@@ -14925,14 +16291,27 @@ elif menu == "Evolução":
                     )
                 html += f'<tr class="{zebra}"><td>{label_html}</td>'
                 for p in periodos_local:
-                    html += f"<td>{_html_mod.escape(str(row[p]))}</td>"
+                    tip = str((cell_tooltips or {}).get((metrica_label, str(p))) or "").strip()
+                    cell_value = _html_mod.escape(str(row[p]))
+                    if tip:
+                        tip_attr = _html_mod.escape(tip, quote=True).replace("\n", "&#10;")
+                        html += f'<td class="has-tip" title="{tip_attr}">{cell_value}</td>'
+                    else:
+                        html += f"<td>{cell_value}</td>"
                 html += "</tr>"
 
             html += "</tbody></table></div>"
             return html
 
-        tabela_html = _render_evolucao_table_html(df_show, periodos_cols)
+        tabela_html = _render_evolucao_table_html(df_show_visual, periodos_cols, evol_cell_tooltips)
         st.markdown(tabela_html, unsafe_allow_html=True)
+        if evol_marker_presence.get("fallback") or evol_marker_presence.get("unavailable"):
+            notas_status = []
+            if evol_marker_presence.get("fallback"):
+                notas_status.append("* = fallback analítico explícito")
+            if evol_marker_presence.get("unavailable"):
+                notas_status.append("† = indisponibilidade com causa identificada")
+            st.caption(" | ".join(notas_status) + ". Passe o mouse sobre a célula para ver a origem/limitação.")
 
         # Memória de cálculo: componentes de cada variável exibida na Evolução (por período/IF selecionados).
         with st.expander("Memória de cálculo — Evolução", expanded=False):
@@ -14964,7 +16343,18 @@ elif menu == "Evolução":
                 comp_cart = carteira_memoria_map.get(str(tri_key_ref), {}) if tri_key_ref else {}
                 comp_core = core_funding_memoria_map.get(periodo_ref, {})
                 cart_memoria = _fmt_mm_plot(cart)
-                if comp_cart and row.get("Ano", 0) >= 2025:
+                cart_status = str(comp_cart.get("status") or "").strip()
+                cart_source = str(comp_cart.get("source") or "").strip()
+                if cart_status == "fallback_net_components":
+                    cart_memoria = (
+                        f"{_fmt_mm_plot(comp_cart.get('net_e'))} + {_fmt_mm_plot(comp_cart.get('net_f'))} + "
+                        f"{_fmt_mm_plot(comp_cart.get('net_g'))} + {_fmt_mm_plot(comp_cart.get('net_h'))} = {_fmt_mm_plot(cart)}"
+                    )
+                    if cart_source:
+                        cart_memoria += f" (fallback explícito: {cart_source})"
+                elif cart_status == "missing_required_component":
+                    cart_memoria = "N/D (faltou ao menos um componente obrigatório do Rel. 2 para a regra canônica do período)"
+                elif comp_cart and row.get("Ano", 0) >= 2025:
                     cart_memoria = (
                         f"{_fmt_mm_plot(comp_cart.get('e1'))} + {_fmt_mm_plot(comp_cart.get('f1'))} + "
                         f"{_fmt_mm_plot(comp_cart.get('g1'))} + {_fmt_mm_plot(comp_cart.get('h1'))} = {_fmt_mm_plot(cart)}"
@@ -14974,11 +16364,27 @@ elif menu == "Evolução":
                         f"{_fmt_mm_plot(comp_cart.get('d1'))} + {_fmt_mm_plot(comp_cart.get('e1_alt'))} + "
                         f"{_fmt_mm_plot(comp_cart.get('f_outros'))} = {_fmt_mm_plot(cart)}"
                     )
+                core_trace = core_funding_trace_map.get(str(periodo_ref), {}) or {}
+                core_status = str(core_trace.get("status") or "").strip()
+                core_note = str(core_trace.get("note") or "").strip()
                 core_memoria = _fmt_mm_plot(core)
-                if comp_core:
+                if core_status == "official_components" and comp_core:
                     core_memoria = (
                         f"{_fmt_mm_plot(comp_core.get('captacoes'))} + {_fmt_mm_plot(comp_core.get('instr_capital'))} = {_fmt_mm_plot(core)}"
                     )
+                elif core_status == "official_captacoes" and comp_core:
+                    core_memoria = f"{_fmt_mm_plot(comp_core.get('captacoes'))} = {_fmt_mm_plot(core)}"
+                elif core_status == "fallback_capitacoes_view":
+                    core_memoria = f"{_fmt_mm_plot(core)} (fallback explícito para Captações)"
+                    if core_note:
+                        core_memoria += f" — {core_note}"
+                elif core_status == "missing_required_component":
+                    core_memoria = "N/D (em 2025+, faltou um dos componentes obrigatórios do Rel. 3)"
+                elif core_status == "missing":
+                    core_memoria = "N/D (sem insumo suficiente no Rel. 3)"
+                elif core_note:
+                    base_memoria = core_memoria or "N/D"
+                    core_memoria = f"{base_memoria} ({core_note})"
 
                 memoria_rows.extend([
                     {"Período": label_periodo, "Métrica": "Lucro Líquido Acumulado", "Memória de cálculo": _fmt_mm_plot(ll)},
@@ -15051,32 +16457,30 @@ elif menu == "Evolução":
 
         if st.button("Preparar arquivos de exportação", key="evolucao_prepare_exports", width="stretch"):
             buffer_excel_visual = _gerar_excel_evolucao_tabela_visual(
-                df_show=df_show,
+                df_show=df_show_visual,
                 periodos_cols=periodos_cols,
                 instituicao=instituicao,
                 periodo_inicio=periodo_inicio,
                 periodo_final=periodo_final,
+                df_ano=df_ano,
+                core_funding_trace_map=core_funding_trace_map,
+                carteira_trace_map=carteira_trace_map,
+                marker_presence=evol_marker_presence,
             )
-
-            buffer_excel = io.BytesIO()
-            with pd.ExcelWriter(buffer_excel, engine='xlsxwriter') as writer:
-                df_graph.to_excel(writer, index=False, sheet_name='grafico_dados')
-                df_metric.to_excel(writer, index=False, sheet_name='tabela_metricas')
-                nota_df = pd.DataFrame({
-                    "nota": [
-                        "* Carteira de Crédito: 2000–2024 = Crédito Bruta + Arrendamento Bruta + Outros Créditos Líquidos de Provisão (base líquida, sem detalhamento — comparação imprecisa).",
-                        "2025+ = Valor Contábil Bruto (e1+f1+g1+h1), onde: e = Operações de Crédito; f = Arrendamento; g = Outras Ops.; h = Transações de Pagamentos.",
-                        "Core Funding*: até 2024 = Captações (e); 2025+ = Captações (e) + Dívida Subordinada (h) no Relatório de Passivo (Rel. 3). Se o Rel. 3 falhar nesta aba, há fallback explícito para Captações.",
-                    ]
-                })
-                nota_df.to_excel(writer, index=False, sheet_name='nota')
-            buffer_excel.seek(0)
+            buffer_excel = _gerar_excel_evolucao_dados_puros(
+                instituicao=instituicao,
+                df_graph=df_graph,
+                df_metric=df_metric,
+                df_ano=df_ano,
+                core_funding_trace_map=core_funding_trace_map,
+                carteira_trace_map=carteira_trace_map,
+            )
 
             st.session_state[export_payload_key] = {
                 "excel_visual": buffer_excel_visual.getvalue(),
                 "excel_raw": buffer_excel.getvalue(),
                 "grafico_png": _plotly_fig_to_png_bytes(fig_ev),
-                "tabela_png": _gerar_png_tabela_evolucao(df_show, periodos_cols),
+                "tabela_png": _gerar_png_tabela_evolucao(df_show_visual, periodos_cols, marker_presence=evol_marker_presence),
             }
             st.rerun()
 
@@ -15136,8 +16540,8 @@ elif menu == "Evolução":
             st.markdown(
                 """
                 <div style="font-size: 12px; color: #666; margin-top: 6px;">
-                    <strong>Core Funding*:</strong> Captações (e) no Relatório Passivo; a partir de 2025, soma-se Dívida Subordinada (h). Captações (e) = (a) + (b) + (c) + (d), onde: (a) Depósitos — inclui À Vista, Poupança, DI, Dep. a Prazo, Contas de Pagamento Pré-Paga e Outros; (b) Obrigações por Operações Compromissadas; (c) Recursos de Aceite e Emissão de Títulos — inclui LCIs, LCAs, LFs e TVMs no Exterior; (d) Obrigações por Empréstimos e Repasses; (h) Instrumentos de Dívida Elegíveis a Capital. Se o Rel. 3 não estiver íntegro para a instituição/período, a aba cai defensivamente para Captações e sinaliza isso acima.<br>
-                    <strong>Carteira de Crédito*:</strong> Soma do Valor Contábil Bruto (e1+f1+g1+h1) no Relatório de Ativo (Rel. 2), onde: e = Operações de Crédito; f = Operações de Arrendamento Financeiro; g = Outras Operações com Características de Concessão; h = Valores de Transação de Pagamentos – Usuários Finais.<br>
+                    <strong>Core Funding*:</strong> Captações (e) no Relatório Passivo; a partir de 2025, exige-se Captações (e) + Instrumentos de Dívida Elegíveis a Capital (h). Captações (e) = (a) + (b) + (c) + (d), onde: (a) Depósitos — inclui À Vista, Poupança, DI, Dep. a Prazo, Contas de Pagamento Pré-Paga e Outros; (b) Obrigações por Operações Compromissadas; (c) Recursos de Aceite e Emissão de Títulos — inclui LCIs, LCAs, LFs e TVMs no Exterior; (d) Obrigações por Empréstimos e Repasses; (h) Instrumentos de Dívida Elegíveis a Capital. Se o Rel. 3 não estiver íntegro para a instituição/período, a aba cai defensivamente para Captações e sinaliza isso acima; ausência de um componente pós-2025 não é tratada como zero.<br>
+                    <strong>Carteira de Crédito*:</strong> Até 2024, Crédito Bruta + Arrendamento Bruta + Outros Créditos Líquidos de Provisão; em 2025+, soma do Valor Contábil Bruto (e1+f1+g1+h1) no Relatório de Ativo (Rel. 2). Se a regra canônica do período ficar incompleta, o fallback líquido e+f+g+h aparece explicitamente no status analítico.<br>
                     <em>Nota:</em> Para 2000–2024, usamos Carteira de Crédito Bruta + Carteira de Arrendamento Bruta + Outros Créditos Líquidos de Provisão (Rel. 2). Isso significa que, em “Outros Créditos”, a base é líquida de provisão e não há detalhamento — logo, a comparação é imprecisa. A partir de 2025, usamos Valor Contábil Bruto (e1+f1+g1+h1).<br>
                     <br>
                     <strong>ROE Ac. Anualizado (%):</strong> Retorno sobre o patrimônio líquido. (Lucro Líquido acumulado no ano × fator de anualização) ÷ PL Médio, onde PL Médio = (PL no período + PL em Dez do ano anterior) / 2. Fator: Mar=4, Jun=2, Set=12/9, Dez=1. Se PL médio ≤ 0 ou dado faltante: N/A.<br>
@@ -15834,8 +17238,8 @@ elif menu == "Rankings":
             # Mini-glossário para popovers inline nos Rankings
             _RANKINGS_GLOSSARIO = {
                 'Ativo Total': 'Padrão COSIF. Soma de todos os ativos do conglomerado prudencial.',
-                'Carteira de Crédito*': 'Até 2024: Crédito Bruta + Arrendamento Bruta + Outros Créditos Líquidos de Provisão. 2025+: Valor Contábil Bruto (e1+f1+g1+h1) no Rel. 2.',
-                'Core Funding*': 'Até 2024: Captações (e). 2025+: Captações (e) + Dívida Subordinada (h) no Rel. 3.',
+                'Carteira de Crédito*': 'Até 2024: Crédito Bruta + Arrendamento Bruta + Outros Créditos Líquidos de Provisão. 2025+: Valor Contábil Bruto (e1+f1+g1+h1) no Rel. 2; fallback líquido e+f+g+h é marcado explicitamente quando necessário.',
+                'Core Funding*': 'Até 2024: Captações (e). 2025+: Captações (e) + Instrumentos de Dívida Elegíveis a Capital (h) no Rel. 3, sem imputar zero para componente ausente.',
                 'Patrimônio Líquido': 'Padrão COSIF.',
                 'Índice de Capital Principal (CET1)': 'Capital Principal ÷ RWA Total. Indicador de solidez patrimonial regulatório (mínimo exigido: 4,5% + ACPs).',
                 'Índice de Capital T1 (%)': 'Patrimônio de Referência Nível I ÷ RWA Total. Equivale a (CET1 + AT1) ÷ RWA Total.',
@@ -16970,10 +18374,12 @@ elif menu == "Rankings":
                             col_export_a, col_export_b = st.columns(2)
                             with col_export_a:
                                 if st.button("Gerar Excel", key="rankings_basileia_gerar_excel"):
-                                    buffer_excel = BytesIO()
-                                    with pd.ExcelWriter(buffer_excel, engine='xlsxwriter') as writer:
-                                        df_export_capital.to_excel(writer, index=False, sheet_name='indice_basileia')
-                                    buffer_excel.seek(0)
+                                    buffer_excel = _gerar_excel_rankings_capital_dados_puros(
+                                        df_export=df_export_capital,
+                                        periodos_ref=list(periodo_resumo),
+                                        bancos_referencia=list(bancos_selecionados),
+                                        df_source=df_periodo_cap,
+                                    )
                                     st.download_button(
                                         label="Download Excel",
                                         data=buffer_excel,
@@ -17002,6 +18408,7 @@ elif menu == "Rankings":
                             (df["Período"].isin(periodo_resumo))
                             & (df["Instituição"].isin(bancos_selecionados))
                         ].copy()
+                        df_multiperiodo_source = df_multiperiodo.copy()
                         if indicador_col in df_multiperiodo.columns:
                             bancos_com_dado_rankings = set(
                                 df_multiperiodo.loc[
@@ -17388,10 +18795,14 @@ elif menu == "Rankings":
 
                             if st.button("Preparar arquivos de exportação", key="rankings_prepare_exports", width="stretch"):
                                 _perf_start("rankings_prepare_exports")
-                                buffer_excel = BytesIO()
-                                with pd.ExcelWriter(buffer_excel, engine='xlsxwriter') as writer:
-                                    df_export.to_excel(writer, index=False, sheet_name='ranking')
-                                buffer_excel.seek(0)
+                                buffer_excel = _gerar_excel_rankings_dados_puros(
+                                    df_export=df_export,
+                                    periodo_ref=periodo_resumo_base or periodo_resumo[0],
+                                    indicador_label=indicador_label,
+                                    indicador_col=indicador_col,
+                                    bancos_referencia=list(bancos_selecionados),
+                                    df_source=df_multiperiodo_source,
+                                )
                                 st.session_state[export_payload_key] = {
                                     "excel": buffer_excel.getvalue(),
                                     "png": _plotly_fig_to_png_bytes(fig_resumo),
@@ -18738,23 +20149,7 @@ elif menu == "DRE" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo ==
         return pd.DataFrame({"ano": ano.astype("Int64"), "mes": mes.astype("Int64")})
 
     def compute_ytd_irregular(df: pd.DataFrame) -> pd.DataFrame:
-        df = df.copy()
-        df[["ano", "mes"]] = extrair_ano_mes_periodo(df["Periodo"])
-        df["valor"] = pd.to_numeric(df["valor"], errors="coerce")
-
-        keys = ["Instituicao", "Label", "ano"]
-        jun = (
-            df[df["mes"] == 6][keys + ["valor"]]
-            .rename(columns={"valor": "valor_jun"})
-            .drop_duplicates(subset=keys)
-        )
-        df = df.merge(jun, on=keys, how="left")
-
-        mask_set_dez = df["mes"].isin([9, 12])
-        df["ytd"] = df["valor"]
-        df.loc[mask_set_dez, "ytd"] = df.loc[mask_set_dez, "valor"] + df.loc[mask_set_dez, "valor_jun"]
-        df.loc[mask_set_dez & df["valor_jun"].isna(), "ytd"] = np.nan
-        return df.drop(columns=["valor_jun"])
+        return _compute_ytd_irregular_ifdata_frame(df)
 
     def anualizar_ytd_por_mes(df: pd.DataFrame, labels: list[str]) -> pd.DataFrame:
         """Anualiza YTD (ytd * 12/mes) para labels informados."""
@@ -19991,23 +21386,7 @@ elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolid
         return pd.DataFrame(parsed.tolist(), columns=["ano", "mes"], index=serie_periodo.index)
 
     def compute_ytd_irregular(df: pd.DataFrame) -> pd.DataFrame:
-        if df.empty:
-            return df.copy()
-        out = df.copy()
-        out[["ano", "mes"]] = extrair_ano_mes_periodo(out["Periodo"])
-        out = out.sort_values(["Instituicao", "Label", "ano", "mes", "Periodo"], na_position="last")
-        out["ytd"] = out["valor"]
-        mask = out["mes"].isin([9, 12])
-        if mask.any():
-            prev = (
-                out[out["mes"] == 6][["Instituicao", "Label", "ano", "ytd"]]
-                .rename(columns={"ytd": "ytd_jun"})
-                .drop_duplicates(subset=["Instituicao", "Label", "ano"], keep="last")
-            )
-            out = out.merge(prev, on=["Instituicao", "Label", "ano"], how="left")
-            out.loc[mask, "ytd"] = out.loc[mask, "valor"] + out.loc[mask, "ytd_jun"].fillna(0)
-            out = out.drop(columns=["ytd_jun"])
-        return out
+        return _compute_ytd_irregular_ifdata_frame(df)
 
     def anualizar_ytd_por_mes(df: pd.DataFrame, labels: list[str]) -> pd.DataFrame:
         if df.empty:
@@ -21010,23 +22389,7 @@ elif menu == "__deprecated__Carteira 4.966 (bloco legado DRE-1)":
         return pd.DataFrame(parsed.tolist(), columns=["ano", "mes"], index=serie_periodo.index)
 
     def compute_ytd_irregular(df: pd.DataFrame) -> pd.DataFrame:
-        if df.empty:
-            return df.copy()
-        out = df.copy()
-        out[["ano", "mes"]] = extrair_ano_mes_periodo(out["Periodo"])
-        out = out.sort_values(["Instituicao", "Label", "ano", "mes", "Periodo"], na_position="last")
-        out["ytd"] = out["valor"]
-        mask = out["mes"].isin([9, 12])
-        if mask.any():
-            prev = (
-                out[out["mes"] == 6][["Instituicao", "Label", "ano", "ytd"]]
-                .rename(columns={"ytd": "ytd_jun"})
-                .drop_duplicates(subset=["Instituicao", "Label", "ano"], keep="last")
-            )
-            out = out.merge(prev, on=["Instituicao", "Label", "ano"], how="left")
-            out.loc[mask, "ytd"] = out.loc[mask, "valor"] + out.loc[mask, "ytd_jun"].fillna(0)
-            out = out.drop(columns=["ytd_jun"])
-        return out
+        return _compute_ytd_irregular_ifdata_frame(df)
 
     def anualizar_ytd_por_mes(df: pd.DataFrame, labels: list[str]) -> pd.DataFrame:
         if df.empty:
@@ -21956,23 +23319,7 @@ elif menu == "__deprecated__Carteira 4.966 (bloco legado DRE-2)":
         return pd.DataFrame(parsed.tolist(), columns=["ano", "mes"], index=serie_periodo.index)
 
     def compute_ytd_irregular(df: pd.DataFrame) -> pd.DataFrame:
-        if df.empty:
-            return df.copy()
-        out = df.copy()
-        out[["ano", "mes"]] = extrair_ano_mes_periodo(out["Periodo"])
-        out = out.sort_values(["Instituicao", "Label", "ano", "mes", "Periodo"], na_position="last")
-        out["ytd"] = out["valor"]
-        mask = out["mes"].isin([9, 12])
-        if mask.any():
-            prev = (
-                out[out["mes"] == 6][["Instituicao", "Label", "ano", "ytd"]]
-                .rename(columns={"ytd": "ytd_jun"})
-                .drop_duplicates(subset=["Instituicao", "Label", "ano"], keep="last")
-            )
-            out = out.merge(prev, on=["Instituicao", "Label", "ano"], how="left")
-            out.loc[mask, "ytd"] = out.loc[mask, "valor"] + out.loc[mask, "ytd_jun"].fillna(0)
-            out = out.drop(columns=["ytd_jun"])
-        return out
+        return _compute_ytd_irregular_ifdata_frame(df)
 
     def anualizar_ytd_por_mes(df: pd.DataFrame, labels: list[str]) -> pd.DataFrame:
         if df.empty:
@@ -27038,9 +28385,9 @@ elif menu == "Glossário":
         {"Indicador": "Ativo Total", "Aba(s)": "Snapshot, Peers (Tabela), Evolução, Glossário, Modelo de Rating", "Fonte": "IFData Rel.1", "Fórmula": "Valor reportado", "Unidade": "R$", "Interpretação": "Tamanho total do balanço.", "Limitação": "Tamanho não implica qualidade dos ativos.", "Periodicidade": "Trimestral"},
         {"Indicador": "Ativos Líquidos", "Aba(s)": "Snapshot, Peers (Tabela), Glossário", "Fonte": "IFData Rel.2", "Fórmula": "Disponibilidades (a) + AIL (b) + TVM (c)", "Unidade": "R$", "Interpretação": "Aproximação de ativos de maior liquidez.", "Limitação": "Não substitui métricas regulatórias de liquidez.", "Periodicidade": "Trimestral"},
         {"Indicador": "Carteira de Crédito Bruta", "Aba(s)": "Snapshot, Peers (Tabela), Evolução, Glossário, Modelo de Rating", "Fonte": "IFData Rel.2", "Fórmula": "Até 2024: d1+e1+f; 2025+: e1+f1+g1+h1", "Unidade": "R$", "Interpretação": "Volume bruto de exposição em crédito.", "Limitação": "Quebra metodológica entre janelas históricas.", "Periodicidade": "Trimestral"},
-        {"Indicador": "Carteira de Crédito* (Peers)", "Aba(s)": "Peers (Tabela), Evolução", "Fonte": "IFData Rel.2", "Fórmula": "Alias visual da Carteira de Crédito Bruta", "Unidade": "R$", "Interpretação": "Nome contextual de UI para o mesmo conceito canônico.", "Limitação": "Asterisco é convenção local da aba.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Carteira de Crédito* (Peers)", "Aba(s)": "Peers (Tabela), Evolução", "Fonte": "IFData Rel.2", "Fórmula": "Alias visual da Carteira de Crédito Bruta", "Unidade": "R$", "Interpretação": "Nome contextual de UI para o mesmo conceito canônico.", "Limitação": "Asterisco é convenção local da aba; quando a regra canônica do período fica incompleta, a UI marca explicitamente o fallback líquido e+f+g+h.", "Periodicidade": "Trimestral"},
         {"Indicador": "Depósitos Totais", "Aba(s)": "Snapshot, Peers (Tabela), Glossário", "Fonte": "IFData Rel.3", "Fórmula": "Prioriza linha agregada oficial por linha; fallback para soma a1..a6 só sem agregado oficial", "Unidade": "R$", "Interpretação": "Principal bloco de funding bancário tradicional.", "Limitação": "Rótulo do agregado muda ao longo da série; fallback não equivale a dado oficial publicado.", "Periodicidade": "Trimestral"},
-        {"Indicador": "Core Funding", "Aba(s)": "Snapshot, Peers (Tabela), Evolução, Glossário, Modelo de Rating", "Fonte": "IFData Rel.3", "Fórmula": "Até 2024: Captações (e); 2025+: (e)+(h)", "Unidade": "R$", "Interpretação": "Base estrutural de captação para métricas de funding.", "Limitação": "Mudança de escopo em 2025.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Core Funding", "Aba(s)": "Snapshot, Peers (Tabela), Evolução, Glossário, Modelo de Rating", "Fonte": "IFData Rel.3", "Fórmula": "Até 2024: Captações (e); 2025+: (e)+(h)", "Unidade": "R$", "Interpretação": "Base estrutural de captação para métricas de funding.", "Limitação": "Mudança de escopo em 2025; após essa data, o indicador só é exibido quando Captações (e) e Instrumentos (h) estiverem disponíveis.", "Periodicidade": "Trimestral"},
         {"Indicador": "Patrimônio Líquido (PL)", "Aba(s)": "Snapshot, Peers (Tabela), Evolução, DRE (Ind. e Congl.), Glossário", "Fonte": "IFData Rel.1", "Fórmula": "Valor reportado", "Unidade": "R$", "Interpretação": "Base patrimonial para rentabilidade e alavancagem.", "Limitação": "Pode refletir eventos contábeis pontuais.", "Periodicidade": "Trimestral"},
     ])
 
@@ -27056,7 +28403,7 @@ elif menu == "Glossário":
         {"Indicador": "Perda Esperada", "Aba(s)": "Snapshot, Peers (Tabela), Glossário, Modelo de Rating", "Fonte": "IFData Rel.2", "Fórmula": "Soma das parcelas de perda esperada/ajustes e,f,g,h", "Unidade": "R$", "Interpretação": "Montante contábil de perdas esperadas no recorte.", "Limitação": "Depende de premissas/modelos contábeis.", "Periodicidade": "Trimestral"},
         {"Indicador": "Ativos Estágio 2", "Aba(s)": "Snapshot, Peers (Tabela), Glossário, Modelo de Rating", "Fonte": "Cadoc 4060", "Fórmula": "Conta 3312000001", "Unidade": "R$", "Interpretação": "Estoque de ativos em estágio 2.", "Limitação": "Pode ficar estruturalmente indisponível em parte da série mensal ou sem match prudencial confiável.", "Periodicidade": "Mensal/Trimestral"},
         {"Indicador": "Ativos Estágio 3", "Aba(s)": "Snapshot, Peers (Tabela), Glossário, Modelo de Rating", "Fonte": "Cadoc 4060", "Fórmula": "Conta 3313000000", "Unidade": "R$", "Interpretação": "Estoque de ativos em estágio 3.", "Limitação": "Pode ficar estruturalmente indisponível em parte da série mensal ou sem match prudencial confiável.", "Periodicidade": "Mensal/Trimestral"},
-        {"Indicador": "NPL (Estágio 2+3 / Carteira)", "Aba(s)": "Modelo de Rating, Glossário", "Fonte": "Cadoc 4060 + IFData Rel.2", "Fórmula": "(Ativos Estágio 2 + Ativos Estágio 3) ÷ Carteira de Crédito Bruta", "Unidade": "%", "Interpretação": "Proxy de deterioração da carteira usada como fator quantitativo no rating.", "Limitação": "Combina fontes com periodicidade distinta, depende de disponibilidade do 4060 e hoje pode cair para proxy explícita em auditoria quando o estágio não existir.", "Periodicidade": "Mensal/Trimestral"},
+        {"Indicador": "NPL (Estágio 2+3 / Carteira)", "Aba(s)": "Modelo de Rating, Glossário", "Fonte": "Cadoc 4060 + IFData Rel.2", "Fórmula": "(Ativos Estágio 2 + Ativos Estágio 3) ÷ Carteira de Crédito Bruta", "Unidade": "%", "Interpretação": "Indicador de deterioração da carteira usado como fator quantitativo no rating.", "Limitação": "Combina fontes com periodicidade distinta e depende de disponibilidade do 4060; quando o estágio não existir, o fator fica indisponível e o rating é marcado como incompleto.", "Periodicidade": "Mensal/Trimestral"},
         {"Indicador": "Perda Esperada / Estágio 3 (%)", "Aba(s)": "Peers (Tabela), Glossário", "Fonte": "IFData Rel.2 + Cadoc 4060", "Fórmula": "Perda Esperada ÷ Ativos Estágio 3", "Unidade": "%", "Interpretação": "Proxy de cobertura da perda esperada sobre estágio 3.", "Limitação": "Não deve ser exibido como comparável quando o 4060 estiver estruturalmente ausente ou sem match prudencial confiável.", "Periodicidade": "Mensal/Trimestral"},
         {"Indicador": "Perda Esperada / Est2+3 (%)", "Aba(s)": "Peers (Tabela), Glossário", "Fonte": "IFData Rel.2 + Cadoc 4060", "Fórmula": "Perda Esperada ÷ (Ativos Estágio 2 + Ativos Estágio 3)", "Unidade": "%", "Interpretação": "Proxy de cobertura da perda esperada sobre estágios 2 e 3 combinados.", "Limitação": "Exige Estágio 2 e Estágio 3 publicados no mesmo período e match prudencial confiável.", "Periodicidade": "Mensal/Trimestral"},
     ])
@@ -27064,7 +28411,7 @@ elif menu == "Glossário":
     _render_secao_glossario("5) Alavancagem e Relações de Estrutura", [
         {"Indicador": "Ativo Total / PL", "Aba(s)": "Snapshot, Peers (Tabela), Glossário", "Fonte": "IFData Rel.1", "Fórmula": "Ativo Total ÷ Patrimônio Líquido", "Unidade": "x", "Interpretação": "Grau de alavancagem contábil do balanço.", "Limitação": "Não pondera o risco dos ativos.", "Periodicidade": "Trimestral"},
         {"Indicador": "Carteira de Crédito Bruta / PL", "Aba(s)": "Snapshot, Peers (Tabela), Evolução, Glossário", "Fonte": "IFData Rel.2 + Rel.1", "Fórmula": "Carteira de Crédito Bruta ÷ PL", "Unidade": "x", "Interpretação": "Intensidade de crédito sobre base patrimonial.", "Limitação": "Comparabilidade histórica afetada pela mudança de base em 2025.", "Periodicidade": "Trimestral"},
-        {"Indicador": "Crédito / Captações (%)", "Aba(s)": "Snapshot, Evolução, Modelo de Rating, Glossário", "Fonte": "IFData Rel.2 + Rel.3", "Fórmula": "Carteira de Crédito Bruta ÷ Core Funding", "Unidade": "%", "Interpretação": "Pressão do crédito sobre a base estrutural de funding.", "Limitação": "Sensível à mudança de escopo do Core Funding em 2025.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Crédito / Captações (%)", "Aba(s)": "Snapshot, Evolução, Modelo de Rating, Glossário", "Fonte": "IFData Rel.2 + Rel.3", "Fórmula": "Carteira de Crédito Bruta ÷ Core Funding", "Unidade": "%", "Interpretação": "Pressão do crédito sobre a base estrutural de funding.", "Limitação": "Sensível à mudança de escopo do Core Funding em 2025 e fica indisponível quando o funding pós-2025 estiver incompleto.", "Periodicidade": "Trimestral"},
         {"Indicador": "Perda Esperada / Carteira de Crédito Bruta (%)", "Aba(s)": "Snapshot, Peers (Tabela), Glossário", "Fonte": "IFData Rel.2", "Fórmula": "Perda Esperada ÷ Carteira de Crédito Bruta", "Unidade": "%", "Interpretação": "Nível relativo de perdas esperadas sobre o estoque de crédito.", "Limitação": "Não captura composição por segmento/produto.", "Periodicidade": "Trimestral"},
     ])
 

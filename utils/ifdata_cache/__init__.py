@@ -139,6 +139,8 @@ from .critical_screens import (
     load_critical_screens_slice,
     critical_screens_needs_refresh,
     get_critical_screens_runtime_status,
+    resolve_carteira_credito_bruta_value,
+    resolve_core_funding_value,
     resolve_depositos_totais_value,
 )
 from .availability import (
@@ -354,6 +356,9 @@ __all__ = [
     "materialize_critical_screens_cache",
     "load_critical_screens_slice",
     "get_critical_screens_runtime_status",
+    "resolve_carteira_credito_bruta_value",
+    "resolve_core_funding_value",
+    "resolve_depositos_totais_value",
     "MIN_API_PERIOD_BY_CACHE",
     "availability_display_period_to_api",
     "availability_api_period_to_display",

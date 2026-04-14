@@ -9,11 +9,14 @@ from utils.ifdata_cache.critical_screens import (
     CriticalScreensCache,
     CRITICAL_SCREENS_SCHEMA_VERSION,
     _load_bloprud_sources,
+    _validate_critical_screens_semantics,
     build_critical_screens_dataframe,
     critical_screens_needs_refresh,
     get_critical_screens_runtime_status,
     load_critical_screens_slice,
     materialize_critical_screens_cache,
+    resolve_carteira_credito_bruta_value,
+    resolve_core_funding_value,
 )
 
 
@@ -198,6 +201,8 @@ def test_build_critical_screens_dataframe_materializes_expected_metrics(tmp_path
     assert row["Trace::Depósitos Totais::Campo Selecionado"] is None
     assert row["Trace::Depósitos Totais::Soma Subtipos"] == 106.0
     assert row["Core Funding*"] == 550.0
+    assert row["Trace::Carteira::Status"] == "official_vcb_components"
+    assert row["Trace::Carteira::Campo Selecionado"] == "Valor Contábil Bruto (e1) + Valor Contábil Bruto (f1) + Valor Contábil Bruto (g1) + Valor Contábil Bruto (h1)"
     assert round(row["Crédito / Captações"], 6) == round(1900.0 / 550.0, 6)
     assert round(row["Desp Captação / Captação"], 6) == round((11.0 * 4.0) / 500.0, 6)
     assert row["Carteira de Crédito Bruta"] == 1900.0
@@ -307,6 +312,211 @@ def test_build_critical_screens_dataframe_marks_structural_prudential_unavailabi
     assert row["Trace::Bloprudencial::Status"] == "source_structurally_unavailable"
     assert row["Trace::Qualidade Carteira::Status"] == "source_structurally_unavailable"
     assert pd.isna(row["Perda Esperada / Estágio 3"])
+
+
+def test_resolve_core_funding_value_requires_all_components_post_2025():
+    pre_2025 = resolve_core_funding_value(
+        year_ref=2024,
+        captacoes_value=120.0,
+        instrumentos_value=None,
+    )
+    assert pre_2025["value"] == 120.0
+    assert pre_2025["source_kind"] == "official_captacoes"
+
+    post_2025_missing = resolve_core_funding_value(
+        year_ref=2025,
+        captacoes_value=120.0,
+        instrumentos_value=None,
+    )
+    assert post_2025_missing["value"] is None
+    assert post_2025_missing["source_kind"] == "missing_required_component"
+
+
+def test_resolve_carteira_credito_bruta_value_prefers_canonical_components_and_marks_fallbacks():
+    legacy = resolve_carteira_credito_bruta_value(
+        year_ref=2024,
+        legacy_credito_value=100.0,
+        legacy_arrendamento_value=20.0,
+        legacy_outros_value=5.0,
+        vcb_credito_value=None,
+        vcb_arrendamento_value=None,
+        vcb_outras_ops_value=None,
+        vcb_pagamentos_value=None,
+        net_credito_value=90.0,
+        net_arrendamento_value=10.0,
+        net_outras_ops_value=5.0,
+        net_pagamentos_value=3.0,
+    )
+    assert legacy["value"] == 125.0
+    assert legacy["source_kind"] == "official_legacy_components"
+
+    vcb = resolve_carteira_credito_bruta_value(
+        year_ref=2025,
+        legacy_credito_value=None,
+        legacy_arrendamento_value=None,
+        legacy_outros_value=None,
+        vcb_credito_value=100.0,
+        vcb_arrendamento_value=20.0,
+        vcb_outras_ops_value=5.0,
+        vcb_pagamentos_value=3.0,
+        net_credito_value=90.0,
+        net_arrendamento_value=10.0,
+        net_outras_ops_value=5.0,
+        net_pagamentos_value=3.0,
+    )
+    assert vcb["value"] == 128.0
+    assert vcb["source_kind"] == "official_vcb_components"
+
+    fallback = resolve_carteira_credito_bruta_value(
+        year_ref=2025,
+        legacy_credito_value=None,
+        legacy_arrendamento_value=None,
+        legacy_outros_value=None,
+        vcb_credito_value=100.0,
+        vcb_arrendamento_value=None,
+        vcb_outras_ops_value=5.0,
+        vcb_pagamentos_value=3.0,
+        net_credito_value=90.0,
+        net_arrendamento_value=10.0,
+        net_outras_ops_value=5.0,
+        net_pagamentos_value=3.0,
+    )
+    assert fallback["value"] == 108.0
+    assert fallback["source_kind"] == "fallback_net_components"
+
+    missing = resolve_carteira_credito_bruta_value(
+        year_ref=2025,
+        legacy_credito_value=None,
+        legacy_arrendamento_value=None,
+        legacy_outros_value=None,
+        vcb_credito_value=100.0,
+        vcb_arrendamento_value=None,
+        vcb_outras_ops_value=None,
+        vcb_pagamentos_value=None,
+        net_credito_value=90.0,
+        net_arrendamento_value=None,
+        net_outras_ops_value=None,
+        net_pagamentos_value=None,
+    )
+    assert missing["value"] is None
+    assert missing["source_kind"] == "missing_required_component"
+
+
+def test_build_critical_screens_dataframe_marks_carteira_fallback_when_only_net_components_are_complete():
+    principal = pd.DataFrame(
+        [
+            {
+                "Instituição": "TEST BANK - PRUDENCIAL",
+                "Período": "4/2025",
+                "Ativo Total": 1000.0,
+                "Patrimônio Líquido": 100.0,
+                "Lucro Líquido Acumulado YTD": 20.0,
+            },
+        ]
+    )
+    ativo = pd.DataFrame(
+        [
+            {
+                "Instituição": "TEST BANK - PRUDENCIAL",
+                "Período": "4/2025",
+                "Valor Contábil Bruto (e1)": 500.0,
+                "Valor Contábil Bruto (f1)": None,
+                "Valor Contábil Bruto (g1)": 100.0,
+                "Valor Contábil Bruto (h1)": 50.0,
+                "Operações de Crédito (e)": 480.0,
+                "Operações de Arrendamento Financeiro (f)": 20.0,
+                "Outras Operações com Características de Concessão de Crédito (g)": 10.0,
+                "Valores a Receber de Transações de Pagamentos - Usuários Finais (Pós-pago) (h)": 5.0,
+            },
+        ]
+    )
+
+    result = build_critical_screens_dataframe(
+        df_principal=principal,
+        df_ativo=ativo,
+        df_passivo=pd.DataFrame(),
+        df_capital=pd.DataFrame(),
+        df_dre=pd.DataFrame(),
+        df_carteira_pf=pd.DataFrame(),
+        df_carteira_pj=pd.DataFrame(),
+        df_carteira_instrumentos=pd.DataFrame(),
+        df_bloprudencial=pd.DataFrame(),
+    )
+
+    row = result.iloc[0]
+    assert row["Carteira de Crédito Bruta"] == 515.0
+    assert row["Trace::Carteira::Status"] == "fallback_net_components"
+    assert row["Trace::Carteira::Campo Selecionado"] == "Operações de Crédito (e) + Operações de Arrendamento Financeiro (f) + Outras Operações com Características de Concessão de Crédito (g) + Valores a Receber de Transações de Pagamentos - Usuários Finais (Pós-pago) (h)"
+
+
+def test_build_critical_screens_dataframe_marks_core_funding_missing_when_post_2025_component_is_missing():
+    principal = pd.DataFrame(
+        [
+            {
+                "Instituição": "TEST BANK - PRUDENCIAL",
+                "Período": "4/2025",
+                "Ativo Total": 1000.0,
+                "Patrimônio Líquido": 100.0,
+                "Lucro Líquido Acumulado YTD": 20.0,
+            },
+        ]
+    )
+    ativo = pd.DataFrame(
+        [
+            {
+                "Instituição": "TEST BANK - PRUDENCIAL",
+                "Período": "4/2025",
+                "Valor Contábil Bruto (e1)": 500.0,
+            },
+        ]
+    )
+    passivo = pd.DataFrame(
+        [
+            {
+                "Instituição": "TEST BANK - PRUDENCIAL",
+                "Período": "4/2025",
+                "Captações (e) = (a) + (b) + (c) + (d)": 210.0,
+                "Instrumentos de Dívida Elegíveis a Capital (h)": None,
+            }
+        ]
+    )
+
+    result = build_critical_screens_dataframe(
+        df_principal=principal,
+        df_ativo=ativo,
+        df_passivo=passivo,
+        df_capital=pd.DataFrame(),
+        df_dre=pd.DataFrame(),
+        df_carteira_pf=pd.DataFrame(),
+        df_carteira_pj=pd.DataFrame(),
+        df_carteira_instrumentos=pd.DataFrame(),
+        df_bloprudencial=pd.DataFrame(),
+    )
+
+    row = result.iloc[0]
+    assert pd.isna(row["Core Funding"])
+    assert pd.isna(row["Core Funding*"])
+    assert row["Trace::Core Funding::Status"] == "missing_required_component"
+    assert row["Trace::Core Funding::Campo Selecionado"] == "Captações (e) + Instrumentos de Dívida Elegíveis a Capital (h)"
+    assert pd.isna(row["Crédito / Captações"])
+
+
+def test_validate_critical_screens_semantics_flags_incomplete_post_2025_core_funding():
+    df = pd.DataFrame(
+        [
+            {
+                "Período": "4/2025",
+                "Core Funding": 210.0,
+                "Trace::Core Funding::Status": "official_components",
+                "Trace::Core Funding::Captações (e)": 210.0,
+                "Trace::Core Funding::Instrumentos de Dívida Elegíveis a Capital (h)": None,
+            }
+        ]
+    )
+
+    issues = _validate_critical_screens_semantics(df)
+
+    assert issues["core_funding_post2025_without_all_components"] == 1
 
 
 def test_build_critical_screens_dataframe_resolves_passivo_placeholder_via_principal_codinst():

@@ -1,3 +1,4 @@
+from rating.audit import build_audit_trail_markdown
 from rating.data_mapping import map_rating_inputs
 from rating.engine import calculate_rating, get_starting_score
 
@@ -57,7 +58,7 @@ def test_calculate_rating_marks_incomplete_when_inputs_are_missing():
     assert result["missing_quantitative_inputs"] == ["cet1"]
 
 
-def test_map_rating_inputs_uses_documented_fallbacks():
+def test_map_rating_inputs_marks_npl_missing_without_stage23_ratio():
     record = {
         "Instituição": "ABC-BRASIL - PRUDENCIAL",
         "ConglomeradoId": "80312",
@@ -88,9 +89,66 @@ def test_map_rating_inputs_uses_documented_fallbacks():
     assert mapped["mapped_inputs"]["cet1"]["source_kind"] == "fallback"
     assert mapped["mapped_inputs"]["cet1"]["value"] == 0.16
     assert round(mapped["mapped_inputs"]["funding_delta"]["value"], 6) == round((100.0 / 90.0) - 1.0, 6)
-    assert mapped["mapped_inputs"]["npl_creation"]["source_kind"] == "fallback"
-    assert round(mapped["mapped_inputs"]["npl_creation"]["value"], 6) == 0.025
-    assert "Proxy fallback" in mapped["mapped_inputs"]["npl_creation"]["note"]
+    assert mapped["mapped_inputs"]["npl_creation"]["source_kind"] == "missing"
+    assert mapped["mapped_inputs"]["npl_creation"]["value"] is None
+    assert "não usa Perda Esperada / Carteira de Crédito Bruta como proxy" in mapped["mapped_inputs"]["npl_creation"]["note"]
+
+
+def test_calculate_rating_marks_incomplete_when_stage23_npl_is_unavailable():
+    record = {
+        "Instituição": "ABC-BRASIL - PRUDENCIAL",
+        "ConglomeradoId": "80312",
+        "Período": "4/2025",
+        "Período Anterior": "4/2024",
+        "Ativo Total": 66_000_000_000.0,
+        "Índice de Capital Principal (CET1)": 0.16,
+        "Índice de Basileia Total (%)": 0.18,
+        "ROE Ac. Anualizado (%)": 0.15,
+        "ROE Ac. Anualizado (%) (prev)": 0.12,
+        "Core Funding": 100.0,
+        "Core Funding (prev)": 90.0,
+        "Crédito / Captações": 0.80,
+        "Perda Esperada / Carteira de Crédito Bruta": 0.025,
+        "Perda Esperada / Carteira de Crédito Bruta (prev)": 0.010,
+        "Ativos Estágio 2": None,
+        "Ativos Estágio 3": None,
+        "Carteira de Crédito Bruta": 50.0,
+    }
+    answers = {"q1": "A", "q2": "A", "q3": "A", "q4": "A", "q5": "A", "q6": "A"}
+
+    result = calculate_rating(map_rating_inputs(record), answers)
+
+    assert result["status"] == "incomplete"
+    assert result["final_numeric_rating"] is None
+    assert result["missing_quantitative_inputs"] == ["npl_creation"]
+
+
+def test_build_audit_trail_markdown_explains_missing_npl():
+    record = {
+        "Instituição": "ABC-BRASIL - PRUDENCIAL",
+        "ConglomeradoId": "80312",
+        "Período": "4/2025",
+        "Período Anterior": "4/2024",
+        "Ativo Total": 66_000_000_000.0,
+        "Índice de Capital Principal (CET1)": 0.16,
+        "ROE Ac. Anualizado (%)": 0.15,
+        "ROE Ac. Anualizado (%) (prev)": 0.12,
+        "Core Funding": 100.0,
+        "Core Funding (prev)": 90.0,
+        "Crédito / Captações": 0.80,
+        "Perda Esperada / Carteira de Crédito Bruta": 0.025,
+        "Ativos Estágio 2": None,
+        "Ativos Estágio 3": None,
+        "Carteira de Crédito Bruta": 50.0,
+    }
+    answers = {"q1": "A", "q2": "A", "q3": "A", "q4": "A", "q5": "A", "q6": "A"}
+
+    result = calculate_rating(map_rating_inputs(record), answers)
+    markdown = build_audit_trail_markdown(result)
+
+    assert "Inputs quantitativos faltantes: NPL (Estágio 2+3 / Carteira)" in markdown
+    assert "[missing]" in markdown
+    assert "não usa Perda Esperada / Carteira de Crédito Bruta como proxy" in markdown
 
 
 def test_map_rating_inputs_prioritizes_stage23_ratio_for_npl():

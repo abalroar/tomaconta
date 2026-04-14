@@ -36,7 +36,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("ifdata_cache")
 
-CRITICAL_SCREENS_SCHEMA_VERSION = 3
+CRITICAL_SCREENS_SCHEMA_VERSION = 4
 BUNDLED_CRITICAL_SCREENS_DIR = Path("data") / "bundled" / "critical_screens"
 
 
@@ -122,10 +122,16 @@ CRITICAL_TRACE_COLUMNS = [
     "Trace::Carteira::Operações de Crédito (d1)",
     "Trace::Carteira::Arrendamento Mercantil a Receber (e1)",
     "Trace::Carteira::Outros Créditos - Líquido de Provisão (f)",
+    "Trace::Carteira::Operações de Crédito (e)",
+    "Trace::Carteira::Operações de Arrendamento Financeiro (f)",
+    "Trace::Carteira::Outras Operações com Características de Concessão de Crédito (g)",
+    "Trace::Carteira::Valores a Receber de Transações de Pagamentos - Usuários Finais (Pós-pago) (h)",
     "Trace::Carteira::Valor Contábil Bruto (e1)",
     "Trace::Carteira::Valor Contábil Bruto (f1)",
     "Trace::Carteira::Valor Contábil Bruto (g1)",
     "Trace::Carteira::Valor Contábil Bruto (h1)",
+    "Trace::Carteira::Status",
+    "Trace::Carteira::Campo Selecionado",
     "Trace::Perda Esperada::Perda Esperada (e2)",
     "Trace::Perda Esperada::Hedge de Valor Justo (e3)",
     "Trace::Perda Esperada::Ajuste a Valor Justo (e4)",
@@ -151,6 +157,8 @@ CRITICAL_TRACE_COLUMNS = [
     "Trace::Qualidade Carteira::Status",
     "Trace::Core Funding::Captações (e)",
     "Trace::Core Funding::Instrumentos de Dívida Elegíveis a Capital (h)",
+    "Trace::Core Funding::Status",
+    "Trace::Core Funding::Campo Selecionado",
     "Trace::Capital::Capital Principal",
     "Trace::Capital::Capital Complementar",
     "Trace::Capital::Capital Nível II",
@@ -514,6 +522,113 @@ def resolve_depositos_totais_value(
     }
 
 
+def resolve_core_funding_value(
+    *,
+    year_ref: Optional[int],
+    captacoes_value: object,
+    instrumentos_value: object,
+) -> Dict[str, Any]:
+    captacoes = _coerce_numeric_value(captacoes_value)
+    instrumentos = _coerce_numeric_value(instrumentos_value)
+
+    if year_ref is None or year_ref <= 2024:
+        return {
+            "value": captacoes,
+            "source_kind": "official_captacoes" if captacoes is not None else "missing",
+            "source_field": "Captações (e)",
+            "captacoes_value": captacoes,
+            "instrumentos_value": instrumentos,
+        }
+
+    combined_value = _sum_required_values([captacoes, instrumentos])
+    if combined_value is not None:
+        source_kind = "official_components"
+    elif captacoes is None and instrumentos is None:
+        source_kind = "missing"
+    else:
+        source_kind = "missing_required_component"
+
+    return {
+        "value": combined_value,
+        "source_kind": source_kind,
+        "source_field": "Captações (e) + Instrumentos de Dívida Elegíveis a Capital (h)",
+        "captacoes_value": captacoes,
+        "instrumentos_value": instrumentos,
+    }
+
+
+def resolve_carteira_credito_bruta_value(
+    *,
+    year_ref: Optional[int],
+    legacy_credito_value: object,
+    legacy_arrendamento_value: object,
+    legacy_outros_value: object,
+    vcb_credito_value: object,
+    vcb_arrendamento_value: object,
+    vcb_outras_ops_value: object,
+    vcb_pagamentos_value: object,
+    net_credito_value: object,
+    net_arrendamento_value: object,
+    net_outras_ops_value: object,
+    net_pagamentos_value: object,
+) -> Dict[str, Any]:
+    legacy_values = [
+        _coerce_numeric_value(legacy_credito_value),
+        _coerce_numeric_value(legacy_arrendamento_value),
+        _coerce_numeric_value(legacy_outros_value),
+    ]
+    vcb_values = [
+        _coerce_numeric_value(vcb_credito_value),
+        _coerce_numeric_value(vcb_arrendamento_value),
+        _coerce_numeric_value(vcb_outras_ops_value),
+        _coerce_numeric_value(vcb_pagamentos_value),
+    ]
+    net_values = [
+        _coerce_numeric_value(net_credito_value),
+        _coerce_numeric_value(net_arrendamento_value),
+        _coerce_numeric_value(net_outras_ops_value),
+        _coerce_numeric_value(net_pagamentos_value),
+    ]
+
+    legacy_sum = _sum_required_values(legacy_values)
+    vcb_sum = _sum_required_values(vcb_values)
+    net_sum = _sum_required_values(net_values)
+    any_partial = any(any(v is not None for v in values) for values in (legacy_values, vcb_values, net_values))
+
+    if year_ref is not None and year_ref <= 2024:
+        if legacy_sum is not None:
+            return {
+                "value": legacy_sum,
+                "source_kind": "official_legacy_components",
+                "source_field": "Operações de Crédito (d1) + Arrendamento Mercantil a Receber (e1) + Outros Créditos - Líquido de Provisão (f)",
+            }
+        if net_sum is not None:
+            return {
+                "value": net_sum,
+                "source_kind": "fallback_net_components",
+                "source_field": "Operações de Crédito (e) + Operações de Arrendamento Financeiro (f) + Outras Operações com Características de Concessão de Crédito (g) + Valores a Receber de Transações de Pagamentos - Usuários Finais (Pós-pago) (h)",
+            }
+    else:
+        if vcb_sum is not None:
+            return {
+                "value": vcb_sum,
+                "source_kind": "official_vcb_components",
+                "source_field": "Valor Contábil Bruto (e1) + Valor Contábil Bruto (f1) + Valor Contábil Bruto (g1) + Valor Contábil Bruto (h1)",
+            }
+        if net_sum is not None:
+            return {
+                "value": net_sum,
+                "source_kind": "fallback_net_components",
+                "source_field": "Operações de Crédito (e) + Operações de Arrendamento Financeiro (f) + Outras Operações com Características de Concessão de Crédito (g) + Valores a Receber de Transações de Pagamentos - Usuários Finais (Pós-pago) (h)",
+            }
+
+    return {
+        "value": None,
+        "source_kind": "missing_required_component" if any_partial else "missing",
+        "source_field": "",
+    }
+
+
 def _period_part_to_quarter_idx(value) -> Optional[int]:
     parte_txt = str(value).strip()
     if parte_txt == "03":
@@ -614,6 +729,58 @@ def _validate_critical_screens_semantics(df: Optional[pd.DataFrame]) -> Dict[str
         fallback_without_sum = int(((deposit_status_str == "fallback_components") & deposit_sum.isna()).sum())
         if fallback_without_sum:
             issues["depositos_fallback_without_components"] = fallback_without_sum
+
+    core_status = df.get("Trace::Core Funding::Status")
+    if core_status is not None:
+        core_status_str = core_status.fillna("").astype(str)
+        core_value = pd.to_numeric(df.get("Core Funding"), errors="coerce")
+        core_cap = pd.to_numeric(df.get("Trace::Core Funding::Captações (e)"), errors="coerce")
+        core_instr = pd.to_numeric(
+            df.get("Trace::Core Funding::Instrumentos de Dívida Elegíveis a Capital (h)"),
+            errors="coerce",
+        )
+        periodo_raw = df["Período"] if "Período" in df.columns else pd.Series("", index=df.index, dtype="object")
+        periodo_year = pd.to_numeric(periodo_raw.astype(str).str.split("/").str[-1], errors="coerce")
+
+        core_missing_status = int((core_value.notna() & core_status_str.eq("")).sum())
+        if core_missing_status:
+            issues["core_funding_missing_status"] = core_missing_status
+
+        pre2025_invalid = int(
+            ((periodo_year <= 2024) & (core_status_str == "official_captacoes") & core_cap.isna()).sum()
+        )
+        if pre2025_invalid:
+            issues["core_funding_pre2025_without_captacoes"] = pre2025_invalid
+
+        post2025_invalid = int(
+            (
+                (periodo_year >= 2025)
+                & (core_status_str == "official_components")
+                & (core_cap.isna() | core_instr.isna())
+            ).sum()
+        )
+        if post2025_invalid:
+            issues["core_funding_post2025_without_all_components"] = post2025_invalid
+
+        missing_component_with_value = int(
+            ((core_status_str == "missing_required_component") & core_value.notna()).sum()
+        )
+        if missing_component_with_value:
+            issues["core_funding_missing_component_with_value"] = missing_component_with_value
+
+    carteira_status = df.get("Trace::Carteira::Status")
+    if carteira_status is not None:
+        carteira_status_str = carteira_status.fillna("").astype(str)
+        carteira_value = pd.to_numeric(df.get("Carteira de Crédito Bruta"), errors="coerce")
+        carteira_missing_status = int((carteira_value.notna() & carteira_status_str.eq("")).sum())
+        if carteira_missing_status:
+            issues["carteira_bruta_missing_status"] = carteira_missing_status
+
+        carteira_missing_component_with_value = int(
+            ((carteira_status_str == "missing_required_component") & carteira_value.notna()).sum()
+        )
+        if carteira_missing_component_with_value:
+            issues["carteira_bruta_missing_component_with_value"] = carteira_missing_component_with_value
 
     blop_status = df.get("Trace::Bloprudencial::Status")
     if blop_status is not None:
@@ -1423,23 +1590,27 @@ def build_critical_screens_dataframe(
             trace_cart_f1 = _coerce_numeric_value(_lk_get(lk_ativo, institution_key, periodo, col_credito_bruta_f1))
             trace_cart_g1 = _coerce_numeric_value(_lk_get(lk_ativo, institution_key, periodo, col_credito_bruta_g1))
             trace_cart_h1 = _coerce_numeric_value(_lk_get(lk_ativo, institution_key, periodo, col_credito_bruta_h1))
-            carteira_bruta = _sum_values(
-                [
-                    trace_cart_e1,
-                    trace_cart_f1,
-                    trace_cart_g1,
-                    trace_cart_h1,
-                ]
-            )
-        if carteira_bruta is None:
-            carteira_bruta = _sum_values(
-                [
-                    _lk_get(lk_ativo, institution_key, periodo, col_credito_net_e),
-                    _lk_get(lk_ativo, institution_key, periodo, col_credito_net_f),
-                    _lk_get(lk_ativo, institution_key, periodo, col_credito_net_g),
-                    _lk_get(lk_ativo, institution_key, periodo, col_credito_net_h),
-                ]
-            )
+        trace_cart_net_e = _coerce_numeric_value(_lk_get(lk_ativo, institution_key, periodo, col_credito_net_e))
+        trace_cart_net_f = _coerce_numeric_value(_lk_get(lk_ativo, institution_key, periodo, col_credito_net_f))
+        trace_cart_net_g = _coerce_numeric_value(_lk_get(lk_ativo, institution_key, periodo, col_credito_net_g))
+        trace_cart_net_h = _coerce_numeric_value(_lk_get(lk_ativo, institution_key, periodo, col_credito_net_h))
+        carteira_resolution = resolve_carteira_credito_bruta_value(
+            year_ref=ano_ref,
+            legacy_credito_value=trace_cart_d1,
+            legacy_arrendamento_value=trace_cart_e1_alt,
+            legacy_outros_value=trace_cart_f_old,
+            vcb_credito_value=trace_cart_e1,
+            vcb_arrendamento_value=trace_cart_f1,
+            vcb_outras_ops_value=trace_cart_g1,
+            vcb_pagamentos_value=trace_cart_h1,
+            net_credito_value=trace_cart_net_e,
+            net_arrendamento_value=trace_cart_net_f,
+            net_outras_ops_value=trace_cart_net_g,
+            net_pagamentos_value=trace_cart_net_h,
+        )
+        carteira_bruta = _coerce_numeric_value(carteira_resolution["value"])
+        carteira_status = str(carteira_resolution["source_kind"] or "")
+        carteira_field = str(carteira_resolution["source_field"] or "")
 
         ativos_liquidos = _sum_values(
             [
@@ -1480,11 +1651,14 @@ def build_critical_screens_dataframe(
 
         trace_cap_e = _coerce_numeric_value(_lk_get(lk_passivo, institution_key, periodo, col_capt_passivo))
         trace_instr_h = _coerce_numeric_value(_lk_get(lk_passivo, institution_key, periodo, col_instr_passivo))
-        cap_val = trace_cap_e
-        if ano_ref is None or ano_ref <= 2024:
-            core_funding = _coerce_numeric_value(cap_val)
-        else:
-            core_funding = _sum_values([cap_val, trace_instr_h])
+        core_funding_resolution = resolve_core_funding_value(
+            year_ref=ano_ref,
+            captacoes_value=trace_cap_e,
+            instrumentos_value=trace_instr_h,
+        )
+        core_funding = _coerce_numeric_value(core_funding_resolution["value"])
+        core_funding_status = str(core_funding_resolution["source_kind"] or "")
+        core_funding_field = str(core_funding_resolution["source_field"] or "")
 
         trace_perda_e2 = _coerce_numeric_value(_lk_get(lk_ativo, institution_key, periodo, col_perda_e2))
         trace_perda_e3 = _coerce_numeric_value(_lk_get(lk_ativo, institution_key, periodo, col_perda_e3))
@@ -1616,10 +1790,16 @@ def build_critical_screens_dataframe(
                 "Trace::Carteira::Operações de Crédito (d1)": trace_cart_d1,
                 "Trace::Carteira::Arrendamento Mercantil a Receber (e1)": trace_cart_e1_alt,
                 "Trace::Carteira::Outros Créditos - Líquido de Provisão (f)": trace_cart_f_old,
+                "Trace::Carteira::Operações de Crédito (e)": trace_cart_net_e,
+                "Trace::Carteira::Operações de Arrendamento Financeiro (f)": trace_cart_net_f,
+                "Trace::Carteira::Outras Operações com Características de Concessão de Crédito (g)": trace_cart_net_g,
+                "Trace::Carteira::Valores a Receber de Transações de Pagamentos - Usuários Finais (Pós-pago) (h)": trace_cart_net_h,
                 "Trace::Carteira::Valor Contábil Bruto (e1)": trace_cart_e1,
                 "Trace::Carteira::Valor Contábil Bruto (f1)": trace_cart_f1,
                 "Trace::Carteira::Valor Contábil Bruto (g1)": trace_cart_g1,
                 "Trace::Carteira::Valor Contábil Bruto (h1)": trace_cart_h1,
+                "Trace::Carteira::Status": carteira_status,
+                "Trace::Carteira::Campo Selecionado": carteira_field,
                 "Trace::Perda Esperada::Perda Esperada (e2)": trace_perda_e2,
                 "Trace::Perda Esperada::Hedge de Valor Justo (e3)": trace_perda_e3,
                 "Trace::Perda Esperada::Ajuste a Valor Justo (e4)": trace_perda_e4,
@@ -1645,6 +1825,8 @@ def build_critical_screens_dataframe(
                 "Trace::Qualidade Carteira::Status": qualidade_status,
                 "Trace::Core Funding::Captações (e)": trace_cap_e,
                 "Trace::Core Funding::Instrumentos de Dívida Elegíveis a Capital (h)": trace_instr_h,
+                "Trace::Core Funding::Status": core_funding_status,
+                "Trace::Core Funding::Campo Selecionado": core_funding_field,
                 "Trace::Capital::Capital Principal": val_cp,
                 "Trace::Capital::Capital Complementar": val_cc,
                 "Trace::Capital::Capital Nível II": val_n2,

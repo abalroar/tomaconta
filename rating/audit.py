@@ -100,6 +100,14 @@ def build_audit_trail_markdown(calc_result: Mapping[str, Any]) -> str:
     previous_period = calc_result.get("previous_period") or "N/A"
     lines.append(f"- Base de comparação do funding: {previous_period}")
     lines.append(f"- Status: {calc_result.get('status') or 'N/A'}")
+    missing_quantitative = list(calc_result.get("missing_quantitative_inputs") or [])
+    if missing_quantitative:
+        mapped_inputs = dict(calc_result.get("mapped_inputs") or {})
+        missing_labels = [
+            str(mapped_inputs.get(key, {}).get("display_label") or key)
+            for key in missing_quantitative
+        ]
+        lines.append(f"- Inputs quantitativos faltantes: {', '.join(missing_labels)}")
     lines.append("")
 
     lines.append("## Dados brutos usados")
@@ -143,7 +151,14 @@ def build_audit_trail_markdown(calc_result: Mapping[str, Any]) -> str:
     lines.append("## Origem dos inputs")
     replacements = list(calc_result.get("replacements") or [])
     for item in replacements:
-        lines.append(f"- {item.get('display_label')}: {item.get('source_field')}")
+        display_label = item.get("display_label") or "N/A"
+        source_field = item.get("source_field") or "N/A"
+        source_kind = item.get("source_kind") or "N/A"
+        note = item.get("note") or ""
+        line = f"- {display_label}: {source_field} [{source_kind}]"
+        if note:
+            line += f" | {note}"
+        lines.append(line)
     lines.append("")
     lines.append("## Versão da tabela de pesos")
     lines.append(f"- {calc_result.get('weights_version')}")
