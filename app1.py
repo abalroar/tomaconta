@@ -12809,61 +12809,204 @@ if menu == "Sobre":
     st.markdown("""
     ## sobre a plataforma
 
-    o **toma.conta** consolida dados oficiais do banco central para análise comparativa de instituições financeiras brasileiras, com foco em leitura rápida, filtros reproduzíveis, exportação e documentação técnica dos cálculos.
+    o **toma.conta** consolida dados oficiais do banco central para análise comparativa de instituições financeiras brasileiras, com foco em leitura rápida, filtros reproduzíveis e exportação.
     """)
 
-    st.markdown("### abas principais")
-    st.dataframe(
-        pd.DataFrame(
-            [
-                {"Aba": "Snapshot", "Para que serve": "Leitura vertical de uma instituição em um único período, com indicadores-chave e memórias de cálculo."},
-                {"Aba": "Rankings", "Para que serve": "Ordenação rápida de indicadores por período, com filtros e comparações imediatas."},
-                {"Aba": "Peers (Tabela)", "Para que serve": "Comparação tabular entre várias instituições e até três períodos, com variação anual."},
-                {"Aba": "Evolução", "Para que serve": "Séries históricas dos principais indicadores para entender tendência, aceleração e patamar."},
-                {"Aba": "Scatter Plot", "Para que serve": "Relações entre métricas em dois eixos, com bolhas e filtros por período."},
-                {"Aba": "DRE (Ind. e Congl.)", "Para que serve": "Leitura do resultado por conglomerado prudencial ou por instituição individual, com exportação."},
-                {"Aba": "Carteira 4.966", "Para que serve": "Qualidade da carteira de crédito por classe de risco e ativos problemáticos."},
-                {"Aba": "Taxas de Juros (Beta Leve)", "Para que serve": "Histórico mensal consolidado e série diária dos últimos 3 meses por produto, com exportação para Excel."},
-                {"Aba": "Conselho e Diretoria", "Para que serve": "Composição de órgãos de governança por conglomerado e instituição participante."},
-            ]
-        ),
-        hide_index=True,
-        use_container_width=True,
-    )
+    st.markdown("""
+    <div class="modules-panel">
+        <div class="modules-header">
+            <div class="modules-kicker">módulos de análise</div>
+            <div class="modules-sub">acessos compactos e diretos ao ponto</div>
+        </div>
+        <div class="module-grid">
+            <div class="module-chip">
+                <div class="module-top">
+                    <span class="module-title">rankings</span>
+                    <span class="module-pill">ranking</span>
+                </div>
+                <div class="module-desc">ordene indicadores por período com comparação imediata.</div>
+            </div>
+            <div class="module-chip">
+                <div class="module-top">
+                    <span class="module-title">dre</span>
+                    <span class="module-pill">resultado</span>
+                </div>
+                <div class="module-desc">leitura de receitas, despesas e margens em um painel limpo.</div>
+            </div>
+            <div class="module-chip">
+                <div class="module-top">
+                    <span class="module-title">peers (tabela)</span>
+                    <span class="module-pill">comparativo</span>
+                </div>
+                <div class="module-desc">multi-bancos e até 3 períodos com variação anual.</div>
+            </div>
+            <div class="module-chip">
+                <div class="module-top">
+                    <span class="module-title">carteira 4.966</span>
+                    <span class="module-pill">risco</span>
+                </div>
+                <div class="module-desc">qualidade da carteira com foco em classes críticas.</div>
+            </div>
+            <div class="module-chip">
+                <div class="module-top">
+                    <span class="module-title">evolução</span>
+                    <span class="module-pill">tendência</span>
+                </div>
+                <div class="module-desc">séries temporais para aceleração, desaceleração e patamar.</div>
+            </div>
+            <div class="module-chip">
+                <div class="module-top">
+                    <span class="module-title">taxas por produto</span>
+                    <span class="module-pill">juros</span>
+                </div>
+                <div class="module-desc">comparação por modalidade (pf/pj) e período.</div>
+            </div>
+            <div class="module-chip">
+                <div class="module-top">
+                    <span class="module-title">scatter plot</span>
+                    <span class="module-pill">x/y</span>
+                </div>
+                <div class="module-desc">relação entre indicadores com tamanho de bolha.</div>
+            </div>
+            <div class="module-chip">
+                <div class="module-top">
+                    <span class="module-title">métrica + glossário</span>
+                    <span class="module-pill">custom</span>
+                </div>
+                <div class="module-desc">crie indicadores e navegue a documentação técnica.</div>
+            </div>
+            <div class="module-chip">
+                <div class="module-top">
+                    <span class="module-title">snapshot</span>
+                    <span class="module-pill">briefing</span>
+                </div>
+                <div class="module-desc">indicadores-chave de uma instituição em leitura única e vertical.</div>
+            </div>
+            <div class="module-chip">
+                <div class="module-top">
+                    <span class="module-title">conselho e diretoria</span>
+                    <span class="module-pill">governança</span>
+                </div>
+                <div class="module-desc">composição de órgãos por conglomerado e instituição participante.</div>
+            </div>
+            <div class="module-chip">
+                <div class="module-top">
+                    <span class="module-title">contribuições fgc/fgcoop</span>
+                    <span class="module-pill">garantias</span>
+                </div>
+                <div class="module-desc">contribuições por regime de garantia com comparativo de período.</div>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
-    st.markdown("### testes / beta")
-    st.dataframe(
-        pd.DataFrame(
-            [
-                {"Aba": "Modelo de Rating", "Para que serve": "Motor experimental de rating com score inicial por porte, fatores quantitativos e perguntas qualitativas auditáveis."},
-                {"Aba": "Contas COSIF", "Para que serve": "Ranking mensal por conta COSIF a partir do BLOPRUDENCIAL, com regra explícita de saldo, trimestre ou acumulado semestral."},
-                {"Aba": "Balanço, DRE e DMPL (Ind.)", "Para que serve": "Consulta ao vivo do documento 9011 do Banco Central para balanço, DRE e DMPL individuais."},
-            ]
-        ),
-        hide_index=True,
-        use_container_width=True,
-    )
+    st.markdown("---")
 
-    st.markdown("### recursos da plataforma")
-    st.markdown(
-        """
-        - filtros por período, instituição, produto e visão contábil, com persistência em sessão;
-        - nomes canônicos por instituição para estabilizar comparações entre fontes;
-        - exportação para Excel e CSV nas visões principais, incluindo matrizes prontas para uso externo;
-        - caches locais e publicados para evitar reprocessamento e reduzir dependência de consulta bruta ao vivo;
-        - glossário central e mini-glossários nas abas para explicar fonte, cálculo e limitações.
-        """
-    )
+    st.markdown("""
+    <div class="metrics-panel">
+        <div class="metrics-title">indicadores e métricas disponíveis</div>
+        <div class="metrics-grid">
+            <div class="metrics-card">
+                <div class="metrics-kicker">estrutura patrimonial</div>
+                <ul class="metrics-list">
+                    <li>ativo total</li>
+                    <li>ativos líquidos</li>
+                    <li>carteira de crédito classificada e líquida</li>
+                    <li>títulos e valores mobiliários</li>
+                    <li>depósitos e captações</li>
+                    <li>patrimônio líquido</li>
+                    <li>lucro líquido acumulado (ytd)</li>
+                </ul>
+            </div>
+            <div class="metrics-card">
+                <div class="metrics-kicker">capital e prudencial</div>
+                <ul class="metrics-list">
+                    <li>capital principal (tier 1)</li>
+                    <li>capital complementar</li>
+                    <li>capital nível ii</li>
+                    <li>rwa total / crédito / mercado / operacional</li>
+                    <li>exposição total</li>
+                    <li>índices de capital (cet1 e basileia)</li>
+                    <li>razão de alavancagem</li>
+                </ul>
+            </div>
+            <div class="metrics-card">
+                <div class="metrics-kicker">métricas derivadas</div>
+                <ul class="metrics-list">
+                    <li>roe acumulado anualizado (%)</li>
+                    <li>ativo / pl</li>
+                    <li>crédito / pl (%)</li>
+                    <li>crédito / captações (%)</li>
+                    <li>perda esperada / carteira</li>
+                    <li>pdd total e coberturas</li>
+                </ul>
+                <div class="metrics-divider"></div>
+                <div class="metrics-kicker">outros blocos</div>
+                <ul class="metrics-list">
+                    <li>carteira 4.966 por classe de risco</li>
+                    <li>taxas de juros por produto (pf e pj)</li>
+                    <li>conselho e diretoria por conglomerado</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
-    st.markdown("### como utilizar")
-    st.markdown(
-        """
-        1. selecione a aba de acordo com a pergunta analítica: ranking, comparação entre pares, evolução, DRE, crédito, juros ou módulos experimentais.
-        2. defina período, instituições e recortes de produto ou conta antes de interpretar os números.
-        3. use o glossário e as memórias de cálculo para validar fórmula, fonte e eventual quebra metodológica.
-        4. exporte o resultado quando precisar reproduzir o gráfico ou continuar a análise fora do app.
-        """
-    )
+    st.markdown("---")
+
+    st.markdown("""
+    <div class="ops-panel">
+        <div class="metrics-title">recursos operacionais</div>
+        <div class="ops-grid">
+            <div class="ops-card">
+                <div class="ops-title">filtros inteligentes</div>
+                <div class="ops-desc">seleção por lista customizada e recortes por período.</div>
+            </div>
+            <div class="ops-card">
+                <div class="ops-title">nomenclatura personalizada</div>
+                <div class="ops-desc">nomes canônicos por instituição, com matching oficial e previsível.</div>
+            </div>
+            <div class="ops-card">
+                <div class="ops-title">exportação</div>
+                <div class="ops-desc">excel e csv nas análises tabulares, com artefatos para relatórios.</div>
+            </div>
+            <div class="ops-card">
+                <div class="ops-title">dados oficiais</div>
+                <div class="ops-desc">fontes oficiais do bcb (if.data, relatório 5 e 4.966).</div>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("---")
+
+    st.markdown("""
+    <div class="steps-panel">
+        <div class="metrics-title">como utilizar</div>
+        <ul class="steps-list">
+            <li class="steps-item">
+                <div class="steps-num">1</div>
+                <div class="steps-text"><strong>selecione o módulo</strong> com foco no objetivo (snapshot, rankings, peers, evolução, scatter, dre, carteira 4.966, taxas, conselho, fgc ou métrica customizada).</div>
+            </li>
+            <li class="steps-item">
+                <div class="steps-num">2</div>
+                <div class="steps-text"><strong>defina período e instituições</strong> para ajustar o recorte comparativo.</div>
+            </li>
+            <li class="steps-item">
+                <div class="steps-num">3</div>
+                <div class="steps-text"><strong>aplique filtros e nomes canônicos</strong> para padronizar a comparação.</div>
+            </li>
+            <li class="steps-item">
+                <div class="steps-num">4</div>
+                <div class="steps-text"><strong>consulte o glossário</strong> para validar fórmulas e conceitos.</div>
+            </li>
+            <li class="steps-item">
+                <div class="steps-num">5</div>
+                <div class="steps-text"><strong>exporte os resultados</strong> em excel/csv quando precisar compartilhar.</div>
+            </li>
+        </ul>
+    </div>
+    """, unsafe_allow_html=True)
 
     st.markdown("---")
 
