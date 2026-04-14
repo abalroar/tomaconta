@@ -13779,9 +13779,10 @@ def _normalizar_rotulo_menu(valor):
         return None
     menu_norm = str(valor).strip()
     aliases = {
-        "Taxas de Juros": "Taxas de Juros (Beta Leve)",
-        "Taxas de Juros por Produto": "Taxas de Juros (Beta Leve)",
-        "Taxas de Juros por Produto (Legado)": "Taxas de Juros (Beta Leve)",
+        "Taxas de Juros": "Taxas de Juros por Produto",
+        "Taxas de Juros (Beta Leve)": "Taxas de Juros por Produto",
+        "Taxas de Juros por Produto": "Taxas de Juros por Produto",
+        "Taxas de Juros por Produto (Legado)": "Taxas de Juros por Produto",
         "Atualização Base": "Atualizar Base",
         "Painel": "Rankings",
         "Contribuições FGC": "Contas COSIF",
@@ -13806,7 +13807,7 @@ MENU_PRINCIPAL = [
     "Scatter Plot",
     "DRE (Ind. e Congl.)",
     "Carteira 4.966",
-    "Taxas de Juros (Beta Leve)",
+    "Taxas de Juros por Produto",
 ]
 
 # Lista de opções do menu secundário (utilitários)
@@ -13970,7 +13971,7 @@ CACHE_DEPENDENCIAS_POR_ABA = {
     "Scatter Plot": ["principal", "capital", "derived_metrics"],
     "DRE (Ind. e Congl.)": ["dre", "principal", "dre_individual", "principal_individual"],
     "Carteira 4.966": ["carteira_instrumentos"],
-    "Taxas de Juros (Beta Leve)": ["taxas_juros_historico"],
+    "Taxas de Juros por Produto": ["taxas_juros_historico"],
     "Contas COSIF": ["bloprudencial"],
     "Atualizar Base": [
         "principal", "capital", "ativo", "passivo", "dre", "carteira_pf",
@@ -24593,11 +24594,11 @@ elif menu == "Taxas de Juros por Produto (Legado)":
     st.markdown("### Taxas de Juros por Produto (Legado)")
     st.caption("Histórico dos últimos 12 meses - API do Banco Central do Brasil")
     st.warning(
-        "Esta é a versão legada e mais pesada da aba. Para uso diário, prefira `Taxas de Juros (Beta Leve)`, "
+        "Esta é a versão legada e mais pesada da aba. Para uso diário, prefira `Taxas de Juros por Produto`, "
         "que consulta em etapas e reduz bastante o risco de carga excessiva."
     )
-    if st.button("Abrir Taxas de Juros (Beta Leve)", key="tj_legado_ir_beta", width='stretch'):
-        st.session_state['menu_atual'] = "Taxas de Juros (Beta Leve)"
+    if st.button("Abrir Taxas de Juros por Produto", key="tj_legado_ir_beta", width='stretch'):
+        st.session_state['menu_atual'] = "Taxas de Juros por Produto"
         st.rerun()
 
     with st.expander("Sobre os dados", expanded=False):
@@ -24893,7 +24894,7 @@ elif menu == "Taxas de Juros por Produto (Legado)":
                             key="tj_download_csv"
                         )
 
-elif menu == "Taxas de Juros (Beta Leve)":
+elif menu == "Taxas de Juros por Produto":
     # =========================================================================
     # ABA TAXAS DE JUROS (BETA LEVE)
     # Estratégia: consultas progressivas com filtro no servidor do BCB.
@@ -25513,7 +25514,7 @@ elif menu == "Taxas de Juros (Beta Leve)":
             "source": "live_slice",
         }
 
-    st.markdown("### Taxas de Juros (Beta Leve)")
+    st.markdown("### Taxas de Juros por Produto")
     st.caption(
         "Usa o cache histórico consolidado quando disponível; caso contrário, cai para consultas progressivas no servidor do BCB."
     )
@@ -27270,7 +27271,7 @@ elif menu == "Atualizar Base":
             st.caption("⚠️ Taxas de Juros: extração completa de TODOS os produtos e TODAS as instituições")
             st.warning(
                 "Este fluxo de atualização é pesado e voltado a reconstrução de cache completo. "
-                "Para análise ao vivo no app, use a aba `Taxas de Juros (Beta Leve)`."
+                "Para análise ao vivo no app, use a aba `Taxas de Juros por Produto`."
             )
 
             col_data1, col_data2 = st.columns(2)
@@ -28360,7 +28361,7 @@ elif menu == "Glossário":
         """)
     with st.expander("**Módulos recentes e regras de leitura**", expanded=False):
         st.markdown("""
-        - **Taxas de Juros (Beta Leve):** consome preferencialmente um cache histórico consolidado e usa a última observação disponível de cada mês para a visão mensal; a série diária mostra os últimos 3 meses ancorados na data mais recente da base.
+        - **Taxas de Juros por Produto:** consome preferencialmente um cache histórico consolidado e usa a última observação disponível de cada mês para a visão mensal; a série diária mostra os últimos 3 meses ancorados na data mais recente da base.
         - **Contas COSIF:** lê o BLOPRUDENCIAL mensal e reconstrói saldo, trimestre ou acumulado semestral conforme a natureza da conta COSIF e a competência escolhida.
         - **Modelo de Rating:** usa o cache curado `critical_screens` para os fatores quantitativos e entrada manual para as seis perguntas qualitativas.
         - **Balanço, DRE e DMPL (Ind.):** consulta o documento 9011 ao vivo; por isso, a disponibilidade depende do JSON retornado pelo Banco Central para a instituição e competência escolhidas.
@@ -28416,9 +28417,9 @@ elif menu == "Glossário":
     ])
 
     _render_secao_glossario("6) Juros, COSIF e Módulos Experimentais", [
-        {"Indicador": "Taxa Mensal (%)", "Aba(s)": "Taxas de Juros (Beta Leve), Glossário", "Fonte": "BCB Olinda `ConsultaUnificada` / cache histórico de taxas", "Fórmula": "Valor publicado pelo BCB para a instituição, produto e janela oficial", "Unidade": "% a.m.", "Interpretação": "Taxa média ponderada mensal observada para a combinação selecionada.", "Limitação": "Nem toda instituição publica em toda janela; lacunas são preservadas.", "Periodicidade": "Diária por janela oficial"},
-        {"Indicador": "Taxa Anual (%)", "Aba(s)": "Taxas de Juros (Beta Leve), Glossário", "Fonte": "BCB Olinda `ConsultaUnificada` / cache histórico de taxas", "Fórmula": "Valor publicado pelo BCB para a mesma linha da taxa mensal", "Unidade": "% a.a.", "Interpretação": "Versão anualizada publicada pelo BCB para a mesma observação.", "Limitação": "Segue a disponibilidade e as revisões do próprio serviço do BCB.", "Periodicidade": "Diária por janela oficial"},
-        {"Indicador": "Série diária · últimos 3 meses", "Aba(s)": "Taxas de Juros (Beta Leve), Glossário", "Fonte": "Cache histórico de taxas + calendário oficial `ConsultaDatas`", "Fórmula": "Recorte dos últimos 3 meses ancorado na última `fim_periodo` disponível, com reindexação pelas datas oficiais", "Unidade": "Série temporal", "Interpretação": "Permite comparar a trajetória recente dos bancos selecionados sem imputar pontos inexistentes.", "Limitação": "Lacunas permanecem vazias quando a instituição não publica na janela.", "Periodicidade": "Diária por janela oficial"},
+        {"Indicador": "Taxa Mensal (%)", "Aba(s)": "Taxas de Juros por Produto, Glossário", "Fonte": "BCB Olinda `ConsultaUnificada` / cache histórico de taxas", "Fórmula": "Valor publicado pelo BCB para a instituição, produto e janela oficial", "Unidade": "% a.m.", "Interpretação": "Taxa média ponderada mensal observada para a combinação selecionada.", "Limitação": "Nem toda instituição publica em toda janela; lacunas são preservadas.", "Periodicidade": "Diária por janela oficial"},
+        {"Indicador": "Taxa Anual (%)", "Aba(s)": "Taxas de Juros por Produto, Glossário", "Fonte": "BCB Olinda `ConsultaUnificada` / cache histórico de taxas", "Fórmula": "Valor publicado pelo BCB para a mesma linha da taxa mensal", "Unidade": "% a.a.", "Interpretação": "Versão anualizada publicada pelo BCB para a mesma observação.", "Limitação": "Segue a disponibilidade e as revisões do próprio serviço do BCB.", "Periodicidade": "Diária por janela oficial"},
+        {"Indicador": "Série diária · últimos 3 meses", "Aba(s)": "Taxas de Juros por Produto, Glossário", "Fonte": "Cache histórico de taxas + calendário oficial `ConsultaDatas`", "Fórmula": "Recorte dos últimos 3 meses ancorado na última `fim_periodo` disponível, com reindexação pelas datas oficiais", "Unidade": "Série temporal", "Interpretação": "Permite comparar a trajetória recente dos bancos selecionados sem imputar pontos inexistentes.", "Limitação": "Lacunas permanecem vazias quando a instituição não publica na janela.", "Periodicidade": "Diária por janela oficial"},
         {"Indicador": "Conta COSIF", "Aba(s)": "Contas COSIF, Glossário", "Fonte": "BLOPRUDENCIAL mensal", "Fórmula": "Código contábil selecionado no dropdown", "Unidade": "Conta", "Interpretação": "Define a linha contábil usada para construir o ranking mensal.", "Limitação": "A nomenclatura pode variar por período; o app privilegia o código COSIF como chave.", "Periodicidade": "Mensal"},
         {"Indicador": "Valor Calculado", "Aba(s)": "Contas COSIF, Glossário", "Fonte": "BLOPRUDENCIAL mensal", "Fórmula": "Saldo do período, trimestre isolado ou acumulado semestral, conforme a regra aplicável à conta", "Unidade": "R$", "Interpretação": "Valor efetivamente comparado entre instituições no ranking.", "Limitação": "Instituições sem base necessária são excluídas do cálculo.", "Periodicidade": "Mensal / trimestral / semestral reconstruído"},
         {"Indicador": "Valor Calculado (abs)", "Aba(s)": "Contas COSIF, Glossário", "Fonte": "Derivação local sobre o valor calculado", "Fórmula": "abs(Valor Calculado)", "Unidade": "R$", "Interpretação": "Usado apenas para ordenar e medir participação no total exibido.", "Limitação": "Não substitui o sinal econômico do valor original.", "Periodicidade": "Mesmo período do Valor Calculado"},
