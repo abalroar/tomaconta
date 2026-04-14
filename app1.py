@@ -1112,10 +1112,10 @@ PEERS_TABELA_LAYOUT = [
 PEERS_GLOSSARIO_RESUMIDO = {
     "Ativo Total": "Ativo Total do balanço principal (Rel. 1).",
     "Ativos Líquidos": "Disponibilidades (a) + Aplicações Interfinanceiras de Liquidez (b) + TVM (c) no Rel. 2.",
-    "Carteira de Crédito*": "Soma do Valor Contábil Bruto (e1+f1+g1+h1) no Rel. 2.",
+    "Carteira de Crédito*": "Até 2024: Crédito Bruta + Arrendamento Bruta + Outros Créditos Líquidos de Provisão. 2025+: Valor Contábil Bruto (e1+f1+g1+h1) no Rel. 2.",
     "Perda Esperada": "Soma de perdas esperadas e ajustes de valor justo das bases e/f/g/h no Rel. 2.",
     "Depósitos Totais": "Depósitos (e) no Rel. 3; fallback para soma dos subtipos quando necessário.",
-    "Core Funding*": "Captações (e) no Rel. 3; a partir de 2025, soma-se Dívida Subordinada (h).",
+    "Core Funding*": "Até 2024: Captações (e). 2025+: Captações (e) + Dívida Subordinada (h) no Rel. 3.",
     "Patrimônio Líquido (PL)": "Patrimônio Líquido do balanço principal (Rel. 1).",
     "Ativos Estágio 2": "Saldo da conta 3312000001 (Cadoc 4060) no período.",
     "Ativos Estágio 3": "Saldo da conta 3313000000 (Cadoc 4060) no período.",
@@ -4103,6 +4103,14 @@ def _formatar_percentual(valor, decimais: int = 2) -> str:
     if abs(valor_float) <= 1:
         valor_float *= 100
     return f"{_formatar_numero_ptbr(valor_float, decimais)}%"
+
+
+def _write_excel_number_or_blank(worksheet, row_idx: int, col_idx: int, valor, cell_format) -> None:
+    valor_num = pd.to_numeric(pd.Series([valor]), errors="coerce").iloc[0]
+    if pd.isna(valor_num):
+        worksheet.write_blank(row_idx, col_idx, None, cell_format)
+        return
+    worksheet.write_number(row_idx, col_idx, float(valor_num), cell_format)
 
 
 def _formatar_monetario_br_inteligente(valor, decimais: int = 1, usar_sufixo_mm_maiusculo: bool = False) -> str:
@@ -8954,17 +8962,17 @@ def _render_snap_grid(cards_html: list, grid_class: str) -> str:
 
 _SNAPSHOT_PROVENANCE = [
     ("Ativo Total", "BCB IFData Rel. 1 — Balanço Patrimonial", "Valor direto", "↑ = melhora (maior porte)"),
-    ("Carteira de Crédito", "BCB IFData Rel. 2 — Ativo Detalhado", "Soma Valor Contábil Bruto (e1+f1+g1+h1)", "↑ = melhora (maior carteira)"),
+    ("Carteira de Crédito", "BCB IFData Rel. 2 — Ativo Detalhado", "Até 2024: Crédito Bruta + Arrendamento Bruta + Outros Créditos Líquidos de Provisão; 2025+: Valor Contábil Bruto (e1+f1+g1+h1)", "↑ = melhora (maior carteira)"),
     ("Patrimônio Líquido", "BCB IFData Rel. 1 — Balanço Patrimonial", "Valor direto", "↑ = melhora (maior solidez)"),
     ("Índice de Basileia", "BCB IFData Rel. 5 — Patrimônio de Referência", "(CP + CC + N2) ÷ RWA Total", "↑ = melhora (maior folga de capital)"),
     ("Lucro Líquido Trimestral", "BCB IFData Rel. 1 + decomposição semestral", "LL_YTD(t) − LL_YTD(t−1) conforme regime Bacen", "↑ = melhora"),
     ("Lucro Líquido Acum. YTD", "BCB IFData Rel. 1", "Acumulado no ano normalizado", "↑ = melhora"),
     ("ROE trim. anualizado", "Calculado", "(LL_Trimestral × 4) ÷ PL Médio × 100", "↑ = melhora (maior retorno)"),
     ("ROE Ac. Anualizado", "Calculado", "(LL_YTD × Fator Anualização) ÷ PL Médio × 100", "↑ = melhora (maior retorno)"),
-    ("Crédito / Captações", "BCB IFData Rel. 2 ÷ Rel. 3", "Carteira de Crédito ÷ Core Funding", "↓ = melhora (menor alavancagem)"),
-    ("Desp. Captação / Captações", "Métricas derivadas (DRE ÷ Passivo)", "Despesas de captação ÷ Captações totais", "↓ = melhora (menor custo de funding)"),
-    ("Estágio 3 / Carteira", "BLOPrudencial (Cadoc 4060) ÷ Rel. 2", "Conta 3313000000 ÷ Carteira Bruta", "↓ = melhora (menor inadimplência)"),
-    ("PDD / Estágio 3", "BLOPrudencial (Cadoc 4060)", "(PDD Crédito + PDD Outros) ÷ Estágio 3", "↑ = melhora (maior cobertura)"),
+    ("Crédito / Captações", "BCB IFData Rel. 2 ÷ Rel. 3", "Carteira de Crédito Bruta ÷ Core Funding", "↓ = melhora (menor alavancagem)"),
+    ("Desp. Anualizada Captação / Volume Captação", "Métricas derivadas (DRE ÷ Passivo)", "Despesa de captação anualizada ÷ captações médias YTD", "↓ = melhora (menor custo de funding)"),
+    ("Perda Esperada / Estágio 3", "BCB IFData Rel. 2 + Cadoc 4060", "Perda Esperada ÷ Ativos Estágio 3", "↓ = melhora (menor pressão de perda)"),
+    ("Perda Esperada / Carteira", "BCB IFData Rel. 2", "Perda Esperada ÷ Carteira de Crédito Bruta", "↓ = melhora (menor pressão de perda)"),
     ("CET1", "BCB IFData Rel. 5 — Patrimônio de Referência", "Capital Principal ÷ RWA Total", "↑ = melhora (maior folga de capital)"),
 ]
 
@@ -9297,7 +9305,7 @@ def pagina_snapshot():
         st.warning("cache curado indisponível para Snapshot.")
         return
 
-    bancos = ordenar_bancos_com_alias(list(bancos_ctx), {})
+    bancos = ordenar_bancos_com_alias(list(bancos_ctx), st.session_state.get("dict_aliases", {}))
     idx_snapshot_default = _indice_default_itau_unibanco(bancos)
     banco = st.selectbox("Instituição", bancos, index=idx_snapshot_default, key="snapshot_banco")
     timer_box = st.empty()
@@ -12626,7 +12634,6 @@ st.markdown('</div>', unsafe_allow_html=True)
 # Usar menu_atual (já atualizado pelos callbacks)
 menu = st.session_state['menu_atual']
 _menu_prev_rendered = st.session_state.get('_menu_prev_rendered')
-_just_entered_scatter = menu == "Scatter Plot" and _menu_prev_rendered != "Scatter Plot"
 _just_changed_tab = menu != _menu_prev_rendered and _menu_prev_rendered is not None
 st.session_state['_menu_prev_rendered'] = menu
 
@@ -13630,7 +13637,7 @@ elif menu == "Peers (Tabela)":
                         periodos_selecionados,
                         perf=peers_perf,
                         extra_values_precomputed=_extra_values,
-                        allow_capital_fallback=False,
+                        allow_capital_fallback=True,
                     )
                     _elapsed = time.perf_counter() - _t
                     _log_timing("5_montar_tabela_peers", _elapsed)
@@ -13745,9 +13752,9 @@ elif menu == "Peers (Tabela)":
                     else:
                         st.caption("Exports são gerados sob demanda e não entram no tempo interativo da aba.")
 
-                    # DIAG-WEB-2: painel de timings visível no app (ambiente web)
+                    # DIAG-WEB-2: painel de timings visível apenas em modo diagnóstico.
                     _timing_log = st.session_state.get("peers_timing_log", [])
-                    if _timing_log:
+                    if _timing_log and st.session_state.get("modo_diagnostico"):
                         with st.expander("⏱ Diagnóstico de performance (Peers)", expanded=True):
                             st.markdown("**Timings desta execução:**")
                             for _entry in _timing_log:
@@ -13983,34 +13990,34 @@ elif menu == "Conselho e Diretoria":
                             orgaos_disponiveis = (
                                 df_orgaos[["OrgaoId", "OrgaoNome"]]
                                 .drop_duplicates()
-                            .sort_values(["OrgaoNome", "OrgaoId"], na_position="last")
-                            .reset_index(drop=True)
-                        )
-                        mapa_opcoes = {
-                            f"{str(row['OrgaoId']) if pd.notna(row['OrgaoId']) else 'sem-id'} - {row['OrgaoNome']}": row
-                            for _, row in orgaos_disponiveis.iterrows()
-                        }
-                        opcoes_orgao = ["Todos"] + list(mapa_opcoes.keys())
-                        orgao_sel = st.selectbox(
-                            "Selecione o órgão estatutário",
-                            options=opcoes_orgao,
-                            index=0,
-                            key="orgaos_tipo_orgao",
-                        )
+                                .sort_values(["OrgaoNome", "OrgaoId"], na_position="last")
+                                .reset_index(drop=True)
+                            )
+                            mapa_opcoes = {
+                                f"{str(row['OrgaoId']) if pd.notna(row['OrgaoId']) else 'sem-id'} - {row['OrgaoNome']}": row
+                                for _, row in orgaos_disponiveis.iterrows()
+                            }
+                            opcoes_orgao = ["Todos"] + list(mapa_opcoes.keys())
+                            orgao_sel = st.selectbox(
+                                "Selecione o órgão estatutário",
+                                options=opcoes_orgao,
+                                index=0,
+                                key="orgaos_tipo_orgao",
+                            )
 
-                        if orgao_sel == "Todos":
-                            df_filtrado = df_orgaos.copy()
-                        else:
-                            orgao_ref = mapa_opcoes.get(orgao_sel)
-                            if orgao_ref is None:
+                            if orgao_sel == "Todos":
                                 df_filtrado = df_orgaos.copy()
                             else:
-                                mask_nome = df_orgaos["OrgaoNome"] == orgao_ref["OrgaoNome"]
-                                if pd.notna(orgao_ref["OrgaoId"]):
-                                    mask = mask_nome & (df_orgaos["OrgaoId"] == orgao_ref["OrgaoId"])
+                                orgao_ref = mapa_opcoes.get(orgao_sel)
+                                if orgao_ref is None:
+                                    df_filtrado = df_orgaos.copy()
                                 else:
-                                    mask = mask_nome
-                                df_filtrado = df_orgaos[mask].copy()
+                                    mask_nome = df_orgaos["OrgaoNome"] == orgao_ref["OrgaoNome"]
+                                    if pd.notna(orgao_ref["OrgaoId"]):
+                                        mask = mask_nome & (df_orgaos["OrgaoId"] == orgao_ref["OrgaoId"])
+                                    else:
+                                        mask = mask_nome
+                                    df_filtrado = df_orgaos[mask].copy()
 
                             df_filtrado = _ordenar_cargos_estatutarios(df_filtrado)
 
@@ -14183,6 +14190,7 @@ elif menu == "Evolução":
         # Core Funding: Captações (e) + Instrumentos de Dívida Elegíveis a Capital (h) do Passivo (Rel. 3)
         core_funding_series = None
         core_funding_memoria_map = {}
+        core_funding_fallback_reason = None
         try:
             periodos_evo = df_ano.get("Período", pd.Series(dtype="object")).dropna().unique().tolist()
             cache_passivo = _carregar_cache_relatorio_slice(
@@ -14231,13 +14239,23 @@ elif menu == "Evolução":
                     )
                     core_funding_memoria_map[periodo] = {"captacoes": cap_val, "instr_capital": ins_val}
                 core_funding_series = df_ano.get("Período", pd.Series(index=df_ano.index)).map(core_map)
+            else:
+                core_funding_fallback_reason = "colunas estruturantes do Rel. 3 indisponíveis"
         except Exception:
             core_funding_series = None
+            core_funding_fallback_reason = "falha ao reconstruir Core Funding pelo Rel. 3"
 
         if core_funding_series is None:
             core_funding_series = _numeric_series(df_ano, "Captações")
             core_funding_memoria_map = {}
+            if core_funding_fallback_reason is None:
+                core_funding_fallback_reason = "cache de passivo indisponível"
         df_ano["Core Funding"] = core_funding_series
+        if core_funding_fallback_reason:
+            st.caption(
+                "Core Funding* em fallback para Captações nesta visualização, "
+                f"porque a reconstrução pelo Rel. 3 não ficou disponível ({core_funding_fallback_reason})."
+            )
 
         # Carteira de Crédito Bruta: preferir cálculo direto do Rel. 2 (Ativo)
         carteira_bruta_series = None
@@ -14804,7 +14822,7 @@ elif menu == "Evolução":
                     "nota": [
                         "* Carteira de Crédito: 2000–2024 = Crédito Bruta + Arrendamento Bruta + Outros Créditos Líquidos de Provisão (base líquida, sem detalhamento — comparação imprecisa).",
                         "2025+ = Valor Contábil Bruto (e1+f1+g1+h1), onde: e = Operações de Crédito; f = Arrendamento; g = Outras Ops.; h = Transações de Pagamentos.",
-                        "Core Funding*: até 2024 = Captações (e); 2025+ = Captações (e) + Dívida Subordinada (h) no Relatório de Passivo (Rel. 3). Captações (e) = (a) + (b) + (c) + (d).",
+                        "Core Funding*: até 2024 = Captações (e); 2025+ = Captações (e) + Dívida Subordinada (h) no Relatório de Passivo (Rel. 3). Se o Rel. 3 falhar nesta aba, há fallback explícito para Captações.",
                     ]
                 })
                 nota_df.to_excel(writer, index=False, sheet_name='nota')
@@ -14874,7 +14892,7 @@ elif menu == "Evolução":
             st.markdown(
                 """
                 <div style="font-size: 12px; color: #666; margin-top: 6px;">
-                    <strong>Core Funding*:</strong> Captações (e) no Relatório Passivo; a partir de 2025, soma-se Dívida Subordinada (h). Captações (e) = (a) + (b) + (c) + (d), onde: (a) Depósitos — inclui À Vista, Poupança, DI, Dep. a Prazo, Contas de Pagamento Pré-Paga e Outros; (b) Obrigações por Operações Compromissadas; (c) Recursos de Aceite e Emissão de Títulos — inclui LCIs, LCAs, LFs e TVMs no Exterior; (d) Obrigações por Empréstimos e Repasses; (h) Instrumentos de Dívida Elegíveis a Capital.<br>
+                    <strong>Core Funding*:</strong> Captações (e) no Relatório Passivo; a partir de 2025, soma-se Dívida Subordinada (h). Captações (e) = (a) + (b) + (c) + (d), onde: (a) Depósitos — inclui À Vista, Poupança, DI, Dep. a Prazo, Contas de Pagamento Pré-Paga e Outros; (b) Obrigações por Operações Compromissadas; (c) Recursos de Aceite e Emissão de Títulos — inclui LCIs, LCAs, LFs e TVMs no Exterior; (d) Obrigações por Empréstimos e Repasses; (h) Instrumentos de Dívida Elegíveis a Capital. Se o Rel. 3 não estiver íntegro para a instituição/período, a aba cai defensivamente para Captações e sinaliza isso acima.<br>
                     <strong>Carteira de Crédito*:</strong> Soma do Valor Contábil Bruto (e1+f1+g1+h1) no Relatório de Ativo (Rel. 2), onde: e = Operações de Crédito; f = Operações de Arrendamento Financeiro; g = Outras Operações com Características de Concessão; h = Valores de Transação de Pagamentos – Usuários Finais.<br>
                     <em>Nota:</em> Para 2000–2024, usamos Carteira de Crédito Bruta + Carteira de Arrendamento Bruta + Outros Créditos Líquidos de Provisão (Rel. 2). Isso significa que, em “Outros Créditos”, a base é líquida de provisão e não há detalhamento — logo, a comparação é imprecisa. A partir de 2025, usamos Valor Contábil Bruto (e1+f1+g1+h1).<br>
                     <br>
@@ -14915,22 +14933,6 @@ elif menu == "Scatter Plot":
         bancos_todos = df['Instituição'].dropna().unique().tolist()
         dict_aliases = st.session_state.get('dict_aliases', {})
         todos_bancos = ordenar_bancos_com_alias(bancos_todos, dict_aliases)
-        _default_scatter_bancos = _encontrar_bancos_default(
-            todos_bancos,
-            [
-                ("itau", "itaú"),
-                ("banco do brasil", "bb"),
-                ("caixa economica federal", "caixa econômica federal", "caixa"),
-                ("santander",),
-                ("bradesco",),
-                ("btg", "btg pactual"),
-            ],
-        )
-        # Força defaults ao ENTRAR na aba (multiselect com key ignora `default` quando já há estado).
-        if _just_entered_scatter:
-            st.session_state["bancos_multiselect"] = _default_scatter_bancos
-            st.session_state["bancos_multiselect_n2"] = _default_scatter_bancos
-
         # Primeira linha: variáveis dos eixos e tamanho
         col1, col2, col3, col4, col5, col6 = st.columns([1.25, 1.25, 1.25, 1.25, 1.0, 0.3])
 
@@ -14985,8 +14987,9 @@ elif menu == "Scatter Plot":
             bancos_selecionados = st.multiselect(
                 "selecionar bancos",
                 todos_bancos,
-                default=_default_scatter_bancos,
-                key="bancos_multiselect"
+                default=[],
+                key="bancos_multiselect",
+                help="Se vazio, o scatter usa o pool Top N selecionado ao lado.",
             )
 
         # Aplica filtros ao dataframe (já com métricas derivadas cacheadas por período)
@@ -15005,10 +15008,12 @@ elif menu == "Scatter Plot":
 
         if bancos_selecionados:
             # Usa os bancos selecionados no multiselect
+            bancos_referencia_scatter = list(bancos_selecionados)
             df_scatter = df_periodo[df_periodo['Instituição'].isin(bancos_selecionados)]
         else:
             # Usa Top N por Ativo Total no período selecionado
             top_bancos_t1 = _obter_top_instituicoes_por_ativo(df_periodo, top_n_scatter)
+            bancos_referencia_scatter = list(top_bancos_t1)
             df_scatter = df_periodo[df_periodo['Instituição'].isin(top_bancos_t1)]
 
         format_x = get_axis_format(var_x, df_scatter[var_x] if var_x in df_scatter.columns else None)
@@ -15026,6 +15031,21 @@ elif menu == "Scatter Plot":
         else:
             format_size = get_axis_format(var_size, df_scatter[var_size] if var_size in df_scatter.columns else None)
             df_scatter_plot['size_display'] = _calcular_valores_display(df_scatter_plot[var_size], var_size, format_size)
+
+        colunas_validacao_scatter = ['x_display', 'y_display']
+        if var_size != 'Tamanho Fixo' and 'size_display' in df_scatter_plot.columns:
+            colunas_validacao_scatter.append('size_display')
+        df_scatter_plot = df_scatter_plot.dropna(subset=colunas_validacao_scatter).copy()
+        bancos_plotados_scatter = set(df_scatter_plot['Instituição'].dropna().astype(str).tolist())
+        bancos_omitidos_scatter = [b for b in bancos_referencia_scatter if str(b) not in bancos_plotados_scatter]
+        if bancos_omitidos_scatter:
+            bancos_omitidos_txt = ", ".join(bancos_omitidos_scatter[:8])
+            if len(bancos_omitidos_scatter) > 8:
+                bancos_omitidos_txt += f" e mais {len(bancos_omitidos_scatter) - 8}"
+            st.caption(
+                "Sem ponto no scatter para algumas instituições no período selecionado, "
+                f"por falta de dado nas variáveis escolhidas: {bancos_omitidos_txt}."
+            )
 
         # [CHANGE] Data: 2026-04-05 | Aba: Scatter Plot | Prioridade: P3
         # Motivo: permitir customização compacta de cores sem vazar estado para outras abas.
@@ -15224,8 +15244,9 @@ elif menu == "Scatter Plot":
             bancos_selecionados_n2 = st.multiselect(
                 "selecionar bancos",
                 todos_bancos,
-                default=_default_scatter_bancos,
-                key="bancos_multiselect_n2"
+                default=[],
+                key="bancos_multiselect_n2",
+                help="Se vazio, o scatter usa o mesmo pool Top N do gráfico t=1.",
             )
 
         # Validação: períodos devem ser diferentes
@@ -15250,6 +15271,7 @@ elif menu == "Scatter Plot":
 
             # Aplica seleção de bancos ou top N
             if bancos_selecionados_n2:
+                bancos_referencia_n2 = list(bancos_selecionados_n2)
                 df_p1 = df_p1[df_p1['Instituição'].isin(bancos_selecionados_n2)]
                 df_p2 = df_p2[df_p2['Instituição'].isin(bancos_selecionados_n2)]
             else:
@@ -15263,6 +15285,7 @@ elif menu == "Scatter Plot":
                     )
                 df_ref_top_n2 = df_p1 if periodo_ref_top_n2 == periodo_inicial else df_p2
                 top_bancos = _obter_top_instituicoes_por_ativo(df_ref_top_n2, top_n_scatter)
+                bancos_referencia_n2 = list(top_bancos)
                 df_p1 = df_p1[df_p1['Instituição'].isin(top_bancos)]
                 df_p2 = df_p2[df_p2['Instituição'].isin(top_bancos)]
 
@@ -15293,6 +15316,22 @@ elif menu == "Scatter Plot":
                     df_p1['size_display'] = _calcular_valores_display(df_p1[var_size_n2], var_size_n2, format_size_n2)
                     df_p2['size_display'] = _calcular_valores_display(df_p2[var_size_n2], var_size_n2, format_size_n2)
                     max_size = max(df_p1['size_display'].max(), df_p2['size_display'].max())
+
+                colunas_validacao_n2 = ['x_display', 'y_display']
+                if var_size_n2 != 'Tamanho Fixo' and 'size_display' in df_p1.columns and 'size_display' in df_p2.columns:
+                    colunas_validacao_n2.append('size_display')
+                bancos_validos_p1 = set(df_p1.dropna(subset=colunas_validacao_n2)['Instituição'].dropna().astype(str).tolist())
+                bancos_validos_p2 = set(df_p2.dropna(subset=colunas_validacao_n2)['Instituição'].dropna().astype(str).tolist())
+                bancos_comuns = bancos_validos_p1 & bancos_validos_p2
+                bancos_omitidos_n2 = [b for b in bancos_referencia_n2 if str(b) not in bancos_comuns]
+                if bancos_omitidos_n2:
+                    bancos_omitidos_n2_txt = ", ".join(bancos_omitidos_n2[:8])
+                    if len(bancos_omitidos_n2) > 8:
+                        bancos_omitidos_n2_txt += f" e mais {len(bancos_omitidos_n2) - 8}"
+                    st.caption(
+                        "Sem trajetória t=2 para algumas instituições por falta de dado em pelo menos "
+                        f"um dos períodos/variáveis selecionados: {bancos_omitidos_n2_txt}."
+                    )
 
                 fig_scatter_n2 = go.Figure()
                 cores_plotly = px.colors.qualitative.Plotly
@@ -15551,8 +15590,8 @@ elif menu == "Rankings":
             # Mini-glossário para popovers inline nos Rankings
             _RANKINGS_GLOSSARIO = {
                 'Ativo Total': 'Padrão COSIF. Soma de todos os ativos do conglomerado prudencial.',
-                'Carteira de Crédito*': 'Soma do Valor Contábil Bruto (e1+f1+g1+h1) no Relatório de Ativo (Rel. 2).',
-                'Core Funding*': 'Captações (e) no Relatório de Passivo; a partir de 2025, soma-se Dívida Subordinada (h).',
+                'Carteira de Crédito*': 'Até 2024: Crédito Bruta + Arrendamento Bruta + Outros Créditos Líquidos de Provisão. 2025+: Valor Contábil Bruto (e1+f1+g1+h1) no Rel. 2.',
+                'Core Funding*': 'Até 2024: Captações (e). 2025+: Captações (e) + Dívida Subordinada (h) no Rel. 3.',
                 'Patrimônio Líquido': 'Padrão COSIF.',
                 'Índice de Capital Principal (CET1)': 'Capital Principal ÷ RWA Total. Indicador de solidez patrimonial regulatório (mínimo exigido: 4,5% + ACPs).',
                 'Índice de Capital T1 (%)': 'Patrimônio de Referência Nível I ÷ RWA Total. Equivale a (CET1 + AT1) ÷ RWA Total.',
@@ -15593,6 +15632,17 @@ elif menu == "Rankings":
                 st.caption(f"info — {indicador_label}: {_def}")
             else:
                 st.caption("info — definição não disponível; consulte o Glossário.")
+            with st.expander("Mini-glossário", expanded=False):
+                st.markdown(
+                    "\n".join(
+                        [
+                            f"**{indicador_label}**: {_def or 'Definição não disponível.'}",
+                            "",
+                            "**Média seleção**: média aritmética simples das instituições atualmente selecionadas.",
+                            "**Média SFN**: média aritmética simples de todas as instituições disponíveis no dataset do período.",
+                        ]
+                    )
+                )
 
             periodo_pool_ref = periodo_resumo[0] if periodo_resumo else None
 
@@ -15603,6 +15653,17 @@ elif menu == "Rankings":
                 bancos_todos = _df_periodo_raw['Instituição'].dropna().unique().tolist()
             else:
                 bancos_todos = []
+            if indicador_label in RANKINGS_FAMILY_CAPITAL_PREPARED and periodo_pool_ref:
+                df_capital_ctx = _construir_indices_capital_unificados_slice(
+                    _cache_version_token("capital"),
+                    _alias_signature_cache_key(),
+                    (str(periodo_pool_ref),),
+                )
+                if df_capital_ctx is not None and not df_capital_ctx.empty and "Instituição" in df_capital_ctx.columns:
+                    bancos_todos = list(dict.fromkeys(
+                        list(bancos_todos)
+                        + df_capital_ctx["Instituição"].dropna().astype(str).unique().tolist()
+                    ))
             dict_aliases = st.session_state.get('dict_aliases', {})
             bancos_todos = ordenar_bancos_com_alias(bancos_todos, dict_aliases)
 
@@ -16275,6 +16336,7 @@ elif menu == "Rankings":
                                 df_peso = df_periodo[colunas_disponiveis].drop_duplicates(subset=['Instituição'])
                                 df_periodo_cap = df_periodo_cap.merge(df_peso, on='Instituição', how='left')
 
+                        ordenar_asc = direcao_top == "Menor → Maior"
                         if bancos_selecionados:
                             df_selecionado_cap = df_periodo_cap[
                                 df_periodo_cap['Instituição'].isin(bancos_selecionados)
@@ -16282,18 +16344,35 @@ elif menu == "Rankings":
                         else:
                             df_selecionado_cap = pd.DataFrame()
 
+                        bancos_com_dado_capital = set(
+                            df_selecionado_cap.loc[
+                                pd.to_numeric(df_selecionado_cap.get('Índice de Basileia Total (%)'), errors='coerce').notna(),
+                                'Instituição',
+                            ].dropna().astype(str).tolist()
+                        )
+                        bancos_sem_dado_capital = [
+                            banco for banco in bancos_selecionados if str(banco) not in bancos_com_dado_capital
+                        ]
                         df_selecionado_cap = df_selecionado_cap.dropna(subset=['Índice de Basileia Total (%)'])
 
                         if df_selecionado_cap.empty:
                             st.info("selecione instituições ou ajuste os filtros para visualizar o ranking.")
                         else:
+                            if bancos_sem_dado_capital:
+                                bancos_sem_dado_capital_txt = ", ".join(bancos_sem_dado_capital[:8])
+                                if len(bancos_sem_dado_capital) > 8:
+                                    bancos_sem_dado_capital_txt += f" e mais {len(bancos_sem_dado_capital) - 8}"
+                                st.caption(
+                                    "Instituições omitidas do ranking de capital por ausência do indicador nos períodos "
+                                    f"selecionados: {bancos_sem_dado_capital_txt}."
+                                )
                             comparar_periodos_basileia = len(periodo_resumo) > 1
                             if comparar_periodos_basileia:
                                 ordem_base = (
                                     df_selecionado_cap[df_selecionado_cap["Período"] == periodo_resumo_base]
                                     .sort_values(
                                         "Índice de Basileia Total (%)",
-                                        ascending=(direcao_top == "Menor → Maior")
+                                        ascending=ordenar_asc
                                     )["Instituição"]
                                     .tolist()
                                 )
@@ -16306,7 +16385,6 @@ elif menu == "Rankings":
                                     df_selecionado_cap = df_selecionado_cap.sort_values(["Instituição", "Período"])
                             else:
                                 if modo_ordenacao == "Ordenar por valor":
-                                    ordenar_asc = direcao_top == "Menor → Maior"
                                     df_selecionado_cap = df_selecionado_cap.sort_values(
                                         'Índice de Basileia Total (%)', ascending=ordenar_asc
                                     )
@@ -16337,21 +16415,84 @@ elif menu == "Rankings":
                                 df_selecionado_cap, 'T2 (%)', coluna_peso_resumo
                             )
                             label_media = get_label_media(coluna_peso_resumo)
+                            medias_capital_periodo: list[dict[str, object]] = []
+                            medias_capital_lookup: dict[str, dict[str, object]] = {}
+                            if comparar_periodos_basileia:
+                                for periodo_media in periodo_resumo:
+                                    df_sel_periodo = df_selecionado_cap[df_selecionado_cap["Período"] == periodo_media].copy()
+                                    if df_sel_periodo.empty:
+                                        continue
+                                    df_sfn_periodo = df_periodo_cap[df_periodo_cap["Período"] == periodo_media].copy()
+                                    media_sel_periodo = calcular_media_ponderada(
+                                        df_sel_periodo,
+                                        'Índice de Basileia Total (%)',
+                                        coluna_peso_resumo,
+                                    )
+                                    if 'Índice de Basileia Total (%)' in df_sfn_periodo.columns:
+                                        serie_sfn_periodo = pd.to_numeric(
+                                            df_sfn_periodo['Índice de Basileia Total (%)'],
+                                            errors='coerce',
+                                        ).dropna()
+                                        media_sfn_periodo = (
+                                            float(serie_sfn_periodo.mean()) if not serie_sfn_periodo.empty else None
+                                        )
+                                    else:
+                                        media_sfn_periodo = None
+                                    media_cet1_periodo = calcular_media_ponderada(
+                                        df_sel_periodo,
+                                        'CET1 (%)',
+                                        coluna_peso_resumo,
+                                    )
+                                    media_at1_periodo = calcular_media_ponderada(
+                                        df_sel_periodo,
+                                        'AT1 (%)',
+                                        coluna_peso_resumo,
+                                    )
+                                    media_t2_periodo = calcular_media_ponderada(
+                                        df_sel_periodo,
+                                        'T2 (%)',
+                                        coluna_peso_resumo,
+                                    )
+                                    medias_capital_lookup[str(periodo_media)] = {
+                                        "media_basileia": media_sel_periodo,
+                                        "media_sfn": media_sfn_periodo,
+                                        "media_cet1": media_cet1_periodo,
+                                        "media_at1": media_at1_periodo,
+                                        "media_t2": media_t2_periodo,
+                                    }
+                                    medias_capital_periodo.append(
+                                        {
+                                            "Período": periodo_media,
+                                            label_media: media_sel_periodo,
+                                            "Média CET1": media_cet1_periodo,
+                                            "Média AT1": media_at1_periodo,
+                                            "Média T2": media_t2_periodo,
+                                            "Média SFN": media_sfn_periodo,
+                                        }
+                                    )
 
                             if comparar_periodos_basileia:
                                 df_selecionado_cap['Ranking'] = (
                                     df_selecionado_cap
                                     .groupby('Período')['Índice de Basileia Total (%)']
-                                    .rank(method='first', ascending=False)
+                                    .rank(method='first', ascending=ordenar_asc)
                                     .astype(int)
                                 )
                             else:
                                 df_selecionado_cap['Ranking'] = df_selecionado_cap['Índice de Basileia Total (%)'].rank(
-                                    method='first', ascending=False
+                                    method='first', ascending=ordenar_asc
                                 ).astype(int)
-                            df_selecionado_cap['Diferença vs Média (%)'] = (
-                                df_selecionado_cap['Índice de Basileia Total (%)'] - media_basileia
-                            )
+                            if comparar_periodos_basileia:
+                                df_selecionado_cap['Diferença vs Média (%)'] = (
+                                    df_selecionado_cap['Índice de Basileia Total (%)']
+                                    - df_selecionado_cap['Período'].astype(str).map(
+                                        lambda periodo: medias_capital_lookup.get(periodo, {}).get("media_basileia")
+                                    )
+                                )
+                            else:
+                                df_selecionado_cap['Diferença vs Média (%)'] = (
+                                    df_selecionado_cap['Índice de Basileia Total (%)'] - media_basileia
+                                )
 
                             n_bancos = df_selecionado_cap['Instituição'].nunique()
                             eixo_instituicoes = df_selecionado_cap['Instituição'].drop_duplicates()
@@ -16498,15 +16639,16 @@ elif menu == "Rankings":
                                     mostrar_total=True,
                                 )
 
-                            fig_basileia.add_hline(
-                                y=media_basileia,
-                                line_dash='dash',
-                                line_color='#555555',
-                                line_width=1,
-                                annotation_text=f"{label_media}: {_formatar_br(media_basileia, 1, '%')}",
-                                annotation_position='right',
-                            )
-                            if media_sfn_basileia is not None and pd.notna(media_sfn_basileia):
+                            if not comparar_periodos_basileia:
+                                fig_basileia.add_hline(
+                                    y=media_basileia,
+                                    line_dash='dash',
+                                    line_color='#555555',
+                                    line_width=1,
+                                    annotation_text=f"{label_media}: {_formatar_br(media_basileia, 1, '%')}",
+                                    annotation_position='right',
+                                )
+                            if not comparar_periodos_basileia and media_sfn_basileia is not None and pd.notna(media_sfn_basileia):
                                 fig_basileia.add_hline(
                                     y=media_sfn_basileia,
                                     line_dash='dash',
@@ -16533,10 +16675,25 @@ elif menu == "Rankings":
                             ]].copy()
                             df_export_capital['Período'] = df_export_capital['Período'].fillna(periodo_resumo_base)
                             df_export_capital['Tipo de Média'] = tipo_media_label
-                            df_export_capital['Média CET1 (%)'] = round(media_cet1, 2)
-                            df_export_capital['Média AT1 (%)'] = round(media_at1, 2)
-                            df_export_capital['Média T2 (%)'] = round(media_t2, 2)
-                            df_export_capital['Média Basileia (%)'] = round(media_basileia, 2)
+                            if comparar_periodos_basileia:
+                                periodo_export_map = df_export_capital['Período'].astype(str)
+                                df_export_capital['Média CET1 (%)'] = periodo_export_map.map(
+                                    lambda periodo: medias_capital_lookup.get(periodo, {}).get("media_cet1")
+                                )
+                                df_export_capital['Média AT1 (%)'] = periodo_export_map.map(
+                                    lambda periodo: medias_capital_lookup.get(periodo, {}).get("media_at1")
+                                )
+                                df_export_capital['Média T2 (%)'] = periodo_export_map.map(
+                                    lambda periodo: medias_capital_lookup.get(periodo, {}).get("media_t2")
+                                )
+                                df_export_capital['Média Basileia (%)'] = periodo_export_map.map(
+                                    lambda periodo: medias_capital_lookup.get(periodo, {}).get("media_basileia")
+                                )
+                            else:
+                                df_export_capital['Média CET1 (%)'] = media_cet1
+                                df_export_capital['Média AT1 (%)'] = media_at1
+                                df_export_capital['Média T2 (%)'] = media_t2
+                                df_export_capital['Média Basileia (%)'] = media_basileia
                             df_export_capital['Mínimo Regulatório (%)'] = MINIMO_REGULATORIO
 
                             for col in ['CET1 (%)', 'AT1 (%)', 'T2 (%)', 'Índice de Basileia Total (%)', 'Diferença vs Média (%)']:
@@ -16554,6 +16711,16 @@ elif menu == "Rankings":
                                             lambda v: _formatar_br(v, 2, "%") if pd.notna(v) else "N/D"
                                         )
                                 st.dataframe(df_tabela_capital, width="stretch", hide_index=True)
+                            if medias_capital_periodo:
+                                df_medias_capital = pd.DataFrame(medias_capital_periodo)
+                                df_medias_capital["Período"] = df_medias_capital["Período"].apply(formatar_periodo_mm_yyyy)
+                                for col_media in [label_media, "Média CET1", "Média AT1", "Média T2", "Média SFN"]:
+                                    if col_media in df_medias_capital.columns:
+                                        df_medias_capital[col_media] = df_medias_capital[col_media].apply(
+                                            lambda v: _formatar_br(v, 2, "%") if pd.notna(v) else "N/D"
+                                        )
+                                with st.expander("Médias por período", expanded=False):
+                                    st.dataframe(df_medias_capital, width="stretch", hide_index=True)
 
                             st.markdown("#### Exportar")
                             col_export_a, col_export_b = st.columns(2)
@@ -16591,7 +16758,27 @@ elif menu == "Rankings":
                             (df["Período"].isin(periodo_resumo))
                             & (df["Instituição"].isin(bancos_selecionados))
                         ].copy()
+                        if indicador_col in df_multiperiodo.columns:
+                            bancos_com_dado_rankings = set(
+                                df_multiperiodo.loc[
+                                    pd.to_numeric(df_multiperiodo[indicador_col], errors='coerce').notna(),
+                                    "Instituição",
+                                ].dropna().astype(str).tolist()
+                            )
+                        else:
+                            bancos_com_dado_rankings = set()
+                        bancos_sem_dado_rankings = [
+                            banco for banco in bancos_selecionados if str(banco) not in bancos_com_dado_rankings
+                        ]
                         df_multiperiodo = df_multiperiodo.dropna(subset=[indicador_col])
+                        if bancos_sem_dado_rankings:
+                            bancos_sem_dado_txt = ", ".join(bancos_sem_dado_rankings[:8])
+                            if len(bancos_sem_dado_rankings) > 8:
+                                bancos_sem_dado_txt += f" e mais {len(bancos_sem_dado_rankings) - 8}"
+                            st.caption(
+                                "Instituições omitidas do ranking por ausência do indicador nos períodos "
+                                f"selecionados: {bancos_sem_dado_txt}."
+                            )
                         df_multiperiodo["valor_display"] = _calcular_valores_display(
                             df_multiperiodo[indicador_col],
                             indicador_col,
@@ -16610,24 +16797,27 @@ elif menu == "Rankings":
                                 df_plot = df_plot.sort_values(["Instituição", "Período"])
 
                             fig_resumo = go.Figure()
-                            media_display = calcular_media_ponderada(df_multiperiodo, 'valor_display', coluna_peso_resumo)
-                            media_raw = calcular_media_ponderada(df_multiperiodo, indicador_col, coluna_peso_resumo)
-                            media_sfn_display = (
-                                df_periodo.assign(
-                                    valor_display=_calcular_valores_display(df_periodo[indicador_col], indicador_col, format_info)
-                                )["valor_display"].dropna().mean()
-                                if indicador_col in df_periodo.columns else None
-                            )
-                            media_sfn_raw = (
-                                df_periodo[indicador_col].dropna().mean()
-                                if indicador_col in df_periodo.columns else None
-                            )
+                            medias_periodo: list[dict[str, object]] = []
                             casas_labels = 2
                             sufixo = format_info.get('ticksuffix', '')
                             for idx_p, p in enumerate(periodo_resumo):
                                 dfx = df_plot[df_plot["Período"] == p].copy()
                                 if dfx.empty:
                                     continue
+                                media_sel_raw_periodo = calcular_media_ponderada(dfx, indicador_col, coluna_peso_resumo)
+                                df_sfn_periodo = df[df["Período"] == p].copy()
+                                if indicador_col in df_sfn_periodo.columns:
+                                    serie_sfn_periodo = pd.to_numeric(df_sfn_periodo[indicador_col], errors='coerce').dropna()
+                                    media_sfn_raw_periodo = float(serie_sfn_periodo.mean()) if not serie_sfn_periodo.empty else None
+                                else:
+                                    media_sfn_raw_periodo = None
+                                medias_periodo.append(
+                                    {
+                                        "Período": p,
+                                        "Média seleção": media_sel_raw_periodo,
+                                        "Média SFN": media_sfn_raw_periodo,
+                                    }
+                                )
                                 valores_contexto = dfx[indicador_col].dropna().tolist()
                                 textos_labels = dfx[indicador_col].apply(
                                     lambda v: _formatar_valor_ranking(v, indicador_col, valores_contexto)
@@ -16641,28 +16831,6 @@ elif menu == "Rankings":
                                     textposition='auto',
                                     hovertemplate="<b>%{x}</b><br>Período: " + f"{periodo_para_exibicao(p)}" + "<br>Valor: %{y:,.2f}<extra></extra>"
                                 ))
-
-                            fig_resumo.add_hline(y=media_display, line_dash='dash', line_color='#555555')
-                            if media_sfn_display is not None and pd.notna(media_sfn_display):
-                                fig_resumo.add_hline(y=media_sfn_display, line_dash='dash', line_color='#1f77b4')
-                            contexto_media_raw = df_plot[indicador_col].dropna().tolist()
-                            media_sel_txt = _formatar_valor_ranking(media_raw, indicador_col, contexto_media_raw)
-                            fig_resumo.add_annotation(
-                                x=0.98, y=0.06, xref="paper", yref="paper",
-                                text=f"Média seleção: {media_sel_txt}",
-                                showarrow=False, xanchor="right", yanchor="bottom",
-                                font=dict(color="#1A1A1A", size=14),
-                                bgcolor="rgba(255,255,255,0.82)", bordercolor="rgba(26,26,26,0.25)", borderwidth=1,
-                            )
-                            if media_sfn_raw is not None and pd.notna(media_sfn_raw):
-                                media_sfn_txt = _formatar_valor_ranking(media_sfn_raw, indicador_col, contexto_media_raw)
-                                fig_resumo.add_annotation(
-                                    x=0.98, y=0.14, xref="paper", yref="paper",
-                                    text=f"Média SFN: {media_sfn_txt}",
-                                    showarrow=False, xanchor="right", yanchor="bottom",
-                                    font=dict(color="#1f77b4", size=14),
-                                    bgcolor="rgba(255,255,255,0.82)", bordercolor="rgba(31,119,180,0.30)", borderwidth=1,
-                                )
 
                             fig_resumo.update_layout(
                                 title=f"{indicador_label} - comparação por períodos",
@@ -16693,6 +16861,15 @@ elif menu == "Rankings":
                                 )
                             with st.expander("Dados do gráfico", expanded=False):
                                 st.dataframe(tabela_wide, width="stretch", hide_index=True)
+                            if medias_periodo:
+                                df_medias_periodo = pd.DataFrame(medias_periodo)
+                                df_medias_periodo["Período"] = df_medias_periodo["Período"].apply(formatar_periodo_mm_yyyy)
+                                for col_media in ["Média seleção", "Média SFN"]:
+                                    df_medias_periodo[col_media] = df_medias_periodo[col_media].apply(
+                                        lambda v: _formatar_valor_ranking(v, indicador_col, []) if pd.notna(v) else "N/D"
+                                    )
+                                with st.expander("Médias por período", expanded=False):
+                                    st.dataframe(df_medias_periodo, width="stretch", hide_index=True)
                             _renderizar_memoria_indicador_rankings(
                                 df,
                                 bancos_selecionados,
@@ -16726,7 +16903,7 @@ elif menu == "Rankings":
                                 df_selecionado['ordem'] = pd.Categorical(df_selecionado['Instituição'], categories=ordem, ordered=True)
                                 df_selecionado = df_selecionado.sort_values('ordem')
 
-                            df_selecionado['ranking'] = df_selecionado['valor_display'].rank(method='first', ascending=False).astype(int)
+                            df_selecionado['ranking'] = df_selecionado['valor_display'].rank(method='first', ascending=ordenar_asc).astype(int)
                             df_selecionado['diff_media'] = df_selecionado['valor_display'] - media_display
                             df_selecionado['diff_media_raw'] = df_selecionado[indicador_col] - media_raw
 
@@ -18680,22 +18857,9 @@ elif menu == "DRE" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo ==
         df_base["InstituicaoKey"] = df_base[instit_col].apply(_chave_instituicao_dre)
         df_ytd_base["InstituicaoKey"] = df_ytd_base[instit_col].apply(_chave_instituicao_dre)
 
-        # Combinar instituições do DRE (Rel. 4) com as do principal (Rel. 1)
-        # para que IFs presentes no dados principal (ex.: DOCK IP) apareçam no dropdown
-        # mesmo quando não possuem dados no Relatório 4.
         _instituicoes_dre_raw = set(df_base["InstituicaoRaw"].dropna().unique().tolist())
-        _instituicoes_principal = set()
-        _manager_dre_inst = get_cache_manager()
-        _principal_result = _manager_dre_inst.carregar("principal") if _manager_dre_inst else None
-        _df_principal_inst = _principal_result.dados if (_principal_result and _principal_result.sucesso) else None
-        if _df_principal_inst is not None and not _df_principal_inst.empty:
-            for _col_inst in ["Instituição", "Instituicao", "Instituição Financeira", "IF"]:
-                if _col_inst in _df_principal_inst.columns:
-                    _instituicoes_principal.update(
-                        _df_principal_inst[_col_inst].dropna().astype(str).str.strip().tolist()
-                    )
         _instituicoes_combinadas = {
-            str(_inst).strip() for _inst in (_instituicoes_dre_raw | _instituicoes_principal) if str(_inst).strip()
+            str(_inst).strip() for _inst in _instituicoes_dre_raw if str(_inst).strip()
         }
         instituicoes_raw = ordenar_bancos_com_alias(
             list(_instituicoes_combinadas), _dict_aliases_dre
@@ -19232,18 +19396,9 @@ elif menu == "DRE" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo ==
                             valor = cell["ytd"].iloc[0]
                             yoy_val = pd.to_numeric(cell["yoy"].iloc[0], errors="coerce")
 
-                        if pd.isna(valor):
-                            worksheet.write_blank(row_idx, 1 + idx, None, fmt_num)
-                            continue
-
                         formato = formato_por_label.get(label, "num")
                         base_fmt = fmt_pct if formato == "pct" else fmt_num
-                        if pd.notna(yoy_val):
-                            marcador = "▲" if yoy_val > 0 else "▼" if yoy_val < 0 else ""
-                            valor_exib = formatar_percentual(valor, decimais=2) if formato == "pct" else formatar_valor_br(valor)
-                            worksheet.write(row_idx, 1 + idx, f"{valor_exib} {marcador}".strip(), base_fmt)
-                        else:
-                            worksheet.write_number(row_idx, 1 + idx, float(valor), base_fmt)
+                        _write_excel_number_or_blank(worksheet, row_idx, 1 + idx, valor, base_fmt)
                     row_idx += 1
 
                 worksheet.set_column(0, 0, 52)
@@ -20300,17 +20455,9 @@ elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolid
                 if not cell.empty:
                     valor = cell["ytd"].iloc[0]
                     yoy_val = pd.to_numeric(cell["yoy"].iloc[0], errors="coerce")
-                if pd.isna(valor):
-                    worksheet.write_blank(row_idx, 1 + idx, None, fmt_num)
-                    continue
                 formato = formato_por_label.get(label, "num")
                 base_fmt = fmt_pct if formato == "pct" else fmt_num
-                if pd.notna(yoy_val):
-                    marcador = "▲" if yoy_val > 0 else "▼" if yoy_val < 0 else ""
-                    valor_exib = formatar_percentual(valor, decimais=2) if formato == "pct" else formatar_valor_br(valor)
-                    worksheet.write(row_idx, 1 + idx, f"{valor_exib} {marcador}".strip(), base_fmt)
-                else:
-                    worksheet.write_number(row_idx, 1 + idx, float(valor), base_fmt)
+                _write_excel_number_or_blank(worksheet, row_idx, 1 + idx, valor, base_fmt)
             row_idx += 1
         worksheet.set_column(0, 0, 52)
         worksheet.set_column(1, len(periodos_disponiveis), 16)
@@ -21261,17 +21408,9 @@ elif menu == "__deprecated__Carteira 4.966 (bloco legado DRE-1)":
                 if not cell.empty:
                     valor = cell["ytd"].iloc[0]
                     yoy_val = pd.to_numeric(cell["yoy"].iloc[0], errors="coerce")
-                if pd.isna(valor):
-                    worksheet.write_blank(row_idx, 1 + idx, None, fmt_num)
-                    continue
                 formato = formato_por_label.get(label, "num")
                 base_fmt = fmt_pct if formato == "pct" else fmt_num
-                if pd.notna(yoy_val):
-                    marcador = "▲" if yoy_val > 0 else "▼" if yoy_val < 0 else ""
-                    valor_exib = formatar_percentual(valor, decimais=2) if formato == "pct" else formatar_valor_br(valor)
-                    worksheet.write(row_idx, 1 + idx, f"{valor_exib} {marcador}".strip(), base_fmt)
-                else:
-                    worksheet.write_number(row_idx, 1 + idx, float(valor), base_fmt)
+                _write_excel_number_or_blank(worksheet, row_idx, 1 + idx, valor, base_fmt)
             row_idx += 1
         worksheet.set_column(0, 0, 52)
         worksheet.set_column(1, len(periodos_disponiveis), 16)
@@ -22278,17 +22417,9 @@ elif menu == "__deprecated__Carteira 4.966 (bloco legado DRE-2)":
                 if not cell.empty:
                     valor = cell["ytd"].iloc[0]
                     yoy_val = pd.to_numeric(cell["yoy"].iloc[0], errors="coerce")
-                if pd.isna(valor):
-                    worksheet.write_blank(row_idx, 1 + idx, None, fmt_num)
-                    continue
                 formato = formato_por_label.get(label, "num")
                 base_fmt = fmt_pct if formato == "pct" else fmt_num
-                if pd.notna(yoy_val):
-                    marcador = "▲" if yoy_val > 0 else "▼" if yoy_val < 0 else ""
-                    valor_exib = formatar_percentual(valor, decimais=2) if formato == "pct" else formatar_valor_br(valor)
-                    worksheet.write(row_idx, 1 + idx, f"{valor_exib} {marcador}".strip(), base_fmt)
-                else:
-                    worksheet.write_number(row_idx, 1 + idx, float(valor), base_fmt)
+                _write_excel_number_or_blank(worksheet, row_idx, 1 + idx, valor, base_fmt)
             row_idx += 1
         worksheet.set_column(0, 0, 52)
         worksheet.set_column(1, len(periodos_disponiveis), 16)
@@ -22415,6 +22546,10 @@ elif menu == "Carteira 4.966":
             "Variável": "% Carteira Total",
             "Definição": "Participação de cada linha em relação ao Total Geral do mesmo período.",
         },
+        {
+            "Variável": "Δ (▲/▼)",
+            "Definição": "Sinal visual de variação do valor contra o mesmo período do ano anterior, quando essa base existir para a instituição.",
+        },
     ]
 
     df_carteira = load_carteira_4966_data()
@@ -22464,7 +22599,7 @@ elif menu == "Carteira 4.966":
                     periodos_inst,
                     default=periodos_inst[:2] if len(periodos_inst) >= 2 else periodos_inst,
                     key="carteira_4966_periodos",
-                    help="Selecione múltiplos períodos para comparar. O delta será calculado em relação ao período anterior na lista."
+                    help="Selecione múltiplos períodos para comparar. O delta visual é calculado em relação ao mesmo período do ano anterior."
                 )
 
             if periodos_selecionados and len(periodos_selecionados) >= 1:
@@ -22649,10 +22784,20 @@ elif menu == "Carteira 4.966":
                     )
                     row_even = workbook.add_format({"align": "right", "valign": "vcenter", "bg_color": "#f8f9fa", **border})
                     row_odd = workbook.add_format({"align": "right", "valign": "vcenter", "bg_color": "#ffffff", **border})
+                    row_even_num = workbook.add_format({"align": "right", "valign": "vcenter", "bg_color": "#f8f9fa", "num_format": "#,##0", **border})
+                    row_odd_num = workbook.add_format({"align": "right", "valign": "vcenter", "bg_color": "#ffffff", "num_format": "#,##0", **border})
+                    row_even_pct = workbook.add_format({"align": "right", "valign": "vcenter", "bg_color": "#f8f9fa", "num_format": "0.00%", **border})
+                    row_odd_pct = workbook.add_format({"align": "right", "valign": "vcenter", "bg_color": "#ffffff", "num_format": "0.00%", **border})
                     row_even_label = workbook.add_format({"align": "left", "valign": "vcenter", "bg_color": "#f8f9fa", **border})
                     row_odd_label = workbook.add_format({"align": "left", "valign": "vcenter", "bg_color": "#ffffff", **border})
                     total_row = workbook.add_format(
                         {"align": "right", "valign": "vcenter", "bg_color": "#e8f4e8", "bold": True, **border}
+                    )
+                    total_row_num = workbook.add_format(
+                        {"align": "right", "valign": "vcenter", "bg_color": "#e8f4e8", "bold": True, "num_format": "#,##0", **border}
+                    )
+                    total_row_pct = workbook.add_format(
+                        {"align": "right", "valign": "vcenter", "bg_color": "#e8f4e8", "bold": True, "num_format": "0.00%", **border}
                     )
                     total_row_label = workbook.add_format(
                         {"align": "left", "valign": "vcenter", "bg_color": "#e8f4e8", "bold": True, **border}
@@ -22685,6 +22830,8 @@ elif menu == "Carteira 4.966":
                         is_even = zebra_idx % 2 == 0
                         label_fmt = total_row_label if is_total else (row_even_label if is_even else row_odd_label)
                         cell_fmt = total_row if is_total else (row_even if is_even else row_odd)
+                        valor_cell_fmt = total_row_num if is_total else (row_even_num if is_even else row_odd_num)
+                        pct_cell_fmt = total_row_pct if is_total else (row_even_pct if is_even else row_odd_pct)
 
                         worksheet.write(row_idx, 0, tipo, label_fmt)
                         col_idx = 1
@@ -22692,10 +22839,8 @@ elif menu == "Carteira 4.966":
                             periodo_exib = periodo_para_exibicao_mes(periodo)
                             valor = row.get(f"{periodo_exib}")
                             pct = row.get(f"{periodo_exib} %")
-                            valor_fmt = formatar_valor_br(valor)
-                            pct_fmt = formatar_percentual(pct) if pct is not None else "-"
-                            worksheet.write(row_idx, col_idx, valor_fmt, cell_fmt)
-                            worksheet.write(row_idx, col_idx + 1, pct_fmt, cell_fmt)
+                            _write_excel_number_or_blank(worksheet, row_idx, col_idx, valor, valor_cell_fmt)
+                            _write_excel_number_or_blank(worksheet, row_idx, col_idx + 1, pct, pct_cell_fmt)
                             col_idx += 2
                         row_idx += 1
                         zebra_idx += 1
@@ -23666,11 +23811,11 @@ elif menu == "Taxas de Juros (Beta Leve)":
             "errors": {},
         }
 
-    def _resolver_bancos_beta_por_chave(df_rank: pd.DataFrame, bancos_selecionados: List[str]) -> tuple[list[str], dict[str, str]]:
-        if df_rank.empty or "Chave Instituição" not in df_rank.columns:
+    def _resolver_bancos_beta_por_chave(df_base: pd.DataFrame, bancos_selecionados: List[str]) -> tuple[list[str], dict[str, str]]:
+        if df_base.empty or "Chave Instituição" not in df_base.columns:
             return [], {}
         base = (
-            df_rank[["Instituição Financeira", "Chave Instituição"]]
+            df_base[["Instituição Financeira", "Chave Instituição"]]
             .dropna()
             .drop_duplicates(subset=["Instituição Financeira"], keep="first")
             .copy()
@@ -23940,10 +24085,25 @@ elif menu == "Taxas de Juros (Beta Leve)":
                 else:
                     df_rank_beta = df_rank_beta.sort_values('Instituição Financeira')
 
-                bancos_disponiveis_beta = df_rank_beta['Instituição Financeira'].dropna().unique().tolist()
-                top_bancos_beta = bancos_disponiveis_beta[:8]
+                bancos_disponiveis_beta = (
+                    df_hist_beta_raw['Instituição Financeira']
+                    .dropna()
+                    .astype(str)
+                    .drop_duplicates()
+                    .tolist()
+                )
+                bancos_rank_beta = (
+                    df_rank_beta['Instituição Financeira']
+                    .dropna()
+                    .astype(str)
+                    .drop_duplicates()
+                    .tolist()
+                )
                 dict_aliases = st.session_state.get('dict_aliases', {})
                 bancos_ordenados_beta = ordenar_bancos_com_alias(bancos_disponiveis_beta, dict_aliases)
+                top_bancos_beta = [b for b in bancos_rank_beta if b in bancos_ordenados_beta][:8]
+                if not top_bancos_beta:
+                    top_bancos_beta = bancos_ordenados_beta[:8]
 
                 st.markdown(f"#### {_formatar_modalidade_beta(produto_beta)}")
                 col_stat1, col_stat2, col_stat3, col_stat4 = st.columns(4)
@@ -24019,7 +24179,7 @@ elif menu == "Taxas de Juros (Beta Leve)":
                         ]
                         .copy()
                     )
-                    selected_keys_beta, label_by_key_beta = _resolver_bancos_beta_por_chave(df_rank_beta, bancos_sel_beta)
+                    selected_keys_beta, label_by_key_beta = _resolver_bancos_beta_por_chave(df_hist_beta_raw, bancos_sel_beta)
                     df_daily_beta = pd.DataFrame()
                     meta_daily_beta: dict[str, object] = {}
 
@@ -24115,7 +24275,20 @@ elif menu == "Taxas de Juros (Beta Leve)":
                     else:
                         df_rank_chart = df_rank_beta_display.copy()
                         df_rank_chart['_valor_plot'] = pd.to_numeric(df_rank_chart[tipo_taxa_beta], errors='coerce')
+                        bancos_omitidos_rank_beta = [
+                            banco
+                            for banco in bancos_sel_beta
+                            if str(banco) not in set(df_rank_chart.loc[df_rank_chart['_valor_plot'].notna(), 'Instituição Financeira'].astype(str).tolist())
+                        ]
                         df_rank_chart = df_rank_chart.dropna(subset=['_valor_plot']).sort_values('_valor_plot', ascending=True)
+                        if bancos_omitidos_rank_beta:
+                            bancos_omitidos_rank_beta_txt = ", ".join(bancos_omitidos_rank_beta[:8])
+                            if len(bancos_omitidos_rank_beta) > 8:
+                                bancos_omitidos_rank_beta_txt += f" e mais {len(bancos_omitidos_rank_beta) - 8}"
+                            st.caption(
+                                "Instituições omitidas do ranking atual por ausência de taxa válida no último ponto disponível: "
+                                f"{bancos_omitidos_rank_beta_txt}."
+                            )
                         fig_beta = px.bar(
                             df_rank_chart,
                             x='_valor_plot',
