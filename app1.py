@@ -2801,6 +2801,36 @@ def render_tab_cdsfn() -> None:
     st.caption(
         "Documento 9011 ao vivo do Banco Central, com comparação entre até 2 períodos."
     )
+    with st.expander("Mini-glossário", expanded=False):
+        st.dataframe(
+            pd.DataFrame(
+                [
+                    {
+                        "Item": "Fonte",
+                        "Descrição": "Consulta ao vivo do documento 9011 em JSON no Banco Central, por instituição e competência.",
+                    },
+                    {
+                        "Item": "Blocos exibidos",
+                        "Descrição": "A aba mostra os blocos presentes no documento, como Balanço Patrimonial, DRE e DMPL, sem inventar estrutura ausente.",
+                    },
+                    {
+                        "Item": "Ref. Info Contábil",
+                        "Descrição": "A = acumulado; S = semestre. A seleção filtra apenas os períodos internos efetivamente disponíveis no JSON retornado.",
+                    },
+                    {
+                        "Item": "Períodos comparados",
+                        "Descrição": "A comparação usa até duas competências 9011 e preserva lacunas quando um bloco ou referência não existe em um dos documentos.",
+                    },
+                    {
+                        "Item": "Exportação",
+                        "Descrição": "O Excel exporta exatamente a tabela hierárquica exibida na tela para o bloco selecionado.",
+                    },
+                ]
+            ),
+            hide_index=True,
+            use_container_width=True,
+        )
+        st.caption("Como a fonte é ao vivo, a aba não depende de cache local para carregar os documentos 9011.")
 
     try:
         df_instituicoes = load_instituicoes_csv_cdsfn(Path("JSON_Lista_Completa.csv"))
@@ -12134,10 +12164,10 @@ def _split_rating_contributions_tables(contributions_df: pd.DataFrame) -> tuple[
 
 
 def pagina_test():
-    st.markdown("### Modelagem Teste")
+    st.markdown("### Modelo de Rating")
     st.caption(_rating_intro_text())
 
-    if not _garantir_cache_telas_criticas("Modelagem Teste"):
+    if not _garantir_cache_telas_criticas("Modelo de Rating"):
         return
 
     critical_token = _cache_version_token("critical_screens")
@@ -12153,6 +12183,51 @@ def pagina_test():
         st.dataframe(_rating_quantitative_table(), hide_index=True, use_container_width=True)
         st.markdown("**Perguntas qualitativas**")
         st.dataframe(_rating_qualitative_table(), hide_index=True, use_container_width=True)
+    with st.expander("Mini-glossário", expanded=False):
+        st.dataframe(
+            pd.DataFrame(
+                [
+                    {
+                        "Bloco": "Score inicial",
+                        "Fonte": "critical_screens (IFData consolidado)",
+                        "Cálculo / regra": "Definido pelo porte com base no Ativo Total do período selecionado.",
+                    },
+                    {
+                        "Bloco": "CET1",
+                        "Fonte": "IFData Rel. 5",
+                        "Cálculo / regra": "Índice de Capital Principal (CET1) do período selecionado, aplicado em faixas por porte.",
+                    },
+                    {
+                        "Bloco": "ROE",
+                        "Fonte": "critical_screens (Rel. 1 + derivação local)",
+                        "Cálculo / regra": "ROE acumulado anualizado do período; a auditoria mostra também a comparação com o mesmo trimestre do ano anterior.",
+                    },
+                    {
+                        "Bloco": "NPL",
+                        "Fonte": "Cadoc 4060 + IFData Rel. 2",
+                        "Cálculo / regra": "(Ativos Estágio 2 + Ativos Estágio 3) ÷ Carteira de Crédito Bruta.",
+                    },
+                    {
+                        "Bloco": "Funding",
+                        "Fonte": "IFData Rel. 3 + derivação local",
+                        "Cálculo / regra": "Combina variação do Core Funding contra o mesmo trimestre do ano anterior e a razão Crédito / Captações para graduar penalização.",
+                    },
+                    {
+                        "Bloco": "Perguntas Q1–Q6",
+                        "Fonte": "Entrada manual do usuário",
+                        "Cálculo / regra": "Cada resposta qualitativa adiciona ou retira pontos conforme a grade versionada do modelo.",
+                    },
+                    {
+                        "Bloco": "Rating final",
+                        "Fonte": "Engine local do modelo",
+                        "Cálculo / regra": "Score inicial + impactos quantitativos + impactos qualitativos, arredondado e limitado à escala de 1 a 25.",
+                    },
+                ]
+            ),
+            hide_index=True,
+            use_container_width=True,
+        )
+        st.caption("A aba usa o cache curado `critical_screens` como base quantitativa e preserva os inputs faltantes na auditoria.")
 
     col_mode, col_period = st.columns([1.0, 1.2])
     with col_mode:
@@ -12369,10 +12444,31 @@ def pagina_test():
             )
 
 
+def _normalizar_rotulo_menu(valor):
+    if valor is None:
+        return None
+    menu_norm = str(valor).strip()
+    aliases = {
+        "Taxas de Juros": "Taxas de Juros (Beta Leve)",
+        "Taxas de Juros por Produto": "Taxas de Juros (Beta Leve)",
+        "Taxas de Juros por Produto (Legado)": "Taxas de Juros (Beta Leve)",
+        "Atualização Base": "Atualizar Base",
+        "Painel": "Rankings",
+        "Contribuições FGC": "Contas COSIF",
+        "Contribuições FGC/FGCoop": "Contas COSIF",
+        "test": "Modelo de Rating",
+        "Modelagem Teste": "Modelo de Rating",
+        "DRE": "DRE (Ind. e Congl.)",
+        "DRE Individual": "DRE (Ind. e Congl.)",
+        "Balanco, DRE e DMPL Ind.": "Balanço, DRE e DMPL (Ind.)",
+        "Crie sua métrica!": "Sobre",
+    }
+    return aliases.get(menu_norm, menu_norm)
+
+
 # Lista de opções do menu principal (análise)
 MENU_PRINCIPAL = [
     "Snapshot",
-    "Modelagem Teste",
     "Rankings",
     "Peers (Tabela)",
     "Conselho e Diretoria",
@@ -12381,57 +12477,29 @@ MENU_PRINCIPAL = [
     "DRE (Ind. e Congl.)",
     "Carteira 4.966",
     "Taxas de Juros (Beta Leve)",
-    "Taxas de Juros por Produto (Legado)",
-    "Crie sua métrica!",
-    "Contas COSIF",
-    "Balanço, DRE e DMPL (Ind.)",
 ]
 
 # Lista de opções do menu secundário (utilitários)
 MENU_SECUNDARIO = ["Sobre", "Atualizar Base", "Glossário"]
 
-TODOS_MENUS = MENU_PRINCIPAL + MENU_SECUNDARIO
+# Linha dedicada para módulos beta / testes
+MENU_TESTES = [
+    "Modelo de Rating",
+    "Contas COSIF",
+    "Balanço, DRE e DMPL (Ind.)",
+]
 
-# Validar menu_atual
+TODOS_MENUS = MENU_PRINCIPAL + MENU_SECUNDARIO + MENU_TESTES
+
+st.session_state['menu_atual'] = _normalizar_rotulo_menu(st.session_state.get('menu_atual')) or "Sobre"
 if st.session_state['menu_atual'] not in TODOS_MENUS:
-    if st.session_state['menu_atual'] == "Taxas de Juros":
-        st.session_state['menu_atual'] = "Taxas de Juros (Beta Leve)"
-    elif st.session_state['menu_atual'] == "Taxas de Juros por Produto":
-        st.session_state['menu_atual'] = "Taxas de Juros por Produto (Legado)"
-    elif st.session_state['menu_atual'] == "Atualização Base":
-        st.session_state['menu_atual'] = "Atualizar Base"
-    elif st.session_state['menu_atual'] == "Painel":
-        st.session_state['menu_atual'] = "Rankings"
-    elif st.session_state['menu_atual'] == "Contribuições FGC":
-        st.session_state['menu_atual'] = "Contas COSIF"
-    elif st.session_state['menu_atual'] == "Contribuições FGC/FGCoop":
-        st.session_state['menu_atual'] = "Contas COSIF"
-    elif st.session_state['menu_atual'] == "test":
-        st.session_state['menu_atual'] = "Modelagem Teste"
-    elif st.session_state['menu_atual'] in {"DRE", "DRE Individual"}:
-        st.session_state['menu_atual'] = "DRE (Ind. e Congl.)"
-    elif st.session_state['menu_atual'] == "Balanco, DRE e DMPL Ind.":
-        st.session_state['menu_atual'] = "Balanço, DRE e DMPL (Ind.)"
-    else:
-        st.session_state['menu_atual'] = "Sobre"
+    st.session_state['menu_atual'] = "Sobre"
+
+for _nav_key in ("nav_main", "nav_sec", "nav_testes"):
+    _valor_nav = _normalizar_rotulo_menu(st.session_state.get(_nav_key))
+    st.session_state[_nav_key] = _valor_nav if _valor_nav in TODOS_MENUS else None
 
 menu_atual = st.session_state['menu_atual']
-
-# Higienizar estado legado para evitar exibir rótulos antigos no menu
-if st.session_state.get('menu_atual') == 'Contribuições FGC':
-    st.session_state['menu_atual'] = 'Contas COSIF'
-if st.session_state.get('nav_main') == 'Contribuições FGC':
-    st.session_state['nav_main'] = 'Contas COSIF'
-if st.session_state.get('menu_atual') == 'Contribuições FGC/FGCoop':
-    st.session_state['menu_atual'] = 'Contas COSIF'
-if st.session_state.get('nav_main') == 'Contribuições FGC/FGCoop':
-    st.session_state['nav_main'] = 'Contas COSIF'
-if st.session_state.get('menu_atual') == 'test':
-    st.session_state['menu_atual'] = 'Modelagem Teste'
-if st.session_state.get('nav_main') == 'test':
-    st.session_state['nav_main'] = 'Modelagem Teste'
-if st.session_state.get('nav_sec') == 'Contribuições FGC':
-    st.session_state['nav_sec'] = None
 
 def _garantir_dados_principais(menu_nome: str) -> bool:
     """Garante dados principais apenas quando a aba realmente precisar processar."""
@@ -12457,6 +12525,8 @@ def _on_main_menu_change():
         # Limpar seleção do menu secundário
         if 'nav_sec' in st.session_state:
             st.session_state['nav_sec'] = None
+        if 'nav_testes' in st.session_state:
+            st.session_state['nav_testes'] = None
 
 def _on_sec_menu_change():
     """Callback quando menu secundário é clicado."""
@@ -12466,6 +12536,18 @@ def _on_sec_menu_change():
         # Limpar seleção do menu principal
         if 'nav_main' in st.session_state:
             st.session_state['nav_main'] = None
+        if 'nav_testes' in st.session_state:
+            st.session_state['nav_testes'] = None
+
+def _on_test_menu_change():
+    """Callback quando menu de testes é clicado."""
+    sel = st.session_state.get('nav_testes')
+    if sel is not None and sel in MENU_TESTES:
+        st.session_state['menu_atual'] = sel
+        if 'nav_main' in st.session_state:
+            st.session_state['nav_main'] = None
+        if 'nav_sec' in st.session_state:
+            st.session_state['nav_sec'] = None
 
 def _nav_para_menu(dest: str):
     """Callback de navegação direta: atualiza menu_atual sem st.rerun() explícito.
@@ -12477,9 +12559,15 @@ def _nav_para_menu(dest: str):
     if dest in MENU_PRINCIPAL:
         st.session_state['nav_main'] = dest
         st.session_state['nav_sec'] = None
-    else:
+        st.session_state['nav_testes'] = None
+    elif dest in MENU_SECUNDARIO:
         st.session_state['nav_sec'] = dest
         st.session_state['nav_main'] = None
+        st.session_state['nav_testes'] = None
+    elif dest in MENU_TESTES:
+        st.session_state['nav_testes'] = dest
+        st.session_state['nav_main'] = None
+        st.session_state['nav_sec'] = None
 
 def _recarregar_cache_callback():
     """Callback para o botão de recarga de cache: evita double rerun."""
@@ -12492,9 +12580,15 @@ def _recarregar_cache_callback():
 if menu_atual in MENU_PRINCIPAL:
     st.session_state['nav_main'] = menu_atual
     st.session_state['nav_sec'] = None
-else:
+    st.session_state['nav_testes'] = None
+elif menu_atual in MENU_SECUNDARIO:
     st.session_state['nav_main'] = None
     st.session_state['nav_sec'] = menu_atual
+    st.session_state['nav_testes'] = None
+else:
+    st.session_state['nav_main'] = None
+    st.session_state['nav_sec'] = None
+    st.session_state['nav_testes'] = menu_atual
 
 # Menu principal (análise)
 st.markdown('<div class="header-nav">', unsafe_allow_html=True)
@@ -12518,6 +12612,17 @@ st.segmented_control(
 )
 st.markdown('</div>', unsafe_allow_html=True)
 
+# Menu beta / testes
+st.markdown('<div class="header-nav">', unsafe_allow_html=True)
+st.segmented_control(
+    "menu testes",
+    MENU_TESTES,
+    label_visibility="collapsed",
+    key="nav_testes",
+    on_change=_on_test_menu_change,
+)
+st.markdown('</div>', unsafe_allow_html=True)
+
 # Usar menu_atual (já atualizado pelos callbacks)
 menu = st.session_state['menu_atual']
 _menu_prev_rendered = st.session_state.get('_menu_prev_rendered')
@@ -12529,17 +12634,18 @@ st.markdown("---")
 
 CACHE_DEPENDENCIAS_POR_ABA = {
     "Snapshot": ["critical_screens"],
-    "Modelagem Teste": ["critical_screens"],
+    "Modelo de Rating": ["critical_screens"],
     "Rankings": ["principal", "capital"],
     "Peers (Tabela)": ["critical_screens"],
     "Evolução": ["principal", "passivo", "ativo", "capital"],
     "Scatter Plot": ["principal", "capital", "derived_metrics"],
     "DRE (Ind. e Congl.)": ["dre", "principal", "dre_individual", "principal_individual"],
     "Carteira 4.966": ["carteira_instrumentos"],
+    "Taxas de Juros (Beta Leve)": ["taxas_juros_historico"],
     "Contas COSIF": ["bloprudencial"],
     "Atualizar Base": [
         "principal", "capital", "ativo", "passivo", "dre", "carteira_pf",
-        "carteira_pj", "carteira_instrumentos", "bloprudencial",
+        "carteira_pj", "carteira_instrumentos", "bloprudencial", "taxas_juros_historico",
         "derived_metrics", "derived_metrics_individual",
     ],
 }
@@ -12552,6 +12658,8 @@ def _nota_cache_dependencia(cache_nome: str) -> str:
         return "calculado automaticamente (DRE individual + principal individual)"
     if cache_nome == "bloprudencial":
         return "fonte mensal BLOPRUDENCIAL (BCB)"
+    if cache_nome == "taxas_juros_historico":
+        return "histórico batch consolidado de taxas de juros (BCB)"
     if cache_nome == "critical_screens":
         return "parquet curado materializado a partir de principal/capital/ativo/passivo/carteiras/BLOPRUDENCIAL"
     return "extração/cache padrão"
@@ -12682,7 +12790,7 @@ timer_box_menu = None
 menu_timer_state_key = None
 menu_timer_signature = None
 t0_menu_timer = None
-if menu in MENU_PRINCIPAL and menu not in {"Snapshot", "Peers (Tabela)", "DRE (Ind. e Congl.)", "Evolução", "Rankings"}:
+if (menu in MENU_PRINCIPAL or menu in MENU_TESTES) and menu not in {"Snapshot", "Peers (Tabela)", "DRE (Ind. e Congl.)", "Evolução", "Rankings"}:
     timer_box_menu = st.empty()
     menu_timer_state_key = f"timer_state_{menu}"
     menu_timer_signature = ("menu", menu)
@@ -12694,204 +12802,61 @@ if menu == "Sobre":
     st.markdown("""
     ## sobre a plataforma
 
-    o **toma.conta** consolida dados oficiais do banco central para análise comparativa de instituições financeiras brasileiras, com foco em leitura rápida, filtros reproduzíveis e exportação.
+    o **toma.conta** consolida dados oficiais do banco central para análise comparativa de instituições financeiras brasileiras, com foco em leitura rápida, filtros reproduzíveis, exportação e documentação técnica dos cálculos.
     """)
 
-    st.markdown("""
-    <div class="modules-panel">
-        <div class="modules-header">
-            <div class="modules-kicker">módulos de análise</div>
-            <div class="modules-sub">acessos compactos e diretos ao ponto</div>
-        </div>
-        <div class="module-grid">
-            <div class="module-chip">
-                <div class="module-top">
-                    <span class="module-title">rankings</span>
-                    <span class="module-pill">ranking</span>
-                </div>
-                <div class="module-desc">ordene indicadores por período com comparação imediata.</div>
-            </div>
-            <div class="module-chip">
-                <div class="module-top">
-                    <span class="module-title">dre</span>
-                    <span class="module-pill">resultado</span>
-                </div>
-                <div class="module-desc">leitura de receitas, despesas e margens em um painel limpo.</div>
-            </div>
-            <div class="module-chip">
-                <div class="module-top">
-                    <span class="module-title">peers (tabela)</span>
-                    <span class="module-pill">comparativo</span>
-                </div>
-                <div class="module-desc">multi-bancos e até 3 períodos com variação anual.</div>
-            </div>
-            <div class="module-chip">
-                <div class="module-top">
-                    <span class="module-title">carteira 4.966</span>
-                    <span class="module-pill">risco</span>
-                </div>
-                <div class="module-desc">qualidade da carteira com foco em classes críticas.</div>
-            </div>
-            <div class="module-chip">
-                <div class="module-top">
-                    <span class="module-title">evolução</span>
-                    <span class="module-pill">tendência</span>
-                </div>
-                <div class="module-desc">séries temporais para aceleração, desaceleração e patamar.</div>
-            </div>
-            <div class="module-chip">
-                <div class="module-top">
-                    <span class="module-title">taxas por produto</span>
-                    <span class="module-pill">juros</span>
-                </div>
-                <div class="module-desc">comparação por modalidade (pf/pj) e período.</div>
-            </div>
-            <div class="module-chip">
-                <div class="module-top">
-                    <span class="module-title">scatter plot</span>
-                    <span class="module-pill">x/y</span>
-                </div>
-                <div class="module-desc">relação entre indicadores com tamanho de bolha.</div>
-            </div>
-            <div class="module-chip">
-                <div class="module-top">
-                    <span class="module-title">métrica + glossário</span>
-                    <span class="module-pill">custom</span>
-                </div>
-                <div class="module-desc">crie indicadores e navegue a documentação técnica.</div>
-            </div>
-            <div class="module-chip">
-                <div class="module-top">
-                    <span class="module-title">snapshot</span>
-                    <span class="module-pill">briefing</span>
-                </div>
-                <div class="module-desc">indicadores-chave de uma instituição em leitura única e vertical.</div>
-            </div>
-            <div class="module-chip">
-                <div class="module-top">
-                    <span class="module-title">conselho e diretoria</span>
-                    <span class="module-pill">governança</span>
-                </div>
-                <div class="module-desc">composição de órgãos por conglomerado e instituição participante.</div>
-            </div>
-            <div class="module-chip">
-                <div class="module-top">
-                    <span class="module-title">contribuições fgc/fgcoop</span>
-                    <span class="module-pill">garantias</span>
-                </div>
-                <div class="module-desc">contribuições por regime de garantia com comparativo de período.</div>
-            </div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown("### abas principais")
+    st.dataframe(
+        pd.DataFrame(
+            [
+                {"Aba": "Snapshot", "Para que serve": "Leitura vertical de uma instituição em um único período, com indicadores-chave e memórias de cálculo."},
+                {"Aba": "Rankings", "Para que serve": "Ordenação rápida de indicadores por período, com filtros e comparações imediatas."},
+                {"Aba": "Peers (Tabela)", "Para que serve": "Comparação tabular entre várias instituições e até três períodos, com variação anual."},
+                {"Aba": "Evolução", "Para que serve": "Séries históricas dos principais indicadores para entender tendência, aceleração e patamar."},
+                {"Aba": "Scatter Plot", "Para que serve": "Relações entre métricas em dois eixos, com bolhas e filtros por período."},
+                {"Aba": "DRE (Ind. e Congl.)", "Para que serve": "Leitura do resultado por conglomerado prudencial ou por instituição individual, com exportação."},
+                {"Aba": "Carteira 4.966", "Para que serve": "Qualidade da carteira de crédito por classe de risco e ativos problemáticos."},
+                {"Aba": "Taxas de Juros (Beta Leve)", "Para que serve": "Histórico mensal consolidado e série diária dos últimos 3 meses por produto, com exportação para Excel."},
+                {"Aba": "Conselho e Diretoria", "Para que serve": "Composição de órgãos de governança por conglomerado e instituição participante."},
+            ]
+        ),
+        hide_index=True,
+        use_container_width=True,
+    )
 
-    st.markdown("---")
+    st.markdown("### testes / beta")
+    st.dataframe(
+        pd.DataFrame(
+            [
+                {"Aba": "Modelo de Rating", "Para que serve": "Motor experimental de rating com score inicial por porte, fatores quantitativos e perguntas qualitativas auditáveis."},
+                {"Aba": "Contas COSIF", "Para que serve": "Ranking mensal por conta COSIF a partir do BLOPRUDENCIAL, com regra explícita de saldo, trimestre ou acumulado semestral."},
+                {"Aba": "Balanço, DRE e DMPL (Ind.)", "Para que serve": "Consulta ao vivo do documento 9011 do Banco Central para balanço, DRE e DMPL individuais."},
+            ]
+        ),
+        hide_index=True,
+        use_container_width=True,
+    )
 
-    st.markdown("""
-    <div class="metrics-panel">
-        <div class="metrics-title">indicadores e métricas disponíveis</div>
-        <div class="metrics-grid">
-            <div class="metrics-card">
-                <div class="metrics-kicker">estrutura patrimonial</div>
-                <ul class="metrics-list">
-                    <li>ativo total</li>
-                    <li>ativos líquidos</li>
-                    <li>carteira de crédito classificada e líquida</li>
-                    <li>títulos e valores mobiliários</li>
-                    <li>depósitos e captações</li>
-                    <li>patrimônio líquido</li>
-                    <li>lucro líquido acumulado (ytd)</li>
-                </ul>
-            </div>
-            <div class="metrics-card">
-                <div class="metrics-kicker">capital e prudencial</div>
-                <ul class="metrics-list">
-                    <li>capital principal (tier 1)</li>
-                    <li>capital complementar</li>
-                    <li>capital nível ii</li>
-                    <li>rwa total / crédito / mercado / operacional</li>
-                    <li>exposição total</li>
-                    <li>índices de capital (cet1 e basileia)</li>
-                    <li>razão de alavancagem</li>
-                </ul>
-            </div>
-            <div class="metrics-card">
-                <div class="metrics-kicker">métricas derivadas</div>
-                <ul class="metrics-list">
-                    <li>roe acumulado anualizado (%)</li>
-                    <li>ativo / pl</li>
-                    <li>crédito / pl (%)</li>
-                    <li>crédito / captações (%)</li>
-                    <li>perda esperada / carteira</li>
-                    <li>pdd total e coberturas</li>
-                </ul>
-                <div class="metrics-divider"></div>
-                <div class="metrics-kicker">outros blocos</div>
-                <ul class="metrics-list">
-                    <li>carteira 4.966 por classe de risco</li>
-                    <li>taxas de juros por produto (pf e pj)</li>
-                    <li>conselho e diretoria por conglomerado</li>
-                </ul>
-            </div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown("### recursos da plataforma")
+    st.markdown(
+        """
+        - filtros por período, instituição, produto e visão contábil, com persistência em sessão;
+        - nomes canônicos por instituição para estabilizar comparações entre fontes;
+        - exportação para Excel e CSV nas visões principais, incluindo matrizes prontas para uso externo;
+        - caches locais e publicados para evitar reprocessamento e reduzir dependência de consulta bruta ao vivo;
+        - glossário central e mini-glossários nas abas para explicar fonte, cálculo e limitações.
+        """
+    )
 
-    st.markdown("---")
-
-    st.markdown("""
-    <div class="ops-panel">
-        <div class="metrics-title">recursos operacionais</div>
-        <div class="ops-grid">
-            <div class="ops-card">
-                <div class="ops-title">filtros inteligentes</div>
-                <div class="ops-desc">seleção por lista customizada e recortes por período.</div>
-            </div>
-            <div class="ops-card">
-                <div class="ops-title">nomenclatura personalizada</div>
-                <div class="ops-desc">nomes canônicos por instituição, com matching oficial e previsível.</div>
-            </div>
-            <div class="ops-card">
-                <div class="ops-title">exportação</div>
-                <div class="ops-desc">excel e csv nas análises tabulares, com artefatos para relatórios.</div>
-            </div>
-            <div class="ops-card">
-                <div class="ops-title">dados oficiais</div>
-                <div class="ops-desc">fontes oficiais do bcb (if.data, relatório 5 e 4.966).</div>
-            </div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    st.markdown("---")
-
-    st.markdown("""
-    <div class="steps-panel">
-        <div class="metrics-title">como utilizar</div>
-        <ul class="steps-list">
-            <li class="steps-item">
-                <div class="steps-num">1</div>
-                <div class="steps-text"><strong>selecione o módulo</strong> com foco no objetivo (snapshot, rankings, peers, evolução, scatter, dre, carteira 4.966, taxas, conselho, fgc ou métrica customizada).</div>
-            </li>
-            <li class="steps-item">
-                <div class="steps-num">2</div>
-                <div class="steps-text"><strong>defina período e instituições</strong> para ajustar o recorte comparativo.</div>
-            </li>
-            <li class="steps-item">
-                <div class="steps-num">3</div>
-                <div class="steps-text"><strong>aplique filtros e nomes canônicos</strong> para padronizar a comparação.</div>
-            </li>
-            <li class="steps-item">
-                <div class="steps-num">4</div>
-                <div class="steps-text"><strong>consulte o glossário</strong> para validar fórmulas e conceitos.</div>
-            </li>
-            <li class="steps-item">
-                <div class="steps-num">5</div>
-                <div class="steps-text"><strong>exporte os resultados</strong> em excel/csv quando precisar compartilhar.</div>
-            </li>
-        </ul>
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown("### como utilizar")
+    st.markdown(
+        """
+        1. selecione a aba de acordo com a pergunta analítica: ranking, comparação entre pares, evolução, DRE, crédito, juros ou módulos experimentais.
+        2. defina período, instituições e recortes de produto ou conta antes de interpretar os números.
+        3. use o glossário e as memórias de cálculo para validar fórmula, fonte e eventual quebra metodológica.
+        4. exporte o resultado quando precisar reproduzir o gráfico ou continuar a análise fora do app.
+        """
+    )
 
     st.markdown("---")
 
@@ -13525,7 +13490,7 @@ elif False and menu == "Painel":
 
 # GUARDA DO DISPATCHER: cada rótulo de `menu` deve aparecer uma única vez
 # neste bloco `if/elif` para evitar branches mortos e comportamento inesperado.
-elif menu == "Modelagem Teste":
+elif menu == "Modelo de Rating":
     pagina_test()
 
 elif menu == "Snapshot":
@@ -17661,6 +17626,40 @@ elif menu == "Rankings":
 elif menu == "Contas COSIF":
     st.markdown("### Contas COSIF")
     st.caption("Ranking baseado no BLOPRUDENCIAL mensal, com conta COSIF selecionável e cálculo explícito por período de referência.")
+    with st.expander("Mini-glossário", expanded=False):
+        st.dataframe(
+            pd.DataFrame(
+                [
+                    {
+                        "Campo": "Fonte",
+                        "Descrição": "BLOPRUDENCIAL mensal do Banco Central, carregado por conta COSIF e competência.",
+                    },
+                    {
+                        "Campo": "Saldo do período",
+                        "Descrição": "Usa diretamente o valor publicado para a competência de referência.",
+                    },
+                    {
+                        "Campo": "Acumulado semestral",
+                        "Descrição": "Para contas 7/8/9, usa o acumulado publicado; no 2º semestre, recompõe com referência + junho do mesmo ano.",
+                    },
+                    {
+                        "Campo": "Valor do trimestre",
+                        "Descrição": "Quando aplicável, isola o trimestre a partir do acumulado semestral: junho menos março ou dezembro menos setembro.",
+                    },
+                    {
+                        "Campo": "Valor Calculado (abs)",
+                        "Descrição": "Módulo do valor calculado, usado apenas para ordenar e dimensionar o ranking comparativo.",
+                    },
+                    {
+                        "Campo": "% do Total Exibido",
+                        "Descrição": "Participação de cada instituição sobre o total absoluto apenas das linhas exibidas no ranking atual.",
+                    },
+                ]
+            ),
+            hide_index=True,
+            use_container_width=True,
+        )
+        st.caption("Instituições sem base suficiente para a regra escolhida são excluídas do cálculo e informadas como ausência de dados.")
 
     periodos_yyyymm = _listar_periodos_bloprudencial_disponiveis(_cache_version_token("bloprudencial"))
     if not periodos_yyyymm:
@@ -17911,7 +17910,6 @@ elif menu == "Contas COSIF":
                                     key="exportar_fgc_excel",
                                     use_container_width=True,
                                 )
-
 elif menu == "Balanço, DRE e DMPL (Ind.)":
     render_tab_cdsfn()
 
@@ -22742,8 +22740,7 @@ elif menu == "Carteira 4.966":
                         use_container_width=True,
                     )
                     st.caption(
-                        "Fonte: Banco Central do Brasil, IFData 2025-2030, relatório 16, PDF "
-                        "`trel202512_130_0.pdf`."
+                        "Fonte: Banco Central do Brasil, IFData/Olinda, relatório 16 (classificação da carteira conforme Resolução 4.966), no período selecionado."
                     )
 
             else:
@@ -23785,20 +23782,40 @@ elif menu == "Taxas de Juros (Beta Leve)":
         "Usa o cache histórico consolidado quando disponível; caso contrário, cai para consultas progressivas no servidor do BCB."
     )
 
-    with st.expander("Sobre a beta", expanded=False):
-        st.markdown(
-            """
-            **Objetivo:** servir histórico amplo sem puxar a API bruta a cada interação.
-
-            **Guardrails desta aba:**
-            - preferência por cache histórico local/publicado;
-            - fallback para consultas progressivas só quando o cache histórico não estiver disponível;
-            - detalhe recente opcional e sob demanda;
-            - limites explícitos de paginação no fallback ao vivo.
-
-            **Trade-off:** o modo ao vivo leve continua existindo como contingência, mas a fonte preferida agora é o histórico batch.
-            """
+    with st.expander("Mini-glossário", expanded=False):
+        st.dataframe(
+            pd.DataFrame(
+                [
+                    {
+                        "Campo": "Fonte preferida",
+                        "Descrição": "Cache histórico consolidado de taxas de juros; na ausência dele, a aba usa fallback leve com consultas progressivas ao BCB.",
+                    },
+                    {
+                        "Campo": "Taxa Mensal (%) / Taxa Anual (%)",
+                        "Descrição": "Valores publicados pelo BCB para cada instituição, produto e janela oficial de divulgação.",
+                    },
+                    {
+                        "Campo": "Visão mensal",
+                        "Descrição": "Mantém a última observação disponível de cada mês por banco e produto para reduzir ruído e volume.",
+                    },
+                    {
+                        "Campo": "Série diária · últimos 3 meses",
+                        "Descrição": "Recorte diário ancorado na última data disponível da base, preservando lacunas reais do calendário oficial.",
+                    },
+                    {
+                        "Campo": "Posição",
+                        "Descrição": "Ordem publicada pelo BCB na data mais recente do produto selecionado; usada apenas como ranking de referência.",
+                    },
+                    {
+                        "Campo": "Exportações",
+                        "Descrição": "O ranking e a série diária saem em Excel estruturado para reprodução externa do gráfico e da tabela.",
+                    },
+                ]
+            ),
+            hide_index=True,
+            use_container_width=True,
         )
+        st.caption("O desenho da aba prioriza cache histórico e filtros locais para manter o consumo de memória controlado.")
 
     col_cfg1, col_cfg2, col_cfg3 = st.columns([1.1, 1.2, 1.1])
     with col_cfg1:
@@ -26544,13 +26561,7 @@ elif menu == "Glossário":
     st.dataframe(pd.DataFrame(_map_rows), width="stretch", hide_index=True)
     st.caption("Obs.: `derived_metrics` e `derived_metrics_individual` são recalculados a partir de DRE + Principal.")
 
-    # [VERSÃO ANTERIOR]: glossário central continha duplicidades textuais de
-    # Perda Esperada / Depósitos Totais / Core Funding e não separava claramente
-    # ROE Ac. Anualizado (%) versus ROE Trim. Anualizado (%).
-    # [VERSÃO ANTERIOR]: variáveis com exibição incerta permaneciam misturadas ao
-    # corpo principal, sem seção histórica/legado explícita.
-
-    st.markdown("## Glossário Central — versão reestruturada (abril/2026)")
+    st.markdown("## Glossário Central — versão atualizada (abril/2026)")
     with st.expander("**Contexto de leitura dos dados (visão prudencial)**", expanded=True):
         st.markdown("""
         Os dados do app vêm principalmente do **IFData/Olinda do Banco Central**, na visão de
@@ -26583,6 +26594,13 @@ elif menu == "Glossário":
         Em geral, quanto maior o índice, maior a folga regulatória. Mas isso **não substitui**
         análise de liquidez, concentração de risco, qualidade da carteira ou mudanças normativas.
         """)
+    with st.expander("**Módulos recentes e regras de leitura**", expanded=False):
+        st.markdown("""
+        - **Taxas de Juros (Beta Leve):** consome preferencialmente um cache histórico consolidado e usa a última observação disponível de cada mês para a visão mensal; a série diária mostra os últimos 3 meses ancorados na data mais recente da base.
+        - **Contas COSIF:** lê o BLOPRUDENCIAL mensal e reconstrói saldo, trimestre ou acumulado semestral conforme a natureza da conta COSIF e a competência escolhida.
+        - **Modelo de Rating:** usa o cache curado `critical_screens` para os fatores quantitativos e entrada manual para as seis perguntas qualitativas.
+        - **Balanço, DRE e DMPL (Ind.):** consulta o documento 9011 ao vivo; por isso, a disponibilidade depende do JSON retornado pelo Banco Central para a instituição e competência escolhidas.
+        """)
 
     _cols_gloss = ["Indicador", "Aba(s)", "Fonte", "Fórmula", "Unidade", "Interpretação", "Limitação", "Periodicidade"]
 
@@ -26591,47 +26609,61 @@ elif menu == "Glossário":
             st.dataframe(pd.DataFrame(linhas, columns=_cols_gloss), width="stretch", hide_index=True)
 
     _render_secao_glossario("1) Capital e Regulação", [
-        {"Indicador": "Índice de Capital Principal (CET1)", "Aba(s)": "Peers, Evolução, Glossário", "Fonte": "IFData Rel.5", "Fórmula": "Capital Principal ÷ RWA Total", "Unidade": "%", "Interpretação": "Folga de capital de maior qualidade frente ao risco ponderado.", "Limitação": "Pode variar por mudanças regulatórias/metodológicas.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Índice de Capital Principal (CET1)", "Aba(s)": "Snapshot, Peers (Tabela), Evolução, Rankings, Glossário, Modelo de Rating", "Fonte": "IFData Rel.5", "Fórmula": "Capital Principal ÷ RWA Total", "Unidade": "%", "Interpretação": "Folga de capital de maior qualidade frente ao risco ponderado.", "Limitação": "Pode variar por mudanças regulatórias/metodológicas.", "Periodicidade": "Trimestral"},
         {"Indicador": "Índice de Capital Nível I", "Aba(s)": "Glossário", "Fonte": "IFData Rel.5", "Fórmula": "PR Nível I ÷ RWA Total", "Unidade": "%", "Interpretação": "Cobertura de risco por capital Nível I.", "Limitação": "Não resume liquidez nem concentração de risco.", "Periodicidade": "Trimestral"},
-        {"Indicador": "Índice de Basileia", "Aba(s)": "Peers, Evolução, Glossário", "Fonte": "IFData Rel.5", "Fórmula": "Patrimônio de Referência ÷ RWA Total", "Unidade": "%", "Interpretação": "Nível total de capital regulatório sobre risco ponderado.", "Limitação": "Comparação histórica depende de contexto normativo.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Índice de Basileia", "Aba(s)": "Snapshot, Peers (Tabela), Evolução, Rankings, Glossário", "Fonte": "IFData Rel.5", "Fórmula": "Patrimônio de Referência ÷ RWA Total", "Unidade": "%", "Interpretação": "Nível total de capital regulatório sobre risco ponderado.", "Limitação": "Comparação histórica depende de contexto normativo.", "Periodicidade": "Trimestral"},
         {"Indicador": "Razão de Alavancagem", "Aba(s)": "Glossário", "Fonte": "IFData Rel.5", "Fórmula": "PR Nível I ÷ Exposição Total", "Unidade": "%", "Interpretação": "Capital Nível I sobre exposição não ponderada.", "Limitação": "Não pondera risco dos ativos.", "Periodicidade": "Trimestral"},
         {"Indicador": "Adicional de Capital Principal (ACP)", "Aba(s)": "Glossário", "Fonte": "IFData Rel.5", "Fórmula": "ACP Conservação + Contracíclico + Sistêmico", "Unidade": "%", "Interpretação": "Colchão regulatório adicional exigido.", "Limitação": "Níveis mudam conforme ciclo/regulação.", "Periodicidade": "Trimestral"},
         {"Indicador": "IRRBB", "Aba(s)": "Glossário", "Fonte": "IFData Rel.5", "Fórmula": "⚠️ Fórmula não identificada no app (campo reportado)", "Unidade": "Indicador", "Interpretação": "Risco de taxa de juros na carteira bancária.", "Limitação": "Sem memória de cálculo explícita na UI atual.", "Periodicidade": "Trimestral"},
     ])
 
     _render_secao_glossario("2) Balanço e Funding", [
-        {"Indicador": "Ativo Total", "Aba(s)": "Peers, Glossário", "Fonte": "IFData Rel.1", "Fórmula": "Valor reportado", "Unidade": "R$", "Interpretação": "Tamanho total do balanço.", "Limitação": "Tamanho não implica qualidade dos ativos.", "Periodicidade": "Trimestral"},
-        {"Indicador": "Ativos Líquidos", "Aba(s)": "Peers, Glossário", "Fonte": "IFData Rel.2", "Fórmula": "Disponibilidades (a) + AIL (b) + TVM (c)", "Unidade": "R$", "Interpretação": "Aproximação de ativos de maior liquidez.", "Limitação": "Não substitui métricas regulatórias de liquidez.", "Periodicidade": "Trimestral"},
-        {"Indicador": "Carteira de Crédito Bruta", "Aba(s)": "Peers, Glossário", "Fonte": "IFData Rel.2", "Fórmula": "Até 2024: d1+e1+f; 2025+: e1+f1+g1+h1", "Unidade": "R$", "Interpretação": "Volume bruto de exposição em crédito.", "Limitação": "Quebra metodológica entre janelas históricas.", "Periodicidade": "Trimestral"},
-        {"Indicador": "Carteira de Crédito* (Peers)", "Aba(s)": "Peers, Evolução", "Fonte": "IFData Rel.2", "Fórmula": "Alias visual da Carteira de Crédito Bruta", "Unidade": "R$", "Interpretação": "Nome contextual de UI para o mesmo conceito canônico.", "Limitação": "Asterisco é convenção local da aba.", "Periodicidade": "Trimestral"},
-        {"Indicador": "Depósitos Totais", "Aba(s)": "Peers, Glossário", "Fonte": "IFData Rel.3", "Fórmula": "Linha agregada ou soma dos subtipos", "Unidade": "R$", "Interpretação": "Principal bloco de funding bancário tradicional.", "Limitação": "Composição varia entre instituições/períodos.", "Periodicidade": "Trimestral"},
-        {"Indicador": "Core Funding", "Aba(s)": "Peers, Evolução, Glossário", "Fonte": "IFData Rel.3", "Fórmula": "Até 2024: Captações (e); 2025+: (e)+(h)", "Unidade": "R$", "Interpretação": "Base estrutural de captação para métricas de funding.", "Limitação": "Mudança de escopo em 2025.", "Periodicidade": "Trimestral"},
-        {"Indicador": "Patrimônio Líquido (PL)", "Aba(s)": "Peers, Evolução, Glossário", "Fonte": "IFData Rel.1", "Fórmula": "Valor reportado", "Unidade": "R$", "Interpretação": "Base patrimonial para rentabilidade e alavancagem.", "Limitação": "Pode refletir eventos contábeis pontuais.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Ativo Total", "Aba(s)": "Snapshot, Peers (Tabela), Evolução, Glossário, Modelo de Rating", "Fonte": "IFData Rel.1", "Fórmula": "Valor reportado", "Unidade": "R$", "Interpretação": "Tamanho total do balanço.", "Limitação": "Tamanho não implica qualidade dos ativos.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Ativos Líquidos", "Aba(s)": "Snapshot, Peers (Tabela), Glossário", "Fonte": "IFData Rel.2", "Fórmula": "Disponibilidades (a) + AIL (b) + TVM (c)", "Unidade": "R$", "Interpretação": "Aproximação de ativos de maior liquidez.", "Limitação": "Não substitui métricas regulatórias de liquidez.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Carteira de Crédito Bruta", "Aba(s)": "Snapshot, Peers (Tabela), Evolução, Glossário, Modelo de Rating", "Fonte": "IFData Rel.2", "Fórmula": "Até 2024: d1+e1+f; 2025+: e1+f1+g1+h1", "Unidade": "R$", "Interpretação": "Volume bruto de exposição em crédito.", "Limitação": "Quebra metodológica entre janelas históricas.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Carteira de Crédito* (Peers)", "Aba(s)": "Peers (Tabela), Evolução", "Fonte": "IFData Rel.2", "Fórmula": "Alias visual da Carteira de Crédito Bruta", "Unidade": "R$", "Interpretação": "Nome contextual de UI para o mesmo conceito canônico.", "Limitação": "Asterisco é convenção local da aba.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Depósitos Totais", "Aba(s)": "Snapshot, Peers (Tabela), Glossário", "Fonte": "IFData Rel.3", "Fórmula": "Linha agregada ou soma dos subtipos", "Unidade": "R$", "Interpretação": "Principal bloco de funding bancário tradicional.", "Limitação": "Composição varia entre instituições/períodos.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Core Funding", "Aba(s)": "Snapshot, Peers (Tabela), Evolução, Glossário, Modelo de Rating", "Fonte": "IFData Rel.3", "Fórmula": "Até 2024: Captações (e); 2025+: (e)+(h)", "Unidade": "R$", "Interpretação": "Base estrutural de captação para métricas de funding.", "Limitação": "Mudança de escopo em 2025.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Patrimônio Líquido (PL)", "Aba(s)": "Snapshot, Peers (Tabela), Evolução, DRE (Ind. e Congl.), Glossário", "Fonte": "IFData Rel.1", "Fórmula": "Valor reportado", "Unidade": "R$", "Interpretação": "Base patrimonial para rentabilidade e alavancagem.", "Limitação": "Pode refletir eventos contábeis pontuais.", "Periodicidade": "Trimestral"},
     ])
 
     _render_secao_glossario("3) Rentabilidade e Eficiência", [
-        {"Indicador": "ROE Ac. Anualizado (%)", "Aba(s)": "Peers, Evolução, Glossário", "Fonte": "IFData Rel.1", "Fórmula": "(LL YTD × fator) ÷ PL médio", "Unidade": "%", "Interpretação": "Retorno sobre PL com base acumulada anualizada.", "Limitação": "Sensível a sazonalidade e mês de referência.", "Periodicidade": "Trimestral (YTD)"},
+        {"Indicador": "ROE Ac. Anualizado (%)", "Aba(s)": "Snapshot, Peers (Tabela), Evolução, Glossário, Modelo de Rating", "Fonte": "IFData Rel.1", "Fórmula": "(LL YTD × fator de anualização) ÷ PL médio", "Unidade": "%", "Interpretação": "Retorno sobre PL com base acumulada anualizada.", "Limitação": "Sensível a sazonalidade e mês de referência.", "Periodicidade": "Trimestral (YTD)"},
         {"Indicador": "ROE Trim. Anualizado (%)", "Aba(s)": "Rankings, Glossário", "Fonte": "IFData Rel.1", "Fórmula": "(Lucro trimestral × 4) ÷ PL médio", "Unidade": "%", "Interpretação": "Proxy anualizada do trimestre corrente.", "Limitação": "Mais volátil que o ROE acumulado.", "Periodicidade": "Trimestral"},
-        {"Indicador": "Lucro Líquido Acumulado YTD", "Aba(s)": "Peers, Evolução, Glossário", "Fonte": "IFData Rel.1/4", "Fórmula": "Resultado líquido acumulado no ano", "Unidade": "R$", "Interpretação": "Contribuição de resultado até a data-base.", "Limitação": "Não é lucro run-rate do trimestre isolado.", "Periodicidade": "Trimestral (acumulado)"},
-        {"Indicador": "Desp PDD / Resultado Intermediação Fin. Bruto (%)", "Aba(s)": "DRE, Glossário", "Fonte": "IFData Rel.4", "Fórmula": "Desp. PDD ÷ Resultado Interm. Fin. Bruto", "Unidade": "%", "Interpretação": "Pressão de provisões sobre resultado de intermediação.", "Limitação": "Pode distorcer com denominador muito baixo.", "Periodicidade": "Trimestral/YTD"},
-        {"Indicador": "Desp Captação / Captação (%)", "Aba(s)": "DRE, Glossário", "Fonte": "IFData Rel.4 + Rel.1", "Fórmula": "(Desp. Captação × (12/meses)) ÷ Captações", "Unidade": "%", "Interpretação": "Custo anualizado de funding sobre captação.", "Limitação": "Depende da compatibilidade entre bases.", "Periodicidade": "Trimestral/YTD"},
+        {"Indicador": "Lucro Líquido Acumulado YTD", "Aba(s)": "Snapshot, Peers (Tabela), Evolução, Glossário", "Fonte": "IFData Rel.1/4", "Fórmula": "Resultado líquido acumulado no ano", "Unidade": "R$", "Interpretação": "Contribuição de resultado até a data-base.", "Limitação": "Não é lucro run-rate do trimestre isolado.", "Periodicidade": "Trimestral (acumulado)"},
+        {"Indicador": "Desp PDD / Resultado Intermediação Fin. Bruto (%)", "Aba(s)": "DRE (Ind. e Congl.), Glossário", "Fonte": "IFData Rel.4", "Fórmula": "Desp. PDD ÷ Resultado Interm. Fin. Bruto", "Unidade": "%", "Interpretação": "Pressão de provisões sobre resultado de intermediação.", "Limitação": "Pode distorcer com denominador muito baixo.", "Periodicidade": "Trimestral/YTD"},
+        {"Indicador": "Desp Captação / Captação (%)", "Aba(s)": "DRE (Ind. e Congl.), Glossário", "Fonte": "IFData Rel.4 + Rel.1", "Fórmula": "(Desp. Captação × (12/meses)) ÷ Captações", "Unidade": "%", "Interpretação": "Custo anualizado de funding sobre captação.", "Limitação": "Depende da compatibilidade entre bases.", "Periodicidade": "Trimestral/YTD"},
     ])
 
     _render_secao_glossario("4) Qualidade de Carteira", [
-        {"Indicador": "Perda Esperada", "Aba(s)": "Peers, Glossário", "Fonte": "IFData Rel.2", "Fórmula": "Soma das parcelas de perda esperada/ajustes e,f,g,h", "Unidade": "R$", "Interpretação": "Montante contábil de perdas esperadas no recorte.", "Limitação": "Depende de premissas/modelos contábeis.", "Periodicidade": "Trimestral"},
-        {"Indicador": "Ativos Estágio 2", "Aba(s)": "Peers, Glossário", "Fonte": "Cadoc 4060", "Fórmula": "Conta 3312000001", "Unidade": "R$", "Interpretação": "Estoque de ativos em estágio 2.", "Limitação": "Comparabilidade requer mesma régua classificatória.", "Periodicidade": "Mensal/Trimestral"},
-        {"Indicador": "Ativos Estágio 3", "Aba(s)": "Peers, Glossário", "Fonte": "Cadoc 4060", "Fórmula": "Conta 3313000000", "Unidade": "R$", "Interpretação": "Estoque de ativos em estágio 3.", "Limitação": "Não substitui análise de recuperação/vintage.", "Periodicidade": "Mensal/Trimestral"},
-        {"Indicador": "Perda Esperada / Estágio 3 (%)", "Aba(s)": "Peers, Glossário", "Fonte": "IFData Rel.2 + Cadoc 4060", "Fórmula": "Perda Esperada ÷ Ativos Estágio 3", "Unidade": "%", "Interpretação": "Proxy de cobertura da perda esperada sobre estágio 3.", "Limitação": "Pode haver descasamento temporal entre fontes.", "Periodicidade": "Mensal/Trimestral"},
-        {"Indicador": "Perda Esperada / Est2+3 (%)", "Aba(s)": "Peers, Glossário", "Fonte": "IFData Rel.2 + Cadoc 4060", "Fórmula": "Perda Esperada ÷ (Ativos Estágio 2 + Ativos Estágio 3)", "Unidade": "%", "Interpretação": "Proxy de cobertura da perda esperada sobre estágios 2 e 3 combinados.", "Limitação": "Exige Estágio 2 e Estágio 3 publicados no mesmo período.", "Periodicidade": "Mensal/Trimestral"},
+        {"Indicador": "Perda Esperada", "Aba(s)": "Snapshot, Peers (Tabela), Glossário, Modelo de Rating", "Fonte": "IFData Rel.2", "Fórmula": "Soma das parcelas de perda esperada/ajustes e,f,g,h", "Unidade": "R$", "Interpretação": "Montante contábil de perdas esperadas no recorte.", "Limitação": "Depende de premissas/modelos contábeis.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Ativos Estágio 2", "Aba(s)": "Snapshot, Peers (Tabela), Glossário, Modelo de Rating", "Fonte": "Cadoc 4060", "Fórmula": "Conta 3312000001", "Unidade": "R$", "Interpretação": "Estoque de ativos em estágio 2.", "Limitação": "Comparabilidade requer mesma régua classificatória.", "Periodicidade": "Mensal/Trimestral"},
+        {"Indicador": "Ativos Estágio 3", "Aba(s)": "Snapshot, Peers (Tabela), Glossário, Modelo de Rating", "Fonte": "Cadoc 4060", "Fórmula": "Conta 3313000000", "Unidade": "R$", "Interpretação": "Estoque de ativos em estágio 3.", "Limitação": "Não substitui análise de recuperação/vintage.", "Periodicidade": "Mensal/Trimestral"},
+        {"Indicador": "NPL (Estágio 2+3 / Carteira)", "Aba(s)": "Modelo de Rating, Glossário", "Fonte": "Cadoc 4060 + IFData Rel.2", "Fórmula": "(Ativos Estágio 2 + Ativos Estágio 3) ÷ Carteira de Crédito Bruta", "Unidade": "%", "Interpretação": "Proxy de deterioração da carteira usada como fator quantitativo no rating.", "Limitação": "Combina fontes com periodicidade distinta e depende de disponibilidade do 4060.", "Periodicidade": "Mensal/Trimestral"},
+        {"Indicador": "Perda Esperada / Estágio 3 (%)", "Aba(s)": "Peers (Tabela), Glossário", "Fonte": "IFData Rel.2 + Cadoc 4060", "Fórmula": "Perda Esperada ÷ Ativos Estágio 3", "Unidade": "%", "Interpretação": "Proxy de cobertura da perda esperada sobre estágio 3.", "Limitação": "Pode haver descasamento temporal entre fontes.", "Periodicidade": "Mensal/Trimestral"},
+        {"Indicador": "Perda Esperada / Est2+3 (%)", "Aba(s)": "Peers (Tabela), Glossário", "Fonte": "IFData Rel.2 + Cadoc 4060", "Fórmula": "Perda Esperada ÷ (Ativos Estágio 2 + Ativos Estágio 3)", "Unidade": "%", "Interpretação": "Proxy de cobertura da perda esperada sobre estágios 2 e 3 combinados.", "Limitação": "Exige Estágio 2 e Estágio 3 publicados no mesmo período.", "Periodicidade": "Mensal/Trimestral"},
     ])
 
     _render_secao_glossario("5) Alavancagem e Relações de Estrutura", [
-        {"Indicador": "Ativo Total / PL", "Aba(s)": "Peers, Glossário", "Fonte": "IFData Rel.1", "Fórmula": "Ativo Total ÷ Patrimônio Líquido", "Unidade": "x", "Interpretação": "Grau de alavancagem contábil do balanço.", "Limitação": "Não pondera o risco dos ativos.", "Periodicidade": "Trimestral"},
-        {"Indicador": "Carteira de Crédito Bruta / PL", "Aba(s)": "Peers, Evolução, Glossário", "Fonte": "IFData Rel.2 + Rel.1", "Fórmula": "Carteira de Crédito Bruta ÷ PL", "Unidade": "x", "Interpretação": "Intensidade de crédito sobre base patrimonial.", "Limitação": "Comparabilidade histórica afetada pela mudança de base em 2025.", "Periodicidade": "Trimestral"},
-        {"Indicador": "Perda Esperada / Carteira de Crédito Bruta (%)", "Aba(s)": "Peers, Glossário", "Fonte": "IFData Rel.2", "Fórmula": "Perda Esperada ÷ Carteira de Crédito Bruta", "Unidade": "%", "Interpretação": "Nível relativo de perdas esperadas sobre o estoque de crédito.", "Limitação": "Não captura composição por segmento/produto.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Ativo Total / PL", "Aba(s)": "Snapshot, Peers (Tabela), Glossário", "Fonte": "IFData Rel.1", "Fórmula": "Ativo Total ÷ Patrimônio Líquido", "Unidade": "x", "Interpretação": "Grau de alavancagem contábil do balanço.", "Limitação": "Não pondera o risco dos ativos.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Carteira de Crédito Bruta / PL", "Aba(s)": "Snapshot, Peers (Tabela), Evolução, Glossário", "Fonte": "IFData Rel.2 + Rel.1", "Fórmula": "Carteira de Crédito Bruta ÷ PL", "Unidade": "x", "Interpretação": "Intensidade de crédito sobre base patrimonial.", "Limitação": "Comparabilidade histórica afetada pela mudança de base em 2025.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Crédito / Captações (%)", "Aba(s)": "Snapshot, Evolução, Modelo de Rating, Glossário", "Fonte": "IFData Rel.2 + Rel.3", "Fórmula": "Carteira de Crédito Bruta ÷ Core Funding", "Unidade": "%", "Interpretação": "Pressão do crédito sobre a base estrutural de funding.", "Limitação": "Sensível à mudança de escopo do Core Funding em 2025.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Perda Esperada / Carteira de Crédito Bruta (%)", "Aba(s)": "Snapshot, Peers (Tabela), Glossário", "Fonte": "IFData Rel.2", "Fórmula": "Perda Esperada ÷ Carteira de Crédito Bruta", "Unidade": "%", "Interpretação": "Nível relativo de perdas esperadas sobre o estoque de crédito.", "Limitação": "Não captura composição por segmento/produto.", "Periodicidade": "Trimestral"},
     ])
 
-    with st.expander("**6) Definições históricas / não exibidas por padrão**", expanded=False):
+    _render_secao_glossario("6) Juros, COSIF e Módulos Experimentais", [
+        {"Indicador": "Taxa Mensal (%)", "Aba(s)": "Taxas de Juros (Beta Leve), Glossário", "Fonte": "BCB Olinda `ConsultaUnificada` / cache histórico de taxas", "Fórmula": "Valor publicado pelo BCB para a instituição, produto e janela oficial", "Unidade": "% a.m.", "Interpretação": "Taxa média ponderada mensal observada para a combinação selecionada.", "Limitação": "Nem toda instituição publica em toda janela; lacunas são preservadas.", "Periodicidade": "Diária por janela oficial"},
+        {"Indicador": "Taxa Anual (%)", "Aba(s)": "Taxas de Juros (Beta Leve), Glossário", "Fonte": "BCB Olinda `ConsultaUnificada` / cache histórico de taxas", "Fórmula": "Valor publicado pelo BCB para a mesma linha da taxa mensal", "Unidade": "% a.a.", "Interpretação": "Versão anualizada publicada pelo BCB para a mesma observação.", "Limitação": "Segue a disponibilidade e as revisões do próprio serviço do BCB.", "Periodicidade": "Diária por janela oficial"},
+        {"Indicador": "Série diária · últimos 3 meses", "Aba(s)": "Taxas de Juros (Beta Leve), Glossário", "Fonte": "Cache histórico de taxas + calendário oficial `ConsultaDatas`", "Fórmula": "Recorte dos últimos 3 meses ancorado na última `fim_periodo` disponível, com reindexação pelas datas oficiais", "Unidade": "Série temporal", "Interpretação": "Permite comparar a trajetória recente dos bancos selecionados sem imputar pontos inexistentes.", "Limitação": "Lacunas permanecem vazias quando a instituição não publica na janela.", "Periodicidade": "Diária por janela oficial"},
+        {"Indicador": "Conta COSIF", "Aba(s)": "Contas COSIF, Glossário", "Fonte": "BLOPRUDENCIAL mensal", "Fórmula": "Código contábil selecionado no dropdown", "Unidade": "Conta", "Interpretação": "Define a linha contábil usada para construir o ranking mensal.", "Limitação": "A nomenclatura pode variar por período; o app privilegia o código COSIF como chave.", "Periodicidade": "Mensal"},
+        {"Indicador": "Valor Calculado", "Aba(s)": "Contas COSIF, Glossário", "Fonte": "BLOPRUDENCIAL mensal", "Fórmula": "Saldo do período, trimestre isolado ou acumulado semestral, conforme a regra aplicável à conta", "Unidade": "R$", "Interpretação": "Valor efetivamente comparado entre instituições no ranking.", "Limitação": "Instituições sem base necessária são excluídas do cálculo.", "Periodicidade": "Mensal / trimestral / semestral reconstruído"},
+        {"Indicador": "Valor Calculado (abs)", "Aba(s)": "Contas COSIF, Glossário", "Fonte": "Derivação local sobre o valor calculado", "Fórmula": "abs(Valor Calculado)", "Unidade": "R$", "Interpretação": "Usado apenas para ordenar e medir participação no total exibido.", "Limitação": "Não substitui o sinal econômico do valor original.", "Periodicidade": "Mesmo período do Valor Calculado"},
+        {"Indicador": "Score bruto", "Aba(s)": "Modelo de Rating, Glossário", "Fonte": "Engine local do modelo", "Fórmula": "Score inicial + impactos quantitativos + impactos qualitativos antes do arredondamento final", "Unidade": "Pontos", "Interpretação": "Mostra a nota contínua antes do arredondamento para a escala final.", "Limitação": "É medida interna do modelo experimental, não métrica regulatória.", "Periodicidade": "Trimestral + input qualitativo do usuário"},
+        {"Indicador": "Rating Final (1-25)", "Aba(s)": "Modelo de Rating, Glossário", "Fonte": "Engine local do modelo", "Fórmula": "Arredondamento do score bruto, limitado ao intervalo de 1 a 25", "Unidade": "Nota", "Interpretação": "Saída sintética do modelo experimental para fins comparativos internos.", "Limitação": "Não é rating oficial de agência nem parâmetro regulatório do BCB.", "Periodicidade": "Trimestral + input qualitativo do usuário"},
+        {"Indicador": "Ref. Info Contábil A/S", "Aba(s)": "Balanço, DRE e DMPL (Ind.), Glossário", "Fonte": "Documento 9011 JSON", "Fórmula": "A = acumulado; S = semestre", "Unidade": "Tipo de referência", "Interpretação": "Define quais colunas internas do documento 9011 serão exibidas para comparação.", "Limitação": "A disponibilidade depende do conteúdo efetivamente retornado no documento escolhido.", "Periodicidade": "Por documento / competência"},
+    ])
+
+    with st.expander("**7) Definições históricas / não exibidas por padrão**", expanded=False):
         st.markdown("""
         - **[LEGADO] Crédito/Ativo (%)** = Carteira de Crédito Bruta ÷ Ativo Total.  
         - **[LEGADO] Carteira de Crédito/Core Funding (%)** = Carteira de Crédito Bruta ÷ Core Funding.  
