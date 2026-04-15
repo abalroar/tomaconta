@@ -10,6 +10,7 @@ import pandas as pd
 
 from utils.ifdata_cache import CacheManager, load_conglomerados_catalog, load_critical_screens_slice
 from utils.ifdata_cache.institutions import normalize_institution_name
+from utils.ifdata_cache.institutions import build_institution_to_conglomerate_map, canonicalize_institution_dataframe
 
 
 def _project_root(base_dir: Path | None = None) -> Path:
@@ -52,6 +53,17 @@ def get_previous_year_same_period(period: str) -> str | None:
     return f"{quarter}/{year_int - 1}"
 
 
+def _parse_display_period(period: str | None) -> tuple[int | None, int | None]:
+    text = str(period or "").strip()
+    if "/" not in text:
+        return (None, None)
+    part, year = text.split("/", 1)
+    try:
+        return (int(year), int(part))
+    except ValueError:
+        return (None, None)
+
+
 def _load_critical_screens_metadata(base_dir: Path | None = None) -> dict[str, Any]:
     root = _project_root(base_dir)
     manager = CacheManager(root)
@@ -86,6 +98,13 @@ def load_rating_input_dataframe(period: str, base_dir: Path | None = None) -> pd
     current = load_critical_screens_slice(base_dir=root, periodos=[str(period)])
     if current is None or current.empty:
         return pd.DataFrame()
+
+    carteira_ratios = _load_carteira_instrumentos_ratios(str(period), base_dir=root)
+    if not carteira_ratios.empty:
+        merge_cols = [col for col in ["Inadimplência / Carteira Total", "Ativos Problemáticos / Carteira Total"] if col in current.columns]
+        if merge_cols:
+            current = current.drop(columns=merge_cols, errors="ignore")
+        current = current.merge(carteira_ratios, on="Instituição", how="left")
 
     previous_period = get_previous_year_same_period(str(period))
     previous = (
@@ -161,6 +180,57 @@ def _safe_pct_change(current: Any, previous: Any) -> float | None:
     return (current_f / previous_f) - 1.0
 
 
+def _safe_abs_float(value: Any) -> float | None:
+    num = _safe_float(value)
+    if num is None:
+        return None
+    return abs(float(num))
+
+
+def _pick_local_column(df: pd.DataFrame, candidates: list[str]) -> str | None:
+    normalized = {normalize_institution_name(str(col)): str(col) for col in df.columns}
+    for candidate in candidates:
+        key = normalize_institution_name(candidate)
+        if key in normalized:
+            return normalized[key]
+    return None
+
+
+def _load_carteira_instrumentos_ratios(period: str, base_dir: Path | None = None) -> pd.DataFrame:
+    root = _project_root(base_dir)
+    manager = CacheManager(root)
+    result = manager.carregar("carteira_instrumentos")
+    if not result.sucesso or result.dados is None or result.dados.empty:
+        return pd.DataFrame(columns=["Instituição", "Inadimplência / Carteira Total", "Ativos Problemáticos / Carteira Total"])
+
+    df = result.dados.copy()
+    catalog_map = build_institution_to_conglomerate_map(root)
+    df = canonicalize_institution_dataframe(df, catalog_map=catalog_map, base_dir=root, extra_frames=())
+    if "Período" not in df.columns:
+        return pd.DataFrame(columns=["Instituição", "Inadimplência / Carteira Total", "Ativos Problemáticos / Carteira Total"])
+    df = df[df["Período"].astype(str) == str(period)].copy()
+    if df.empty:
+        return pd.DataFrame(columns=["Instituição", "Inadimplência / Carteira Total", "Ativos Problemáticos / Carteira Total"])
+
+    col_total = _pick_local_column(df, ["Total Geral"])
+    col_inad = _pick_local_column(df, ["Inadimplência", "Inadimplencia"])
+    col_prob = _pick_local_column(df, ["Ativos problemáticos", "Ativos problematicos"])
+    if not col_total:
+        return pd.DataFrame(columns=["Instituição", "Inadimplência / Carteira Total", "Ativos Problemáticos / Carteira Total"])
+
+    total = pd.to_numeric(df[col_total], errors="coerce")
+    inad = pd.to_numeric(df[col_inad], errors="coerce") if col_inad else pd.Series([pd.NA] * len(df), index=df.index, dtype="float64")
+    prob = pd.to_numeric(df[col_prob], errors="coerce") if col_prob else pd.Series([pd.NA] * len(df), index=df.index, dtype="float64")
+    out = pd.DataFrame(
+        {
+            "Instituição": df["Instituição"].astype(str),
+            "Inadimplência / Carteira Total": inad.divide(total.where(total != 0)),
+            "Ativos Problemáticos / Carteira Total": prob.divide(total.where(total != 0)),
+        }
+    )
+    return out.drop_duplicates(subset=["Instituição"], keep="last").reset_index(drop=True)
+
+
 def build_variable_mapping_table() -> pd.DataFrame:
     rows = [
         {
@@ -182,10 +252,10 @@ def build_variable_mapping_table() -> pd.DataFrame:
             "Notes": "Current period value, audited against the same quarter of the previous year.",
         },
         {
-            "Model variable": "NPL Creation",
-            "Current app field": "(Ativos Estágio 2 + Ativos Estágio 3) / Carteira de Crédito Bruta",
-            "Type": "current level",
-            "Notes": "Preferred carteira-quality criterion in the selected period.",
+            "Model variable": "Asset quality",
+            "Current app field": "Inadimplência / Carteira Total (Rel. 16) com proxy histórica calibrada quando a série ideal não existir",
+            "Type": "exact_or_proxy",
+            "Notes": "4T/2025+ usa Inadimplência / Carteira Total; períodos sem essa série usam proxy explícita e documentada no audit trail.",
         },
         {
             "Model variable": "Funding delta",
@@ -226,6 +296,8 @@ def map_rating_inputs(record: Mapping[str, Any]) -> dict[str, Any]:
         "Perda Esperada / Carteira de Crédito Bruta (prev)": _safe_float(
             row.get("Perda Esperada / Carteira de Crédito Bruta (prev)")
         ),
+        "Inadimplência / Carteira Total": _safe_float(row.get("Inadimplência / Carteira Total")),
+        "Ativos Problemáticos / Carteira Total": _safe_float(row.get("Ativos Problemáticos / Carteira Total")),
         "Ativos Estágio 2": _safe_float(row.get("Ativos Estágio 2")),
         "Ativos Estágio 2 (prev)": _safe_float(row.get("Ativos Estágio 2 (prev)")),
         "Ativos Estágio 3": _safe_float(row.get("Ativos Estágio 3")),
@@ -318,55 +390,87 @@ def map_rating_inputs(record: Mapping[str, Any]) -> dict[str, Any]:
         ),
     }
 
-    npl_exact_candidates = ["NPL Creation", "NPL Creation (%)", "NPL Criação", "NPL Criação (%)"]
-    exact_source = next((candidate for candidate in npl_exact_candidates if candidate in row and _safe_float(row.get(candidate)) is not None), None)
-    if exact_source is not None:
-        mapped_inputs["npl_creation"] = {
-            "value": _safe_float(row.get(exact_source)),
-            "display_label": "NPL (Estágio 2+3 / Carteira)",
-            "source_field": exact_source,
+    year_ref, quarter_ref = _parse_display_period(period)
+    inad_ratio = raw_inputs["Inadimplência / Carteira Total"]
+    problematic_ratio = raw_inputs["Ativos Problemáticos / Carteira Total"]
+    perda_ratio_abs = _safe_abs_float(raw_inputs["Perda Esperada / Carteira de Crédito Bruta"])
+    legacy_dh_candidates = [
+        "D-H / Carteira",
+        "D-H / Carteira (%)",
+        "D-H/Carteira",
+        "D-H/Carteira (%)",
+    ]
+    legacy_dh_source = next(
+        (candidate for candidate in legacy_dh_candidates if candidate in row and _safe_float(row.get(candidate)) is not None),
+        None,
+    )
+
+    if inad_ratio is not None:
+        mapped_inputs["asset_quality"] = {
+            "value": inad_ratio,
+            "display_label": "Qualidade da Carteira",
+            "source_field": "Inadimplência / Carteira Total",
             "source_kind": "exact",
-            "note": "Campo exato de NPL encontrado no dataset.",
+            "rule_set": "inad_ratio_exact",
+            "note": (
+                "Usa Inadimplência / Carteira Total do Rel. 16, a mesma base analítica da aba Carteira 4.966. "
+                "Ativos Problemáticos / Carteira Total permanece disponível como referência complementar na auditoria."
+            ),
+            "components": {
+                "inadimplencia_ratio": inad_ratio,
+                "ativos_problematicos_ratio": problematic_ratio,
+            },
+        }
+    elif legacy_dh_source is not None and year_ref is not None and year_ref <= 2024:
+        mapped_inputs["asset_quality"] = {
+            "value": _safe_float(row.get(legacy_dh_source)),
+            "display_label": "Qualidade da Carteira",
+            "source_field": legacy_dh_source,
+            "source_kind": "exact_legacy",
+            "rule_set": "legacy_dh_ratio",
+            "note": "Usa D-H / Carteira como medida histórica de qualidade da carteira para períodos até 2024.",
+        }
+    elif perda_ratio_abs is not None and (year_ref == 2025 and quarter_ref in {1, 2, 3}):
+        mapped_inputs["asset_quality"] = {
+            "value": perda_ratio_abs,
+            "display_label": "Qualidade da Carteira",
+            "source_field": "|Perda Esperada / Carteira de Crédito Bruta|",
+            "source_kind": "proxy",
+            "rule_set": "proxy_loss_ratio",
+            "note": (
+                "Em mar/25, jun/25 e set/25, a série exata de Inadimplência / Carteira Total ainda não veio preenchida no Rel. 16 local. "
+                "Nesses casos, o modelo usa a proxy calibrada "
+                "|Perda Esperada / Carteira de Crédito Bruta| para preservar comparabilidade sem esconder a troca metodológica."
+            ),
+            "components": {
+                "perda_esperada_ratio_abs": perda_ratio_abs,
+                "inadimplencia_ratio_disponivel": inad_ratio,
+                "ativos_problematicos_ratio_disponivel": problematic_ratio,
+            },
         }
     else:
-        estagio2 = _safe_float(raw_inputs["Ativos Estágio 2"])
-        estagio3 = _safe_float(raw_inputs["Ativos Estágio 3"])
-        carteira = raw_inputs["Carteira de Crédito Bruta"]
-        current_stage23_ratio = (
-            _safe_ratio(estagio2 + estagio3, carteira)
-            if estagio2 is not None and estagio3 is not None
-            else None
+        missing_note = (
+            "Até 2024, o ideal conceitual seria D-H / Carteira, mas essa série ainda não está integrada ao app; "
+            "por isso o fator fica indisponível e o rating permanece incompleto."
+            if year_ref is not None and year_ref <= 2024
+            else (
+                "Sem série exata de Inadimplência / Carteira Total e sem proxy calibrada utilizável para o período; "
+                "o rating fica incompleto."
+            )
         )
-        if current_stage23_ratio is not None:
-            mapped_inputs["npl_creation"] = {
-                "value": current_stage23_ratio,
-                "display_label": "NPL (Estágio 2+3 / Carteira)",
-                "source_field": "(Ativos Estágio 2 + Ativos Estágio 3) / Carteira de Crédito Bruta",
-                "source_kind": "current_level",
-                "note": "Critério preferencial de qualidade de carteira no período selecionado.",
-                "components": {
-                    "estagio_2": estagio2,
-                    "estagio_3": estagio3,
-                    "carteira": carteira,
-                },
-            }
-        else:
-            mapped_inputs["npl_creation"] = {
-                "value": None,
-                "display_label": "NPL (Estágio 2+3 / Carteira)",
-                "source_field": "(Ativos Estágio 2 + Ativos Estágio 3) / Carteira de Crédito Bruta",
-                "source_kind": "missing",
-                "note": (
-                    "NPL por estágios indisponível; o modelo não usa Perda Esperada / Carteira de Crédito Bruta "
-                    "como proxy para este fator e o rating fica incompleto sem esse insumo."
-                ),
-                "components": {
-                    "estagio_2": estagio2,
-                    "estagio_3": estagio3,
-                    "carteira": carteira,
-                    "perda_esperada_ratio_disponivel": raw_inputs["Perda Esperada / Carteira de Crédito Bruta"],
-                },
-            }
+        mapped_inputs["asset_quality"] = {
+            "value": None,
+            "display_label": "Qualidade da Carteira",
+            "source_field": "Inadimplência / Carteira Total",
+            "source_kind": "missing",
+            "rule_set": "inad_ratio_exact",
+            "note": missing_note,
+            "components": {
+                "inadimplencia_ratio_disponivel": inad_ratio,
+                "ativos_problematicos_ratio_disponivel": problematic_ratio,
+                "perda_esperada_ratio_abs_disponivel": perda_ratio_abs,
+            },
+        }
 
     disclosures = []
     for item in mapped_inputs.values():

@@ -125,14 +125,22 @@ def build_audit_trail_markdown(calc_result: Mapping[str, Any]) -> str:
     size_bucket = calc_result.get("size_bucket") or {}
     lines.append(f"- size_bucket = {size_bucket.get('key') or 'N/A'}")
     lines.append(f"- starting_score = {calc_result.get('starting_score')}")
+    factor_labels = {
+        "cet1": "CET1",
+        "roe": "ROE",
+        "asset_quality": "Qualidade da Carteira",
+        "funding": "Funding",
+    }
     for factor, payload in (calc_result.get("quantitative_scores") or {}).items():
-        lines.append(f"- {factor}_bucket = {payload.get('bucket')}")
+        label = factor_labels.get(str(factor), str(factor))
+        lines.append(f"- {label}_bucket = {payload.get('bucket')}")
     lines.append("")
 
     lines.append("## Contribuições")
     lines.append(f"- starting_score = {calc_result.get('starting_score')}")
     for factor, payload in (calc_result.get("quantitative_scores") or {}).items():
-        lines.append(f"- P({factor}) = {float(payload.get('score', 0.0)):+.2f}")
+        label = factor_labels.get(str(factor), str(factor))
+        lines.append(f"- P({label}) = {float(payload.get('score', 0.0)):+.2f}")
     for factor, payload in (calc_result.get("qualitative_scores") or {}).items():
         lines.append(f"- P({factor.upper()}) = {float(payload.get('score', 0.0)):+.2f}")
     lines.append("")

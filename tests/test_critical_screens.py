@@ -121,7 +121,15 @@ def test_build_critical_screens_dataframe_materializes_expected_metrics(tmp_path
     )
     carteira_instr = pd.DataFrame(
         [
-            {"Instituição": "Itau Unibanco", "Período": "1/2025", "C4": 10.0, "C5": 5.0},
+            {
+                "Instituição": "Itau Unibanco",
+                "Período": "1/2025",
+                "C4": 10.0,
+                "C5": 5.0,
+                "Total Geral": 400.0,
+                "Inadimplência": 12.0,
+                "Ativos problemáticos": 24.0,
+            },
         ]
     )
     bloprud = pd.DataFrame(
@@ -210,10 +218,18 @@ def test_build_critical_screens_dataframe_materializes_expected_metrics(tmp_path
     assert round(row["Perda Esperada / Carteira de Crédito*"], 6) == round(100.0 / 1900.0, 6)
     assert row["Carteira de Crédito Classificada"] == 300.0
     assert row["Carteira de Créd. Class. C4+C5"] == 15.0
+    assert row["Carteira Total 4.966"] == 400.0
+    assert row["Inadimplência 4.966"] == 12.0
+    assert row["Ativos Problemáticos 4.966"] == 24.0
+    assert round(row["Inadimplência / Carteira Total"], 6) == round(12.0 / 400.0, 6)
+    assert round(row["Ativos Problemáticos / Carteira Total"], 6) == round(24.0 / 400.0, 6)
     assert round(row["Perda Esperada / Estágio 3"], 6) == 0.2
     assert round(row["Perda Esperada / Est2+3"], 6) == round(100.0 / (400.0 + 500.0), 6)
     assert round(row["Índice de Capital Principal (CET1)"], 6) == 0.12
     assert round(row["Índice de Basileia Total (%)"], 6) == 0.17
+    assert row["Trace::Carteira 4.966::Total Geral"] == 400.0
+    assert row["Trace::Carteira 4.966::Inadimplência"] == 12.0
+    assert row["Trace::Carteira 4.966::Ativos Problemáticos"] == 24.0
     assert row["Trace::Ativos Líquidos::Disponibilidades (a)"] == 100.0
     assert row["Trace::Capital::Capital Principal"] == 120.0
     assert bool(row["CapitalDisponivel"])

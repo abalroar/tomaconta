@@ -13187,8 +13187,10 @@ def _formatar_test_rating_valor(campo: str, valor) -> str:
         "Crédito / Captações",
         "Perda Esperada / Carteira de Crédito Bruta",
         "Perda Esperada / Carteira de Crédito Bruta (prev)",
+        "Inadimplência / Carteira Total",
+        "Ativos Problemáticos / Carteira Total",
         "Variação % Core Funding",
-        "NPL (Estágio 2+3 / Carteira)",
+        "Qualidade da Carteira",
     }:
         return _formatar_percentual(valor, decimais=2)
     return _formatar_numero_ptbr(valor, decimais=4)
@@ -13307,7 +13309,7 @@ def _rating_factor_display_map() -> dict[str, str]:
     return {
         "cet1": "CET1",
         "roe": "ROE",
-        "npl_creation": "NPL",
+        "asset_quality": "Qualidade da Carteira",
         "funding": "Funding",
         "q1": "Auditoria",
         "q2": "Ressalvas",
@@ -13370,7 +13372,7 @@ def _build_rating_waterfall_figure(result: dict) -> go.Figure:
 def _rating_intro_text() -> str:
     return (
         "O modelo começa com um score inicial definido pelo porte e ajusta esse ponto de partida por CET1, ROE "
-        "acumulado anualizado, NPL, funding e seis respostas qualitativas. Capital e rentabilidade mais altos "
+        "acumulado anualizado, qualidade da carteira, funding e seis respostas qualitativas. Capital e rentabilidade mais altos "
         "tendem a melhorar a nota; piora da qualidade da carteira, pressão de funding e respostas qualitativas "
         "mais fracas reduzem o score. O resultado final é arredondado e limitado à escala de 1 a 25."
     )
@@ -13404,10 +13406,10 @@ def _rating_quantitative_table() -> pd.DataFrame:
                 "Faixa de impacto": "+0,91 a -0,83",
             },
             {
-                "Variável": "NPL",
-                "Campo usado": "(Ativos Estágio 2 + Ativos Estágio 3) / Carteira de Crédito Bruta",
+                "Variável": "Qualidade da Carteira",
+                "Campo usado": "4T/2025+: Inadimplência / Carteira Total | histórico sem série ideal: proxy explícita",
                 "Janela / comparação": "Período selecionado",
-                "Lógica": "Maior proporção de créditos em estágio 2 e 3 piora a nota. Se esse insumo não existir, o rating fica incompleto; Perda Esperada / Carteira não substitui o NPL.",
+                "Lógica": "4T/2025+ usa Inadimplência / Carteira Total do Rel. 16. Em mar/25, jun/25 e set/25 a série exata ainda não veio preenchida e o modelo usa a proxy calibrada |Perda Esperada / Carteira de Crédito Bruta|. Até 2024, o ideal conceitual seria D-H / Carteira; como essa série ainda não está integrada ao app, o fator fica indisponível e o rating pode sair incompleto. Faixas: exato <=2,5% / <=5,0% / >5,0%; proxy <=4,0% / <=8,0% / >8,0%.",
                 "Faixa de impacto": "0,00 a -0,43",
             },
             {
@@ -13495,9 +13497,9 @@ def pagina_test():
                         "Cálculo / regra": "ROE acumulado anualizado do período; a auditoria mostra também a comparação com o mesmo trimestre do ano anterior.",
                     },
                     {
-                        "Bloco": "NPL",
-                        "Fonte": "Cadoc 4060 + IFData Rel. 2",
-                        "Cálculo / regra": "Usa (Ativos Estágio 2 + Ativos Estágio 3) ÷ Carteira de Crédito Bruta. Se esse insumo não existir, o fator NPL fica indisponível e o rating não é calculado.",
+                        "Bloco": "Qualidade da Carteira",
+                        "Fonte": "Rel. 16 (Carteira 4.966) + proxy histórica calibrada quando necessário",
+                        "Cálculo / regra": "4T/2025+ usa Inadimplência ÷ Carteira Total, a mesma base da aba Carteira 4.966. Em mar/25, jun/25 e set/25, como a série exata ainda não veio preenchida no Rel. 16 local, o modelo usa a proxy |Perda Esperada ÷ Carteira de Crédito Bruta|. Até 2024, o ideal conceitual seria D-H ÷ Carteira; enquanto essa série não estiver integrada ao app, o fator fica indisponível e o rating pode sair incompleto. Faixas do exato: <=2,5% = 0,00 | >2,5% e <=5,0% = -0,21 | >5,0% = -0,43. Faixas da proxy: <=4,0% = 0,00 | >4,0% e <=8,0% = -0,21 | >8,0% = -0,43.",
                     },
                     {
                         "Bloco": "Funding",
@@ -13964,7 +13966,7 @@ st.markdown("---")
 
 CACHE_DEPENDENCIAS_POR_ABA = {
     "Snapshot": ["critical_screens"],
-    "Modelo de Rating": ["critical_screens"],
+    "Modelo de Rating": ["critical_screens", "carteira_instrumentos"],
     "Rankings": ["principal", "capital"],
     "Peers (Tabela)": ["critical_screens"],
     "Evolução": ["principal", "passivo", "ativo", "capital"],
@@ -28363,7 +28365,7 @@ elif menu == "Glossário":
         st.markdown("""
         - **Taxas de Juros por Produto:** consome preferencialmente um cache histórico consolidado e usa a última observação disponível de cada mês para a visão mensal; a série diária mostra os últimos 3 meses ancorados na data mais recente da base.
         - **Contas COSIF:** lê o BLOPRUDENCIAL mensal e reconstrói saldo, trimestre ou acumulado semestral conforme a natureza da conta COSIF e a competência escolhida.
-        - **Modelo de Rating:** usa o cache curado `critical_screens` para os fatores quantitativos e entrada manual para as seis perguntas qualitativas.
+        - **Modelo de Rating:** usa o cache curado `critical_screens` para os fatores quantitativos e entrada manual para as seis perguntas qualitativas; o fator de qualidade da carteira segue uma hierarquia por período entre Rel. 16 e proxy histórica calibrada.
         - **Balanço, DRE e DMPL (Ind.):** consulta o documento 9011 ao vivo; por isso, a disponibilidade depende do JSON retornado pelo Banco Central para a instituição e competência escolhidas.
         """)
 
@@ -28402,9 +28404,9 @@ elif menu == "Glossário":
 
     _render_secao_glossario("4) Qualidade de Carteira", [
         {"Indicador": "Perda Esperada", "Aba(s)": "Snapshot, Peers (Tabela), Glossário, Modelo de Rating", "Fonte": "IFData Rel.2", "Fórmula": "Soma das parcelas de perda esperada/ajustes e,f,g,h", "Unidade": "R$", "Interpretação": "Montante contábil de perdas esperadas no recorte.", "Limitação": "Depende de premissas/modelos contábeis.", "Periodicidade": "Trimestral"},
-        {"Indicador": "Ativos Estágio 2", "Aba(s)": "Snapshot, Peers (Tabela), Glossário, Modelo de Rating", "Fonte": "Cadoc 4060", "Fórmula": "Conta 3312000001", "Unidade": "R$", "Interpretação": "Estoque de ativos em estágio 2.", "Limitação": "Pode ficar estruturalmente indisponível em parte da série mensal ou sem match prudencial confiável.", "Periodicidade": "Mensal/Trimestral"},
-        {"Indicador": "Ativos Estágio 3", "Aba(s)": "Snapshot, Peers (Tabela), Glossário, Modelo de Rating", "Fonte": "Cadoc 4060", "Fórmula": "Conta 3313000000", "Unidade": "R$", "Interpretação": "Estoque de ativos em estágio 3.", "Limitação": "Pode ficar estruturalmente indisponível em parte da série mensal ou sem match prudencial confiável.", "Periodicidade": "Mensal/Trimestral"},
-        {"Indicador": "NPL (Estágio 2+3 / Carteira)", "Aba(s)": "Modelo de Rating, Glossário", "Fonte": "Cadoc 4060 + IFData Rel.2", "Fórmula": "(Ativos Estágio 2 + Ativos Estágio 3) ÷ Carteira de Crédito Bruta", "Unidade": "%", "Interpretação": "Indicador de deterioração da carteira usado como fator quantitativo no rating.", "Limitação": "Combina fontes com periodicidade distinta e depende de disponibilidade do 4060; quando o estágio não existir, o fator fica indisponível e o rating é marcado como incompleto.", "Periodicidade": "Mensal/Trimestral"},
+        {"Indicador": "Ativos Estágio 2", "Aba(s)": "Snapshot, Peers (Tabela), Glossário", "Fonte": "Cadoc 4060", "Fórmula": "Conta 3312000001", "Unidade": "R$", "Interpretação": "Estoque de ativos em estágio 2.", "Limitação": "Pode ficar estruturalmente indisponível em parte da série mensal ou sem match prudencial confiável.", "Periodicidade": "Mensal/Trimestral"},
+        {"Indicador": "Ativos Estágio 3", "Aba(s)": "Snapshot, Peers (Tabela), Glossário", "Fonte": "Cadoc 4060", "Fórmula": "Conta 3313000000", "Unidade": "R$", "Interpretação": "Estoque de ativos em estágio 3.", "Limitação": "Pode ficar estruturalmente indisponível em parte da série mensal ou sem match prudencial confiável.", "Periodicidade": "Mensal/Trimestral"},
+        {"Indicador": "Qualidade da Carteira (fator do rating)", "Aba(s)": "Modelo de Rating, Glossário", "Fonte": "Rel. 16 (Carteira 4.966) + proxy calibrada de transição", "Fórmula": "4T/2025+: Inadimplência ÷ Carteira Total; mar/25-jun/25-set/25: proxy |Perda Esperada ÷ Carteira de Crédito Bruta|; até 2024: o ideal conceitual seria D-H ÷ Carteira, mas o fator permanece indisponível enquanto essa série não estiver integrada", "Unidade": "%", "Interpretação": "Indicador de deterioração da carteira usado como fator quantitativo no rating.", "Limitação": "Mistura fonte exata e proxy apenas na transição de 2025; até 2024 o rating pode ficar incompleto por ausência da série histórica ideal.", "Periodicidade": "Trimestral"},
         {"Indicador": "Perda Esperada / Estágio 3 (%)", "Aba(s)": "Peers (Tabela), Glossário", "Fonte": "IFData Rel.2 + Cadoc 4060", "Fórmula": "Perda Esperada ÷ Ativos Estágio 3", "Unidade": "%", "Interpretação": "Proxy de cobertura da perda esperada sobre estágio 3.", "Limitação": "Não deve ser exibido como comparável quando o 4060 estiver estruturalmente ausente ou sem match prudencial confiável.", "Periodicidade": "Mensal/Trimestral"},
         {"Indicador": "Perda Esperada / Est2+3 (%)", "Aba(s)": "Peers (Tabela), Glossário", "Fonte": "IFData Rel.2 + Cadoc 4060", "Fórmula": "Perda Esperada ÷ (Ativos Estágio 2 + Ativos Estágio 3)", "Unidade": "%", "Interpretação": "Proxy de cobertura da perda esperada sobre estágios 2 e 3 combinados.", "Limitação": "Exige Estágio 2 e Estágio 3 publicados no mesmo período e match prudencial confiável.", "Periodicidade": "Mensal/Trimestral"},
     ])

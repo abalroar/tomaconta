@@ -116,11 +116,23 @@ ROE_RULES = [
     {"bucket": "< 0%", "min": None, "max": 0.0, "score": -0.83, "max_inclusive": False},
 ]
 
-NPL_CREATION_RULES = [
-    {"bucket": "> 4%", "min": 0.04, "max": None, "score": -0.43, "min_inclusive": False},
-    {"bucket": "4% to 2.01%", "min": 0.02, "max": 0.04, "score": -0.21},
-    {"bucket": "< 2%", "min": None, "max": 0.02, "score": 0.00},
-]
+ASSET_QUALITY_RULES = {
+    "inad_ratio_exact": [
+        {"bucket": "> 5,0%", "min": 0.05, "max": None, "score": -0.43, "min_inclusive": False},
+        {"bucket": "5,0% a 2,51%", "min": 0.025, "max": 0.05, "score": -0.21},
+        {"bucket": "≤ 2,5%", "min": None, "max": 0.025, "score": 0.00},
+    ],
+    "proxy_loss_ratio": [
+        {"bucket": "> 8,0%", "min": 0.08, "max": None, "score": -0.43, "min_inclusive": False},
+        {"bucket": "8,0% a 4,01%", "min": 0.04, "max": 0.08, "score": -0.21},
+        {"bucket": "≤ 4,0%", "min": None, "max": 0.04, "score": 0.00},
+    ],
+    "legacy_dh_ratio": [
+        {"bucket": "> 5,0%", "min": 0.05, "max": None, "score": -0.43, "min_inclusive": False},
+        {"bucket": "5,0% a 2,51%", "min": 0.025, "max": 0.05, "score": -0.21},
+        {"bucket": "≤ 2,5%", "min": None, "max": 0.025, "score": 0.00},
+    ],
+}
 
 FUNDING_RULES = [
     {

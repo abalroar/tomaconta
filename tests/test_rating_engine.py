@@ -20,7 +20,7 @@ def test_calculate_rating_uses_visible_weights_and_caps_at_25():
             "total_assets": {"value": 250_000_000_000.0},
             "cet1": {"value": 0.17},
             "roe": {"value": 0.19},
-            "npl_creation": {"value": 0.01},
+            "asset_quality": {"value": 0.01, "rule_set": "inad_ratio_exact"},
             "funding_delta": {"value": 1.0},
             "funding_structural_ratio": {"value": 1.10},
         },
@@ -44,7 +44,7 @@ def test_calculate_rating_marks_incomplete_when_inputs_are_missing():
             "total_assets": {"value": 25_000_000_000.0},
             "cet1": {"value": None},
             "roe": {"value": 0.12},
-            "npl_creation": {"value": 0.01},
+            "asset_quality": {"value": 0.01, "rule_set": "inad_ratio_exact"},
             "funding_delta": {"value": 1.0},
             "funding_structural_ratio": {"value": 0.90},
         },
@@ -58,7 +58,7 @@ def test_calculate_rating_marks_incomplete_when_inputs_are_missing():
     assert result["missing_quantitative_inputs"] == ["cet1"]
 
 
-def test_map_rating_inputs_marks_npl_missing_without_stage23_ratio():
+def test_map_rating_inputs_uses_exact_rel16_inad_ratio_when_available():
     record = {
         "Instituição": "ABC-BRASIL - PRUDENCIAL",
         "ConglomeradoId": "80312",
@@ -74,14 +74,9 @@ def test_map_rating_inputs_marks_npl_missing_without_stage23_ratio():
         "Crédito / Captações": 0.80,
         "Perda Esperada / Carteira de Crédito Bruta": 0.025,
         "Perda Esperada / Carteira de Crédito Bruta (prev)": 0.010,
-        "Ativos Estágio 2": None,
-        "Ativos Estágio 2 (prev)": None,
-        "Ativos Estágio 3": None,
-        "Ativos Estágio 3 (prev)": None,
+        "Inadimplência / Carteira Total": 0.031,
+        "Ativos Problemáticos / Carteira Total": 0.061,
         "Carteira de Crédito Bruta": 50.0,
-        "Carteira de Crédito Bruta (prev)": 45.0,
-        "Perda Esperada": 1.0,
-        "Perda Esperada (prev)": 0.5,
     }
 
     mapped = map_rating_inputs(record)
@@ -89,12 +84,88 @@ def test_map_rating_inputs_marks_npl_missing_without_stage23_ratio():
     assert mapped["mapped_inputs"]["cet1"]["source_kind"] == "fallback"
     assert mapped["mapped_inputs"]["cet1"]["value"] == 0.16
     assert round(mapped["mapped_inputs"]["funding_delta"]["value"], 6) == round((100.0 / 90.0) - 1.0, 6)
-    assert mapped["mapped_inputs"]["npl_creation"]["source_kind"] == "missing"
-    assert mapped["mapped_inputs"]["npl_creation"]["value"] is None
-    assert "não usa Perda Esperada / Carteira de Crédito Bruta como proxy" in mapped["mapped_inputs"]["npl_creation"]["note"]
+    assert mapped["mapped_inputs"]["asset_quality"]["source_kind"] == "exact"
+    assert mapped["mapped_inputs"]["asset_quality"]["rule_set"] == "inad_ratio_exact"
+    assert mapped["mapped_inputs"]["asset_quality"]["value"] == 0.031
+    assert "Carteira 4.966" in mapped["mapped_inputs"]["asset_quality"]["note"]
 
 
-def test_calculate_rating_marks_incomplete_when_stage23_npl_is_unavailable():
+def test_map_rating_inputs_uses_proxy_for_transition_periods():
+    record = {
+        "Instituição": "ABC-BRASIL - PRUDENCIAL",
+        "ConglomeradoId": "80312",
+        "Período": "3/2025",
+        "Período Anterior": "3/2024",
+        "Ativo Total": 66_000_000_000.0,
+        "Índice de Capital Principal (CET1)": 0.16,
+        "Índice de Basileia Total (%)": 0.18,
+        "ROE Ac. Anualizado (%)": 0.15,
+        "ROE Ac. Anualizado (%) (prev)": 0.12,
+        "Core Funding": 100.0,
+        "Core Funding (prev)": 90.0,
+        "Crédito / Captações": 0.80,
+        "Perda Esperada / Carteira de Crédito Bruta": -0.061,
+        "Carteira de Crédito Bruta": 50.0,
+    }
+
+    mapped = map_rating_inputs(record)
+
+    assert mapped["mapped_inputs"]["asset_quality"]["source_kind"] == "proxy"
+    assert mapped["mapped_inputs"]["asset_quality"]["rule_set"] == "proxy_loss_ratio"
+    assert mapped["mapped_inputs"]["asset_quality"]["value"] == 0.061
+    assert "mar/25, jun/25 e set/25" in mapped["mapped_inputs"]["asset_quality"]["note"]
+
+
+def test_map_rating_inputs_marks_up_to_2024_as_missing_when_exact_legacy_is_absent():
+    record = {
+        "Instituição": "ABC-BRASIL - PRUDENCIAL",
+        "ConglomeradoId": "80312",
+        "Período": "4/2024",
+        "Período Anterior": "4/2023",
+        "Ativo Total": 66_000_000_000.0,
+        "Índice de Capital Principal (CET1)": 0.16,
+        "ROE Ac. Anualizado (%)": 0.15,
+        "ROE Ac. Anualizado (%) (prev)": 0.12,
+        "Core Funding": 100.0,
+        "Core Funding (prev)": 90.0,
+        "Crédito / Captações": 0.80,
+        "Perda Esperada / Carteira de Crédito Bruta": -0.042,
+        "Carteira de Crédito Bruta": 50.0,
+    }
+
+    mapped = map_rating_inputs(record)
+
+    assert mapped["mapped_inputs"]["asset_quality"]["source_kind"] == "missing"
+    assert mapped["mapped_inputs"]["asset_quality"]["value"] is None
+    assert "D-H / Carteira" in mapped["mapped_inputs"]["asset_quality"]["note"]
+
+
+def test_map_rating_inputs_prefers_exact_legacy_dh_when_available():
+    record = {
+        "Instituição": "ABC-BRASIL - PRUDENCIAL",
+        "ConglomeradoId": "80312",
+        "Período": "4/2024",
+        "Período Anterior": "4/2023",
+        "Ativo Total": 66_000_000_000.0,
+        "Índice de Capital Principal (CET1)": 0.16,
+        "ROE Ac. Anualizado (%)": 0.15,
+        "ROE Ac. Anualizado (%) (prev)": 0.12,
+        "Core Funding": 100.0,
+        "Core Funding (prev)": 90.0,
+        "Crédito / Captações": 0.80,
+        "Perda Esperada / Carteira de Crédito Bruta": -0.042,
+        "D-H / Carteira": 0.033,
+        "Carteira de Crédito Bruta": 50.0,
+    }
+
+    mapped = map_rating_inputs(record)
+
+    assert mapped["mapped_inputs"]["asset_quality"]["source_kind"] == "exact_legacy"
+    assert mapped["mapped_inputs"]["asset_quality"]["rule_set"] == "legacy_dh_ratio"
+    assert mapped["mapped_inputs"]["asset_quality"]["value"] == 0.033
+
+
+def test_calculate_rating_marks_incomplete_when_asset_quality_is_unavailable():
     record = {
         "Instituição": "ABC-BRASIL - PRUDENCIAL",
         "ConglomeradoId": "80312",
@@ -109,9 +180,6 @@ def test_calculate_rating_marks_incomplete_when_stage23_npl_is_unavailable():
         "Core Funding (prev)": 90.0,
         "Crédito / Captações": 0.80,
         "Perda Esperada / Carteira de Crédito Bruta": 0.025,
-        "Perda Esperada / Carteira de Crédito Bruta (prev)": 0.010,
-        "Ativos Estágio 2": None,
-        "Ativos Estágio 3": None,
         "Carteira de Crédito Bruta": 50.0,
     }
     answers = {"q1": "A", "q2": "A", "q3": "A", "q4": "A", "q5": "A", "q6": "A"}
@@ -120,10 +188,10 @@ def test_calculate_rating_marks_incomplete_when_stage23_npl_is_unavailable():
 
     assert result["status"] == "incomplete"
     assert result["final_numeric_rating"] is None
-    assert result["missing_quantitative_inputs"] == ["npl_creation"]
+    assert result["missing_quantitative_inputs"] == ["asset_quality"]
 
 
-def test_build_audit_trail_markdown_explains_missing_npl():
+def test_build_audit_trail_markdown_explains_missing_asset_quality():
     record = {
         "Instituição": "ABC-BRASIL - PRUDENCIAL",
         "ConglomeradoId": "80312",
@@ -137,8 +205,6 @@ def test_build_audit_trail_markdown_explains_missing_npl():
         "Core Funding (prev)": 90.0,
         "Crédito / Captações": 0.80,
         "Perda Esperada / Carteira de Crédito Bruta": 0.025,
-        "Ativos Estágio 2": None,
-        "Ativos Estágio 3": None,
         "Carteira de Crédito Bruta": 50.0,
     }
     answers = {"q1": "A", "q2": "A", "q3": "A", "q4": "A", "q5": "A", "q6": "A"}
@@ -146,16 +212,16 @@ def test_build_audit_trail_markdown_explains_missing_npl():
     result = calculate_rating(map_rating_inputs(record), answers)
     markdown = build_audit_trail_markdown(result)
 
-    assert "Inputs quantitativos faltantes: NPL (Estágio 2+3 / Carteira)" in markdown
+    assert "Inputs quantitativos faltantes: Qualidade da Carteira" in markdown
     assert "[missing]" in markdown
-    assert "não usa Perda Esperada / Carteira de Crédito Bruta como proxy" in markdown
+    assert "Inadimplência / Carteira Total" in markdown
 
 
-def test_map_rating_inputs_prioritizes_stage23_ratio_for_npl():
+def test_calculate_rating_uses_proxy_ruleset_when_asset_quality_is_proxy():
     record = {
         "Instituição": "TESTE - PRUDENCIAL",
         "ConglomeradoId": "99999",
-        "Período": "4/2025",
+        "Período": "3/2025",
         "Período Anterior": "4/2024",
         "Ativo Total": 10_000_000_000.0,
         "Índice de Capital Principal (CET1)": 0.14,
@@ -165,13 +231,13 @@ def test_map_rating_inputs_prioritizes_stage23_ratio_for_npl():
         "Core Funding": 100.0,
         "Core Funding (prev)": 100.0,
         "Crédito / Captações": 0.80,
-        "Perda Esperada / Carteira de Crédito Bruta": 0.025,
-        "Ativos Estágio 2": 6.0,
-        "Ativos Estágio 3": 4.0,
+        "Perda Esperada / Carteira de Crédito Bruta": -0.10,
         "Carteira de Crédito Bruta": 100.0,
     }
 
-    mapped = map_rating_inputs(record)
+    answers = {"q1": "A", "q2": "A", "q3": "A", "q4": "A", "q5": "A", "q6": "A"}
+    result = calculate_rating(map_rating_inputs(record), answers)
 
-    assert mapped["mapped_inputs"]["npl_creation"]["source_kind"] == "current_level"
-    assert round(mapped["mapped_inputs"]["npl_creation"]["value"], 6) == 0.10
+    assert result["status"] == "ok"
+    assert result["quantitative_scores"]["asset_quality"]["bucket"] == "> 8,0%"
+    assert result["quantitative_scores"]["asset_quality"]["score"] == -0.43

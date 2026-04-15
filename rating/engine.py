@@ -5,7 +5,7 @@ from __future__ import annotations
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any, Mapping
 
-from .config import CET1_RULES, FUNDING_RULES, NPL_CREATION_RULES, QUALITATIVE_QUESTIONS, ROE_RULES, STARTING_SCORE_RULES, WEIGHTS_DISCLOSURE, WEIGHTS_VERSION
+from .config import ASSET_QUALITY_RULES, CET1_RULES, FUNDING_RULES, QUALITATIVE_QUESTIONS, ROE_RULES, STARTING_SCORE_RULES, WEIGHTS_DISCLOSURE, WEIGHTS_VERSION
 
 
 def _match_rule(value: float, rules: list[dict[str, Any]]) -> dict[str, Any]:
@@ -79,14 +79,16 @@ def score_roe(roe: float) -> dict[str, Any]:
     }
 
 
-def score_npl_creation(npl_creation: float) -> dict[str, Any]:
-    rule = _match_rule(float(npl_creation), NPL_CREATION_RULES)
+def score_asset_quality(asset_quality: float, rule_set: str) -> dict[str, Any]:
+    rules = ASSET_QUALITY_RULES.get(str(rule_set)) or ASSET_QUALITY_RULES["inad_ratio_exact"]
+    rule = _match_rule(float(asset_quality), rules)
     return {
-        "factor": "npl_creation",
-        "value": float(npl_creation),
+        "factor": "asset_quality",
+        "value": float(asset_quality),
+        "rule_set": str(rule_set),
         "bucket": str(rule["bucket"]),
         "score": float(rule["score"]),
-        "note": "",
+        "note": f"rule_set={rule_set}",
         "provisional": False,
     }
 
@@ -148,7 +150,7 @@ def calculate_rating(
         "total_assets",
         "cet1",
         "roe",
-        "npl_creation",
+        "asset_quality",
         "funding_delta",
         "funding_structural_ratio",
     ]
@@ -187,7 +189,10 @@ def calculate_rating(
     quantitative_scores = {
         "cet1": score_cet1(float(mapped_inputs["cet1"]["value"]), str(size_bucket["key"])),
         "roe": score_roe(float(mapped_inputs["roe"]["value"])),
-        "npl_creation": score_npl_creation(float(mapped_inputs["npl_creation"]["value"])),
+        "asset_quality": score_asset_quality(
+            float(mapped_inputs["asset_quality"]["value"]),
+            str(mapped_inputs["asset_quality"].get("rule_set") or "inad_ratio_exact"),
+        ),
         "funding": score_funding(
             float(mapped_inputs["funding_delta"]["value"]),
             float(mapped_inputs["funding_structural_ratio"]["value"]),

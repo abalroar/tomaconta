@@ -36,7 +36,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("ifdata_cache")
 
-CRITICAL_SCREENS_SCHEMA_VERSION = 4
+CRITICAL_SCREENS_SCHEMA_VERSION = 3
 BUNDLED_CRITICAL_SCREENS_DIR = Path("data") / "bundled" / "critical_screens"
 
 
@@ -65,6 +65,11 @@ CRITICAL_EXTRA_METRICS = [
     "Carteira de Crédito Classificada",
     "Carteira de Créd. Class. C4+C5",
     "Carteira de Créd. Class. C4+C5 / Carteira Classificada",
+    "Carteira Total 4.966",
+    "Inadimplência 4.966",
+    "Ativos Problemáticos 4.966",
+    "Inadimplência / Carteira Total",
+    "Ativos Problemáticos / Carteira Total",
     "Perda Esperada / (Carteira C4 + C5)",
     "Saldo PDD Crédito",
     "Saldo PDD Outros Créditos",
@@ -155,6 +160,9 @@ CRITICAL_TRACE_COLUMNS = [
     "Trace::Depósitos Totais::Depósitos Outros (a6)",
     "Trace::Bloprudencial::Status",
     "Trace::Qualidade Carteira::Status",
+    "Trace::Carteira 4.966::Total Geral",
+    "Trace::Carteira 4.966::Inadimplência",
+    "Trace::Carteira 4.966::Ativos Problemáticos",
     "Trace::Core Funding::Captações (e)",
     "Trace::Core Funding::Instrumentos de Dívida Elegíveis a Capital (h)",
     "Trace::Core Funding::Status",
@@ -1475,6 +1483,9 @@ def build_critical_screens_dataframe(
     )
     col_c4 = _pick_col(carteira_instr, ["C4"])
     col_c5 = _pick_col(carteira_instr, ["C5"])
+    col_instr_total = _pick_col(carteira_instr, ["Total Geral"])
+    col_instr_inad = _pick_col(carteira_instr, ["Inadimplência", "Inadimplencia"])
+    col_instr_prob = _pick_col(carteira_instr, ["Ativos problemáticos", "Ativos problematicos"])
 
     col_cap_principal = _pick_col(capital, ["Capital Principal", "Capital Principal para Comparação com RWA (a)"])
     col_cap_complementar = _pick_col(capital, ["Capital Complementar", "Capital Complementar (b)"])
@@ -1538,7 +1549,7 @@ def build_critical_screens_dataframe(
     )
     lk_pf = _prepare_lookup(carteira_pf, [col_pf_total])
     lk_pj = _prepare_lookup(carteira_pj, [col_pj_total])
-    lk_instr = _prepare_lookup(carteira_instr, [col_c4, col_c5])
+    lk_instr = _prepare_lookup(carteira_instr, [col_c4, col_c5, col_instr_total, col_instr_inad, col_instr_prob])
     blop_period_status = _collect_bloprud_period_status(df_bloprudencial)
 
     base = base.sort_values(["Período", "InstituiçãoKey", "Instituição"]).reset_index(drop=True)
@@ -1685,6 +1696,9 @@ def build_critical_screens_dataframe(
         valor_c4 = _lk_get(lk_instr, institution_key, periodo, col_c4)
         valor_c5 = _lk_get(lk_instr, institution_key, periodo, col_c5)
         carteira_c4_c5 = _sum_values([valor_c4, valor_c5])
+        carteira_4966_total = _coerce_numeric_value(_lk_get(lk_instr, institution_key, periodo, col_instr_total))
+        inadimplencia_4966 = _coerce_numeric_value(_lk_get(lk_instr, institution_key, periodo, col_instr_inad))
+        ativos_problematicos_4966 = _coerce_numeric_value(_lk_get(lk_instr, institution_key, periodo, col_instr_prob))
 
         pdd_credito = blop_lookup.get((str(periodo_api), institution_key, "1490000004")) if periodo_api else None
         pdd_outros = blop_lookup.get((str(periodo_api), institution_key, "1890000006")) if periodo_api else None
@@ -1767,6 +1781,11 @@ def build_critical_screens_dataframe(
                 "Carteira de Crédito Classificada": carteira_classificada,
                 "Carteira de Créd. Class. C4+C5": carteira_c4_c5,
                 "Carteira de Créd. Class. C4+C5 / Carteira Classificada": _calc_ratio(carteira_c4_c5, carteira_classificada),
+                "Carteira Total 4.966": carteira_4966_total,
+                "Inadimplência 4.966": inadimplencia_4966,
+                "Ativos Problemáticos 4.966": ativos_problematicos_4966,
+                "Inadimplência / Carteira Total": _calc_ratio(inadimplencia_4966, carteira_4966_total),
+                "Ativos Problemáticos / Carteira Total": _calc_ratio(ativos_problematicos_4966, carteira_4966_total),
                 "Perda Esperada / (Carteira C4 + C5)": _calc_ratio(perda_esperada, carteira_c4_c5),
                 "Saldo PDD Crédito": pdd_credito,
                 "Saldo PDD Outros Créditos": pdd_outros,
@@ -1823,6 +1842,9 @@ def build_critical_screens_dataframe(
                 "Trace::Depósitos Totais::Depósitos Outros (a6)": trace_dep_a6,
                 "Trace::Bloprudencial::Status": blop_status,
                 "Trace::Qualidade Carteira::Status": qualidade_status,
+                "Trace::Carteira 4.966::Total Geral": carteira_4966_total,
+                "Trace::Carteira 4.966::Inadimplência": inadimplencia_4966,
+                "Trace::Carteira 4.966::Ativos Problemáticos": ativos_problematicos_4966,
                 "Trace::Core Funding::Captações (e)": trace_cap_e,
                 "Trace::Core Funding::Instrumentos de Dívida Elegíveis a Capital (h)": trace_instr_h,
                 "Trace::Core Funding::Status": core_funding_status,
