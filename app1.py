@@ -21098,6 +21098,7 @@ elif menu == "DRE" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo ==
 
         export_signature_key = "dre_export_signature"
         export_payload_key = "dre_export_payload"
+        export_error_key = "dre_export_error"
         dre_export_signature = (
             instituicao_selecionada_raw,
             int(ano_selecionado),
@@ -21107,13 +21108,19 @@ elif menu == "DRE" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo ==
         )
         if st.session_state.get(export_signature_key) != dre_export_signature:
             st.session_state.pop(export_payload_key, None)
+            st.session_state.pop(export_error_key, None)
             st.session_state[export_signature_key] = dre_export_signature
 
         if st.button("Preparar arquivo de exportação", key="dre_prepare_export", width="stretch"):
-            st.session_state[export_payload_key] = _gerar_excel_dre_export()
-            st.rerun()
+            try:
+                st.session_state[export_payload_key] = _gerar_excel_dre_export()
+                st.session_state.pop(export_error_key, None)
+            except Exception as exc:
+                st.session_state.pop(export_payload_key, None)
+                st.session_state[export_error_key] = f"{type(exc).__name__}: {exc}"
 
         dre_export_payload = st.session_state.get(export_payload_key)
+        dre_export_error = st.session_state.get(export_error_key)
         if dre_export_payload:
             st.download_button(
                 label="Download Excel",
@@ -21123,6 +21130,8 @@ elif menu == "DRE" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo ==
                 key="dre_download_excel",
                 width="stretch",
             )
+        elif dre_export_error:
+            st.error(f"Falha ao gerar exportação da DRE: {dre_export_error}")
         else:
             st.caption("O Excel é gerado sob demanda e não entra no tempo principal de renderização da aba.")
 
