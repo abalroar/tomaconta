@@ -945,3 +945,80 @@ def test_materialize_critical_screens_fails_fast_without_local_sources(tmp_path:
     )
     assert not result.sucesso
     assert "fontes de critical_screens" in result.mensagem
+
+
+def test_load_critical_screens_slice_supplements_missing_funding_from_passivo(tmp_path: Path):
+    (tmp_path / "conglomerados.csv").write_text(
+        "Conglomerado CDIGO 80099 NOME ITAU - PRUDENCIAL TIPO TESTE "
+        "CNPJ 12345678000100 Itau Unibanco LIDER",
+        encoding="utf-8",
+    )
+
+    manager = CacheManager(base_dir=tmp_path)
+    principal_cache = manager.get_cache("principal")
+    passivo_cache = manager.get_cache("passivo")
+    critical_cache = CriticalScreensCache(tmp_path)
+
+    principal_df = pd.DataFrame(
+        [
+            {"Instituição": "ITAU - PRUDENCIAL", "Período": "4/2025", "CodInst": "C0080099"},
+            {"Instituição": "ITAU - PRUDENCIAL", "Período": "4/2024", "CodInst": "C0080099"},
+        ]
+    )
+    passivo_df = pd.DataFrame(
+        [
+            {
+                "Instituição": "[IF C0080099]",
+                "Período": "4/2025",
+                "CodInst": "C0080099",
+                "Captações (e) = (a) + (b) + (c) + (d)": 120.0,
+                "Instrumentos de Dívida Elegíveis a Capital (h)": 30.0,
+            },
+            {
+                "Instituição": "[IF C0080099]",
+                "Período": "4/2024",
+                "CodInst": "C0080099",
+                "Captações (e) = (a) + (b) + (c) + (d)": 100.0,
+                "Instrumentos de Dívida Elegíveis a Capital (h)": None,
+            },
+        ]
+    )
+    stale_critical_df = pd.DataFrame(
+        [
+            {
+                "Instituição": "ITAU - PRUDENCIAL",
+                "InstituiçãoKey": "ITAU PRUDENCIAL",
+                "Período": "4/2025",
+                "Carteira de Crédito Bruta": 75.0,
+                "Core Funding": None,
+                "Core Funding*": None,
+                "Crédito / Captações": None,
+                "Trace::Core Funding::Captações (e)": None,
+                "Trace::Core Funding::Instrumentos de Dívida Elegíveis a Capital (h)": None,
+                "Trace::Core Funding::Status": "",
+                "Trace::Core Funding::Campo Selecionado": "",
+            }
+        ]
+    )
+
+    assert principal_cache is not None
+    assert passivo_cache is not None
+    assert principal_cache.salvar_local(principal_df, fonte="test").sucesso
+    assert passivo_cache.salvar_local(passivo_df, fonte="test").sucesso
+    assert critical_cache.salvar_local(
+        stale_critical_df,
+        fonte="materialized",
+        info_extra={"schema_version": CRITICAL_SCREENS_SCHEMA_VERSION},
+    ).sucesso
+
+    slice_df = load_critical_screens_slice(base_dir=tmp_path, periodos=["4/2025"], instituicoes=["ITAU - PRUDENCIAL"])
+
+    assert len(slice_df) == 1
+    row = slice_df.iloc[0]
+    assert row["Instituição"] == "ITAU - PRUDENCIAL"
+    assert row["Core Funding"] == 150.0
+    assert row["Core Funding*"] == 150.0
+    assert row["Crédito / Captações"] == 0.5
+    assert row["Trace::Core Funding::Captações (e)"] == 120.0
+    assert row["Trace::Core Funding::Instrumentos de Dívida Elegíveis a Capital (h)"] == 30.0
+    assert row["Trace::Core Funding::Status"] == "official_components"

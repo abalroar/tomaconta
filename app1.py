@@ -12682,8 +12682,7 @@ if 'df_aliases' not in st.session_state:
     st.session_state['dict_cores_personalizadas'] = {}
     st.session_state['colunas_classificacao'] = []
 
-def _cache_version_token(tipo_cache: str) -> str:
-    """Token estável para invalidar caches processados quando arquivo base muda."""
+def _cache_file_token(tipo_cache: str) -> str:
     cache_manager = get_cache_manager()
     cache_obj = cache_manager.get_cache(tipo_cache) if cache_manager else None
     if cache_obj is None:
@@ -12700,6 +12699,18 @@ def _cache_version_token(tipo_cache: str) -> str:
 
     stat = arquivo.stat()
     return f"{tipo_cache}:{int(stat.st_mtime)}:{stat.st_size}"
+
+
+def _cache_version_token(tipo_cache: str) -> str:
+    """Token estável para invalidar caches processados quando arquivo base muda."""
+    token = _cache_file_token(tipo_cache)
+    if tipo_cache == "critical_screens":
+        deps = (
+            _cache_file_token("principal"),
+            _cache_file_token("passivo"),
+        )
+        return "|".join((token, *deps))
+    return token
 
 
 def _alias_signature() -> tuple:
@@ -13966,7 +13977,7 @@ st.markdown("---")
 
 CACHE_DEPENDENCIAS_POR_ABA = {
     "Snapshot": ["critical_screens"],
-    "Modelo de Rating": ["critical_screens", "carteira_instrumentos"],
+    "Modelo de Rating": ["critical_screens", "carteira_instrumentos", "passivo", "principal"],
     "Rankings": ["principal", "capital"],
     "Peers (Tabela)": ["critical_screens"],
     "Evolução": ["principal", "passivo", "ativo", "capital"],

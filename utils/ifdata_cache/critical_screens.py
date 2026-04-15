@@ -2068,7 +2068,221 @@ def load_critical_screens_slice(
         canonicas = build_institution_to_conglomerate_map(root)
         instituicoes_canonicas = [canonicalize_institution_name(nome, catalog_map=canonicas) for nome in instituicoes]
         df = df[df["Instituição"].astype(str).isin([str(inst) for inst in instituicoes_canonicas])].copy()
+    df = _supplement_runtime_missing_funding(df, base_dir=root)
     return df.reset_index(drop=True)
+
+
+def _load_runtime_passivo_support(
+    *,
+    base_dir: Path,
+    periodos: Sequence[str],
+    instituicoes: Optional[Sequence[str]] = None,
+) -> pd.DataFrame:
+    if not periodos:
+        return pd.DataFrame()
+
+    from .manager import CacheManager
+
+    manager = CacheManager(base_dir)
+    result_passivo = manager.carregar("passivo")
+    result_principal = manager.carregar("principal")
+    if (
+        not result_passivo.sucesso
+        or result_passivo.dados is None
+        or result_passivo.dados.empty
+        or not result_principal.sucesso
+        or result_principal.dados is None
+        or result_principal.dados.empty
+    ):
+        return pd.DataFrame()
+
+    passivo = result_passivo.dados.copy()
+    principal = result_principal.dados.copy()
+    if "Período" not in passivo.columns or "Instituição" not in passivo.columns:
+        return pd.DataFrame()
+
+    periodos_set = {str(periodo).strip() for periodo in periodos if str(periodo).strip()}
+    passivo = passivo[passivo["Período"].astype(str).isin(periodos_set)].copy()
+    if passivo.empty:
+        return pd.DataFrame()
+
+    catalog_map = build_institution_to_conglomerate_map(base_dir)
+    passivo = canonicalize_institution_dataframe(
+        passivo,
+        catalog_map=catalog_map,
+        base_dir=base_dir,
+        extra_frames=(principal,),
+    )
+    if passivo.empty:
+        return pd.DataFrame()
+
+    if instituicoes:
+        instituicoes_canonicas = {
+            canonicalize_institution_name(nome, catalog_map=catalog_map)
+            for nome in instituicoes
+            if str(nome).strip()
+        }
+        passivo = passivo[passivo["Instituição"].astype(str).isin(instituicoes_canonicas)].copy()
+        if passivo.empty:
+            return pd.DataFrame()
+
+    col_capt = _pick_col(
+        passivo,
+        [
+            "Captações (e) = (a) + (b) + (c) + (d)",
+            "Captações (e)",
+            "Captações",
+            "Captacoes (e)",
+        ],
+    )
+    if not col_capt:
+        return pd.DataFrame()
+
+    col_instr = _pick_col(
+        passivo,
+        [
+            "Instrumentos de Dívida Elegíveis a Capital (h)",
+            "Instrumentos de Divida Elegiveis a Capital (h)",
+            "Instrumentos de Dívida Elegíveis a Capital",
+            "Instrumentos de Divida Elegiveis a Capital",
+        ],
+    )
+
+    support_rows: list[dict[str, Any]] = []
+    for row in passivo.to_dict("records"):
+        periodo = str(row.get("Período") or "").strip()
+        year_ref = _runtime_period_year(periodo)
+        captacoes = _coerce_numeric_value(row.get(col_capt))
+        instrumentos = _coerce_numeric_value(row.get(col_instr)) if col_instr else None
+        resolution = resolve_core_funding_value(
+            year_ref=year_ref,
+            captacoes_value=captacoes,
+            instrumentos_value=instrumentos,
+        )
+        support_rows.append(
+            {
+                "Instituição": str(row.get("Instituição") or "").strip(),
+                "Período": periodo,
+                "Core Funding": _coerce_numeric_value(resolution.get("value")),
+                "Trace::Core Funding::Captações (e)": captacoes,
+                "Trace::Core Funding::Instrumentos de Dívida Elegíveis a Capital (h)": instrumentos,
+                "Trace::Core Funding::Status": str(resolution.get("source_kind") or ""),
+                "Trace::Core Funding::Campo Selecionado": str(resolution.get("source_field") or ""),
+            }
+        )
+
+    if not support_rows:
+        return pd.DataFrame()
+
+    support = pd.DataFrame(support_rows)
+    support = (
+        support.groupby(["Instituição", "Período"], as_index=False)
+        .agg(
+            {
+                "Core Funding": lambda s: pd.to_numeric(s, errors="coerce").sum(min_count=1),
+                "Trace::Core Funding::Captações (e)": lambda s: pd.to_numeric(s, errors="coerce").sum(min_count=1),
+                "Trace::Core Funding::Instrumentos de Dívida Elegíveis a Capital (h)": lambda s: pd.to_numeric(s, errors="coerce").sum(min_count=1),
+                "Trace::Core Funding::Status": "last",
+                "Trace::Core Funding::Campo Selecionado": "last",
+            }
+        )
+        .reset_index(drop=True)
+    )
+    return support
+
+
+def _supplement_runtime_missing_funding(df: pd.DataFrame, *, base_dir: Path) -> pd.DataFrame:
+    if df is None or df.empty or "Instituição" not in df.columns or "Período" not in df.columns:
+        return df.copy() if isinstance(df, pd.DataFrame) else pd.DataFrame()
+
+    out = df.copy()
+    core_series = pd.to_numeric(out.get("Core Funding"), errors="coerce")
+    ratio_series = pd.to_numeric(out.get("Crédito / Captações"), errors="coerce")
+    missing_core_mask = core_series.isna() if isinstance(core_series, pd.Series) else pd.Series(False, index=out.index)
+    missing_ratio_mask = ratio_series.isna() if isinstance(ratio_series, pd.Series) else pd.Series(False, index=out.index)
+
+    if not bool(missing_core_mask.any() or missing_ratio_mask.any()):
+        return out
+
+    support = _load_runtime_passivo_support(
+        base_dir=base_dir,
+        periodos=out["Período"].astype(str).dropna().unique().tolist(),
+        instituicoes=out["Instituição"].astype(str).dropna().unique().tolist(),
+    )
+    if support.empty:
+        return out
+
+    support = support.rename(
+        columns={
+            "Core Funding": "Core Funding__support",
+            "Trace::Core Funding::Captações (e)": "Trace::Core Funding::Captações (e)__support",
+            "Trace::Core Funding::Instrumentos de Dívida Elegíveis a Capital (h)": "Trace::Core Funding::Instrumentos de Dívida Elegíveis a Capital (h)__support",
+            "Trace::Core Funding::Status": "Trace::Core Funding::Status__support",
+            "Trace::Core Funding::Campo Selecionado": "Trace::Core Funding::Campo Selecionado__support",
+        }
+    )
+    out = out.merge(support, on=["Instituição", "Período"], how="left")
+
+    support_core = pd.to_numeric(out.get("Core Funding__support"), errors="coerce")
+    fill_core_mask = missing_core_mask & support_core.notna()
+    if "Core Funding" in out.columns:
+        out["Core Funding"] = core_series.combine_first(support_core)
+    else:
+        out["Core Funding"] = support_core
+
+    if "Core Funding*" in out.columns:
+        core_star = pd.to_numeric(out["Core Funding*"], errors="coerce")
+        out["Core Funding*"] = core_star.combine_first(pd.to_numeric(out["Core Funding"], errors="coerce"))
+    else:
+        out["Core Funding*"] = pd.to_numeric(out["Core Funding"], errors="coerce")
+
+    if "Trace::Core Funding::Captações (e)" in out.columns:
+        target = pd.to_numeric(out["Trace::Core Funding::Captações (e)"], errors="coerce")
+        out["Trace::Core Funding::Captações (e)"] = target.combine_first(
+            pd.to_numeric(out.get("Trace::Core Funding::Captações (e)__support"), errors="coerce")
+        )
+    if "Trace::Core Funding::Instrumentos de Dívida Elegíveis a Capital (h)" in out.columns:
+        target = pd.to_numeric(out["Trace::Core Funding::Instrumentos de Dívida Elegíveis a Capital (h)"], errors="coerce")
+        out["Trace::Core Funding::Instrumentos de Dívida Elegíveis a Capital (h)"] = target.combine_first(
+            pd.to_numeric(out.get("Trace::Core Funding::Instrumentos de Dívida Elegíveis a Capital (h)__support"), errors="coerce")
+        )
+    if "Trace::Core Funding::Status" in out.columns:
+        status_current = out["Trace::Core Funding::Status"].astype(str)
+        status_support = out.get("Trace::Core Funding::Status__support")
+        out.loc[fill_core_mask | status_current.eq(""), "Trace::Core Funding::Status"] = status_support
+    if "Trace::Core Funding::Campo Selecionado" in out.columns:
+        field_current = out["Trace::Core Funding::Campo Selecionado"].fillna("").astype(str)
+        field_support = out.get("Trace::Core Funding::Campo Selecionado__support")
+        out.loc[fill_core_mask | field_current.eq(""), "Trace::Core Funding::Campo Selecionado"] = field_support
+
+    if "Crédito / Captações" in out.columns and "Carteira de Crédito Bruta" in out.columns:
+        rebuilt_ratio = pd.to_numeric(out.get("Carteira de Crédito Bruta"), errors="coerce").divide(
+            pd.to_numeric(out.get("Core Funding"), errors="coerce").where(pd.to_numeric(out.get("Core Funding"), errors="coerce") != 0)
+        )
+        out["Crédito / Captações"] = ratio_series.combine_first(rebuilt_ratio)
+
+    return out.drop(
+        columns=[
+            "Core Funding__support",
+            "Trace::Core Funding::Captações (e)__support",
+            "Trace::Core Funding::Instrumentos de Dívida Elegíveis a Capital (h)__support",
+            "Trace::Core Funding::Status__support",
+            "Trace::Core Funding::Campo Selecionado__support",
+        ],
+        errors="ignore",
+    )
+
+
+def _runtime_period_year(periodo: str) -> Optional[int]:
+    texto = str(periodo or "").strip()
+    if "/" not in texto:
+        return None
+    parte, ano = texto.split("/", 1)
+    try:
+        int(parte)
+        return int(ano)
+    except Exception:
+        return None
 
 
 def supported_periods_for_cache(cache_name: str, periodos: Sequence[str]) -> List[str]:
