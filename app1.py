@@ -7631,23 +7631,195 @@ def _compute_ytd_irregular_ifdata_frame(df: pd.DataFrame) -> pd.DataFrame:
         lambda x: ({1: 3, 2: 6, 3: 9, 4: 12}.get(_parte_periodo_para_trimestre_idx(x[0]), int(x[0])) if x else pd.NA)
     ).astype("Int64")
     out["valor"] = pd.to_numeric(out["valor"], errors="coerce")
-    out = out.sort_values(["Instituicao", "Label", "ano", "mes", "Periodo"], na_position="last")
+    out = out.sort_values(["Instituicao", "Label", "ano", "mes", "Periodo"], na_position="last").reset_index(drop=True)
     out["ytd"] = out["valor"]
 
+    keys = ["Instituicao", "Label", "ano"]
+    jun = (
+        out[out["mes"] == 6][keys + ["valor"]]
+        .rename(columns={"valor": "valor_jun"})
+        .drop_duplicates(subset=keys, keep="last")
+    )
+    out = out.merge(jun, on=keys, how="left")
     mask_set_dez = out["mes"].isin([9, 12])
     if mask_set_dez.any():
-        keys = ["Instituicao", "Label", "ano"]
-        jun = (
-            out[out["mes"] == 6][keys + ["valor"]]
-            .rename(columns={"valor": "valor_jun"})
-            .drop_duplicates(subset=keys, keep="last")
-        )
-        out = out.merge(jun, on=keys, how="left")
         out.loc[mask_set_dez, "ytd"] = out.loc[mask_set_dez, "valor"] + out.loc[mask_set_dez, "valor_jun"]
         out.loc[mask_set_dez & out["valor_jun"].isna(), "ytd"] = np.nan
-        out = out.drop(columns=["valor_jun"])
+    out = out.drop(columns=["valor_jun"])
 
     return out
+
+
+_DRE_CONSOLIDATED_ORDER = [
+    "Resultado de Intermediação Financeira Bruto",
+    "Rec. Aplicações Interfinanceiras Liquidez",
+    "Rec. TVMs",
+    "Rec. Crédito",
+    "Rec. Arrendamento Financeiro",
+    "Rec. Outras Operações c/ Características de Crédito",
+    "Desp. PDD",
+    "Desp. Captação",
+    "Desp. Dívida Elegível a Capital",
+    "Res. Derivativos",
+    "Outros Res. Intermediação Financeira",
+    "Resultado Int. Financeira Líquido",
+    "Resultado Transações Pgto",
+    "Renda Tarifas Bancárias",
+    "Outras Prestações de Serviços",
+    "Desp. Pessoal",
+    "Desp. Adm",
+    "Desp. PDD Outras Operações",
+    "Desp. JSCP Cooperativas",
+    "Desp. Tributárias",
+    "Res. Participação Controladas",
+    "Outras Receitas",
+    "Outras Despesas",
+    "IR/CSLL",
+    "Res. Participação Lucro",
+    "Lucro Líquido Período Acumulado",
+]
+
+_DRE_CONSOLIDATED_CHILD_LABELS = {
+    "Rec. Aplicações Interfinanceiras Liquidez",
+    "Rec. TVMs",
+    "Rec. Crédito",
+    "Rec. Arrendamento Financeiro",
+    "Rec. Outras Operações c/ Características de Crédito",
+}
+
+_DRE_CONSOLIDATED_ALIAS_LOOKUP = {
+    "Lucro Líquido Período Acumulado": "Lucro Líquido Período",
+}
+
+
+def _normalize_dre_sources(value) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(v).strip() for v in value if str(v).strip()]
+    if isinstance(value, str):
+        parts = [p.strip() for p in value.replace("|", ";").split(";")]
+        return [p for p in parts if p]
+    return []
+
+
+def _normalize_dre_source_name(value: str) -> str:
+    return re.sub(r"\s+", "", str(value or "").strip()).lower()
+
+
+def _find_dre_source_column(df: pd.DataFrame, source_name: str) -> Optional[str]:
+    target = _normalize_dre_source_name(source_name)
+    if not target:
+        return None
+    for col in df.columns:
+        if _normalize_dre_source_name(col) == target:
+            return col
+    return None
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _load_dre_mapping_payload():
+    caminho = Path("data/dre_mapping.json")
+    if not caminho.exists():
+        return []
+    try:
+        payload = json.loads(caminho.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    return payload if isinstance(payload, list) else []
+
+
+def _build_dre_consolidated_mapping_entries() -> list[dict]:
+    payload = _load_dre_mapping_payload()
+    payload_map = {
+        str(item.get("label") or "").strip(): item
+        for item in payload
+        if isinstance(item, dict) and str(item.get("label") or "").strip()
+    }
+    entries = []
+    for label in _DRE_CONSOLIDATED_ORDER:
+        lookup = _DRE_CONSOLIDATED_ALIAS_LOOKUP.get(label, label)
+        base_item = payload_map.get(lookup, {})
+        sources_old = _normalize_dre_sources(base_item.get("sources_old"))
+        sources_new = _normalize_dre_sources(base_item.get("sources_new"))
+        sources_new_q4 = _normalize_dre_sources(base_item.get("sources_new_q4"))
+
+        current_sources = sources_new_q4 or sources_new or sources_old
+        all_sources = []
+        for group in (sources_old, sources_new, sources_new_q4):
+            for source in group:
+                if source not in all_sources:
+                    all_sources.append(source)
+
+        entries.append(
+            {
+                "label": label,
+                "sources": current_sources,
+                "sources_old": sources_old,
+                "sources_new": sources_new,
+                "sources_new_q4": sources_new_q4,
+                "has_sources_new_q4": "sources_new_q4" in base_item,
+                "concept": str(base_item.get("concept") or "").strip(),
+                "original_label": " / ".join(all_sources) if all_sources else lookup,
+                "is_child": label in _DRE_CONSOLIDATED_CHILD_LABELS,
+            }
+        )
+
+    entries.extend(
+        [
+            {
+                "label": "Desp PDD / Resultado Intermediação Fin. Bruto",
+                "derived_metric": "Desp PDD / Resultado Intermediação Fin. Bruto",
+                "format": "pct",
+                "concept": "Desp. PDD dividido pelo Resultado de Intermediação Financeira Bruto.",
+            },
+            {
+                "label": "Desp Captação / Captação",
+                "derived_metric": "Desp Captação / Captação",
+                "format": "pct",
+                "concept": "Desp. Captação anualizada dividida por Captações.",
+            },
+        ]
+    )
+    return entries
+
+
+def _resolve_dre_entry_values_period_aware(
+    df: pd.DataFrame,
+    entry: Mapping[str, Any],
+    numericas: Mapping[str, pd.Series],
+    source_to_column: Mapping[str, str],
+) -> pd.Series:
+    valores = pd.Series(np.nan, index=df.index, dtype="float64")
+
+    def _family_values(sources) -> Optional[pd.Series]:
+        cols = [source_to_column[s] for s in _normalize_dre_sources(sources) if s in source_to_column]
+        if not cols:
+            return None
+        return pd.concat([numericas[col] for col in cols], axis=1).sum(axis=1, min_count=1)
+
+    old_values = _family_values(entry.get("sources_old"))
+    new_values = _family_values(entry.get("sources_new"))
+    q4_values = _family_values(entry.get("sources_new_q4"))
+
+    old_mask = df["ano"].fillna(0) <= 2024
+    new_mask = df["ano"].fillna(0) >= 2025
+    q4_2025_mask = df["ano"].eq(2025) & df["mes"].eq(12)
+
+    if old_values is not None:
+        valores.loc[old_mask] = old_values.loc[old_mask]
+
+    if new_values is not None:
+        mask_new_effective = new_mask & ~q4_2025_mask if entry.get("has_sources_new_q4") else new_mask
+        valores.loc[mask_new_effective] = new_values.loc[mask_new_effective]
+
+    if entry.get("has_sources_new_q4"):
+        if q4_values is not None:
+            valores.loc[q4_2025_mask] = q4_values.loc[q4_2025_mask]
+        else:
+            valores.loc[q4_2025_mask] = np.nan
+
+    return valores
 
 
 def _anualizar_valor_dre(valor, periodo: str) -> Optional[float]:
@@ -19870,198 +20042,7 @@ elif menu == "DRE" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo ==
             return {}
 
     def load_dre_mapping():
-        return [
-            {
-                "label": "Resultado de Intermediação Financeira Bruto",
-                "sources": [
-                    "Rendas de Aplicações Interfinanceiras de Liquidez (a)",
-                    "Rendas de Títulos e Valores Mobiliários (b)",
-                    "Rendas de Operações de Crédito (c)",
-                    "Rendas de Arrendamento Financeiro (d)",
-                    "Rendas de Outras Operações com Características de Concessão de Crédito (e)",
-                ],
-                "concept": "Resultado de intermediação financeira bruto (a+b+c+d+e).",
-                "original_label": "Resultado de Intermediação Financeira Bruto",
-            },
-            {
-                "label": "Rec. Aplicações Interfinanceiras Liquidez",
-                "sources": ["Rendas de Aplicações Interfinanceiras de Liquidez (a)"],
-                "concept": "Receitas de aplicações interfinanceiras de liquidez.",
-                "original_label": "Rendas de Aplicações Interfinanceiras de Liquidez (a)",
-                "is_child": True,
-            },
-            {
-                "label": "Rec. TVMs",
-                "sources": ["Rendas de Títulos e Valores Mobiliários (b)"],
-                "concept": "Receitas de títulos e valores mobiliários.",
-                "original_label": "Rendas de Títulos e Valores Mobiliários (b)",
-                "is_child": True,
-            },
-            {
-                "label": "Rec. Crédito",
-                "sources": ["Rendas de Operações de Crédito (c)"],
-                "concept": "Receitas de operações de crédito.",
-                "original_label": "Rendas de Operações de Crédito (c)",
-                "is_child": True,
-            },
-            {
-                "label": "Rec. Arrendamento Financeiro",
-                "sources": ["Rendas de Arrendamento Financeiro (d)"],
-                "concept": "Receitas de arrendamento financeiro.",
-                "original_label": "Rendas de Arrendamento Financeiro (d)",
-                "is_child": True,
-            },
-            {
-                "label": "Rec. Outras Operações c/ Características de Crédito",
-                "sources": ["Rendas de Outras Operações com Características de Concessão de Crédito (e)"],
-                "concept": "Receitas de outras operações com características de crédito.",
-                "original_label": "Rendas de Outras Operações com Características de Concessão de Crédito (e)",
-                "is_child": True,
-            },
-            {
-                "label": "Desp. PDD",
-                "sources": ["Resultado com Perda Esperada (f)"],
-                "concept": "Despesa com perdas esperadas (PDD).",
-                "original_label": "Resultado com Perda Esperada (f)",
-            },
-            {
-                "label": "Desp. Captação",
-                "sources": ["Despesas de Captações (g)"],
-                "concept": "Despesas de captação.",
-                "original_label": "Despesas de Captações (g)",
-            },
-            {
-                "label": "Desp PDD / Resultado Intermediação Fin. Bruto",
-                "derived_metric": "Desp PDD / Resultado Intermediação Fin. Bruto",
-                "format": "pct",
-                "concept": "Desp. PDD dividido pelo Resultado de Intermediação Financeira Bruto.",
-            },
-            {
-                "label": "Desp Captação / Captação",
-                "derived_metric": "Desp Captação / Captação",
-                "format": "pct",
-                "concept": "Desp. Captação anualizada dividida por Captações.",
-            },
-            {
-                "label": "Desp. Dívida Elegível a Capital",
-                "sources": ["Despesas de Instrumentos de Dívida Elegíveis a Capital (h)"],
-                "concept": "Despesas com dívida elegível a capital.",
-                "original_label": "Despesas de Instrumentos de Dívida Elegíveis a Capital (h)",
-            },
-            {
-                "label": "Res. Derivativos",
-                "sources": ["Resultado com Derivativos (i)"],
-                "concept": "Resultado com derivativos.",
-                "original_label": "Resultado com Derivativos (i)",
-            },
-            {
-                "label": "Outros Res. Intermediação Financeira",
-                "sources": ["Outros Resultados de Intermediação Financeira (j)"],
-                "concept": "Outros resultados de intermediação financeira.",
-                "original_label": "Outros Resultados de Intermediação Financeira (j)",
-            },
-            {
-                "label": "Resultado Int. Financeira Líquido",
-                "sources": [
-                    "Rendas de Aplicações Interfinanceiras de Liquidez (a)",
-                    "Rendas de Títulos e Valores Mobiliários (b)",
-                    "Rendas de Operações de Crédito (c)",
-                    "Rendas de Arrendamento Financeiro (d)",
-                    "Rendas de Outras Operações com Características de Concessão de Crédito (e)",
-                    "Resultado com Perda Esperada (f)",
-                    "Despesas de Captações (g)",
-                    "Despesas de Instrumentos de Dívida Elegíveis a Capital (h)",
-                    "Resultado com Derivativos (i)",
-                    "Outros Resultados de Intermediação Financeira (j)",
-                ],
-                "concept": "Resultado de intermediação financeira líquido.",
-                "original_label": "Resultado de Intermediação Financeira (k) = (a) + (b) + (c) + (d) + (e) + (f) + (g) + (h) + (i) + (j)",
-            },
-            {
-                "label": "Resultado Transações Pgto",
-                "sources": ["Resultado com Transações de Pagamento (l)"],
-                "concept": "Resultado com transações de pagamento.",
-                "original_label": "Resultado com Transações de Pagamento (l)",
-            },
-            {
-                "label": "Renda Tarifas Bancárias",
-                "sources": ["Rendas de Tarifas Bancárias (m)"],
-                "concept": "Receitas de tarifas bancárias.",
-                "original_label": "Rendas de Tarifas Bancárias (m)",
-            },
-            {
-                "label": "Outras Prestações de Serviços",
-                "sources": ["Outras Rendas de Prestação de Serviços (n)"],
-                "concept": "Outras receitas de prestação de serviços.",
-                "original_label": "Outras Rendas de Prestação de Serviços (n)",
-            },
-            {
-                "label": "Desp. Pessoal",
-                "sources": ["Despesas de Pessoal (o)"],
-                "concept": "Despesas com pessoal.",
-                "original_label": "Despesas de Pessoal (o)",
-            },
-            {
-                "label": "Desp. Adm",
-                "sources": ["Despesas Administrativas (p)"],
-                "concept": "Despesas administrativas.",
-                "original_label": "Despesas Administrativas (p)",
-            },
-            {
-                "label": "Desp. PDD Outras Operações",
-                "sources": ["Resultado com Perdas Esperadas de Outras Operações (q)"],
-                "concept": "Perdas esperadas de outras operações.",
-                "original_label": "Resultado com Perdas Esperadas de Outras Operações (q)",
-            },
-            {
-                "label": "Desp. JSCP Cooperativas",
-                "sources": ["Despesas de Juros Sobre Capital Próprio de Cooperativas (r)"],
-                "concept": "Juros sobre capital próprio (cooperativas).",
-                "original_label": "Despesas de Juros Sobre Capital Próprio de Cooperativas (r)",
-            },
-            {
-                "label": "Desp. Tributárias",
-                "sources": ["Despesas Tributárias (s)"],
-                "concept": "Despesas tributárias.",
-                "original_label": "Despesas Tributárias (s)",
-            },
-            {
-                "label": "Res. Participação Controladas",
-                "sources": ["Resultado de Participações (t)"],
-                "concept": "Resultado de participações em controladas/coligadas.",
-                "original_label": "Resultado de Participações (t)",
-            },
-            {
-                "label": "Outras Receitas",
-                "sources": ["Outras Receitas (u)"],
-                "concept": "Outras receitas.",
-                "original_label": "Outras Receitas (u)",
-            },
-            {
-                "label": "Outras Despesas",
-                "sources": ["Outras Despesas (v)"],
-                "concept": "Outras despesas.",
-                "original_label": "Outras Despesas (v)",
-            },
-            {
-                "label": "IR/CSLL",
-                "sources": ["Imposto de Renda e Contribuição Social (y)"],
-                "concept": "Imposto de renda e contribuição social.",
-                "original_label": "Imposto de Renda e Contribuição Social (y)",
-            },
-            {
-                "label": "Res. Participação Lucro",
-                "sources": ["Participações no Lucro (z)"],
-                "concept": "Participações no lucro.",
-                "original_label": "Participações no Lucro (z)",
-            },
-            {
-                "label": "Lucro Líquido Período Acumulado",
-                "sources": ["Lucro Líquido (aa) = (x) + (y) + (z)"],
-                "concept": "Lucro líquido acumulado no período.",
-                "original_label": "Lucro Líquido (aa) = (x) + (y) + (z)",
-            },
-        ]
+        return _build_dre_consolidated_mapping_entries()
 
     def find_column(df, source_name: str):
         if source_name in df.columns:
@@ -20214,10 +20195,15 @@ elif menu == "DRE" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo ==
 
         fonte_para_coluna = {}
         for entry in mapping_entries:
-            for fonte in entry.get("sources", []):
+            fontes_candidatas = []
+            for key in ("sources_old", "sources_new", "sources_new_q4", "sources"):
+                for fonte in _normalize_dre_sources(entry.get(key)):
+                    if fonte not in fontes_candidatas:
+                        fontes_candidatas.append(fonte)
+            for fonte in fontes_candidatas:
                 if fonte in fonte_para_coluna:
                     continue
-                col_encontrada = find_column(df_dre, fonte)
+                col_encontrada = _find_dre_source_column(df_dre, fonte)
                 if col_encontrada:
                     fonte_para_coluna[fonte] = col_encontrada
                     colunas_necessarias.add(col_encontrada)
@@ -20241,11 +20227,14 @@ elif menu == "DRE" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo ==
         for entry in mapping_entries:
             if entry.get("derived_metric"):
                 continue
-            fontes = normalize_sources(entry.get("sources", []))
-            colunas = [fonte_para_coluna[f] for f in fontes if f in fonte_para_coluna]
-            if not colunas:
+            valores = _resolve_dre_entry_values_period_aware(
+                df_new,
+                entry,
+                numericas,
+                fonte_para_coluna,
+            )
+            if valores.isna().all():
                 continue
-            valores = pd.concat([numericas[col] for col in colunas], axis=1).sum(axis=1, min_count=1)
             df_entry = df_new[["Instituicao", "Periodo"]].copy()
             df_entry["Label"] = entry["label"]
             df_entry["valor"] = valores

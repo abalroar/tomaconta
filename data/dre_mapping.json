@@ -145,48 +145,56 @@
   {
     "label": "Desp. JSCP Cooperativas",
     "sources_new": ["Despesas de Juros Sobre Capital Próprio de Cooperativas (r)"],
+    "sources_new_q4": [],
     "sources_old": ["Juros Sobre Capital Social de Cooperativas (k)"],
     "concept": "Despesas de juros sobre capital próprio (cooperativas)."
   },
   {
     "label": "Desp. Tributárias",
     "sources_new": ["Despesas Tributárias (s)"],
+    "sources_new_q4": ["Despesas Tributárias (r)"],
     "sources_old": ["Despesas Tributárias (d5)"],
     "concept": "Despesas tributárias."
   },
   {
     "label": "Res. Participação Controladas",
     "sources_new": ["Resultado de Participações (t)"],
+    "sources_new_q4": ["Resultado de Participações (s)"],
     "sources_old": ["Resultado de Participações (d6)"],
     "concept": "Resultado de participações em controladas/coligadas."
   },
   {
     "label": "Outras Receitas",
     "sources_new": ["Outras Receitas (u)"],
+    "sources_new_q4": ["Outras Receitas (t)"],
     "sources_old": ["Outras Receitas Operacionais (d7)"],
     "concept": "Outras receitas operacionais."
   },
   {
     "label": "Outras Despesas",
     "sources_new": ["Outras Despesas (v)"],
+    "sources_new_q4": ["Outras Despesas (u)"],
     "sources_old": ["Outras Despesas Operacionais (d8)"],
     "concept": "Outras despesas operacionais."
   },
   {
     "label": "IR/CSLL",
     "sources_new": ["Imposto de Renda e Contribuição Social (y)"],
+    "sources_new_q4": ["Imposto de Renda e Contribuição Social (x)"],
     "sources_old": ["Imposto de Renda e Contribuição Social (h)"],
     "concept": "Imposto de renda e contribuição social."
   },
   {
     "label": "Res. Participação Lucro",
     "sources_new": ["Participações no Lucro (z)"],
+    "sources_new_q4": ["Participações no Lucro (y)"],
     "sources_old": ["Participação nos Lucros (i)"],
     "concept": "Participação nos lucros."
   },
   {
     "label": "Lucro Líquido Período",
     "sources_new": ["Lucro Líquido (aa) = (x) + (y) + (z)"],
+    "sources_new_q4": ["Lucro Líquido (z) = (w) + (x) + (y)"],
     "sources_old": ["Lucro Líquido (j) = (g) + (h) + (i)"],
     "concept": "Lucro líquido do período, somando os componentes conforme cada base."
   },
