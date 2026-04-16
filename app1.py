@@ -155,20 +155,7 @@ from utils.ifdata_cache.release_ops import (
     write_release_manifest,
 )
 from utils.ifdata_cache.release_config import get_release_config
-from utils.cdsfn_live import (
-    CDSFN_BLOCKS,
-    build_credit_package_excel_cdsfn,
-    combine_normalized_blocks_cdsfn,
-    combine_reference_periods_cdsfn,
-    build_hierarchy_frame_cdsfn,
-    extract_metadata_cdsfn,
-    fetch_documento_cdsfn,
-    list_blocks_cdsfn,
-    list_reference_periods_cdsfn,
-    load_instituicoes_csv_cdsfn,
-    normalize_long_cdsfn,
-    validate_json_cdsfn,
-)
+from utils import cdsfn_live as cdsfn_live_module
 from utils.pessoas_juridicas_api import consultar_pessoas_juridicas
 from utils.ifdata_cache import taxas_juros as taxas_juros_module
 try:
@@ -188,6 +175,292 @@ import matplotlib.pyplot as plt
 from pptx import Presentation
 from pptx.util import Inches
 from matplotlib.ticker import FuncFormatter
+
+CDSFN_BLOCKS = cdsfn_live_module.CDSFN_BLOCKS
+combine_normalized_blocks_cdsfn = cdsfn_live_module.combine_normalized_blocks_cdsfn
+combine_reference_periods_cdsfn = cdsfn_live_module.combine_reference_periods_cdsfn
+build_hierarchy_frame_cdsfn = cdsfn_live_module.build_hierarchy_frame_cdsfn
+extract_metadata_cdsfn = cdsfn_live_module.extract_metadata_cdsfn
+fetch_documento_cdsfn = cdsfn_live_module.fetch_documento_cdsfn
+list_blocks_cdsfn = cdsfn_live_module.list_blocks_cdsfn
+list_reference_periods_cdsfn = cdsfn_live_module.list_reference_periods_cdsfn
+load_instituicoes_csv_cdsfn = cdsfn_live_module.load_instituicoes_csv_cdsfn
+normalize_long_cdsfn = cdsfn_live_module.normalize_long_cdsfn
+validate_json_cdsfn = cdsfn_live_module.validate_json_cdsfn
+_build_credit_package_excel_cdsfn_impl = getattr(cdsfn_live_module, "build_credit_package_excel_cdsfn", None)
+
+
+def _write_excel_display_sheet_cdsfn_fallback(
+    workbook: xlsxwriter.Workbook,
+    *,
+    sheet_name: str,
+    df_view: pd.DataFrame,
+    value_columns: list[str],
+    column_labels: dict[str, str] | None,
+    title: str,
+    institution_label: str,
+    cnpj: str,
+    source_label: str,
+    unit_label: str,
+    timestamp_label: str,
+    reference_label: str | None,
+    document_periods_label: str | None,
+):
+    worksheet = workbook.add_worksheet(sheet_name[:31])
+    ui_font = "IBM Plex Sans"
+    last_col_idx = max(len(value_columns), 1)
+
+    fmt_title = workbook.add_format(
+        {
+            "font_name": ui_font,
+            "font_size": 14,
+            "bold": True,
+            "font_color": "#111111",
+            "align": "left",
+            "valign": "vcenter",
+            "bottom": 1,
+        }
+    )
+    fmt_meta = workbook.add_format(
+        {
+            "font_name": ui_font,
+            "font_size": 10,
+            "font_color": "#555555",
+            "align": "left",
+            "valign": "vcenter",
+        }
+    )
+    fmt_header = workbook.add_format(
+        {
+            "font_name": ui_font,
+            "font_size": 11,
+            "bold": True,
+            "font_color": "#FFFFFF",
+            "bg_color": "#111111",
+            "border": 1,
+            "align": "center",
+            "valign": "vcenter",
+        }
+    )
+    fmt_parent_text = workbook.add_format(
+        {
+            "font_name": ui_font,
+            "font_size": 11,
+            "bold": True,
+            "bg_color": "#F6F6F6",
+            "border": 1,
+            "align": "left",
+            "valign": "top",
+        }
+    )
+    fmt_leaf_text = workbook.add_format(
+        {
+            "font_name": ui_font,
+            "font_size": 11,
+            "border": 1,
+            "align": "left",
+            "valign": "top",
+        }
+    )
+    fmt_parent_num = workbook.add_format(
+        {
+            "font_name": ui_font,
+            "font_size": 11,
+            "bold": True,
+            "bg_color": "#F6F6F6",
+            "border": 1,
+            "align": "right",
+            "valign": "top",
+            "num_format": "#,##0.00",
+        }
+    )
+    fmt_leaf_num = workbook.add_format(
+        {
+            "font_name": ui_font,
+            "font_size": 11,
+            "border": 1,
+            "align": "right",
+            "valign": "top",
+            "num_format": "#,##0.00",
+        }
+    )
+    fmt_parent_num_neg = workbook.add_format(
+        {
+            "font_name": ui_font,
+            "font_size": 11,
+            "bold": True,
+            "bg_color": "#F6F6F6",
+            "border": 1,
+            "align": "right",
+            "valign": "top",
+            "num_format": "#,##0.00",
+            "font_color": "#7A1E2B",
+        }
+    )
+    fmt_leaf_num_neg = workbook.add_format(
+        {
+            "font_name": ui_font,
+            "font_size": 11,
+            "border": 1,
+            "align": "right",
+            "valign": "top",
+            "num_format": "#,##0.00",
+            "font_color": "#7A1E2B",
+        }
+    )
+
+    worksheet.merge_range(0, 0, 0, last_col_idx, title, fmt_title)
+    worksheet.merge_range(
+        1,
+        0,
+        1,
+        last_col_idx,
+        " | ".join(
+            [item for item in [f"Instituição: {institution_label}" if institution_label else "", f"CNPJ: {cnpj}" if cnpj else ""] if item]
+        ),
+        fmt_meta,
+    )
+    worksheet.merge_range(
+        2,
+        0,
+        2,
+        last_col_idx,
+        " | ".join(
+            [
+                item
+                for item in [
+                    f"Fonte: {source_label}" if source_label else "",
+                    f"Ref. Info Contábil: {reference_label}" if reference_label else "",
+                    f"Competências: {document_periods_label}" if document_periods_label else "",
+                ]
+                if item
+            ]
+        ),
+        fmt_meta,
+    )
+    worksheet.merge_range(
+        3,
+        0,
+        3,
+        last_col_idx,
+        " | ".join(
+            [
+                item
+                for item in [
+                    f"Unidade monetária: {unit_label}" if unit_label else "",
+                    f"Extraído em: {timestamp_label}" if timestamp_label else "",
+                ]
+                if item
+            ]
+        ),
+        fmt_meta,
+    )
+
+    header_row_idx = 4
+    data_start_row = 5
+    headers = ["Conta"] + [column_labels.get(col, col) if column_labels else col for col in value_columns]
+    for col_idx, header in enumerate(headers):
+        worksheet.write(header_row_idx, col_idx, header, fmt_header)
+
+    conta_width = len("Conta")
+    value_widths = [len(str(header)) for header in headers[1:]]
+    worksheet.set_row(0, 24)
+    worksheet.set_row(1, 18)
+    worksheet.set_row(2, 18)
+    worksheet.set_row(3, 18)
+    worksheet.set_row(header_row_idx, 22)
+
+    for row_idx, (_, row) in enumerate(df_view.iterrows(), start=data_start_row):
+        depth = int(row.get("depth", 0) or 0)
+        has_children = bool(row.get("has_children")) or depth == 0
+        nivel = str(row.get("nivel") or "").strip()
+        descricao = str(row.get("descricao") or "")
+        conta_text = f"{nivel} {descricao}".strip() if nivel else descricao
+        conta_text = f"{'   ' * min(depth, 12)}{conta_text}"
+        worksheet.write(row_idx, 0, conta_text, fmt_parent_text if has_children else fmt_leaf_text)
+        conta_width = max(conta_width, len(conta_text))
+        worksheet.set_row(row_idx, 22 if has_children else 20)
+
+        for col_pos, value_col in enumerate(value_columns, start=1):
+            valor = pd.to_numeric(row.get(value_col), errors="coerce")
+            if pd.isna(valor):
+                worksheet.write_blank(row_idx, col_pos, None, fmt_parent_num if has_children else fmt_leaf_num)
+                value_widths[col_pos - 1] = max(value_widths[col_pos - 1], 1)
+                continue
+            fmt = fmt_parent_num if has_children else fmt_leaf_num
+            if float(valor) < 0:
+                fmt = fmt_parent_num_neg if has_children else fmt_leaf_num_neg
+            worksheet.write_number(row_idx, col_pos, float(valor), fmt)
+            value_widths[col_pos - 1] = max(value_widths[col_pos - 1], len(formatar_numero_br(float(valor), casas=2)))
+
+    worksheet.freeze_panes(data_start_row, 1)
+    worksheet.hide_gridlines(2)
+    worksheet.set_zoom(90)
+    worksheet.set_column(0, 0, min(max(conta_width + 4, 24), 72))
+    for idx, width in enumerate(value_widths, start=1):
+        worksheet.set_column(idx, idx, min(max(width + 4, 16), 24))
+    return worksheet
+
+
+def _build_credit_package_excel_cdsfn_fallback(
+    *,
+    payloads: list[dict[str, Any]],
+    institution_label: str,
+    cnpj: str,
+    periodos_ref_sel: list[str],
+    column_labels: dict[str, str] | None = None,
+    reference_label: str | None = None,
+    document_periods: list[str] | None = None,
+) -> bytes:
+    output = io.BytesIO()
+    periodos_label = ", ".join(str(item) for item in (document_periods or []) if str(item).strip())
+    timestamp_label = datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%Y-%m-%d %H:%M:%S GMT-3")
+    metadata = extract_metadata_cdsfn(payloads[0]) if payloads else {}
+    unit_label = str(metadata.get("unidade_medida") or "N/D")
+    source_label = "Documento 9011 JSON do Banco Central"
+
+    workbook = xlsxwriter.Workbook(output, {"in_memory": True})
+    try:
+        for block_key in [
+            "BalancoPatrimonial",
+            "DemonstracaoDoResultado",
+            "DemonstracaoDoResultadoAbrangente",
+            "DemonstracaoDosFluxosDeCaixa",
+            "DemonstracaoDasMutacoesDoPatrimonioLiquido",
+        ]:
+            if not any(block_key in payload for payload in payloads):
+                continue
+
+            df_long = combine_normalized_blocks_cdsfn(payloads, block_key)
+            df_view, _ = build_hierarchy_frame_cdsfn(df_long, block_key)
+            df_view_render = df_view.copy()
+            for periodo_ref in periodos_ref_sel:
+                if periodo_ref not in df_view_render.columns:
+                    df_view_render[periodo_ref] = pd.NA
+            _write_excel_display_sheet_cdsfn_fallback(
+                workbook,
+                sheet_name=CDSFN_BLOCKS[block_key]["sigla"],
+                df_view=df_view_render,
+                value_columns=list(periodos_ref_sel),
+                column_labels=column_labels,
+                title=f"{CDSFN_BLOCKS[block_key]['sigla']} - {CDSFN_BLOCKS[block_key]['label']}",
+                institution_label=institution_label,
+                cnpj=cnpj,
+                source_label=source_label,
+                unit_label=unit_label,
+                timestamp_label=timestamp_label,
+                reference_label=reference_label,
+                document_periods_label=periodos_label,
+            )
+    finally:
+        workbook.close()
+    return output.getvalue()
+
+
+def build_credit_package_excel_cdsfn(**kwargs):
+    if _build_credit_package_excel_cdsfn_impl is not None:
+        return _build_credit_package_excel_cdsfn_impl(**kwargs)
+    return _build_credit_package_excel_cdsfn_fallback(**kwargs)
 import numpy as np
 import xlsxwriter
 from PIL import Image as PILImage
