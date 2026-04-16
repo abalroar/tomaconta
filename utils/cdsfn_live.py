@@ -4,9 +4,11 @@ import json
 import re
 import unicodedata
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from io import BytesIO
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import requests
@@ -207,6 +209,11 @@ def _format_excel_display_value_cdsfn(valor: Any) -> str:
         return "—"
     casas = 0 if float(valor_num).is_integer() else 2
     return formatar_numero_br(float(valor_num), casas=casas)
+
+
+def _cdsfn_export_timestamp_gmt3() -> str:
+    dt = datetime.now(ZoneInfo("America/Sao_Paulo"))
+    return dt.strftime("%Y-%m-%d %H:%M:%S GMT-3")
 
 
 def _build_parent_map(df_long: pd.DataFrame) -> dict[str, str]:
@@ -680,6 +687,177 @@ def pivot_wide_cdsfn(df_long: pd.DataFrame) -> pd.DataFrame:
     ).reset_index(drop=True)
 
 
+def _write_excel_display_sheet_cdsfn(
+    workbook,
+    *,
+    sheet_name: str,
+    df_view: pd.DataFrame,
+    value_columns: list[str],
+    column_labels: dict[str, str] | None = None,
+    title: str | None = None,
+    institution_label: str | None = None,
+    cnpj: str | None = None,
+    source_label: str | None = None,
+    unit_label: str | None = None,
+    timestamp_label: str | None = None,
+    reference_label: str | None = None,
+    document_periods_label: str | None = None,
+):
+    worksheet = workbook.add_worksheet(sheet_name[:31])
+
+    ui_font = "IBM Plex Sans"
+    context_enabled = any(
+        bool(item)
+        for item in [title, institution_label, cnpj, source_label, unit_label, timestamp_label, reference_label, document_periods_label]
+    )
+    header_row_idx = 0 if not context_enabled else 4
+    data_start_row = header_row_idx + 1
+    last_col_idx = max(len(value_columns), 0)
+
+    fmt_title = workbook.add_format(
+        {
+            "bold": True,
+            "font_name": ui_font,
+            "font_size": 14,
+            "font_color": "#111111",
+            "align": "left",
+            "valign": "vcenter",
+        }
+    )
+    fmt_meta = workbook.add_format(
+        {
+            "font_name": ui_font,
+            "font_size": 10,
+            "font_color": "#50555f",
+            "align": "left",
+            "valign": "vcenter",
+        }
+    )
+    fmt_header = workbook.add_format(
+        {
+            "bold": True,
+            "font_name": ui_font,
+            "font_size": 11,
+            "font_color": "#FFFFFF",
+            "bg_color": "#111111",
+            "border": 1,
+            "align": "center",
+            "valign": "vcenter",
+        }
+    )
+    value_format_cache: dict[tuple[bool, bool], Any] = {}
+    text_format_cache: dict[tuple[bool, int], Any] = {}
+
+    def _value_format(is_parent: bool, negative: bool):
+        key = (is_parent, negative)
+        cached = value_format_cache.get(key)
+        if cached is not None:
+            return cached
+        props = {
+            "font_name": ui_font,
+            "font_size": 11,
+            "border": 1,
+            "align": "right",
+            "valign": "top",
+            "num_format": "#,##0.00",
+        }
+        if is_parent:
+            props["bold"] = True
+            props["bg_color"] = "#F6F6F6"
+        if negative:
+            props["font_color"] = "#7A1E2B"
+        fmt = workbook.add_format(props)
+        value_format_cache[key] = fmt
+        return fmt
+
+    def _text_format(is_parent: bool, depth: int):
+        key = (is_parent, depth)
+        cached = text_format_cache.get(key)
+        if cached is not None:
+            return cached
+        props = {
+            "font_name": ui_font,
+            "font_size": 11,
+            "border": 1,
+            "align": "left",
+            "valign": "top",
+            "indent": min(depth, 15),
+        }
+        if is_parent:
+            props["bold"] = True
+            props["bg_color"] = "#F6F6F6"
+        fmt = workbook.add_format(props)
+        text_format_cache[key] = fmt
+        return fmt
+
+    if context_enabled:
+        worksheet.merge_range(0, 0, 0, last_col_idx, title or sheet_name, fmt_title)
+        institution_parts = []
+        if institution_label:
+            institution_parts.append(f"Instituição: {institution_label}")
+        if cnpj:
+            institution_parts.append(f"CNPJ: {cnpj}")
+        worksheet.merge_range(1, 0, 1, last_col_idx, " | ".join(institution_parts) if institution_parts else "", fmt_meta)
+
+        source_parts = []
+        if source_label:
+            source_parts.append(f"Fonte: {source_label}")
+        if reference_label:
+            source_parts.append(f"Ref. Info Contábil: {reference_label}")
+        if document_periods_label:
+            source_parts.append(f"Competências: {document_periods_label}")
+        worksheet.merge_range(2, 0, 2, last_col_idx, " | ".join(source_parts) if source_parts else "", fmt_meta)
+
+        footer_parts = []
+        if unit_label:
+            footer_parts.append(f"Unidade monetária: {unit_label}")
+        if timestamp_label:
+            footer_parts.append(f"Extraído em: {timestamp_label}")
+        worksheet.merge_range(3, 0, 3, last_col_idx, " | ".join(footer_parts) if footer_parts else "", fmt_meta)
+        worksheet.set_row(0, 24)
+        worksheet.set_row(1, 18)
+        worksheet.set_row(2, 18)
+        worksheet.set_row(3, 18)
+
+    headers = ["Conta"] + [column_labels.get(col, col) if column_labels else col for col in value_columns]
+    for col_idx, header in enumerate(headers):
+        worksheet.write(header_row_idx, col_idx, header, fmt_header)
+
+    conta_width = len("Conta")
+    value_widths = [len(str(header)) for header in headers[1:]]
+    worksheet.set_row(header_row_idx, 22)
+
+    for row_idx, (_, row) in enumerate(df_view.iterrows(), start=data_start_row):
+        depth = int(row.get("depth", 0) or 0)
+        has_children = bool(row.get("has_children")) or depth == 0
+        nivel = str(row.get("nivel") or "").strip()
+        descricao = str(row.get("descricao") or "")
+        conta_text = f"{nivel} {descricao}".strip() if nivel else descricao
+        conta_fmt = _text_format(has_children, depth)
+        worksheet.write(row_idx, 0, conta_text, conta_fmt)
+        conta_width = max(conta_width, len(conta_text) + max(depth * 2, 0))
+        worksheet.set_row(row_idx, 22 if has_children else 20)
+
+        for col_pos, value_col in enumerate(value_columns, start=1):
+            valor = pd.to_numeric(row.get(value_col), errors="coerce")
+            negative = bool(pd.notna(valor) and float(valor) < 0)
+            cell_fmt = _value_format(has_children, negative)
+            if pd.isna(valor):
+                worksheet.write_blank(row_idx, col_pos, None, cell_fmt)
+                value_widths[col_pos - 1] = max(value_widths[col_pos - 1], len("-"))
+            else:
+                worksheet.write_number(row_idx, col_pos, float(valor), cell_fmt)
+                value_widths[col_pos - 1] = max(value_widths[col_pos - 1], len(_format_excel_display_value_cdsfn(valor)))
+
+    worksheet.freeze_panes(data_start_row, 1)
+    worksheet.hide_gridlines(2)
+    worksheet.set_zoom(90)
+    worksheet.set_column(0, 0, min(max(conta_width + 6, 24), 72))
+    for idx, width in enumerate(value_widths, start=1):
+        worksheet.set_column(idx, idx, min(max(width + 4, 16), 24))
+    return worksheet
+
+
 def build_excel_display_export_cdsfn(
     df_view: pd.DataFrame,
     value_columns: list[str],
@@ -690,101 +868,70 @@ def build_excel_display_export_cdsfn(
     output = BytesIO()
     with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
         workbook = writer.book
-        worksheet = workbook.add_worksheet(sheet_name[:31])
-        writer.sheets[sheet_name[:31]] = worksheet
-
-        ui_font = "IBM Plex Sans"
-        fmt_header = workbook.add_format(
-            {
-                "bold": True,
-                "font_name": ui_font,
-                "font_size": 11,
-                "font_color": "#FFFFFF",
-                "bg_color": "#111111",
-                "border": 1,
-                "align": "center",
-                "valign": "vcenter",
-            }
+        worksheet = _write_excel_display_sheet_cdsfn(
+            workbook,
+            sheet_name=sheet_name,
+            df_view=df_view,
+            value_columns=value_columns,
+            column_labels=column_labels,
         )
-        value_format_cache: dict[tuple[bool, bool], Any] = {}
-        text_format_cache: dict[tuple[bool, int], Any] = {}
+        writer.sheets[sheet_name[:31]] = worksheet
+    return output.getvalue()
 
-        def _value_format(is_parent: bool, negative: bool):
-            key = (is_parent, negative)
-            cached = value_format_cache.get(key)
-            if cached is not None:
-                return cached
-            props = {
-                "font_name": ui_font,
-                "font_size": 11,
-                "border": 1,
-                "align": "right",
-                "valign": "top",
-                "num_format": "#,##0.00",
-            }
-            if is_parent:
-                props["bold"] = True
-                props["bg_color"] = "#F6F6F6"
-            if negative:
-                props["font_color"] = "#7A1E2B"
-            fmt = workbook.add_format(props)
-            value_format_cache[key] = fmt
-            return fmt
 
-        def _text_format(is_parent: bool, depth: int):
-            key = (is_parent, depth)
-            cached = text_format_cache.get(key)
-            if cached is not None:
-                return cached
-            props = {
-                "font_name": ui_font,
-                "font_size": 11,
-                "border": 1,
-                "align": "left",
-                "valign": "top",
-                "indent": min(depth, 15),
-            }
-            if is_parent:
-                props["bold"] = True
-                props["bg_color"] = "#F6F6F6"
-            fmt = workbook.add_format(props)
-            text_format_cache[key] = fmt
-            return fmt
+def build_credit_package_excel_cdsfn(
+    *,
+    payloads: list[dict[str, Any]],
+    institution_label: str,
+    cnpj: str,
+    periodos_ref_sel: list[str],
+    column_labels: dict[str, str] | None = None,
+    reference_label: str | None = None,
+    document_periods: list[str] | None = None,
+) -> bytes:
+    output = BytesIO()
+    periodos_label = ", ".join(str(item) for item in (document_periods or []) if str(item).strip())
+    timestamp_label = _cdsfn_export_timestamp_gmt3()
+    metadata = extract_metadata_cdsfn(payloads[0]) if payloads else {}
+    unit_label = str(metadata.get("unidade_medida") or "N/D")
+    source_label = "Documento 9011 JSON do Banco Central"
 
-        headers = ["Conta"] + [column_labels.get(col, col) if column_labels else col for col in value_columns]
-        for col_idx, header in enumerate(headers):
-            worksheet.write(0, col_idx, header, fmt_header)
+    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+        workbook = writer.book
+        for block_key in [
+            "BalancoPatrimonial",
+            "DemonstracaoDoResultado",
+            "DemonstracaoDoResultadoAbrangente",
+            "DemonstracaoDosFluxosDeCaixa",
+            "DemonstracaoDasMutacoesDoPatrimonioLiquido",
+        ]:
+            if not any(block_key in payload for payload in payloads):
+                continue
 
-        conta_width = len("Conta")
-        value_widths = [len(str(header)) for header in headers[1:]]
-        worksheet.set_row(0, 22)
-
-        for row_idx, (_, row) in enumerate(df_view.iterrows(), start=1):
-            depth = int(row.get("depth", 0) or 0)
-            has_children = bool(row.get("has_children")) or depth == 0
-            nivel = str(row.get("nivel") or "").strip()
-            descricao = str(row.get("descricao") or "")
-            conta_text = f"{nivel} {descricao}".strip() if nivel else descricao
-            conta_fmt = _text_format(has_children, depth)
-            worksheet.write(row_idx, 0, conta_text, conta_fmt)
-            conta_width = max(conta_width, len(conta_text) + max(depth * 2, 0))
-            worksheet.set_row(row_idx, 20 if has_children else 18)
-
-            for col_pos, value_col in enumerate(value_columns, start=1):
-                valor = pd.to_numeric(row.get(value_col), errors="coerce")
-                negative = bool(pd.notna(valor) and float(valor) < 0)
-                cell_fmt = _value_format(has_children, negative)
-                if pd.isna(valor):
-                    worksheet.write_blank(row_idx, col_pos, None, cell_fmt)
-                    value_widths[col_pos - 1] = max(value_widths[col_pos - 1], len("-"))
-                else:
-                    worksheet.write_number(row_idx, col_pos, float(valor), cell_fmt)
-                    value_widths[col_pos - 1] = max(value_widths[col_pos - 1], len(_format_excel_display_value_cdsfn(valor)))
-
-        worksheet.freeze_panes(1, 1)
-        worksheet.set_column(0, 0, min(max(conta_width + 1, 14), 60))
-        for idx, width in enumerate(value_widths, start=1):
-            worksheet.set_column(idx, idx, min(max(width + 2, 12), 18))
+            df_long = combine_normalized_blocks_cdsfn(payloads, block_key)
+            df_view, _ = build_hierarchy_frame_cdsfn(df_long, block_key)
+            df_view_render = df_view.copy()
+            for periodo_ref in periodos_ref_sel:
+                if periodo_ref not in df_view_render.columns:
+                    df_view_render[periodo_ref] = pd.NA
+            value_columns_render = list(periodos_ref_sel)
+            block_meta = CDSFN_BLOCKS[block_key]
+            worksheet = _write_excel_display_sheet_cdsfn(
+                workbook,
+                sheet_name=block_meta["sigla"],
+                df_view=df_view_render,
+                value_columns=value_columns_render,
+                column_labels=column_labels,
+                title=f"{block_meta['sigla']} - {block_meta['label']}",
+                institution_label=institution_label,
+                cnpj=cnpj,
+                source_label=source_label,
+                unit_label=unit_label,
+                timestamp_label=timestamp_label,
+                reference_label=reference_label,
+                document_periods_label=periodos_label,
+            )
+            writer.sheets[block_meta["sigla"][:31]] = worksheet
     return output.getvalue()
 
 

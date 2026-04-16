@@ -157,9 +157,9 @@ from utils.ifdata_cache.release_ops import (
 from utils.ifdata_cache.release_config import get_release_config
 from utils.cdsfn_live import (
     CDSFN_BLOCKS,
+    build_credit_package_excel_cdsfn,
     combine_normalized_blocks_cdsfn,
     combine_reference_periods_cdsfn,
-    build_excel_display_export_cdsfn,
     build_hierarchy_frame_cdsfn,
     extract_metadata_cdsfn,
     fetch_documento_cdsfn,
@@ -2815,7 +2815,7 @@ def render_tab_cdsfn() -> None:
                     },
                     {
                         "Item": "Blocos exibidos",
-                        "Descrição": "A aba mostra os blocos presentes no documento, como Balanço Patrimonial, DRE e DMPL, sem inventar estrutura ausente.",
+                        "Descrição": "A aba mostra apenas os blocos presentes no documento 9011, como BP, DRE, DRA, DFC e DMPL, sem inventar estrutura ausente.",
                     },
                     {
                         "Item": "Ref. Info Contábil",
@@ -2827,7 +2827,7 @@ def render_tab_cdsfn() -> None:
                     },
                     {
                         "Item": "Exportação",
-                        "Descrição": "O Excel exporta exatamente a tabela hierárquica exibida na tela para o bloco selecionado.",
+                        "Descrição": "O Excel gera um pacote único de aprovação de crédito com BP, DRE, DRA, DFC e DMPL quando disponível, cada um em sua própria planilha editável.",
                     },
                 ]
             ),
@@ -3043,6 +3043,42 @@ def render_tab_cdsfn() -> None:
     if blocos_ausentes:
         st.warning(f"Blocos não presentes no documento retornado: {', '.join(blocos_ausentes)}")
 
+    try:
+        excel_credit_package = build_credit_package_excel_cdsfn(
+            payloads=payloads_ordenados,
+            institution_label=str(inst_row.get("nome") or instituicao_sel),
+            cnpj=str(metadata.get("cnpj") or inst_row.get("cnpj") or ""),
+            periodos_ref_sel=periodos_ref_sel,
+            column_labels={col: labels_periodos.get(col, col) for col in periodos_ref_sel},
+            reference_label=_rotulo_tipo_referencia_cdsfn(prefixo_sel),
+            document_periods=periodos_documento_sel,
+        )
+    except Exception as exc:
+        st.error(f"Erro ao montar o pacote Excel do Documento 9011: {exc}")
+        return
+
+    siglas_export = [
+        CDSFN_BLOCKS[item["block_key"]]["sigla"]
+        for item in blocos
+        if item["block_key"] in CDSFN_BLOCKS
+    ]
+    st.download_button(
+        "Exportar pacote Excel",
+        data=excel_credit_package,
+        file_name=(
+            f"pacote_credito_9011_ind_{str(metadata.get('cnpj') or 'sem_cnpj')}_{prefixo_sel}_"
+            f"{'_'.join(periodos_documento_sel)}.xlsx"
+        ),
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        key="cdsfn_live_download_credit_package",
+        width="content",
+    )
+    st.caption(
+        "Planilhas incluídas: "
+        + ", ".join(siglas_export)
+        + f" | Fonte: Documento 9011 | Unidade: {metadata.get('unidade_medida') or 'N/D'}"
+    )
+
     mapa_bloco_label = {item["block_key"]: f"{item['sigla']} — {item['label']}" for item in blocos}
     tabs_blocos = st.tabs([mapa_bloco_label[item["block_key"]] for item in blocos])
 
@@ -3070,20 +3106,6 @@ def render_tab_cdsfn() -> None:
                 st.warning(
                     "Bloco ausente nos documentos: " + ", ".join(docs_sem_bloco)
                 )
-            excel_bytes = build_excel_display_export_cdsfn(
-                df_view_render,
-                value_columns_render,
-                column_labels=column_labels,
-                sheet_name=bloco_info["sigla"],
-            )
-            st.download_button(
-                "Exportar Excel",
-                data=excel_bytes,
-                file_name=f"cdsfn_9011_{bloco_info['sigla'].lower()}_{prefixo_sel}_{metadata.get('cnpj','sem_cnpj')}_{'_'.join(periodos_documento_sel)}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                key=f"cdsfn_live_download_excel_display_{bloco_key}",
-                width="content",
-            )
 
             if not possui_valor_render:
                 st.warning(

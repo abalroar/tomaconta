@@ -6,6 +6,7 @@ import pandas as pd
 from openpyxl import load_workbook
 
 from utils.cdsfn_live import (
+    build_credit_package_excel_cdsfn,
     build_display_table_cdsfn,
     build_excel_display_export_cdsfn,
     build_hierarchy_frame_cdsfn,
@@ -106,6 +107,44 @@ def _sample_payload_second_document() -> dict:
         {"@dtBase": "dt2", "@valor": 220000.0},
         {"@dtBase": "dt3", "@valor": 217098.0},
     ]
+    return payload
+
+
+def _sample_payload_credit_package() -> dict:
+    payload = _sample_payload()
+    payload["DemonstracaoDoResultadoAbrangente"] = {
+        "contas": [
+            {
+                "@id": "dra1",
+                "@nivel": "1",
+                "@descricao": "Resultado abrangente do período",
+                "@contaPai": "",
+                "valoresIndividualizados": [{"@dtBase": "dt1", "@valor": 215000.0}],
+            }
+        ]
+    }
+    payload["DemonstracaoDosFluxosDeCaixa"] = {
+        "contas": [
+            {
+                "@id": "dfc1",
+                "@nivel": "1",
+                "@descricao": "Caixa líquido das atividades operacionais",
+                "@contaPai": "",
+                "valoresIndividualizados": [{"@dtBase": "dt1", "@valor": 35000.0}],
+            }
+        ]
+    }
+    payload["DemonstracaoDasMutacoesDoPatrimonioLiquido"] = {
+        "contas": [
+            {
+                "@id": "dmpl1",
+                "@nivel": "1",
+                "@descricao": "Saldo no início do período",
+                "@contaPai": "",
+                "valoresIndividualizados": [{"@dtBase": "dt1", "@valor": 480.0}],
+            }
+        ]
+    }
     return payload
 
 
@@ -300,6 +339,40 @@ def test_build_excel_display_export_cdsfn_returns_bytes():
     assert ws["A2"].fill.fgColor.rgb in {"FFF6F6F6", "00F6F6F6"}
     assert ws["B2"].value == 656719
     assert ws["B2"].number_format == "#,##0.00"
+
+
+def test_build_credit_package_excel_cdsfn_returns_multisheet_workbook():
+    payload = _sample_payload_credit_package()
+    excel_bytes = build_credit_package_excel_cdsfn(
+        payloads=[payload],
+        institution_label="Banco Exemplo",
+        cnpj="05503849",
+        periodos_ref_sel=["A122025"],
+        column_labels={"A122025": "A dez/25"},
+        reference_label="Anual (A)",
+        document_periods=["202512"],
+    )
+
+    assert isinstance(excel_bytes, bytes)
+    assert len(excel_bytes) > 100
+
+    wb = load_workbook(BytesIO(excel_bytes))
+    assert wb.sheetnames == ["BP", "DRE", "DRA", "DFC", "DMPL"]
+
+    ws_bp = wb["BP"]
+    assert ws_bp["A1"].value == "BP - Balanço Patrimonial"
+    assert "Instituição: Banco Exemplo" in ws_bp["A2"].value
+    assert "Fonte: Documento 9011 JSON do Banco Central" in ws_bp["A3"].value
+    assert "Competências: 202512" in ws_bp["A3"].value
+    assert "Unidade monetária: 1000" in ws_bp["A4"].value
+    assert "GMT-3" in ws_bp["A4"].value
+    assert ws_bp["A5"].value == "Conta"
+    assert ws_bp["B5"].value == "A dez/25"
+    assert ws_bp["B6"].value == 656719
+
+    ws_dra = wb["DRA"]
+    assert ws_dra["A6"].value == "1 Resultado abrangente do período"
+    assert ws_dra["B6"].value == 215000
 
 
 def test_combine_reference_periods_cdsfn_dedupes_and_sorts():
