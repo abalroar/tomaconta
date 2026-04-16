@@ -169,6 +169,7 @@ import base64
 import subprocess
 import re
 import unicodedata
+import xlsxwriter
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -462,7 +463,6 @@ def build_credit_package_excel_cdsfn(**kwargs):
         return _build_credit_package_excel_cdsfn_impl(**kwargs)
     return _build_credit_package_excel_cdsfn_fallback(**kwargs)
 import numpy as np
-import xlsxwriter
 from PIL import Image as PILImage
 from io import BytesIO
 
