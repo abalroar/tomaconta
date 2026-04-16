@@ -133,6 +133,7 @@ from utils.ifdata_cache import (
     load_derived_metrics_slice,
     CRITICAL_EXTRA_METRICS,
     materialize_critical_screens_cache,
+    load_critical_screens_slice,
     get_critical_screens_runtime_status,
     resolve_carteira_credito_bruta_value,
     resolve_core_funding_value,
@@ -6407,6 +6408,13 @@ def _carregar_cache_relatorio_slice(
         else instituicoes
     )
 
+    if tipo_cache == "critical_screens":
+        return load_critical_screens_slice(
+            base_dir=APP_DIR,
+            periodos=list(periodos) if periodos else None,
+            instituicoes=list(instituicoes_expandidas or instituicoes) if (instituicoes_expandidas or instituicoes) else None,
+        )
+
     # Caminho rápido: parquet com filtro no reader
     if cache.arquivo_dados.exists():
         try:
@@ -9415,6 +9423,20 @@ def _snap_metric_delta_meta(metric_cfg: dict) -> tuple[str, str]:
     )
 
 
+def _snapshot_comparison_labels(metric_cfg: dict) -> tuple[str, str]:
+    qoq_label = str(metric_cfg.get("comparison_label_qoq") or "").strip()
+    yoy_label = str(metric_cfg.get("comparison_label_yoy") or "").strip()
+    if qoq_label or yoy_label:
+        return qoq_label or "QoQ", yoy_label or "YoY"
+
+    basis = str(metric_cfg.get("comparison_basis") or "").strip().lower()
+    if basis == "trimestral":
+        return "QoQ trimestral", "YoY trimestral"
+    if basis == "ytd":
+        return "QoQ YTD", "YoY YTD"
+    return "QoQ", "YoY"
+
+
 def _snap_sparkline_svg(
     values: list,
     width: int = 80,
@@ -9632,6 +9654,7 @@ def _render_snap_card(
     source = metric_cfg.get("source", "")
     comparison = metric_cfg.get("comparison", "qoq")
     delta_kind, delta_scale = _snap_metric_delta_meta(metric_cfg)
+    qoq_label, yoy_label = _snapshot_comparison_labels(metric_cfg)
     status_note = str(metric_cfg.get("status_note") or "").strip()
     status_marker = str(metric_cfg.get("status_marker") or "").strip()
 
@@ -9647,11 +9670,11 @@ def _render_snap_card(
 
     # Para métricas YTD, QoQ não faz sentido; comparação principal é YoY
     if comparison == "yoy":
-        delta_1 = _snap_delta_html(valor_atual, valor_yoy, "YoY", higher_is_better, delta_kind, delta_scale)
+        delta_1 = _snap_delta_html(valor_atual, valor_yoy, yoy_label, higher_is_better, delta_kind, delta_scale)
         delta_2 = ""
     else:
-        delta_1 = _snap_delta_html(valor_atual, valor_qoq, "QoQ", higher_is_better, delta_kind, delta_scale)
-        delta_2 = _snap_delta_html(valor_atual, valor_yoy, "YoY", higher_is_better, delta_kind, delta_scale)
+        delta_1 = _snap_delta_html(valor_atual, valor_qoq, qoq_label, higher_is_better, delta_kind, delta_scale)
+        delta_2 = _snap_delta_html(valor_atual, valor_yoy, yoy_label, higher_is_better, delta_kind, delta_scale)
 
     # Borda esquerda (status) — usa QoQ como base primária
     base_for_status = valor_yoy if comparison == "yoy" else valor_qoq
@@ -9709,7 +9732,7 @@ _SNAPSHOT_PROVENANCE = [
     ("Lucro Líquido Acum. YTD", "BCB IFData Rel. 1", "Acumulado no ano normalizado", "↑ = melhora"),
     ("ROE trim. anualizado", "Calculado", "(LL_Trimestral × 4) ÷ PL Médio × 100", "↑ = melhora (maior retorno)"),
     ("ROE Ac. Anualizado", "Calculado", "(LL_YTD × Fator Anualização) ÷ PL Médio × 100", "↑ = melhora (maior retorno)"),
-    ("Crédito / Captações", "BCB IFData Rel. 2 ÷ Rel. 3", "Carteira de Crédito Bruta ÷ Core Funding", "↓ = melhora (menor alavancagem)"),
+    ("Crédito / Captações", "BCB IFData Rel. 2 ÷ Rel. 3", "Carteira de Crédito Bruta ÷ Core Funding. Na Snapshot, QoQ e YoY comparam o valor trimestral de fechamento, não acumulado YTD.", "↓ = melhora (menor alavancagem)"),
     ("Desp. Anualizada Captação / Volume Captação", "Métricas derivadas (DRE ÷ Passivo)", "Despesa de captação anualizada ÷ captações médias YTD", "↓ = melhora (menor custo de funding)"),
     ("Perda Esperada / Estágio 3", "BCB IFData Rel. 2 + Cadoc 4060", "Perda Esperada ÷ Ativos Estágio 3", "↓ = melhora (menor pressão de perda)"),
     ("Perda Esperada / Carteira", "BCB IFData Rel. 2", "Perda Esperada ÷ Carteira de Crédito Bruta", "↓ = melhora (menor pressão de perda)"),
@@ -10007,10 +10030,11 @@ def _audit_deltas_snapshot(
         serie = cfg.get("serie", {}) or {}
         label = cfg.get("label", "Métrica")
         delta_kind, delta_scale = _snap_metric_delta_meta(cfg)
+        qoq_label, yoy_label = _snapshot_comparison_labels(cfg)
         tolerancia = 0.5 if delta_kind == "bps" else 0.1
         comparacoes = [
-            ("QoQ", periodo_anterior_qoq),
-            ("YoY", periodo_anterior_yoy),
+            (qoq_label, periodo_anterior_qoq),
+            (yoy_label, periodo_anterior_yoy),
         ]
         for comp_label, periodo_base in comparacoes:
             if not periodo_base:
@@ -10276,13 +10300,13 @@ def pagina_snapshot():
     # ===================================================================
     hero_metrics = [
         {"label": "Ativo Total", "format_key": "Ativo Total", "higher_is_better": True,
-         "serie": ativo_map, "source": "BCB IFData Rel. 1 — Balanço Patrimonial"},
+         "serie": ativo_map, "source": "BCB IFData Rel. 1 — Balanço Patrimonial", "comparison_basis": "trimestral"},
         {"label": "Carteira de Crédito", "format_key": "Carteira de Crédito Bruta", "higher_is_better": True,
-         "serie": carteira_map, "source": "BCB IFData Rel. 2 — Soma Valor Contábil Bruto (e1+f1+g1+h1)"},
+         "serie": carteira_map, "source": "BCB IFData Rel. 2 — Soma Valor Contábil Bruto (e1+f1+g1+h1)", "comparison_basis": "trimestral"},
         {"label": "Patrimônio Líquido", "format_key": "Patrimônio Líquido", "higher_is_better": True,
-         "serie": pl_map, "source": "BCB IFData Rel. 1 — Balanço Patrimonial"},
+         "serie": pl_map, "source": "BCB IFData Rel. 1 — Balanço Patrimonial", "comparison_basis": "trimestral"},
         {"label": "Índice de Basileia", "format_key": "Índice de Basileia", "higher_is_better": True,
-         "serie": bas_map, "is_pct": True, "show_bps": True,
+         "serie": bas_map, "is_pct": True, "show_bps": True, "comparison_basis": "trimestral",
          "source": "BCB IFData Rel. 5 — (CP+CC+N2) ÷ RWA Total"},
     ]
     hero_metrics = [_snapshot_apply_status(cfg) for cfg in hero_metrics]
@@ -10302,14 +10326,14 @@ def pagina_snapshot():
 
     profit_metrics = [
         {"label": "Lucro Líquido Trimestral", "format_key": "Lucro Líquido Trimestral", "higher_is_better": True,
-         "serie": ll_tri_map, "source": "Rel. 1 + decomposição semestral Bacen"},
+         "serie": ll_tri_map, "source": "Rel. 1 + decomposição semestral Bacen", "comparison_basis": "trimestral"},
         {"label": "Lucro Líquido Acum. YTD", "format_key": "Lucro Líquido Acumulado YTD", "higher_is_better": True,
-         "comparison": "yoy", "serie": ll_ytd_map, "source": "Rel. 1 — acumulado normalizado no ano"},
+         "comparison": "yoy", "comparison_basis": "ytd", "serie": ll_ytd_map, "source": "Rel. 1 — acumulado normalizado no ano"},
         {"label": "ROE trim. anualizado", "format_key": "ROE trimestral anualizado (%)", "higher_is_better": True,
-         "serie": roe_tri_map, "is_pct": True, "coluna_origem": "ROE trimestral anualizado (%)",
+         "serie": roe_tri_map, "is_pct": True, "comparison_basis": "trimestral", "coluna_origem": "ROE trimestral anualizado (%)",
          "source": "(LL Trimestral × 4) ÷ PL Médio × 100"},
         {"label": "ROE Ac. Anualizado", "format_key": "ROE Ac. Anualizado (%)", "higher_is_better": True,
-         "comparison": "yoy", "serie": roe_ac_map, "is_pct": True, "coluna_origem": "ROE Ac. Anualizado (%)",
+         "comparison": "yoy", "comparison_basis": "ytd", "serie": roe_ac_map, "is_pct": True, "coluna_origem": "ROE Ac. Anualizado (%)",
          "source": "(LL YTD × Fator Anualização) ÷ PL Médio × 100"},
     ]
     profit_metrics = [_snapshot_apply_status(cfg) for cfg in profit_metrics]
@@ -10336,10 +10360,10 @@ def pagina_snapshot():
             "section": "Funding",
             "rows": [
                 {"label": "Crédito / Captações", "format_key": "Carteira de Crédito/Core Funding (%)",
-                 "higher_is_better": False, "serie": credito_capt_map, "is_pct": True,
-                 "source": "Carteira Bruta ÷ Core Funding (Rel. 2 / Rel. 3)"},
+                 "higher_is_better": False, "serie": credito_capt_map, "is_pct": True, "comparison_basis": "trimestral",
+                 "source": "Carteira Bruta ÷ Core Funding (Rel. 2 / Rel. 3). QoQ e YoY usam o valor trimestral de fechamento, não acumulado YTD."},
                 {"label": label_desp_captacao, "format_key": "Desp Captação / Captação",
-                 "higher_is_better": False, "serie": desp_capt_map, "is_pct": True,
+                 "higher_is_better": False, "serie": desp_capt_map, "is_pct": True, "comparison_basis": "trimestral",
                  "source": "DRE (Rel. 4) ÷ Passivo (Rel. 3)"},
             ],
         },
@@ -10347,11 +10371,11 @@ def pagina_snapshot():
             "section": "Qualidade de Carteira",
             "rows": [
                 {"label": "Perda Esperada / Estágio 3", "format_key": "Perda Esperada / Estágio 3",
-                 "higher_is_better": False, "is_pct": True,
+                 "higher_is_better": False, "is_pct": True, "comparison_basis": "trimestral",
                  "serie": perda_est3_map,
                  "source": "Peers (Tabela): Perda Esperada (Rel. 2) ÷ Ativos Estágio 3 (Cadoc 4060)"},
                 {"label": "Perda Esperada / Carteira", "format_key": "Perda Esperada / Carteira de Crédito Bruta",
-                 "higher_is_better": False, "is_pct": True,
+                 "higher_is_better": False, "is_pct": True, "comparison_basis": "trimestral",
                  "serie": perda_carteira_map,
                  "source": "Peers (Tabela): Perda Esperada ÷ Carteira de Crédito Bruta"},
             ],
@@ -10360,7 +10384,7 @@ def pagina_snapshot():
             "section": "Capital",
             "rows": [
                 {"label": "CET1", "format_key": "Índice de Capital Principal",
-                 "higher_is_better": True, "serie": cet1_map, "is_pct": True, "show_bps": True,
+                 "higher_is_better": True, "serie": cet1_map, "is_pct": True, "show_bps": True, "comparison_basis": "trimestral",
                  "source": "BCB IFData Rel. 5 — Capital Principal ÷ RWA Total"},
             ],
         },
@@ -28423,7 +28447,7 @@ elif menu == "Glossário":
     _render_secao_glossario("5) Alavancagem e Relações de Estrutura", [
         {"Indicador": "Ativo Total / PL", "Aba(s)": "Snapshot, Peers (Tabela), Glossário", "Fonte": "IFData Rel.1", "Fórmula": "Ativo Total ÷ Patrimônio Líquido", "Unidade": "x", "Interpretação": "Grau de alavancagem contábil do balanço.", "Limitação": "Não pondera o risco dos ativos.", "Periodicidade": "Trimestral"},
         {"Indicador": "Carteira de Crédito Bruta / PL", "Aba(s)": "Snapshot, Peers (Tabela), Evolução, Glossário", "Fonte": "IFData Rel.2 + Rel.1", "Fórmula": "Carteira de Crédito Bruta ÷ PL", "Unidade": "x", "Interpretação": "Intensidade de crédito sobre base patrimonial.", "Limitação": "Comparabilidade histórica afetada pela mudança de base em 2025.", "Periodicidade": "Trimestral"},
-        {"Indicador": "Crédito / Captações (%)", "Aba(s)": "Snapshot, Evolução, Modelo de Rating, Glossário", "Fonte": "IFData Rel.2 + Rel.3", "Fórmula": "Carteira de Crédito Bruta ÷ Core Funding", "Unidade": "%", "Interpretação": "Pressão do crédito sobre a base estrutural de funding.", "Limitação": "Sensível à mudança de escopo do Core Funding em 2025 e fica indisponível quando o funding pós-2025 estiver incompleto.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Crédito / Captações (%)", "Aba(s)": "Snapshot, Evolução, Modelo de Rating, Glossário", "Fonte": "IFData Rel.2 + Rel.3", "Fórmula": "Carteira de Crédito Bruta ÷ Core Funding", "Unidade": "%", "Interpretação": "Pressão do crédito sobre a base estrutural de funding.", "Limitação": "Sensível à mudança de escopo do Core Funding em 2025 e fica indisponível quando o funding pós-2025 estiver incompleto. Na Snapshot, QoQ e YoY comparam o valor trimestral de fechamento, não um acumulado YTD.", "Periodicidade": "Trimestral (point-in-time)"},
         {"Indicador": "Perda Esperada / Carteira de Crédito Bruta (%)", "Aba(s)": "Snapshot, Peers (Tabela), Glossário", "Fonte": "IFData Rel.2", "Fórmula": "Perda Esperada ÷ Carteira de Crédito Bruta", "Unidade": "%", "Interpretação": "Nível relativo de perdas esperadas sobre o estoque de crédito.", "Limitação": "Não captura composição por segmento/produto.", "Periodicidade": "Trimestral"},
     ])
 

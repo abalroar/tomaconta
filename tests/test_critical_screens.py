@@ -8,6 +8,7 @@ from utils.ifdata_cache.manager import CacheManager
 from utils.ifdata_cache.critical_screens import (
     CriticalScreensCache,
     CRITICAL_SCREENS_SCHEMA_VERSION,
+    _supplement_runtime_missing_funding,
     _load_bloprud_sources,
     _validate_critical_screens_semantics,
     build_critical_screens_dataframe,
@@ -416,6 +417,50 @@ def test_resolve_carteira_credito_bruta_value_prefers_canonical_components_and_m
     )
     assert missing["value"] is None
     assert missing["source_kind"] == "missing_required_component"
+
+
+def test_supplement_runtime_missing_funding_creates_trace_columns_when_bundle_is_stale(monkeypatch, tmp_path: Path):
+    base = pd.DataFrame(
+        [
+            {
+                "Instituição": "TEST BANK - PRUDENCIAL",
+                "Período": "4/2025",
+                "Carteira de Crédito Bruta": 600.0,
+                "Core Funding": None,
+                "Core Funding*": None,
+                "Crédito / Captações": None,
+            }
+        ]
+    )
+    support = pd.DataFrame(
+        [
+            {
+                "Instituição": "TEST BANK - PRUDENCIAL",
+                "Período": "4/2025",
+                "Core Funding": 1000.0,
+                "Trace::Core Funding::Captações (e)": 900.0,
+                "Trace::Core Funding::Instrumentos de Dívida Elegíveis a Capital (h)": 100.0,
+                "Trace::Core Funding::Status": "official_components",
+                "Trace::Core Funding::Campo Selecionado": "Captações (e) + Instrumentos de Dívida Elegíveis a Capital (h)",
+            }
+        ]
+    )
+
+    monkeypatch.setattr(
+        "utils.ifdata_cache.critical_screens._load_runtime_passivo_support",
+        lambda **kwargs: support.copy(),
+    )
+
+    out = _supplement_runtime_missing_funding(base, base_dir=tmp_path)
+    row = out.iloc[0]
+
+    assert row["Core Funding"] == 1000.0
+    assert row["Core Funding*"] == 1000.0
+    assert row["Crédito / Captações"] == 0.6
+    assert row["Trace::Core Funding::Captações (e)"] == 900.0
+    assert row["Trace::Core Funding::Instrumentos de Dívida Elegíveis a Capital (h)"] == 100.0
+    assert row["Trace::Core Funding::Status"] == "official_components"
+    assert row["Trace::Core Funding::Campo Selecionado"] == "Captações (e) + Instrumentos de Dívida Elegíveis a Capital (h)"
 
 
 def test_build_critical_screens_dataframe_marks_carteira_fallback_when_only_net_components_are_complete():

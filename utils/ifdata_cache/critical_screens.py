@@ -2241,19 +2241,33 @@ def _supplement_runtime_missing_funding(df: pd.DataFrame, *, base_dir: Path) -> 
         out["Trace::Core Funding::Captações (e)"] = target.combine_first(
             pd.to_numeric(out.get("Trace::Core Funding::Captações (e)__support"), errors="coerce")
         )
+    else:
+        out["Trace::Core Funding::Captações (e)"] = pd.to_numeric(
+            out.get("Trace::Core Funding::Captações (e)__support"),
+            errors="coerce",
+        )
     if "Trace::Core Funding::Instrumentos de Dívida Elegíveis a Capital (h)" in out.columns:
         target = pd.to_numeric(out["Trace::Core Funding::Instrumentos de Dívida Elegíveis a Capital (h)"], errors="coerce")
         out["Trace::Core Funding::Instrumentos de Dívida Elegíveis a Capital (h)"] = target.combine_first(
             pd.to_numeric(out.get("Trace::Core Funding::Instrumentos de Dívida Elegíveis a Capital (h)__support"), errors="coerce")
         )
+    else:
+        out["Trace::Core Funding::Instrumentos de Dívida Elegíveis a Capital (h)"] = pd.to_numeric(
+            out.get("Trace::Core Funding::Instrumentos de Dívida Elegíveis a Capital (h)__support"),
+            errors="coerce",
+        )
     if "Trace::Core Funding::Status" in out.columns:
         status_current = out["Trace::Core Funding::Status"].astype(str)
         status_support = out.get("Trace::Core Funding::Status__support")
         out.loc[fill_core_mask | status_current.eq(""), "Trace::Core Funding::Status"] = status_support
+    else:
+        out["Trace::Core Funding::Status"] = out.get("Trace::Core Funding::Status__support")
     if "Trace::Core Funding::Campo Selecionado" in out.columns:
         field_current = out["Trace::Core Funding::Campo Selecionado"].fillna("").astype(str)
         field_support = out.get("Trace::Core Funding::Campo Selecionado__support")
         out.loc[fill_core_mask | field_current.eq(""), "Trace::Core Funding::Campo Selecionado"] = field_support
+    else:
+        out["Trace::Core Funding::Campo Selecionado"] = out.get("Trace::Core Funding::Campo Selecionado__support")
 
     if "Crédito / Captações" in out.columns and "Carteira de Crédito Bruta" in out.columns:
         rebuilt_ratio = pd.to_numeric(out.get("Carteira de Crédito Bruta"), errors="coerce").divide(

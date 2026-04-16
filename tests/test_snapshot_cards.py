@@ -1,4 +1,5 @@
 import app1
+import pandas as pd
 
 
 def test_snapshot_metric_status_note_identifies_prudential_and_capital_unavailability():
@@ -73,3 +74,69 @@ def test_snapshot_metric_status_note_identifies_missing_carteira_components():
     assert marker == "†"
     assert "rel. 2" in note.lower()
     assert "componente" in note.lower()
+
+
+def test_render_snap_card_explicitly_labels_trimestral_and_ytd_bases():
+    html_trim = app1._render_snap_card(
+        {
+            "label": "Crédito / Captações",
+            "format_key": "Carteira de Crédito/Core Funding (%)",
+            "serie": {"4/2025": 0.60, "3/2025": 0.59, "4/2024": 0.68},
+            "comparison_basis": "trimestral",
+            "is_pct": True,
+        },
+        periodo_atual="4/2025",
+        periodo_qoq="3/2025",
+        periodo_yoy="4/2024",
+    )
+    html_ytd = app1._render_snap_card(
+        {
+            "label": "Lucro Líquido Acum. YTD",
+            "format_key": "Lucro Líquido Acumulado YTD",
+            "serie": {"4/2025": 100.0, "4/2024": 80.0},
+            "comparison": "yoy",
+            "comparison_basis": "ytd",
+        },
+        periodo_atual="4/2025",
+        periodo_qoq="3/2025",
+        periodo_yoy="4/2024",
+    )
+
+    assert "QoQ trimestral" in html_trim
+    assert "YoY trimestral" in html_trim
+    assert "YoY YTD" in html_ytd
+
+
+def test_carregar_cache_relatorio_slice_uses_specialized_critical_screens_loader(monkeypatch):
+    esperado = pd.DataFrame(
+        [
+            {
+                "Instituição": "ITAU - PRUDENCIAL",
+                "Período": "4/2025",
+                "Carteira de Crédito Bruta": 1200.0,
+                "Core Funding": 2000.0,
+                "Crédito / Captações": 0.6,
+            }
+        ]
+    )
+    chamadas = {}
+
+    def fake_load_critical_screens_slice(*, base_dir=None, periodos=None, instituicoes=None):
+        chamadas["base_dir"] = base_dir
+        chamadas["periodos"] = periodos
+        chamadas["instituicoes"] = instituicoes
+        return esperado.copy()
+
+    monkeypatch.setattr(app1, "load_critical_screens_slice", fake_load_critical_screens_slice)
+    app1._carregar_cache_relatorio_slice.clear()
+
+    resultado = app1._carregar_cache_relatorio_slice(
+        "critical_screens",
+        "token",
+        periodos=("4/2025",),
+        instituicoes=("ITAU - PRUDENCIAL",),
+    )
+
+    assert resultado.equals(esperado)
+    assert chamadas["periodos"] == ["4/2025"]
+    assert "ITAU - PRUDENCIAL" in chamadas["instituicoes"]
