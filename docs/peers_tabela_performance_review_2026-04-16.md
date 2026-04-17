@@ -613,3 +613,243 @@ Prioridade recomendada:
 4. suplementação runtime apenas quando realmente necessária
 
 Nenhuma dessas mudanças exige sacrificar consistência numérica. Ao contrário: o caminho correto é deixar a aba cada vez mais dependente de uma base curada pronta e cada vez menos dependente de recomputação pesada em tempo de abertura.
+
+## Revalidação — 2026-04-17 (Rodada de Auditoria)
+
+Data: 2026-04-17  
+Escopo: revisão profunda, ponta a ponta, da aba `Peers (Tabela)` para confirmar que as rodadas P0/P1/P2 estão aplicadas, medir o caminho real hoje e identificar resíduos.
+
+### Confirmação do código em produção
+
+Inspeção do `app1.py` (linhas 15478–15879) e `utils/ifdata_cache/critical_screens.py`:
+
+| Item | Local | Status |
+|---|---|---|
+| Contexto leve `load_critical_screens_filters_context` | [critical_screens.py:2075–2124](../utils/ifdata_cache/critical_screens.py:2075) | ✅ P0 aplicado: lê só `Instituição`/`Período`, sem suplementação |
+| `_get_peers_filters_context` cacheado `@st.cache_data(ttl=900)` | [app1.py:12561–12564](../app1.py:12561) | ✅ decorador presente |
+| Slice filtrado `_carregar_cache_relatorio_slice` | [app1.py:6664–6720](../app1.py:6664) | ✅ `@st.cache_data(ttl=3600)` + filtro PyArrow |
+| Pré-filtro de instituições no suporte | [critical_screens.py:2299–2315](../utils/ifdata_cache/critical_screens.py:2299) | ✅ P1 aplicado: poda `passivo` por nome/`CodInst` antes de canonicalizar |
+| Canonicalização vetorizada via `CodInst` | [critical_screens.py:2223–2229](../utils/ifdata_cache/critical_screens.py:2223) | ✅ P2 aplicado: `map(selected_code_map)` resolve a maioria |
+| Suplementação só quando há NaN | [critical_screens.py:2398–2404](../utils/ifdata_cache/critical_screens.py:2398) | ✅ guarda condicional |
+| Memória de cálculo lazy | [app1.py:15769–15814](../app1.py:15769) | ✅ `st.toggle` dentro de expander `expanded=False` |
+| Exports on-demand | [app1.py:15673–15711](../app1.py:15673) | ✅ só após `st.button("Preparar arquivos…")` |
+| Mini-glossário e painel de diagnóstico | [app1.py:15752–15855](../app1.py:15752) | ✅ dentro de expander e só em `modo_diagnostico` |
+
+Resíduos confirmados:
+
+- `canonicalize_institution_dataframe` ainda usa `apply(axis=1)` ([institutions.py:326–363](../utils/ifdata_cache/institutions.py:326)), mas hoje só processa o resíduo não resolvido pelo `CodInst` (em regime permanente, `0` linhas).
+- `build_institution_to_conglomerate_map` é chamado duas vezes dentro do `load_critical_screens_slice` (linhas 2046 e 2068). Inofensivo porque é `@lru_cache(maxsize=8)` ([institutions.py:222](../utils/ifdata_cache/institutions.py:222)), mas é redundância que pode ser removida.
+
+### Medições de hoje (2026-04-17)
+
+Ambiente: container limpo, sem `data/cache/passivo` e sem `data/cache/critical_screens` pré-materializados. Bootstrap do `critical_screens` é feito a partir de `data/bundled/critical_screens/dados.parquet` (13,85 MB).
+
+#### Pré-condições medidas
+
+- Parquet `critical_screens` após bootstrap: 13,85 MB, 60.658 linhas, 79 colunas, 3.146 instituições, 44 períodos.
+- Parquet `passivo` baixado sob demanda pelo `CacheManager` do GitHub Releases na primeira chamada a `manager.carregar("passivo")`. Tamanho: 4,7 MB (60.658 × 34 colunas).
+- Parquet `principal` local: 5,1 MB (60.658 × 19 colunas).
+
+#### A. Leitura mínima (piso de performance)
+
+| Etapa | Tempo |
+|---|---:|
+| open dataset + schema | 0,002s |
+| `to_table(["Instituição","Período"])` | 0,008s |
+| `to_pandas` | 0,001s |
+| `unique + sort` | 0,004s |
+| **Total piso para dropdowns** | **0,016s** |
+
+#### B. `load_critical_screens_filters_context`
+
+| Execução | Tempo |
+|---|---:|
+| cold | 0,060s |
+| warm (reexecução) | 0,031s |
+| bancos_todos | 3.146 |
+| períodos_disponiveis | 44 |
+
+Veredito: objetivo da P0 preservado. Custo pequeno e inclui conversões de schema.
+
+#### C. Slice filtrado (`load_critical_screens_slice`)
+
+Peers e períodos simulando o caminho real da aba (`periodos_ext_peers` = exibidos + YoY + dez-YoY):
+
+| Cenário | Cold | Warm |
+|---|---:|---:|
+| 1 peer / 1 período (inclui 1ª download do `passivo`) | 1,175s | 0,232s |
+| 1 peer / 3 períodos | 0,212s | 0,209s |
+| 5 peers / 3 períodos | 0,222s | 0,222s |
+
+Observação 1: na primeira chamada da sessão, `_supplement_runtime_missing_funding` aciona `manager.carregar("passivo")`, que dispara download do GitHub Releases quando o parquet local não existe. Esse custo aparece somente na primeira suplementação real da sessão e é amortizado em chamadas seguintes (parquet já materializado em disco).
+
+Observação 2: chamadas subsequentes ficam dentro do alvo (~0,2s), mesmo em "cold" do ponto de vista do `@st.cache_data` (porque o PyArrow reader volta ao parquet). O warm hit do `@st.cache_data` reduz a zero em Streamlit real — aqui aparece igual ao cold porque o teste rodou fora do runtime Streamlit.
+
+#### D. Internos da suplementação — 5 peers / 3 períodos expandidos
+
+| Etapa | Tempo |
+|---|---:|
+| `manager.carregar("passivo")` (já materializado) | 0,012s |
+| `manager.carregar("principal")` | 0,010s |
+| `_load_runtime_passivo_support` cold | 0,169s |
+| `_load_runtime_passivo_support` warm | 0,180s |
+| shape final do support | (20, 7) |
+
+Confirmação: o suporte deixou de ser gargalo. Custo estável e proporcional ao recorte real.
+
+#### E. Operações de tabela — fingerprint
+
+Sobre o slice final (20 × 81, ~15 KB):
+
+| Operação | Tempo |
+|---|---:|
+| `Período.astype(str)` | 0,000s |
+| `groupby("Instituição").size()` | 0,000s |
+| `sort_values(["Instituição","Período"])` | 0,001s |
+
+Confirmação: assembly da tabela não é gargalo.
+
+### Comparação com medições da rodada anterior
+
+| Cenário | Doc anterior (2026-04-16, pós P2) | Hoje (2026-04-17) |
+|---|---:|---:|
+| Contexto da aba cold | 0,053s | 0,060s |
+| Slice 1 peer / 1 período cold | 0,226s | 1,175s (inclui 1ª download passivo) / 0,232s warm |
+| Slice 1 peer / 3 períodos cold | 0,063s | 0,212s |
+| Slice 5 peers / 3 períodos cold | 0,070s | 0,222s |
+| Suporte 5 peers / 7 períodos internos | 0,048s | 0,169s |
+
+Leitura:
+
+- Os valores de hoje estão próximos, mas ~2–4× acima dos medidos em 2026-04-16. A diferença é explicada por:
+  - ambiente diferente (I/O local variável);
+  - `to_pandas` chamado cada iteração sem cache do Streamlit runtime;
+  - primeira execução incluiu o custo de bootstrap do `critical_screens` e o download do `passivo` do GitHub Releases.
+- Mesmo assim, todas as medições seguem **abaixo de 1,2s** no cold-cold e **abaixo de 0,25s** em cold-cold com suporte já materializado.
+- O ganho declarado nas rodadas P0/P1/P2 é real e se mantém.
+
+### Gargalo Remanescente #1 — Primeira sessão paga download de `passivo` do GitHub Releases
+
+#### Evidência
+
+- Bootstrap do `critical_screens` traz apenas o próprio parquet curado (13,85 MB).
+- A suplementação de funding depende de `passivo` e `principal`.
+- `principal` já está em `data/cache/principal/` (distribuído com o bundle/release ou pré-baixado por outras abas).
+- `passivo` **não** está entre os caches que o `CacheManager` mantém pré-materializados localmente. Logo, a primeira chamada a `manager.carregar("passivo")` dispara `fonte: github_releases` — confirmado pelo `metadata.json` gerado em `data/cache/passivo/metadata.json`: `"fonte": "github_releases", "timestamp_salvamento": "2026-04-17T03:41:55.112069"`.
+- Em rede típica o download agrega tempo visível ao usuário (no ambiente do teste aqui, ~1s a 4s).
+
+#### Impacto
+
+- Ocorre **uma vez por ambiente**, não a cada sessão.
+- Só afeta deploys novos, containers recriados, ou quando o release do `passivo` é invalidado.
+- Não é reproduzível a partir da segunda abertura da aba.
+
+### Gargalo Remanescente #2 — `canonicalize_institution_dataframe` ainda é `apply(axis=1)`
+
+#### Evidência
+
+- [institutions.py:326–363](../utils/ifdata_cache/institutions.py:326) mantém `out.apply(_resolve_name, axis=1)`.
+- Em rodada P2, o caminho é reduzido a residue (rows que o mapa por `CodInst` não resolveu). Em amostras reais, residue = 0.
+
+#### Impacto
+
+- Inexistente hoje em cenários medidos. Mas qualquer regressão que aumente o residue (por exemplo, se o `principal` vier com `CodInst` faltante para algum conglomerado novo) volta a pagar `apply(axis=1)`.
+
+### Gargalo Remanescente #3 — Redundância na montagem do slice
+
+#### Evidência
+
+- `load_critical_screens_slice` chama `build_institution_to_conglomerate_map` **duas vezes** ([critical_screens.py:2046 e 2068](../utils/ifdata_cache/critical_screens.py:2046)), uma por caminho.
+- Ambas as chamadas são instantâneas (LRU cache), mas a segunda invocação é código morto — deixou de ser necessária quando o filtro do PyArrow passou a rodar sempre.
+
+#### Impacto
+
+- Zero em tempo. Relevância puramente de code hygiene.
+
+### Gargalo Remanescente #4 — `_carregar_cache_relatorio_slice` não revalida invalidação fina
+
+#### Evidência
+
+- Chave do cache (`tipo_cache`, `cache_token`, `periodos`, `instituicoes`) usa a tupla `instituicoes_slice_tuple` construída em [app1.py:15584](../app1.py:15584).
+- Qualquer mudança na tupla (mesma seleção em ordem diferente) gera cache miss. Hoje o código já `sorted(...)` a tupla, então em geral é estável.
+
+#### Impacto
+
+- Baixo. Pode ser revisado se no futuro a UI introduzir reordenações manuais.
+
+### Plano de correção incremental (residual, opcional)
+
+Todos os itens abaixo são **pequenos polimentos**; a aba não está mais lenta. Só fazem sentido se o objetivo for perseguir o piso absoluto.
+
+#### R1 — Pré-bake de `passivo` no bundle
+
+- **Mudança**: incluir `data/bundled/passivo/dados.parquet` no bundle inicial (análogo ao `critical_screens`). Opcional: derivar a partir do bundle apenas as colunas usadas pela suplementação (7 colunas em vez de 34).
+- **Ganho**: remove o download único de ~1s a 4s da primeira sessão.
+- **Risco**: baixo; apenas aumenta o tamanho do container/deploy. Uma variante enxuta (apenas as colunas necessárias) mantém o container leve.
+- **Arquivos**: `scripts/` de build do bundle, `utils/ifdata_cache/critical_screens.py` (opcional, para preferir bundle sobre download).
+- **Validação**: conferir que `metadata.json["fonte"]` deixa de vir como `github_releases` na primeira abertura.
+
+#### R2 — Vetorizar `canonicalize_institution_dataframe`
+
+- **Mudança**: substituir `apply(axis=1)` por:
+  1. `CodInst.map(code_to_name)` vetorizado;
+  2. para os casos de placeholder/código-como-nome, uma `Series.where(mask, mapped).where(~mask2, resolver_vectorizado)`;
+  3. fallback a `canonicalize_institution_name` apenas para nomes remanescentes, via `unique → dict → map`.
+- **Ganho**: elimina a pior cauda. Em cenários com residue alto (>1k linhas) recupera ~4s.
+- **Risco**: médio. A função é usada por outras abas; regressão de matching é o perigo real.
+- **Arquivos**: [utils/ifdata_cache/institutions.py](../utils/ifdata_cache/institutions.py).
+- **Validação**: comparar antes/depois o nome canônico resolvido para 100% das linhas de `passivo`, `principal`, `ativo` e `capital`; falhar o teste se algum nome divergir.
+
+#### R3 — Materializar `Core Funding` no próprio `critical_screens`
+
+- **Mudança**: gerar `Core Funding` e `Crédito / Captações` diretamente no parquet curado durante o build do cache, eliminando a necessidade de `_supplement_runtime_missing_funding` em tempo de aba.
+- **Ganho**: remove toda a carga residual de `passivo`/`principal` do hot path. Tirar ~0,17s do slice cold e reduzir memória transitória.
+- **Risco**: médio. Requer que o pipeline de build do `critical_screens` saiba aplicar `resolve_core_funding_value` com as mesmas regras (2024 vs 2025+).
+- **Arquivos**: pipeline de build do `critical_screens` (provavelmente `utils/ifdata_cache/critical_screens.py` e/ou `scripts/`).
+- **Validação**: paridade total com a suplementação atual em amostra completa (44 períodos, 3.146 instituições). Falhar se houver divergência > epsilon.
+
+#### R4 — Limpar a dupla chamada de `build_institution_to_conglomerate_map` em `load_critical_screens_slice`
+
+- **Mudança**: mover a chamada para dentro de um escopo único; OR refatorar para usar o mapa passado como argumento.
+- **Ganho**: zero em tempo; limpeza de código.
+- **Risco**: muito baixo.
+- **Arquivos**: [utils/ifdata_cache/critical_screens.py](../utils/ifdata_cache/critical_screens.py).
+
+### Estratégia de testes recomendada
+
+1. **Regressão numérica** (P0):
+   - Fixar amostra canônica: 5 peers × 3 períodos × todas as métricas da `PEERS_TABELA_LAYOUT`.
+   - Snapshot do `valores` produzido por `_montar_tabela_peers` antes e depois de qualquer alteração R*.
+   - Falhar se qualquer célula divergir (exceto `NaN` para `NaN`).
+
+2. **Regressão de performance** (P1):
+   - Teste em `pytest` importando os helpers reais:
+     - `test_filters_context_under_100ms`
+     - `test_slice_1peer_1period_cold_under_500ms` (após R1: o passivo já está bundled)
+     - `test_slice_5peers_3periods_cold_under_500ms`
+     - `test_support_no_apply_axis_1_in_hot_path` (introspecção do `_canonicalize_support_passivo_dataframe`)
+
+3. **Paridade entre abas** (P1):
+   - Mesmas células de `Core Funding*`, `Crédito / Captações`, `CET1`, `Basileia`, `Carteira de Crédito*` devem coincidir entre `Snapshot`, `Peers (Tabela)` e leitura direta do `critical_screens`.
+
+4. **Invalidação de cache** (P2):
+   - Rodar a aba duas vezes com seleção idêntica: confirmar 2º cold → warm.
+   - Rodar a aba com `(a,b,c)` e depois `(c,b,a)`: confirmar que a `sorted(...)` estabiliza a chave e evita miss.
+
+5. **Integridade do bundle** (P2, se R1):
+   - CI deve checar que `data/bundled/passivo/dados.parquet` existe (ou a variante enxuta) e tem ao menos as colunas: `Instituição`, `Período`, `CodInst`, `Captações (e) = (a) + (b) + (c) + (d)`, `Instrumentos de Dívida Elegíveis a Capital (h)`.
+
+### Diagnóstico consolidado — 2026-04-17
+
+- A aba `Peers (Tabela)` **não está mais lenta**. As rodadas P0/P1/P2 foram aplicadas com sucesso e se mantêm.
+- Medições de hoje confirmam contexto cold ≤ 0,1s, slice cold ≤ 0,25s em regime permanente (com `passivo` já baixado), e operações de tabela em tempo desprezível.
+- A única latência perceptível ainda possível é **a primeira sessão de um ambiente novo**, por causa do download único do `passivo` via GitHub Releases. O fix natural (R1) é pré-bundlar o `passivo` junto do `critical_screens`.
+- Os demais resíduos (`apply(axis=1)` no residue, dupla chamada de `build_institution_to_conglomerate_map`) são cosméticos e não impactam o usuário hoje.
+- Nenhum dos ajustes propostos sacrifica consistência numérica. R3 (materializar Core Funding no parquet curado) é o caminho certo se o objetivo for eliminar qualquer dependência runtime de `passivo`/`principal`; mas não é mais urgente.
+
+### Veredito
+
+- Causa raiz original: **resolvida**.
+- Residual acionável: **R1** (pré-bake do `passivo` no bundle) — ganho concreto apenas na primeira sessão.
+- Demais itens: **polimento** sem ganho percebido.
+- Próxima ação recomendada se houver nova reclamação de lentidão: medir **primeiro** se é na primeira abertura do ambiente (R1 candidate) ou se é consistente mesmo em sessões já warm (investigar fora do backend: Streamlit DOM, rede, ou novos cálculos não mapeados).
