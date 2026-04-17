@@ -589,6 +589,13 @@ Leitura técnica:
   - latência de sessão/rede do front,
   - ou alguma etapa fora do fluxo principal medido aqui.
 
+### Ajuste final aplicado
+
+- a `Memória de cálculo — Peers (Tabela)` passou a ser lazy:
+  - antes, o painel montava `tabs + dataframe` para todos os bancos sempre;
+  - no cenário de 5 peers isso custava ~`0,309s` mesmo sem o usuário abrir ou usar a memória;
+  - agora o carregamento detalhado só acontece quando o usuário ativa explicitamente a memória de cálculo.
+
 ## Conclusão
 
 O diagnóstico é claro:

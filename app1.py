@@ -15755,42 +15755,51 @@ elif menu == "Peers (Tabela)":
                             st.caption("🔴 > 5s  |  🟡 > 2s  |  🟢 ≤ 2s")
 
                     with st.expander("Memória de cálculo — Peers (Tabela)", expanded=False):
-                        formatos_metrica = {
-                            row["label"]: row["format_key"]
-                            for section in PEERS_TABELA_LAYOUT
-                            for row in section["rows"]
-                        }
-                        metricas_memoria = list(formatos_metrica.keys())
+                        carregar_memoria_peers = st.toggle(
+                            "Carregar memória de cálculo detalhada",
+                            value=False,
+                            key="peers_memoria_toggle",
+                            help="Evita montar as tabelas auxiliares de memória de cálculo enquanto você não precisar delas.",
+                        )
+                        if not carregar_memoria_peers:
+                            st.caption("Ative a memória de cálculo detalhada somente quando precisar auditar uma métrica específica.")
+                        else:
+                            formatos_metrica = {
+                                row["label"]: row["format_key"]
+                                for section in PEERS_TABELA_LAYOUT
+                                for row in section["rows"]
+                            }
+                            metricas_memoria = list(formatos_metrica.keys())
 
-                        def _fmt_memoria_peers(metrica: str, componente: str, valor_ref):
-                            if valor_ref is None or pd.isna(valor_ref):
-                                return "N/D"
-                            comp_txt = str(componente)
-                            if "Fator de anualização" in comp_txt:
-                                return f"{float(valor_ref):.2f}x".replace(".", ",")
-                            if comp_txt.strip().startswith("="):
-                                return _formatar_valor_peers(valor_ref, formatos_metrica.get(metrica, metrica))
-                            return _formatar_monetario_br_inteligente(valor_ref, decimais=2, usar_sufixo_mm_maiusculo=True)
+                            def _fmt_memoria_peers(metrica: str, componente: str, valor_ref):
+                                if valor_ref is None or pd.isna(valor_ref):
+                                    return "N/D"
+                                comp_txt = str(componente)
+                                if "Fator de anualização" in comp_txt:
+                                    return f"{float(valor_ref):.2f}x".replace(".", ",")
+                                if comp_txt.strip().startswith("="):
+                                    return _formatar_valor_peers(valor_ref, formatos_metrica.get(metrica, metrica))
+                                return _formatar_monetario_br_inteligente(valor_ref, decimais=2, usar_sufixo_mm_maiusculo=True)
 
-                        tabs_mem_peers = st.tabs(bancos_selecionados)
-                        for tab_mem, banco_mem in zip(tabs_mem_peers, bancos_selecionados):
-                            with tab_mem:
-                                metrica_sel = st.selectbox(
-                                    "Métrica",
-                                    metricas_memoria,
-                                    key=f"peers_memoria_metrica_{banco_mem}",
-                                )
-                                df_metrica = _build_memoria_calculo_peers_tabela_metrica(
-                                    df_base=df,
-                                    banco=banco_mem,
-                                    periodos=periodos_selecionados,
-                                    metrica=metrica_sel,
-                                    valores=valores,
-                                )
-                                if df_metrica.empty:
-                                    st.caption("sem memória de cálculo para esta métrica nos períodos selecionados.")
-                                    continue
-                                st.dataframe(df_metrica, width="stretch", hide_index=True)
+                            tabs_mem_peers = st.tabs(bancos_selecionados)
+                            for tab_mem, banco_mem in zip(tabs_mem_peers, bancos_selecionados):
+                                with tab_mem:
+                                    metrica_sel = st.selectbox(
+                                        "Métrica",
+                                        metricas_memoria,
+                                        key=f"peers_memoria_metrica_{banco_mem}",
+                                    )
+                                    df_metrica = _build_memoria_calculo_peers_tabela_metrica(
+                                        df_base=df,
+                                        banco=banco_mem,
+                                        periodos=periodos_selecionados,
+                                        metrica=metrica_sel,
+                                        valores=valores,
+                                    )
+                                    if df_metrica.empty:
+                                        st.caption("sem memória de cálculo para esta métrica nos períodos selecionados.")
+                                        continue
+                                    st.dataframe(df_metrica, width="stretch", hide_index=True)
 
                     with st.expander("Mini-glossário", expanded=False):
                         st.markdown(
