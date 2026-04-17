@@ -6834,6 +6834,18 @@ def _garantir_cache_telas_criticas(menu_nome: str) -> bool:
     if status.get("local_ready"):
         return True
 
+    if status.get("mode") == "materialize_local":
+        st.error("critical_screens indisponível para runtime.")
+        st.caption(
+            status.get("message")
+            or "artefato curado ausente/inválido; a aba não iniciará rematerialização pesada durante a navegação."
+        )
+        st.caption(
+            "a rematerialização automática do cache curado foi desabilitada no runtime para evitar travamentos. "
+            "gere/publice o bundle curado ou prepare as fontes localmente via Atualizar Base."
+        )
+        return False
+
     if not status.get("can_materialize_from_local_sources"):
         faltantes = status.get("missing_local_source_caches") or []
         st.error("critical_screens indisponível para runtime.")
@@ -6843,18 +6855,9 @@ def _garantir_cache_telas_criticas(menu_nome: str) -> bool:
         st.caption("gere/publice o bundle curado ou prepare as fontes localmente via Atualizar Base.")
         return False
 
-    with st.status(f"materializando cache curado de Snapshot/Peers para {menu_nome.lower()}...", expanded=True) as _status:
-        resultado = materialize_critical_screens_cache(
-            manager=manager,
-            force=True,
-            allow_remote_source_download=False,
-        )
-        if resultado.sucesso:
-            _status.update(label="cache curado materializado", state="complete", expanded=False)
-            return True
-        _status.update(label="falha ao materializar cache curado", state="error", expanded=True)
-        st.error(f"critical_screens: {resultado.mensagem}")
-        return False
+    st.error("critical_screens indisponível para runtime.")
+    st.caption(status.get("message") or "artefato curado ausente ou inválido.")
+    return False
 
 
 @st.cache_data(ttl=900, show_spinner=False)

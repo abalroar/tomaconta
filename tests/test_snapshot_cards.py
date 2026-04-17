@@ -175,3 +175,36 @@ def test_timer_begin_measurement_clears_stale_elapsed_for_same_signature():
     )
 
     assert app1.st.session_state["peers_tabela_timer_state"]["elapsed"] is None
+
+
+def test_garantir_cache_telas_criticas_fails_fast_when_runtime_would_materialize(monkeypatch):
+    mensagens = []
+
+    monkeypatch.setattr(app1, "get_cache_manager", lambda: object())
+    monkeypatch.setattr(
+        app1,
+        "get_critical_screens_runtime_status",
+        lambda manager=None: {
+            "cache": None,
+            "local_ready": False,
+            "bundle_ready": False,
+            "bundle_newer_than_local": False,
+            "can_materialize_from_local_sources": True,
+            "missing_local_source_caches": [],
+            "mode": "materialize_local",
+            "message": "artefato curado ausente; fontes locais completas permitem rematerialização explícita",
+        },
+    )
+    monkeypatch.setattr(app1.st, "error", lambda msg: mensagens.append(("error", str(msg))))
+    monkeypatch.setattr(app1.st, "caption", lambda msg: mensagens.append(("caption", str(msg))))
+
+    def _fail_if_materialize(*args, **kwargs):  # pragma: no cover - regressão defensiva
+        raise AssertionError("runtime não deve iniciar materialização pesada de critical_screens")
+
+    monkeypatch.setattr(app1, "materialize_critical_screens_cache", _fail_if_materialize)
+
+    ok = app1._garantir_cache_telas_criticas("Peers (Tabela)")
+
+    assert ok is False
+    assert any("indisponível para runtime" in texto.lower() for tipo, texto in mensagens if tipo == "error")
+    assert any("desabilitada no runtime" in texto.lower() for tipo, texto in mensagens if tipo == "caption")
