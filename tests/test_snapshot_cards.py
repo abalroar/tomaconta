@@ -161,3 +161,17 @@ def test_get_peers_filters_context_uses_lightweight_context_loader(monkeypatch):
     resultado = app1._get_peers_filters_context("token")
 
     assert resultado == esperado
+
+
+def test_timer_begin_measurement_clears_stale_elapsed_for_same_signature():
+    app1.st.session_state["peers_tabela_timer_state"] = {
+        "signature": ("peers_tabela", ("ITAU - PRUDENCIAL",), ("4/2025",)),
+        "elapsed": 266.15,
+    }
+
+    app1._timer_begin_measurement(
+        "peers_tabela_timer_state",
+        ("peers_tabela", ("ITAU - PRUDENCIAL",), ("4/2025",)),
+    )
+
+    assert app1.st.session_state["peers_tabela_timer_state"]["elapsed"] is None

@@ -66,6 +66,14 @@ def _timer_reset_if_selection_changed(timer_key: str, selection_signature) -> No
         st.session_state[timer_key] = {"signature": selection_signature, "elapsed": None}
 
 
+def _timer_begin_measurement(timer_key: str, selection_signature) -> None:
+    """Marca início de nova medição para evitar exibir valor stale durante reruns."""
+    st.session_state[timer_key] = {
+        "signature": selection_signature,
+        "elapsed": None,
+    }
+
+
 def _timer_store_elapsed(timer_key: str, selection_signature, elapsed_seconds: float) -> None:
     """Armazena tempo medido para a seleção corrente."""
     st.session_state[timer_key] = {
@@ -15550,6 +15558,7 @@ elif menu == "Peers (Tabela)":
                         tuple(sorted(periodos_selecionados)),
                     )
                     _timer_reset_if_selection_changed("peers_tabela_timer_state", peers_signature)
+                    _timer_begin_measurement("peers_tabela_timer_state", peers_signature)
                     _timer_render_caption(
                         "peers_tabela_timer_state",
                         timer_box_peers,
