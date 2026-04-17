@@ -2020,6 +2020,7 @@ def load_critical_screens_slice(
     base_dir: Path | None = None,
     periodos: Optional[Sequence[str]] = None,
     instituicoes: Optional[Sequence[str]] = None,
+    colunas: Optional[Sequence[str]] = None,
 ) -> pd.DataFrame:
     """Carrega recorte do cache curado sem abrir todo o dataset em memória."""
     root = Path(base_dir).resolve() if base_dir else Path(__file__).resolve().parents[2]
@@ -2034,11 +2035,23 @@ def load_critical_screens_slice(
         if not resultado.sucesso or resultado.dados is None or resultado.dados.empty:
             return pd.DataFrame()
         df = resultado.dados
+        if colunas:
+            cols = [col for col in ("Instituição", "Período", *[str(col) for col in colunas]) if col in df.columns]
+            df = df.loc[:, list(dict.fromkeys(cols))].copy()
     else:
         try:
             import pyarrow.dataset as ds
 
             dataset = ds.dataset(cache.arquivo_dados, format="parquet")
+            selected_columns = None
+            if colunas:
+                schema_names = {str(name) for name in dataset.schema.names}
+                selected_columns = [
+                    col
+                    for col in ("Instituição", "Período", *[str(col) for col in colunas])
+                    if col in schema_names
+                ]
+                selected_columns = list(dict.fromkeys(selected_columns))
             filtros = []
             if periodos:
                 filtros.append(ds.field("Período").isin([str(periodo) for periodo in periodos]))
@@ -2051,9 +2064,9 @@ def load_critical_screens_slice(
                 filtro = filtros[0]
                 for extra in filtros[1:]:
                     filtro = filtro & extra
-                table = dataset.to_table(filter=filtro)
+                table = dataset.to_table(filter=filtro, columns=selected_columns)
             else:
-                table = dataset.to_table()
+                table = dataset.to_table(columns=selected_columns)
             df = table.to_pandas()
         except Exception as exc:
             logger.warning("[CACHE:CRITICAL_SCREENS] Falha ao carregar slice filtrado: %s", exc)
@@ -2061,6 +2074,9 @@ def load_critical_screens_slice(
             if not resultado.sucesso or resultado.dados is None or resultado.dados.empty:
                 return pd.DataFrame()
             df = resultado.dados
+            if colunas:
+                cols = [col for col in ("Instituição", "Período", *[str(col) for col in colunas]) if col in df.columns]
+                df = df.loc[:, list(dict.fromkeys(cols))].copy()
 
     if periodos:
         df = df[df["Período"].astype(str).isin([str(periodo) for periodo in periodos])].copy()

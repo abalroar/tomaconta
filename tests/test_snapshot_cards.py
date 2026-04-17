@@ -208,3 +208,30 @@ def test_garantir_cache_telas_criticas_fails_fast_when_runtime_would_materialize
     assert ok is False
     assert any("indisponível para runtime" in texto.lower() for tipo, texto in mensagens if tipo == "error")
     assert any("desabilitada no runtime" in texto.lower() for tipo, texto in mensagens if tipo == "caption")
+
+
+def test_rating_waterfall_uses_score_final_black_totals_and_floor_15():
+    fig = app1._build_rating_waterfall_figure(
+        {
+            "starting_score": 19,
+            "quantitative_scores": {
+                "cet1": {"score": 0.41},
+                "roe": {"score": -0.22},
+            },
+            "qualitative_scores": {
+                "q1": {"score": 0.0},
+                "q2": {"score": -0.58},
+                "q3": {"score": 1.13},
+                "q4": {"score": 0.0},
+                "q5": {"score": -0.22},
+                "q6": {"score": 0.72},
+            },
+            "final_numeric_rating": 20,
+        }
+    )
+
+    assert list(fig.data[0].x)[0] == "Score Inicial"
+    assert list(fig.data[0].x)[-1] == "Score Final"
+    assert list(fig.data[0].measure)[0] == "total"
+    assert fig.data[0].totals["marker"]["color"] == "#111111"
+    assert fig.layout.yaxis.range[0] == 15.0

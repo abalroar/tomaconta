@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -10,7 +11,10 @@ import pandas as pd
 
 from utils.ifdata_cache import CacheManager, load_conglomerados_catalog, load_critical_screens_slice
 from utils.ifdata_cache.institutions import normalize_institution_name
-from utils.ifdata_cache.institutions import build_institution_to_conglomerate_map, canonicalize_institution_dataframe
+from utils.ifdata_cache.institutions import (
+    build_institution_to_conglomerate_map,
+    canonicalize_institution_name,
+)
 
 
 def _project_root(base_dir: Path | None = None) -> Path:
@@ -95,8 +99,37 @@ def _institution_code_map(base_dir: Path | None = None) -> dict[str, str]:
 
 def load_rating_input_dataframe(period: str, base_dir: Path | None = None) -> pd.DataFrame:
     root = _project_root(base_dir)
-    current = load_critical_screens_slice(base_dir=root, periodos=[str(period)])
-    if current is None or current.empty:
+    required_columns = [
+        "Instituição",
+        "Período",
+        "Ativo Total",
+        "Índice de Capital Principal (CET1)",
+        "Índice de Basileia Total (%)",
+        "ROE Ac. Anualizado (%)",
+        "Core Funding",
+        "Crédito / Captações",
+        "Perda Esperada / Carteira de Crédito Bruta",
+        "Ativos Estágio 2",
+        "Ativos Estágio 3",
+        "Carteira de Crédito Bruta",
+        "Perda Esperada",
+        "ConglomeradoId",
+        "D-H / Carteira",
+        "D-H / Carteira (%)",
+        "D-H/Carteira",
+        "D-H/Carteira (%)",
+    ]
+    previous_period = get_previous_year_same_period(str(period))
+    periodos = [str(period)]
+    if previous_period and previous_period not in periodos:
+        periodos.append(previous_period)
+
+    base = load_critical_screens_slice(base_dir=root, periodos=periodos, colunas=required_columns)
+    if base is None or base.empty:
+        return pd.DataFrame()
+
+    current = base[base["Período"].astype(str) == str(period)].copy()
+    if current.empty:
         return pd.DataFrame()
 
     carteira_ratios = _load_carteira_instrumentos_ratios(str(period), base_dir=root)
@@ -106,12 +139,7 @@ def load_rating_input_dataframe(period: str, base_dir: Path | None = None) -> pd
             current = current.drop(columns=merge_cols, errors="ignore")
         current = current.merge(carteira_ratios, on="Instituição", how="left")
 
-    previous_period = get_previous_year_same_period(str(period))
-    previous = (
-        load_critical_screens_slice(base_dir=root, periodos=[previous_period])
-        if previous_period
-        else pd.DataFrame()
-    )
+    previous = base[base["Período"].astype(str) == str(previous_period)].copy() if previous_period else pd.DataFrame()
 
     previous_cols = [
         "Instituição",
@@ -196,21 +224,50 @@ def _pick_local_column(df: pd.DataFrame, candidates: list[str]) -> str | None:
     return None
 
 
-def _load_carteira_instrumentos_ratios(period: str, base_dir: Path | None = None) -> pd.DataFrame:
-    root = _project_root(base_dir)
+def _fast_canonicalize_institutions(
+    instituicoes: pd.Series,
+    *,
+    catalog_map: dict[str, str],
+    base_dir: Path | None = None,
+) -> pd.Series:
+    raw = instituicoes.astype(str).fillna("").str.strip()
+    normalized = raw.map(normalize_institution_name)
+    resolved = normalized.map(catalog_map)
+
+    unresolved_mask = resolved.isna() | resolved.astype(str).str.strip().eq("")
+    if unresolved_mask.any():
+        fallback = [
+            canonicalize_institution_name(nome, catalog_map=catalog_map, base_dir=base_dir)
+            for nome in raw.loc[unresolved_mask].tolist()
+        ]
+        resolved.loc[unresolved_mask] = fallback
+
+    return resolved.fillna(raw)
+
+
+@lru_cache(maxsize=16)
+def _load_carteira_instrumentos_ratios_cached(root_str: str, period: str) -> pd.DataFrame:
+    root = Path(root_str)
     manager = CacheManager(root)
     result = manager.carregar("carteira_instrumentos")
     if not result.sucesso or result.dados is None or result.dados.empty:
         return pd.DataFrame(columns=["Instituição", "Inadimplência / Carteira Total", "Ativos Problemáticos / Carteira Total"])
 
     df = result.dados.copy()
-    catalog_map = build_institution_to_conglomerate_map(root)
-    df = canonicalize_institution_dataframe(df, catalog_map=catalog_map, base_dir=root, extra_frames=())
     if "Período" not in df.columns:
         return pd.DataFrame(columns=["Instituição", "Inadimplência / Carteira Total", "Ativos Problemáticos / Carteira Total"])
     df = df[df["Período"].astype(str) == str(period)].copy()
     if df.empty:
         return pd.DataFrame(columns=["Instituição", "Inadimplência / Carteira Total", "Ativos Problemáticos / Carteira Total"])
+    if "Instituição" not in df.columns:
+        return pd.DataFrame(columns=["Instituição", "Inadimplência / Carteira Total", "Ativos Problemáticos / Carteira Total"])
+
+    catalog_map = build_institution_to_conglomerate_map(root)
+    df["Instituição"] = _fast_canonicalize_institutions(
+        df["Instituição"],
+        catalog_map=catalog_map,
+        base_dir=root,
+    )
 
     col_total = _pick_local_column(df, ["Total Geral"])
     col_inad = _pick_local_column(df, ["Inadimplência", "Inadimplencia"])
@@ -229,6 +286,11 @@ def _load_carteira_instrumentos_ratios(period: str, base_dir: Path | None = None
         }
     )
     return out.drop_duplicates(subset=["Instituição"], keep="last").reset_index(drop=True)
+
+
+def _load_carteira_instrumentos_ratios(period: str, base_dir: Path | None = None) -> pd.DataFrame:
+    root = _project_root(base_dir)
+    return _load_carteira_instrumentos_ratios_cached(str(root), str(period)).copy()
 
 
 def build_variable_mapping_table() -> pd.DataFrame:

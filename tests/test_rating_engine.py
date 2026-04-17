@@ -1,4 +1,9 @@
+from pathlib import Path
+
+import pandas as pd
+
 from rating.audit import build_audit_trail_markdown
+import rating.data_mapping as data_mapping
 from rating.data_mapping import map_rating_inputs
 from rating.engine import calculate_rating, get_starting_score
 
@@ -241,3 +246,85 @@ def test_calculate_rating_uses_proxy_ruleset_when_asset_quality_is_proxy():
     assert result["status"] == "ok"
     assert result["quantitative_scores"]["asset_quality"]["bucket"] == "> 8,0%"
     assert result["quantitative_scores"]["asset_quality"]["score"] == -0.43
+
+
+def test_load_rating_input_dataframe_uses_single_critical_slice_for_current_and_previous_period(monkeypatch):
+    calls = []
+
+    def fake_slice(*, base_dir=None, periodos=None, instituicoes=None, colunas=None):
+        calls.append({"periodos": tuple(periodos or ()), "colunas": tuple(colunas or ())})
+        rows = []
+        for periodo in periodos or []:
+            rows.append(
+                {
+                    "Instituição": "ITAU - PRUDENCIAL",
+                    "Período": periodo,
+                    "Ativo Total": 10.0,
+                    "Índice de Capital Principal (CET1)": 0.16,
+                    "ROE Ac. Anualizado (%)": 0.15,
+                    "Core Funding": 100.0,
+                    "Crédito / Captações": 0.8,
+                    "Perda Esperada / Carteira de Crédito Bruta": 0.02,
+                }
+            )
+        return pd.DataFrame(rows)
+
+    monkeypatch.setattr(data_mapping, "load_critical_screens_slice", fake_slice)
+    monkeypatch.setattr(
+        data_mapping,
+        "_load_carteira_instrumentos_ratios",
+        lambda period, base_dir=None: pd.DataFrame(
+            [{"Instituição": "ITAU - PRUDENCIAL", "Inadimplência / Carteira Total": 0.03, "Ativos Problemáticos / Carteira Total": 0.05}]
+        ),
+    )
+    monkeypatch.setattr(data_mapping, "_institution_code_map", lambda base_dir=None: {})
+
+    out = data_mapping.load_rating_input_dataframe("4/2025", base_dir=Path("."))
+
+    assert len(calls) == 1
+    assert calls[0]["periodos"] == ("4/2025", "4/2024")
+    assert "Ativo Total" in calls[0]["colunas"]
+    assert "Core Funding" in calls[0]["colunas"]
+    assert "Crédito / Captações" in calls[0]["colunas"]
+    assert len(out) == 1
+    assert out.iloc[0]["Período Selecionado"] == "4/2025"
+    assert out.iloc[0]["Período Anterior"] == "4/2024"
+
+
+def test_load_carteira_instrumentos_ratios_filters_period_before_fast_canonicalization(monkeypatch):
+    data_mapping._load_carteira_instrumentos_ratios_cached.cache_clear()
+    df = pd.DataFrame(
+        [
+            {"Instituição": "BANCO A", "Período": "3/2025", "Total Geral": 100.0, "Inadimplência": 3.0, "Ativos problemáticos": 5.0},
+            {"Instituição": "BANCO A", "Período": "4/2025", "Total Geral": 110.0, "Inadimplência": 4.0, "Ativos problemáticos": 6.0},
+            {"Instituição": "BANCO B", "Período": "4/2025", "Total Geral": 90.0, "Inadimplência": 2.0, "Ativos problemáticos": 3.0},
+        ]
+    )
+
+    class _FakeResult:
+        sucesso = True
+        dados = df
+
+    class _FakeManager:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def carregar(self, tipo):
+            assert tipo == "carteira_instrumentos"
+            return _FakeResult()
+
+    seen = {}
+
+    def fake_fast(series, *, catalog_map, base_dir=None):
+        seen["rows"] = len(series)
+        return series
+
+    monkeypatch.setattr(data_mapping, "CacheManager", _FakeManager)
+    monkeypatch.setattr(data_mapping, "build_institution_to_conglomerate_map", lambda base_dir=None: {})
+    monkeypatch.setattr(data_mapping, "_fast_canonicalize_institutions", fake_fast)
+
+    out = data_mapping._load_carteira_instrumentos_ratios("4/2025", base_dir=Path("."))
+
+    assert seen["rows"] == 2
+    assert len(out) == 2
+    assert sorted(out["Instituição"].tolist()) == ["BANCO A", "BANCO B"]

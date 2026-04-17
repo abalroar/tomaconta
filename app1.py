@@ -13660,8 +13660,9 @@ def _get_test_period_options(critical_token: str) -> tuple[str, ...]:
 
 
 @st.cache_data(ttl=900, show_spinner=False)
-def _load_test_period_dataframe(critical_token: str, period: str) -> pd.DataFrame:
+def _load_test_period_dataframe(critical_token: str, carteira_token: str, period: str) -> pd.DataFrame:
     _ = critical_token
+    _ = carteira_token
     return load_rating_input_dataframe(period)
 
 
@@ -13792,7 +13793,7 @@ def _resultado_batch_rating_df(results: list[dict]) -> pd.DataFrame:
             {
                 "Instituição": result.get("institution_name"),
                 "Status": result.get("status"),
-                "Rating": result.get("final_numeric_rating"),
+                "Score Final": result.get("final_numeric_rating"),
                 "Score bruto": round(float(result["raw_final_score"]), 4) if result.get("raw_final_score") is not None else None,
                 "Score inicial": result.get("starting_score"),
                 "Porte": (result.get("size_bucket") or {}).get("label") or "",
@@ -13804,7 +13805,7 @@ def _resultado_batch_rating_df(results: list[dict]) -> pd.DataFrame:
         return df_out
     ordem_status = {"ok": 0, "incomplete": 1}
     df_out["_ordem_status"] = df_out["Status"].map(lambda valor: ordem_status.get(str(valor), 9))
-    df_out["_rating_sort"] = pd.to_numeric(df_out["Rating"], errors="coerce").fillna(-1)
+    df_out["_rating_sort"] = pd.to_numeric(df_out["Score Final"], errors="coerce").fillna(-1)
     df_out = df_out.sort_values(["_ordem_status", "_rating_sort", "Instituição"], ascending=[True, False, True])
     return df_out.drop(columns=["_ordem_status", "_rating_sort"])
 
@@ -13828,8 +13829,10 @@ def _build_rating_waterfall_figure(result: dict) -> go.Figure:
     factor_labels = _rating_factor_display_map()
     x = ["Score Inicial"]
     y = [float(result.get("starting_score") or 0)]
-    measure = ["absolute"]
+    measure = ["total"]
     text = [f"{float(result.get('starting_score') or 0):+.2f}"]
+    running_total = float(result.get("starting_score") or 0)
+    cumulative_values = [running_total]
 
     for key, payload in (result.get("quantitative_scores") or {}).items():
         score = float(payload.get("score") or 0.0)
@@ -13837,6 +13840,8 @@ def _build_rating_waterfall_figure(result: dict) -> go.Figure:
         y.append(score)
         measure.append("relative")
         text.append(f"{score:+.2f}")
+        running_total += score
+        cumulative_values.append(running_total)
 
     for key in ["q1", "q2", "q3", "q4", "q5", "q6"]:
         payload = (result.get("qualitative_scores") or {}).get(key) or {}
@@ -13845,11 +13850,14 @@ def _build_rating_waterfall_figure(result: dict) -> go.Figure:
         y.append(score)
         measure.append("relative")
         text.append(f"{score:+.2f}")
+        running_total += score
+        cumulative_values.append(running_total)
 
-    x.append("Rating Final")
+    x.append("Score Final")
     y.append(0)
     measure.append("total")
     text.append(str(result.get("final_numeric_rating") or "N/A"))
+    cumulative_values.append(float(result.get("final_numeric_rating") or running_total or 0))
 
     fig = go.Figure(
         go.Waterfall(
@@ -13860,15 +13868,18 @@ def _build_rating_waterfall_figure(result: dict) -> go.Figure:
             textposition="outside",
             increasing={"marker": {"color": "#0f9d58"}},
             decreasing={"marker": {"color": "#d93025"}},
-            totals={"marker": {"color": "#1f77b4"}},
+            totals={"marker": {"color": "#111111"}},
             connector={"line": {"color": "#8a8a8a", "width": 1}},
         )
     )
+    y_min = min(15.0, min(cumulative_values) if cumulative_values else 15.0)
+    y_max = max(cumulative_values) if cumulative_values else 25.0
     fig.update_layout(
         margin=dict(l=20, r=20, t=30, b=20),
         height=360,
         showlegend=False,
-        yaxis_title="Impacto no score",
+        yaxis_title="Score",
+        yaxis=dict(range=[y_min, y_max + 1.0]),
     )
     return fig
 
@@ -14016,7 +14027,7 @@ def pagina_test():
                         "Cálculo / regra": "Cada resposta qualitativa adiciona ou retira pontos conforme a grade versionada do modelo.",
                     },
                     {
-                        "Bloco": "Rating final",
+                        "Bloco": "Score final",
                         "Fonte": "Engine local do modelo",
                         "Cálculo / regra": "Score inicial + impactos quantitativos + impactos qualitativos, arredondado e limitado à escala de 1 a 25.",
                     },
@@ -14049,7 +14060,8 @@ def pagina_test():
         "Modo Batch: aplica o mesmo conjunto de respostas qualitativas a todas as instituições do período."
     )
 
-    df_periodo = _load_test_period_dataframe(critical_token, periodo_selecionado)
+    carteira_token = _cache_version_token("carteira_instrumentos")
+    df_periodo = _load_test_period_dataframe(critical_token, carteira_token, periodo_selecionado)
     if df_periodo is None or df_periodo.empty:
         st.warning("não foi possível carregar o recorte do período selecionado.")
         return
@@ -14134,7 +14146,7 @@ def pagina_test():
 
         col_r1, col_r2 = st.columns([1, 1])
         with col_r1:
-            st.metric("Rating Final (1-25)", result["final_numeric_rating"])
+            st.metric("Score Final (1-25)", result["final_numeric_rating"])
         with col_r2:
             st.metric("Score bruto", _formatar_numero_ptbr(result["raw_final_score"], decimais=4))
 
@@ -14239,7 +14251,7 @@ def pagina_test():
         st.markdown("**Resumo da instituição selecionada**")
         col_i1, col_i2 = st.columns(2)
         with col_i1:
-            st.metric("Rating Final (1-25)", resultado_inspecao.get("final_numeric_rating") or "N/A")
+            st.metric("Score Final (1-25)", resultado_inspecao.get("final_numeric_rating") or "N/A")
         with col_i2:
             st.metric("Score bruto", _formatar_numero_ptbr(resultado_inspecao.get("raw_final_score"), decimais=4))
 
@@ -28766,7 +28778,7 @@ elif menu == "Glossário":
         {"Indicador": "Valor Calculado", "Aba(s)": "Contas COSIF, Glossário", "Fonte": "BLOPRUDENCIAL mensal", "Fórmula": "Saldo do período, trimestre isolado ou acumulado semestral, conforme a regra aplicável à conta", "Unidade": "R$", "Interpretação": "Valor efetivamente comparado entre instituições no ranking.", "Limitação": "Instituições sem base necessária são excluídas do cálculo.", "Periodicidade": "Mensal / trimestral / semestral reconstruído"},
         {"Indicador": "Valor Calculado (abs)", "Aba(s)": "Contas COSIF, Glossário", "Fonte": "Derivação local sobre o valor calculado", "Fórmula": "abs(Valor Calculado)", "Unidade": "R$", "Interpretação": "Usado apenas para ordenar e medir participação no total exibido.", "Limitação": "Não substitui o sinal econômico do valor original.", "Periodicidade": "Mesmo período do Valor Calculado"},
         {"Indicador": "Score bruto", "Aba(s)": "Modelo de Rating, Glossário", "Fonte": "Engine local do modelo", "Fórmula": "Score inicial + impactos quantitativos + impactos qualitativos antes do arredondamento final", "Unidade": "Pontos", "Interpretação": "Mostra a nota contínua antes do arredondamento para a escala final.", "Limitação": "É medida interna do modelo experimental, não métrica regulatória.", "Periodicidade": "Trimestral + input qualitativo do usuário"},
-        {"Indicador": "Rating Final (1-25)", "Aba(s)": "Modelo de Rating, Glossário", "Fonte": "Engine local do modelo", "Fórmula": "Arredondamento do score bruto, limitado ao intervalo de 1 a 25", "Unidade": "Nota", "Interpretação": "Saída sintética do modelo experimental para fins comparativos internos.", "Limitação": "Não é rating oficial de agência nem parâmetro regulatório do BCB.", "Periodicidade": "Trimestral + input qualitativo do usuário"},
+        {"Indicador": "Score Final (1-25)", "Aba(s)": "Modelo de Rating, Glossário", "Fonte": "Engine local do modelo", "Fórmula": "Arredondamento do score bruto, limitado ao intervalo de 1 a 25", "Unidade": "Nota", "Interpretação": "Saída sintética do modelo experimental para fins comparativos internos.", "Limitação": "Não é rating oficial de agência nem parâmetro regulatório do BCB.", "Periodicidade": "Trimestral + input qualitativo do usuário"},
         {"Indicador": "Ref. Info Contábil A/S", "Aba(s)": "Balanço, DRE e DMPL (Ind.), Glossário", "Fonte": "Documento 9011 JSON", "Fórmula": "A = acumulado; S = semestre", "Unidade": "Tipo de referência", "Interpretação": "Define quais colunas internas do documento 9011 serão exibidas para comparação.", "Limitação": "A disponibilidade depende do conteúdo efetivamente retornado no documento escolhido.", "Periodicidade": "Por documento / competência"},
     ])
 
