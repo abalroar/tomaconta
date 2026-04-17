@@ -133,6 +133,7 @@ from utils.ifdata_cache import (
     load_derived_metrics_slice,
     CRITICAL_EXTRA_METRICS,
     materialize_critical_screens_cache,
+    load_critical_screens_filters_context,
     load_critical_screens_slice,
     get_critical_screens_runtime_status,
     resolve_carteira_credito_bruta_value,
@@ -12548,18 +12549,8 @@ def _get_crie_metrica_context(periodos_hash: str, periodos_keys: tuple):
 @st.cache_data(ttl=900, show_spinner=False)
 def _get_peers_filters_context(critical_token: str) -> dict:
     """Retorna bancos/períodos da aba Peers a partir do cache curado final."""
-    df_curado = _carregar_cache_relatorio_slice("critical_screens", critical_token)
-    if df_curado is None or df_curado.empty:
-        return {"bancos_todos": [], "periodos_disponiveis": []}
-
-    return {
-        "bancos_todos": tuple(sorted(df_curado["Instituição"].dropna().astype(str).unique().tolist()))
-        if "Instituição" in df_curado.columns
-        else (),
-        "periodos_disponiveis": tuple(sorted(df_curado["Período"].dropna().astype(str).unique().tolist()))
-        if "Período" in df_curado.columns
-        else (),
-    }
+    _ = critical_token
+    return load_critical_screens_filters_context(base_dir=APP_DIR)
 
 
 @st.cache_data(ttl=900, show_spinner=False)

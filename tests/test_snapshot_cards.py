@@ -140,3 +140,24 @@ def test_carregar_cache_relatorio_slice_uses_specialized_critical_screens_loader
     assert resultado.equals(esperado)
     assert chamadas["periodos"] == ["4/2025"]
     assert "ITAU - PRUDENCIAL" in chamadas["instituicoes"]
+
+
+def test_get_peers_filters_context_uses_lightweight_context_loader(monkeypatch):
+    esperado = {
+        "bancos_todos": ("ITAU - PRUDENCIAL", "BB - PRUDENCIAL"),
+        "periodos_disponiveis": ("3/2025", "4/2025"),
+    }
+
+    def fake_context_loader(*, base_dir=None):
+        return esperado
+
+    def fail_if_slice_called(*args, **kwargs):  # pragma: no cover - regressão defensiva
+        raise AssertionError("slice pesado não deveria ser usado para montar os filtros da Peers")
+
+    monkeypatch.setattr(app1, "load_critical_screens_filters_context", fake_context_loader)
+    monkeypatch.setattr(app1, "_carregar_cache_relatorio_slice", fail_if_slice_called)
+    app1._get_peers_filters_context.clear()
+
+    resultado = app1._get_peers_filters_context("token")
+
+    assert resultado == esperado

@@ -8,6 +8,8 @@ from utils.ifdata_cache.manager import CacheManager
 from utils.ifdata_cache.critical_screens import (
     CriticalScreensCache,
     CRITICAL_SCREENS_SCHEMA_VERSION,
+    _build_selected_institution_code_map,
+    _load_runtime_passivo_support,
     _supplement_runtime_missing_funding,
     _load_bloprud_sources,
     _validate_critical_screens_semantics,
@@ -1067,3 +1069,95 @@ def test_load_critical_screens_slice_supplements_missing_funding_from_passivo(tm
     assert row["Trace::Core Funding::Captações (e)"] == 120.0
     assert row["Trace::Core Funding::Instrumentos de Dívida Elegíveis a Capital (h)"] == 30.0
     assert row["Trace::Core Funding::Status"] == "official_components"
+
+
+def test_build_selected_institution_code_map_prefers_direct_principal_names():
+    principal = pd.DataFrame(
+        [
+            {"Instituição": "ITAU - PRUDENCIAL", "Período": "4/2025", "CodInst": "C0080099"},
+            {"Instituição": "BB - PRUDENCIAL", "Período": "4/2025", "CodInst": "C0080100"},
+        ]
+    )
+
+    canonicas, code_map = _build_selected_institution_code_map(
+        principal,
+        catalog_map={
+            "ITAU PRUDENCIAL": "ITAU - PRUDENCIAL",
+            "BB PRUDENCIAL": "BB - PRUDENCIAL",
+        },
+        instituicoes=["ITAU - PRUDENCIAL"],
+    )
+
+    assert canonicas == {"ITAU - PRUDENCIAL"}
+    assert code_map == {"80099": "ITAU - PRUDENCIAL"}
+
+
+def test_load_runtime_passivo_support_prefilters_selected_institutions_before_canonicalization(
+    tmp_path: Path,
+    monkeypatch,
+):
+    (tmp_path / "conglomerados.csv").write_text(
+        "Conglomerado CDIGO 80099 NOME ITAU - PRUDENCIAL TIPO TESTE "
+        "CNPJ 12345678000100 Itau Unibanco LIDER "
+        "Conglomerado CDIGO 80100 NOME BB - PRUDENCIAL TIPO TESTE "
+        "CNPJ 22345678000100 Banco do Brasil LIDER",
+        encoding="utf-8",
+    )
+
+    manager = CacheManager(base_dir=tmp_path)
+    principal_cache = manager.get_cache("principal")
+    passivo_cache = manager.get_cache("passivo")
+
+    principal_df = pd.DataFrame(
+        [
+            {"Instituição": "ITAU - PRUDENCIAL", "Período": "4/2025", "CodInst": "C0080099"},
+            {"Instituição": "BB - PRUDENCIAL", "Período": "4/2025", "CodInst": "C0080100"},
+        ]
+    )
+    passivo_df = pd.DataFrame(
+        [
+            {
+                "Instituição": "[IF C0080099]",
+                "Período": "4/2025",
+                "CodInst": "C0080099",
+                "Captações (e) = (a) + (b) + (c) + (d)": 120.0,
+                "Instrumentos de Dívida Elegíveis a Capital (h)": 30.0,
+            },
+            {
+                "Instituição": "[IF C0080100]",
+                "Período": "4/2025",
+                "CodInst": "C0080100",
+                "Captações (e) = (a) + (b) + (c) + (d)": 200.0,
+                "Instrumentos de Dívida Elegíveis a Capital (h)": 40.0,
+            },
+        ]
+    )
+
+    assert principal_cache is not None
+    assert passivo_cache is not None
+    assert principal_cache.salvar_local(principal_df, fonte="test").sucesso
+    assert passivo_cache.salvar_local(passivo_df, fonte="test").sucesso
+
+    import utils.ifdata_cache.critical_screens as critical_screens_module
+
+    original = critical_screens_module.canonicalize_institution_dataframe
+    seen = {"calls": 0}
+
+    def wrapped(df, **kwargs):
+        seen["calls"] += 1
+        seen["rows_before_canonicalize"] = len(df)
+        return original(df, **kwargs)
+
+    monkeypatch.setattr(critical_screens_module, "canonicalize_institution_dataframe", wrapped)
+
+    support = _load_runtime_passivo_support(
+        base_dir=tmp_path,
+        periodos=["4/2025"],
+        instituicoes=["ITAU - PRUDENCIAL"],
+    )
+
+    assert seen["calls"] == 0
+    assert len(support) == 1
+    row = support.iloc[0]
+    assert row["Instituição"] == "ITAU - PRUDENCIAL"
+    assert row["Core Funding"] == 150.0

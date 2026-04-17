@@ -2072,6 +2072,185 @@ def load_critical_screens_slice(
     return df.reset_index(drop=True)
 
 
+def load_critical_screens_filters_context(
+    *,
+    base_dir: Path | None = None,
+) -> dict[str, tuple[str, ...]]:
+    """Carrega apenas instituições e períodos do cache curado.
+
+    Este caminho existe para evitar que a montagem dos filtros da aba Peers
+    acione a suplementação de funding em runtime. Para essa etapa, só as
+    colunas de contexto são necessárias.
+    """
+    root = Path(base_dir).resolve() if base_dir else Path(__file__).resolve().parents[2]
+    cache = CriticalScreensCache(root)
+    status = get_critical_screens_runtime_status(base_dir=root)
+    if status.get("mode") == "bootstrap_bundle":
+        cache.bootstrap_local_from_bundle()
+    elif not cache.existe():
+        cache.bootstrap_local_from_bundle()
+
+    df: pd.DataFrame | None = None
+    if cache.arquivo_dados.exists():
+        try:
+            import pyarrow.dataset as ds
+
+            dataset = ds.dataset(cache.arquivo_dados, format="parquet")
+            schema_names = {str(name) for name in dataset.schema.names}
+            cols = [col for col in ("Instituição", "Período") if col in schema_names]
+            if cols:
+                df = dataset.to_table(columns=cols).to_pandas()
+        except Exception as exc:
+            logger.warning("[CACHE:CRITICAL_SCREENS] Falha ao carregar contexto leve: %s", exc)
+
+    if df is None:
+        resultado = cache.carregar_local()
+        if not resultado.sucesso or resultado.dados is None or resultado.dados.empty:
+            return {"bancos_todos": (), "periodos_disponiveis": ()}
+        cols = [col for col in ("Instituição", "Período") if col in resultado.dados.columns]
+        if not cols:
+            return {"bancos_todos": (), "periodos_disponiveis": ()}
+        df = resultado.dados.loc[:, cols].copy()
+
+    bancos_todos = ()
+    if "Instituição" in df.columns:
+        bancos_todos = tuple(sorted(df["Instituição"].dropna().astype(str).unique().tolist()))
+    periodos_disponiveis = ()
+    if "Período" in df.columns:
+        periodos_disponiveis = tuple(sorted(df["Período"].dropna().astype(str).unique().tolist()))
+    return {
+        "bancos_todos": bancos_todos,
+        "periodos_disponiveis": periodos_disponiveis,
+    }
+
+
+def _normalize_code_key(value: Any) -> str:
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return ""
+    text = str(value).strip().upper()
+    if not text:
+        return ""
+    digits = re.sub(r"\D", "", text)
+    if digits:
+        return str(int(digits)) if digits.isdigit() else digits
+    try:
+        return str(int(float(text)))
+    except Exception:
+        return text
+
+
+def _resolve_first_code_series(df: pd.DataFrame, code_columns: Sequence[str]) -> pd.Series:
+    if df is None or df.empty or not code_columns:
+        return pd.Series("", index=getattr(df, "index", pd.Index([])), dtype="object")
+    out = pd.Series("", index=df.index, dtype="object")
+    for code_col in code_columns:
+        if code_col not in df.columns:
+            continue
+        values = df[code_col].map(_normalize_code_key)
+        out = out.where(out.ne(""), values)
+    return out
+
+
+def _build_selected_institution_code_map(
+    principal: pd.DataFrame,
+    *,
+    catalog_map: Mapping[str, str],
+    instituicoes: Sequence[str],
+) -> tuple[set[str], dict[str, str]]:
+    raw_selected = {str(nome).strip() for nome in instituicoes if str(nome).strip()}
+    instituicoes_canonicas = {
+        canonicalize_institution_name(nome, catalog_map=catalog_map)
+        for nome in instituicoes
+        if str(nome).strip()
+    }
+    instituicoes_canonicas.discard("")
+    if principal is None or principal.empty or "Instituição" not in principal.columns:
+        return instituicoes_canonicas, {}
+
+    principal_name_col = "Instituição"
+    principal_code_cols = [col for col in ("CodInst", "COD_INST", "cod_inst", "CODINST") if col in principal.columns]
+    if not principal_code_cols:
+        return instituicoes_canonicas, {}
+
+    nomes_principal = principal[principal_name_col].astype(str).fillna("").str.strip()
+    direct_candidates = raw_selected | instituicoes_canonicas
+    principal_mask = nomes_principal.isin(direct_candidates)
+    principal_sel = principal.loc[principal_mask].copy() if bool(principal_mask.any()) else pd.DataFrame()
+
+    if not principal_sel.empty:
+        principal_sel["_canonical_target"] = principal_sel[principal_name_col].astype(str).fillna("").str.strip()
+    else:
+        canonical_lookup = {
+            nome: canonicalize_institution_name(nome, catalog_map=catalog_map)
+            for nome in nomes_principal.dropna().unique().tolist()
+            if str(nome).strip()
+        }
+        principal_mask = nomes_principal.map(canonical_lookup).isin(instituicoes_canonicas)
+        if not bool(principal_mask.any()):
+            return instituicoes_canonicas, {}
+        principal_sel = principal.loc[principal_mask].copy()
+        principal_sel["_canonical_target"] = (
+            principal_sel[principal_name_col]
+            .astype(str)
+            .fillna("")
+            .str.strip()
+            .map(canonical_lookup)
+        )
+
+    code_series = _resolve_first_code_series(principal_sel, principal_code_cols)
+    code_map: dict[str, str] = {}
+    for code_key, canonical_name in zip(code_series.tolist(), principal_sel["_canonical_target"].tolist()):
+        if code_key and canonical_name and code_key not in code_map:
+            code_map[code_key] = canonical_name
+    return instituicoes_canonicas, code_map
+
+
+def _canonicalize_support_passivo_dataframe(
+    passivo: pd.DataFrame,
+    *,
+    principal: pd.DataFrame,
+    catalog_map: Mapping[str, str],
+    base_dir: Path,
+    instituicoes_canonicas: set[str],
+    selected_code_map: Mapping[str, str],
+) -> pd.DataFrame:
+    if passivo is None or passivo.empty:
+        return pd.DataFrame()
+
+    out = passivo.copy()
+    passivo_code_cols = [col for col in ("CodInst", "COD_INST", "cod_inst", "CODINST") if col in out.columns]
+    fast_mask = pd.Series(False, index=out.index)
+    if selected_code_map and passivo_code_cols:
+        code_series = _resolve_first_code_series(out, passivo_code_cols)
+        resolved_names = code_series.map(selected_code_map)
+        fast_mask = resolved_names.notna()
+        if bool(fast_mask.any()):
+            out.loc[fast_mask, "Instituição"] = resolved_names.loc[fast_mask].astype(str)
+
+    unresolved = out.loc[~fast_mask].copy()
+    if not unresolved.empty:
+        unresolved = canonicalize_institution_dataframe(
+            unresolved,
+            catalog_map=catalog_map,
+            base_dir=base_dir,
+            extra_frames=(principal,),
+        )
+
+    if bool(fast_mask.any()) and not unresolved.empty:
+        out = pd.concat([out.loc[fast_mask], unresolved], ignore_index=True)
+    elif bool(fast_mask.any()):
+        out = out.loc[fast_mask].copy()
+    else:
+        out = unresolved
+
+    if out.empty:
+        return pd.DataFrame()
+
+    if instituicoes_canonicas:
+        out = out[out["Instituição"].astype(str).isin(instituicoes_canonicas)].copy()
+    return out
+
+
 def _load_runtime_passivo_support(
     *,
     base_dir: Path,
@@ -2103,28 +2282,48 @@ def _load_runtime_passivo_support(
 
     periodos_set = {str(periodo).strip() for periodo in periodos if str(periodo).strip()}
     passivo = passivo[passivo["Período"].astype(str).isin(periodos_set)].copy()
+    if "Período" in principal.columns:
+        principal = principal[principal["Período"].astype(str).isin(periodos_set)].copy()
     if passivo.empty:
         return pd.DataFrame()
 
     catalog_map = build_institution_to_conglomerate_map(base_dir)
-    passivo = canonicalize_institution_dataframe(
+    instituicoes_canonicas: set[str] = set()
+    selected_code_map: dict[str, str] = {}
+    if instituicoes:
+        instituicoes_canonicas, selected_code_map = _build_selected_institution_code_map(
+            principal,
+            catalog_map=catalog_map,
+            instituicoes=instituicoes,
+        )
+        passivo_code_cols = [col for col in ("CodInst", "COD_INST", "cod_inst", "CODINST") if col in passivo.columns]
+        raw_name_candidates = {str(nome).strip() for nome in instituicoes if str(nome).strip()} | instituicoes_canonicas
+        prefilter_masks = []
+        if raw_name_candidates:
+            prefilter_masks.append(passivo["Instituição"].astype(str).str.strip().isin(raw_name_candidates))
+        if selected_code_map and passivo_code_cols:
+            code_mask = pd.Series(False, index=passivo.index)
+            for code_col in passivo_code_cols:
+                code_mask |= passivo[code_col].map(_normalize_code_key).isin(selected_code_map.keys())
+            prefilter_masks.append(code_mask)
+
+        if prefilter_masks:
+            prefilter_mask = prefilter_masks[0]
+            for extra_mask in prefilter_masks[1:]:
+                prefilter_mask |= extra_mask
+            if bool(prefilter_mask.any()):
+                passivo = passivo.loc[prefilter_mask].copy()
+
+    passivo = _canonicalize_support_passivo_dataframe(
         passivo,
+        principal=principal,
         catalog_map=catalog_map,
         base_dir=base_dir,
-        extra_frames=(principal,),
+        instituicoes_canonicas=instituicoes_canonicas,
+        selected_code_map=selected_code_map,
     )
     if passivo.empty:
         return pd.DataFrame()
-
-    if instituicoes:
-        instituicoes_canonicas = {
-            canonicalize_institution_name(nome, catalog_map=catalog_map)
-            for nome in instituicoes
-            if str(nome).strip()
-        }
-        passivo = passivo[passivo["Instituição"].astype(str).isin(instituicoes_canonicas)].copy()
-        if passivo.empty:
-            return pd.DataFrame()
 
     col_capt = _pick_col(
         passivo,
