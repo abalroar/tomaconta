@@ -572,6 +572,23 @@ A fronteira residual identificada na rodada anterior estava em `_build_selected_
 - Neste ponto, a aba deixou de depender de recomputação cara para abrir e passou a operar em cima de um recorte curado efetivamente leve.
 - A próxima otimização só faria sentido se surgir nova evidência de latência fora do Python, por exemplo custo de navegador/DOM ou alguma rota específica de export.
 
+## Medição Final — Caminho End-to-End da Aba
+
+Depois das duas rodadas, o caminho Python completo da `Peers (Tabela)` ficou assim:
+
+| Cenário | Slice | Métricas extra | Montagem tabela | UI/tooltip/html | Total Python |
+|---|---:|---:|---:|---:|---:|
+| 1 peer / 3 períodos | 0,232s | 0,002s | 0,002s | 0,015s | 0,251s |
+| 5 peers / 3 períodos | 0,071s | 0,003s | 0,007s | 0,063s | 0,143s |
+
+Leitura técnica:
+- o hot path de dados deixou de ser o problema dominante da aba;
+- a renderização Python/HTML também ficou pequena;
+- se ainda houver lentidão percebida em uso real, a hipótese principal deixa de ser backend de dados e passa a ser:
+  - custo de browser/DOM do Streamlit,
+  - latência de sessão/rede do front,
+  - ou alguma etapa fora do fluxo principal medido aqui.
+
 ## Conclusão
 
 O diagnóstico é claro:
