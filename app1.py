@@ -14336,6 +14336,7 @@ MENU_TESTES = [
     "Modelo de Rating",
     "Contas COSIF",
     "Balanço, DRE e DMPL (Ind.)",
+    "Distribuição (Ridgeline)",
 ]
 
 TODOS_MENUS = MENU_PRINCIPAL + MENU_SECUNDARIO + MENU_TESTES
@@ -14491,6 +14492,7 @@ CACHE_DEPENDENCIAS_POR_ABA = {
     "Carteira 4.966": ["carteira_instrumentos"],
     "Taxas de Juros por Produto": ["taxas_juros_historico"],
     "Contas COSIF": ["bloprudencial"],
+    "Distribuição (Ridgeline)": ["principal"],
     "Atualizar Base": [
         "principal", "capital", "ativo", "passivo", "dre", "carteira_pf",
         "carteira_pj", "carteira_instrumentos", "bloprudencial", "taxas_juros_historico",
@@ -28668,6 +28670,276 @@ elif menu == "Atualizar Base":
 
     elif senha_input:
         st.error("senha incorreta")
+
+elif menu == "Distribuição (Ridgeline)":
+    st.markdown("### distribuição entre instituições ao longo do tempo")
+    st.caption("ridgeline — estimativa de densidade (KDE gaussiana) de uma métrica financeira entre as instituições, por período")
+
+    if _garantir_dados_principais("Distribuição (Ridgeline)"):
+        _metricas_ridge_config = {
+            'ROE Trimestral Anualizado': [
+                'ROE Trim. Anualizado (%)', 'ROE trimestral anualizado (%)', 'ROE Trimestral An. (%)',
+            ],
+            'ROE Acumulado Anualizado': [
+                'ROE Ac. Anualizado (%)', 'ROE Ac. YTD an. (%)',
+            ],
+            'Índice de Basileia Total': [
+                'Índice de Basileia Total (%)', 'Índice de Basileia', 'Índice de Basileia Total',
+            ],
+            'Índice de Capital Principal (CET1)': [
+                'Índice de Capital Principal (CET1)', 'Índice de Capital Principal',
+            ],
+            'Índice de Capital T1': [
+                'Índice de Capital T1 (%)', 'Índice de Capital T1',
+                'Índice de Capital Nível I', 'Índice Capital Nível I',
+            ],
+        }
+
+        _ridge_ctx = _get_rankings_filters_context(
+            _cache_version_token("principal"),
+            _alias_signature_cache_key(),
+        )
+        _ridge_periodos_raw = list(_ridge_ctx.get("periodos_disponiveis", []))
+
+        if not _ridge_periodos_raw:
+            st.warning("nenhum período disponível nos dados atuais.")
+        else:
+            col_m, col_a, col_p = st.columns([2, 1, 1])
+            with col_m:
+                _metrica_ridge_label = st.selectbox(
+                    "métrica",
+                    list(_metricas_ridge_config.keys()),
+                    key="ridge_metrica_v1",
+                )
+            with col_a:
+                _agrup_ridge = st.radio(
+                    "agrupar por",
+                    ["Ano", "Trimestre"],
+                    horizontal=True,
+                    key="ridge_agrupamento_v1",
+                )
+            with col_p:
+                _pool_ridge = st.selectbox(
+                    "pool",
+                    ["Todos", "Top 20", "Top 50"],
+                    key="ridge_pool_v1",
+                )
+
+            _df_ridge = _get_rankings_analytical_df(
+                _cache_version_token("principal"),
+                _alias_signature_cache_key(),
+            )
+
+            if _df_ridge is None or _df_ridge.empty:
+                st.warning("dados não disponíveis.")
+            else:
+                _metrica_col_ridge = next(
+                    (c for c in _metricas_ridge_config[_metrica_ridge_label] if c in _df_ridge.columns),
+                    None,
+                )
+                if _metrica_col_ridge is None:
+                    st.warning(f"coluna para '{_metrica_ridge_label}' não encontrada nos dados.")
+                else:
+                    if _pool_ridge != "Todos":
+                        _top_n_ridge = 20 if _pool_ridge == "Top 20" else 50
+                        _periodo_ref_ridge = ordenar_periodos(_ridge_periodos_raw, reverso=True)[0]
+                        _df_ref_ridge = _df_ridge[_df_ridge['Período'] == _periodo_ref_ridge]
+                        _bancos_ridge = _obter_top_instituicoes_por_ativo(_df_ref_ridge, _top_n_ridge)
+                        _df_ridge = _df_ridge[_df_ridge['Instituição'].isin(_bancos_ridge)]
+
+                    _df_r = _df_ridge[['Período', 'Instituição', _metrica_col_ridge]].copy()
+                    _df_r[_metrica_col_ridge] = pd.to_numeric(_df_r[_metrica_col_ridge], errors='coerce')
+                    _df_r[_metrica_col_ridge] = _calcular_valores_display(
+                        _df_r[_metrica_col_ridge],
+                        _metrica_col_ridge,
+                        get_axis_format(_metrica_col_ridge),
+                    )
+
+                    if _agrup_ridge == "Ano":
+                        _df_r['_grupo'] = _df_r['Período'].apply(
+                            lambda p: str(p).split('/')[-1].strip() if '/' in str(p) else str(p)
+                        )
+                    else:
+                        _df_r['_grupo'] = _df_r['Período']
+
+                    def _sort_key_grupo_ridge(g):
+                        if str(g).isdigit():
+                            return (int(g), 0)
+                        try:
+                            parts = str(g).split('/')
+                            return (int(parts[-1]), int(parts[0]))
+                        except Exception:
+                            return (0, 0)
+
+                    _grupos_ridge = sorted(
+                        _df_r['_grupo'].dropna().unique(),
+                        key=_sort_key_grupo_ridge,
+                    )
+
+                    _all_vals_ridge = _df_r[_metrica_col_ridge].dropna()
+                    if _all_vals_ridge.empty or len(_grupos_ridge) < 2:
+                        st.warning("dados insuficientes para o ridgeline.")
+                    else:
+                        _q01_r = float(_all_vals_ridge.quantile(0.01))
+                        _q99_r = float(_all_vals_ridge.quantile(0.99))
+                        _span_r = _q99_r - _q01_r or 1.0
+                        _x_min_r = _q01_r - _span_r * 0.15
+                        _x_max_r = _q99_r + _span_r * 0.15
+                        _x_grid_r = np.linspace(_x_min_r, _x_max_r, 300)
+
+                        def _kde_ridge(values):
+                            x = np.asarray(values, dtype=float)
+                            x = x[~np.isnan(x) & (x > _q01_r - _span_r) & (x < _q99_r + _span_r)]
+                            n = len(x)
+                            if n < 5:
+                                return None
+                            std = float(np.std(x, ddof=1))
+                            if std < 1e-10:
+                                return None
+                            h = 1.06 * std * n ** (-0.2)
+                            diff = (_x_grid_r[:, None] - x[None, :]) / h
+                            kde = np.sum(np.exp(-0.5 * diff ** 2), axis=1) / (n * h * np.sqrt(2 * np.pi))
+                            return kde
+
+                        _ridge_rows = []
+                        for _g in _grupos_ridge:
+                            _vals = _df_r[_df_r['_grupo'] == _g][_metrica_col_ridge].dropna().values
+                            _k = _kde_ridge(_vals)
+                            if _k is not None:
+                                _lbl = periodo_para_exibicao(_g) if _agrup_ridge == "Trimestre" else str(_g)
+                                _ridge_rows.append({
+                                    'grupo': _g,
+                                    'label': _lbl,
+                                    'kde': _k,
+                                    'median': float(np.median(_vals)),
+                                    'n': len(_vals),
+                                })
+
+                        if not _ridge_rows:
+                            st.warning("dados insuficientes para gerar as curvas.")
+                        else:
+                            _n_r = len(_ridge_rows)
+                            _color_stops_r = [
+                                (0.0,  (22,  46,  95)),
+                                (0.35, (32,  110, 170)),
+                                (0.65, (100, 175, 130)),
+                                (0.82, (210, 165,  50)),
+                                (1.0,  (205,  75,  35)),
+                            ]
+
+                            def _ridge_color(t, alpha=0.82):
+                                t = max(0.0, min(1.0, t))
+                                for _ci in range(len(_color_stops_r) - 1):
+                                    t0, c0 = _color_stops_r[_ci]
+                                    t1, c1 = _color_stops_r[_ci + 1]
+                                    if t <= t1:
+                                        frac = (t - t0) / (t1 - t0)
+                                        rv = int(c0[0] + frac * (c1[0] - c0[0]))
+                                        gv = int(c0[1] + frac * (c1[1] - c0[1]))
+                                        bv = int(c0[2] + frac * (c1[2] - c0[2]))
+                                        return f"rgba({rv},{gv},{bv},{alpha})"
+                                rv, gv, bv = _color_stops_r[-1][1]
+                                return f"rgba({rv},{gv},{bv},{alpha})"
+
+                            _row_h = 1.0
+                            _scale_r = _row_h * 0.88
+                            _is_pct_ridge = _is_variavel_percentual(_metrica_col_ridge)
+
+                            fig_ridge = go.Figure()
+
+                            for _i, _rd in enumerate(_ridge_rows):
+                                # oldest at top (high y), newest at bottom (y=0)
+                                _y_base_r = float(_n_r - 1 - _i) * _row_h
+                                _t_color = _i / max(_n_r - 1, 1)
+                                _fill_col = _ridge_color(_t_color, alpha=0.82)
+                                _line_col = _ridge_color(_t_color, alpha=1.0)
+
+                                _kde_norm = _rd['kde'] / (_rd['kde'].max() or 1.0)
+                                _kde_pad = np.concatenate([[0.0], _kde_norm, [0.0]])
+                                _xpad = np.concatenate([[_x_grid_r[0]], _x_grid_r, [_x_grid_r[-1]]])
+                                _y_curve = _y_base_r + _kde_pad * _scale_r
+
+                                _xs_poly = np.concatenate([_xpad, _xpad[::-1]])
+                                _ys_poly = np.concatenate([_y_curve, np.full(len(_xpad), _y_base_r)])
+
+                                fig_ridge.add_trace(go.Scatter(
+                                    x=_xs_poly.tolist(),
+                                    y=_ys_poly.tolist(),
+                                    fill='toself',
+                                    fillcolor=_fill_col,
+                                    line=dict(width=0.8, color=_line_col),
+                                    mode='lines',
+                                    name=_rd['label'],
+                                    showlegend=False,
+                                    hovertemplate=(
+                                        f"<b>{_rd['label']}</b><br>n = {_rd['n']} inst.<extra></extra>"
+                                    ),
+                                ))
+
+                                _med_r = _rd['median']
+                                if _x_min_r <= _med_r <= _x_max_r:
+                                    _kde_at_med = float(np.interp(_med_r, _x_grid_r, _kde_norm))
+                                    _y_med_r = _y_base_r + _kde_at_med * _scale_r
+                                    _med_txt = f"{_med_r:.1f}%" if _is_pct_ridge else f"{_med_r:.2f}"
+                                    fig_ridge.add_trace(go.Scatter(
+                                        x=[_med_r],
+                                        y=[_y_med_r],
+                                        mode='markers',
+                                        marker=dict(
+                                            symbol='triangle-up',
+                                            size=7,
+                                            color='white',
+                                            line=dict(color='rgba(0,0,0,0.5)', width=1),
+                                        ),
+                                        showlegend=False,
+                                        hovertemplate=(
+                                            f"mediana {_rd['label']}: {_med_txt}<extra></extra>"
+                                        ),
+                                    ))
+
+                            _ytick_vals = [
+                                float(_n_r - 1 - _i) * _row_h + _scale_r * 0.35
+                                for _i in range(_n_r)
+                            ]
+                            _ytick_labels = [_rd['label'] for _rd in _ridge_rows]
+                            _x_suffix = "%" if _is_pct_ridge else ""
+
+                            fig_ridge.update_layout(
+                                height=max(420, 38 * _n_r),
+                                yaxis=dict(
+                                    tickvals=_ytick_vals,
+                                    ticktext=_ytick_labels,
+                                    showgrid=False,
+                                    zeroline=False,
+                                    range=[-_row_h * 0.3, _n_r * _row_h + _scale_r * 0.1],
+                                    tickfont=dict(size=11),
+                                ),
+                                xaxis=dict(
+                                    title=_metrica_ridge_label,
+                                    ticksuffix=_x_suffix,
+                                    showgrid=True,
+                                    gridcolor='rgba(0,0,0,0.07)',
+                                    zeroline=True,
+                                    zerolinecolor='rgba(0,0,0,0.15)',
+                                    zerolinewidth=1,
+                                ),
+                                margin=dict(l=85, r=30, t=30, b=55),
+                                plot_bgcolor='white',
+                                paper_bgcolor='white',
+                                showlegend=False,
+                            )
+
+                            _titulo_pool_r = f" — {_pool_ridge}" if _pool_ridge != "Todos" else ""
+                            _titulo_agrup_r = "por ano" if _agrup_ridge == "Ano" else "por trimestre"
+                            st.caption(
+                                f"**{_metrica_ridge_label}** — {_titulo_agrup_r}{_titulo_pool_r} · "
+                                f"{_n_r} {'anos' if _agrup_ridge == 'Ano' else 'trimestres'} · "
+                                f"triângulo branco = mediana · KDE gaussiana (Silverman)"
+                            )
+                            st.plotly_chart(fig_ridge, use_container_width=True)
+    else:
+        st.info("carregando dados automaticamente do github...")
+        st.markdown("por favor, aguarde alguns segundos e recarregue a página")
 
 elif menu == "Glossário":
     st.markdown("## Mapeamento de cachês por aba")
