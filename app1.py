@@ -3610,6 +3610,8 @@ def _eh_merge_commit(mensagem: str) -> bool:
 def _listar_commits_github_repo(repo_full_name: str, headers: dict, incluir_merges: bool) -> list[dict]:
     commits: list[dict] = []
     page = 1
+    headers_publicos = {k: v for k, v in headers.items() if str(k).lower() != "authorization"}
+    usa_token = len(headers_publicos) != len(headers)
     while True:
         url = f"https://api.github.com/repos/{repo_full_name}/commits"
         resp = requests.get(
@@ -3618,6 +3620,15 @@ def _listar_commits_github_repo(repo_full_name: str, headers: dict, incluir_merg
             params={"per_page": 100, "page": page},
             timeout=30,
         )
+        if resp.status_code == 401 and usa_token:
+            resp_publico = requests.get(
+                url,
+                headers=headers_publicos,
+                params={"per_page": 100, "page": page},
+                timeout=30,
+            )
+            if resp_publico.status_code == 200:
+                resp = resp_publico
         if resp.status_code != 200:
             raise RuntimeError(f"erro ao consultar {repo_full_name}: HTTP {resp.status_code}")
         lote = resp.json() if resp.content else []
