@@ -9,6 +9,10 @@ def _app_tree():
     return ast.parse(APP_PATH.read_text(encoding="utf-8"))
 
 
+def _app_source() -> str:
+    return APP_PATH.read_text(encoding="utf-8")
+
+
 def _assigned_list_strings(tree: ast.AST, name: str) -> set[str]:
     for node in ast.walk(tree):
         if not isinstance(node, ast.Assign):
@@ -38,3 +42,9 @@ def test_rankings_t1_delta_uses_bps_like_other_capital_indexes():
     strings = _function_string_literals(_app_tree(), "_delta_percentual_em_bps")
     assert "Índice de Capital T1 (%)" in strings
     assert "Índice de Capital T1" in strings
+
+
+def test_rankings_delta_history_has_available_periods_alias():
+    source = _app_source()
+    assert "periodos = ordenar_periodos(_rankings_periodos_raw, reverso=True)" in source
+    assert "periodos_disponiveis = periodos" in source

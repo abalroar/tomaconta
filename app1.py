@@ -3690,6 +3690,21 @@ def _listar_commits_github_repo(repo_full_name: str, headers: dict, incluir_merg
             )
             if resp_publico.status_code == 200:
                 resp = resp_publico
+        if resp.status_code == 401:
+            raise RuntimeError(
+                f"erro ao consultar {repo_full_name}: HTTP 401 "
+                "(token GitHub inválido/expirado ou sem acesso ao repositório privado)"
+            )
+        if resp.status_code == 403:
+            raise RuntimeError(
+                f"erro ao consultar {repo_full_name}: HTTP 403 "
+                "(token GitHub sem permissão suficiente ou limite de API atingido)"
+            )
+        if resp.status_code == 404:
+            raise RuntimeError(
+                f"erro ao consultar {repo_full_name}: HTTP 404 "
+                "(repositório inexistente, privado sem token válido ou sem acesso)"
+            )
         if resp.status_code != 200:
             raise RuntimeError(f"erro ao consultar {repo_full_name}: HTTP {resp.status_code}")
         lote = resp.json() if resp.content else []
@@ -15270,7 +15285,13 @@ if menu == "Sobre":
                 _salvar_json_local(DEV_HOURS_CACHE_PATH, cache_horas)
                 st.success(f"Estimativa atualizada automaticamente ({motivo_recalculo_auto}).")
             except Exception as exc:
-                st.warning(f"Não foi possível atualizar automaticamente ({motivo_recalculo_auto}): {exc}")
+                if isinstance(cache_horas, dict):
+                    st.info(
+                        "Não foi possível atualizar automaticamente; exibindo a última estimativa salva. "
+                        f"Motivo: {exc}"
+                    )
+                else:
+                    st.warning(f"Não foi possível atualizar automaticamente ({motivo_recalculo_auto}): {exc}")
 
     horas_base_commits_cache = cache_horas.get("horas_base_commits") if isinstance(cache_horas, dict) else None
     horas_overhead_cache = cache_horas.get("horas_overhead") if isinstance(cache_horas, dict) else None
@@ -18116,6 +18137,7 @@ elif menu == "Rankings":
             st.warning("nenhum período disponível nos dados atuais.")
         else:
             periodos = ordenar_periodos(_rankings_periodos_raw, reverso=True)
+            periodos_disponiveis = periodos
             ordem_prioritaria = [
                 'Ativo Total',
                 'Carteira de Crédito*',
