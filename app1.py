@@ -17866,18 +17866,42 @@ elif menu == "Scatter Plot":
         scatter_bancos_visiveis = df_scatter_plot['Instituição'].dropna().astype(str).unique().tolist()
         if scatter_bancos_visiveis:
             with st.expander("🎨 Personalizar cores", expanded=False):
-                for idx_cor_picker, banco_picker in enumerate(scatter_bancos_visiveis):
-                    banco_norm = normalizar_nome_instituicao(banco_picker)
-                    cor_inicial = (
-                        scatter_color_map.get(banco_norm)
-                        or obter_cor_banco(banco_picker)
-                        or cores_plotly[idx_cor_picker % len(cores_plotly)]
-                    )
-                    scatter_color_map[banco_norm] = st.color_picker(
-                        banco_picker,
-                        value=cor_inicial,
-                        key=f"scatter_color_picker_{banco_norm}",
-                    )
+                linhas_cores_scatter = 1 if len(scatter_bancos_visiveis) <= 8 else 2
+                colunas_por_linha_scatter = max(1, math.ceil(len(scatter_bancos_visiveis) / linhas_cores_scatter))
+                bancos_scatter_enumerados = list(enumerate(scatter_bancos_visiveis))
+                for inicio_linha_scatter in range(0, len(bancos_scatter_enumerados), colunas_por_linha_scatter):
+                    bancos_linha_scatter = bancos_scatter_enumerados[
+                        inicio_linha_scatter:inicio_linha_scatter + colunas_por_linha_scatter
+                    ]
+                    cols_cores_scatter = st.columns(colunas_por_linha_scatter, gap="small")
+                    for col_cor_scatter, (idx_cor_picker, banco_picker) in zip(cols_cores_scatter, bancos_linha_scatter):
+                        with col_cor_scatter:
+                            banco_norm = normalizar_nome_instituicao(banco_picker)
+                            cor_inicial = (
+                                scatter_color_map.get(banco_norm)
+                                or obter_cor_banco(banco_picker)
+                                or cores_plotly[idx_cor_picker % len(cores_plotly)]
+                            )
+                            banco_label = str(banco_picker).strip()
+                            banco_label_curto = banco_label if len(banco_label) <= 18 else f"{banco_label[:17]}…"
+                            st.markdown(
+                                (
+                                    "<div "
+                                    f"title=\"{_html_mod.escape(banco_label)}\" "
+                                    "style=\"font-size:0.70rem; color:#6B6B6B; line-height:1.05; "
+                                    "white-space:nowrap; overflow:hidden; text-overflow:ellipsis; "
+                                    "margin-bottom:0.15rem;\">"
+                                    f"{_html_mod.escape(banco_label_curto)}"
+                                    "</div>"
+                                ),
+                                unsafe_allow_html=True,
+                            )
+                            scatter_color_map[banco_norm] = st.color_picker(
+                                f"Cor de {banco_picker}",
+                                value=cor_inicial,
+                                key=f"scatter_color_picker_{banco_norm}",
+                                label_visibility="collapsed",
+                            )
 
         def _obter_cor_scatter_local(instituicao_nome: str) -> Optional[str]:
             banco_norm = normalizar_nome_instituicao(instituicao_nome)
