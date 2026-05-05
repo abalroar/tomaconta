@@ -112,8 +112,35 @@ def test_rankings_accumulated_metrics_request_ytd_dependencies():
         ["4/2025"],
     )
 
-    assert result["source_kind"] == "analytical_principal"
+    assert result["source_kind"] == "lucro_ytd_fast"
     assert set(result["periodos_filter"]) == {"2/2025", "4/2025"}
+
+
+def test_rankings_lucro_ytd_fast_source_accumulates_without_roe_recalc(monkeypatch):
+    dados_periodos = {
+        "2/2025": pd.DataFrame(
+            [
+                {"Instituição": "Banco A", "Período": "2/2025", "Lucro Líquido Acumulado YTD": 20.0},
+            ]
+        ),
+        "4/2025": pd.DataFrame(
+            [
+                {"Instituição": "Banco A", "Período": "4/2025", "Lucro Líquido Acumulado YTD": 9.0},
+            ]
+        ),
+    }
+    monkeypatch.setattr(app1, "_carregar_dados_periodos_preparados", lambda *_args: dados_periodos)
+
+    result = app1._get_rankings_lucro_ytd_df(
+        "principal:test_rankings_lucro_ytd_fast_source",
+        (),
+        periodos_filter=("2/2025", "4/2025"),
+    )
+    lookup = {row["Período"]: row for _, row in result.iterrows()}
+
+    assert lookup["2/2025"]["Lucro Líquido Acumulado YTD"] == 20.0
+    assert lookup["4/2025"]["Lucro Líquido Acumulado YTD"] == 29.0
+    assert "ROE Ac. Anualizado (%)" not in result.columns
 
 
 def test_rankings_accumulated_table_requests_ytd_and_roe_dependencies():

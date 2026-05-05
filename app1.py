@@ -12886,12 +12886,12 @@ def _resolve_rankings_source_request(
 
     source_family = _resolve_rankings_source_family(indicador_label)
     if indicador_label == "Lucro Líquido Acumulado YTD":
-        source_family = "analytical_principal"
+        source_family = "lucro_ytd_fast"
         periodos_filter = _rankings_expandir_periodos_ytd_acumulado(
             periodos_resumo,
             incluir_prev_dez=False,
         )
-        perf_label = "rankings_df_source_analytical"
+        perf_label = "rankings_df_source_lucro_ytd_fast"
     elif indicador_label == "ROE Ac. Anualizado (%)":
         source_family = "analytical_principal"
         periodos_filter = _rankings_expandir_periodos_ytd_acumulado(
@@ -13609,6 +13609,69 @@ def _normalizar_indicadores_rankings(df: pd.DataFrame) -> pd.DataFrame:
     return df_out
 
 
+def _normalizar_instituicoes_rankings_leve(df: pd.DataFrame) -> pd.DataFrame:
+    """Canonicaliza nomes repetidos por valores únicos, evitando apply linha a linha."""
+    if df is None or df.empty:
+        return pd.DataFrame()
+    if "Instituição" not in df.columns:
+        return df.copy()
+
+    out = df.copy()
+    inst_txt = out["Instituição"].astype(str).str.strip()
+    if inst_txt.str.fullmatch(r"\d+(?:\.0)?").any():
+        return canonicalize_institution_dataframe(
+            out,
+            catalog_map=build_institution_to_conglomerate_map(APP_DIR),
+            base_dir=APP_DIR,
+        )
+
+    catalog_map = build_institution_to_conglomerate_map(APP_DIR)
+    nomes_unicos = [nome for nome in inst_txt.dropna().unique().tolist() if nome]
+    mapa_nomes = {
+        nome: canonicalize_institution_name(nome, catalog_map=catalog_map, base_dir=APP_DIR)
+        for nome in nomes_unicos
+    }
+    out["Instituição"] = inst_txt.map(mapa_nomes).fillna(inst_txt)
+    return out
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _get_rankings_lucro_ytd_df(
+    principal_token: str,
+    alias_sig: tuple,
+    periodos_filter: Optional[tuple] = None,
+) -> pd.DataFrame:
+    """Caminho enxuto para LL YTD em Rankings.
+
+    Mantém a normalização semestral do IFData, mas evita recalcular ROE/capital
+    quando o indicador selecionado usa apenas lucro líquido acumulado.
+    """
+    _ = (principal_token, alias_sig)
+    dados_periodos = _carregar_dados_periodos_preparados(principal_token, alias_sig)
+    if not dados_periodos:
+        return pd.DataFrame()
+
+    periodos_set = {str(p) for p in (periodos_filter or ()) if p is not None}
+    colunas_base = ["Instituição", "Período", "Lucro Líquido Acumulado YTD"]
+    frames = []
+    for periodo, df_periodo in dados_periodos.items():
+        if periodos_set and str(periodo) not in periodos_set:
+            continue
+        if df_periodo is None or df_periodo.empty:
+            continue
+        colunas = [col for col in colunas_base if col in df_periodo.columns]
+        if len(colunas) != len(colunas_base):
+            continue
+        frames.append(df_periodo[colunas].copy())
+
+    if not frames:
+        return pd.DataFrame()
+
+    df = pd.concat(frames, ignore_index=True)
+    df = _normalizar_lucro_liquido(df)
+    return _normalizar_instituicoes_rankings_leve(df)
+
+
 @st.cache_data(ttl=900, show_spinner=False)
 def _get_rankings_capital_slice(
     capital_token: str,
@@ -13638,6 +13701,12 @@ def _get_rankings_source_df(
     source_kind: str,
     periodos_filter: Optional[tuple] = None,
 ) -> pd.DataFrame:
+    if source_kind == "lucro_ytd_fast":
+        return _get_rankings_lucro_ytd_df(
+            principal_token,
+            alias_sig,
+            periodos_filter=periodos_filter,
+        )
     if source_kind == "principal_prepared":
         return _get_rankings_direct_df(
             principal_token,
