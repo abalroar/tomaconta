@@ -3160,11 +3160,7 @@ def render_tab_cdsfn() -> None:
             key="cdsfn_live_instituicao",
         )
     with col_periodo1:
-        idx_periodo_principal_default = (
-            opcoes_periodo_documento.index("202512")
-            if "202512" in opcoes_periodo_documento
-            else 0
-        )
+        idx_periodo_principal_default = _indice_periodo_mais_recente(opcoes_periodo_documento)
         periodo_documento_principal = st.selectbox(
             "Período (YYYYMM)",
             options=opcoes_periodo_documento,
@@ -3910,6 +3906,64 @@ def ordenar_periodos(periodos, reverso=False):
             return (0, 0)
 
     return sorted(periodos, key=chave_periodo, reverse=reverso)
+
+
+def _periodo_sort_key_geral(valor) -> tuple[int, int, str]:
+    texto = str(valor or "").strip()
+    if not texto:
+        return (0, 0, "")
+
+    if "/" in texto:
+        partes = texto.split("/")
+        if len(partes) == 2:
+            parte_txt, ano_txt = partes
+            try:
+                parte = int(parte_txt)
+                ano = int(ano_txt)
+                if ano < 100:
+                    ano += 2000
+                mes = parte * 3 if 1 <= parte <= 4 else parte
+                return (ano, mes, texto)
+            except ValueError:
+                return (0, 0, texto)
+
+    if texto.isdigit():
+        if len(texto) >= 6:
+            try:
+                return (int(texto[:4]), int(texto[4:6]), texto)
+            except ValueError:
+                return (0, 0, texto)
+        if len(texto) == 5:
+            try:
+                return (int(texto[:4]), int(texto[4:5]), texto)
+            except ValueError:
+                return (0, 0, texto)
+
+    return (0, 0, texto)
+
+
+def _periodos_ordenados_mais_recentes(periodos) -> list:
+    valores = list(dict.fromkeys([p for p in periodos if p is not None]))
+    return sorted(valores, key=_periodo_sort_key_geral, reverse=True)
+
+
+def _periodo_mais_recente(periodos):
+    ordenados = _periodos_ordenados_mais_recentes(periodos)
+    return ordenados[0] if ordenados else None
+
+
+def _indice_periodo_mais_recente(opcoes, fallback: int = 0) -> int:
+    opcoes_lista = list(opcoes or [])
+    periodo = _periodo_mais_recente(opcoes_lista)
+    if periodo in opcoes_lista:
+        return opcoes_lista.index(periodo)
+    return fallback if opcoes_lista else 0
+
+
+def _periodos_mais_recentes(periodos, quantidade: int) -> list:
+    if quantidade <= 0:
+        return []
+    return _periodos_ordenados_mais_recentes(periodos)[:quantidade]
 
 
 def periodo_para_exibicao(periodo_trimestre: str) -> str:
@@ -5545,7 +5599,7 @@ def _normalizar_lucro_liquido(df: pd.DataFrame) -> pd.DataFrame:
             out.at[row_idx, "Lucro Líquido Trimestral"] = _calcular_ll_trimestral(raw_map, tri_int)
             ll_ytd_ajustado.at[row_idx] = _calcular_ll_ytd(raw_map, tri_int)
 
-    out[col_ll] = ll_ytd_ajustado.where(ll_ytd_ajustado.notna(), out[col_ll])
+    out[col_ll] = ll_ytd_ajustado.where(out["_tri_idx_tmp"].notna(), out[col_ll])
     out = out.drop(columns=["_tri_tmp", "_tri_idx_tmp", "_ano_tmp"], errors="ignore")
     return out
 
@@ -6107,15 +6161,20 @@ def _perf_peers_stage(perf: dict, stage: str, start: float):
     perf[stage] = perf.get(stage, 0.0) + (time.perf_counter() - start)
 
 
-def _log_roe_trace(df: Optional[pd.DataFrame], contexto: str, banco_hint: str = "itau", periodo_hint: str = "3/25"):
+def _log_roe_trace(
+    df: Optional[pd.DataFrame],
+    contexto: str,
+    banco_hint: str = "itau",
+    periodo_hint: Optional[str] = None,
+):
     """Loga insumos do ROE para diagnóstico de consistência entre abas."""
     if df is None or df.empty or not {"Instituição", "Período"}.issubset(df.columns):
         return
 
-    periodo_candidato = periodo_hint
     periodos_disponiveis = set(df["Período"].dropna().astype(str).tolist())
+    periodo_candidato = str(periodo_hint) if periodo_hint else None
     if periodo_candidato not in periodos_disponiveis:
-        periodo_candidato = _encontrar_periodo(list(periodos_disponiveis), 3, 2025)
+        periodo_candidato = _periodo_mais_recente(periodos_disponiveis)
     if not periodo_candidato:
         return
 
@@ -12668,8 +12727,6 @@ RANKINGS_FAMILY_PRINCIPAL_PREPARED = frozenset(
         "Carteira de Crédito*",
         "Core Funding*",
         "Patrimônio Líquido",
-        "Lucro Líquido Acumulado YTD",
-        "ROE Ac. Anualizado (%)",
     }
 )
 RANKINGS_FAMILY_CAPITAL_PREPARED = frozenset(
@@ -12761,6 +12818,29 @@ def _rankings_expandir_periodos_analiticos(
     return tuple(sorted(periodos_set))
 
 
+def _rankings_expandir_periodos_ytd_acumulado(
+    periodos_selecionados: Sequence[str],
+    *,
+    incluir_prev_dez: bool,
+) -> tuple[str, ...]:
+    """Inclui dependências para LL/ROE YTD no regime semestral do IFData."""
+    periodos_set = set(_rankings_periodos_selecionados(periodos_selecionados))
+    for periodo in list(periodos_set):
+        if incluir_prev_dez:
+            periodo_dez = _periodo_dez_ano_anterior(periodo)
+            if periodo_dez:
+                periodos_set.add(periodo_dez)
+
+        parsed = _periodo_para_ano_trimestre(periodo)
+        tri_idx = parsed[1] if parsed else None
+        if tri_idx in (3, 4):
+            periodo_jun = _rankings_periodo_mesma_representacao(periodo, 2)
+            if periodo_jun:
+                periodos_set.add(periodo_jun)
+
+    return tuple(sorted(periodos_set))
+
+
 def _resolve_rankings_source_family(indicador_label: str) -> str:
     if indicador_label in RANKINGS_FAMILY_PRINCIPAL_PREPARED:
         return "principal_prepared"
@@ -12795,23 +12875,32 @@ def _resolve_rankings_source_request(
                 "perf_label": "rankings_df_source_table_trimestral",
             }
         return {
-            "source_kind": "principal_with_capital",
-            "periodos_filter": _rankings_periodos_selecionados(periodos_base),
+            "source_kind": "analytical_with_capital",
+            "periodos_filter": _rankings_expandir_periodos_ytd_acumulado(
+                periodos_base,
+                incluir_prev_dez=True,
+            ),
             "needs_capital": True,
             "perf_label": "rankings_df_source_table_acumulado",
         }
 
     source_family = _resolve_rankings_source_family(indicador_label)
-    if source_family == "principal_prepared":
-        periodos_filter = (
-            _rankings_expandir_periodos_analiticos(
-                periodos_resumo,
-                incluir_prev_dez=True,
-                incluir_contexto_trimestral=False,
-            )
-            if indicador_label == "ROE Ac. Anualizado (%)"
-            else _rankings_periodos_selecionados(periodos_resumo)
+    if indicador_label == "Lucro Líquido Acumulado YTD":
+        source_family = "analytical_principal"
+        periodos_filter = _rankings_expandir_periodos_ytd_acumulado(
+            periodos_resumo,
+            incluir_prev_dez=False,
         )
+        perf_label = "rankings_df_source_analytical"
+    elif indicador_label == "ROE Ac. Anualizado (%)":
+        source_family = "analytical_principal"
+        periodos_filter = _rankings_expandir_periodos_ytd_acumulado(
+            periodos_resumo,
+            incluir_prev_dez=True,
+        )
+        perf_label = "rankings_df_source_analytical"
+    elif source_family == "principal_prepared":
+        periodos_filter = _rankings_periodos_selecionados(periodos_resumo)
         perf_label = "rankings_df_source_principal_prepared"
     elif source_family == "capital_prepared":
         periodos_filter = _rankings_periodos_selecionados(periodos_resumo)
@@ -14061,7 +14150,7 @@ def pagina_test():
         periodo_selecionado = st.selectbox(
             "Período",
             period_options,
-            index=0,
+            index=_indice_periodo_mais_recente(period_options),
             format_func=period_to_display_label,
             key="test_rating_period",
         )
@@ -15233,7 +15322,7 @@ elif False and menu == "Painel":
                 periodo_resumo = st.selectbox(
                     "período",
                     periodos,
-                    index=0,
+                    index=_indice_periodo_mais_recente(periodos),
                     key="periodo_resumo",
                     format_func=periodo_para_exibicao
                 )
@@ -15551,13 +15640,7 @@ elif menu == "Peers (Tabela)":
                 if not _default_peers_bancos:
                     _default_peers_bancos = bancos_disponiveis[:1]
 
-                _default_peers_periodos = []
-                for _tri, _ano in [(3, 2025), (2, 2025), (1, 2025)]:
-                    _p = _encontrar_periodo(periodos_dropdown, _tri, _ano)
-                    if _p:
-                        _default_peers_periodos.append(_p)
-                if not _default_peers_periodos:
-                    _default_peers_periodos = periodos_dropdown[:3]
+                _default_peers_periodos = _periodos_mais_recentes(periodos_dropdown, 3)
 
                 col_bancos, col_periodos = st.columns([2, 2])
                 with col_bancos:
@@ -17136,7 +17219,12 @@ elif menu == "Scatter Plot":
             opcoes_tamanho = ['Tamanho Fixo'] + colunas_scatter
             var_size_ui = st.selectbox("tamanho", opcoes_tamanho, index=0)
         with col4:
-            periodo_scatter = st.selectbox("período", periodos, index=0, format_func=periodo_para_exibicao)
+            periodo_scatter = st.selectbox(
+                "período",
+                periodos,
+                index=_indice_periodo_mais_recente(periodos),
+                format_func=periodo_para_exibicao,
+            )
         with col5:
             mostrar_labels_scatter = st.toggle("data labels", value=False, key="scatter_labels_t1")
         with col6:
@@ -17396,9 +17484,13 @@ elif menu == "Scatter Plot":
                 key="var_y_n2"
             )
         with col_p3:
-            # Período inicial (Dez/2024 por padrão)
-            _p_dez24 = _encontrar_periodo(periodos, 4, 2024)
-            _idx_ini_n2 = periodos.index(_p_dez24) if _p_dez24 and _p_dez24 in periodos else (min(1, len(periodos) - 1) if len(periodos) > 1 else 0)
+            _periodos_scatter_recentes = _periodos_mais_recentes(periodos, 2)
+            _periodo_inicial_n2_default = (
+                _periodos_scatter_recentes[1]
+                if len(_periodos_scatter_recentes) > 1
+                else (_periodos_scatter_recentes[0] if _periodos_scatter_recentes else None)
+            )
+            _idx_ini_n2 = periodos.index(_periodo_inicial_n2_default) if _periodo_inicial_n2_default in periodos else 0
             periodo_inicial = st.selectbox(
                 "período inicial",
                 periodos,
@@ -17407,9 +17499,7 @@ elif menu == "Scatter Plot":
                 format_func=periodo_para_exibicao
             )
         with col_p4:
-            # Período subsequente (Set/2025 por padrão)
-            _p_set25_n2 = _encontrar_periodo(periodos, 3, 2025)
-            _idx_sub_n2 = periodos.index(_p_set25_n2) if _p_set25_n2 and _p_set25_n2 in periodos else 0
+            _idx_sub_n2 = _indice_periodo_mais_recente(periodos)
             periodo_subseq = st.selectbox(
                 "período subsequente",
                 periodos,
@@ -17794,19 +17884,16 @@ elif menu == "Rankings":
 
             col_periodo, col_indicador = st.columns([1.2, 1.9])
             with col_periodo:
-                _idx_periodo_rank = 0
-                _p_set25 = _encontrar_periodo(periodos, 3, 2025)
-                if _p_set25 and _p_set25 in periodos:
-                    _idx_periodo_rank = periodos.index(_p_set25)
+                periodo_default_rank = _periodo_mais_recente(periodos)
                 periodo_resumo = st.multiselect(
                     "períodos",
                     periodos,
-                    default=[periodos[_idx_periodo_rank]] if periodos else [],
+                    default=[periodo_default_rank] if periodo_default_rank else [],
                     key="periodos_resumo_v2",
                     format_func=periodo_para_exibicao
                 )
                 if not periodo_resumo:
-                    periodo_resumo = [periodos[0]] if periodos else []
+                    periodo_resumo = [periodo_default_rank] if periodo_default_rank else []
             with col_indicador:
                 indicador_label = st.selectbox(
                     "indicador",
@@ -17902,7 +17989,7 @@ elif menu == "Rankings":
 
             periodo_tabela_resolvido = st.session_state.get("periodo_tabela_v1")
             if periodo_tabela_resolvido not in periodos:
-                periodo_tabela_resolvido = periodos[0] if periodos else None
+                periodo_tabela_resolvido = _periodo_mais_recente(periodos)
             modo_tabela_resolvido = st.session_state.get("modo_tabela_v1", "Trimestral")
             if modo_tabela_resolvido not in {"Trimestral", "Acumulado"}:
                 modo_tabela_resolvido = "Trimestral"
@@ -19800,7 +19887,7 @@ elif menu == "Rankings":
                     periodo_tabela = st.selectbox(
                         "período",
                         periodos,
-                        index=0,
+                        index=_indice_periodo_mais_recente(periodos),
                         key="periodo_tabela_v1",
                         format_func=periodo_para_exibicao,
                     )
@@ -20045,7 +20132,7 @@ elif menu == "Contas COSIF":
             periodo_referencia = st.selectbox(
                 "período de referência (yyyymm)",
                 periodos_yyyymm_desc,
-                index=0,
+                index=_indice_periodo_mais_recente(periodos_yyyymm_desc),
                 format_func=_yyyymm_para_periodo_exibicao,
                 key="fgc_periodo_referencia",
             )
@@ -26697,7 +26784,7 @@ elif menu == "Crie sua métrica!":
                         periodo_scatter_brincar = st.selectbox(
                             "período",
                             periodos_dropdown,
-                            index=0,
+                            index=_indice_periodo_mais_recente(periodos_dropdown),
                             key="periodo_scatter_brincar",
                             format_func=periodo_para_exibicao
                         )
@@ -26887,7 +26974,17 @@ elif menu == "Crie sua métrica!":
                     col_p1, col_p2, col_tipo_var = st.columns([2, 2, 1])
 
                     with col_p1:
-                        indice_inicial_brincar = 1 if len(periodos_dropdown) > 1 else 0
+                        _periodos_brincar_recentes = _periodos_mais_recentes(periodos_dropdown, 2)
+                        _periodo_inicial_brincar_default = (
+                            _periodos_brincar_recentes[1]
+                            if len(_periodos_brincar_recentes) > 1
+                            else (_periodos_brincar_recentes[0] if _periodos_brincar_recentes else None)
+                        )
+                        indice_inicial_brincar = (
+                            periodos_dropdown.index(_periodo_inicial_brincar_default)
+                            if _periodo_inicial_brincar_default in periodos_dropdown
+                            else 0
+                        )
                         periodo_inicial_brincar = st.selectbox(
                             "período inicial",
                             periodos_dropdown,
@@ -26899,7 +26996,7 @@ elif menu == "Crie sua métrica!":
                         periodo_subsequente_brincar = st.selectbox(
                             "período subsequente",
                             periodos_dropdown,
-                            index=0,
+                            index=_indice_periodo_mais_recente(periodos_dropdown),
                             key="periodo_subsequente_brincar",
                             format_func=periodo_para_exibicao
                         )
@@ -27149,7 +27246,7 @@ elif menu == "Crie sua métrica!":
                         periodo_ranking = st.selectbox(
                             "período",
                             periodos_dropdown,
-                            index=0,
+                            index=_indice_periodo_mais_recente(periodos_dropdown),
                             key="periodo_ranking_brincar",
                             format_func=periodo_para_exibicao
                         )
@@ -27674,13 +27771,46 @@ elif menu == "Atualizar Base":
 
         elif is_bloprudencial:
             st.caption("BLOPRUDENCIAL: extração mensal via GET estático no site do BCB")
+            anos_mensais = list(range(2015, 2031))
+            meses_mensais = [f"{m:02d}" for m in range(1, 13)]
+            info_bloprudencial_local = cache_manager.info(cache_selecionado)
+            periodos_bloprudencial = sorted(
+                {p for p in (_normalizar_periodo_cache(x) for x in info_bloprudencial_local.get("periodos", [])) if p}
+            )
+            periodo_bloprudencial_default = periodos_bloprudencial[-1] if periodos_bloprudencial else "202512"
+            ano_bloprudencial_default = int(periodo_bloprudencial_default[:4])
+            mes_bloprudencial_default = periodo_bloprudencial_default[4:6]
+            if ano_bloprudencial_default not in anos_mensais:
+                ano_bloprudencial_default = 2025
+            if mes_bloprudencial_default not in meses_mensais:
+                mes_bloprudencial_default = "12"
             col1, col2 = st.columns(2)
             with col1:
-                ano_i = st.selectbox("ano inicial", range(2015, 2031), index=10, key="ano_i_bloprudencial")
-                mes_i = st.selectbox("mês inicial", [f"{m:02d}" for m in range(1, 13)], index=7, key="mes_i_bloprudencial")
+                ano_i = st.selectbox(
+                    "ano inicial",
+                    anos_mensais,
+                    index=anos_mensais.index(ano_bloprudencial_default),
+                    key="ano_i_bloprudencial",
+                )
+                mes_i = st.selectbox(
+                    "mês inicial",
+                    meses_mensais,
+                    index=meses_mensais.index(mes_bloprudencial_default),
+                    key="mes_i_bloprudencial",
+                )
             with col2:
-                ano_f = st.selectbox("ano final", range(2015, 2031), index=11, key="ano_f_bloprudencial")
-                mes_f = st.selectbox("mês final", [f"{m:02d}" for m in range(1, 13)], index=8, key="mes_f_bloprudencial")
+                ano_f = st.selectbox(
+                    "ano final",
+                    anos_mensais,
+                    index=anos_mensais.index(ano_bloprudencial_default),
+                    key="ano_f_bloprudencial",
+                )
+                mes_f = st.selectbox(
+                    "mês final",
+                    meses_mensais,
+                    index=meses_mensais.index(mes_bloprudencial_default),
+                    key="mes_f_bloprudencial",
+                )
 
             inicio = int(f"{ano_i}{mes_i}")
             fim = int(f"{ano_f}{mes_f}")
@@ -27724,19 +27854,19 @@ elif menu == "Atualizar Base":
             anos_trimestrais = list(range(2015, 2029))
             trimestres = ['03', '06', '09', '12']
 
-            ano_i_default = 2023
-            mes_i_default = '03'
-            ano_f_default = 2025
-            mes_f_default = '09'
-            if prox_periodo_sugerido:
-                try:
-                    ano_sugerido = int(prox_periodo_sugerido[:4])
-                    mes_sugerido = prox_periodo_sugerido[4:6]
-                    if ano_sugerido in anos_trimestrais and mes_sugerido in trimestres:
-                        ano_i_default = ano_f_default = ano_sugerido
-                        mes_i_default = mes_f_default = mes_sugerido
-                except Exception:
-                    pass
+            periodo_api_default = _normalizar_periodo_cache(ultimo_periodo_local) if ultimo_periodo_local else "202512"
+            try:
+                ano_default = int(periodo_api_default[:4])
+                mes_default = periodo_api_default[4:6]
+            except Exception:
+                ano_default = 2025
+                mes_default = "12"
+            if ano_default not in anos_trimestrais:
+                ano_default = 2025
+            if mes_default not in trimestres:
+                mes_default = "12"
+            ano_i_default = ano_f_default = ano_default
+            mes_i_default = mes_f_default = mes_default
 
             col1, col2 = st.columns(2)
             with col1:
