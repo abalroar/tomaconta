@@ -14439,11 +14439,12 @@ def _rating_factor_display_map() -> dict[str, str]:
 
 def _build_rating_waterfall_figure(result: dict) -> go.Figure:
     factor_labels = _rating_factor_display_map()
+    starting_score = float(result.get("starting_score") or 0)
     x = ["Score Inicial"]
-    y = [float(result.get("starting_score") or 0)]
+    y = [starting_score]
     measure = ["total"]
-    text = [f"{float(result.get('starting_score') or 0):+.2f}"]
-    running_total = float(result.get("starting_score") or 0)
+    text = [""]
+    running_total = starting_score
     cumulative_values = [running_total]
 
     for key, payload in (result.get("quantitative_scores") or {}).items():
@@ -14471,27 +14472,61 @@ def _build_rating_waterfall_figure(result: dict) -> go.Figure:
     text.append(str(result.get("final_numeric_rating") or "N/A"))
     cumulative_values.append(float(result.get("final_numeric_rating") or running_total or 0))
 
-    fig = go.Figure(
+    y_min = min(15.0, min(cumulative_values) if cumulative_values else 15.0)
+    y_max = max(cumulative_values) if cumulative_values else 25.0
+    altura_minima_visual_inicial = 2.0
+    if starting_score > 0 and starting_score - y_min < altura_minima_visual_inicial:
+        y_min = max(0.0, starting_score - altura_minima_visual_inicial)
+
+    fig = go.Figure()
+    altura_visual_inicial = max(0.0, starting_score - y_min)
+    if altura_visual_inicial > 0:
+        fig.add_trace(
+            go.Bar(
+                x=["Score Inicial"],
+                y=[altura_visual_inicial],
+                base=[y_min],
+                width=0.62,
+                marker=dict(color="#111111", line=dict(color="#111111", width=0)),
+                hovertemplate=f"<b>Score Inicial</b><br>Score: {starting_score:.2f}<extra></extra>",
+                showlegend=False,
+            )
+        )
+    fig.add_trace(
         go.Waterfall(
             x=x,
             y=y,
             measure=measure,
             text=text,
             textposition="outside",
+            textfont=dict(size=12, color="#111111"),
+            cliponaxis=False,
+            constraintext="none",
             increasing={"marker": {"color": "#0f9d58"}},
             decreasing={"marker": {"color": "#d93025"}},
             totals={"marker": {"color": "#111111"}},
             connector={"line": {"color": "#8a8a8a", "width": 1}},
         )
     )
-    y_min = min(15.0, min(cumulative_values) if cumulative_values else 15.0)
-    y_max = max(cumulative_values) if cumulative_values else 25.0
+    if starting_score > 0:
+        fig.add_annotation(
+            x="Score Inicial",
+            y=starting_score,
+            text=f"{starting_score:.2f}",
+            showarrow=False,
+            yshift=12,
+            font=dict(size=12, color="#111111"),
+            bgcolor="rgba(255,255,255,0.82)",
+            bordercolor="rgba(17,17,17,0.18)",
+            borderpad=2,
+        )
     fig.update_layout(
         margin=dict(l=20, r=20, t=30, b=20),
         height=360,
         showlegend=False,
+        barmode="overlay",
         yaxis_title="Score",
-        yaxis=dict(range=[y_min, y_max + 1.0]),
+        yaxis=dict(range=[y_min, y_max + 1.0], layer="below traces"),
     )
     return fig
 

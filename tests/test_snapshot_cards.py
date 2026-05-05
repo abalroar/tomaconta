@@ -230,8 +230,40 @@ def test_rating_waterfall_uses_score_final_black_totals_and_floor_15():
         }
     )
 
-    assert list(fig.data[0].x)[0] == "Score Inicial"
-    assert list(fig.data[0].x)[-1] == "Score Final"
-    assert list(fig.data[0].measure)[0] == "total"
-    assert fig.data[0].totals["marker"]["color"] == "#111111"
+    waterfall = next(trace for trace in fig.data if trace.type == "waterfall")
+    assert list(waterfall.x)[0] == "Score Inicial"
+    assert list(waterfall.x)[-1] == "Score Final"
+    assert list(waterfall.measure)[0] == "total"
+    assert waterfall.totals["marker"]["color"] == "#111111"
     assert fig.layout.yaxis.range[0] == 15.0
+
+
+def test_rating_waterfall_initial_score_has_minimum_visible_height():
+    fig = app1._build_rating_waterfall_figure(
+        {
+            "starting_score": 16,
+            "quantitative_scores": {
+                "cet1": {"score": -0.25},
+            },
+            "qualitative_scores": {
+                "q1": {"score": 0.0},
+                "q2": {"score": 0.0},
+                "q3": {"score": 0.0},
+                "q4": {"score": 0.0},
+                "q5": {"score": 0.0},
+                "q6": {"score": 0.0},
+            },
+            "final_numeric_rating": 16,
+        }
+    )
+
+    initial_bar = next(trace for trace in fig.data if trace.type == "bar")
+    waterfall = next(trace for trace in fig.data if trace.type == "waterfall")
+
+    assert list(waterfall.y)[0] == 16.0
+    assert list(waterfall.measure)[0] == "total"
+    assert list(initial_bar.x) == ["Score Inicial"]
+    assert list(initial_bar.y)[0] == 2.0
+    assert list(initial_bar.base)[0] == 14.0
+    assert fig.layout.yaxis.range[0] == 14.0
+    assert any(annotation.text == "16.00" for annotation in fig.layout.annotations)
