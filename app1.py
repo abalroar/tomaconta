@@ -6464,6 +6464,61 @@ def _build_scatter_var_options(colunas: list) -> Tuple[list, Dict[str, str]]:
     return opcoes_base, display_to_internal
 
 
+def _scatter_usa_metricas_derivadas(*variaveis: Optional[str]) -> bool:
+    return any(var in DERIVED_METRICS for var in variaveis if var and var != "Tamanho Fixo")
+
+
+def _scatter_precisa_base_preparada(*variaveis: Optional[str]) -> bool:
+    """Indica se o Scatter precisa do loader enriquecido com ativo/passivo."""
+    metricas_enriquecidas = {
+        "Carteira de Crédito",
+        "Carteira de Crédito*",
+        "Carteira de Crédito Bruta",
+        "Carteira de Crédito Classificada",
+        "Carteira de Crédito / PL",
+        "Carteira de Crédito Bruta / PL",
+        "Carteira de Crédito/Core Funding (%)",
+        "Core Funding",
+        "Core Funding*",
+        "Crédito/PL",
+        "Crédito/PL (%)",
+        "Crédito/Captações (%)",
+        "Captações",
+    }
+    return any(var in metricas_enriquecidas for var in variaveis if var and var != "Tamanho Fixo")
+
+
+def _scatter_colunas_preparadas(colunas_base: Sequence[str]) -> list[str]:
+    """Replica o catálogo de colunas do Scatter sem materializar toda a base."""
+    colunas = list(dict.fromkeys(str(col) for col in colunas_base if col))
+    colunas_set = set(colunas)
+
+    def add(col: str):
+        if col not in colunas_set:
+            colunas.append(col)
+            colunas_set.add(col)
+
+    if "Carteira de Crédito" in colunas_set or "Carteira de Crédito Classificada" in colunas_set:
+        add("Carteira de Crédito Bruta")
+    if "Captações" in colunas_set:
+        add("Core Funding")
+    if {"Carteira de Crédito", "Patrimônio Líquido"}.issubset(colunas_set) or {"Carteira de Crédito Bruta", "Patrimônio Líquido"}.issubset(colunas_set):
+        add("Carteira de Crédito Bruta / PL")
+        add("Crédito/PL (%)")
+    if {"Carteira de Crédito", "Core Funding"}.issubset(colunas_set) or {"Carteira de Crédito Bruta", "Core Funding"}.issubset(colunas_set):
+        add("Carteira de Crédito/Core Funding (%)")
+        add("Crédito/Captações (%)")
+    if {"Lucro Líquido Acumulado YTD", "Patrimônio Líquido"}.issubset(colunas_set):
+        add("ROE Ac. Anualizado (%)")
+        add("ROE Ac. YTD an. (%)")
+    if "Lucro Líquido Acumulado YTD" in colunas_set:
+        add("Lucro Líquido Trimestral")
+    if {"Lucro Líquido Acumulado YTD", "Patrimônio Líquido"}.issubset(colunas_set):
+        add("ROE trimestral anualizado (%)")
+
+    return colunas
+
+
 def _format_scatter_label_value(valor, format_info: dict, usar_mm_numeral: bool = False) -> str:
     if valor is None or pd.isna(valor):
         return "N/A"
@@ -13253,8 +13308,162 @@ def anexar_metricas_derivadas_periodo(df_periodo: pd.DataFrame, periodo: str):
     return df_out, diag
 
 
+def _scatter_periodos_dependencias_analiticas(periodo: str) -> tuple[str, ...]:
+    """Períodos mínimos para LL YTD/trimestral e ROE sem carregar todo o histórico."""
+    if not periodo:
+        return tuple()
+    periodos_set = {str(periodo)}
+    parsed = _periodo_para_ano_trimestre(str(periodo))
+    tri_idx = parsed[1] if parsed else None
+
+    if tri_idx == 2:
+        periodo_aux = _rankings_periodo_mesma_representacao(str(periodo), 1)
+        if periodo_aux:
+            periodos_set.add(periodo_aux)
+    elif tri_idx == 3:
+        periodo_aux = _rankings_periodo_mesma_representacao(str(periodo), 2)
+        if periodo_aux:
+            periodos_set.add(periodo_aux)
+    elif tri_idx == 4:
+        for tri_aux in (2, 3):
+            periodo_aux = _rankings_periodo_mesma_representacao(str(periodo), tri_aux)
+            if periodo_aux:
+                periodos_set.add(periodo_aux)
+
+    periodo_dez = _periodo_dez_ano_anterior(str(periodo))
+    if periodo_dez:
+        periodos_set.add(periodo_dez)
+
+    return tuple(ordenar_periodos(list(periodos_set), reverso=False))
+
+
+def _scatter_principal_columns_from_metadata() -> tuple[str, ...]:
+    manager = get_cache_manager()
+    cache_principal = manager.get_cache("principal") if manager else None
+    metadata = _load_cache_metadata(cache_principal)
+    colunas = metadata.get("colunas") or []
+    if colunas:
+        return tuple(str(col) for col in colunas if col)
+    return tuple()
+
+
 @st.cache_data(ttl=900, show_spinner=False)
-def get_scatter_periodo_df(periodo: str, principal_token: str, derived_token: str, alias_sig: tuple, capital_mesclado: bool):
+def _get_scatter_filters_context(principal_token: str, alias_sig: tuple) -> dict:
+    """Contexto leve de filtros/seletores do Scatter sem carregar ativo/passivo/DRE."""
+    _ = (principal_token, alias_sig)
+    manager = get_cache_manager()
+    cache_principal = manager.get_cache("principal") if manager else None
+    metadata = _load_cache_metadata(cache_principal)
+    colunas_meta = tuple(str(col) for col in (metadata.get("colunas") or []) if col)
+    periodos_meta = tuple(str(p) for p in (metadata.get("periodos") or []) if p)
+
+    df_keys = pd.DataFrame()
+    if cache_principal is not None and cache_principal.arquivo_dados.exists():
+        try:
+            df_keys = pd.read_parquet(cache_principal.arquivo_dados, columns=["Instituição", "Período"])
+        except Exception:
+            df_keys = pd.DataFrame()
+
+    if df_keys.empty:
+        dados_periodos = _carregar_dados_periodos_preparados(principal_token, alias_sig)
+        if not dados_periodos:
+            return {"periodos": tuple(periodos_meta), "bancos": tuple(), "colunas_numericas": tuple()}
+        frames = []
+        for periodo, df_periodo in dados_periodos.items():
+            if df_periodo is None or df_periodo.empty:
+                continue
+            cols = [col for col in ("Instituição", "Período") if col in df_periodo.columns]
+            if {"Instituição", "Período"}.issubset(cols):
+                frames.append(df_periodo[cols].copy())
+            if not colunas_meta:
+                colunas_meta = tuple(str(col) for col in df_periodo.columns if col)
+        df_keys = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+
+    periodos = periodos_meta
+    if not periodos and "Período" in df_keys.columns:
+        periodos = tuple(df_keys["Período"].dropna().astype(str).unique().tolist())
+
+    bancos = tuple()
+    if "Instituição" in df_keys.columns:
+        bancos = tuple(df_keys["Instituição"].dropna().astype(str).unique().tolist())
+
+    colunas_base = _scatter_colunas_preparadas(colunas_meta)
+    colunas_numericas = tuple(
+        col for col in colunas_base
+        if col not in {"Instituição", "Período", "CodInst"}
+    )
+
+    return {
+        "periodos": tuple(ordenar_periodos(list(periodos), reverso=True)),
+        "bancos": bancos,
+        "colunas_numericas": colunas_numericas,
+    }
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def _get_scatter_principal_direct_periodo_df(
+    principal_token: str,
+    alias_sig: tuple,
+    periodo: str,
+) -> pd.DataFrame:
+    """Recorte direto do principal para o Scatter quando não há métricas enriquecidas."""
+    colunas_principal = _scatter_principal_columns_from_metadata()
+    if not colunas_principal:
+        colunas_principal = (
+            "Instituição",
+            "Período",
+            "Ativo Total",
+            "Captações",
+            "Carteira de Crédito Classificada",
+            "Lucro Líquido",
+            "Lucro Líquido Acumulado YTD",
+            "Patrimônio Líquido",
+            "ROE Ac. YTD an. (%)",
+            "Índice de Basileia",
+            "Índice de Imobilização",
+            "Carteira de Crédito",
+            "Crédito/Ativo (%)",
+            "Crédito/Captações (%)",
+            "Crédito/PL (%)",
+            "Passivo Exigível",
+            "Patrimônio de Referência para Comparação com o RWA (e)",
+            "Títulos e Valores Mobiliários",
+            "CodInst",
+        )
+
+    periodos_contexto = _scatter_periodos_dependencias_analiticas(periodo)
+    df_base = _get_rankings_principal_slice_df(
+        principal_token,
+        alias_sig,
+        periodos_contexto,
+        tuple(colunas_principal),
+    )
+    if df_base is None or df_base.empty:
+        return pd.DataFrame()
+
+    df_base = _normalizar_lucro_liquido(df_base.copy())
+    df_base = _recalcular_roe_anualizado_df(df_base)
+    df_base = _recalcular_roe_trimestral_df(df_base)
+    if "Período" not in df_base.columns:
+        return pd.DataFrame()
+
+    df_periodo = df_base[df_base["Período"].astype(str) == str(periodo)].copy()
+    if df_periodo.empty:
+        return pd.DataFrame()
+
+    return df_periodo
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def get_scatter_periodo_df(
+    periodo: str,
+    principal_token: str,
+    derived_token: str,
+    alias_sig: tuple,
+    capital_mesclado: bool,
+    incluir_metricas_derivadas: bool = True,
+    variaveis_key: tuple = tuple(),
+):
     """Carrega dataframe de um período do Scatter já com métricas derivadas anexadas.
 
     Diagnóstico definitivo de Basileia no Scatter:
@@ -13265,14 +13474,36 @@ def get_scatter_periodo_df(periodo: str, principal_token: str, derived_token: st
     Isso evita o erro recorrente de exibir 0.15% quando o correto é 15.00%.
     """
     _ = derived_token
-    df_base = _get_analise_base_df(principal_token, alias_sig, capital_mesclado)
-    if df_base is None or df_base.empty or 'Período' not in df_base.columns:
-        return pd.DataFrame(), {"tempo_s": 0.0, "linhas": 0, "mem_mb": 0.0}
+    usar_base_preparada = _scatter_precisa_base_preparada(*(variaveis_key or tuple()))
+    if usar_base_preparada:
+        df_base = _get_analise_base_df(
+            principal_token,
+            alias_sig,
+            capital_mesclado,
+            periodos_filter=_scatter_periodos_dependencias_analiticas(periodo),
+        )
+        if df_base is None or df_base.empty or 'Período' not in df_base.columns:
+            return pd.DataFrame(), {"tempo_s": 0.0, "linhas": 0, "mem_mb": 0.0}
+        df_periodo = df_base[df_base['Período'].astype(str) == str(periodo)].copy()
+    else:
+        df_periodo = _get_scatter_principal_direct_periodo_df(principal_token, alias_sig, periodo)
+        if df_periodo is None or df_periodo.empty:
+            df_base = _get_analise_base_df(
+                principal_token,
+                alias_sig,
+                capital_mesclado,
+                periodos_filter=_scatter_periodos_dependencias_analiticas(periodo),
+            )
+            if df_base is None or df_base.empty or 'Período' not in df_base.columns:
+                return pd.DataFrame(), {"tempo_s": 0.0, "linhas": 0, "mem_mb": 0.0}
+            df_periodo = df_base[df_base['Período'].astype(str) == str(periodo)].copy()
 
-    df_periodo = df_base[df_base['Período'] == periodo].copy()
     df_periodo = _garantir_indice_basileia_coluna(df_periodo)
     df_periodo = _ajustar_basileia_para_scatter(df_periodo)
-    df_periodo, diag = anexar_metricas_derivadas_periodo(df_periodo, periodo)
+    if incluir_metricas_derivadas:
+        df_periodo, diag = anexar_metricas_derivadas_periodo(df_periodo, periodo)
+    else:
+        diag = {"tempo_s": 0.0, "linhas": 0, "mem_mb": 0.0, "skipped": True}
     if 'Lucro Líquido Trimestral' not in df_periodo.columns:
         if 'Lucro Líquido' in df_periodo.columns:
             df_periodo['Lucro Líquido Trimestral'] = pd.to_numeric(df_periodo['Lucro Líquido'], errors='coerce')
@@ -17474,23 +17705,26 @@ elif menu == "Evolução":
 
 elif menu == "Scatter Plot":
     if _garantir_dados_principais("Scatter Plot"):
-        df = get_analise_base_df(_cache_version_token("principal"))
-        _log_roe_trace(df, "scatter_df_base")
-        df = _garantir_indice_basileia_coluna(df)
-        df = _ajustar_basileia_para_scatter(df)
+        t0_scatter_total = time.perf_counter()
+        scatter_diag_tempos = {}
+        scatter_principal_token = _cache_version_token("principal")
+        scatter_alias_sig = _alias_signature_cache_key()
+        _t_scatter_base = time.perf_counter()
+        scatter_context = _get_scatter_filters_context(scatter_principal_token, scatter_alias_sig)
+        scatter_diag_tempos["contexto_filtros_s"] = time.perf_counter() - _t_scatter_base
 
-        colunas_base = [
-            col for col in df.columns
-            if col not in ['Instituição', 'Período'] and pd.api.types.is_numeric_dtype(df[col])
-        ]
+        colunas_base = list(scatter_context.get("colunas_numericas", tuple()))
         colunas_numericas = colunas_base + [m for m in DERIVED_METRICS if m not in colunas_base]
         colunas_numericas = _ajustar_colunas_core_funding(colunas_numericas)
         colunas_scatter, scatter_display_to_internal = _build_scatter_var_options(colunas_numericas)
         scatter_internal_to_display = {v: k for k, v in scatter_display_to_internal.items()}
-        periodos = ordenar_periodos(df['Período'].unique(), reverso=True)
+        periodos = list(scatter_context.get("periodos", tuple()))
+        if not periodos:
+            st.warning("Nenhum período disponível para montar o Scatter.")
+            st.stop()
 
         # Lista de todos os bancos disponíveis com ordenação por alias
-        bancos_todos = df['Instituição'].dropna().unique().tolist()
+        bancos_todos = list(scatter_context.get("bancos", tuple()))
         dict_aliases = st.session_state.get('dict_aliases', {})
         todos_bancos = ordenar_bancos_com_alias(bancos_todos, dict_aliases)
         # Primeira linha: variáveis dos eixos e tamanho
@@ -17533,6 +17767,7 @@ elif menu == "Scatter Plot":
         var_x = scatter_display_to_internal.get(var_x_ui, var_x_ui)
         var_y = scatter_display_to_internal.get(var_y_ui, var_y_ui)
         var_size = scatter_display_to_internal.get(var_size_ui, var_size_ui) if var_size_ui != 'Tamanho Fixo' else 'Tamanho Fixo'
+        scatter_t1_usa_derivadas = _scatter_usa_metricas_derivadas(var_x, var_y, var_size)
 
         # Segunda linha: Pool Top N único (Ativo Total)
         col_t1, col_t2 = st.columns([1, 2])
@@ -17558,13 +17793,18 @@ elif menu == "Scatter Plot":
             )
 
         # Aplica filtros ao dataframe (já com métricas derivadas cacheadas por período)
+        _t_scatter_t1 = time.perf_counter()
         df_periodo, diag_scatter_derived = get_scatter_periodo_df(
             periodo_scatter,
-            _cache_version_token("principal"),
+            scatter_principal_token,
             _cache_version_token("derived_metrics"),
-            _alias_signature_cache_key(),
+            scatter_alias_sig,
             bool(st.session_state.get('_dados_capital_mesclados', False)),
+            scatter_t1_usa_derivadas,
+            (var_x, var_y, var_size),
         )
+        scatter_diag_tempos["periodo_t1_s"] = time.perf_counter() - _t_scatter_t1
+        _log_roe_trace(df_periodo, "scatter_df_periodo", periodo_hint=periodo_scatter)
 
         df_scatter_health = _scatter_variable_health(df_periodo, colunas_scatter, scatter_display_to_internal)
         with st.expander("diagnóstico de variáveis do scatter", expanded=False):
@@ -17736,6 +17976,7 @@ elif menu == "Scatter Plot":
         )
 
         st.plotly_chart(fig_scatter, width='stretch')
+        scatter_diag_tempos["total_ate_t1_s"] = time.perf_counter() - t0_scatter_total
 
         if st.session_state.get("modo_diagnostico"):
             with st.expander("diagnóstico scatter n=1"):
@@ -17744,6 +17985,10 @@ elif menu == "Scatter Plot":
                 st.caption(f"Recorte derivado: {diag_scatter_derived.get('linhas', 0)} linhas")
                 st.caption(f"Memória recorte derivado: {diag_scatter_derived.get('mem_mb', 0):.2f} MB")
                 st.caption(f"Tempo recorte derivado: {diag_scatter_derived.get('tempo_s', 0):.3f}s")
+                st.caption(f"Métricas derivadas t=1: {'carregadas' if scatter_t1_usa_derivadas else 'puladas'}")
+                st.caption(f"Tempo contexto filtros: {scatter_diag_tempos.get('contexto_filtros_s', 0):.3f}s")
+                st.caption(f"Tempo período t=1: {scatter_diag_tempos.get('periodo_t1_s', 0):.3f}s")
+                st.caption(f"Tempo total até t=1: {scatter_diag_tempos.get('total_ate_t1_s', 0):.3f}s")
 
         # ============================================================
         # SCATTER PLOT t=2 - Comparação entre dois períodos
@@ -17816,25 +18061,41 @@ elif menu == "Scatter Plot":
                 help="Se vazio, o scatter usa o mesmo pool Top N do gráfico t=1.",
             )
 
+        carregar_scatter_t2 = st.toggle(
+            "Carregar comparação t=2",
+            value=False,
+            key="scatter_load_t2",
+            help="Carrega os dois períodos e desenha a trajetória. Mantido sob demanda para reduzir o tempo inicial da aba.",
+        )
+        scatter_t2_usa_derivadas = _scatter_usa_metricas_derivadas(var_x_n2, var_y_n2, var_size_n2)
+
         # Validação: períodos devem ser diferentes
-        if periodo_inicial == periodo_subseq:
+        if not carregar_scatter_t2:
+            st.caption("A comparação t=2 fica sob demanda para manter o carregamento inicial do Scatter mais rápido.")
+        elif periodo_inicial == periodo_subseq:
             st.warning("Selecione dois períodos diferentes para visualizar a movimentação.")
         else:
             # Filtra dados para os dois períodos (com métricas derivadas cacheadas)
+            _t_scatter_t2 = time.perf_counter()
             df_p1, diag_scatter_derived_p1 = get_scatter_periodo_df(
                 periodo_inicial,
-                _cache_version_token("principal"),
+                scatter_principal_token,
                 _cache_version_token("derived_metrics"),
-                _alias_signature_cache_key(),
+                scatter_alias_sig,
                 bool(st.session_state.get('_dados_capital_mesclados', False)),
+                scatter_t2_usa_derivadas,
+                (var_x_n2, var_y_n2, var_size_n2),
             )
             df_p2, diag_scatter_derived_p2 = get_scatter_periodo_df(
                 periodo_subseq,
-                _cache_version_token("principal"),
+                scatter_principal_token,
                 _cache_version_token("derived_metrics"),
-                _alias_signature_cache_key(),
+                scatter_alias_sig,
                 bool(st.session_state.get('_dados_capital_mesclados', False)),
+                scatter_t2_usa_derivadas,
+                (var_x_n2, var_y_n2, var_size_n2),
             )
+            scatter_diag_tempos["periodos_t2_s"] = time.perf_counter() - _t_scatter_t2
 
             # Aplica seleção de bancos ou top N
             if bancos_selecionados_n2:
@@ -18080,6 +18341,8 @@ elif menu == "Scatter Plot":
                         st.caption(f"Memória recorte derivado p2: {diag_scatter_derived_p2.get('mem_mb', 0):.2f} MB")
                         st.caption(f"Tempo recorte derivado p1: {diag_scatter_derived_p1.get('tempo_s', 0):.3f}s")
                         st.caption(f"Tempo recorte derivado p2: {diag_scatter_derived_p2.get('tempo_s', 0):.3f}s")
+                        st.caption(f"Métricas derivadas t=2: {'carregadas' if scatter_t2_usa_derivadas else 'puladas'}")
+                        st.caption(f"Tempo períodos t=2: {scatter_diag_tempos.get('periodos_t2_s', 0):.3f}s")
 
     else:
         st.caption("Use o botão de carregamento acima para abrir o Scatter imediatamente.")
