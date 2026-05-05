@@ -1,6 +1,6 @@
 {
-  "finalized_at": "2026-04-13T18:58:28.929206",
-  "total_rows": 2700845,
+  "finalized_at": "2026-05-05T15:24:58.023740",
+  "total_rows": 2711731,
   "annual_rows": {
     "2012": 191447,
     "2013": 180012,
@@ -16,8 +16,9 @@
     "2023": 199695,
     "2024": 204440,
     "2025": 190696,
-    "2026": 40860
+    "2026": 51746
   },
-  "target_windows": 3570,
-  "processed_windows": 3570
+  "target_windows": 3584,
+  "processed_windows": 3584,
+  "recomposed_from_annual_slices": true
 }
