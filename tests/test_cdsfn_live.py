@@ -168,14 +168,33 @@ def _sample_demonstrativos(payloads: list[dict], periodos_ref: list[str]) -> dic
 def _pptx_text(prs: Presentation) -> str:
     chunks: list[str] = []
     for slide in prs.slides:
+        chunks.append(_slide_text(slide))
+    return "\n".join(chunks)
+
+
+def _slide_text(slide) -> str:
+    chunks: list[str] = []
+    for shape in slide.shapes:
+        if hasattr(shape, "text"):
+            chunks.append(shape.text)
+        if getattr(shape, "has_table", False):
+            for row in shape.table.rows:
+                for cell in row.cells:
+                    chunks.append(cell.text)
+    return "\n".join(chunks)
+
+
+def _count_slides_containing(prs: Presentation, text: str) -> int:
+    return sum(1 for slide in prs.slides if text in _slide_text(slide))
+
+
+def _table_cells(prs: Presentation):
+    for slide in prs.slides:
         for shape in slide.shapes:
-            if hasattr(shape, "text"):
-                chunks.append(shape.text)
             if getattr(shape, "has_table", False):
                 for row in shape.table.rows:
                     for cell in row.cells:
-                        chunks.append(cell.text)
-    return "\n".join(chunks)
+                        yield cell
 
 
 class _DummyResponse:
@@ -424,12 +443,47 @@ def test_build_balanco_dre_dmpl_individual_pptx_returns_readable_deck():
     assert isinstance(pptx_bytes, bytes)
     assert len(pptx_bytes) > 1000
     prs = Presentation(BytesIO(pptx_bytes))
-    assert len(prs.slides) >= 7
+    assert len(prs.slides) >= 6
     text = _pptx_text(prs)
     assert "Balanço, DRE e DMPL" in text
     assert "BP — Balanço Patrimonial" in text
+    assert "DRE — Demonstração do Resultado" in text
     assert "Unidade: R$ mil" in text
     assert "Fonte: Banco Central do Brasil" in text
+    assert _count_slides_containing(prs, "BP — Balanço Patrimonial") == 1
+    assert _count_slides_containing(prs, "DRE — Demonstração do Resultado") == 1
+    assert all(cell.text_frame.word_wrap is False for cell in _table_cells(prs))
+
+
+def test_build_balanco_dre_dmpl_individual_pptx_summary_cards_are_fixed_order():
+    payload = _sample_payload_credit_package()
+    demonstrativos = _sample_demonstrativos([payload], ["A122025"])
+
+    pptx_bytes = build_balanco_dre_dmpl_individual_pptx(
+        institution_name="Banco Exemplo",
+        cnpj="05503849",
+        periodo_atual="A122025",
+        referencia="Anual (A)",
+        remessa="I",
+        unidade="1000",
+        demonstrativos=demonstrativos,
+        column_labels={"A122025": "A dez/25"},
+        document_periods=["202512"],
+    )
+
+    prs = Presentation(BytesIO(pptx_bytes))
+    summary_text = _slide_text(prs.slides[1])
+    expected = [
+        "ATIVO TOTAL",
+        "OPERAÇÕES DE CRÉDITO",
+        "PROVISÃO PARA PERDAS ESPERADAS",
+        "PATRIMÔNIO LÍQUIDO",
+    ]
+    positions = [summary_text.index(item) for item in expected]
+    assert positions == sorted(positions)
+    assert "RESULTADO ABRANGENTE" not in summary_text
+    assert "CAPITAL SOCIAL" not in summary_text
+    assert "RESERVAS DE LUCROS" not in summary_text
 
 
 def test_build_balanco_dre_dmpl_individual_pptx_includes_comparative_columns():
@@ -475,6 +529,37 @@ def test_build_balanco_dre_dmpl_individual_pptx_marks_missing_statements():
     text = _pptx_text(prs)
     assert "DMPL — Demonstração das Mutações do Patrimônio Líquido" in text
     assert "Demonstração não disponível para os filtros selecionados." in text
+
+
+def test_build_balanco_dre_dmpl_individual_pptx_keeps_dfc_on_one_complete_slide():
+    payload = _sample_payload_credit_package()
+    payload["DemonstracaoDosFluxosDeCaixa"]["contas"] = [
+        {
+            "@id": f"dfc{i}",
+            "@nivel": f"1.{i}",
+            "@descricao": f"Fluxo linha {i:02d}",
+            "@contaPai": "1",
+            "valoresIndividualizados": [{"@dtBase": "dt1", "@valor": float(i * 10)}],
+        }
+        for i in range(1, 33)
+    ]
+    demonstrativos = _sample_demonstrativos([payload], ["A122025"])
+
+    pptx_bytes = build_balanco_dre_dmpl_individual_pptx(
+        institution_name="Banco Exemplo",
+        cnpj="05503849",
+        periodo_atual="A122025",
+        referencia="Anual (A)",
+        remessa="I",
+        unidade="1000",
+        demonstrativos=demonstrativos,
+        column_labels={"A122025": "A dez/25"},
+        document_periods=["202512"],
+    )
+
+    prs = Presentation(BytesIO(pptx_bytes))
+    assert _count_slides_containing(prs, "DFC — Demonstração dos Fluxos de Caixa") == 1
+    assert "Fluxo linha 32" in _pptx_text(prs)
 
 
 def test_combine_reference_periods_cdsfn_dedupes_and_sorts():

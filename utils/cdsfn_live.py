@@ -978,13 +978,13 @@ def _pptx_set_slide_background(slide: Any, color: str) -> None:
     fill.fore_color.rgb = _pptx_rgb(color)
 
 
-def _pptx_clear_text_frame(text_frame: Any) -> Any:
+def _pptx_clear_text_frame(text_frame: Any, *, word_wrap: bool = True) -> Any:
     text_frame.clear()
     text_frame.margin_left = 0
     text_frame.margin_right = 0
     text_frame.margin_top = 0
     text_frame.margin_bottom = 0
-    text_frame.word_wrap = True
+    text_frame.word_wrap = word_wrap
     return text_frame.paragraphs[0]
 
 
@@ -1025,13 +1025,15 @@ def _pptx_set_cell_text(
     bold: bool = False,
     align: Any = PP_ALIGN.LEFT,
     valign: Any = MSO_ANCHOR.MIDDLE,
+    word_wrap: bool = False,
+    margin: float = 0.025,
 ) -> None:
     cell.vertical_anchor = valign
-    cell.margin_left = Inches(0.04)
-    cell.margin_right = Inches(0.04)
-    cell.margin_top = Inches(0.02)
-    cell.margin_bottom = Inches(0.02)
-    paragraph = _pptx_clear_text_frame(cell.text_frame)
+    cell.margin_left = Inches(margin)
+    cell.margin_right = Inches(margin)
+    cell.margin_top = Inches(0.01)
+    cell.margin_bottom = Inches(0.01)
+    paragraph = _pptx_clear_text_frame(cell.text_frame, word_wrap=word_wrap)
     paragraph.alignment = align
     paragraph.space_after = Pt(0)
     paragraph.space_before = Pt(0)
@@ -1121,6 +1123,71 @@ def _pptx_value_is_negative(value: Any) -> bool:
     return bool(pd.notna(valor) and float(valor) < 0)
 
 
+def _pptx_abbreviate_account_text(text: Any, max_chars: int) -> str:
+    original = re.sub(r"\s+", " ", str(text or "")).strip()
+    if len(original) <= max_chars:
+        return original
+
+    abbreviated = original
+    normalized = _normalize_text(original)
+    if "PROVISAO" in normalized and "PERDAS ESPERADAS" in normalized and "OPERACOES DE CREDITO" in normalized:
+        abbreviated = re.sub(
+            r"\(?-?\)?\s*Provis[aã]o.*?perdas esperadas.*?opera[cç][oõ]es de cr[eé]dito",
+            "(-) Provisão perdas esperadas op. crédito",
+            abbreviated,
+            flags=re.IGNORECASE,
+        )
+    replacements = [
+        ("Demonstração das Mutações do Patrimônio Líquido", "DMPL"),
+        ("Demonstração do Resultado Abrangente", "DRA"),
+        ("Demonstração dos Fluxos de Caixa", "DFC"),
+        ("Demonstração do Resultado", "DRE"),
+        ("Balanço Patrimonial", "BP"),
+        ("Patrimônio líquido", "Pat. Líquido"),
+        ("Patrimônio Líquido", "Pat. Líquido"),
+        ("Operações de crédito", "Op. crédito"),
+        ("Operações de Crédito", "Op. crédito"),
+        ("Aplicações interfinanceiras de liquidez", "Aplic. interfin. liquidez"),
+        ("Instrumentos financeiros derivativos", "Instr. financ. derivativos"),
+        ("Resultado com perda esperada", "Res. perda esperada"),
+        ("Resultado abrangente", "Res. abrangente"),
+        ("Atividades operacionais", "Ativ. operacionais"),
+        ("Atividades de investimento", "Ativ. investimento"),
+        ("Atividades de financiamento", "Ativ. financiamento"),
+        ("Caixa líquido", "Caixa líq."),
+        ("Aumento líquido", "Aumento líq."),
+        ("Redução líquida", "Redução líq."),
+        ("no início do período", "início período"),
+        ("no fim do período", "fim período"),
+        ("do período", "período"),
+        ("para perdas esperadas", "perdas esperadas"),
+        ("operações", "op."),
+        ("Operações", "Op."),
+        ("financeiros", "financ."),
+        ("financeiras", "financ."),
+        ("financeiro", "financ."),
+        ("financeira", "financ."),
+        ("permanentes", "perm."),
+        ("participações", "partic."),
+        ("controladas", "control."),
+        ("coligadas", "colig."),
+        ("recursos", "rec."),
+        ("obrigações", "obrig."),
+        ("crédito", "créd."),
+        ("Crédito", "Créd."),
+    ]
+    for src, dst in replacements:
+        abbreviated = abbreviated.replace(src, dst)
+        if len(abbreviated) <= max_chars:
+            return abbreviated
+
+    if len(abbreviated) <= max_chars:
+        return abbreviated
+    if max_chars <= 3:
+        return abbreviated[:max_chars]
+    return abbreviated[: max_chars - 3].rstrip() + "..."
+
+
 def _pptx_normalize_demonstrativos(demonstrativos: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
     normalized: dict[str, pd.DataFrame] = {}
     for chave, df in (demonstrativos or {}).items():
@@ -1154,13 +1221,7 @@ def _pptx_is_major_account(row: pd.Series, block_sigla: str) -> bool:
 
 
 def _pptx_row_height_estimate(conta_text: str, comparative: bool, depth: int, is_parent: bool) -> float:
-    largura_referencia = 60 if comparative else 95
-    texto_len = len(str(conta_text or "")) + max(depth, 0) * 3
-    linhas = max(1, min(3, (texto_len // largura_referencia) + 1))
-    altura = 0.24 + (linhas - 1) * 0.13
-    if is_parent:
-        altura += 0.03
-    return min(max(altura, 0.25), 0.52)
+    return 0.27 if is_parent else 0.25
 
 
 def _pptx_chunk_table_rows(rows: list[dict[str, Any]], comparative: bool) -> list[list[dict[str, Any]]]:
@@ -1290,16 +1351,21 @@ def _pptx_add_table_slide(
     rows: list[dict[str, Any]],
     chunk_index: int,
     chunk_total: int,
+    account_max_chars: int = 92,
+    body_font_size: float = 7.8,
+    header_font_size: float = 8.5,
+    table_y: float = 1.26,
+    table_h_max: float = 5.72,
 ) -> None:
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     suffix = f" ({chunk_index}/{chunk_total})" if chunk_total > 1 else ""
     _pptx_add_content_header(slide, f"{title}{suffix}", subtitle, chip_label)
 
     comparative = len(headers) > 2
-    x, y, w = 0.4, 1.26, 12.53
+    x, y, w = 0.4, table_y, 12.53
     header_h = 0.34
     row_heights = [float(row.get("_height", 0.28)) for row in rows]
-    table_h = min(5.72, header_h + sum(row_heights))
+    table_h = min(table_h_max, header_h + sum(row_heights))
     table = slide.shapes.add_table(len(rows) + 1, len(headers), Inches(x), Inches(y), Inches(w), Inches(table_h)).table
     widths = [6.65, 1.55, 1.55, 1.55, 1.23] if comparative else [9.15, 3.38]
     for idx, width in enumerate(widths[: len(headers)]):
@@ -1310,7 +1376,7 @@ def _pptx_add_table_slide(
         cell = table.cell(0, col_idx)
         _pptx_set_cell_fill(cell, _PPTX_BLACK)
         _pptx_set_cell_border(cell, _PPTX_BLACK, "6350")
-        _pptx_set_cell_text(cell, header, font_size=8.5, color=_PPTX_WHITE, bold=True, align=PP_ALIGN.CENTER)
+        _pptx_set_cell_text(cell, header, font_size=header_font_size, color=_PPTX_WHITE, bold=True, align=PP_ALIGN.CENTER)
 
     for row_idx, row in enumerate(rows, start=1):
         bg = _PPTX_OFF_WHITE if row_idx % 2 == 0 else _PPTX_WHITE
@@ -1324,8 +1390,8 @@ def _pptx_add_table_slide(
         conta_color = _PPTX_ORANGE if row.get("is_major") else _PPTX_BLACK
         _pptx_set_cell_text(
             conta_cell,
-            row.get("conta", ""),
-            font_size=8.0 if not row.get("is_parent") else 8.3,
+            _pptx_abbreviate_account_text(row.get("conta", ""), account_max_chars),
+            font_size=body_font_size if not row.get("is_parent") else max(body_font_size, 7.8),
             color=conta_color,
             bold=bool(row.get("is_parent")),
             align=PP_ALIGN.LEFT,
@@ -1355,11 +1421,259 @@ def _pptx_add_table_slide(
             _pptx_set_cell_text(
                 cell,
                 texto,
-                font_size=7.8,
+                font_size=body_font_size,
                 color=_PPTX_RED if negative else _PPTX_BLACK,
                 bold=bool(row.get("is_parent")),
                 align=PP_ALIGN.RIGHT,
             )
+
+
+def _pptx_fit_single_slide_row_height(rows: list[dict[str, Any]], available_h: float, header_h: float, default_h: float) -> float:
+    if not rows:
+        return default_h
+    exact_h = max(0.01, (available_h - header_h) / max(len(rows), 1))
+    return min(default_h, exact_h)
+
+
+def _pptx_headers(current_label: str, previous_label: str | None) -> list[str]:
+    headers = ["Conta", current_label]
+    if previous_label:
+        headers.extend([previous_label, "Var. Abs.", "Var. %"])
+    return headers
+
+
+def _pptx_add_compact_table_to_slide(
+    slide: Any,
+    *,
+    x: float,
+    y: float,
+    w: float,
+    h: float,
+    headers: list[str],
+    rows: list[dict[str, Any]],
+    account_max_chars: int,
+    body_font_size: float = 7.5,
+    header_font_size: float = 7.5,
+    default_row_h: float = 0.17,
+) -> None:
+    comparative = len(headers) > 2
+    header_h = 0.23
+    row_h = _pptx_fit_single_slide_row_height(rows, h, header_h, default_row_h)
+    table = slide.shapes.add_table(len(rows) + 1, len(headers), Inches(x), Inches(y), Inches(w), Inches(h)).table
+    widths = [0.48, 0.135, 0.135, 0.145, 0.105] if comparative else [0.72, 0.28]
+    for idx, proportion in enumerate(widths[: len(headers)]):
+        table.columns[idx].width = Inches(w * proportion)
+
+    table.rows[0].height = Inches(header_h)
+    for col_idx, header in enumerate(headers):
+        cell = table.cell(0, col_idx)
+        _pptx_set_cell_fill(cell, _PPTX_BLACK)
+        _pptx_set_cell_border(cell, _PPTX_BLACK, "6350")
+        _pptx_set_cell_text(
+            cell,
+            header,
+            font_size=header_font_size,
+            color=_PPTX_WHITE,
+            bold=True,
+            align=PP_ALIGN.CENTER,
+            margin=0.015,
+        )
+
+    for row_idx, row in enumerate(rows, start=1):
+        table.rows[row_idx].height = Inches(row_h)
+        bg = _PPTX_OFF_WHITE if row_idx % 2 == 0 or row.get("is_parent") else _PPTX_WHITE
+
+        conta_cell = table.cell(row_idx, 0)
+        _pptx_set_cell_fill(conta_cell, bg)
+        _pptx_set_cell_border(conta_cell)
+        _pptx_set_cell_text(
+            conta_cell,
+            _pptx_abbreviate_account_text(row.get("conta", ""), account_max_chars),
+            font_size=body_font_size,
+            color=_PPTX_ORANGE if row.get("is_major") else _PPTX_BLACK,
+            bold=bool(row.get("is_parent")),
+            align=PP_ALIGN.LEFT,
+            margin=0.015,
+        )
+
+        value_specs: list[tuple[Any, bool]] = [(row.get("atual"), False)]
+        if comparative:
+            value_specs.extend(
+                [
+                    (row.get("anterior"), False),
+                    (row.get("var_abs"), False),
+                    (row.get("var_pct"), bool(row.get("var_pct_nm"))),
+                ]
+            )
+        for col_idx, (value, percent_nm) in enumerate(value_specs, start=1):
+            cell = table.cell(row_idx, col_idx)
+            _pptx_set_cell_fill(cell, bg)
+            _pptx_set_cell_border(cell)
+            if comparative and col_idx == len(value_specs):
+                texto = "n.m." if percent_nm or pd.isna(value) else _pptx_format_percent(value)
+                negative = False if percent_nm or pd.isna(value) else _pptx_value_is_negative(value)
+            else:
+                texto = _pptx_format_number(value)
+                negative = _pptx_value_is_negative(value)
+            _pptx_set_cell_text(
+                cell,
+                texto,
+                font_size=body_font_size,
+                color=_PPTX_RED if negative else _PPTX_BLACK,
+                bold=bool(row.get("is_parent")),
+                align=PP_ALIGN.RIGHT,
+                margin=0.012,
+            )
+
+
+def _pptx_add_missing_panel(slide: Any, x: float, y: float, w: float, h: float) -> None:
+    box = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(x), Inches(y), Inches(w), Inches(h))
+    _pptx_set_shape_fill(box, _PPTX_OFF_WHITE)
+    _pptx_set_no_line(box)
+    box.text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE
+    paragraph = _pptx_clear_text_frame(box.text_frame)
+    paragraph.alignment = PP_ALIGN.CENTER
+    run = paragraph.add_run()
+    run.text = "Demonstração não disponível para os filtros selecionados."
+    run.font.name = _PPTX_FONT
+    run.font.size = Pt(11)
+    run.font.bold = True
+    run.font.color.rgb = _pptx_rgb(_PPTX_DARK_GRAY)
+
+
+def _pptx_rows_or_none(
+    demonstrativos: dict[str, pd.DataFrame],
+    sigla: str,
+    *,
+    periodo_atual: str,
+    periodo_anterior: str | None,
+) -> list[dict[str, Any]] | None:
+    df = demonstrativos.get(sigla)
+    if not isinstance(df, pd.DataFrame) or df.empty:
+        return None
+    return _pptx_build_rows_for_demonstrativo(
+        df,
+        periodo_atual=periodo_atual,
+        periodo_anterior=periodo_anterior,
+        block_sigla=sigla,
+    )
+
+
+def _pptx_add_bp_dre_combined_slide(
+    prs: Presentation,
+    *,
+    demonstrativos: dict[str, pd.DataFrame],
+    periodo_atual: str,
+    periodo_anterior: str | None,
+    current_label: str,
+    previous_label: str | None,
+    subtitle: str,
+    chip_label: str,
+) -> None:
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    _pptx_add_content_header(slide, "BP + DRE — visão comparativa", subtitle, chip_label)
+
+    headers = _pptx_headers(current_label, previous_label)
+    left_x, right_x = 0.4, 6.78
+    panel_w = 5.98
+    title_y = 1.22
+    table_y = 1.55
+    table_h = 5.34
+    _pptx_add_textbox(
+        slide,
+        "BP — Balanço Patrimonial",
+        left_x,
+        title_y,
+        panel_w,
+        0.22,
+        font_size=11.5,
+        bold=True,
+        color=_PPTX_BLACK,
+    )
+    _pptx_add_textbox(
+        slide,
+        "DRE — Demonstração do Resultado",
+        right_x,
+        title_y,
+        panel_w,
+        0.22,
+        font_size=11.5,
+        bold=True,
+        color=_PPTX_BLACK,
+    )
+    divider = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(6.56), Inches(1.22), Inches(0.01), Inches(5.72))
+    _pptx_set_shape_fill(divider, _PPTX_LIGHT_GRAY)
+    _pptx_set_no_line(divider)
+
+    bp_rows = _pptx_rows_or_none(
+        demonstrativos,
+        "BP",
+        periodo_atual=periodo_atual,
+        periodo_anterior=periodo_anterior,
+    )
+    dre_rows = _pptx_rows_or_none(
+        demonstrativos,
+        "DRE",
+        periodo_atual=periodo_atual,
+        periodo_anterior=periodo_anterior,
+    )
+    account_chars = 34 if previous_label else 48
+    if bp_rows:
+        _pptx_add_compact_table_to_slide(
+            slide,
+            x=left_x,
+            y=table_y,
+            w=panel_w,
+            h=table_h,
+            headers=headers,
+            rows=bp_rows,
+            account_max_chars=account_chars,
+        )
+    else:
+        _pptx_add_missing_panel(slide, left_x, table_y, panel_w, table_h)
+    if dre_rows:
+        _pptx_add_compact_table_to_slide(
+            slide,
+            x=right_x,
+            y=table_y,
+            w=panel_w,
+            h=table_h,
+            headers=headers,
+            rows=dre_rows,
+            account_max_chars=account_chars,
+        )
+    else:
+        _pptx_add_missing_panel(slide, right_x, table_y, panel_w, table_h)
+
+
+def _pptx_add_single_slide_demonstrativo(
+    prs: Presentation,
+    *,
+    title: str,
+    subtitle: str,
+    chip_label: str,
+    headers: list[str],
+    rows: list[dict[str, Any]],
+    account_max_chars: int = 96,
+) -> None:
+    header_h = 0.34
+    table_h_max = 5.72
+    row_h = _pptx_fit_single_slide_row_height(rows, table_h_max, header_h, 0.22)
+    rows_one_slide = [dict(row, _height=row_h) for row in rows]
+    _pptx_add_table_slide(
+        prs,
+        title=title,
+        subtitle=subtitle,
+        chip_label=chip_label,
+        headers=headers,
+        rows=rows_one_slide,
+        chunk_index=1,
+        chunk_total=1,
+        account_max_chars=account_max_chars,
+        body_font_size=7.5,
+        header_font_size=8.0,
+        table_h_max=table_h_max,
+    )
 
 
 def _pptx_add_missing_demonstrativo_slide(
@@ -1424,51 +1738,32 @@ def _pptx_add_summary_slide(
 
     metrics = [
         ("Ativo Total", ("BP",), ("ATIVO",)),
-        ("Patrimônio Líquido", ("BP",), ("PATRIMONIO LIQUIDO",)),
-        ("Lucro/Prejuízo do período", ("DRE",), ("LUCRO", "PREJUIZO")),
-        ("Resultado Abrangente", ("DRA",), ("RESULTADO ABRANGENTE",)),
-        ("Capital Social", ("DMPL", "BP"), ("CAPITAL SOCIAL",)),
-        ("Reservas de Lucros", ("DMPL", "BP"), ("RESERVAS DE LUCROS",)),
-        ("Provisão para perdas esperadas", ("BP", "DRE"), ("PERDAS ESPERADAS",)),
         ("Operações de Crédito", ("BP", "DRE"), ("OPERACOES DE CREDITO",)),
+        ("Provisão para Perdas Esperadas", ("BP", "DRE"), ("PERDAS ESPERADAS",)),
+        ("Patrimônio Líquido", ("BP",), ("PATRIMONIO LIQUIDO",)),
     ]
     cards: list[tuple[str, Any]] = []
     for label, siglas, terms in metrics:
         valor = _pptx_find_metric_value(demonstrativos, siglas=siglas, terms=terms, periodo_atual=periodo_atual)
-        if pd.notna(valor):
-            cards.append((label, valor))
-
-    if not cards:
-        _pptx_add_textbox(
-            slide,
-            "Contas de resumo não disponíveis para os filtros selecionados.",
-            0.55,
-            1.55,
-            8.5,
-            0.4,
-            font_size=15,
-            color=_PPTX_DARK_GRAY,
-            bold=True,
-        )
-        return
+        cards.append((label, valor))
 
     for idx, (label, valor) in enumerate(cards):
-        row, col = divmod(idx, 4)
-        x = 0.48 + col * 3.18
-        y = 1.35 + row * 1.28
-        card = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(x), Inches(y), Inches(2.88), Inches(0.92))
+        x = 0.48 + idx * 3.18
+        y = 1.55
+        card = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(x), Inches(y), Inches(2.88), Inches(0.96))
         _pptx_set_shape_fill(card, _PPTX_OFF_WHITE)
         _pptx_set_no_line(card)
         _pptx_add_textbox(slide, label.upper(), x + 0.16, y + 0.14, 2.55, 0.18, font_size=8.5, color=_PPTX_DARK_GRAY)
+        value_text = _pptx_format_number(valor) if pd.notna(valor) else "n.d."
         _pptx_add_textbox(
             slide,
-            _pptx_format_number(valor),
+            value_text,
             x + 0.16,
             y + 0.39,
             2.55,
             0.32,
             font_size=18,
-            color=_PPTX_RED if _pptx_value_is_negative(valor) else _PPTX_BLACK,
+            color=_PPTX_RED if pd.notna(valor) and _pptx_value_is_negative(valor) else _PPTX_BLACK,
             bold=True,
         )
 
@@ -1539,7 +1834,20 @@ def build_balanco_dre_dmpl_individual_pptx(
         subtitle_parts.append(f"Competências: {document_periods_label}")
     subtitle = " | ".join(subtitle_parts)
 
+    _pptx_add_bp_dre_combined_slide(
+        prs,
+        demonstrativos=demonstrativos_norm,
+        periodo_atual=periodo_atual,
+        periodo_anterior=periodo_anterior,
+        current_label=current_label,
+        previous_label=previous_label,
+        subtitle=subtitle,
+        chip_label=current_label,
+    )
+
     for sigla, title in block_order:
+        if sigla in {"BP", "DRE"}:
+            continue
         df = demonstrativos_norm.get(sigla)
         if not isinstance(df, pd.DataFrame) or df.empty:
             _pptx_add_missing_demonstrativo_slide(prs, title=title, subtitle=subtitle, chip_label=current_label)
@@ -1553,9 +1861,18 @@ def build_balanco_dre_dmpl_individual_pptx(
         if not rows:
             _pptx_add_missing_demonstrativo_slide(prs, title=title, subtitle=subtitle, chip_label=current_label)
             continue
-        headers = ["Conta", current_label]
-        if periodo_anterior:
-            headers.extend([previous_label or periodo_anterior, "Var. Abs.", "Var. %"])
+        headers = _pptx_headers(current_label, previous_label if periodo_anterior else None)
+        if sigla == "DFC":
+            _pptx_add_single_slide_demonstrativo(
+                prs,
+                title=title,
+                subtitle=subtitle,
+                chip_label=current_label,
+                headers=headers,
+                rows=rows,
+                account_max_chars=86 if periodo_anterior else 118,
+            )
+            continue
         chunks = _pptx_chunk_table_rows(rows, comparative=bool(periodo_anterior))
         for idx, chunk in enumerate(chunks, start=1):
             _pptx_add_table_slide(
@@ -1567,6 +1884,7 @@ def build_balanco_dre_dmpl_individual_pptx(
                 rows=chunk,
                 chunk_index=idx,
                 chunk_total=len(chunks),
+                account_max_chars=82 if periodo_anterior else 110,
             )
 
     total_slides = len(prs.slides)
