@@ -4,8 +4,11 @@ from io import BytesIO
 
 import pandas as pd
 from openpyxl import load_workbook
+from pptx import Presentation
 
 from utils.cdsfn_live import (
+    CDSFN_BLOCKS,
+    build_balanco_dre_dmpl_individual_pptx,
     build_credit_package_excel_cdsfn,
     build_display_table_cdsfn,
     build_excel_display_export_cdsfn,
@@ -146,6 +149,33 @@ def _sample_payload_credit_package() -> dict:
         ]
     }
     return payload
+
+
+def _sample_demonstrativos(payloads: list[dict], periodos_ref: list[str]) -> dict[str, pd.DataFrame]:
+    demonstrativos: dict[str, pd.DataFrame] = {}
+    for block_key, meta in CDSFN_BLOCKS.items():
+        if not any(block_key in payload for payload in payloads):
+            continue
+        df_long = combine_normalized_blocks_cdsfn(payloads, block_key)
+        df_view, _ = build_hierarchy_frame_cdsfn(df_long, block_key)
+        for periodo_ref in periodos_ref:
+            if periodo_ref not in df_view.columns:
+                df_view[periodo_ref] = pd.NA
+        demonstrativos[meta["sigla"]] = df_view
+    return demonstrativos
+
+
+def _pptx_text(prs: Presentation) -> str:
+    chunks: list[str] = []
+    for slide in prs.slides:
+        for shape in slide.shapes:
+            if hasattr(shape, "text"):
+                chunks.append(shape.text)
+            if getattr(shape, "has_table", False):
+                for row in shape.table.rows:
+                    for cell in row.cells:
+                        chunks.append(cell.text)
+    return "\n".join(chunks)
 
 
 class _DummyResponse:
@@ -373,6 +403,78 @@ def test_build_credit_package_excel_cdsfn_returns_multisheet_workbook():
     ws_dra = wb["DRA"]
     assert ws_dra["A6"].value == "1 Resultado abrangente do período"
     assert ws_dra["B6"].value == 215000
+
+
+def test_build_balanco_dre_dmpl_individual_pptx_returns_readable_deck():
+    payload = _sample_payload_credit_package()
+    demonstrativos = _sample_demonstrativos([payload], ["A122025"])
+
+    pptx_bytes = build_balanco_dre_dmpl_individual_pptx(
+        institution_name="Banco Exemplo",
+        cnpj="05503849",
+        periodo_atual="A122025",
+        referencia="Anual (A)",
+        remessa="I",
+        unidade="1000",
+        demonstrativos=demonstrativos,
+        column_labels={"A122025": "A dez/25"},
+        document_periods=["202512"],
+    )
+
+    assert isinstance(pptx_bytes, bytes)
+    assert len(pptx_bytes) > 1000
+    prs = Presentation(BytesIO(pptx_bytes))
+    assert len(prs.slides) >= 7
+    text = _pptx_text(prs)
+    assert "Balanço, DRE e DMPL" in text
+    assert "BP — Balanço Patrimonial" in text
+    assert "Unidade: R$ mil" in text
+    assert "Fonte: Banco Central do Brasil" in text
+
+
+def test_build_balanco_dre_dmpl_individual_pptx_includes_comparative_columns():
+    payloads = [_sample_payload_second_document(), _sample_payload()]
+    demonstrativos = _sample_demonstrativos(payloads, ["A122026", "A122025"])
+
+    pptx_bytes = build_balanco_dre_dmpl_individual_pptx(
+        institution_name="Banco Exemplo",
+        cnpj="05503849",
+        periodo_atual="A122026",
+        periodo_anterior="A122025",
+        referencia="Anual (A)",
+        remessa="I",
+        unidade="1000",
+        demonstrativos=demonstrativos,
+        column_labels={"A122026": "A dez/26", "A122025": "A dez/25"},
+        document_periods=["202612", "202512"],
+    )
+
+    prs = Presentation(BytesIO(pptx_bytes))
+    text = _pptx_text(prs)
+    assert "Var. Abs." in text
+    assert "Var. %" in text
+    assert "43.281" in text
+
+
+def test_build_balanco_dre_dmpl_individual_pptx_marks_missing_statements():
+    demonstrativos = _sample_demonstrativos([_sample_payload()], ["A122025"])
+
+    pptx_bytes = build_balanco_dre_dmpl_individual_pptx(
+        institution_name="Banco Exemplo",
+        cnpj="05503849",
+        periodo_atual="A122025",
+        referencia="Anual (A)",
+        remessa="I",
+        unidade="1000",
+        demonstrativos=demonstrativos,
+        column_labels={"A122025": "A dez/25"},
+        document_periods=["202512"],
+    )
+
+    prs = Presentation(BytesIO(pptx_bytes))
+    text = _pptx_text(prs)
+    assert "DMPL — Demonstração das Mutações do Patrimônio Líquido" in text
+    assert "Demonstração não disponível para os filtros selecionados." in text
 
 
 def test_combine_reference_periods_cdsfn_dedupes_and_sorts():

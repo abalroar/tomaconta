@@ -198,6 +198,7 @@ load_instituicoes_csv_cdsfn = cdsfn_live_module.load_instituicoes_csv_cdsfn
 normalize_long_cdsfn = cdsfn_live_module.normalize_long_cdsfn
 validate_json_cdsfn = cdsfn_live_module.validate_json_cdsfn
 _build_credit_package_excel_cdsfn_impl = getattr(cdsfn_live_module, "build_credit_package_excel_cdsfn", None)
+build_balanco_dre_dmpl_individual_pptx = cdsfn_live_module.build_balanco_dre_dmpl_individual_pptx
 
 
 def _write_excel_display_sheet_cdsfn_fallback(
@@ -3321,13 +3322,45 @@ def render_tab_cdsfn() -> None:
     if blocos_ausentes:
         st.warning(f"Blocos não presentes no documento retornado: {', '.join(blocos_ausentes)}")
 
+    column_labels_periodos = {col: labels_periodos.get(col, col) for col in periodos_ref_sel}
+    demonstrativos_render: dict[str, pd.DataFrame] = {}
+    demonstrativos_por_bloco: dict[str, dict] = {}
+    erros_demonstrativos: dict[str, Exception] = {}
+
+    for bloco_info in blocos:
+        bloco_key = bloco_info["block_key"]
+        docs_sem_bloco = [
+            periodo
+            for periodo, payload in zip(periodos_documento_sel, payloads_ordenados)
+            if bloco_key not in payload
+        ]
+        try:
+            df_long = combine_normalized_blocks_cdsfn(payloads_ordenados, bloco_key)
+            df_view, _value_columns = build_hierarchy_frame_cdsfn(df_long, bloco_key)
+            df_view_render = df_view.copy()
+            for periodo_ref in periodos_ref_sel:
+                if periodo_ref not in df_view_render.columns:
+                    df_view_render[periodo_ref] = pd.NA
+            value_columns_render = list(periodos_ref_sel)
+            possui_valor_render = any(df_view_render[col].notna().any() for col in value_columns_render)
+            demonstrativos_por_bloco[bloco_key] = {
+                "df_view_render": df_view_render,
+                "value_columns_render": value_columns_render,
+                "column_labels": column_labels_periodos,
+                "possui_valor_render": possui_valor_render,
+                "docs_sem_bloco": docs_sem_bloco,
+            }
+            demonstrativos_render[bloco_info["sigla"]] = df_view_render
+        except Exception as exc:
+            erros_demonstrativos[bloco_key] = exc
+
     try:
         excel_credit_package = build_credit_package_excel_cdsfn(
             payloads=payloads_ordenados,
             institution_label=str(inst_row.get("nome") or instituicao_sel),
             cnpj=str(metadata.get("cnpj") or inst_row.get("cnpj") or ""),
             periodos_ref_sel=periodos_ref_sel,
-            column_labels={col: labels_periodos.get(col, col) for col in periodos_ref_sel},
+            column_labels=column_labels_periodos,
             reference_label=_rotulo_tipo_referencia_cdsfn(prefixo_sel),
             document_periods=periodos_documento_sel,
         )
@@ -3335,22 +3368,56 @@ def render_tab_cdsfn() -> None:
         st.error(f"Erro ao montar o pacote Excel do Documento 9011: {exc}")
         return
 
+    pptx_credit_package = None
+    pptx_export_error = None
+    try:
+        pptx_credit_package = build_balanco_dre_dmpl_individual_pptx(
+            institution_name=str(inst_row.get("nome") or instituicao_sel),
+            cnpj=str(metadata.get("cnpj") or inst_row.get("cnpj") or ""),
+            periodo_atual=periodos_ref_sel[0],
+            periodo_anterior=periodos_ref_sel[1] if len(periodos_ref_sel) > 1 else None,
+            referencia=_rotulo_tipo_referencia_cdsfn(prefixo_sel),
+            remessa=", ".join(tipos_remessa) if tipos_remessa else str(metadata.get("tipo_remessa") or ""),
+            unidade=str(metadata.get("unidade_medida") or "N/D"),
+            demonstrativos=demonstrativos_render,
+            column_labels=column_labels_periodos,
+            document_periods=periodos_documento_sel,
+        )
+    except Exception as exc:
+        pptx_export_error = exc
+
     siglas_export = [
         CDSFN_BLOCKS[item["block_key"]]["sigla"]
         for item in blocos
         if item["block_key"] in CDSFN_BLOCKS
     ]
-    st.download_button(
-        "Exportar pacote Excel",
-        data=excel_credit_package,
-        file_name=(
-            f"pacote_credito_9011_ind_{str(metadata.get('cnpj') or 'sem_cnpj')}_{prefixo_sel}_"
-            f"{'_'.join(periodos_documento_sel)}.xlsx"
-        ),
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        key="cdsfn_live_download_credit_package",
-        width="content",
-    )
+    col_export_excel, col_export_pptx = st.columns([1, 1])
+    with col_export_excel:
+        st.download_button(
+            "Exportar pacote Excel",
+            data=excel_credit_package,
+            file_name=(
+                f"pacote_credito_9011_ind_{str(metadata.get('cnpj') or 'sem_cnpj')}_{prefixo_sel}_"
+                f"{'_'.join(periodos_documento_sel)}.xlsx"
+            ),
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="cdsfn_live_download_credit_package",
+            width="content",
+        )
+    with col_export_pptx:
+        if pptx_export_error is not None:
+            st.error(f"Erro ao montar o PPTX do Documento 9011: {pptx_export_error}")
+        else:
+            cnpj_export = re.sub(r"\D", "", str(metadata.get("cnpj") or inst_row.get("cnpj") or "")) or "sem_cnpj"
+            periodo_export = re.sub(r"\D", "", str(periodo_documento_principal or "")) or str(periodos_ref_sel[0])
+            st.download_button(
+                "Exportar PPTX",
+                data=pptx_credit_package,
+                file_name=f"balanco_dre_dmpl_individual_{cnpj_export}_{periodo_export}.pptx",
+                mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                key="cdsfn_live_download_credit_package_pptx",
+                width="content",
+            )
     st.caption(
         "Planilhas incluídas: "
         + ", ".join(siglas_export)
@@ -3363,21 +3430,19 @@ def render_tab_cdsfn() -> None:
     for tab_bloco, bloco_info in zip(tabs_blocos, blocos):
         bloco_key = bloco_info["block_key"]
         with tab_bloco:
-            docs_sem_bloco = [periodo for periodo, payload in zip(periodos_documento_sel, payloads_ordenados) if bloco_key not in payload]
-            try:
-                df_long = combine_normalized_blocks_cdsfn(payloads_ordenados, bloco_key)
-                df_view, value_columns = build_hierarchy_frame_cdsfn(df_long, bloco_key)
-            except Exception as exc:
-                st.error(f"Erro ao normalizar a demonstração '{bloco_info['label']}': {exc}")
+            erro_bloco = erros_demonstrativos.get(bloco_key)
+            if erro_bloco is not None:
+                st.error(f"Erro ao normalizar a demonstração '{bloco_info['label']}': {erro_bloco}")
                 continue
-
-            df_view_render = df_view.copy()
-            for periodo_ref in periodos_ref_sel:
-                if periodo_ref not in df_view_render.columns:
-                    df_view_render[periodo_ref] = pd.NA
-            value_columns_render = list(periodos_ref_sel)
-            column_labels = {col: labels_periodos.get(col, col) for col in value_columns_render}
-            possui_valor_render = any(df_view_render[col].notna().any() for col in value_columns_render)
+            demonstrativo_info = demonstrativos_por_bloco.get(bloco_key)
+            if not demonstrativo_info:
+                st.warning("Demonstração não disponível para os filtros selecionados.")
+                continue
+            docs_sem_bloco = demonstrativo_info["docs_sem_bloco"]
+            df_view_render = demonstrativo_info["df_view_render"]
+            value_columns_render = demonstrativo_info["value_columns_render"]
+            column_labels = demonstrativo_info["column_labels"]
+            possui_valor_render = demonstrativo_info["possui_valor_render"]
 
             st.caption(f"{bloco_info['contas']} contas | unidade: {metadata.get('unidade_medida') or 'N/D'}")
             if docs_sem_bloco:
