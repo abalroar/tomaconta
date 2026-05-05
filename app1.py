@@ -12702,6 +12702,17 @@ def _get_peers_filters_context(critical_token: str) -> dict:
 @st.cache_data(ttl=900, show_spinner=False)
 def _get_rankings_filters_context(principal_token: str, alias_sig: tuple) -> dict:
     """Retorna períodos para filtros da aba Rankings sem concatenar dataframe completo."""
+    _ = alias_sig
+    manager = get_cache_manager()
+    cache_principal = manager.get_cache("principal") if manager else None
+    metadata = _load_cache_metadata(cache_principal)
+    periodos_metadata = metadata.get("periodos") or []
+    if periodos_metadata:
+        periodos_disponiveis = tuple(sorted({str(periodo) for periodo in periodos_metadata if str(periodo).strip()}))
+        return {
+            "periodos_disponiveis": periodos_disponiveis,
+        }
+
     dados_periodos = _carregar_dados_periodos_preparados(principal_token, alias_sig)
     if not dados_periodos:
         return {"periodos_disponiveis": []}
@@ -12807,10 +12818,25 @@ RANKINGS_FAMILY_ANALYTICAL = frozenset(
         "ROE Trim. Anualizado (%)",
     }
 )
+RANKINGS_FAMILY_PRINCIPAL_LIGHT = frozenset(
+    {
+        "Ativo Total",
+        "Patrimônio Líquido",
+    }
+)
 
 
 def _rankings_periodos_selecionados(periodos_selecionados: Sequence[str]) -> tuple[str, ...]:
     return tuple(sorted({str(periodo) for periodo in periodos_selecionados if periodo}))
+
+
+def _rankings_principal_cache_disponivel() -> bool:
+    """Indica se Rankings consegue montar filtros sem materializar a base principal."""
+    manager = get_cache_manager()
+    cache_principal = manager.get_cache("principal") if manager else None
+    if cache_principal is None:
+        return False
+    return bool(cache_principal.arquivo_dados.exists() or cache_principal.arquivo_dados_pickle.exists())
 
 
 def _rankings_periodo_mesma_representacao(periodo: str, tri_idx: int) -> Optional[str]:
@@ -12965,8 +12991,12 @@ def _resolve_rankings_source_request(
         )
         perf_label = "rankings_df_source_analytical"
     elif source_family == "principal_prepared":
+        if indicador_label in RANKINGS_FAMILY_PRINCIPAL_LIGHT:
+            source_family = "principal_light"
+            perf_label = "rankings_df_source_principal_light"
+        else:
+            perf_label = "rankings_df_source_principal_prepared"
         periodos_filter = _rankings_periodos_selecionados(periodos_resumo)
-        perf_label = "rankings_df_source_principal_prepared"
     elif source_family == "capital_prepared":
         periodos_filter = _rankings_periodos_selecionados(periodos_resumo)
         perf_label = "rankings_df_source_capital_prepared"
@@ -13586,6 +13616,108 @@ def _get_rankings_direct_df(
     return _normalizar_indicadores_rankings(df)
 
 
+@st.cache_data(ttl=900, show_spinner=False)
+def _get_rankings_principal_slice_df(
+    principal_token: str,
+    alias_sig: tuple,
+    periodos_filter: Optional[tuple],
+    columns_key: tuple[str, ...],
+) -> pd.DataFrame:
+    """Lê do cache principal somente os períodos/colunas exigidos por Rankings.
+
+    O caminho normal usa parquet com predicate pushdown. Se o arquivo/engine local
+    não suportar o recorte, cai para o loader preparado existente para preservar
+    compatibilidade sem alterar fórmulas.
+    """
+    manager = get_cache_manager()
+    cache_principal = manager.get_cache("principal") if manager else None
+    periodos_set = {str(p) for p in (periodos_filter or ()) if p is not None}
+    columns_req = tuple(dict.fromkeys(str(col) for col in columns_key if col))
+
+    if cache_principal is not None and cache_principal.arquivo_dados.exists():
+        metadata = _load_cache_metadata(cache_principal)
+        available_cols = set(metadata.get("colunas") or [])
+        if available_cols:
+            columns = [col for col in columns_req if col in available_cols]
+            for col in ("Instituição", "Período"):
+                if col in available_cols and col not in columns:
+                    columns.insert(0, col)
+        else:
+            columns = list(columns_req)
+
+        if {"Instituição", "Período"}.issubset(set(columns)):
+            try:
+                kwargs = {"columns": columns}
+                if periodos_set:
+                    kwargs["filters"] = [("Período", "in", sorted(periodos_set))]
+                df = pd.read_parquet(cache_principal.arquivo_dados, **kwargs)
+                if periodos_set and "Período" in df.columns:
+                    df = df[df["Período"].astype(str).isin(periodos_set)].copy()
+                return df
+            except Exception:
+                pass
+
+    dados_periodos = _carregar_dados_periodos_preparados(principal_token, alias_sig)
+    if not dados_periodos:
+        return pd.DataFrame()
+
+    frames = []
+    for periodo, df_periodo in dados_periodos.items():
+        if periodos_set and str(periodo) not in periodos_set:
+            continue
+        if df_periodo is None or df_periodo.empty:
+            continue
+        columns = [col for col in columns_req if col in df_periodo.columns]
+        for col in ("Instituição", "Período"):
+            if col in df_periodo.columns and col not in columns:
+                columns.insert(0, col)
+        if {"Instituição", "Período"}.issubset(set(columns)):
+            frames.append(df_periodo[columns].copy())
+
+    if not frames:
+        return pd.DataFrame()
+    return pd.concat(frames, ignore_index=True)
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def _get_rankings_pool_period_df(
+    principal_token: str,
+    alias_sig: tuple,
+    periodo: Optional[str],
+) -> pd.DataFrame:
+    """Recorte leve do período de referência usado para lista/top pool."""
+    if not periodo:
+        return pd.DataFrame()
+    return _get_rankings_principal_slice_df(
+        principal_token,
+        alias_sig,
+        (str(periodo),),
+        ("Instituição", "Período", "Ativo Total", "CodInst"),
+    )
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _get_rankings_principal_light_df(
+    principal_token: str,
+    alias_sig: tuple,
+    periodos_filter: Optional[tuple] = None,
+) -> pd.DataFrame:
+    """Caminho leve para indicadores diretos que já existem no cache principal."""
+    df = _get_rankings_principal_slice_df(
+        principal_token,
+        alias_sig,
+        periodos_filter,
+        ("Instituição", "Período", "Ativo Total", "Patrimônio Líquido", "CodInst"),
+    )
+    if df is None or df.empty:
+        return _get_rankings_direct_df(
+            principal_token,
+            alias_sig,
+            periodos_filter=periodos_filter,
+        )
+    return _normalizar_indicadores_rankings(df)
+
+
 @st.cache_data(ttl=3600, show_spinner=False)
 def _get_rankings_principal_with_capital_df(
     principal_token: str,
@@ -13711,28 +13843,22 @@ def _get_rankings_lucro_ytd_df(
     Mantém a normalização semestral do IFData, mas evita recalcular ROE/capital
     quando o indicador selecionado usa apenas lucro líquido acumulado.
     """
-    _ = (principal_token, alias_sig)
-    dados_periodos = _carregar_dados_periodos_preparados(principal_token, alias_sig)
-    if not dados_periodos:
+    df = _get_rankings_principal_slice_df(
+        principal_token,
+        alias_sig,
+        periodos_filter,
+        ("Instituição", "Período", "Lucro Líquido Acumulado YTD", "Lucro Líquido"),
+    )
+    if df is None or df.empty:
         return pd.DataFrame()
 
-    periodos_set = {str(p) for p in (periodos_filter or ()) if p is not None}
+    if "Lucro Líquido Acumulado YTD" not in df.columns and "Lucro Líquido" in df.columns:
+        df = df.rename(columns={"Lucro Líquido": "Lucro Líquido Acumulado YTD"})
     colunas_base = ["Instituição", "Período", "Lucro Líquido Acumulado YTD"]
-    frames = []
-    for periodo, df_periodo in dados_periodos.items():
-        if periodos_set and str(periodo) not in periodos_set:
-            continue
-        if df_periodo is None or df_periodo.empty:
-            continue
-        colunas = [col for col in colunas_base if col in df_periodo.columns]
-        if len(colunas) != len(colunas_base):
-            continue
-        frames.append(df_periodo[colunas].copy())
-
-    if not frames:
+    if not set(colunas_base).issubset(df.columns):
         return pd.DataFrame()
 
-    df = pd.concat(frames, ignore_index=True)
+    df = df[colunas_base].copy()
     df = _normalizar_lucro_liquido(df)
     return _normalizar_instituicoes_rankings_leve(df)
 
@@ -13774,6 +13900,12 @@ def _get_rankings_source_df(
         )
     if source_kind == "principal_prepared":
         return _get_rankings_direct_df(
+            principal_token,
+            alias_sig,
+            periodos_filter=periodos_filter,
+        )
+    if source_kind == "principal_light":
+        return _get_rankings_principal_light_df(
             principal_token,
             alias_sig,
             periodos_filter=periodos_filter,
@@ -17937,7 +18069,7 @@ elif menu == "Rankings":
     rankings_timer_signature = None
     t0_rankings_timer = None
 
-    if _garantir_dados_principais("Rankings"):
+    if _rankings_principal_cache_disponivel() or _garantir_dados_principais("Rankings"):
         # PERF: lightweight context for dropdown population (instant)
         _rankings_ctx = _get_rankings_filters_context(
             _cache_version_token("principal"),
@@ -18057,9 +18189,15 @@ elif menu == "Rankings":
 
             periodo_pool_ref = periodo_resumo[0] if periodo_resumo else None
 
-            # PERF: bank list from raw per-period data (instant dict lookup)
-            _dados_periodos_raw = st.session_state.get('dados_periodos', {})
-            _df_periodo_raw = _dados_periodos_raw.get(periodo_pool_ref, pd.DataFrame()) if periodo_pool_ref else pd.DataFrame()
+            # PERF: bank list from a per-period parquet slice; fallback preserves legacy session cache.
+            _df_periodo_raw = _get_rankings_pool_period_df(
+                _cache_version_token("principal"),
+                _alias_signature_cache_key(),
+                periodo_pool_ref,
+            )
+            if _df_periodo_raw is None or _df_periodo_raw.empty:
+                _dados_periodos_raw = st.session_state.get('dados_periodos', {})
+                _df_periodo_raw = _dados_periodos_raw.get(periodo_pool_ref, pd.DataFrame()) if periodo_pool_ref else pd.DataFrame()
             if _df_periodo_raw is not None and not _df_periodo_raw.empty and "Instituição" in _df_periodo_raw.columns:
                 bancos_todos = _df_periodo_raw['Instituição'].dropna().unique().tolist()
             else:
