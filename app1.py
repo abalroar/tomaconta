@@ -26171,6 +26171,43 @@ elif menu == "Taxas de Juros por Produto":
         matriz.index.name = "Instituição Financeira"
         return matriz.reset_index()
 
+    def _build_taxas_beta_monthly_matrix(
+        *,
+        df_mensal: pd.DataFrame,
+        tipo_taxa: str,
+        bancos_ordem: List[str],
+    ) -> pd.DataFrame:
+        if df_mensal.empty or tipo_taxa not in df_mensal.columns:
+            return pd.DataFrame()
+
+        df_export = df_mensal[["Instituição Financeira", "Fim Período", tipo_taxa]].copy()
+        df_export["Fim Período"] = pd.to_datetime(df_export["Fim Período"], errors="coerce")
+        df_export[tipo_taxa] = pd.to_numeric(df_export[tipo_taxa], errors="coerce")
+        df_export = df_export.dropna(subset=["Fim Período"])
+        if df_export.empty:
+            return pd.DataFrame()
+
+        df_export["AnoMes"] = df_export["Fim Período"].dt.to_period("M")
+        idx = df_export.groupby(
+            ["Instituição Financeira", "AnoMes"],
+            observed=False,
+        )["Fim Período"].idxmax()
+        df_export = df_export.loc[idx].sort_values("Fim Período").copy()
+
+        periodos = sorted(df_export["AnoMes"].dropna().unique().tolist())
+        matriz = df_export.pivot_table(
+            index="Instituição Financeira",
+            columns="AnoMes",
+            values=tipo_taxa,
+            aggfunc="last",
+            observed=False,
+        )
+        matriz = matriz.reindex(index=list(bancos_ordem))
+        matriz = matriz.reindex(columns=periodos)
+        matriz.columns = [periodo.strftime("%m/%Y") for periodo in matriz.columns]
+        matriz.index.name = "Instituição Financeira"
+        return matriz.reset_index()
+
     def _build_taxas_beta_daily_excel(
         *,
         segmento: str,
@@ -26235,6 +26272,82 @@ elif menu == "Taxas de Juros por Produto":
             ws_daily.set_column(0, 0, 34)
             if len(matriz.columns) > 1:
                 ws_daily.set_column(1, len(matriz.columns) - 1, 12, num_fmt)
+
+        buffer.seek(0)
+        return buffer.getvalue()
+
+    def _build_taxas_beta_monthly_excel(
+        *,
+        segmento: str,
+        produto: str,
+        tipo_taxa: str,
+        janela_meses: int,
+        bancos_ordem: List[str],
+        df_mensal: pd.DataFrame,
+    ) -> bytes:
+        matriz = _build_taxas_beta_monthly_matrix(
+            df_mensal=df_mensal,
+            tipo_taxa=tipo_taxa,
+            bancos_ordem=bancos_ordem,
+        )
+
+        datas = (
+            pd.to_datetime(df_mensal["Fim Período"], errors="coerce")
+            if not df_mensal.empty and "Fim Período" in df_mensal.columns
+            else pd.Series(dtype="datetime64[ns]")
+        )
+        data_inicial = datas.min()
+        data_final = datas.max()
+        contexto = pd.DataFrame(
+            {
+                "Campo": [
+                    "Segmento",
+                    "Produto",
+                    "Série exportada",
+                    "Janela mensal",
+                    "Data inicial",
+                    "Data final",
+                    "Bancos selecionados",
+                    "Períodos exportados",
+                ],
+                "Valor": [
+                    str(segmento),
+                    str(_formatar_modalidade_beta(produto)),
+                    str(tipo_taxa),
+                    f"{int(janela_meses)} mês(es)",
+                    data_inicial.strftime("%d/%m/%Y") if pd.notna(data_inicial) else "",
+                    data_final.strftime("%d/%m/%Y") if pd.notna(data_final) else "",
+                    int(len(bancos_ordem)),
+                    int(max(len(matriz.columns) - 1, 0)),
+                ],
+            }
+        )
+
+        buffer = BytesIO()
+        with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
+            contexto.to_excel(writer, sheet_name="contexto", index=False)
+            sheet_name = _sanitizar_nome_aba_excel_taxas_beta(
+                _formatar_modalidade_beta(produto),
+                fallback="visao_mensal",
+            )
+            matriz.to_excel(writer, sheet_name=sheet_name, index=False)
+
+            workbook = writer.book
+            header_fmt = workbook.add_format({"bold": True, "bg_color": "#EEF2FF", "border": 1})
+            num_fmt = workbook.add_format({"num_format": "0.00"})
+
+            ws_contexto = writer.sheets["contexto"]
+            ws_contexto.set_column(0, 0, 22)
+            ws_contexto.set_column(1, 1, 36)
+
+            ws_monthly = writer.sheets[sheet_name]
+            for col_idx, col_name in enumerate(matriz.columns):
+                ws_monthly.write(0, col_idx, col_name, header_fmt)
+            ws_monthly.freeze_panes(1, 1)
+            ws_monthly.autofilter(0, 0, len(matriz), max(len(matriz.columns) - 1, 0))
+            ws_monthly.set_column(0, 0, 34)
+            if len(matriz.columns) > 1:
+                ws_monthly.set_column(1, len(matriz.columns) - 1, 12, num_fmt)
 
         buffer.seek(0)
         return buffer.getvalue()
@@ -26977,6 +27090,26 @@ elif menu == "Taxas de Juros por Produto":
                         )
                         st.plotly_chart(fig_beta, width='stretch')
 
+                    df_chart_beta_valid = pd.DataFrame()
+                    if not df_chart_beta.empty and tipo_taxa_beta in df_chart_beta.columns:
+                        df_chart_beta_valid = df_chart_beta.dropna(subset=[tipo_taxa_beta]).copy()
+                    if not df_chart_beta_valid.empty:
+                        monthly_excel_beta = _build_taxas_beta_monthly_excel(
+                            segmento=segmento_beta,
+                            produto=produto_beta,
+                            tipo_taxa=tipo_taxa_beta,
+                            janela_meses=janela_meses_beta,
+                            bancos_ordem=bancos_sel_beta,
+                            df_mensal=df_chart_beta,
+                        )
+                        st.download_button(
+                            label="Exportar Excel da visão mensal",
+                            data=monthly_excel_beta,
+                            file_name=f"taxas_beta_mensal_{segmento_beta}_{produto_beta[:20]}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            key="tj_beta_download_mensal_excel",
+                        )
+
                     ranking_excel_beta = _build_taxas_beta_ranking_excel(
                         segmento=segmento_beta,
                         produto=produto_beta,
@@ -27189,16 +27322,6 @@ elif menu == "Taxas de Juros por Produto":
                             errors_beta = meta_recent_beta.get("errors") or {}
                             if errors_beta:
                                 st.caption(f"Algumas instituições retornaram erro: {errors_beta}")
-
-                    with st.expander("Exportar dados"):
-                        csv_mensal_beta = df_chart_beta.to_csv(index=False, sep=';', decimal=',')
-                        st.download_button(
-                            label="Baixar CSV (visão mensal beta)",
-                            data=csv_mensal_beta,
-                            file_name=f"taxas_beta_mensal_{segmento_beta}_{produto_beta[:20]}.csv",
-                            mime="text/csv",
-                            key="tj_beta_download_mensal",
-                        )
 
 elif menu == "Crie sua métrica!":
     if _garantir_dados_principais("Crie sua métrica!"):
