@@ -99,6 +99,8 @@ from utils.formatting import (
     formatar_razao_br,
 )
 from utils.snapshot_delta import compute_delta
+from utils.device_detection import detect_device_from_headers
+from utils.institution_search import search_institutions
 
 from utils.cosif_pdf_mapping import (
     get_cosif_description_map_cached,
@@ -4460,6 +4462,63 @@ def _indice_default_itau_unibanco(
     if 0 <= fallback_index < len(opcoes):
         return fallback_index
     return 0
+
+
+def _snapshot_select_institution(instituicao: str) -> None:
+    """Atualiza seleção única da Snapshot a partir da busca rankeada."""
+    instituicao_str = str(instituicao).strip()
+    if instituicao_str:
+        st.session_state["snapshot_banco"] = instituicao_str
+    st.session_state["snapshot_banco_search"] = ""
+
+
+def _snapshot_clear_institution_search() -> None:
+    st.session_state["snapshot_banco_search"] = ""
+
+
+def _render_snapshot_institution_selector(bancos: list[str]) -> Optional[str]:
+    """Renderiza seletor de instituição com busca precisa e seleção única."""
+    if not bancos:
+        return None
+
+    idx_default = _indice_default_itau_unibanco(bancos)
+    default_banco = bancos[idx_default] if 0 <= idx_default < len(bancos) else bancos[0]
+    banco_atual = str(st.session_state.get("snapshot_banco") or "").strip()
+    if banco_atual not in bancos:
+        banco_atual = default_banco
+        st.session_state["snapshot_banco"] = banco_atual
+
+    st.caption(f"Instituição selecionada: **{banco_atual}**")
+    query = st.text_input(
+        "Buscar instituição",
+        key="snapshot_banco_search",
+        placeholder="Digite nome, sigla ou alias. Ex.: Itaú, Volvo, Cressol",
+        help="A busca prioriza alias, token exato, prefixo e similaridade forte.",
+    )
+
+    query_clean = str(query or "").strip()
+    if query_clean:
+        matches = search_institutions(bancos, query_clean, limit=8)
+        if matches:
+            st.caption("Resultados mais relevantes")
+            for idx, match in enumerate(matches):
+                digest = hashlib.sha1(str(match).encode("utf-8")).hexdigest()[:10]
+                label = f"{'Selecionada: ' if match == banco_atual else ''}{match}"
+                st.button(
+                    label,
+                    key=f"snapshot_bank_match_{idx}_{digest}",
+                    width="stretch",
+                    on_click=_snapshot_select_institution,
+                    args=(match,),
+                )
+        else:
+            st.info("Nenhuma instituição relevante encontrada para a busca.")
+        st.button(
+            "Limpar busca",
+            key="snapshot_bank_clear_search",
+            on_click=_snapshot_clear_institution_search,
+        )
+    return banco_atual
 
 # Nomes-alvo para defaults (slug normalizado → possíveis matches)
 _BANCOS_DEFAULT_SLUGS = [
@@ -10473,6 +10532,14 @@ _SNAPSHOT_V2_CSS = """
     font-weight: 500;
 }
 
+div[class*="st-key-snapshot_bank_match_"] button {
+    justify-content: flex-start;
+    min-height: 42px;
+    white-space: normal;
+    line-height: 1.25;
+    text-align: left;
+}
+
 /* ===== MOBILE / TABLET ===== */
 @media (max-width: 768px) {
     .snap-grid--hero {
@@ -10503,6 +10570,9 @@ _SNAPSHOT_V2_CSS = """
         font-size: 0.72rem;
         gap: 10px;
         padding: 6px 10px;
+    }
+    div[class*="st-key-snapshot_bank_match_"] button {
+        min-height: 46px;
     }
 }
 
@@ -10597,8 +10667,10 @@ def pagina_snapshot():
         return
 
     bancos = ordenar_bancos_com_alias(list(bancos_ctx), st.session_state.get("dict_aliases", {}))
-    idx_snapshot_default = _indice_default_itau_unibanco(bancos)
-    banco = st.selectbox("Instituição", bancos, index=idx_snapshot_default, key="snapshot_banco")
+    banco = _render_snapshot_institution_selector(bancos)
+    if not banco:
+        st.warning("sem instituições disponíveis para Snapshot.")
+        return
     timer_box = st.empty()
     snapshot_signature = ("snapshot", banco)
     _timer_reset_if_selection_changed("snapshot_timer_state", snapshot_signature)
@@ -14988,6 +15060,152 @@ MENU_TESTES = [
 
 TODOS_MENUS = MENU_PRINCIPAL + MENU_SECUNDARIO + MENU_TESTES
 
+
+_DEVICE_PROFILE_JS = """
+export default function(component) {
+    const nav = window.navigator || {};
+    const ua = nav.userAgent || "";
+    const uaLower = ua.toLowerCase();
+    const maxTouchPoints = Number(nav.maxTouchPoints || 0);
+    const width = Math.round(window.innerWidth || document.documentElement.clientWidth || 0);
+    const height = Math.round(window.innerHeight || document.documentElement.clientHeight || 0);
+    const visualViewport = window.visualViewport || {};
+    const viewportWidth = Math.round(visualViewport.width || width || 0);
+    const viewportHeight = Math.round(visualViewport.height || height || 0);
+    const coarsePointer = !!(window.matchMedia && window.matchMedia("(pointer: coarse)").matches);
+    const hoverNone = !!(window.matchMedia && window.matchMedia("(hover: none)").matches);
+    const uaDataMobile = nav.userAgentData && typeof nav.userAgentData.mobile === "boolean"
+        ? nav.userAgentData.mobile
+        : null;
+
+    const isAndroid = /android/i.test(ua);
+    const isIphone = /iphone|ipod/i.test(ua);
+    const isIpadDesktopUa = /macintosh/i.test(ua) && maxTouchPoints > 1;
+    const isIpad = /ipad/i.test(ua) || isIpadDesktopUa;
+    const isTablet = isIpad || (/tablet/i.test(ua)) || (isAndroid && !/mobile/i.test(ua) && maxTouchPoints > 0);
+    const isPhone = isIphone || /windows phone/i.test(ua) || (isAndroid && /mobile/i.test(ua));
+    const mobileViewport = viewportWidth > 0 && viewportWidth <= 820 && (coarsePointer || hoverNone || maxTouchPoints > 1);
+    const isMobile = isPhone || isTablet || uaDataMobile === true || mobileViewport;
+
+    let browser = "unknown";
+    if (/edgios/i.test(ua)) browser = "edge_ios";
+    else if (/edga/i.test(ua)) browser = "edge_android";
+    else if (/edg\\//i.test(ua)) browser = "edge";
+    else if (/crios/i.test(ua)) browser = "chrome_ios";
+    else if (/chrome|chromium/i.test(ua)) browser = "chrome";
+    else if (/fxios/i.test(ua)) browser = "firefox_ios";
+    else if (/firefox/i.test(ua)) browser = "firefox";
+    else if (/safari/i.test(ua) && /version/i.test(ua)) browser = "safari";
+
+    let os = "unknown";
+    if (isIphone || isIpad) os = "ios";
+    else if (isAndroid) os = "android";
+    else if (/mac os x|macintosh/i.test(ua)) os = "macos";
+    else if (/windows nt/i.test(ua)) os = "windows";
+    else if (/linux/i.test(ua)) os = "linux";
+
+    component.setStateValue("profile", {
+        is_mobile: isMobile,
+        device_type: isTablet ? "tablet" : (isPhone ? "phone" : (isMobile ? "mobile" : "desktop")),
+        browser,
+        os,
+        width,
+        height,
+        viewport_width: viewportWidth,
+        viewport_height: viewportHeight,
+        orientation: viewportWidth > viewportHeight ? "landscape" : "portrait",
+        max_touch_points: maxTouchPoints,
+        coarse_pointer: coarsePointer,
+        hover_none: hoverNone,
+        user_agent: ua
+    });
+}
+"""
+
+
+@st.cache_resource(show_spinner=False)
+def _device_profile_component_renderer():
+    components = getattr(st, "components", None)
+    components_v2 = getattr(components, "v2", None)
+    if components_v2 is None:
+        return None
+    return components_v2.component(
+        "tomaconta_device_profile",
+        html="<span></span>",
+        css=":host { display: block; height: 0; overflow: hidden; }",
+        js=_DEVICE_PROFILE_JS,
+    )
+
+
+def _browser_device_profile() -> Optional[dict]:
+    renderer = _device_profile_component_renderer()
+    if renderer is None:
+        return {"is_mobile": False, "component_unavailable": True}
+    result = renderer(
+        default={"profile": None},
+        on_profile_change=lambda: None,
+        key="tomaconta_device_profile",
+        height=1,
+    )
+    profile = getattr(result, "profile", None)
+    return profile if isinstance(profile, dict) else None
+
+
+def _menu_query_param_inicial() -> Optional[str]:
+    """Lê menu explícito da URL sem criar dependência obrigatória de query params."""
+    query_params = getattr(st, "query_params", None)
+    if query_params is None:
+        return None
+    for key in ("menu", "aba", "tab"):
+        try:
+            valor = query_params.get(key)
+        except Exception:
+            valor = None
+        menu_query = _normalizar_rotulo_menu(valor) if valor else None
+        if menu_query in TODOS_MENUS:
+            return menu_query
+    return None
+
+
+def _streamlit_headers_context() -> Mapping[str, str]:
+    context = getattr(st, "context", None)
+    if context is None:
+        return {}
+    try:
+        headers = context.headers
+    except Exception:
+        return {}
+    return headers or {}
+
+
+def _aplicar_navegacao_inicial_mobile() -> None:
+    """Abre Snapshot automaticamente em mobile sem rerun explícito."""
+    menu_query = _menu_query_param_inicial()
+    if menu_query:
+        st.session_state["menu_atual"] = menu_query
+        st.session_state["_user_selected_menu"] = True
+        st.session_state["_mobile_snapshot_autoroute_done"] = True
+        return
+
+    if st.session_state.get("_mobile_snapshot_autoroute_done"):
+        return
+
+    profile = detect_device_from_headers(_streamlit_headers_context())
+    st.session_state["_device_profile_server"] = profile.as_dict()
+
+    browser_profile = None
+    if not profile.is_mobile and profile.confidence in {"low", "unknown"}:
+        browser_profile = _browser_device_profile()
+        if browser_profile is None:
+            st.stop()
+        st.session_state["_device_profile_browser"] = browser_profile
+
+    st.session_state["_mobile_snapshot_autoroute_done"] = True
+    is_mobile = profile.is_mobile or bool((browser_profile or {}).get("is_mobile"))
+    if is_mobile and not st.session_state.get("_user_selected_menu"):
+        st.session_state["menu_atual"] = "Snapshot"
+
+
 st.session_state['menu_atual'] = _normalizar_rotulo_menu(st.session_state.get('menu_atual')) or "Sobre"
 if st.session_state['menu_atual'] not in TODOS_MENUS:
     st.session_state['menu_atual'] = "Sobre"
@@ -14996,6 +15214,7 @@ for _nav_key in ("nav_main", "nav_sec", "nav_testes"):
     _valor_nav = _normalizar_rotulo_menu(st.session_state.get(_nav_key))
     st.session_state[_nav_key] = _valor_nav if _valor_nav in TODOS_MENUS else None
 
+_aplicar_navegacao_inicial_mobile()
 menu_atual = st.session_state['menu_atual']
 
 def _garantir_dados_principais(menu_nome: str) -> bool:
@@ -15018,6 +15237,7 @@ def _on_main_menu_change():
     """Callback quando menu principal é clicado."""
     sel = st.session_state.get('nav_main')
     if sel is not None and sel in MENU_PRINCIPAL:
+        st.session_state['_user_selected_menu'] = True
         st.session_state['menu_atual'] = sel
         # Limpar seleção do menu secundário
         if 'nav_sec' in st.session_state:
@@ -15029,6 +15249,7 @@ def _on_sec_menu_change():
     """Callback quando menu secundário é clicado."""
     sel = st.session_state.get('nav_sec')
     if sel is not None and sel in MENU_SECUNDARIO:
+        st.session_state['_user_selected_menu'] = True
         st.session_state['menu_atual'] = sel
         # Limpar seleção do menu principal
         if 'nav_main' in st.session_state:
@@ -15040,6 +15261,7 @@ def _on_test_menu_change():
     """Callback quando menu de testes é clicado."""
     sel = st.session_state.get('nav_testes')
     if sel is not None and sel in MENU_TESTES:
+        st.session_state['_user_selected_menu'] = True
         st.session_state['menu_atual'] = sel
         if 'nav_main' in st.session_state:
             st.session_state['nav_main'] = None
@@ -15052,6 +15274,7 @@ def _nav_para_menu(dest: str):
     Usado por botões de atalho (página Sobre, sidebar) para evitar double rerun:
     o callback roda antes do rerun que o próprio clique do botão já dispara.
     """
+    st.session_state['_user_selected_menu'] = True
     st.session_state['menu_atual'] = dest
     if dest in MENU_PRINCIPAL:
         st.session_state['nav_main'] = dest
