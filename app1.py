@@ -4476,7 +4476,7 @@ def _snapshot_clear_institution_search() -> None:
     st.session_state["snapshot_banco_search"] = ""
 
 
-def _render_snapshot_institution_selector(bancos: list[str]) -> Optional[str]:
+def _render_snapshot_institution_selector(bancos: list[str], *, compact: bool = False) -> Optional[str]:
     """Renderiza seletor de instituição com busca precisa e seleção única."""
     if not bancos:
         return None
@@ -4488,7 +4488,6 @@ def _render_snapshot_institution_selector(bancos: list[str]) -> Optional[str]:
         banco_atual = default_banco
         st.session_state["snapshot_banco"] = banco_atual
 
-    st.caption(f"Instituição selecionada: **{banco_atual}**")
     query = st.text_input(
         "Buscar instituição",
         key="snapshot_banco_search",
@@ -4500,12 +4499,12 @@ def _render_snapshot_institution_selector(bancos: list[str]) -> Optional[str]:
     if query_clean:
         matches = search_institutions(bancos, query_clean, limit=8)
         if matches:
-            st.caption("Resultados mais relevantes")
+            if not compact:
+                st.caption("Resultados mais relevantes")
             for idx, match in enumerate(matches):
                 digest = hashlib.sha1(str(match).encode("utf-8")).hexdigest()[:10]
-                label = f"{'Selecionada: ' if match == banco_atual else ''}{match}"
                 st.button(
-                    label,
+                    str(match),
                     key=f"snapshot_bank_match_{idx}_{digest}",
                     width="stretch",
                     on_click=_snapshot_select_institution,
@@ -10651,13 +10650,15 @@ def _audit_deltas_snapshot(
 
 def pagina_snapshot():
     st.markdown(_SNAPSHOT_V2_CSS, unsafe_allow_html=True)
+    mobile_snapshot_only = _is_mobile_snapshot_only()
 
     t0 = time.perf_counter()
     if not _garantir_cache_telas_criticas("Snapshot"):
         return
 
-    st.markdown("### Snapshot")
-    st.caption("briefing executivo rápido com os principais indicadores da instituição.")
+    if not mobile_snapshot_only:
+        st.markdown("### Snapshot")
+        st.caption("briefing executivo rápido com os principais indicadores da instituição.")
 
     critical_token = _cache_version_token("critical_screens")
     snapshot_ctx = _get_peers_filters_context(critical_token)
@@ -10667,14 +10668,15 @@ def pagina_snapshot():
         return
 
     bancos = ordenar_bancos_com_alias(list(bancos_ctx), st.session_state.get("dict_aliases", {}))
-    banco = _render_snapshot_institution_selector(bancos)
+    banco = _render_snapshot_institution_selector(bancos, compact=mobile_snapshot_only)
     if not banco:
         st.warning("sem instituições disponíveis para Snapshot.")
         return
     timer_box = st.empty()
     snapshot_signature = ("snapshot", banco)
     _timer_reset_if_selection_changed("snapshot_timer_state", snapshot_signature)
-    _timer_render_caption("snapshot_timer_state", timer_box, "Tempo de carregamento da aba Snapshot")
+    if not mobile_snapshot_only:
+        _timer_render_caption("snapshot_timer_state", timer_box, "Tempo de carregamento da aba Snapshot")
 
     t_dados = time.perf_counter()
     df_bank_all = _carregar_cache_relatorio_slice(
@@ -11007,76 +11009,82 @@ def pagina_snapshot():
         ]
         st.markdown(_render_snap_grid(cards, "snap-grid--supporting"), unsafe_allow_html=True)
 
-    if any(str(cfg.get("status_marker") or "").strip() for cfg in (hero_metrics + profit_metrics + [row for sec in supporting_sections for row in sec["rows"]])):
+    if (
+        not mobile_snapshot_only
+        and any(str(cfg.get("status_marker") or "").strip() for cfg in (hero_metrics + profit_metrics + [row for sec in supporting_sections for row in sec["rows"]]))
+    ):
         st.caption("† = indicador indisponível com causa identificada. Passe o mouse no ícone `i` do card para ver a limitação/fonte.")
 
     todas_metricas_snapshot = hero_metrics + profit_metrics + [row for sec in supporting_sections for row in sec["rows"]]
-    anomalias_delta_snapshot = _audit_deltas_snapshot(
-        todas_metricas_snapshot,
-        periodo_atual,
-        periodo_anterior_qoq,
-        periodo_yoy_existente,
-    )
-    with st.expander("Memória de cálculo — Snapshot", expanded=False):
-        metricas_snapshot_disponiveis = [cfg["label"] for cfg in todas_metricas_snapshot]
-        metrica_snapshot_sel = st.selectbox(
-            "Métrica",
-            metricas_snapshot_disponiveis,
-            key="snapshot_memoria_metrica",
-        )
-        df_memoria_snapshot = _build_memoria_calculo_snapshot(
-            cache_snapshot,
-            banco,
-            metrica_snapshot_sel,
+    if not mobile_snapshot_only:
+        anomalias_delta_snapshot = _audit_deltas_snapshot(
+            todas_metricas_snapshot,
             periodo_atual,
             periodo_anterior_qoq,
             periodo_yoy_existente,
         )
-        if df_memoria_snapshot.empty:
-            st.info("memória de cálculo indisponível para os filtros atuais.")
-        else:
-            st.dataframe(df_memoria_snapshot, width='stretch', hide_index=True)
-
-    try:
-        debug_mode = bool(st.secrets.get("debug_mode", False))
-    except Exception:
-        debug_mode = False
-    if debug_mode:
-        with st.expander("⚙ Diagnóstico — Auditoria de deltas Snapshot", expanded=False):
-            if not anomalias_delta_snapshot:
-                st.success("Nenhuma inconsistência acima da tolerância na auditoria de deltas.")
+        with st.expander("Memória de cálculo — Snapshot", expanded=False):
+            metricas_snapshot_disponiveis = [cfg["label"] for cfg in todas_metricas_snapshot]
+            metrica_snapshot_sel = st.selectbox(
+                "Métrica",
+                metricas_snapshot_disponiveis,
+                key="snapshot_memoria_metrica",
+            )
+            df_memoria_snapshot = _build_memoria_calculo_snapshot(
+                cache_snapshot,
+                banco,
+                metrica_snapshot_sel,
+                periodo_atual,
+                periodo_anterior_qoq,
+                periodo_yoy_existente,
+            )
+            if df_memoria_snapshot.empty:
+                st.info("memória de cálculo indisponível para os filtros atuais.")
             else:
-                st.dataframe(pd.DataFrame(anomalias_delta_snapshot), width='stretch', hide_index=True)
+                st.dataframe(df_memoria_snapshot, width='stretch', hide_index=True)
 
-    # ===================================================================
-    # Origem dos dados
-    # ===================================================================
-    with st.expander("Origem dos dados e critérios de cálculo", expanded=False):
-        st.markdown(_build_provenance_html(), unsafe_allow_html=True)
+        try:
+            debug_mode = bool(st.secrets.get("debug_mode", False))
+        except Exception:
+            debug_mode = False
+        if debug_mode:
+            with st.expander("⚙ Diagnóstico — Auditoria de deltas Snapshot", expanded=False):
+                if not anomalias_delta_snapshot:
+                    st.success("Nenhuma inconsistência acima da tolerância na auditoria de deltas.")
+                else:
+                    st.dataframe(pd.DataFrame(anomalias_delta_snapshot), width='stretch', hide_index=True)
+
+        # ===================================================================
+        # Origem dos dados
+        # ===================================================================
+        with st.expander("Origem dos dados e critérios de cálculo", expanded=False):
+            st.markdown(_build_provenance_html(), unsafe_allow_html=True)
 
     if diagnostico_snapshot:
         dependencias_txt = ", ".join(sorted(dependencias_snapshot_incompletas))
         st.warning(
             f"Snapshot: dependências incompletas para a instituição selecionada: {dependencias_txt}."
         )
-        with st.expander("Diagnóstico do cache curado", expanded=False):
-            st.markdown(
-                "\n".join(
-                    [
-                        "1. Rode `python tools/update_caches_cli.py --all --ano-inicial 2015 --mes-inicial 03 --ano-final 2025 --mes-final 09 --mensal-inicio 201503 --mensal-fim 202509`.",
-                        "2. Verifique se o processo concluiu a materialização de `critical_screens` sem erro.",
-                        "3. Se apenas o BLOPRUDENCIAL faltar, confira se o conglomerado existe com nome oficial equivalente no arquivo mensal.",
-                        "",
-                        "**Diagnóstico encontrado nesta execução:**",
-                    ]
-                    + [f"- {item}" for item in diagnostico_snapshot]
+        if not mobile_snapshot_only:
+            with st.expander("Diagnóstico do cache curado", expanded=False):
+                st.markdown(
+                    "\n".join(
+                        [
+                            "1. Rode `python tools/update_caches_cli.py --all --ano-inicial 2015 --mes-inicial 03 --ano-final 2025 --mes-final 09 --mensal-inicio 201503 --mensal-fim 202509`.",
+                            "2. Verifique se o processo concluiu a materialização de `critical_screens` sem erro.",
+                            "3. Se apenas o BLOPRUDENCIAL faltar, confira se o conglomerado existe com nome oficial equivalente no arquivo mensal.",
+                            "",
+                            "**Diagnóstico encontrado nesta execução:**",
+                        ]
+                        + [f"- {item}" for item in diagnostico_snapshot]
+                    )
                 )
-            )
 
     tempo_render = time.perf_counter() - t_render
     tempo_total = time.perf_counter() - t0
     _timer_store_elapsed("snapshot_timer_state", snapshot_signature, tempo_total)
-    _timer_render_caption("snapshot_timer_state", timer_box, "Tempo de carregamento da aba Snapshot")
+    if not mobile_snapshot_only:
+        _timer_render_caption("snapshot_timer_state", timer_box, "Tempo de carregamento da aba Snapshot")
 
 
 def _gerar_imagem_peers_tabela(
@@ -15179,12 +15187,9 @@ def _streamlit_headers_context() -> Mapping[str, str]:
 
 
 def _aplicar_navegacao_inicial_mobile() -> None:
-    """Abre Snapshot automaticamente em mobile sem rerun explícito."""
-    menu_query = _menu_query_param_inicial()
-    if menu_query:
-        st.session_state["menu_atual"] = menu_query
-        st.session_state["_user_selected_menu"] = True
-        st.session_state["_mobile_snapshot_autoroute_done"] = True
+    """Abre e mantém Snapshot em mobile sem rerun explícito."""
+    if st.session_state.get("_mobile_snapshot_only"):
+        st.session_state["menu_atual"] = "Snapshot"
         return
 
     if st.session_state.get("_mobile_snapshot_autoroute_done"):
@@ -15202,8 +15207,19 @@ def _aplicar_navegacao_inicial_mobile() -> None:
 
     st.session_state["_mobile_snapshot_autoroute_done"] = True
     is_mobile = profile.is_mobile or bool((browser_profile or {}).get("is_mobile"))
-    if is_mobile and not st.session_state.get("_user_selected_menu"):
+    st.session_state["_mobile_snapshot_only"] = bool(is_mobile)
+    if is_mobile:
         st.session_state["menu_atual"] = "Snapshot"
+        return
+
+    menu_query = _menu_query_param_inicial()
+    if menu_query:
+        st.session_state["menu_atual"] = menu_query
+        st.session_state["_user_selected_menu"] = True
+
+
+def _is_mobile_snapshot_only() -> bool:
+    return bool(st.session_state.get("_mobile_snapshot_only"))
 
 
 st.session_state['menu_atual'] = _normalizar_rotulo_menu(st.session_state.get('menu_atual')) or "Sobre"
@@ -15274,6 +15290,8 @@ def _nav_para_menu(dest: str):
     Usado por botões de atalho (página Sobre, sidebar) para evitar double rerun:
     o callback roda antes do rerun que o próprio clique do botão já dispara.
     """
+    if _is_mobile_snapshot_only():
+        dest = "Snapshot"
     st.session_state['_user_selected_menu'] = True
     st.session_state['menu_atual'] = dest
     if dest in MENU_PRINCIPAL:
@@ -15310,38 +15328,39 @@ else:
     st.session_state['nav_sec'] = None
     st.session_state['nav_testes'] = menu_atual
 
-# Menu principal (análise)
-st.markdown('<div class="header-nav">', unsafe_allow_html=True)
-st.segmented_control(
-    "menu principal",
-    MENU_PRINCIPAL,
-    label_visibility="collapsed",
-    key="nav_main",
-    on_change=_on_main_menu_change
-)
-st.markdown('</div>', unsafe_allow_html=True)
+if not _is_mobile_snapshot_only():
+    # Menu principal (análise)
+    st.markdown('<div class="header-nav">', unsafe_allow_html=True)
+    st.segmented_control(
+        "menu principal",
+        MENU_PRINCIPAL,
+        label_visibility="collapsed",
+        key="nav_main",
+        on_change=_on_main_menu_change
+    )
+    st.markdown('</div>', unsafe_allow_html=True)
 
-# Menu secundário (utilitários)
-st.markdown('<div class="header-nav">', unsafe_allow_html=True)
-st.segmented_control(
-    "menu secundário",
-    MENU_SECUNDARIO,
-    label_visibility="collapsed",
-    key="nav_sec",
-    on_change=_on_sec_menu_change
-)
-st.markdown('</div>', unsafe_allow_html=True)
+    # Menu secundário (utilitários)
+    st.markdown('<div class="header-nav">', unsafe_allow_html=True)
+    st.segmented_control(
+        "menu secundário",
+        MENU_SECUNDARIO,
+        label_visibility="collapsed",
+        key="nav_sec",
+        on_change=_on_sec_menu_change
+    )
+    st.markdown('</div>', unsafe_allow_html=True)
 
-# Menu beta / testes
-st.markdown('<div class="header-nav">', unsafe_allow_html=True)
-st.segmented_control(
-    "menu testes",
-    MENU_TESTES,
-    label_visibility="collapsed",
-    key="nav_testes",
-    on_change=_on_test_menu_change,
-)
-st.markdown('</div>', unsafe_allow_html=True)
+    # Menu beta / testes
+    st.markdown('<div class="header-nav">', unsafe_allow_html=True)
+    st.segmented_control(
+        "menu testes",
+        MENU_TESTES,
+        label_visibility="collapsed",
+        key="nav_testes",
+        on_change=_on_test_menu_change,
+    )
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # Usar menu_atual (já atualizado pelos callbacks)
 menu = st.session_state['menu_atual']
@@ -15349,7 +15368,8 @@ _menu_prev_rendered = st.session_state.get('_menu_prev_rendered')
 _just_changed_tab = menu != _menu_prev_rendered and _menu_prev_rendered is not None
 st.session_state['_menu_prev_rendered'] = menu
 
-st.markdown("---")
+if not _is_mobile_snapshot_only():
+    st.markdown("---")
 
 CACHE_DEPENDENCIAS_POR_ABA = {
     "Snapshot": ["critical_screens"],
@@ -15386,6 +15406,8 @@ def _nota_cache_dependencia(cache_nome: str) -> str:
 
 
 def _render_cache_status_por_aba(menu_nome: str) -> None:
+    if _is_mobile_snapshot_only() and menu_nome == "Snapshot":
+        return
     caches = CACHE_DEPENDENCIAS_POR_ABA.get(menu_nome)
     if not caches:
         return
@@ -15407,88 +15429,89 @@ with st.sidebar:
 
     st.markdown("")
 
-    with st.expander("controle avançado"):
-        manager_sidebar = get_cache_manager()
-        cache_curado = manager_sidebar.get_cache("critical_screens") if manager_sidebar else None
-        if cache_curado is not None and (cache_curado.arquivo_dados.exists() or cache_curado.arquivo_dados_pickle.exists()):
-            st.success("critical_screens materializado")
-        else:
-            st.warning("critical_screens ainda não materializado")
+    if not _is_mobile_snapshot_only():
+        with st.expander("controle avançado"):
+            manager_sidebar = get_cache_manager()
+            cache_curado = manager_sidebar.get_cache("critical_screens") if manager_sidebar else None
+            if cache_curado is not None and (cache_curado.arquivo_dados.exists() or cache_curado.arquivo_dados_pickle.exists()):
+                st.success("critical_screens materializado")
+            else:
+                st.warning("critical_screens ainda não materializado")
 
-        # Informações detalhadas do cache
-        st.markdown("**status do cache**")
-        cache_info = get_cache_info_detalhado()
-        fonte = st.session_state.get('cache_fonte', 'desconhecida')
+            # Informações detalhadas do cache
+            st.markdown("**status do cache**")
+            cache_info = get_cache_info_detalhado()
+            fonte = st.session_state.get('cache_fonte', 'desconhecida')
 
-        if cache_info['existe']:
-            st.caption(f"**caminho:** `{cache_info['caminho']}`")
-            st.caption(f"**modificado:** {cache_info['data_formatada']}")
-            st.caption(f"**tamanho:** {cache_info['tamanho_formatado']}")
-            st.caption(f"**fonte:** {fonte}")
+            if cache_info['existe']:
+                st.caption(f"**caminho:** `{cache_info['caminho']}`")
+                st.caption(f"**modificado:** {cache_info['data_formatada']}")
+                st.caption(f"**tamanho:** {cache_info['tamanho_formatado']}")
+                st.caption(f"**fonte:** {fonte}")
 
-            # Mostrar info do cache_info.txt se existir
-            info_cache = ler_info_cache()
-            if info_cache:
-                st.caption(f"{info_cache.replace(chr(10), ' | ')}")
-        else:
-            st.warning("cache não encontrado no disco")
+                # Mostrar info do cache_info.txt se existir
+                info_cache = ler_info_cache()
+                if info_cache:
+                    st.caption(f"{info_cache.replace(chr(10), ' | ')}")
+            else:
+                st.warning("cache não encontrado no disco")
 
-        # Botão para forçar recarregamento do cache local
-        st.button(
-            "recarregar cache do disco",
-            width='stretch',
-            on_click=_recarregar_cache_callback,
-        )
+            # Botão para forçar recarregamento do cache local
+            st.button(
+                "recarregar cache do disco",
+                width='stretch',
+                on_click=_recarregar_cache_callback,
+            )
 
-        st.markdown("---")
-        st.markdown("**diagnóstico**")
-        st.toggle(
-            "modo diagnóstico",
-            value=False,
-            key="modo_diagnostico",
-            help="exibe memória aproximada, tamanho do recorte do cache derivado e tempos de execução",
-        )
-        if st.session_state.get("modo_diagnostico"):
-            with st.expander("diagnóstico IFData (Rel. 1)", expanded=False):
-                periodo_default = _inferir_periodo_api_padrao()
-                termo_busca = st.text_input("instituição (texto exato ou parcial)", value="DOCK IP", key="diag_ifdata_texto")
-                periodo_api = st.text_input("período (YYYYMM)", value=periodo_default, key="diag_ifdata_periodo")
-                if st.button("rodar diagnóstico", key="diag_ifdata_run"):
-                    with st.spinner("consultando IFData (Rel. 1)..."):
-                        resultado = _diagnosticar_ifdata_resumo(periodo_api.strip(), termo_busca.strip())
+            st.markdown("---")
+            st.markdown("**diagnóstico**")
+            st.toggle(
+                "modo diagnóstico",
+                value=False,
+                key="modo_diagnostico",
+                help="exibe memória aproximada, tamanho do recorte do cache derivado e tempos de execução",
+            )
+            if st.session_state.get("modo_diagnostico"):
+                with st.expander("diagnóstico IFData (Rel. 1)", expanded=False):
+                    periodo_default = _inferir_periodo_api_padrao()
+                    termo_busca = st.text_input("instituição (texto exato ou parcial)", value="DOCK IP", key="diag_ifdata_texto")
+                    periodo_api = st.text_input("período (YYYYMM)", value=periodo_default, key="diag_ifdata_periodo")
+                    if st.button("rodar diagnóstico", key="diag_ifdata_run"):
+                        with st.spinner("consultando IFData (Rel. 1)..."):
+                            resultado = _diagnosticar_ifdata_resumo(periodo_api.strip(), termo_busca.strip())
 
-                    if resultado.get("erro"):
-                        st.error(resultado["erro"])
-                    else:
-                        st.caption(f"Período: {resultado['periodo']} | Termo: {resultado['termo']}")
-                        st.caption(f"Cadastro: {resultado['cadastro_total']} linhas | Valores (Rel. 1): {resultado['valores_total']} linhas")
-                        if resultado["cadastro_match"]:
-                            st.markdown("**Matches no cadastro (exemplos):**")
-                            st.write(resultado["cadastro_match"])
+                        if resultado.get("erro"):
+                            st.error(resultado["erro"])
                         else:
-                            st.warning("Nenhum match no cadastro para o termo informado.")
+                            st.caption(f"Período: {resultado['periodo']} | Termo: {resultado['termo']}")
+                            st.caption(f"Cadastro: {resultado['cadastro_total']} linhas | Valores (Rel. 1): {resultado['valores_total']} linhas")
+                            if resultado["cadastro_match"]:
+                                st.markdown("**Matches no cadastro (exemplos):**")
+                                st.write(resultado["cadastro_match"])
+                            else:
+                                st.warning("Nenhum match no cadastro para o termo informado.")
 
-                        if resultado["codinst_match"]:
-                            st.caption(f"CodInst encontrados: {', '.join(resultado['codinst_match'][:10])}")
-                        else:
-                            st.warning("Nenhum CodInst encontrado para o termo.")
+                            if resultado["codinst_match"]:
+                                st.caption(f"CodInst encontrados: {', '.join(resultado['codinst_match'][:10])}")
+                            else:
+                                st.warning("Nenhum CodInst encontrado para o termo.")
 
-                        if resultado["vars_resumo_match"]:
-                            st.markdown("**Variáveis do Rel. 1 encontradas para a IF:**")
-                            st.write(resultado["vars_resumo_match"])
-                        else:
-                            st.warning("Nenhuma variável do Rel. 1 (Resumo) encontrada para essa IF.")
+                            if resultado["vars_resumo_match"]:
+                                st.markdown("**Variáveis do Rel. 1 encontradas para a IF:**")
+                                st.write(resultado["vars_resumo_match"])
+                            else:
+                                st.warning("Nenhuma variável do Rel. 1 (Resumo) encontrada para essa IF.")
 
-        st.markdown("---")
-        st.markdown("**atualizar dados (admin)**")
-        st.caption("este painel foi simplificado. use o menu **Atualizar Base** para extração e publicação.")
-        st.button(
-            "ir para Atualizar Base",
-            width='stretch',
-            key="sidebar_ir_atualizar_base",
-            on_click=_nav_para_menu,
-            args=("Atualizar Base",),
-        )
+            st.markdown("---")
+            st.markdown("**atualizar dados (admin)**")
+            st.caption("este painel foi simplificado. use o menu **Atualizar Base** para extração e publicação.")
+            st.button(
+                "ir para Atualizar Base",
+                width='stretch',
+                key="sidebar_ir_atualizar_base",
+                on_click=_nav_para_menu,
+                args=("Atualizar Base",),
+            )
 
 if "dre_consolidada_tipo_visualizacao" not in st.session_state:
     st.session_state["dre_consolidada_tipo_visualizacao"] = "Conglomerado Prudencial"
