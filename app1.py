@@ -632,6 +632,25 @@ st.markdown("""
         }, 180);
     }
 
+    function isLikelyMobileClient() {
+        var nav = window.navigator || {};
+        var ua = nav.userAgent || '';
+        var touchPoints = Number(nav.maxTouchPoints || 0);
+        var width = Math.round(window.innerWidth || document.documentElement.clientWidth || 0);
+        var uaMobile = /iphone|ipod|ipad|android|windows phone|mobile/i.test(ua);
+        var ipadDesktopUa = /macintosh/i.test(ua) && touchPoints > 1;
+        var coarsePointer = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+        return uaMobile || ipadDesktopUa || (width > 0 && width <= 900 && (coarsePointer || touchPoints > 1));
+    }
+
+    function applyMobileShellFlag() {
+        if (isLikelyMobileClient()) {
+            document.documentElement.setAttribute('data-tomaconta-mobile-client', '1');
+        }
+    }
+    applyMobileShellFlag();
+    window.addEventListener('resize', applyMobileShellFlag, { passive: true });
+
     /* Detecta cliques nos segmented controls de navegação */
     document.addEventListener('click', function (e) {
         if (!e.target.closest('[data-testid="stSegmentedControl"]')) return;
@@ -666,6 +685,28 @@ st.markdown("""
 
     [data-testid="stSidebar"][aria-expanded="false"] > div {
         display: none !important;
+    }
+
+    html[data-tomaconta-mobile-client="1"] [data-testid="stSidebar"],
+    html[data-tomaconta-mobile-client="1"] [data-testid="stSidebar"][aria-expanded="true"],
+    html[data-tomaconta-mobile-client="1"] [data-testid="stSidebar"][aria-expanded="false"] {
+        display: none !important;
+        visibility: hidden !important;
+        width: 0 !important;
+        min-width: 0 !important;
+        max-width: 0 !important;
+        transform: translateX(-100%) !important;
+    }
+
+    html[data-tomaconta-mobile-client="1"] [data-testid="collapsedControl"],
+    html[data-tomaconta-mobile-client="1"] [data-testid="stSidebarNav"] {
+        display: none !important;
+        visibility: hidden !important;
+    }
+
+    html[data-tomaconta-mobile-client="1"] [data-testid="stAppViewContainer"],
+    html[data-tomaconta-mobile-client="1"] section.main {
+        margin-left: 0 !important;
     }
 
     /* Esconde decoração do header */
@@ -15222,6 +15263,39 @@ def _is_mobile_snapshot_only() -> bool:
     return bool(st.session_state.get("_mobile_snapshot_only"))
 
 
+def _hide_mobile_sidebar_shell() -> None:
+    if not _is_mobile_snapshot_only():
+        return
+    st.markdown(
+        """
+        <style>
+            [data-testid="stSidebar"],
+            [data-testid="stSidebar"][aria-expanded="true"],
+            [data-testid="stSidebar"][aria-expanded="false"] {
+                display: none !important;
+                visibility: hidden !important;
+                width: 0 !important;
+                min-width: 0 !important;
+                max-width: 0 !important;
+                transform: translateX(-100%) !important;
+            }
+
+            [data-testid="collapsedControl"],
+            [data-testid="stSidebarNav"] {
+                display: none !important;
+                visibility: hidden !important;
+            }
+
+            [data-testid="stAppViewContainer"],
+            section.main {
+                margin-left: 0 !important;
+            }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 st.session_state['menu_atual'] = _normalizar_rotulo_menu(st.session_state.get('menu_atual')) or "Sobre"
 if st.session_state['menu_atual'] not in TODOS_MENUS:
     st.session_state['menu_atual'] = "Sobre"
@@ -15231,6 +15305,7 @@ for _nav_key in ("nav_main", "nav_sec", "nav_testes"):
     st.session_state[_nav_key] = _valor_nav if _valor_nav in TODOS_MENUS else None
 
 _aplicar_navegacao_inicial_mobile()
+_hide_mobile_sidebar_shell()
 menu_atual = st.session_state['menu_atual']
 
 def _garantir_dados_principais(menu_nome: str) -> bool:
@@ -15423,11 +15498,11 @@ _render_cache_status_por_aba(menu)
 
 # Sidebar apenas para informações básicas
 with st.sidebar:
-    st.markdown('<p class="sidebar-title">toma.conta</p>', unsafe_allow_html=True)
-    st.markdown('<p class="sidebar-subtitle">análise de instituições financeiras brasileiras</p>', unsafe_allow_html=True)
-    st.markdown('<p class="sidebar-author">por matheus prates, cfa</p>', unsafe_allow_html=True)
-
-    st.markdown("")
+    if not _is_mobile_snapshot_only():
+        st.markdown('<p class="sidebar-title">toma.conta</p>', unsafe_allow_html=True)
+        st.markdown('<p class="sidebar-subtitle">análise de instituições financeiras brasileiras</p>', unsafe_allow_html=True)
+        st.markdown('<p class="sidebar-author">por matheus prates, cfa</p>', unsafe_allow_html=True)
+        st.markdown("")
 
     if not _is_mobile_snapshot_only():
         with st.expander("controle avançado"):
