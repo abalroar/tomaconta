@@ -14,6 +14,24 @@ def test_fgc_period_discovery_scans_monthly_bloprudencial_csv_cache():
     source = _app_source()
     assert '"bcb_bloprudencial" / "csv"' in source
     assert '"bcb_bloprudencial" / "zips"' in source
+    assert "_sondar_periodos_bloprudencial_bcb" in source
+
+
+def test_cosif_period_selector_defaults_latest_and_previous():
+    periodos_desc = ["202603", "202602", "202601", "202512"]
+
+    assert app1._default_periodos_cosif(periodos_desc, 2) == ["202603", "202602"]
+    assert app1._default_periodos_cosif(periodos_desc, 1) == ["202603"]
+    assert app1._normalizar_periodos_cosif_selecionados(
+        ["202601", "202603", "202602"],
+        periodos_desc,
+    ) == ["202603", "202602"]
+
+
+def test_bloprudencial_probe_candidates_continue_after_latest_local_period():
+    candidatos = app1._candidatos_sondagem_bloprudencial(["202512"])
+
+    assert candidatos[:3] == ("202601", "202602", "202603")
 
 
 def test_fgc_required_periods_and_accumulated_formula_are_explicit():

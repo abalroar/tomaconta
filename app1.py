@@ -5229,6 +5229,108 @@ def _yyyymm_para_periodo_exibicao(valor: str) -> str:
     return f"{yyyymm[4:6]}/{yyyymm[:4]}"
 
 
+def _somar_meses_yyyymm(yyyymm: str, meses: int) -> Optional[str]:
+    ym = _validar_yyyymm_str(yyyymm)
+    if not ym:
+        return None
+    ano = int(ym[:4])
+    mes = int(ym[4:6])
+    idx = ano * 12 + (mes - 1) + int(meses)
+    return f"{idx // 12:04d}{(idx % 12) + 1:02d}"
+
+
+def _range_mensal_yyyymm(inicio: str, fim: str) -> list[str]:
+    ym_inicio = _validar_yyyymm_str(inicio)
+    ym_fim = _validar_yyyymm_str(fim)
+    if not ym_inicio or not ym_fim:
+        return []
+
+    idx_inicio = int(ym_inicio[:4]) * 12 + (int(ym_inicio[4:6]) - 1)
+    idx_fim = int(ym_fim[:4]) * 12 + (int(ym_fim[4:6]) - 1)
+    if idx_inicio > idx_fim:
+        return []
+    return [f"{idx // 12:04d}{(idx % 12) + 1:02d}" for idx in range(idx_inicio, idx_fim + 1)]
+
+
+def _candidatos_sondagem_bloprudencial(periodos_locais: Iterable[str]) -> tuple[str, ...]:
+    periodos_validos = sorted({p for p in (_validar_yyyymm_str(p) for p in periodos_locais) if p})
+    hoje = datetime.now(ZoneInfo("America/Sao_Paulo"))
+    ym_atual = f"{hoje.year:04d}{hoje.month:02d}"
+
+    if periodos_validos:
+        inicio = _somar_meses_yyyymm(periodos_validos[-1], 1)
+    else:
+        inicio = _somar_meses_yyyymm(ym_atual, -36)
+
+    if not inicio:
+        return tuple()
+    return tuple(_range_mensal_yyyymm(inicio, ym_atual))
+
+
+@st.cache_data(ttl=6 * 3600, show_spinner=False)
+def _sondar_periodos_bloprudencial_bcb(candidatos_yyyymm: tuple[str, ...], probe_version: str = "v1") -> list[str]:
+    _ = probe_version
+    candidatos = tuple(dict.fromkeys(p for p in (_validar_yyyymm_str(v) for v in candidatos_yyyymm) if p))
+    if not candidatos:
+        return []
+
+    def _existe_no_bcb(ym: str) -> Optional[str]:
+        url = (
+            "https://www.bcb.gov.br/content/estabilidadefinanceira/cosif/"
+            f"Conglomerados-prudenciais/{ym}BLOPRUDENCIAL.csv.zip"
+        )
+        try:
+            resp = requests.head(url, timeout=12, allow_redirects=True)
+            if resp.status_code == 200:
+                return ym
+            if resp.status_code in {403, 405}:
+                resp_get = requests.get(url, timeout=20, stream=True)
+                try:
+                    return ym if resp_get.status_code == 200 else None
+                finally:
+                    resp_get.close()
+        except Exception:
+            return None
+        return None
+
+    encontrados: list[str] = []
+    with ThreadPoolExecutor(max_workers=min(6, max(1, len(candidatos)))) as executor:
+        futuros = {executor.submit(_existe_no_bcb, ym): ym for ym in candidatos}
+        for futuro in as_completed(futuros):
+            ym_encontrado = futuro.result()
+            if ym_encontrado:
+                encontrados.append(ym_encontrado)
+    return sorted(encontrados)
+
+
+def _normalizar_periodos_cosif_selecionados(selecionados: Iterable[str], opcoes_desc: Sequence[str]) -> list[str]:
+    opcoes_validas = [p for p in opcoes_desc if _validar_yyyymm_str(p)]
+    permitidos = set(opcoes_validas)
+    periodos = [p for p in dict.fromkeys(_validar_yyyymm_str(v) for v in selecionados) if p and p in permitidos]
+    return sorted(periodos, reverse=True)[:2]
+
+
+def _default_periodos_cosif(periodos_desc: Sequence[str], quantidade: int = 2) -> list[str]:
+    periodos = [p for p in periodos_desc if _validar_yyyymm_str(p)]
+    return periodos[: max(1, min(int(quantidade or 1), 2))]
+
+
+def _modos_comuns_conta_bloprudencial(conta_cosif: Optional[str], periodos_referencia: Sequence[str]) -> list[tuple[str, str]]:
+    periodos = [_validar_yyyymm_str(p) for p in periodos_referencia]
+    periodos = [p for p in periodos if p]
+    if not periodos:
+        return []
+    modos_base = _modos_disponiveis_conta_bloprudencial(conta_cosif, periodos[0])
+    if len(periodos) == 1:
+        return modos_base
+
+    modos_comuns = {modo for _label, modo in modos_base}
+    for periodo in periodos[1:]:
+        modos_periodo = {modo for _label, modo in _modos_disponiveis_conta_bloprudencial(conta_cosif, periodo)}
+        modos_comuns &= modos_periodo
+    return [(label, modo) for label, modo in modos_base if modo in modos_comuns]
+
+
 def _bloprud_pick_col(df_src: Optional[pd.DataFrame], candidates: list[str]) -> Optional[str]:
     if df_src is None or df_src.empty:
         return None
@@ -5251,8 +5353,8 @@ def _bloprud_pick_col(df_src: Optional[pd.DataFrame], candidates: list[str]) -> 
 def _listar_periodos_bloprudencial_disponiveis(_cache_token_bloprud: str) -> list[str]:
     """Lista competências YYYYMM disponíveis para BLOPRUDENCIAL.
 
-    Prioriza o parquet do cache manager (coluna DATA_BASE); fallback em arquivos
-    locais *BLOPRUDENCIAL*.CSV no cache bruto do app.
+    Une o parquet persistido, arquivos brutos locais e a sondagem leve dos
+    arquivos mensais publicados pelo BCB depois do último mês conhecido.
     """
     _ = _cache_token_bloprud
     periodos: set[str] = set()
@@ -5264,30 +5366,38 @@ def _listar_periodos_bloprudencial_disponiveis(_cache_token_bloprud: str) -> lis
             import pyarrow.dataset as ds
 
             dataset = ds.dataset(cache.arquivo_dados)
-            tabela = dataset.to_table(columns=["DATA_BASE"])
-            serie = tabela.to_pandas()["DATA_BASE"].astype(str).str.replace(r"\D", "", regex=True).str[:6]
-            periodos.update({v for v in serie.dropna().unique().tolist() if _validar_yyyymm_str(v)})
+            schema_names = set(dataset.schema.names)
+            col_periodo = "DATA_BASE" if "DATA_BASE" in schema_names else ("Período" if "Período" in schema_names else None)
+            if col_periodo:
+                tabela = dataset.to_table(columns=[col_periodo])
+                serie = tabela.to_pandas()[col_periodo].astype(str).str.replace(r"\D", "", regex=True).str[:6]
+                periodos.update({v for v in serie.dropna().unique().tolist() if _validar_yyyymm_str(v)})
     except Exception:
         pass
 
-    if not periodos:
-        try:
-            cache_dirs = [
-                APP_DIR / "data" / "cache" / "bcb_bloprudencial" / "csv",
-                APP_DIR / "data" / "cache" / "bcb_bloprudencial" / "zips",
-                APP_DIR,
-            ]
-            for cache_dir in cache_dirs:
-                if not cache_dir.exists():
-                    continue
-                for path in cache_dir.glob("*BLOPRUDENCIAL*"):
-                    match = re.match(r"(\d{6})BLOPRUDENCIAL", path.name.upper())
-                    if match:
-                        ym = _validar_yyyymm_str(match.group(1))
-                        if ym:
-                            periodos.add(ym)
-        except Exception:
-            pass
+    try:
+        cache_dirs = [
+            APP_DIR / "data" / "cache" / "bcb_bloprudencial" / "csv",
+            APP_DIR / "data" / "cache" / "bcb_bloprudencial" / "zips",
+            APP_DIR,
+        ]
+        for cache_dir in cache_dirs:
+            if not cache_dir.exists():
+                continue
+            for path in cache_dir.glob("*BLOPRUDENCIAL*"):
+                match = re.match(r"(\d{6})BLOPRUDENCIAL", path.name.upper())
+                if match:
+                    ym = _validar_yyyymm_str(match.group(1))
+                    if ym:
+                        periodos.add(ym)
+    except Exception:
+        pass
+
+    try:
+        candidatos_bcb = _candidatos_sondagem_bloprudencial(periodos)
+        periodos.update(_sondar_periodos_bloprudencial_bcb(candidatos_bcb))
+    except Exception:
+        pass
 
     return sorted(periodos)
 
@@ -5352,12 +5462,36 @@ def _carregar_bloprud_conta_por_periodos(
         )
 
     manager = get_cache_manager()
+    periodos_validos = {p for p in (_validar_yyyymm_str(ym) for ym in sorted(set(periodos_yyyymm))) if p}
+    bases_norm: list[pd.DataFrame] = []
+
+    def _agregar_base_bloprud(base: pd.DataFrame) -> pd.DataFrame:
+        if base is None or base.empty:
+            return pd.DataFrame(columns=["DATA_BASE", "Instituição", "CONTA", "NOME_CONTA", "VALOR_CONTA"])
+        base = base.copy()
+        base["DATA_BASE"] = base["DATA_BASE"].astype(str).str.replace(r"\D", "", regex=True).str[:6]
+        base = base[base["DATA_BASE"].map(_validar_yyyymm_str).notna()].copy()
+        if base.empty:
+            return pd.DataFrame(columns=["DATA_BASE", "Instituição", "CONTA", "NOME_CONTA", "VALOR_CONTA"])
+        base["NOME_CONTA"] = base["NOME_CONTA"].fillna("").astype(str).str.strip()
+        nome_map = (
+            base.groupby("CONTA", dropna=False)["NOME_CONTA"]
+            .agg(lambda s: next((nome for nome in s if nome), ""))
+            .to_dict()
+        )
+        ag = (
+            base.groupby(["DATA_BASE", "Instituição", "CONTA"], dropna=False)["VALOR_CONTA"]
+            .sum(min_count=1)
+            .reset_index()
+        )
+        ag["NOME_CONTA"] = ag["CONTA"].map(nome_map).fillna("")
+        return ag
+
     cache_bloprud = manager.get_cache("bloprudencial") if manager else None
     if cache_bloprud is not None and cache_bloprud.existe():
         resultado_cache = cache_bloprud.carregar_local()
         if resultado_cache.sucesso and resultado_cache.dados is not None and not resultado_cache.dados.empty:
             df_cache = resultado_cache.dados.copy()
-            periodos_validos = {p for p in (_validar_yyyymm_str(ym) for ym in sorted(set(periodos_yyyymm))) if p}
             if "DATA_BASE" in df_cache.columns:
                 df_cache["DATA_BASE"] = df_cache["DATA_BASE"].astype(str).str.replace(r"\D", "", regex=True).str[:6]
                 if periodos_validos:
@@ -5368,59 +5502,40 @@ def _carregar_bloprud_conta_por_periodos(
                     df_cache = df_cache[df_cache["DATA_BASE"].isin(periodos_validos)].copy()
             df_cache_norm = _normalizar_bloprud_frame(df_cache)
             if not df_cache_norm.empty:
-                base = df_cache_norm.copy()
-                base["DATA_BASE"] = base["DATA_BASE"].astype(str).str.replace(r"\D", "", regex=True).str[:6]
-                base = base[base["DATA_BASE"].map(_validar_yyyymm_str).notna()].copy()
-                base["NOME_CONTA"] = base["NOME_CONTA"].fillna("").astype(str).str.strip()
-                nome_map = (
-                    base.groupby("CONTA", dropna=False)["NOME_CONTA"]
-                    .agg(lambda s: next((nome for nome in s if nome), ""))
-                    .to_dict()
-                )
-                ag = (
-                    base.groupby(["DATA_BASE", "Instituição", "CONTA"], dropna=False)["VALOR_CONTA"]
-                    .sum(min_count=1)
-                    .reset_index()
-                )
-                ag["NOME_CONTA"] = ag["CONTA"].map(nome_map).fillna("")
-                return ag
+                bases_norm.append(df_cache_norm)
 
     from utils.ifdata_cache import load_bloprudencial_df_cached
 
-    dfs = []
-    for ym in sorted(set(periodos_yyyymm)):
+    periodos_cobertos = set()
+    for base_norm in bases_norm:
+        if base_norm is not None and not base_norm.empty and "DATA_BASE" in base_norm.columns:
+            periodos_cobertos.update(
+                p for p in base_norm["DATA_BASE"].astype(str).str.replace(r"\D", "", regex=True).str[:6].tolist()
+                if _validar_yyyymm_str(p)
+            )
+    periodos_para_carregar = sorted(periodos_validos - periodos_cobertos)
+
+    for ym in periodos_para_carregar:
         yyyymm = _validar_yyyymm_str(ym)
         if not yyyymm:
             continue
-        df_ym = load_bloprudencial_df_cached(
-            yyyymm=yyyymm,
-            cache_dir="data/cache/bcb_bloprudencial",
-            force_refresh=False,
-        )
+        try:
+            df_ym = load_bloprudencial_df_cached(
+                yyyymm=yyyymm,
+                cache_dir="data/cache/bcb_bloprudencial",
+                force_refresh=False,
+            )
+        except Exception:
+            continue
         tmp = _normalizar_bloprud_frame(df_ym, yyyymm_fallback=yyyymm)
         if tmp.empty:
             continue
-        dfs.append(tmp)
+        bases_norm.append(tmp)
 
-    if not dfs:
+    if not bases_norm:
         return pd.DataFrame(columns=["DATA_BASE", "Instituição", "CONTA", "NOME_CONTA", "VALOR_CONTA"])
 
-    base = pd.concat(dfs, ignore_index=True)
-    base["DATA_BASE"] = base["DATA_BASE"].astype(str).str.replace(r"\D", "", regex=True).str[:6]
-    base = base[base["DATA_BASE"].map(_validar_yyyymm_str).notna()].copy()
-    base["NOME_CONTA"] = base["NOME_CONTA"].fillna("").astype(str).str.strip()
-    nome_map = (
-        base.groupby("CONTA", dropna=False)["NOME_CONTA"]
-        .agg(lambda s: next((nome for nome in s if nome), ""))
-        .to_dict()
-    )
-    ag = (
-        base.groupby(["DATA_BASE", "Instituição", "CONTA"], dropna=False)["VALOR_CONTA"]
-        .sum(min_count=1)
-        .reset_index()
-    )
-    ag["NOME_CONTA"] = ag["CONTA"].map(nome_map).fillna("")
-    return ag
+    return _agregar_base_bloprud(pd.concat(bases_norm, ignore_index=True))
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -5589,6 +5704,403 @@ def _comparar_valores_conta_bloprudencial(
         "Componente Base Anterior": componentes_anterior.get("base"),
         "Período Base Anterior": componentes_anterior.get("periodo_base") or "",
     }, None
+
+
+def _render_contas_cosif_unificado(periodos_yyyymm: Sequence[str]) -> None:
+    periodos_yyyymm_desc = sorted(
+        {p for p in (_validar_yyyymm_str(v) for v in periodos_yyyymm) if p},
+        reverse=True,
+    )
+    if not periodos_yyyymm_desc:
+        st.warning("não foi possível identificar períodos BLOPRUDENCIAL disponíveis.")
+        return
+
+    col_ref, col_topn = st.columns([1.8, 0.8])
+    with col_ref:
+        periodos_referencia_raw = st.multiselect(
+            "período(s) de referência (yyyymm)",
+            periodos_yyyymm_desc,
+            default=_default_periodos_cosif(periodos_yyyymm_desc, quantidade=2),
+            format_func=_yyyymm_para_periodo_exibicao,
+            key="fgc_periodos_referencia",
+        )
+    with col_topn:
+        top_n = st.selectbox("top n", [10, 20, 50], index=0, key="fgc_top_n")
+
+    periodos_referencia = _normalizar_periodos_cosif_selecionados(periodos_referencia_raw, periodos_yyyymm_desc)
+    periodos_validos_raw = [
+        p for p in (_validar_yyyymm_str(v) for v in periodos_referencia_raw)
+        if p and p in set(periodos_yyyymm_desc)
+    ]
+    if len(dict.fromkeys(periodos_validos_raw)) > 2:
+        st.warning("usando apenas os dois períodos mais recentes selecionados.")
+    if not periodos_referencia:
+        st.warning("selecione ao menos um período de referência.")
+        return
+
+    periodo_atual = periodos_referencia[0]
+    periodo_anterior = periodos_referencia[1] if len(periodos_referencia) == 2 else None
+    comparando_periodos = periodo_anterior is not None
+
+    catalogo_contas = _catalogo_contas_bloprudencial(tuple(sorted(periodos_referencia)), loader_version="unificado_v1")
+    if catalogo_contas.empty:
+        periodos_txt = ", ".join(_yyyymm_para_periodo_exibicao(p) for p in periodos_referencia)
+        st.warning(f"sem contas BLOPRUDENCIAL disponíveis para {periodos_txt}.")
+        return
+
+    contas_divergentes = catalogo_contas[catalogo_contas["VARIANTES_NOME"].map(len) > 1]
+    if not contas_divergentes.empty:
+        st.warning(
+            "há divergência de nomenclatura em algumas contas BLOPRUDENCIAL para o período de referência. "
+            "O dropdown exibirá o primeiro nome encontrado para cada código."
+        )
+
+    conta_options = catalogo_contas["CONTA"].astype(str).tolist()
+    conta_default = "8118500009" if "8118500009" in conta_options else conta_options[0]
+    conta_labels = dict(zip(catalogo_contas["CONTA"].astype(str), catalogo_contas["LABEL"].astype(str)))
+
+    col_conta, col_modo = st.columns([2.2, 1.4])
+    with col_conta:
+        conta_cosif = st.selectbox(
+            "conta COSIF",
+            conta_options,
+            index=conta_options.index(conta_default),
+            format_func=lambda conta: conta_labels.get(str(conta), str(conta)),
+            key="fgc_conta_cosif",
+        )
+
+    modos_disponiveis = _modos_comuns_conta_bloprudencial(conta_cosif, periodos_referencia)
+    if not modos_disponiveis:
+        st.error("não há modo de exibição comum para a conta e os períodos selecionados.")
+        return
+
+    with col_modo:
+        modo_fgc_label = st.selectbox(
+            "como mostrar",
+            [label for label, _ in modos_disponiveis],
+            index=0,
+            key="fgc_modo_calculo",
+        )
+    modo_fgc = dict(modos_disponiveis)[modo_fgc_label]
+    st.caption(f"Conta selecionada: {conta_labels.get(str(conta_cosif), str(conta_cosif))}")
+
+    periodos_necessarios_por_ref: dict[str, list[str]] = {}
+    formulas_por_ref: dict[str, str] = {}
+    erros_periodos: list[str] = []
+    for periodo_ref in periodos_referencia:
+        req, formula, erro_req = _periodos_requeridos_fgc(periodo_ref, modo_fgc)
+        if erro_req:
+            erros_periodos.append(f"{periodo_ref}: {erro_req}")
+        periodos_necessarios_por_ref[periodo_ref] = req
+        formulas_por_ref[periodo_ref] = formula
+
+    if erros_periodos:
+        st.error("; ".join(erros_periodos))
+        return
+
+    periodos_necessarios = sorted({p for req in periodos_necessarios_por_ref.values() for p in req})
+    st.caption(
+        "Regra aplicada: "
+        + " | ".join(formulas_por_ref[p] for p in periodos_referencia)
+        + f". Meses carregados: {', '.join(periodos_necessarios)}."
+    )
+
+    df_fgc = _carregar_bloprud_conta_por_periodos(
+        tuple(periodos_necessarios),
+        conta_cosif=str(conta_cosif),
+        loader_version="unificado_v1",
+    )
+    if df_fgc.empty:
+        st.warning(
+            f"sem dados da conta {conta_cosif} para os períodos necessários: {', '.join(periodos_necessarios)}."
+        )
+        return
+
+    df_fgc = _aplicar_aliases_df(df_fgc, st.session_state.get("dict_aliases", {}))
+    bancos_todos = sorted(df_fgc["Instituição"].dropna().astype(str).unique().tolist())
+    bancos_todos = ordenar_bancos_com_alias(bancos_todos, st.session_state.get("dict_aliases", {}))
+    default_bancos = _encontrar_bancos_default(bancos_todos)
+    bancos_selecionados = st.multiselect(
+        "selecionar instituições",
+        bancos_todos,
+        default=default_bancos,
+        key="fgc_bancos",
+        max_selections=60,
+    )
+
+    if bancos_selecionados:
+        df_fgc = df_fgc[df_fgc["Instituição"].isin(bancos_selecionados)].copy()
+
+    if df_fgc.empty:
+        st.info("selecione instituições para visualizar o ranking.")
+        return
+
+    piv = (
+        df_fgc.pivot_table(
+            index="Instituição",
+            columns="DATA_BASE",
+            values="VALOR_CONTA",
+            aggfunc="sum",
+        ).reset_index()
+    )
+
+    linhas: list[dict[str, Any]] = []
+    faltas: list[dict[str, str]] = []
+    for _, row in piv.iterrows():
+        inst = row["Instituição"]
+        valores_por_mes = {c: row[c] for c in piv.columns if c != "Instituição"}
+        linha: dict[str, Any] = {"Instituição": inst}
+        linha_ok = True
+        for periodo_ref in periodos_referencia:
+            valor_calc, componentes, motivo = _calcular_valor_conta_bloprudencial(
+                periodo_ref,
+                valores_por_mes,
+                modo_fgc,
+            )
+            if valor_calc is None:
+                faltas.append({
+                    "Instituição": inst,
+                    "Período": periodo_ref,
+                    "Motivo": motivo or "dados insuficientes",
+                })
+                linha_ok = False
+                break
+
+            linha[f"Valor {periodo_ref}"] = float(valor_calc)
+            linha[f"Valor {periodo_ref} (abs)"] = abs(float(valor_calc))
+            linha[f"Componente Referência {periodo_ref}"] = componentes.get("referencia")
+            linha[f"Componente Base {periodo_ref}"] = componentes.get("base")
+            linha[f"Período Base {periodo_ref}"] = componentes.get("periodo_base") or ""
+
+        if not linha_ok:
+            continue
+
+        if comparando_periodos:
+            valor_atual = linha[f"Valor {periodo_atual}"]
+            valor_ant = linha[f"Valor {periodo_anterior}"]
+            variacao = float(valor_atual) - float(valor_ant)
+            linha["Variação"] = variacao
+            linha["Variação %"] = (variacao / abs(float(valor_ant))) * 100.0 if valor_ant not in (None, 0) and not pd.isna(valor_ant) else None
+        linhas.append(linha)
+
+    if faltas:
+        df_faltas = pd.DataFrame(faltas)
+        resumo_faltas = (
+            df_faltas.assign(MotivoPeriodo=lambda df: df["Período"].astype(str) + " - " + df["Motivo"].astype(str))
+            .groupby("MotivoPeriodo", dropna=False)["Instituição"]
+            .agg(list)
+            .reset_index()
+        )
+        for _, row_falta in resumo_faltas.iterrows():
+            exemplos = ", ".join(sorted(set(row_falta["Instituição"]))[:6])
+            st.warning(
+                f"{len(row_falta['Instituição'])} instituição(ões) excluída(s): {row_falta['MotivoPeriodo']}. "
+                f"Exemplos: {exemplos}"
+            )
+
+    df_rank = pd.DataFrame(linhas)
+    if df_rank.empty:
+        st.warning("não há instituições com dados suficientes para o cálculo selecionado.")
+        return
+
+    col_abs_atual = f"Valor {periodo_atual} (abs)"
+    df_rank = df_rank.sort_values(col_abs_atual, ascending=False)
+    df_top = df_rank.head(int(top_n)).copy()
+    total_exibido = float(df_top[col_abs_atual].sum())
+    df_top["% do Total Exibido"] = (df_top[col_abs_atual] / total_exibido) * 100.0 if total_exibido > 0 else 0.0
+    df_top["Ranking"] = range(1, len(df_top) + 1)
+
+    conta_label = conta_labels.get(str(conta_cosif), str(conta_cosif))
+    titulo_periodos = (
+        f"{_yyyymm_para_periodo_exibicao(periodo_atual)} x {_yyyymm_para_periodo_exibicao(periodo_anterior)}"
+        if comparando_periodos
+        else _yyyymm_para_periodo_exibicao(periodo_atual)
+    )
+    titulo = f"{conta_label} - {modo_fgc_label} - {titulo_periodos}"
+
+    if comparando_periodos:
+        col_abs_anterior = f"Valor {periodo_anterior} (abs)"
+        ordem_inst = df_top.sort_values(col_abs_atual, ascending=True)["Instituição"].tolist()
+        df_plot = pd.concat(
+            [
+                df_top[["Instituição", col_abs_anterior]].rename(columns={col_abs_anterior: "Valor Calculado (abs)"}).assign(
+                    Período=_yyyymm_para_periodo_exibicao(periodo_anterior)
+                ),
+                df_top[["Instituição", col_abs_atual]].rename(columns={col_abs_atual: "Valor Calculado (abs)"}).assign(
+                    Período=_yyyymm_para_periodo_exibicao(periodo_atual)
+                ),
+            ],
+            ignore_index=True,
+        )
+        fig_fgc = px.bar(
+            df_plot,
+            x="Valor Calculado (abs)",
+            y="Instituição",
+            color="Período",
+            orientation="h",
+            barmode="group",
+            text="Valor Calculado (abs)",
+            title=titulo,
+            color_discrete_map={
+                _yyyymm_para_periodo_exibicao(periodo_anterior): "#6B7280",
+                _yyyymm_para_periodo_exibicao(periodo_atual): "#FF6200",
+            },
+        )
+        fig_fgc.update_yaxes(categoryorder="array", categoryarray=ordem_inst)
+    else:
+        df_plot = df_top.sort_values(col_abs_atual, ascending=True)
+        fig_fgc = px.bar(
+            df_plot,
+            x=col_abs_atual,
+            y="Instituição",
+            orientation="h",
+            text=col_abs_atual,
+            title=titulo,
+        )
+        fig_fgc.update_traces(marker_color="#FF6200")
+
+    fig_fgc.update_traces(
+        texttemplate="%{text:,.0f}",
+        textposition="outside",
+        textfont=dict(size=16),
+        cliponaxis=False,
+    )
+    fig_fgc.update_layout(
+        xaxis_title=f"{modo_fgc_label} (abs)",
+        yaxis_title="Instituição",
+        height=max(420, min(980, 34 * len(df_top) + 220)),
+        plot_bgcolor="#f8f9fa",
+        paper_bgcolor="white",
+        font=dict(family="IBM Plex Sans"),
+        margin=dict(r=160),
+    )
+    st.plotly_chart(fig_fgc, width='stretch', config={'displayModeBar': False})
+
+    if comparando_periodos:
+        df_show = df_top[
+            [
+                "Ranking",
+                "Instituição",
+                f"Valor {periodo_atual}",
+                f"Valor {periodo_anterior}",
+                "Variação",
+                "Variação %",
+                col_abs_atual,
+                col_abs_anterior,
+                "% do Total Exibido",
+                f"Componente Referência {periodo_atual}",
+                f"Componente Base {periodo_atual}",
+                f"Período Base {periodo_atual}",
+                f"Componente Referência {periodo_anterior}",
+                f"Componente Base {periodo_anterior}",
+                f"Período Base {periodo_anterior}",
+            ]
+        ].copy()
+        df_show = df_show.rename(
+            columns={
+                f"Valor {periodo_atual}": f"Valor {_yyyymm_para_periodo_exibicao(periodo_atual)}",
+                f"Valor {periodo_anterior}": f"Valor {_yyyymm_para_periodo_exibicao(periodo_anterior)}",
+                col_abs_atual: f"Valor {_yyyymm_para_periodo_exibicao(periodo_atual)} (abs)",
+                col_abs_anterior: f"Valor {_yyyymm_para_periodo_exibicao(periodo_anterior)} (abs)",
+                f"Componente Referência {periodo_atual}": f"Componente Ref. {_yyyymm_para_periodo_exibicao(periodo_atual)}",
+                f"Componente Base {periodo_atual}": f"Componente Base {_yyyymm_para_periodo_exibicao(periodo_atual)}",
+                f"Período Base {periodo_atual}": f"Período Base {_yyyymm_para_periodo_exibicao(periodo_atual)}",
+                f"Componente Referência {periodo_anterior}": f"Componente Ref. {_yyyymm_para_periodo_exibicao(periodo_anterior)}",
+                f"Componente Base {periodo_anterior}": f"Componente Base {_yyyymm_para_periodo_exibicao(periodo_anterior)}",
+                f"Período Base {periodo_anterior}": f"Período Base {_yyyymm_para_periodo_exibicao(periodo_anterior)}",
+            }
+        )
+    else:
+        df_show = df_top[
+            [
+                "Ranking",
+                "Instituição",
+                f"Valor {periodo_atual}",
+                col_abs_atual,
+                "% do Total Exibido",
+                f"Componente Referência {periodo_atual}",
+                f"Componente Base {periodo_atual}",
+                f"Período Base {periodo_atual}",
+            ]
+        ].copy()
+        df_show = df_show.rename(
+            columns={
+                f"Valor {periodo_atual}": "Valor Calculado",
+                col_abs_atual: "Valor Calculado (abs)",
+                f"Componente Referência {periodo_atual}": "Componente Referência",
+                f"Componente Base {periodo_atual}": "Componente Base",
+                f"Período Base {periodo_atual}": "Período Base",
+            }
+        )
+
+    df_display = df_show.copy()
+    for col in df_display.columns:
+        if col == "Variação %":
+            df_display[col] = df_display[col].apply(lambda v: formatar_percentual_br(v, casas=2) if pd.notna(v) else "N/D")
+        elif col == "% do Total Exibido":
+            df_display[col] = df_display[col].apply(lambda v: formatar_percentual_br(v, casas=2) if pd.notna(v) else "N/D")
+        elif pd.api.types.is_numeric_dtype(df_display[col]) and col != "Ranking":
+            df_display[col] = df_display[col].apply(lambda v: formatar_numero_br(v, casas=2) if pd.notna(v) else "N/D")
+    st.dataframe(df_display, hide_index=True, use_container_width=True)
+
+    st.markdown("#### validação rápida")
+    amostra = df_top.iloc[0]
+    base_txt = (
+        f"{amostra[f'Período Base {periodo_atual}']}={amostra[f'Componente Base {periodo_atual}']:.2f}"
+        if pd.notna(amostra[f"Componente Base {periodo_atual}"]) and amostra[f"Período Base {periodo_atual}"]
+        else "sem componente base"
+    )
+    st.caption(
+        f"Instituição amostra: {amostra['Instituição']} | "
+        f"Ref={amostra[f'Componente Referência {periodo_atual}']:.2f} | "
+        f"{base_txt} | "
+        f"Resultado={amostra[f'Valor {periodo_atual}']:.2f} | "
+        f"abs={amostra[col_abs_atual]:.2f}"
+    )
+
+    buffer_excel = BytesIO()
+    with pd.ExcelWriter(buffer_excel, engine='xlsxwriter') as writer:
+        sheet_name = "cosif_comparacao" if comparando_periodos else "cosif_ranking"
+        df_show.to_excel(writer, index=False, sheet_name=sheet_name)
+        workbook = writer.book
+        worksheet = writer.sheets[sheet_name]
+
+        fmt_header = workbook.add_format({
+            'bold': True,
+            'bg_color': '#F2F2F2',
+            'border': 1,
+            'align': 'center',
+            'valign': 'vcenter'
+        })
+        fmt_num = workbook.add_format({'num_format': '#,##0.00'})
+        fmt_pct = workbook.add_format({'num_format': '0.00"%"'})
+        fmt_text = workbook.add_format({'align': 'left'})
+
+        for col_idx, col_name in enumerate(df_show.columns):
+            worksheet.write(0, col_idx, col_name, fmt_header)
+            tamanho_base = max(len(str(col_name)), 12)
+            if col_name == "Instituição" or "Período Base" in str(col_name):
+                largura = max(tamanho_base, int(df_show[col_name].astype(str).str.len().max()) + 2)
+                worksheet.set_column(col_idx, col_idx, min(largura, 48), fmt_text)
+            elif col_name in {"% do Total Exibido", "Variação %"}:
+                worksheet.set_column(col_idx, col_idx, max(tamanho_base, 18), fmt_pct)
+            elif pd.api.types.is_numeric_dtype(df_show[col_name]) and col_name != "Ranking":
+                worksheet.set_column(col_idx, col_idx, max(tamanho_base, 18), fmt_num)
+            else:
+                worksheet.set_column(col_idx, col_idx, min(max(tamanho_base, 14), 42), fmt_text)
+
+        worksheet.freeze_panes(1, 0)
+        worksheet.autofilter(0, 0, len(df_show), len(df_show.columns) - 1)
+    buffer_excel.seek(0)
+    sufixo_periodos = "_".join(periodos_referencia)
+    st.download_button(
+        label="Download Excel",
+        data=buffer_excel,
+        file_name=f"cosif_{conta_cosif}_{modo_fgc}_{sufixo_periodos}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        key="exportar_fgc_excel",
+        use_container_width=True,
+    )
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -21024,443 +21536,8 @@ elif menu == "Contas COSIF":
         st.caption("Instituições sem base suficiente para a regra escolhida são excluídas do cálculo e informadas como ausência de dados.")
 
     periodos_yyyymm = _listar_periodos_bloprudencial_disponiveis(_cache_version_token("bloprudencial"))
-    if not periodos_yyyymm:
-        st.warning("não foi possível identificar períodos BLOPRUDENCIAL disponíveis.")
-    else:
-        periodos_yyyymm_desc = sorted(periodos_yyyymm, reverse=True)
-        col_ref, col_topn = st.columns([1.2, 1])
-        with col_ref:
-            periodo_referencia = st.selectbox(
-                "período de referência (yyyymm)",
-                periodos_yyyymm_desc,
-                index=_indice_periodo_mais_recente(periodos_yyyymm_desc),
-                format_func=_yyyymm_para_periodo_exibicao,
-                key="fgc_periodo_referencia",
-            )
-        with col_topn:
-            top_n = st.selectbox("top n", [10, 20, 50], index=0, key="fgc_top_n")
+    _render_contas_cosif_unificado(periodos_yyyymm)
 
-        catalogo_contas = _catalogo_contas_bloprudencial((periodo_referencia,), loader_version="v1")
-        if catalogo_contas.empty:
-            st.warning(f"sem contas BLOPRUDENCIAL disponíveis para {_yyyymm_para_periodo_exibicao(periodo_referencia)}.")
-        else:
-            contas_divergentes = catalogo_contas[catalogo_contas["VARIANTES_NOME"].map(len) > 1]
-            if not contas_divergentes.empty:
-                st.warning(
-                    "há divergência de nomenclatura em algumas contas BLOPRUDENCIAL para o período de referência. "
-                    "O dropdown exibirá o primeiro nome encontrado para cada código."
-                )
-
-            conta_options = catalogo_contas["CONTA"].astype(str).tolist()
-            conta_default = "8118500009" if "8118500009" in conta_options else conta_options[0]
-            conta_labels = dict(zip(catalogo_contas["CONTA"].astype(str), catalogo_contas["LABEL"].astype(str)))
-
-            col_conta, col_modo = st.columns([2.2, 1.4])
-            with col_conta:
-                conta_cosif = st.selectbox(
-                    "conta COSIF",
-                    conta_options,
-                    index=conta_options.index(conta_default),
-                    format_func=lambda conta: conta_labels.get(str(conta), str(conta)),
-                    key="fgc_conta_cosif",
-                )
-            modos_disponiveis = _modos_disponiveis_conta_bloprudencial(conta_cosif, periodo_referencia)
-            if not modos_disponiveis:
-                st.error("não foi possível determinar um modo de exibição para a conta e o período selecionados.")
-            else:
-                with col_modo:
-                    modo_fgc_label = st.selectbox(
-                        "como mostrar",
-                        [label for label, _ in modos_disponiveis],
-                        index=0,
-                        key="fgc_modo_calculo",
-                    )
-                modo_fgc = dict(modos_disponiveis)[modo_fgc_label]
-                st.caption(f"Conta selecionada: {conta_labels.get(str(conta_cosif), str(conta_cosif))}")
-
-                periodos_necessarios, formula_fgc, erro_periodos_fgc = _periodos_requeridos_fgc(periodo_referencia, modo_fgc)
-                if erro_periodos_fgc:
-                    st.error(erro_periodos_fgc)
-                else:
-                    st.caption(
-                        f"Regra aplicada: {formula_fgc}. Meses carregados: {', '.join(periodos_necessarios)}."
-                    )
-
-                    df_fgc = _carregar_bloprud_conta_por_periodos(
-                        tuple(sorted(periodos_necessarios)),
-                        conta_cosif=str(conta_cosif),
-                        loader_version="v1",
-                    )
-                    if df_fgc.empty:
-                        st.warning(
-                            f"sem dados da conta {conta_cosif} para os períodos necessários: {', '.join(periodos_necessarios)}."
-                        )
-                    else:
-                        df_fgc = _aplicar_aliases_df(df_fgc, st.session_state.get("dict_aliases", {}))
-
-                        bancos_todos = sorted(df_fgc["Instituição"].dropna().astype(str).unique().tolist())
-                        bancos_todos = ordenar_bancos_com_alias(bancos_todos, st.session_state.get("dict_aliases", {}))
-                        default_bancos = _encontrar_bancos_default(bancos_todos)
-                        bancos_selecionados = st.multiselect(
-                            "selecionar instituições",
-                            bancos_todos,
-                            default=default_bancos,
-                            key="fgc_bancos",
-                            max_selections=60,
-                        )
-
-                        if bancos_selecionados:
-                            df_fgc = df_fgc[df_fgc["Instituição"].isin(bancos_selecionados)].copy()
-
-                        if df_fgc.empty:
-                            st.info("selecione instituições para visualizar o ranking.")
-                        else:
-                            piv = (
-                                df_fgc.pivot_table(
-                                    index="Instituição",
-                                    columns="DATA_BASE",
-                                    values="VALOR_CONTA",
-                                    aggfunc="sum",
-                                ).reset_index()
-                            )
-
-                            linhas = []
-                            faltas = []
-                            for _, row in piv.iterrows():
-                                inst = row["Instituição"]
-                                valores_por_mes = {c: row[c] for c in piv.columns if c != "Instituição"}
-                                valor_calc, componentes, motivo = _calcular_valor_conta_bloprudencial(
-                                    periodo_referencia,
-                                    valores_por_mes,
-                                    modo_fgc,
-                                )
-                                if valor_calc is None:
-                                    faltas.append({"Instituição": inst, "Motivo": motivo or "dados insuficientes"})
-                                    continue
-                                linhas.append({
-                                    "Instituição": inst,
-                                    "Valor Calculado": float(valor_calc),
-                                    "Valor Calculado (abs)": abs(float(valor_calc)),
-                                    "Componente Referência": componentes.get("referencia"),
-                                    "Componente Base": componentes.get("base"),
-                                    "Período Base": componentes.get("periodo_base") or "",
-                                })
-
-                            if faltas:
-                                df_faltas = pd.DataFrame(faltas)
-                                resumo_faltas = (
-                                    df_faltas.groupby("Motivo", dropna=False)["Instituição"]
-                                    .agg(list)
-                                    .reset_index()
-                                )
-                                for _, row_falta in resumo_faltas.iterrows():
-                                    exemplos = ", ".join(sorted(set(row_falta["Instituição"]))[:6])
-                                    st.warning(
-                                        f"{len(row_falta['Instituição'])} instituição(ões) excluída(s): {row_falta['Motivo']} "
-                                        f"Exemplos: {exemplos}"
-                                    )
-
-                            df_rank = pd.DataFrame(linhas)
-                            if df_rank.empty:
-                                st.warning("não há instituições com dados suficientes para o cálculo selecionado.")
-                            else:
-                                df_rank = df_rank.sort_values("Valor Calculado (abs)", ascending=False)
-                                df_top = df_rank.head(int(top_n)).copy()
-                                total_exibido = float(df_top["Valor Calculado (abs)"].sum())
-                                if total_exibido > 0:
-                                    df_top["% do Total Exibido"] = (df_top["Valor Calculado (abs)"] / total_exibido) * 100.0
-                                else:
-                                    df_top["% do Total Exibido"] = 0.0
-                                df_top["Ranking"] = range(1, len(df_top) + 1)
-
-                                conta_label = conta_labels.get(str(conta_cosif), str(conta_cosif))
-                                titulo = (
-                                    f"{conta_label} - {modo_fgc_label} - "
-                                    f"{_yyyymm_para_periodo_exibicao(periodo_referencia)}"
-                                )
-                                fig_fgc = px.bar(
-                                    df_top.sort_values("Valor Calculado (abs)", ascending=True),
-                                    x="Valor Calculado (abs)",
-                                    y="Instituição",
-                                    orientation="h",
-                                    text="Valor Calculado (abs)",
-                                    title=titulo,
-                                )
-                                fig_fgc.update_traces(
-                                    marker_color="#FF6200",
-                                    texttemplate="%{text:,.0f}",
-                                    textposition="outside",
-                                    textfont=dict(size=16),
-                                    cliponaxis=False,
-                                )
-                                fig_fgc.update_layout(
-                                    xaxis_title=f"{modo_fgc_label} (abs)",
-                                    yaxis_title="Instituição",
-                                    height=max(420, min(980, 34 * len(df_top) + 220)),
-                                    plot_bgcolor="#f8f9fa",
-                                    paper_bgcolor="white",
-                                    font=dict(family="IBM Plex Sans"),
-                                    margin=dict(r=160),
-                                )
-                                st.plotly_chart(fig_fgc, width='stretch', config={'displayModeBar': False})
-
-                                st.markdown("#### validação rápida")
-                                amostra = df_top.iloc[0]
-                                base_txt = (
-                                    f"{amostra['Período Base']}={amostra['Componente Base']:.2f}"
-                                    if pd.notna(amostra["Componente Base"]) and amostra["Período Base"]
-                                    else "sem componente base"
-                                )
-                                st.caption(
-                                    f"Instituição amostra: {amostra['Instituição']} | "
-                                    f"Ref={amostra['Componente Referência']:.2f} | "
-                                    f"{base_txt} | "
-                                    f"Resultado={amostra['Valor Calculado']:.2f} | "
-                                    f"abs={amostra['Valor Calculado (abs)']:.2f}"
-                                )
-
-                                df_show = df_top[
-                                    [
-                                        "Ranking",
-                                        "Instituição",
-                                        "Valor Calculado",
-                                        "Valor Calculado (abs)",
-                                        "% do Total Exibido",
-                                        "Componente Referência",
-                                        "Componente Base",
-                                        "Período Base",
-                                    ]
-                                ].copy()
-
-                                st.markdown("#### Exportar")
-                                buffer_excel = BytesIO()
-                                with pd.ExcelWriter(buffer_excel, engine='xlsxwriter') as writer:
-                                    df_show.to_excel(writer, index=False, sheet_name='fgc_ranking')
-                                    workbook = writer.book
-                                    worksheet = writer.sheets['fgc_ranking']
-
-                                    fmt_header = workbook.add_format({
-                                        'bold': True,
-                                        'bg_color': '#F2F2F2',
-                                        'border': 1,
-                                        'align': 'center',
-                                        'valign': 'vcenter'
-                                    })
-                                    fmt_num = workbook.add_format({'num_format': '#,##0'})
-                                    fmt_pct = workbook.add_format({'num_format': '0.00"%"'})
-                                    fmt_text = workbook.add_format({'align': 'left'})
-
-                                    for col_idx, col_name in enumerate(df_show.columns):
-                                        worksheet.write(0, col_idx, col_name, fmt_header)
-                                        tamanho_base = max(len(str(col_name)), 12)
-                                        if col_name in {"Instituição", "Período Base"}:
-                                            largura = max(tamanho_base, int(df_show[col_name].astype(str).str.len().max()) + 2)
-                                            worksheet.set_column(col_idx, col_idx, min(largura, 45), fmt_text)
-                                        elif col_name == "% do Total Exibido":
-                                            worksheet.set_column(col_idx, col_idx, max(tamanho_base, 18), fmt_pct)
-                                        else:
-                                            worksheet.set_column(col_idx, col_idx, max(tamanho_base, 16), fmt_num)
-
-                                    worksheet.freeze_panes(1, 0)
-                                    worksheet.autofilter(0, 0, len(df_show), len(df_show.columns) - 1)
-                                buffer_excel.seek(0)
-                                st.download_button(
-                                    label="Download Excel",
-                                    data=buffer_excel,
-                                    file_name=f"fgc_ranking_{conta_cosif}_{modo_fgc}_{periodo_referencia}.xlsx",
-                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                    key="exportar_fgc_excel",
-                                    use_container_width=True,
-                                )
-
-        st.markdown("#### Comparar instituição")
-        col_cmp_atual, col_cmp_anterior = st.columns([1, 1])
-        with col_cmp_atual:
-            periodo_cmp_atual = st.selectbox(
-                "período atual (yyyymm)",
-                periodos_yyyymm_desc,
-                index=_indice_periodo_mais_recente(periodos_yyyymm_desc),
-                format_func=_yyyymm_para_periodo_exibicao,
-                key="cosif_cmp_periodo_atual",
-            )
-
-        periodos_cmp_anteriores = [p for p in periodos_yyyymm_desc if p < periodo_cmp_atual]
-        if not periodos_cmp_anteriores:
-            st.warning("não há período anterior disponível para comparação.")
-        else:
-            with col_cmp_anterior:
-                periodo_cmp_anterior = st.selectbox(
-                    "período anterior (yyyymm)",
-                    periodos_cmp_anteriores,
-                    index=0,
-                    format_func=_yyyymm_para_periodo_exibicao,
-                    key="cosif_cmp_periodo_anterior",
-                )
-
-            catalogo_cmp = _catalogo_contas_bloprudencial(
-                tuple(sorted({periodo_cmp_atual, periodo_cmp_anterior})),
-                loader_version="compare_v1",
-            )
-            if catalogo_cmp.empty:
-                st.warning("sem catálogo de contas BLOPRUDENCIAL para os períodos selecionados.")
-            else:
-                conta_cmp_options = catalogo_cmp["CONTA"].astype(str).tolist()
-                conta_cmp_default = "8118500009" if "8118500009" in conta_cmp_options else conta_cmp_options[0]
-                conta_cmp_labels = dict(zip(catalogo_cmp["CONTA"].astype(str), catalogo_cmp["LABEL"].astype(str)))
-
-                col_cmp_conta, col_cmp_modo = st.columns([2.2, 1.4])
-                with col_cmp_conta:
-                    conta_cmp = st.selectbox(
-                        "conta COSIF para comparação",
-                        conta_cmp_options,
-                        index=conta_cmp_options.index(conta_cmp_default),
-                        format_func=lambda conta: conta_cmp_labels.get(str(conta), str(conta)),
-                        key="cosif_cmp_conta",
-                    )
-
-                modos_atual = _modos_disponiveis_conta_bloprudencial(conta_cmp, periodo_cmp_atual)
-                modos_anterior = {modo for _label, modo in _modos_disponiveis_conta_bloprudencial(conta_cmp, periodo_cmp_anterior)}
-                modos_cmp = [(label, modo) for label, modo in modos_atual if modo in modos_anterior]
-                if not modos_cmp:
-                    st.error("não há modo de cálculo comum para a conta e os períodos selecionados.")
-                else:
-                    with col_cmp_modo:
-                        modo_cmp_label = st.selectbox(
-                            "como comparar",
-                            [label for label, _ in modos_cmp],
-                            index=0,
-                            key="cosif_cmp_modo_calculo",
-                        )
-                    modo_cmp = dict(modos_cmp)[modo_cmp_label]
-                    req_atual, formula_atual, erro_req_atual = _periodos_requeridos_fgc(periodo_cmp_atual, modo_cmp)
-                    req_anterior, formula_anterior, erro_req_anterior = _periodos_requeridos_fgc(periodo_cmp_anterior, modo_cmp)
-
-                    if erro_req_atual or erro_req_anterior:
-                        st.error(erro_req_atual or erro_req_anterior)
-                    else:
-                        periodos_cmp_necessarios = sorted(set(req_atual + req_anterior))
-                        df_cmp = _carregar_bloprud_conta_por_periodos(
-                            tuple(periodos_cmp_necessarios),
-                            conta_cosif=str(conta_cmp),
-                            loader_version="compare_v1",
-                        )
-                        if df_cmp.empty:
-                            st.warning(
-                                f"sem dados da conta {conta_cmp} para os períodos necessários: "
-                                f"{', '.join(periodos_cmp_necessarios)}."
-                            )
-                        else:
-                            df_cmp = _aplicar_aliases_df(df_cmp, st.session_state.get("dict_aliases", {}))
-                            bancos_cmp = sorted(df_cmp["Instituição"].dropna().astype(str).unique().tolist())
-                            bancos_cmp = ordenar_bancos_com_alias(bancos_cmp, st.session_state.get("dict_aliases", {}))
-                            if not bancos_cmp:
-                                st.warning("sem instituições com dados para a conta e os períodos selecionados.")
-                            else:
-                                default_cmp = _encontrar_bancos_default(bancos_cmp)
-                                default_idx_cmp = bancos_cmp.index(default_cmp[0]) if default_cmp and default_cmp[0] in bancos_cmp else 0
-                                banco_cmp = st.selectbox(
-                                    "instituição para comparação",
-                                    bancos_cmp,
-                                    index=default_idx_cmp,
-                                    key="cosif_cmp_instituicao",
-                                )
-
-                                df_banco_cmp = df_cmp[df_cmp["Instituição"] == banco_cmp].copy()
-                                valores_por_mes_cmp = (
-                                    df_banco_cmp.groupby("DATA_BASE", dropna=False)["VALOR_CONTA"]
-                                    .sum(min_count=1)
-                                    .to_dict()
-                                )
-                                comparacao_cmp, erro_cmp = _comparar_valores_conta_bloprudencial(
-                                    periodo_cmp_atual,
-                                    periodo_cmp_anterior,
-                                    valores_por_mes_cmp,
-                                    modo_cmp,
-                                )
-                                if erro_cmp or comparacao_cmp is None:
-                                    st.warning(erro_cmp or "dados insuficientes para comparação.")
-                                else:
-                                    conta_cmp_label = conta_cmp_labels.get(str(conta_cmp), str(conta_cmp))
-                                    df_comparacao = pd.DataFrame([
-                                        {
-                                            "Instituição": banco_cmp,
-                                            "Conta COSIF": conta_cmp_label,
-                                            "Modo": modo_cmp_label,
-                                            "Período Atual": periodo_cmp_atual,
-                                            "Valor Atual": comparacao_cmp["Valor Atual"],
-                                            "Período Anterior": periodo_cmp_anterior,
-                                            "Valor Anterior": comparacao_cmp["Valor Anterior"],
-                                            "Variação": comparacao_cmp["Variação"],
-                                            "Variação %": comparacao_cmp["Variação %"],
-                                            "Regra Atual": formula_atual,
-                                            "Regra Anterior": formula_anterior,
-                                            "Componente Atual": comparacao_cmp["Componente Atual"],
-                                            "Componente Base Atual": comparacao_cmp["Componente Base Atual"],
-                                            "Período Base Atual": comparacao_cmp["Período Base Atual"],
-                                            "Componente Anterior": comparacao_cmp["Componente Anterior"],
-                                            "Componente Base Anterior": comparacao_cmp["Componente Base Anterior"],
-                                            "Período Base Anterior": comparacao_cmp["Período Base Anterior"],
-                                        }
-                                    ])
-
-                                    df_barras_cmp = pd.DataFrame(
-                                        [
-                                            {"Período": _yyyymm_para_periodo_exibicao(periodo_cmp_anterior), "Valor": comparacao_cmp["Valor Anterior"]},
-                                            {"Período": _yyyymm_para_periodo_exibicao(periodo_cmp_atual), "Valor": comparacao_cmp["Valor Atual"]},
-                                        ]
-                                    )
-                                    fig_cmp = px.bar(
-                                        df_barras_cmp,
-                                        x="Período",
-                                        y="Valor",
-                                        text="Valor",
-                                        title=f"{banco_cmp} - {conta_cmp_label} - {modo_cmp_label}",
-                                    )
-                                    fig_cmp.update_traces(marker_color="#FF6200", texttemplate="%{text:,.0f}", textposition="outside")
-                                    fig_cmp.update_layout(
-                                        yaxis_title="Valor calculado",
-                                        xaxis_title="Período",
-                                        height=420,
-                                        plot_bgcolor="#f8f9fa",
-                                        paper_bgcolor="white",
-                                        font=dict(family="IBM Plex Sans"),
-                                        margin=dict(r=60),
-                                    )
-                                    st.plotly_chart(fig_cmp, width="stretch", config={"displayModeBar": False})
-
-                                    df_comparacao_fmt = df_comparacao.copy()
-                                    for col_num in [
-                                        "Valor Atual",
-                                        "Valor Anterior",
-                                        "Variação",
-                                        "Componente Atual",
-                                        "Componente Base Atual",
-                                        "Componente Anterior",
-                                        "Componente Base Anterior",
-                                    ]:
-                                        df_comparacao_fmt[col_num] = df_comparacao_fmt[col_num].apply(
-                                            lambda v: formatar_numero_br(v, casas=2) if pd.notna(v) else "N/D"
-                                        )
-                                    df_comparacao_fmt["Variação %"] = df_comparacao_fmt["Variação %"].apply(
-                                        lambda v: formatar_percentual_br(v, casas=2) if pd.notna(v) else "N/D"
-                                    )
-                                    st.dataframe(df_comparacao_fmt, hide_index=True, use_container_width=True)
-
-                                    buffer_cmp = BytesIO()
-                                    with pd.ExcelWriter(buffer_cmp, engine="xlsxwriter") as writer:
-                                        df_comparacao.to_excel(writer, index=False, sheet_name="comparacao_cosif")
-                                        worksheet_cmp = writer.sheets["comparacao_cosif"]
-                                        worksheet_cmp.freeze_panes(1, 0)
-                                        worksheet_cmp.autofilter(0, 0, len(df_comparacao), len(df_comparacao.columns) - 1)
-                                    buffer_cmp.seek(0)
-                                    st.download_button(
-                                        label="Download Excel comparação",
-                                        data=buffer_cmp,
-                                        file_name=f"cosif_comparacao_{conta_cmp}_{periodo_cmp_atual}_{periodo_cmp_anterior}.xlsx",
-                                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                        key="exportar_cosif_comparacao_excel",
-                                        use_container_width=True,
-                                    )
 elif menu == "Balanço, DRE e DMPL (Ind.)":
     render_tab_cdsfn()
 
