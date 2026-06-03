@@ -156,6 +156,8 @@ def main() -> None:
     pl_up = pl_all[pl_all["Delta_PL"] > 0].copy()
     pl_up["Contrib_Acum_Delta_PL_Pos_pct"] = pl_up["Contrib_Delta_PL_Pos_pct"].cumsum()
     pl_down = pl_all[pl_all["Delta_PL"] < 0].sort_values("Delta_PL", ascending=True).copy()
+    pl_up_pct = pl_all[pl_all["Delta_PL"] > 0].sort_values("Var_PL_pct", ascending=False).copy()
+    pl_down_pct = pl_all[pl_all["Delta_PL"] < 0].sort_values("Var_PL_pct", ascending=True).copy()
 
     base["Delta_LL"] = base["LL_202603"] - base["LL_202503"]
     base["Var_LL_pct"] = pct_change(base["LL_202603"], base["LL_202503"])
@@ -179,14 +181,21 @@ def main() -> None:
     ].sort_values("Delta_LL", ascending=False)
     ll_up = ll_all[ll_all["Delta_LL"] > 0].copy()
     ll_down = ll_all[ll_all["Delta_LL"] < 0].sort_values("Delta_LL", ascending=True).copy()
+    ll_pct_base = ll_all[ll_all["LL_202503"].abs() > 0].copy()
+    ll_up_pct = ll_pct_base[ll_pct_base["Delta_LL"] > 0].sort_values("Var_LL_pct", ascending=False).copy()
+    ll_down_pct = ll_pct_base[ll_pct_base["Delta_LL"] < 0].sort_values("Var_LL_pct", ascending=True).copy()
 
     sheets = {
         "PL_Todas_IFs": pl_all,
         "PL_Maiores_Altas": pl_up,
         "PL_Maiores_Quedas": pl_down,
+        "PL_Maiores_Altas_pct": pl_up_pct,
+        "PL_Maiores_Quedas_pct": pl_down_pct,
         "LL_Todas_IFs": ll_all,
         "LL_Maiores_Altas": ll_up,
         "LL_Maiores_Quedas": ll_down,
+        "LL_Maiores_Altas_pct": ll_up_pct,
+        "LL_Maiores_Quedas_pct": ll_down_pct,
     }
     for name, df_sheet in sheets.items():
         df_sheet.to_csv(DATA_OUT / f"{name}.csv", index=False)
@@ -224,8 +233,12 @@ def main() -> None:
         "picpay_rank_delta_pl_positive": picpay_rank,
         "top_pl_up": to_records(pl_up, 15),
         "top_pl_down": to_records(pl_down, 10),
+        "top_pl_up_pct": to_records(pl_up_pct, 15),
+        "top_pl_down_pct": to_records(pl_down_pct, 10),
         "top_ll_up": to_records(ll_up, 12),
         "top_ll_down": to_records(ll_down, 12),
+        "top_ll_up_pct": to_records(ll_up_pct, 12),
+        "top_ll_down_pct": to_records(ll_down_pct, 12),
         "methodology": {
             "fonte": "Dados do tomaconta, a partir dos arquivos locais data/cache/bcb_bloprudencial/csv/*BLOPRUDENCIAL.CSV",
             "documento": DOC,
@@ -233,7 +246,7 @@ def main() -> None:
             "lucro_liquido": f"{RESULTADO_CREDOR_CONTA} Resultado Credor - abs({RESULTADO_DEVEDOR_CONTA} Resultado Devedor)",
             "universo": "Instituições com PL em 202512 >= R$ 100 milhões, usando NOME_CONGL como chave prudencial quando disponível.",
             "deduplicacao": "Linhas idênticas normalizadas são deduplicadas antes das somas por instituição/conta/período.",
-            "ordenacao": "Rankings por delta bruto em reais, não por variação percentual.",
+            "ordenacao": "Rankings por delta bruto em reais e por variação percentual, sempre dentro do corte de PL em Dez/25 >= R$ 100 milhões.",
             "omitido": "Não há proxy de aporte, Delta PL - LL, batimento ou inferência no produto executivo.",
         },
         "display": {
@@ -264,6 +277,7 @@ def main() -> None:
             {
                 "qualified": summary["coverage"]["instituicoes_qualificadas_pl_100mm"],
                 "top_positive_pl": summary["top_pl_up"][:5],
+                "top_positive_pl_pct": summary["top_pl_up_pct"][:5],
                 "picpay": summary["picpay"],
                 "picpay_rank_delta_pl_positive": summary["picpay_rank_delta_pl_positive"],
                 "output": str(DATA_OUT),

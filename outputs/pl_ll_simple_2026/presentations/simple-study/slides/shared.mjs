@@ -134,6 +134,45 @@ export function addKpi(slide, ctx, x, y, w, label, value, note, accent = C.orang
   ctx.addText(slide, { text: note, x: x + 12, y: y + 45, w: w - 18, h: 13, fontSize: 7.8, color: C.gray700 });
 }
 
+export function addFactLine(slide, ctx, x, y, facts, opts = {}) {
+  const gap = opts.gap ?? 32;
+  let cursor = x;
+  for (const fact of facts) {
+    const w = fact.w ?? 170;
+    ctx.addText(slide, {
+      text: fact.label,
+      x: cursor,
+      y,
+      w,
+      h: 13,
+      fontSize: 8.5,
+      bold: true,
+      color: C.gray700,
+    });
+    ctx.addText(slide, {
+      text: fact.value,
+      x: cursor,
+      y: y + 17,
+      w,
+      h: 22,
+      fontSize: 16,
+      bold: true,
+      color: fact.color ?? C.black,
+      typeface: ctx.fonts.title,
+    });
+    ctx.addText(slide, {
+      text: fact.note ?? "",
+      x: cursor,
+      y: y + 42,
+      w,
+      h: 12,
+      fontSize: 7.6,
+      color: C.gray700,
+    });
+    cursor += w + gap;
+  }
+}
+
 export function sectionLabel(slide, ctx, text, x, y, w = 420) {
   ctx.addText(slide, { text, x, y, w, h: 18, fontSize: 12.5, bold: true, color: C.black });
   ctx.addShape(slide, { x, y: y + 23, w, h: 1, fill: C.gray300, line: ctx.line() });
@@ -164,7 +203,7 @@ export function table(slide, ctx, x, y, columns, rows, opts = {}) {
   rows.forEach((row, i) => {
     const yy = y + headerH + i * rowH;
     const isHighlight = opts.highlight?.(row, i);
-    const fill = isHighlight ? C.paleOrange : i % 2 === 0 ? C.white : C.gray100;
+    const fill = isHighlight ? opts.highlightFill ?? C.white : i % 2 === 0 ? C.white : C.gray100;
     ctx.addShape(slide, { x, y: yy, w: totalW, h: rowH, fill, line: { style: "solid", fill: C.gray200, width: 1 } });
     let cxx = x;
     columns.forEach((col, j) => {
@@ -176,7 +215,7 @@ export function table(slide, ctx, x, y, columns, rows, opts = {}) {
         w: col.w - 10,
         h: rowH - 7,
         fontSize,
-        color: col.color?.(row, i) ?? (j === 0 ? C.black : C.gray900),
+        color: col.color?.(row, i) ?? (isHighlight ? opts.highlightColor ?? C.black : j === 0 ? C.black : C.gray900),
         bold: isHighlight || (j === 0 && opts.boldFirst !== false),
         align: col.align ?? "left",
       });
@@ -210,7 +249,7 @@ export function hBarChart(slide, ctx, x, y, w, rows, key, opts = {}) {
     ctx.addShape(slide, { x: x + labelW, y: yy + 6, w: barW, h: 11, fill: C.gray200, line: ctx.line() });
     ctx.addShape(slide, { x: x + labelW, y: yy + 6, w: bw, h: 11, fill: color, line: ctx.line() });
     ctx.addText(slide, {
-      text: fmtCompact(value),
+      text: opts.formatValue ? opts.formatValue(value, row, i) : fmtCompact(value),
       x: x + labelW + barW + 9,
       y: yy + 1,
       w: valueW,

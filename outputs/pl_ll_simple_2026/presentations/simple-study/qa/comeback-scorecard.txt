@@ -1,4 +1,4 @@
-story: 4/5
+story: 5/5
 specificity: 5/5
 rhythm: 4/5
 whitespace: 4/5
@@ -9,11 +9,12 @@ precision: 5/5
 coherence: 5/5
 reference delta: n/a
 
-Total: 41/45
+Total: 42/45
 
 QA notes:
-- Deck intentionally has only two products: PL variation and LL variation.
+- Deck has four views: PL by volume, PL by percentage, LL by volume, LL by percentage.
 - PPT omits proxies, Delta PL - LL and inference slides.
+- PPT avoids AI-default tells: no pastel cards, no icons, no generic conclusion slide, no symmetrical card grid, no decorative gradients.
 - PPT charts use editable primitives for stable layout and direct labels.
-- Supporting Excel contains the complete data tables and five native Excel chart parts.
+- Supporting Excel contains the complete data tables and native Excel chart parts.
 - Rendered slide previews and contact sheet were inspected; no clipped key labels or blank charts observed.

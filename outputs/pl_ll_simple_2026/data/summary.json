@@ -273,6 +273,235 @@
       "Contrib_Delta_PL_Pos_pct": null
     }
   ],
+  "top_pl_up_pct": [
+    {
+      "Rank_PL_Dez25": 118,
+      "Instituição": "BULLLA IP - PRUDENCIAL",
+      "PL_202512": 155818772.84,
+      "PL_202603": 696428004.69,
+      "Delta_PL": 540609231.85,
+      "Var_PL_pct": 3.469474325825399,
+      "Contrib_Delta_PL_Pos_pct": 0.004628758136904878
+    },
+    {
+      "Rank_PL_Dez25": 121,
+      "Instituição": "BMP SCMEPP LTDA - PRUDENCIAL",
+      "PL_202512": 130168218.57,
+      "PL_202603": 232217818.02,
+      "Delta_PL": 102049599.45000002,
+      "Var_PL_pct": 0.7839824541742595,
+      "Contrib_Delta_PL_Pos_pct": 0.0008737603540465162
+    },
+    {
+      "Rank_PL_Dez25": 44,
+      "Instituição": "PICPAY - PRUDENCIAL",
+      "PL_202512": 3469180980.85,
+      "PL_202603": 5735927152.23,
+      "Delta_PL": 2266746171.3799996,
+      "Var_PL_pct": 0.653395191514227,
+      "Contrib_Delta_PL_Pos_pct": 0.019408140236836305
+    },
+    {
+      "Rank_PL_Dez25": 63,
+      "Instituição": "PINE - PRUDENCIAL",
+      "PL_202512": 1147384533.89,
+      "PL_202603": 1608010402.63,
+      "Delta_PL": 460625868.74,
+      "Var_PL_pct": 0.40145727533761605,
+      "Contrib_Delta_PL_Pos_pct": 0.0039439314247425635
+    },
+    {
+      "Rank_PL_Dez25": 104,
+      "Instituição": "IFOOD PAGO IP - PRUDENCIAL",
+      "PL_202512": 232055572.03,
+      "PL_202603": 320840651.3,
+      "Delta_PL": 88785079.27000001,
+      "Var_PL_pct": 0.3826026606183881,
+      "Contrib_Delta_PL_Pos_pct": 0.000760188013623832
+    },
+    {
+      "Rank_PL_Dez25": 24,
+      "Instituição": "VOLKSWAGEN - PRUDENCIAL",
+      "PL_202512": 6436196539.72,
+      "PL_202603": 8898175620.81,
+      "Delta_PL": 2461979081.089999,
+      "Var_PL_pct": 0.38252080493444734,
+      "Contrib_Delta_PL_Pos_pct": 0.021079746761792056
+    },
+    {
+      "Rank_PL_Dez25": 110,
+      "Instituição": "MÊNTORE IP - PRUDENCIAL",
+      "PL_202512": 196306012.7,
+      "PL_202603": 270691227.14,
+      "Delta_PL": 74385214.44,
+      "Var_PL_pct": 0.37892478899093857,
+      "Contrib_Delta_PL_Pos_pct": 0.000636894722323385
+    },
+    {
+      "Rank_PL_Dez25": 51,
+      "Instituição": "MERCANTIL DO BRASIL - PRUDENCIAL",
+      "PL_202512": 2057282618.37,
+      "PL_202603": 2745599250.8,
+      "Delta_PL": 688316632.4300003,
+      "Var_PL_pct": 0.33457563209052854,
+      "Contrib_Delta_PL_Pos_pct": 0.005893445811542014
+    },
+    {
+      "Rank_PL_Dez25": 37,
+      "Instituição": "BANCO C6 - PRUDENCIAL",
+      "PL_202512": 4721090262.57,
+      "PL_202603": 6141644468.81,
+      "Delta_PL": 1420554206.2400007,
+      "Var_PL_pct": 0.3008953710337874,
+      "Contrib_Delta_PL_Pos_pct": 0.012162947751643826
+    },
+    {
+      "Rank_PL_Dez25": 13,
+      "Instituição": "CLOUDWALK IP - PRUDENCIAL",
+      "PL_202512": 13637303664.87,
+      "PL_202603": 17273705300.43,
+      "Delta_PL": 3636401635.5599995,
+      "Var_PL_pct": 0.2666510715697746,
+      "Contrib_Delta_PL_Pos_pct": 0.03113528713161681
+    },
+    {
+      "Rank_PL_Dez25": 125,
+      "Instituição": "EAGLE SCD - PRUDENCIAL",
+      "PL_202512": 111046517.05,
+      "PL_202603": 137700299.17,
+      "Delta_PL": 26653782.11999999,
+      "Var_PL_pct": 0.24002357595780163,
+      "Contrib_Delta_PL_Pos_pct": 0.00022821273407604628
+    },
+    {
+      "Rank_PL_Dez25": 122,
+      "Instituição": "AVANCARD PROVER IP - PRUDENCIAL",
+      "PL_202512": 128567722.72,
+      "PL_202603": 155723406.87,
+      "Delta_PL": 27155684.150000006,
+      "Var_PL_pct": 0.21121696468981377,
+      "Contrib_Delta_PL_Pos_pct": 0.00023251007671916312
+    },
+    {
+      "Rank_PL_Dez25": 54,
+      "Instituição": "PORTO SEGURO - PRUDENCIAL",
+      "PL_202512": 1747570799.92,
+      "PL_202603": 2115538055.21,
+      "Delta_PL": 367967255.28999996,
+      "Var_PL_pct": 0.21055928338173463,
+      "Contrib_Delta_PL_Pos_pct": 0.003150577767992553
+    },
+    {
+      "Rank_PL_Dez25": 53,
+      "Instituição": "ORIGINAL - PRUDENCIAL",
+      "PL_202512": 1792476703.73,
+      "PL_202603": 2164632317.71,
+      "Delta_PL": 372155613.98,
+      "Var_PL_pct": 0.2076208930389857,
+      "Contrib_Delta_PL_Pos_pct": 0.003186438974617292
+    },
+    {
+      "Rank_PL_Dez25": 18,
+      "Instituição": "CITIBANK - PRUDENCIAL",
+      "PL_202512": 8480347135.84,
+      "PL_202603": 10227129740.69,
+      "Delta_PL": 1746782604.8500004,
+      "Var_PL_pct": 0.2059800827571874,
+      "Contrib_Delta_PL_Pos_pct": 0.014956152650102653
+    }
+  ],
+  "top_pl_down_pct": [
+    {
+      "Rank_PL_Dez25": 93,
+      "Instituição": "HS FINANCEIRA - PRUDENCIAL",
+      "PL_202512": 343357151.41,
+      "PL_202603": 234878493.32,
+      "Delta_PL": -108478658.09000003,
+      "Var_PL_pct": -0.31593533917826144,
+      "Contrib_Delta_PL_Pos_pct": null
+    },
+    {
+      "Rank_PL_Dez25": 98,
+      "Instituição": "IUGU IP - PRUDENCIAL",
+      "PL_202512": 258028181.98,
+      "PL_202603": 197329197.24,
+      "Delta_PL": -60698984.73999998,
+      "Var_PL_pct": -0.23524168668019688,
+      "Contrib_Delta_PL_Pos_pct": null
+    },
+    {
+      "Rank_PL_Dez25": 102,
+      "Instituição": "99PAY IP - PRUDENCIAL",
+      "PL_202512": 245035961.14,
+      "PL_202603": 206727601.95,
+      "Delta_PL": -38308359.19,
+      "Var_PL_pct": -0.15633770248160728,
+      "Contrib_Delta_PL_Pos_pct": null
+    },
+    {
+      "Rank_PL_Dez25": 95,
+      "Instituição": "ANDBANK - PRUDENCIAL",
+      "PL_202512": 309027497.25,
+      "PL_202603": 271453241.57,
+      "Delta_PL": -37574255.68000001,
+      "Var_PL_pct": -0.12158871302511579,
+      "Contrib_Delta_PL_Pos_pct": null
+    },
+    {
+      "Rank_PL_Dez25": 48,
+      "Instituição": "BCO SUMITOMO MITSUI BRASIL S.A. - PRUDENCIAL",
+      "PL_202512": 2206882901.31,
+      "PL_202603": 1950912332.59,
+      "Delta_PL": -255970568.72000003,
+      "Var_PL_pct": -0.1159873813730926,
+      "Contrib_Delta_PL_Pos_pct": null
+    },
+    {
+      "Rank_PL_Dez25": 119,
+      "Instituição": "ZEMA CFI - PRUDENCIAL",
+      "PL_202512": 150874631.14,
+      "PL_202603": 136087274.41,
+      "Delta_PL": -14787356.72999999,
+      "Var_PL_pct": -0.09801088902930584,
+      "Contrib_Delta_PL_Pos_pct": null
+    },
+    {
+      "Rank_PL_Dez25": 94,
+      "Instituição": "BANCO TRAVELEX - PRUDENCIAL",
+      "PL_202512": 315158191.06,
+      "PL_202603": 289671770.04,
+      "Delta_PL": -25486421.01999998,
+      "Var_PL_pct": -0.0808686613356905,
+      "Contrib_Delta_PL_Pos_pct": null
+    },
+    {
+      "Rank_PL_Dez25": 106,
+      "Instituição": "FATOR - PRUDENCIAL",
+      "PL_202512": 211938092.92,
+      "PL_202603": 195204910.78,
+      "Delta_PL": -16733182.139999986,
+      "Var_PL_pct": -0.07895315990370942,
+      "Contrib_Delta_PL_Pos_pct": null
+    },
+    {
+      "Rank_PL_Dez25": 80,
+      "Instituição": "HAITONG - PRUDENCIAL",
+      "PL_202512": 579476653.66,
+      "PL_202603": 537832740.39,
+      "Delta_PL": -41643913.26999998,
+      "Var_PL_pct": -0.07186469550925857,
+      "Contrib_Delta_PL_Pos_pct": null
+    },
+    {
+      "Rank_PL_Dez25": 115,
+      "Instituição": "BANCO PAULISTA - PRUDENCIAL",
+      "PL_202512": 175683473.53,
+      "PL_202603": 164809610.64,
+      "Delta_PL": -10873862.890000015,
+      "Var_PL_pct": -0.06189462600842291,
+      "Contrib_Delta_PL_Pos_pct": null
+    }
+  ],
   "top_ll_up": [
     {
       "Rank_PL_Dez25": 19,
@@ -565,6 +794,298 @@
       "Delta_LL_pct_PL_Dez25": -0.11653133671864181
     }
   ],
+  "top_ll_up_pct": [
+    {
+      "Rank_PL_Dez25": 118,
+      "Instituição": "BULLLA IP - PRUDENCIAL",
+      "PL_202512": 155818772.84,
+      "LL_202503": -2597019.649999991,
+      "LL_202603": 35514573.879999995,
+      "Delta_LL": 38111593.52999999,
+      "Var_LL_pct": 14.675127132750081,
+      "LL_202503_pct_PL_Dez25": -0.016666924034029577,
+      "LL_202603_pct_PL_Dez25": 0.2279223050772423,
+      "Delta_LL_pct_PL_Dez25": 0.24458922911127187
+    },
+    {
+      "Rank_PL_Dez25": 52,
+      "Instituição": "PAGUEVELOZ IP - PRUDENCIAL",
+      "PL_202512": 1878467694.5,
+      "LL_202503": 5469479.019999996,
+      "LL_202603": 52242740.67,
+      "Delta_LL": 46773261.650000006,
+      "Var_LL_pct": 8.551684992111012,
+      "LL_202503_pct_PL_Dez25": 0.002911670525936743,
+      "LL_202603_pct_PL_Dez25": 0.027811359664561962,
+      "Delta_LL_pct_PL_Dez25": 0.024899689138625218
+    },
+    {
+      "Rank_PL_Dez25": 19,
+      "Instituição": "STONE IP - PRUDENCIAL",
+      "PL_202512": 8382441307.77,
+      "LL_202503": 235991019.42000008,
+      "LL_202603": 2184216248.16,
+      "Delta_LL": 1948225228.7399998,
+      "Var_LL_pct": 8.255505796484089,
+      "LL_202503_pct_PL_Dez25": 0.028153017808934866,
+      "LL_202603_pct_PL_Dez25": 0.2605704195191164,
+      "Delta_LL_pct_PL_Dez25": 0.23241740171018155
+    },
+    {
+      "Rank_PL_Dez25": 53,
+      "Instituição": "ORIGINAL - PRUDENCIAL",
+      "PL_202512": 1792476703.73,
+      "LL_202503": 16521586.400000095,
+      "LL_202603": 108728044.66000032,
+      "Delta_LL": 92206458.26000023,
+      "Var_LL_pct": 5.580968802124214,
+      "LL_202503_pct_PL_Dez25": 0.009217183333886571,
+      "LL_202603_pct_PL_Dez25": 0.06065799596376678,
+      "Delta_LL_pct_PL_Dez25": 0.051440812629880206
+    },
+    {
+      "Rank_PL_Dez25": 117,
+      "Instituição": "WISE BRASIL CC - PRUDENCIAL",
+      "PL_202512": 156177334.45,
+      "LL_202503": 2270846.2400000095,
+      "LL_202603": 11001089.620000005,
+      "Delta_LL": 8730243.379999995,
+      "Var_LL_pct": 3.8444889954328034,
+      "LL_202503_pct_PL_Dez25": 0.014540177984194106,
+      "LL_202603_pct_PL_Dez25": 0.07043973223606267,
+      "Delta_LL_pct_PL_Dez25": 0.055899554251868565
+    },
+    {
+      "Rank_PL_Dez25": 114,
+      "Instituição": "RECARGAPAY IP - PRUDENCIAL",
+      "PL_202512": 184071757.35,
+      "LL_202503": -3021270.9900000095,
+      "LL_202603": 7706333.640000045,
+      "Delta_LL": 10727604.630000055,
+      "Var_LL_pct": 3.550692627542166,
+      "LL_202503_pct_PL_Dez25": -0.01641354998450559,
+      "LL_202603_pct_PL_Dez25": 0.041865920937273246,
+      "Delta_LL_pct_PL_Dez25": 0.05827947092177884
+    },
+    {
+      "Rank_PL_Dez25": 86,
+      "Instituição": "BANQI IP - PRUDENCIAL",
+      "PL_202512": 430588886.11,
+      "LL_202503": 4436094.439999998,
+      "LL_202603": 19160354.330000013,
+      "Delta_LL": 14724259.890000015,
+      "Var_LL_pct": 3.3191944150765247,
+      "LL_202503_pct_PL_Dez25": 0.010302389548593074,
+      "LL_202603_pct_PL_Dez25": 0.04449802340022596,
+      "Delta_LL_pct_PL_Dez25": 0.03419563385163289
+    },
+    {
+      "Rank_PL_Dez25": 106,
+      "Instituição": "FATOR - PRUDENCIAL",
+      "PL_202512": 211938092.92,
+      "LL_202503": 3539608.0700000003,
+      "LL_202603": 14735691.840000004,
+      "Delta_LL": 11196083.770000003,
+      "Var_LL_pct": 3.1630857283021174,
+      "LL_202503_pct_PL_Dez25": 0.016701141457076768,
+      "LL_202603_pct_PL_Dez25": 0.06952828364631113,
+      "Delta_LL_pct_PL_Dez25": 0.05282714218923436
+    },
+    {
+      "Rank_PL_Dez25": 89,
+      "Instituição": "EDENRED SOLUCOES E IP AHA - PRUDENCIAL",
+      "PL_202512": 391588788.07,
+      "LL_202503": -32986251.310000002,
+      "LL_202603": 56751968.50999999,
+      "Delta_LL": 89738219.82,
+      "Var_LL_pct": 2.720473417141379,
+      "LL_202503_pct_PL_Dez25": -0.08423696570215237,
+      "LL_202603_pct_PL_Dez25": 0.14492746023120323,
+      "Delta_LL_pct_PL_Dez25": 0.2291644259333556
+    },
+    {
+      "Rank_PL_Dez25": 31,
+      "Instituição": "BCO COOPERATIVO SICREDI - PRUDENCIAL",
+      "PL_202512": 5372922819.79,
+      "LL_202503": -45219375.67000008,
+      "LL_202603": 62768698.13000107,
+      "Delta_LL": 107988073.80000114,
+      "Var_LL_pct": 2.3880929844779737,
+      "LL_202503_pct_PL_Dez25": -0.008416159544195253,
+      "LL_202603_pct_PL_Dez25": 0.011682412019544768,
+      "Delta_LL_pct_PL_Dez25": 0.020098571563740023
+    },
+    {
+      "Rank_PL_Dez25": 60,
+      "Instituição": "NEON PAGAMENTOS IP - PRUDENCIAL",
+      "PL_202512": 1325500938.58,
+      "LL_202503": -28895515.109999895,
+      "LL_202603": 38100759.390000105,
+      "Delta_LL": 66996274.5,
+      "Var_LL_pct": 2.318570001086935,
+      "LL_202503_pct_PL_Dez25": -0.021799694190300208,
+      "LL_202603_pct_PL_Dez25": 0.028744422792198993,
+      "Delta_LL_pct_PL_Dez25": 0.0505441169824992
+    },
+    {
+      "Rank_PL_Dez25": 58,
+      "Instituição": "FISERV DO BRASIL IP - PRUDENCIAL",
+      "PL_202512": 1614202601.35,
+      "LL_202503": -23030260.0,
+      "LL_202603": 26483332.44999993,
+      "Delta_LL": 49513592.44999993,
+      "Var_LL_pct": 2.1499363207362805,
+      "LL_202503_pct_PL_Dez25": -0.014267267306309128,
+      "LL_202603_pct_PL_Dez25": 0.01640644887317814,
+      "Delta_LL_pct_PL_Dez25": 0.03067371617948727
+    }
+  ],
+  "top_ll_down_pct": [
+    {
+      "Rank_PL_Dez25": 68,
+      "Instituição": "OMNI - PRUDENCIAL",
+      "PL_202512": 882897997.95,
+      "LL_202503": 405486.87000000477,
+      "LL_202603": -18171119.51999998,
+      "Delta_LL": -18576606.389999986,
+      "Var_LL_pct": -45.8130898048555,
+      "LL_202503_pct_PL_Dez25": 0.00045926808186393483,
+      "LL_202603_pct_PL_Dez25": -0.02058122179707224,
+      "Delta_LL_pct_PL_Dez25": -0.021040489878936173
+    },
+    {
+      "Rank_PL_Dez25": 116,
+      "Instituição": "BANCO AFINZ BM - PRUDENCIAL",
+      "PL_202512": 158067175.97,
+      "LL_202503": 1820132.7600000054,
+      "LL_202603": -47840832.81,
+      "Delta_LL": -49660965.57000001,
+      "Var_LL_pct": -27.2842545672327,
+      "LL_202503_pct_PL_Dez25": 0.011514931856222025,
+      "LL_202603_pct_PL_Dez25": -0.30266140023327703,
+      "Delta_LL_pct_PL_Dez25": -0.3141763320894991
+    },
+    {
+      "Rank_PL_Dez25": 32,
+      "Instituição": "MERCADO PAGO IP - PRUDENCIAL",
+      "PL_202512": 5156850061.66,
+      "LL_202503": -2767172.4499998093,
+      "LL_202603": -30454391.569999695,
+      "Delta_LL": -27687219.119999886,
+      "Var_LL_pct": -10.00559944140879,
+      "LL_202503_pct_PL_Dez25": -0.0005366013005832966,
+      "LL_202603_pct_PL_Dez25": -0.00590561897395876,
+      "Delta_LL_pct_PL_Dez25": -0.005369017673375463
+    },
+    {
+      "Rank_PL_Dez25": 96,
+      "Instituição": "CAIXA GERAL - PRUDENCIAL",
+      "PL_202512": 301518602.14,
+      "LL_202503": -656268.0999999046,
+      "LL_202603": -5066164.830000043,
+      "Delta_LL": -4409896.730000138,
+      "Var_LL_pct": -6.71965730164361,
+      "LL_202503_pct_PL_Dez25": -0.0021765426588678223,
+      "LL_202603_pct_PL_Dez25": -0.016802163428867783,
+      "Delta_LL_pct_PL_Dez25": -0.01462562076999996
+    },
+    {
+      "Rank_PL_Dez25": 90,
+      "Instituição": "CELCOIN IP - PRUDENCIAL",
+      "PL_202512": 380628087.0,
+      "LL_202503": 3741553.6400000006,
+      "LL_202603": -20204638.560000017,
+      "Delta_LL": -23946192.200000018,
+      "Var_LL_pct": -6.400066524236711,
+      "LL_202503_pct_PL_Dez25": 0.009829946259325841,
+      "LL_202603_pct_PL_Dez25": -0.05308236373003135,
+      "Delta_LL_pct_PL_Dez25": -0.06291230998935719
+    },
+    {
+      "Rank_PL_Dez25": 72,
+      "Instituição": "BANCO DIGIMAIS - PRUDENCIAL",
+      "PL_202512": 798110441.01,
+      "LL_202503": -15350085.350000024,
+      "LL_202603": -108354961.89000005,
+      "Delta_LL": -93004876.54000002,
+      "Var_LL_pct": -6.058915922574976,
+      "LL_202503_pct_PL_Dez25": -0.019233034128177375,
+      "LL_202603_pct_PL_Dez25": -0.1357643708468192,
+      "Delta_LL_pct_PL_Dez25": -0.11653133671864181
+    },
+    {
+      "Rank_PL_Dez25": 107,
+      "Instituição": "GENIAL - PRUDENCIAL",
+      "PL_202512": 205906687.03,
+      "LL_202503": -7304367.189999998,
+      "LL_202603": -47720686.34000003,
+      "Delta_LL": -40416319.150000036,
+      "Var_LL_pct": -5.533171881793096,
+      "LL_202503_pct_PL_Dez25": -0.035474162084574615,
+      "LL_202603_pct_PL_Dez25": -0.23175879826111365,
+      "Delta_LL_pct_PL_Dez25": -0.19628463617653902
+    },
+    {
+      "Rank_PL_Dez25": 95,
+      "Instituição": "ANDBANK - PRUDENCIAL",
+      "PL_202512": 309027497.25,
+      "LL_202503": -1913111.0600000024,
+      "LL_202603": -6890271.99000001,
+      "Delta_LL": -4977160.930000007,
+      "Var_LL_pct": -2.601605852406708,
+      "LL_202503_pct_PL_Dez25": -0.006190747027447579,
+      "LL_202603_pct_PL_Dez25": -0.022296630724824632,
+      "Delta_LL_pct_PL_Dez25": -0.016105883697377053
+    },
+    {
+      "Rank_PL_Dez25": 8,
+      "Instituição": "BCO CLASSICO S.A. - PRUDENCIAL",
+      "PL_202512": 19932580178.35,
+      "LL_202503": 735166.1599999964,
+      "LL_202603": -1161624.8199999928,
+      "Delta_LL": -1896790.9799999893,
+      "Var_LL_pct": -2.5800847253361043,
+      "LL_202503_pct_PL_Dez25": 3.688263904732743e-05,
+      "LL_202603_pct_PL_Dez25": -5.827769458876704e-05,
+      "Delta_LL_pct_PL_Dez25": -9.516033363609446e-05
+    },
+    {
+      "Rank_PL_Dez25": 79,
+      "Instituição": "BR PARTNERS - PRUDENCIAL",
+      "PL_202512": 584367790.39,
+      "LL_202503": 4660816.620000124,
+      "LL_202603": -5256767.6000003815,
+      "Delta_LL": -9917584.220000505,
+      "Var_LL_pct": -2.127864069451469,
+      "LL_202503_pct_PL_Dez25": 0.007975827375580627,
+      "LL_202603_pct_PL_Dez25": -0.008995649121064798,
+      "Delta_LL_pct_PL_Dez25": -0.016971476496645425
+    },
+    {
+      "Rank_PL_Dez25": 80,
+      "Instituição": "HAITONG - PRUDENCIAL",
+      "PL_202512": 579476653.66,
+      "LL_202503": 13275147.389999866,
+      "LL_202603": -9432103.589999914,
+      "Delta_LL": -22707250.97999978,
+      "Var_LL_pct": -1.7105083893158952,
+      "LL_202503_pct_PL_Dez25": 0.02290885630362061,
+      "LL_202603_pct_PL_Dez25": -0.016276934593354768,
+      "Delta_LL_pct_PL_Dez25": -0.03918579089697538
+    },
+    {
+      "Rank_PL_Dez25": 82,
+      "Instituição": "BCO TRIANGULO S.A. - PRUDENCIAL",
+      "PL_202512": 528933101.54,
+      "LL_202503": 8329197.539999992,
+      "LL_202603": -5616569.50999999,
+      "Delta_LL": -13945767.049999982,
+      "Var_LL_pct": -1.6743230044703679,
+      "LL_202503_pct_PL_Dez25": 0.015747166353834455,
+      "LL_202603_pct_PL_Dez25": -0.010618676527612336,
+      "Delta_LL_pct_PL_Dez25": -0.02636584288144679
+    }
+  ],
   "methodology": {
     "fonte": "Dados do tomaconta, a partir dos arquivos locais data/cache/bcb_bloprudencial/csv/*BLOPRUDENCIAL.CSV",
     "documento": "4060",
@@ -572,7 +1093,7 @@
     "lucro_liquido": "7000000003 Resultado Credor - abs(8000000002 Resultado Devedor)",
     "universo": "Instituições com PL em 202512 >= R$ 100 milhões, usando NOME_CONGL como chave prudencial quando disponível.",
     "deduplicacao": "Linhas idênticas normalizadas são deduplicadas antes das somas por instituição/conta/período.",
-    "ordenacao": "Rankings por delta bruto em reais, não por variação percentual.",
+    "ordenacao": "Rankings por delta bruto em reais e por variação percentual, sempre dentro do corte de PL em Dez/25 >= R$ 100 milhões.",
     "omitido": "Não há proxy de aporte, Delta PL - LL, batimento ou inferência no produto executivo."
   },
   "display": {

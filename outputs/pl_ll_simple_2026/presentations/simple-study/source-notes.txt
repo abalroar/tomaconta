@@ -7,6 +7,6 @@ Fonte dos dados:
 - Periodos: PL 202512 vs 202603; LL 202503 vs 202603
 
 Notas:
-- Rankings ordenados por delta bruto em reais, nao por percentual.
+- Rankings ordenados por delta bruto em reais e por variacao percentual.
 - Produto executivo omite proxy de aporte, Delta PL - LL e batimentos auxiliares.
 - Excel de apoio contem as tabelas completas e graficos nativos.

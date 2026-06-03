@@ -136,7 +136,7 @@ function addDataSheet(workbook, name, payload, tableName, chartConfig) {
       const chart = sheet.charts.add("bar", sheet.getRange(source));
       chart.title = chartConfig.title;
       chart.hasLegend = false;
-      chart.yAxis = { numberFormatCode: 'R$ #,##0' };
+      chart.yAxis = { numberFormatCode: chartConfig.numberFormatCode ?? 'R$ #,##0' };
       chart.setPosition(chartConfig.positionStart, chartConfig.positionEnd);
     } catch (error) {
       console.log(`Chart skipped for ${name}: ${error.message}`);
@@ -165,7 +165,7 @@ function addSummary(workbook, data) {
   setTitle(
     s,
     "PL e lucro líquido | estudo simplificado",
-    "Universo: instituições com PL em Dez/25 >= R$100 mi | Documento 4060 | rankings por delta bruto em reais"
+    "Universo: instituições com PL em Dez/25 >= R$100 mi | Documento 4060 | rankings por delta bruto e percentual"
   );
   setWidths(s, [42, 270, 145, 145, 145, 88, 105, 145, 145, 145, 145, 145, 145, 145]);
 
@@ -236,7 +236,7 @@ function addSummary(workbook, data) {
 
   s.getRange("A70:J73").merge();
   s.getRange("A70").values = [[
-    "Metodologia: PL = conta 6000000004 no documento 4060. Lucro líquido = 7000000003 Resultado Credor - abs(8000000002 Resultado Devedor). As contas são ordenadas por delta bruto; variações percentuais são exibidas apenas como contexto."
+    "Metodologia: PL = conta 6000000004 no documento 4060. Lucro líquido = 7000000003 Resultado Credor - abs(8000000002 Resultado Devedor). O workbook traz rankings por delta bruto e por variação percentual."
   ]];
   s.getRange("A70").format = { fill: PALE_ORANGE, font: { color: BLACK, italic: true }, wrapText: true, verticalAlignment: "top" };
 
@@ -300,6 +300,22 @@ async function main() {
     positionStart: "J2",
     positionEnd: "S22",
   });
+  addDataSheet(workbook, "PL_Maiores_Altas_pct", data.sheets.PL_Maiores_Altas_pct, "PLMaioresAltasPct", {
+    limit: 20,
+    valueKey: "Var_PL_pct",
+    title: "Var. PL positiva",
+    positionStart: "J2",
+    positionEnd: "S24",
+    numberFormatCode: "0.0%",
+  });
+  addDataSheet(workbook, "PL_Maiores_Quedas_pct", data.sheets.PL_Maiores_Quedas_pct, "PLMaioresQuedasPct", {
+    limit: 15,
+    valueKey: "Var_PL_pct",
+    title: "Var. PL negativa",
+    positionStart: "J2",
+    positionEnd: "S22",
+    numberFormatCode: "0.0%",
+  });
   addDataSheet(workbook, "PL_Todas_IFs", data.sheets.PL_Todas_IFs, "PLTodasIFs");
   addDataSheet(workbook, "LL_Maiores_Altas", data.sheets.LL_Maiores_Altas, "LLMaioresAltas", {
     limit: 15,
@@ -314,6 +330,22 @@ async function main() {
     title: "ΔLL negativo",
     positionStart: "L2",
     positionEnd: "U22",
+  });
+  addDataSheet(workbook, "LL_Maiores_Altas_pct", data.sheets.LL_Maiores_Altas_pct, "LLMaioresAltasPct", {
+    limit: 15,
+    valueKey: "Var_LL_pct",
+    title: "Var. LL positiva",
+    positionStart: "L2",
+    positionEnd: "U22",
+    numberFormatCode: "0.0%",
+  });
+  addDataSheet(workbook, "LL_Maiores_Quedas_pct", data.sheets.LL_Maiores_Quedas_pct, "LLMaioresQuedasPct", {
+    limit: 15,
+    valueKey: "Var_LL_pct",
+    title: "Var. LL negativa",
+    positionStart: "L2",
+    positionEnd: "U22",
+    numberFormatCode: "0.0%",
   });
   addDataSheet(workbook, "LL_Todas_IFs", data.sheets.LL_Todas_IFs, "LLTodasIFs");
   addMethodology(workbook, data);
@@ -338,7 +370,9 @@ async function main() {
   for (const spec of [
     ["Resumo", "A1:J73"],
     ["PL_Maiores_Altas", "A1:S30"],
+    ["PL_Maiores_Altas_pct", "A1:S30"],
     ["LL_Maiores_Altas", "A1:U28"],
+    ["LL_Maiores_Altas_pct", "A1:U28"],
     ["LL_Maiores_Quedas", "A1:U28"],
     ["Metodologia", "A1:G14"],
   ]) {

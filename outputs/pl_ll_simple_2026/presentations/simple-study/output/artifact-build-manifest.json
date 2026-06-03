@@ -1,7 +1,7 @@
 {
   "output": "/Users/matheusjprates/tomaconta/outputs/pl_ll_simple_2026/presentations/simple-study/output/estudo_pl_ll_simplificado_dez25_mar26.pptx",
-  "outputBytes": 35872,
-  "slideCount": 2,
+  "outputBytes": 60373,
+  "slideCount": 4,
   "slideSize": {
     "width": 1280,
     "height": 720
@@ -9,7 +9,9 @@
   "previewDir": "/Users/matheusjprates/tomaconta/outputs/pl_ll_simple_2026/presentations/simple-study/preview",
   "previewPaths": [
     "/Users/matheusjprates/tomaconta/outputs/pl_ll_simple_2026/presentations/simple-study/preview/slide-01.png",
-    "/Users/matheusjprates/tomaconta/outputs/pl_ll_simple_2026/presentations/simple-study/preview/slide-02.png"
+    "/Users/matheusjprates/tomaconta/outputs/pl_ll_simple_2026/presentations/simple-study/preview/slide-02.png",
+    "/Users/matheusjprates/tomaconta/outputs/pl_ll_simple_2026/presentations/simple-study/preview/slide-03.png",
+    "/Users/matheusjprates/tomaconta/outputs/pl_ll_simple_2026/presentations/simple-study/preview/slide-04.png"
   ],
   "layoutDir": "/Users/matheusjprates/tomaconta/outputs/pl_ll_simple_2026/presentations/simple-study/layout/final",
   "layoutResults": [
@@ -18,6 +20,12 @@
     },
     {
       "layoutPath": "/Users/matheusjprates/tomaconta/outputs/pl_ll_simple_2026/presentations/simple-study/layout/final/slide-02.layout.json"
+    },
+    {
+      "layoutPath": "/Users/matheusjprates/tomaconta/outputs/pl_ll_simple_2026/presentations/simple-study/layout/final/slide-03.layout.json"
+    },
+    {
+      "layoutPath": "/Users/matheusjprates/tomaconta/outputs/pl_ll_simple_2026/presentations/simple-study/layout/final/slide-04.layout.json"
     }
   ],
   "contactSheet": "/Users/matheusjprates/tomaconta/outputs/pl_ll_simple_2026/presentations/simple-study/qa/contact-sheet.png",
@@ -33,6 +41,18 @@
       "requestedSlideNumber": 2,
       "modulePath": "/Users/matheusjprates/tomaconta/outputs/pl_ll_simple_2026/presentations/simple-study/slides/slide-02.mjs",
       "exportName": "slide02"
+    },
+    {
+      "index": 3,
+      "requestedSlideNumber": 3,
+      "modulePath": "/Users/matheusjprates/tomaconta/outputs/pl_ll_simple_2026/presentations/simple-study/slides/slide-03.mjs",
+      "exportName": "slide03"
+    },
+    {
+      "index": 4,
+      "requestedSlideNumber": 4,
+      "modulePath": "/Users/matheusjprates/tomaconta/outputs/pl_ll_simple_2026/presentations/simple-study/slides/slide-04.mjs",
+      "exportName": "slide04"
     }
   ]
 }
