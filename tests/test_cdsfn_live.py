@@ -203,6 +203,7 @@ class _DummyResponse:
         self.status_code = status_code
         self.url = url
         self.text = body if isinstance(body, str) else ""
+        self.content = body.encode("utf-8") if isinstance(body, str) else b"{}"
 
     def json(self):
         return self._body
@@ -305,6 +306,21 @@ def test_fetch_documento_cdsfn_builds_expected_url_and_params():
     assert final_url == "https://example.com/final"
     assert client.gets[0]["url"].endswith("/202512-9011-05503849.json")
     assert client.gets[0]["params"] == {"cnpj": "05503849", "anoMes": "202512"}
+
+
+def test_fetch_documento_cdsfn_reports_empty_body_as_unpublished():
+    class EmptyClient:
+        def get(self, url, params=None, headers=None, timeout=None):
+            return _DummyResponse("", url="https://example.com/empty")
+
+    try:
+        fetch_documento_cdsfn("60701190", "202603", session=EmptyClient())
+    except FileNotFoundError as exc:
+        assert "sem JSON publicado" in str(exc)
+        assert "60701190" in str(exc)
+        assert "202603" in str(exc)
+    else:
+        raise AssertionError("esperava FileNotFoundError para resposta vazia do CDSFN")
 
 
 def test_build_excel_export_cdsfn_returns_bytes():

@@ -513,6 +513,12 @@ def fetch_documento_cdsfn(
     if response.status_code == 404:
         raise FileNotFoundError(f"Documento {codigo_norm} não encontrado para CNPJ {cnpj_norm} em {ano_mes_norm}.")
     response.raise_for_status()
+    response_text = getattr(response, "text", None)
+    response_content = getattr(response, "content", None)
+    if response_text is not None and not str(response_text).strip() and response_content is not None and not response_content:
+        raise FileNotFoundError(
+            f"Documento {codigo_norm} sem JSON publicado para CNPJ {cnpj_norm} em {ano_mes_norm}."
+        )
     payload = _safe_response_json(response, "download do documento CDSFN")
     return payload, getattr(response, "url", url)
 

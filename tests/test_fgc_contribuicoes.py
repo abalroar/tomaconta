@@ -62,6 +62,20 @@ def test_fgc_value_reconstruction_matches_semester_and_quarter_rules():
     assert valor_saldo == 123.45
 
 
+def test_cosif_temporal_comparison_returns_delta_and_percent():
+    resultado, erro = app1._comparar_valores_conta_bloprudencial(
+        "202603",
+        "202512",
+        {"202603": 150.0, "202512": 100.0},
+        "saldo_periodo",
+    )
+    assert erro is None
+    assert resultado["Valor Atual"] == 150.0
+    assert resultado["Valor Anterior"] == 100.0
+    assert resultado["Variação"] == 50.0
+    assert resultado["Variação %"] == 50.0
+
+
 def test_fgc_only_enables_accumulated_modes_for_result_accounts():
     assert app1._conta_bloprudencial_suporta_acumulacao("8118500009") is True
     assert app1._conta_bloprudencial_suporta_acumulacao("1000000009") is False
@@ -72,3 +86,13 @@ def test_fgc_only_enables_accumulated_modes_for_result_accounts():
     assert app1._modos_disponiveis_conta_bloprudencial("1000000009", "202509") == [
         ("saldo do período", "saldo_periodo"),
     ]
+
+
+def test_cdsfn_default_prefix_prefers_reference_matching_document_period():
+    refs = [
+        {"prefixo": "A", "raw": "A122025"},
+        {"prefixo": "T", "raw": "T032026"},
+        {"prefixo": "T", "raw": "T032025"},
+    ]
+    assert app1._prefixo_default_cdsfn(refs, ["202603"], ["A", "T"]) == "T"
+    assert app1._prefixo_default_cdsfn(refs, ["202512"], ["A", "T"]) == "A"
