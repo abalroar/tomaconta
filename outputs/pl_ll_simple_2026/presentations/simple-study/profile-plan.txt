@@ -1,6 +1,6 @@
 task mode: create
 primary deck-profile: finance-ir
-required proof objects: top PL delta ranking; top PL percentage ranking; top LL delta improvement/deterioration rankings; top LL percentage improvement/deterioration rankings
+required proof objects: top PL delta ranking; top PL percentage ranking; top LL delta improvement/deterioration rankings; top LL percentage improvement/deterioration rankings; PL vs LL residual bridge
 source requirements: local BCB BLOPRUDENCIAL 4060 files, periods 202512, 202603, 202503
 brand constraints: Itau BBA-inspired orange / black / gray palette; no copied logo or unofficial brand mark
 qa gates: exact values from generated Excel data; rankings by gross delta in BRL and by percentage variation; no proxy or inferred capital metric in the deck; avoid AI-default deck tells

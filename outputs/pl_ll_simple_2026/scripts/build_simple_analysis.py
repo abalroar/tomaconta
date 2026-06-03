@@ -124,6 +124,27 @@ def pct(value: float | None) -> str:
     return f"{float(value) * 100:,.1f}%".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
+def classifica_ponte_pl_ll(row: pd.Series) -> str:
+    delta_pl = row["Delta_PL"]
+    lucro_liquido = 0.0 if pd.isna(row["LL_202603"]) else row["LL_202603"]
+    if pd.isna(delta_pl) or abs(delta_pl) < 1:
+        return "sem variação material de PL"
+    if delta_pl > 0:
+        if lucro_liquido <= 0:
+            return "aumento não explicado por LL"
+        share = lucro_liquido / delta_pl
+        if share >= 1.10:
+            return "LL excede o aumento; outras mutações reduziram PL"
+        if share >= 0.90:
+            return "aumento majoritariamente explicado por LL"
+        if share >= 0.50:
+            return "aumento parcialmente explicado por LL"
+        return "aumento pouco explicado por LL"
+    if lucro_liquido > 0:
+        return "queda apesar de LL positivo"
+    return "queda com LL negativo"
+
+
 def main() -> None:
     DATA_OUT.mkdir(parents=True, exist_ok=True)
 
@@ -164,6 +185,11 @@ def main() -> None:
     base["LL_202503_pct_PL_Dez25"] = safe_divide(base["LL_202503"], base["PL_202512"])
     base["LL_202603_pct_PL_Dez25"] = safe_divide(base["LL_202603"], base["PL_202512"])
     base["Delta_LL_pct_PL_Dez25"] = safe_divide(base["Delta_LL"], base["PL_202512"])
+    ll_202603_bridge = base["LL_202603"].fillna(0)
+    base["Residual_Delta_PL_menos_LL"] = base["Delta_PL"] - ll_202603_bridge
+    base["Pct_Delta_PL_explicado_por_LL"] = safe_divide(ll_202603_bridge, base["Delta_PL"])
+    base["Residual_pct_Delta_PL"] = safe_divide(base["Residual_Delta_PL_menos_LL"], base["Delta_PL"])
+    base["Leitura_PL_vs_LL"] = base.apply(classifica_ponte_pl_ll, axis=1)
 
     ll_all = base[
         [
@@ -185,6 +211,30 @@ def main() -> None:
     ll_up_pct = ll_pct_base[ll_pct_base["Delta_LL"] > 0].sort_values("Var_LL_pct", ascending=False).copy()
     ll_down_pct = ll_pct_base[ll_pct_base["Delta_LL"] < 0].sort_values("Var_LL_pct", ascending=True).copy()
 
+    bridge_pl_ll = base[
+        [
+            "Rank_PL_Dez25",
+            "Instituição",
+            "PL_202512",
+            "PL_202603",
+            "Delta_PL",
+            "LL_202603",
+            "Residual_Delta_PL_menos_LL",
+            "Pct_Delta_PL_explicado_por_LL",
+            "Residual_pct_Delta_PL",
+            "Var_PL_pct",
+            "Leitura_PL_vs_LL",
+        ]
+    ].sort_values("Delta_PL", ascending=False)
+    top_residual_positive = bridge_pl_ll[bridge_pl_ll["Residual_Delta_PL_menos_LL"] > 0].sort_values(
+        "Residual_Delta_PL_menos_LL",
+        ascending=False,
+    )
+    top_residual_negative = bridge_pl_ll[bridge_pl_ll["Residual_Delta_PL_menos_LL"] < 0].sort_values(
+        "Residual_Delta_PL_menos_LL",
+        ascending=True,
+    )
+
     sheets = {
         "PL_Todas_IFs": pl_all,
         "PL_Maiores_Altas": pl_up,
@@ -196,6 +246,7 @@ def main() -> None:
         "LL_Maiores_Quedas": ll_down,
         "LL_Maiores_Altas_pct": ll_up_pct,
         "LL_Maiores_Quedas_pct": ll_down_pct,
+        "PL_vs_LL_IF_a_IF": bridge_pl_ll,
     }
     for name, df_sheet in sheets.items():
         df_sheet.to_csv(DATA_OUT / f"{name}.csv", index=False)
@@ -239,6 +290,12 @@ def main() -> None:
         "top_ll_down": to_records(ll_down, 12),
         "top_ll_up_pct": to_records(ll_up_pct, 12),
         "top_ll_down_pct": to_records(ll_down_pct, 12),
+        "top_pl_residual_positive": to_records(top_residual_positive, 15),
+        "top_pl_residual_negative": to_records(top_residual_negative, 10),
+        "bridge_pl_ll_counts": {
+            str(key): int(value)
+            for key, value in bridge_pl_ll["Leitura_PL_vs_LL"].value_counts().to_dict().items()
+        },
         "methodology": {
             "fonte": "Dados do tomaconta, a partir dos arquivos locais data/cache/bcb_bloprudencial/csv/*BLOPRUDENCIAL.CSV",
             "documento": DOC,
@@ -248,6 +305,7 @@ def main() -> None:
             "deduplicacao": "Linhas idênticas normalizadas são deduplicadas antes das somas por instituição/conta/período.",
             "ordenacao": "Rankings por delta bruto em reais e por variação percentual, sempre dentro do corte de PL em Dez/25 >= R$ 100 milhões.",
             "omitido": "Não há proxy de aporte, Delta PL - LL, batimento ou inferência no produto executivo.",
+            "ponte_pl_ll": "Residual = Delta PL Dez/25-Mar/26 - Lucro Líquido acumulado em Mar/26. Residual positivo indica aumento de PL não explicado por LL.",
         },
         "display": {
             "qualified": f"{len(base):,}".replace(",", "."),
@@ -258,6 +316,10 @@ def main() -> None:
             "picpay_delta": brl(float(picpay["Delta_PL"])) if picpay is not None else "N/D",
             "picpay_var": pct(float(picpay["Var_PL_pct"])) if picpay is not None else "N/D",
             "ll_delta_total": brl(float(base["Delta_LL"].sum(skipna=True))),
+            "bridge_residual_total": brl(float(bridge_pl_ll["Residual_Delta_PL_menos_LL"].sum(skipna=True))),
+            "bridge_ll_share_delta_pl": pct(
+                float(bridge_pl_ll["LL_202603"].sum(skipna=True) / bridge_pl_ll["Delta_PL"].sum(skipna=True))
+            ),
         },
     }
 

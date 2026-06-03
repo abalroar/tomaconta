@@ -12,7 +12,7 @@ reference delta: n/a
 Total: 42/45
 
 QA notes:
-- Deck has four views: PL by volume, PL by percentage, LL by volume, LL by percentage.
+- Deck has five views: PL by volume, PL by percentage, LL by volume, LL by percentage, and PL vs LL residual bridge.
 - PPT omits proxies, Delta PL - LL and inference slides.
 - PPT avoids AI-default tells: no pastel cards, no icons, no generic conclusion slide, no symmetrical card grid, no decorative gradients.
 - Explicitly checked: no white rounded cards with colored corner, diagonal/hachured/pontilhado detail, shadow, mini-gradient, or colored top bar.

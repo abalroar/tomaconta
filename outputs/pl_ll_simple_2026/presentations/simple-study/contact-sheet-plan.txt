@@ -2,3 +2,4 @@ Slide 01: PL por volume. Linha de fatos, ranking em barras dos 12 maiores aument
 Slide 02: PL por percentual. Ranking das maiores altas percentuais, com patamar e delta ao lado para evitar leitura por denominador pequeno.
 Slide 03: LL por volume. Maiores melhoras e deterioracoes por delta bruto, com patamar, variacao percentual e LL Mar/26 / PL Dez/25.
 Slide 04: LL por percentual. Maiores altas e quedas percentuais, preservando patamar de LL Mar/25 e Mar/26 na mesma linha.
+Slide 05: Ponte PL vs LL. Maiores residuais positivos de Delta PL menos LL acumulado, mostrando onde o aumento de PL nao se explica pelo lucro liquido.

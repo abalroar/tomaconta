@@ -1,7 +1,7 @@
 {
   "output": "/Users/matheusjprates/tomaconta/outputs/pl_ll_simple_2026/presentations/simple-study/output/estudo_pl_ll_simplificado_dez25_mar26.pptx",
-  "outputBytes": 60373,
-  "slideCount": 4,
+  "outputBytes": 70946,
+  "slideCount": 5,
   "slideSize": {
     "width": 1280,
     "height": 720
@@ -11,7 +11,8 @@
     "/Users/matheusjprates/tomaconta/outputs/pl_ll_simple_2026/presentations/simple-study/preview/slide-01.png",
     "/Users/matheusjprates/tomaconta/outputs/pl_ll_simple_2026/presentations/simple-study/preview/slide-02.png",
     "/Users/matheusjprates/tomaconta/outputs/pl_ll_simple_2026/presentations/simple-study/preview/slide-03.png",
-    "/Users/matheusjprates/tomaconta/outputs/pl_ll_simple_2026/presentations/simple-study/preview/slide-04.png"
+    "/Users/matheusjprates/tomaconta/outputs/pl_ll_simple_2026/presentations/simple-study/preview/slide-04.png",
+    "/Users/matheusjprates/tomaconta/outputs/pl_ll_simple_2026/presentations/simple-study/preview/slide-05.png"
   ],
   "layoutDir": "/Users/matheusjprates/tomaconta/outputs/pl_ll_simple_2026/presentations/simple-study/layout/final",
   "layoutResults": [
@@ -26,6 +27,9 @@
     },
     {
       "layoutPath": "/Users/matheusjprates/tomaconta/outputs/pl_ll_simple_2026/presentations/simple-study/layout/final/slide-04.layout.json"
+    },
+    {
+      "layoutPath": "/Users/matheusjprates/tomaconta/outputs/pl_ll_simple_2026/presentations/simple-study/layout/final/slide-05.layout.json"
     }
   ],
   "contactSheet": "/Users/matheusjprates/tomaconta/outputs/pl_ll_simple_2026/presentations/simple-study/qa/contact-sheet.png",
@@ -53,6 +57,12 @@
       "requestedSlideNumber": 4,
       "modulePath": "/Users/matheusjprates/tomaconta/outputs/pl_ll_simple_2026/presentations/simple-study/slides/slide-04.mjs",
       "exportName": "slide04"
+    },
+    {
+      "index": 5,
+      "requestedSlideNumber": 5,
+      "modulePath": "/Users/matheusjprates/tomaconta/outputs/pl_ll_simple_2026/presentations/simple-study/slides/slide-05.mjs",
+      "exportName": "slide05"
     }
   ]
 }
