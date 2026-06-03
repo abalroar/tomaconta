@@ -5345,6 +5345,7 @@ def _default_periodos_cosif(periodos_desc: Sequence[str], quantidade: int = 2) -
 
 COSIF_CONTA_RESULTADO_CREDOR = "7000000003"
 COSIF_CONTA_RESULTADO_DEVEDOR = "8000000002"
+COSIF_PREFIXOS_CONTAS_RESULTADO = frozenset({"7", "8"})
 COSIF_LUCRO_LIQUIDO_SINTETICO = "__lucro_liquido_cosif__"
 COSIF_LUCRO_LIQUIDO_NOME = "Lucro Líquido COSIF"
 COSIF_LUCRO_LIQUIDO_LABEL = (
@@ -5524,7 +5525,8 @@ def _carregar_bloprud_conta_por_periodos(
         else:
             tmp["NOME_CONTA"] = ""
         tmp["CONTA"] = tmp["_conta"]
-        return tmp[colunas_saida].dropna(subset=["DATA_BASE", "Instituição", "CONTA"])
+        tmp_saida = tmp[colunas_saida].dropna(subset=["DATA_BASE", "Instituição", "CONTA"])
+        return tmp_saida.drop_duplicates()
 
     manager = get_cache_manager()
     periodos_validos = {p for p in (_validar_yyyymm_str(ym) for ym in sorted(set(periodos_yyyymm))) if p}
@@ -5724,7 +5726,7 @@ def _conta_bloprudencial_suporta_acumulacao(conta_cosif: Optional[str]) -> bool:
     if _conta_cosif_lucro_liquido_sintetico(conta_cosif):
         return True
     conta_norm = re.sub(r"\D", "", str(conta_cosif or ""))
-    return bool(conta_norm) and conta_norm[:1] in {"7", "8", "9"}
+    return bool(conta_norm) and conta_norm[:1] in COSIF_PREFIXOS_CONTAS_RESULTADO
 
 
 def _modos_disponiveis_conta_bloprudencial(conta_cosif: Optional[str], periodo_referencia: str) -> list[tuple[str, str]]:
@@ -5739,7 +5741,7 @@ def _modos_disponiveis_conta_bloprudencial(conta_cosif: Optional[str], periodo_r
         return []
 
     mes = int(ym_ref[4:6])
-    if conta_norm[:1] in {"7", "8", "9"}:
+    if conta_norm[:1] in COSIF_PREFIXOS_CONTAS_RESULTADO:
         modos = [
             ("acumulado semestral cru", "acumulado_semestral"),
             ("acumulado anual", "acumulado_anual"),
@@ -21673,7 +21675,7 @@ elif menu == "Contas COSIF":
                     },
                     {
                         "Campo": "Acumulado semestral",
-                        "Descrição": "Para contas 7/8/9, usa o acumulado publicado; no 2º semestre, recompõe com referência + junho do mesmo ano.",
+                        "Descrição": "Para contas 7/8 e Lucro Líquido COSIF, usa o acumulado publicado; no 2º semestre, recompõe com referência + junho do mesmo ano.",
                     },
                     {
                         "Campo": "Valor do trimestre",
