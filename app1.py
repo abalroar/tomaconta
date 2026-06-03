@@ -5343,6 +5343,32 @@ def _default_periodos_cosif(periodos_desc: Sequence[str], quantidade: int = 2) -
     return periodos[: max(1, min(int(quantidade or 1), 2))]
 
 
+COSIF_CONTA_RESULTADO_CREDOR = "7000000003"
+COSIF_CONTA_RESULTADO_DEVEDOR = "8000000002"
+COSIF_LUCRO_LIQUIDO_SINTETICO = "__lucro_liquido_cosif__"
+COSIF_LUCRO_LIQUIDO_NOME = "Lucro Líquido COSIF"
+COSIF_LUCRO_LIQUIDO_LABEL = (
+    f"{COSIF_LUCRO_LIQUIDO_NOME} | "
+    f"{COSIF_CONTA_RESULTADO_CREDOR} - |{COSIF_CONTA_RESULTADO_DEVEDOR}|"
+)
+
+
+def _conta_cosif_lucro_liquido_sintetico(conta_cosif: Optional[str]) -> bool:
+    return str(conta_cosif or "") == COSIF_LUCRO_LIQUIDO_SINTETICO
+
+
+def _calcular_lucro_liquido_cosif_raw(resultado_credor: Any, resultado_devedor: Any) -> Optional[float]:
+    """Lucro líquido COSIF = Resultado Credor menos a magnitude do Resultado Devedor."""
+    try:
+        credor = float(resultado_credor)
+        devedor = float(resultado_devedor)
+    except Exception:
+        return None
+    if pd.isna(credor) or pd.isna(devedor):
+        return None
+    return credor - abs(devedor)
+
+
 def _modos_comuns_conta_bloprudencial(conta_cosif: Optional[str], periodos_referencia: Sequence[str]) -> list[tuple[str, str]]:
     periodos = [_validar_yyyymm_str(p) for p in periodos_referencia]
     periodos = [p for p in periodos if p]
@@ -5610,15 +5636,103 @@ def _catalogo_contas_bloprudencial(
         lambda row: f"{row['CONTA']} | {row['NOME_CONTA']}" if row["NOME_CONTA"] else f"{row['CONTA']} | (sem nome da conta)",
         axis=1,
     )
-    return grouped.sort_values(["CONTA", "NOME_CONTA"]).reset_index(drop=True)
+    grouped = grouped.sort_values(["CONTA", "NOME_CONTA"]).reset_index(drop=True)
+    contas_catalogo = set(grouped["CONTA"].astype(str))
+    if {COSIF_CONTA_RESULTADO_CREDOR, COSIF_CONTA_RESULTADO_DEVEDOR}.issubset(contas_catalogo):
+        row_lucro = pd.DataFrame([{
+            "CONTA": COSIF_LUCRO_LIQUIDO_SINTETICO,
+            "NOME_CONTA": COSIF_LUCRO_LIQUIDO_NOME,
+            "LABEL": COSIF_LUCRO_LIQUIDO_LABEL,
+            "VARIANTES_NOME": [COSIF_LUCRO_LIQUIDO_NOME],
+        }])
+        grouped = pd.concat([row_lucro, grouped], ignore_index=True)
+    return grouped.reset_index(drop=True)
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _carregar_lucro_liquido_cosif_por_periodos(
+    periodos_yyyymm: tuple[str, ...],
+    documento_bloprudencial: Optional[str] = "4060",
+    loader_version: str = "v1",
+) -> pd.DataFrame:
+    """Neta Resultado Credor e Resultado Devedor mantendo o sinal cru do BCB."""
+    colunas_saida = [
+        "DATA_BASE",
+        "DOCUMENTO",
+        "Instituição",
+        "CONTA",
+        "NOME_CONTA",
+        "VALOR_CONTA",
+        "RESULTADO_CREDOR",
+        "RESULTADO_DEVEDOR",
+        "RESULTADO_DEVEDOR_ABS",
+    ]
+    _ = loader_version
+    partes = []
+    for conta in (COSIF_CONTA_RESULTADO_CREDOR, COSIF_CONTA_RESULTADO_DEVEDOR):
+        df_conta = _carregar_bloprud_conta_por_periodos(
+            periodos_yyyymm,
+            conta_cosif=conta,
+            documento_bloprudencial=documento_bloprudencial,
+            loader_version=f"lucro_liquido_{loader_version}_{conta}",
+        )
+        if df_conta is not None and not df_conta.empty:
+            partes.append(df_conta)
+
+    if not partes:
+        return pd.DataFrame(columns=colunas_saida)
+
+    base = pd.concat(partes, ignore_index=True)
+    base = base[base["CONTA"].astype(str).isin([COSIF_CONTA_RESULTADO_CREDOR, COSIF_CONTA_RESULTADO_DEVEDOR])].copy()
+    if base.empty:
+        return pd.DataFrame(columns=colunas_saida)
+
+    piv = (
+        base.pivot_table(
+            index=["DATA_BASE", "DOCUMENTO", "Instituição"],
+            columns="CONTA",
+            values="VALOR_CONTA",
+            aggfunc="sum",
+        )
+        .reset_index()
+    )
+    for conta in (COSIF_CONTA_RESULTADO_CREDOR, COSIF_CONTA_RESULTADO_DEVEDOR):
+        if conta not in piv.columns:
+            return pd.DataFrame(columns=colunas_saida)
+
+    piv = piv[
+        piv[COSIF_CONTA_RESULTADO_CREDOR].notna()
+        & piv[COSIF_CONTA_RESULTADO_DEVEDOR].notna()
+    ].copy()
+    if piv.empty:
+        return pd.DataFrame(columns=colunas_saida)
+
+    piv["RESULTADO_CREDOR"] = pd.to_numeric(piv[COSIF_CONTA_RESULTADO_CREDOR], errors="coerce")
+    piv["RESULTADO_DEVEDOR"] = pd.to_numeric(piv[COSIF_CONTA_RESULTADO_DEVEDOR], errors="coerce")
+    piv["RESULTADO_DEVEDOR_ABS"] = piv["RESULTADO_DEVEDOR"].abs()
+    piv["VALOR_CONTA"] = [
+        _calcular_lucro_liquido_cosif_raw(credor, devedor)
+        for credor, devedor in zip(piv["RESULTADO_CREDOR"], piv["RESULTADO_DEVEDOR"])
+    ]
+    piv = piv[piv["VALOR_CONTA"].notna()].copy()
+    piv["CONTA"] = COSIF_LUCRO_LIQUIDO_SINTETICO
+    piv["NOME_CONTA"] = COSIF_LUCRO_LIQUIDO_NOME
+    return piv[colunas_saida]
 
 
 def _conta_bloprudencial_suporta_acumulacao(conta_cosif: Optional[str]) -> bool:
+    if _conta_cosif_lucro_liquido_sintetico(conta_cosif):
+        return True
     conta_norm = re.sub(r"\D", "", str(conta_cosif or ""))
     return bool(conta_norm) and conta_norm[:1] in {"7", "8", "9"}
 
 
 def _modos_disponiveis_conta_bloprudencial(conta_cosif: Optional[str], periodo_referencia: str) -> list[tuple[str, str]]:
+    if _conta_cosif_lucro_liquido_sintetico(conta_cosif):
+        return [
+            ("acumulado semestral cru", "acumulado_semestral"),
+            ("acumulado anual", "acumulado_anual"),
+        ]
     conta_norm = re.sub(r"\D", "", str(conta_cosif or ""))
     ym_ref = _validar_yyyymm_str(periodo_referencia)
     if not conta_norm or not ym_ref:
@@ -5626,7 +5740,10 @@ def _modos_disponiveis_conta_bloprudencial(conta_cosif: Optional[str], periodo_r
 
     mes = int(ym_ref[4:6])
     if conta_norm[:1] in {"7", "8", "9"}:
-        modos = [("acumulado semestral", "acumulado_semestral")]
+        modos = [
+            ("acumulado semestral cru", "acumulado_semestral"),
+            ("acumulado anual", "acumulado_anual"),
+        ]
         if mes in {3, 6, 9, 12}:
             modos.append(("valor do trimestre", "trimestre"))
         return modos
@@ -5643,10 +5760,12 @@ def _periodos_requeridos_fgc(periodo_referencia: str, modo_calculo: str) -> tupl
     if modo_calculo == "saldo_periodo":
         return [ym_ref], f"Saldo do período = {ym_ref}", None
     if modo_calculo == "acumulado_semestral":
+        return [ym_ref], f"Acumulado semestral cru = {ym_ref}", None
+    if modo_calculo == "acumulado_anual":
         if mes <= 6:
-            return [ym_ref], f"Acumulado semestral = {ym_ref}", None
+            return [ym_ref], f"Acumulado anual = {ym_ref}", None
         ym_jun = f"{ano}06"
-        return [ym_jun, ym_ref], f"Acumulado semestral = {ym_ref} + {ym_jun}", None
+        return [ym_jun, ym_ref], f"Acumulado anual = {ym_jun} + {ym_ref}", None
 
     if modo_calculo == "trimestre":
         if mes not in {3, 6, 9, 12}:
@@ -5692,12 +5811,14 @@ def _calcular_valor_conta_bloprudencial(
     if modo_calculo == "saldo_periodo":
         return val_ref, {"referencia": val_ref, "base": None, "periodo_base": ""}, None
     if modo_calculo == "acumulado_semestral":
+        return val_ref, {"referencia": val_ref, "base": None, "periodo_base": ""}, None
+    if modo_calculo == "acumulado_anual":
         if mes <= 6:
             return val_ref, {"referencia": val_ref, "base": None, "periodo_base": ""}, None
         ym_base = f"{ano}06"
         val_base = _valor_mes(ym_base)
         if val_base is None:
-            return None, {"referencia": val_ref, "base": None, "periodo_base": ym_base}, f"sem valor de junho ({ym_base}) para recompor o 2º semestre."
+            return None, {"referencia": val_ref, "base": None, "periodo_base": ym_base}, f"sem valor de junho ({ym_base}) para recompor o acumulado anual."
         return val_ref + val_base, {"referencia": val_ref, "base": val_base, "periodo_base": ym_base}, None
 
     if modo_calculo == "trimestre":
@@ -5816,6 +5937,8 @@ def _render_contas_cosif_unificado(periodos_yyyymm: Sequence[str]) -> None:
     conta_options = catalogo_contas["CONTA"].astype(str).tolist()
     conta_default = "8118500009" if "8118500009" in conta_options else conta_options[0]
     conta_labels = dict(zip(catalogo_contas["CONTA"].astype(str), catalogo_contas["LABEL"].astype(str)))
+    if st.session_state.get("fgc_conta_cosif") not in conta_options:
+        st.session_state.pop("fgc_conta_cosif", None)
 
     col_conta, col_modo = st.columns([2.2, 1.4])
     with col_conta:
@@ -5832,10 +5955,14 @@ def _render_contas_cosif_unificado(periodos_yyyymm: Sequence[str]) -> None:
         st.error("não há modo de exibição comum para a conta e os períodos selecionados.")
         return
 
+    modo_labels = [label for label, _ in modos_disponiveis]
+    if st.session_state.get("fgc_modo_calculo") not in modo_labels:
+        st.session_state.pop("fgc_modo_calculo", None)
+
     with col_modo:
         modo_fgc_label = st.selectbox(
             "como mostrar",
-            [label for label, _ in modos_disponiveis],
+            modo_labels,
             index=0,
             key="fgc_modo_calculo",
         )
@@ -5863,12 +5990,19 @@ def _render_contas_cosif_unificado(periodos_yyyymm: Sequence[str]) -> None:
         + f". Meses carregados: {', '.join(periodos_necessarios)}."
     )
 
-    df_fgc = _carregar_bloprud_conta_por_periodos(
-        tuple(periodos_necessarios),
-        conta_cosif=str(conta_cosif),
-        documento_bloprudencial=documento_bloprudencial,
-        loader_version="unificado_v2",
-    )
+    if _conta_cosif_lucro_liquido_sintetico(conta_cosif):
+        df_fgc = _carregar_lucro_liquido_cosif_por_periodos(
+            tuple(periodos_necessarios),
+            documento_bloprudencial=documento_bloprudencial,
+            loader_version="unificado_v1",
+        )
+    else:
+        df_fgc = _carregar_bloprud_conta_por_periodos(
+            tuple(periodos_necessarios),
+            conta_cosif=str(conta_cosif),
+            documento_bloprudencial=documento_bloprudencial,
+            loader_version="unificado_v2",
+        )
     if df_fgc.empty:
         st.warning(
             f"sem dados da conta {conta_cosif} para os períodos necessários no "

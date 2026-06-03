@@ -60,8 +60,13 @@ def test_bloprudencial_probe_candidates_continue_after_latest_local_period():
 
 def test_fgc_required_periods_and_accumulated_formula_are_explicit():
     assert app1._periodos_requeridos_fgc("202509", "acumulado_semestral") == (
+        ["202509"],
+        "Acumulado semestral cru = 202509",
+        None,
+    )
+    assert app1._periodos_requeridos_fgc("202509", "acumulado_anual") == (
         ["202506", "202509"],
-        "Acumulado semestral = 202509 + 202506",
+        "Acumulado anual = 202506 + 202509",
         None,
     )
     assert app1._periodos_requeridos_fgc("202509", "saldo_periodo") == (
@@ -83,8 +88,17 @@ def test_fgc_value_reconstruction_matches_semester_and_quarter_rules():
         "acumulado_semestral",
     )
     assert erro is None
-    assert round(valor, 2) == round(-591_966_937.69 + -303_894_698.81, 2)
-    assert componentes["periodo_base"] == "202506"
+    assert round(valor, 2) == round(-303_894_698.81, 2)
+    assert componentes["periodo_base"] == ""
+
+    valor_anual, componentes_anual, erro_anual = app1._calcular_valor_conta_bloprudencial(
+        "202509",
+        {"202506": -591_966_937.69, "202509": -303_894_698.81},
+        "acumulado_anual",
+    )
+    assert erro_anual is None
+    assert round(valor_anual, 2) == round(-591_966_937.69 + -303_894_698.81, 2)
+    assert componentes_anual["periodo_base"] == "202506"
 
     valor_tri, componentes_tri, erro_tri = app1._calcular_valor_conta_bloprudencial(
         "202512",
@@ -120,14 +134,41 @@ def test_cosif_temporal_comparison_returns_delta_and_percent():
 
 def test_fgc_only_enables_accumulated_modes_for_result_accounts():
     assert app1._conta_bloprudencial_suporta_acumulacao("8118500009") is True
+    assert app1._conta_bloprudencial_suporta_acumulacao(app1.COSIF_LUCRO_LIQUIDO_SINTETICO) is True
     assert app1._conta_bloprudencial_suporta_acumulacao("1000000009") is False
     assert app1._modos_disponiveis_conta_bloprudencial("8118500009", "202509") == [
-        ("acumulado semestral", "acumulado_semestral"),
+        ("acumulado semestral cru", "acumulado_semestral"),
+        ("acumulado anual", "acumulado_anual"),
         ("valor do trimestre", "trimestre"),
+    ]
+    assert app1._modos_disponiveis_conta_bloprudencial(app1.COSIF_LUCRO_LIQUIDO_SINTETICO, "202509") == [
+        ("acumulado semestral cru", "acumulado_semestral"),
+        ("acumulado anual", "acumulado_anual"),
     ]
     assert app1._modos_disponiveis_conta_bloprudencial("1000000009", "202509") == [
         ("saldo do período", "saldo_periodo"),
     ]
+
+
+def test_lucro_liquido_cosif_netting_respects_positive_or_negative_debtor_sign():
+    assert app1._calcular_lucro_liquido_cosif_raw(100.0, 30.0) == 70.0
+    assert app1._calcular_lucro_liquido_cosif_raw(100.0, -30.0) == 70.0
+
+
+def test_lucro_liquido_cosif_loader_nets_creditor_minus_debtor_magnitude():
+    df = app1._carregar_lucro_liquido_cosif_por_periodos(
+        ("202603",),
+        documento_bloprudencial="4060",
+        loader_version="test_lucro_liquido",
+    )
+    original = df[df["Instituição"].astype(str).str.upper().str.contains("ORIGINAL", na=False)]
+
+    assert not original.empty
+    row = original.iloc[0]
+    assert row["CONTA"] == app1.COSIF_LUCRO_LIQUIDO_SINTETICO
+    assert round(float(row["RESULTADO_CREDOR"]), 2) == 4_000_255_445.09
+    assert round(float(row["RESULTADO_DEVEDOR"]), 2) == -3_891_527_400.43
+    assert round(float(row["VALOR_CONTA"]), 2) == 108_728_044.66
 
 
 def test_cdsfn_default_prefix_prefers_reference_matching_document_period():
