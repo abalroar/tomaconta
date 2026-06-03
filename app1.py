@@ -2990,7 +2990,28 @@ def _rotulo_tipo_referencia_cdsfn(prefixo: str) -> str:
         return "Anual (A)"
     if prefixo == "S":
         return "Semestral (S)"
+    if prefixo == "T":
+        return "Trimestral (T)"
     return prefixo or "Sem prefixo"
+
+
+def _prefixo_tem_periodo_documento_cdsfn(refs: list[dict], prefixo: str, periodos_documento: list[str]) -> bool:
+    prefixo_norm = str(prefixo or "").strip().upper()
+    sufixos = {f"{periodo[4:6]}{periodo[:4]}" for periodo in periodos_documento if _validar_yyyymm_str(periodo)}
+    if not prefixo_norm or not sufixos:
+        return False
+    return any(
+        str(item.get("prefixo") or "").strip().upper() == prefixo_norm
+        and str(item.get("raw") or "").strip().upper().endswith(tuple(sufixos))
+        for item in refs
+    )
+
+
+def _prefixo_default_cdsfn(refs: list[dict], periodos_documento: list[str], prefixos_disponiveis: list[str]) -> str:
+    for prefixo in prefixos_disponiveis:
+        if _prefixo_tem_periodo_documento_cdsfn(refs, prefixo, periodos_documento):
+            return prefixo
+    return "A" if "A" in prefixos_disponiveis else prefixos_disponiveis[0]
 
 
 def _render_cdsfn_hierarchy_table(
@@ -3279,7 +3300,7 @@ def render_tab_cdsfn() -> None:
         st.error("O documento retornado não possui prefixos de referência válidos (ex.: A ou S).")
         return
 
-    prefixo_default = "A" if "A" in prefixos_disponiveis else prefixos_disponiveis[0]
+    prefixo_default = _prefixo_default_cdsfn(refs, periodos_documento_sel, prefixos_disponiveis)
     col_tipo, col_refs = st.columns([1, 2.2])
     with col_tipo:
         prefixo_sel = st.radio(
@@ -5527,6 +5548,47 @@ def _calcular_valor_conta_bloprudencial(
         return val_ref - val_base, {"referencia": val_ref, "base": val_base, "periodo_base": ym_base}, None
 
     return None, {"referencia": val_ref, "base": None, "periodo_base": ""}, f"modo de cálculo inválido: {modo_calculo}"
+
+
+def _comparar_valores_conta_bloprudencial(
+    periodo_atual: str,
+    periodo_anterior: str,
+    valores_por_mes: dict[str, float],
+    modo_calculo: str,
+) -> tuple[Optional[dict], Optional[str]]:
+    valor_atual, componentes_atual, erro_atual = _calcular_valor_conta_bloprudencial(
+        periodo_atual,
+        valores_por_mes,
+        modo_calculo,
+    )
+    if erro_atual or valor_atual is None:
+        return None, f"período atual: {erro_atual or 'dados insuficientes'}"
+
+    valor_anterior, componentes_anterior, erro_anterior = _calcular_valor_conta_bloprudencial(
+        periodo_anterior,
+        valores_por_mes,
+        modo_calculo,
+    )
+    if erro_anterior or valor_anterior is None:
+        return None, f"período anterior: {erro_anterior or 'dados insuficientes'}"
+
+    variacao = float(valor_atual) - float(valor_anterior)
+    variacao_pct = None
+    if valor_anterior not in (None, 0) and not pd.isna(valor_anterior):
+        variacao_pct = (variacao / abs(float(valor_anterior))) * 100.0
+
+    return {
+        "Valor Atual": float(valor_atual),
+        "Valor Anterior": float(valor_anterior),
+        "Variação": variacao,
+        "Variação %": variacao_pct,
+        "Componente Atual": componentes_atual.get("referencia"),
+        "Componente Base Atual": componentes_atual.get("base"),
+        "Período Base Atual": componentes_atual.get("periodo_base") or "",
+        "Componente Anterior": componentes_anterior.get("referencia"),
+        "Componente Base Anterior": componentes_anterior.get("base"),
+        "Período Base Anterior": componentes_anterior.get("periodo_base") or "",
+    }, None
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -21210,6 +21272,195 @@ elif menu == "Contas COSIF":
                                     key="exportar_fgc_excel",
                                     use_container_width=True,
                                 )
+
+        st.markdown("#### Comparar instituição")
+        col_cmp_atual, col_cmp_anterior = st.columns([1, 1])
+        with col_cmp_atual:
+            periodo_cmp_atual = st.selectbox(
+                "período atual (yyyymm)",
+                periodos_yyyymm_desc,
+                index=_indice_periodo_mais_recente(periodos_yyyymm_desc),
+                format_func=_yyyymm_para_periodo_exibicao,
+                key="cosif_cmp_periodo_atual",
+            )
+
+        periodos_cmp_anteriores = [p for p in periodos_yyyymm_desc if p < periodo_cmp_atual]
+        if not periodos_cmp_anteriores:
+            st.warning("não há período anterior disponível para comparação.")
+        else:
+            with col_cmp_anterior:
+                periodo_cmp_anterior = st.selectbox(
+                    "período anterior (yyyymm)",
+                    periodos_cmp_anteriores,
+                    index=0,
+                    format_func=_yyyymm_para_periodo_exibicao,
+                    key="cosif_cmp_periodo_anterior",
+                )
+
+            catalogo_cmp = _catalogo_contas_bloprudencial(
+                tuple(sorted({periodo_cmp_atual, periodo_cmp_anterior})),
+                loader_version="compare_v1",
+            )
+            if catalogo_cmp.empty:
+                st.warning("sem catálogo de contas BLOPRUDENCIAL para os períodos selecionados.")
+            else:
+                conta_cmp_options = catalogo_cmp["CONTA"].astype(str).tolist()
+                conta_cmp_default = "8118500009" if "8118500009" in conta_cmp_options else conta_cmp_options[0]
+                conta_cmp_labels = dict(zip(catalogo_cmp["CONTA"].astype(str), catalogo_cmp["LABEL"].astype(str)))
+
+                col_cmp_conta, col_cmp_modo = st.columns([2.2, 1.4])
+                with col_cmp_conta:
+                    conta_cmp = st.selectbox(
+                        "conta COSIF para comparação",
+                        conta_cmp_options,
+                        index=conta_cmp_options.index(conta_cmp_default),
+                        format_func=lambda conta: conta_cmp_labels.get(str(conta), str(conta)),
+                        key="cosif_cmp_conta",
+                    )
+
+                modos_atual = _modos_disponiveis_conta_bloprudencial(conta_cmp, periodo_cmp_atual)
+                modos_anterior = {modo for _label, modo in _modos_disponiveis_conta_bloprudencial(conta_cmp, periodo_cmp_anterior)}
+                modos_cmp = [(label, modo) for label, modo in modos_atual if modo in modos_anterior]
+                if not modos_cmp:
+                    st.error("não há modo de cálculo comum para a conta e os períodos selecionados.")
+                else:
+                    with col_cmp_modo:
+                        modo_cmp_label = st.selectbox(
+                            "como comparar",
+                            [label for label, _ in modos_cmp],
+                            index=0,
+                            key="cosif_cmp_modo_calculo",
+                        )
+                    modo_cmp = dict(modos_cmp)[modo_cmp_label]
+                    req_atual, formula_atual, erro_req_atual = _periodos_requeridos_fgc(periodo_cmp_atual, modo_cmp)
+                    req_anterior, formula_anterior, erro_req_anterior = _periodos_requeridos_fgc(periodo_cmp_anterior, modo_cmp)
+
+                    if erro_req_atual or erro_req_anterior:
+                        st.error(erro_req_atual or erro_req_anterior)
+                    else:
+                        periodos_cmp_necessarios = sorted(set(req_atual + req_anterior))
+                        df_cmp = _carregar_bloprud_conta_por_periodos(
+                            tuple(periodos_cmp_necessarios),
+                            conta_cosif=str(conta_cmp),
+                            loader_version="compare_v1",
+                        )
+                        if df_cmp.empty:
+                            st.warning(
+                                f"sem dados da conta {conta_cmp} para os períodos necessários: "
+                                f"{', '.join(periodos_cmp_necessarios)}."
+                            )
+                        else:
+                            df_cmp = _aplicar_aliases_df(df_cmp, st.session_state.get("dict_aliases", {}))
+                            bancos_cmp = sorted(df_cmp["Instituição"].dropna().astype(str).unique().tolist())
+                            bancos_cmp = ordenar_bancos_com_alias(bancos_cmp, st.session_state.get("dict_aliases", {}))
+                            if not bancos_cmp:
+                                st.warning("sem instituições com dados para a conta e os períodos selecionados.")
+                            else:
+                                default_cmp = _encontrar_bancos_default(bancos_cmp)
+                                default_idx_cmp = bancos_cmp.index(default_cmp[0]) if default_cmp and default_cmp[0] in bancos_cmp else 0
+                                banco_cmp = st.selectbox(
+                                    "instituição para comparação",
+                                    bancos_cmp,
+                                    index=default_idx_cmp,
+                                    key="cosif_cmp_instituicao",
+                                )
+
+                                df_banco_cmp = df_cmp[df_cmp["Instituição"] == banco_cmp].copy()
+                                valores_por_mes_cmp = (
+                                    df_banco_cmp.groupby("DATA_BASE", dropna=False)["VALOR_CONTA"]
+                                    .sum(min_count=1)
+                                    .to_dict()
+                                )
+                                comparacao_cmp, erro_cmp = _comparar_valores_conta_bloprudencial(
+                                    periodo_cmp_atual,
+                                    periodo_cmp_anterior,
+                                    valores_por_mes_cmp,
+                                    modo_cmp,
+                                )
+                                if erro_cmp or comparacao_cmp is None:
+                                    st.warning(erro_cmp or "dados insuficientes para comparação.")
+                                else:
+                                    conta_cmp_label = conta_cmp_labels.get(str(conta_cmp), str(conta_cmp))
+                                    df_comparacao = pd.DataFrame([
+                                        {
+                                            "Instituição": banco_cmp,
+                                            "Conta COSIF": conta_cmp_label,
+                                            "Modo": modo_cmp_label,
+                                            "Período Atual": periodo_cmp_atual,
+                                            "Valor Atual": comparacao_cmp["Valor Atual"],
+                                            "Período Anterior": periodo_cmp_anterior,
+                                            "Valor Anterior": comparacao_cmp["Valor Anterior"],
+                                            "Variação": comparacao_cmp["Variação"],
+                                            "Variação %": comparacao_cmp["Variação %"],
+                                            "Regra Atual": formula_atual,
+                                            "Regra Anterior": formula_anterior,
+                                            "Componente Atual": comparacao_cmp["Componente Atual"],
+                                            "Componente Base Atual": comparacao_cmp["Componente Base Atual"],
+                                            "Período Base Atual": comparacao_cmp["Período Base Atual"],
+                                            "Componente Anterior": comparacao_cmp["Componente Anterior"],
+                                            "Componente Base Anterior": comparacao_cmp["Componente Base Anterior"],
+                                            "Período Base Anterior": comparacao_cmp["Período Base Anterior"],
+                                        }
+                                    ])
+
+                                    df_barras_cmp = pd.DataFrame(
+                                        [
+                                            {"Período": _yyyymm_para_periodo_exibicao(periodo_cmp_anterior), "Valor": comparacao_cmp["Valor Anterior"]},
+                                            {"Período": _yyyymm_para_periodo_exibicao(periodo_cmp_atual), "Valor": comparacao_cmp["Valor Atual"]},
+                                        ]
+                                    )
+                                    fig_cmp = px.bar(
+                                        df_barras_cmp,
+                                        x="Período",
+                                        y="Valor",
+                                        text="Valor",
+                                        title=f"{banco_cmp} - {conta_cmp_label} - {modo_cmp_label}",
+                                    )
+                                    fig_cmp.update_traces(marker_color="#FF6200", texttemplate="%{text:,.0f}", textposition="outside")
+                                    fig_cmp.update_layout(
+                                        yaxis_title="Valor calculado",
+                                        xaxis_title="Período",
+                                        height=420,
+                                        plot_bgcolor="#f8f9fa",
+                                        paper_bgcolor="white",
+                                        font=dict(family="IBM Plex Sans"),
+                                        margin=dict(r=60),
+                                    )
+                                    st.plotly_chart(fig_cmp, width="stretch", config={"displayModeBar": False})
+
+                                    df_comparacao_fmt = df_comparacao.copy()
+                                    for col_num in [
+                                        "Valor Atual",
+                                        "Valor Anterior",
+                                        "Variação",
+                                        "Componente Atual",
+                                        "Componente Base Atual",
+                                        "Componente Anterior",
+                                        "Componente Base Anterior",
+                                    ]:
+                                        df_comparacao_fmt[col_num] = df_comparacao_fmt[col_num].apply(
+                                            lambda v: formatar_numero_br(v, casas=2) if pd.notna(v) else "N/D"
+                                        )
+                                    df_comparacao_fmt["Variação %"] = df_comparacao_fmt["Variação %"].apply(
+                                        lambda v: formatar_percentual_br(v, casas=2) if pd.notna(v) else "N/D"
+                                    )
+                                    st.dataframe(df_comparacao_fmt, hide_index=True, use_container_width=True)
+
+                                    buffer_cmp = BytesIO()
+                                    with pd.ExcelWriter(buffer_cmp, engine="xlsxwriter") as writer:
+                                        df_comparacao.to_excel(writer, index=False, sheet_name="comparacao_cosif")
+                                        worksheet_cmp = writer.sheets["comparacao_cosif"]
+                                        worksheet_cmp.freeze_panes(1, 0)
+                                        worksheet_cmp.autofilter(0, 0, len(df_comparacao), len(df_comparacao.columns) - 1)
+                                    buffer_cmp.seek(0)
+                                    st.download_button(
+                                        label="Download Excel comparação",
+                                        data=buffer_cmp,
+                                        file_name=f"cosif_comparacao_{conta_cmp}_{periodo_cmp_atual}_{periodo_cmp_anterior}.xlsx",
+                                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                        key="exportar_cosif_comparacao_excel",
+                                        use_container_width=True,
+                                    )
 elif menu == "Balanço, DRE e DMPL (Ind.)":
     render_tab_cdsfn()
 
