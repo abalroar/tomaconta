@@ -1,0 +1,2 @@
+Slide 01: Produto PL. KPI rail, ranking em barras dos 12 maiores aumentos e tabela com PL Dez/25, PL Mar/26, delta, variacao percentual e contribuicao acumulada.
+Slide 02: Produto lucro liquido. KPI rail, ranking das maiores melhoras e deterioracoes de LL, com tabelas de patamar, delta, variacao percentual e LL Mar/26 / PL Dez/25.

@@ -1,0 +1,12 @@
+Fonte dos dados:
+- Dados do tomaconta, a partir dos arquivos locais: data/cache/bcb_bloprudencial/csv/*BLOPRUDENCIAL.CSV
+- Documento: 4060
+- PL: conta COSIF 6000000004
+- Lucro liquido: 7000000003 Resultado Credor - abs(8000000002 Resultado Devedor)
+- Universo: IFs com PL em 202512 >= R$100 milhoes
+- Periodos: PL 202512 vs 202603; LL 202503 vs 202603
+
+Notas:
+- Rankings ordenados por delta bruto em reais, nao por percentual.
+- Produto executivo omite proxy de aporte, Delta PL - LL e batimentos auxiliares.
+- Excel de apoio contem as tabelas completas e graficos nativos.
