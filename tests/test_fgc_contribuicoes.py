@@ -25,7 +25,31 @@ def test_cosif_period_selector_defaults_latest_and_previous():
     assert app1._normalizar_periodos_cosif_selecionados(
         ["202601", "202603", "202602"],
         periodos_desc,
-    ) == ["202603", "202602"]
+    ) == ["202603", "202602", "202601"]
+
+
+def test_cosif_loader_keeps_bloprudencial_document_as_dimension_for_balance_accounts():
+    df_4060 = app1._carregar_bloprud_conta_por_periodos(
+        ("202512",),
+        conta_cosif="6000000004",
+        documento_bloprudencial="4060",
+        loader_version="test_doc_4060",
+    )
+    df_4066 = app1._carregar_bloprud_conta_por_periodos(
+        ("202512",),
+        conta_cosif="6000000004",
+        documento_bloprudencial="4066",
+        loader_version="test_doc_4066",
+    )
+
+    original_4060 = df_4060[df_4060["Instituição"].astype(str).str.upper().str.contains("ORIGINAL", na=False)]
+    original_4066 = df_4066[df_4066["Instituição"].astype(str).str.upper().str.contains("ORIGINAL", na=False)]
+
+    assert "DOCUMENTO" in df_4060.columns
+    assert set(original_4060["DOCUMENTO"].astype(str)) == {"4060"}
+    assert set(original_4066["DOCUMENTO"].astype(str)) == {"4066"}
+    assert round(float(original_4060["VALOR_CONTA"].iloc[0]), 2) == 1_792_476_703.73
+    assert round(float(original_4066["VALOR_CONTA"].iloc[0]), 2) == 1_803_370_013.56
 
 
 def test_bloprudencial_probe_candidates_continue_after_latest_local_period():
