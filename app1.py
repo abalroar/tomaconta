@@ -5462,7 +5462,7 @@ def _carregar_bloprud_conta_por_periodos(
     periodos_yyyymm: tuple[str, ...],
     conta_cosif: Optional[str] = None,
     documento_bloprudencial: Optional[str] = "4060",
-    loader_version: str = "v2",
+    loader_version: str = "v3",
 ) -> pd.DataFrame:
     """Carrega/normaliza conta BLOPRUDENCIAL por competência e instituição."""
     _ = loader_version
@@ -5519,7 +5519,7 @@ def _carregar_bloprud_conta_por_periodos(
         else:
             congl_series = pd.Series([""] * len(tmp), index=tmp.index)
 
-        tmp["Instituição"] = inst_series.where(inst_series.ne(""), congl_series)
+        tmp["Instituição"] = congl_series.where(congl_series.ne(""), inst_series)
         if col_nome_conta:
             tmp["NOME_CONTA"] = tmp[col_nome_conta].astype(str).str.strip()
         else:
@@ -5919,7 +5919,7 @@ def _render_contas_cosif_unificado(periodos_yyyymm: Sequence[str]) -> None:
     catalogo_contas = _catalogo_contas_bloprudencial(
         tuple(sorted(periodos_referencia)),
         documento_bloprudencial=documento_bloprudencial,
-        loader_version="unificado_v2",
+        loader_version="unificado_v3",
     )
     if catalogo_contas.empty:
         periodos_txt = ", ".join(_yyyymm_para_periodo_exibicao(p) for p in periodos_referencia)
@@ -6003,7 +6003,7 @@ def _render_contas_cosif_unificado(periodos_yyyymm: Sequence[str]) -> None:
             tuple(periodos_necessarios),
             conta_cosif=str(conta_cosif),
             documento_bloprudencial=documento_bloprudencial,
-            loader_version="unificado_v2",
+            loader_version="unificado_v3",
         )
     if df_fgc.empty:
         st.warning(

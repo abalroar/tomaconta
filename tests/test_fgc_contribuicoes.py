@@ -135,7 +135,9 @@ def test_cosif_temporal_comparison_returns_delta_and_percent():
 def test_fgc_only_enables_accumulated_modes_for_result_accounts():
     assert app1._conta_bloprudencial_suporta_acumulacao("8118500009") is True
     assert app1._conta_bloprudencial_suporta_acumulacao(app1.COSIF_LUCRO_LIQUIDO_SINTETICO) is True
+    assert app1._conta_bloprudencial_suporta_acumulacao("6100000007") is False
     assert app1._conta_bloprudencial_suporta_acumulacao("1000000009") is False
+    assert app1._conta_bloprudencial_suporta_acumulacao("9000000000") is False
     assert app1._modos_disponiveis_conta_bloprudencial("8118500009", "202509") == [
         ("acumulado semestral cru", "acumulado_semestral"),
         ("acumulado anual", "acumulado_anual"),
@@ -148,6 +150,37 @@ def test_fgc_only_enables_accumulated_modes_for_result_accounts():
     assert app1._modos_disponiveis_conta_bloprudencial("1000000009", "202509") == [
         ("saldo do período", "saldo_periodo"),
     ]
+    assert app1._modos_disponiveis_conta_bloprudencial("6100000007", "202603") == [
+        ("saldo do período", "saldo_periodo"),
+    ]
+    assert app1._modos_disponiveis_conta_bloprudencial("9000000000", "202603") == [
+        ("saldo do período", "saldo_periodo"),
+    ]
+
+
+def test_bloprudencial_balance_loader_uses_prudential_name_and_deduplicates_raw_rows():
+    df = app1._carregar_bloprud_conta_por_periodos(
+        ("202512", "202601", "202602", "202603"),
+        conta_cosif="6100000007",
+        documento_bloprudencial="4060",
+        loader_version="test_prudential_name_dedupe_610",
+    )
+
+    picpay = df[df["Instituição"].astype(str).eq("PICPAY - PRUDENCIAL")].sort_values("DATA_BASE")
+    assert picpay["DATA_BASE"].tolist() == ["202512", "202601", "202602", "202603"]
+    assert [round(float(v), 2) for v in picpay["VALOR_CONTA"].tolist()] == [
+        1_463_704_444.67,
+        2_480_376_659.68,
+        2_480_378_997.33,
+        2_480_384_920.71,
+    ]
+
+    cielo_dez25 = df[
+        (df["DATA_BASE"].astype(str).eq("202512"))
+        & (df["Instituição"].astype(str).eq("CIELO IP - PRUDENCIAL"))
+    ]
+    assert len(cielo_dez25) == 1
+    assert round(float(cielo_dez25["VALOR_CONTA"].iloc[0]), 2) == 9_637_693_543.00
 
 
 def test_lucro_liquido_cosif_netting_respects_positive_or_negative_debtor_sign():
