@@ -1,0 +1,7 @@
+Mode: create
+Profile: finance-ir
+Audience: financial analyst / banking coverage
+Visual language: Itau BBA-inspired palette using orange, black, white and neutral gray, without using unverified logos.
+Core question: Which financial institutions likely received the largest capital inflows between Dec/25 and Mar/26, and when did the equity movement occur?
+Evidence standard: use BCB BLOPRUDENCIAL local data, document 4060, PL account 6000000004 and net income as resultado credor less resultado devedor.
+Important caveat: Delta PL less net income is a proxy for capital/other equity movements, not documentary proof of capital contribution.

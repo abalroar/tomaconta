@@ -1,0 +1,18 @@
+story: 5/5
+specificity: 5/5
+rhythm: 4/5
+whitespace: 4/5
+chart clarity: 4/5
+typography: 4/5
+restraint: 5/5
+precision: 5/5
+coherence: 5/5
+reference delta: n/a
+
+Total: 42/45
+
+QA notes:
+- Deck uses editable artifact-tool text and shape primitives.
+- Visual check completed on contact sheet and full-size slides 04-06.
+- Chart choice: manual editable bars for cleaner direct labels and simple comparison; no native chart axis styling used.
+- Methodology caveat is explicit: Delta PL minus net income is a triage proxy, not documentary proof of capital contribution.

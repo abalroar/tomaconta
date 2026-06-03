@@ -1,0 +1,9 @@
+Source: local repository cache, data/cache/bcb_bloprudencial/csv.
+Universe: prudential institutions with PL Dec/25 >= R$100 million.
+Document: BLOPRUDENCIAL 4060.
+PL: COSIF 6000000004, Patrimonio Liquido.
+Net income: Resultado Credor minus Resultado Devedor, accumulated through Mar/25 and Mar/26.
+Monthly equity proxy: monthly Delta PL minus monthly net income.
+Quarter equity proxy: Delta PL Dec/25-Mar/26 minus LL 1T26.
+Deduplication: normalized identical BLOPRUDENCIAL rows are removed before aggregating by prudential institution/account/period.
+Known limitation: the proxy flags equity movements not explained by result; confirmation of actual capital increase requires corporate events, financial statements and explanatory notes.
