@@ -1,6 +1,9 @@
 # Checklist anti-IA para este deck
 
 - Sem cards arredondados pastel com icones.
+- Sem cards brancos com canto decorativo colorido.
+- Sem sombra leve em cards, canto superior direito pintado, detalhe diagonal, hachura, pontilhado ou mini-gradiente.
+- Sem barrinha colorida no topo de card.
 - Sem gradiente roxo/azul/rosa ou fundo ornamental.
 - Sem icones genericos em bullets.
 - Sem slide final de agradecimento.

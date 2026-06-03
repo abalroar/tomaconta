@@ -117,23 +117,6 @@ export function addFooter(slide, ctx, page) {
   });
 }
 
-export function addKpi(slide, ctx, x, y, w, label, value, note, accent = C.orange) {
-  ctx.addShape(slide, { x, y: y + 3, w: 3, h: 56, fill: accent, line: ctx.line() });
-  ctx.addText(slide, { text: label, x: x + 12, y: y + 2, w: w - 18, h: 14, fontSize: 8.8, bold: true, color: C.gray700 });
-  ctx.addText(slide, {
-    text: value,
-    x: x + 12,
-    y: y + 19,
-    w: w - 18,
-    h: 23,
-    fontSize: 18,
-    bold: true,
-    color: C.black,
-    typeface: ctx.fonts.title,
-  });
-  ctx.addText(slide, { text: note, x: x + 12, y: y + 45, w: w - 18, h: 13, fontSize: 7.8, color: C.gray700 });
-}
-
 export function addFactLine(slide, ctx, x, y, facts, opts = {}) {
   const gap = opts.gap ?? 32;
   let cursor = x;
