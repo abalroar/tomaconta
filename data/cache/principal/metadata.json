@@ -1,7 +1,7 @@
 {
-  "timestamp_salvamento": "2026-04-11T18:15:48.237871",
-  "fonte": "github_releases",
-  "total_registros": 60658,
+  "timestamp_salvamento": "2026-06-22T15:10:21.643393",
+  "fonte": "api",
+  "total_registros": 62061,
   "colunas": [
     "Instituição",
     "Período",
@@ -36,6 +36,7 @@
     "1/2023",
     "1/2024",
     "1/2025",
+    "1/2026",
     "2/2015",
     "2/2016",
     "2/2017",
@@ -70,5 +71,8 @@
     "4/2024",
     "4/2025"
   ],
-  "total_periodos": 44
+  "total_periodos": 45,
+  "extra": {
+    "operacao": "Salvamento final: 03/2026 até 03/2026"
+  }
 }

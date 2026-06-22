@@ -1,5 +1,5 @@
 {
-  "timestamp_salvamento": "2026-06-03T11:38:04.997608",
+  "timestamp_salvamento": "2026-06-22T15:14:08.289926",
   "fonte": "api",
   "total_registros": 1061577,
   "colunas": [
@@ -52,6 +52,6 @@
   ],
   "total_periodos": 31,
   "extra": {
-    "operacao": "Salvamento final: 01/2026 até 03/2026"
+    "operacao": "Salvamento final: 03/2026 até 03/2026"
   }
 }
