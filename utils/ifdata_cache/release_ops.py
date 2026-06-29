@@ -341,6 +341,55 @@ def _request_with_retries(
         return response
 
 
+def _github_headers(token: str, *, content_type: str | None = None) -> dict[str, str]:
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    if content_type:
+        headers["Content-Type"] = content_type
+    return headers
+
+
+def github_error_detail(response: requests.Response) -> str:
+    try:
+        payload = response.json()
+    except ValueError:
+        return response.text[:300].strip()
+
+    if not isinstance(payload, Mapping):
+        return response.text[:300].strip()
+
+    parts = []
+    message = str(payload.get("message") or "").strip()
+    documentation_url = str(payload.get("documentation_url") or "").strip()
+    if message:
+        parts.append(message)
+    if documentation_url:
+        parts.append(f"docs: {documentation_url}")
+    return " | ".join(parts)[:300]
+
+
+def github_permission_hint(repo: str, status_code: int, detail: str) -> str:
+    normalized = detail.lower()
+    if status_code == 403 and (
+        "resource not accessible by personal access token" in normalized
+        or "fine-grained personal access token" in normalized
+        or "contents" in normalized
+    ):
+        return (
+            f" Ação: configure um `GITHUB_PAT`/`GH_TOKEN` com permissão `Contents: Read and write` "
+            f"para `{repo}` (ou PAT clássico com escopo `repo`) e remova/atualize tokens somente leitura."
+        )
+    if status_code == 403:
+        return (
+            f" Ação: confira se o token tem escrita em releases/assets de `{repo}` "
+            "(fine-grained PAT: `Contents: Read and write`; PAT clássico: `repo`)."
+        )
+    return ""
+
+
 def upload_release_assets(
     *,
     repo: str,
@@ -348,16 +397,16 @@ def upload_release_assets(
     assets: Sequence[tuple[Path, str]],
     token: str,
 ) -> dict[str, Any]:
-    headers = {
-        "Authorization": f"token {token}",
-        "Accept": "application/vnd.github.v3+json",
-    }
+    headers = _github_headers(token)
 
     release_url = f"https://api.github.com/repos/{repo}/releases/tags/{tag}"
     response = _request_with_retries("GET", release_url, headers=headers, timeout=30)
     if response.status_code != 200:
-        detalhe = response.text[:200].strip()
-        raise RuntimeError(f"release alvo indisponível em {repo}@{tag} (HTTP {response.status_code}) {detalhe}")
+        detalhe = github_error_detail(response)
+        hint = github_permission_hint(repo, response.status_code, detalhe)
+        raise RuntimeError(
+            f"release alvo indisponível em {repo}@{tag} (HTTP {response.status_code}) {detalhe}.{hint}"
+        )
 
     release_data = response.json()
     upload_url = str(release_data["upload_url"]).replace("{?name,label}", "")
@@ -370,15 +419,13 @@ def upload_release_assets(
             delete_url = f"https://api.github.com/repos/{repo}/releases/assets/{asset_id}"
             delete_resp = _request_with_retries("DELETE", delete_url, headers=headers, timeout=30)
             if delete_resp.status_code not in {204, 404}:
-                detalhe = delete_resp.text[:200].strip()
+                detalhe = github_error_detail(delete_resp)
+                hint = github_permission_hint(repo, delete_resp.status_code, detalhe)
                 raise RuntimeError(
-                    f"falha ao remover asset antigo {asset_name} ({delete_resp.status_code}) {detalhe}"
+                    f"falha ao remover asset antigo {asset_name} ({delete_resp.status_code}) {detalhe}.{hint}"
                 )
 
-        upload_headers = {
-            "Authorization": f"token {token}",
-            "Content-Type": "application/octet-stream",
-        }
+        upload_headers = _github_headers(token, content_type="application/octet-stream")
         upload_resp = None
         for attempt in range(1, 4):
             with path.open("rb") as handle:
@@ -398,8 +445,11 @@ def upload_release_assets(
             if upload_resp.status_code in {200, 201}:
                 break
             if upload_resp.status_code not in {408, 429, 500, 502, 503, 504} or attempt >= 3:
-                detalhe = upload_resp.text[:200].strip()
-                raise RuntimeError(f"falha ao publicar asset {asset_name} ({upload_resp.status_code}) {detalhe}")
+                detalhe = github_error_detail(upload_resp)
+                hint = github_permission_hint(repo, upload_resp.status_code, detalhe)
+                raise RuntimeError(
+                    f"falha ao publicar asset {asset_name} ({upload_resp.status_code}) {detalhe}.{hint}"
+                )
             time.sleep(min(2 ** (attempt - 1), 4))
 
         uploaded.append(asset_name)

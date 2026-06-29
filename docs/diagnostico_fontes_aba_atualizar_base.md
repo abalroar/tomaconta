@@ -63,7 +63,9 @@ Se a publicação falhar, o app pode continuar “aparentemente normal” quando
 ## 6) Configuração recomendada para 31/03
 
 - Definir `TOMACONTA_RELEASE_REPO` explicitamente para o repo onde os assets devem ficar.
-- Definir `GITHUB_TOKEN` (ou `GH_TOKEN`) com permissão de escrita em releases.
+- Definir preferencialmente `GITHUB_PAT` (ou `GH_TOKEN`) com permissão de escrita em releases/assets.
+  - Fine-grained PAT: `Contents: Read and write` no repo de destino.
+  - PAT clássico: escopo `repo`.
 - Rodar atualização dos caches críticos:
   - `principal`, `capital`, `dre`, `principal_individual`, `dre_individual`, `carteira_instrumentos`, `bloprudencial`, `taxas_juros`.
 - Habilitar “publicar automaticamente no GitHub ao concluir”.

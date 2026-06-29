@@ -23,8 +23,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Iterable, List
 
-import requests
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
@@ -41,6 +39,7 @@ from utils.ifdata_cache.diagnostics import (
     find_placeholder_rows,
 )
 from utils.ifdata_cache.release_config import get_release_config
+from utils.ifdata_cache.release_ops import upload_release_assets
 
 DEFAULT_TIPOS = [
     "principal",
@@ -220,7 +219,7 @@ def _gerar_periodos_mensais(inicio: str, fim: str) -> List[str]:
 
 
 def _github_token() -> tuple[str | None, str]:
-    for key in ("GITHUB_TOKEN", "GH_TOKEN", "GITHUB_PAT"):
+    for key in ("GITHUB_PAT", "GH_TOKEN", "GITHUB_TOKEN"):
         value = os.getenv(key)
         if value and value.strip():
             return value.strip(), key
@@ -241,53 +240,6 @@ def _release_assets_for_cache(manager: CacheManager, cache_name: str) -> list[tu
         (data_path, data_asset),
         (cache.arquivo_metadata, f"{cache_name}_metadata.json"),
     ]
-
-
-def _upload_release_assets(
-    *,
-    repo: str,
-    tag: str,
-    assets: list[tuple[Path, str]],
-    token: str,
-) -> dict:
-    headers = {
-        "Authorization": f"token {token}",
-        "Accept": "application/vnd.github.v3+json",
-    }
-    release_url = f"https://api.github.com/repos/{repo}/releases/tags/{tag}"
-    response = requests.get(release_url, headers=headers, timeout=30)
-    if response.status_code != 200:
-        raise RuntimeError(f"release alvo indisponível em {repo}@{tag} (HTTP {response.status_code})")
-
-    release_data = response.json()
-    upload_url = str(release_data["upload_url"]).replace("{?name,label}", "")
-    existing_assets = {asset["name"]: asset["id"] for asset in release_data.get("assets", [])}
-    uploaded: list[str] = []
-
-    for path, asset_name in assets:
-        asset_id = existing_assets.get(asset_name)
-        if asset_id is not None:
-            delete_url = f"https://api.github.com/repos/{repo}/releases/assets/{asset_id}"
-            delete_resp = requests.delete(delete_url, headers=headers, timeout=30)
-            if delete_resp.status_code not in {204, 404}:
-                raise RuntimeError(f"falha ao remover asset antigo {asset_name} ({delete_resp.status_code})")
-
-        upload_headers = {
-            "Authorization": f"token {token}",
-            "Content-Type": "application/octet-stream",
-        }
-        with path.open("rb") as handle:
-            upload_resp = requests.post(
-                f"{upload_url}?name={asset_name}",
-                headers=upload_headers,
-                data=handle,
-                timeout=300,
-            )
-        if upload_resp.status_code not in {200, 201}:
-            raise RuntimeError(f"falha ao publicar asset {asset_name} ({upload_resp.status_code})")
-        uploaded.append(asset_name)
-
-    return {"repo": repo, "tag": tag, "assets": uploaded}
 
 
 def _materialize_post_refresh_assets(base_dir: Path, manager: CacheManager) -> list[dict]:
@@ -594,7 +546,7 @@ def _run_refresh(args: argparse.Namespace, base_dir: Path) -> int:
                     for cache_name in DEFAULT_TIPOS + [spec["tipo"] for spec in DERIVED_SPECS] + ["critical_screens"]:
                         assets.extend(_release_assets_for_cache(manager, cache_name))
                     assets.append((global_manifest_path, "manifest.json"))
-                    upload_result = _upload_release_assets(
+                    upload_result = upload_release_assets(
                         repo=release_config.repo,
                         tag=release_config.tag,
                         assets=assets,

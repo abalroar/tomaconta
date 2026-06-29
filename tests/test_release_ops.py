@@ -2,12 +2,15 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from utils.ifdata_cache.release_config import ReleaseConfig
 from utils.ifdata_cache.release_ops import (
     _hydrate_source_caches,
     collect_release_assets,
     get_postprocess_targets,
     get_publishable_bundle,
+    upload_release_assets,
     write_release_manifest,
 )
 
@@ -73,6 +76,20 @@ class _HydrateManager:
             mensagem="remoto ok",
             fonte="github_releases",
         )
+
+
+class _Response:
+    def __init__(self, status_code: int, payload=None, text: str = "", headers: dict | None = None):
+        self.status_code = status_code
+        self._payload = payload
+        self.text = text
+        self.headers = headers or {}
+        self.content = json.dumps(payload).encode("utf-8") if payload is not None else text.encode("utf-8")
+
+    def json(self):
+        if self._payload is None:
+            raise ValueError("sem json")
+        return self._payload
 
 
 def test_get_postprocess_targets_maps_base_caches():
@@ -181,3 +198,43 @@ def test_write_manifest_and_collect_assets(tmp_path: Path, monkeypatch):
         "critical_screens_metadata.json",
         "manifest.json",
     ]
+
+
+def test_upload_release_assets_explains_fine_grained_pat_permission_error(tmp_path: Path, monkeypatch):
+    asset_path = tmp_path / "spb_meios_pagamento_dados.parquet"
+    asset_path.write_bytes(b"parquet-data")
+
+    def fake_request(method, url, **kwargs):
+        assert method == "GET"
+        return _Response(
+            200,
+            {
+                "upload_url": "https://uploads.github.com/repos/abalroar/tomaconta/releases/1/assets{?name,label}",
+                "assets": [],
+            },
+        )
+
+    def fake_post(url, **kwargs):
+        return _Response(
+            403,
+            {
+                "message": "Resource not accessible by personal access token",
+                "documentation_url": "https://docs.github.com/rest",
+            },
+        )
+
+    monkeypatch.setattr("utils.ifdata_cache.release_ops.requests.request", fake_request)
+    monkeypatch.setattr("utils.ifdata_cache.release_ops.requests.post", fake_post)
+
+    with pytest.raises(RuntimeError) as excinfo:
+        upload_release_assets(
+            repo="abalroar/tomaconta",
+            tag="v2.0-cache",
+            assets=[(asset_path, "spb_meios_pagamento_dados.parquet")],
+            token="token-readonly",
+        )
+
+    message = str(excinfo.value)
+    assert "Resource not accessible by personal access token" in message
+    assert "Contents: Read and write" in message
+    assert "GITHUB_PAT" in message

@@ -159,6 +159,8 @@ from utils.ifdata_cache.diagnostics import build_runtime_manifest, max_period_fr
 from utils.ifdata_cache.institutions import canonicalize_institution_dataframe
 from utils.ifdata_cache.release_ops import (
     collect_release_assets,
+    github_error_detail,
+    github_permission_hint,
     get_postprocess_targets,
     get_publishable_bundle,
     materialize_for_publication,
@@ -3585,20 +3587,33 @@ def _resolver_release_tag() -> str:
     return _release_config_app().tag
 
 
+GITHUB_PUBLISH_TOKEN_KEYS = ("GITHUB_PAT", "GH_TOKEN", "GITHUB_TOKEN")
+
+
+def _github_api_headers(token: str) -> dict:
+    return {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+
+
 def _obter_token_github() -> Tuple[Optional[str], str]:
     """Obtém token GitHub com suporte a aliases usuais em secrets/env."""
-    candidates = ["GITHUB_TOKEN", "GH_TOKEN", "GITHUB_PAT"]
+    candidates = GITHUB_PUBLISH_TOKEN_KEYS
 
     for key in candidates:
         try:
             value = st.secrets.get(key)
-            if value:
-                return str(value), f"secret:{key}"
+            token = str(value).strip() if value else ""
+            if token:
+                return token, f"secret:{key}"
         except Exception:
             pass
         value = os.getenv(key)
-        if value:
-            return value, f"env:{key}"
+        token = str(value).strip() if value else ""
+        if token:
+            return token, f"env:{key}"
 
     return None, ""
 
@@ -3606,12 +3621,9 @@ def _obter_token_github() -> Tuple[Optional[str], str]:
 def _validar_token_release_github(repo: str, token: Optional[str], tag: Optional[str] = None) -> Tuple[bool, str]:
     """Valida acesso do token ao release de cache no repositório alvo."""
     if not token:
-        return False, "token ausente. Ação: configure `GITHUB_TOKEN`, `GH_TOKEN` ou `GITHUB_PAT`."
+        return False, "token ausente. Ação: configure `GITHUB_PAT`, `GH_TOKEN` ou `GITHUB_TOKEN`."
 
-    headers = {
-        "Authorization": f"token {token}",
-        "Accept": "application/vnd.github.v3+json",
-    }
+    headers = _github_api_headers(token)
     tag = tag or _resolver_release_tag()
     repo_url = f"https://api.github.com/repos/{repo}"
     release_url = f"https://api.github.com/repos/{repo}/releases/tags/{tag}"
@@ -3621,7 +3633,9 @@ def _validar_token_release_github(repo: str, token: Optional[str], tag: Optional
         if repo_resp.status_code == 401:
             return False, "token inválido/expirado (401). Ação: gere novo token e atualize o secret."
         if repo_resp.status_code == 403:
-            return False, f"token sem acesso ao repositório '{repo}' (403). Ação: conceda escopo `repo`/`contents:write`."
+            detalhe = github_error_detail(repo_resp)
+            hint = github_permission_hint(repo, repo_resp.status_code, detalhe)
+            return False, f"token sem acesso ao repositório '{repo}' (403) {detalhe}.{hint}"
         if repo_resp.status_code == 404:
             return False, f"repositório '{repo}' não encontrado/sem acesso (404). Ação: corrija `TOMACONTA_RELEASE_REPO`."
         if repo_resp.status_code != 200:
@@ -3629,16 +3643,45 @@ def _validar_token_release_github(repo: str, token: Optional[str], tag: Optional
 
         repo_payload = repo_resp.json() if repo_resp.content else {}
         permissions = repo_payload.get("permissions", {}) if isinstance(repo_payload, dict) else {}
+        write_permission_verified = False
         if permissions and not (permissions.get("push") or permissions.get("admin") or permissions.get("maintain")):
-            return False, "token sem permissão de escrita no repo. Ação: habilite push/write em Contents."
+            return False, (
+                "token sem permissão de escrita no repo. Ação: use fine-grained PAT com "
+                "`Contents: Read and write` ou PAT clássico com escopo `repo`."
+            )
+        if permissions:
+            write_permission_verified = True
+
+        oauth_scopes = {
+            scope.strip()
+            for scope in str(repo_resp.headers.get("X-OAuth-Scopes", "")).split(",")
+            if scope.strip()
+        }
+        if oauth_scopes and not oauth_scopes.intersection({"repo", "public_repo"}):
+            return False, (
+                "token não expõe escopo de escrita para releases. Ação: use fine-grained PAT com "
+                "`Contents: Read and write` ou PAT clássico com escopo `repo`."
+            )
+        if oauth_scopes.intersection({"repo", "public_repo"}):
+            write_permission_verified = True
 
         r = requests.get(release_url, headers=headers, timeout=20)
         if r.status_code == 200:
-            return True, f"pré-validação ok para {repo}@{tag}"
+            release_payload = r.json() if r.content else {}
+            if not isinstance(release_payload, dict) or not release_payload.get("upload_url"):
+                return False, f"release '{tag}' em '{repo}' não expôs upload_url. Ação: recrie/valide o release."
+            if write_permission_verified:
+                return True, f"pré-validação ok para {repo}@{tag}"
+            return True, (
+                f"pré-validação de leitura ok para {repo}@{tag}; GitHub não expôs a permissão de escrita. "
+                "O upload exige `Contents: Read and write`."
+            )
         if r.status_code == 401:
             return False, "token inválido ao acessar release (401). Ação: gere novo token."
         if r.status_code == 403:
-            return False, "token sem escopo para releases (403). Ação: inclua `repo`/`contents:write`."
+            detalhe = github_error_detail(r)
+            hint = github_permission_hint(repo, r.status_code, detalhe)
+            return False, f"token sem escopo para releases (403) {detalhe}.{hint}"
         if r.status_code == 404:
             return False, f"tag/release '{tag}' inexistente em '{repo}'. Ação: crie a tag/release antes do upload."
         return False, f"falha ao validar release/tag ({r.status_code}) em {repo}@{tag}"
@@ -29710,7 +29753,7 @@ elif menu == "Atualizar Base":
         release_tag = _resolver_release_tag()
         token_validado = False
         st.caption(f"Destino de publicação: repositório `{release_repo}` | tag `{release_tag}`")
-        st.caption(f"Ordem de detecção de token: `GITHUB_TOKEN` → `GH_TOKEN` → `GITHUB_PAT` (secrets/env)")
+        st.caption(f"Ordem de detecção de token: `GITHUB_PAT` → `GH_TOKEN` → `GITHUB_TOKEN` (secrets/env)")
 
         if token_auto:
             st.success(f"Token GitHub configurado automaticamente ({token_origem})")
@@ -29722,12 +29765,12 @@ elif menu == "Atualizar Base":
                 st.error(f"Pré-validação de upload: {msg_token}")
             gh_token_final = token_auto
         else:
-            st.info("Configure `GITHUB_TOKEN`, `GH_TOKEN` ou `GITHUB_PAT` nos Secrets do Streamlit Cloud para upload automático.")
+            st.info("Configure `GITHUB_PAT`, `GH_TOKEN` ou `GITHUB_TOKEN` nos Secrets do Streamlit Cloud para upload automático.")
             gh_token_manual = st.text_input(
-                "ou insira token manualmente (permissão 'repo')",
+                "ou insira token manualmente (Contents: Read and write)",
                 type="password",
                 key="gh_token_unificado",
-                help="Token com permissão 'repo'. Configure nos Secrets para não precisar digitar."
+                help="Fine-grained PAT com Contents: Read and write no repo alvo, ou PAT clássico com escopo repo."
             )
             if gh_token_manual:
                 ok_token, msg_token = _validar_token_release_github(release_repo, gh_token_manual, tag=release_tag)
