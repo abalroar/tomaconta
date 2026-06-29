@@ -100,6 +100,14 @@ def main() -> int:
 
     parser.add_argument("--force-refresh", action="store_true", help="forçar download (bloprudencial)")
 
+    parser.add_argument(
+        "--spb-datasets",
+        help=(
+            "lista de datasets SPB separados por vírgula (para spb_meios_pagamento); "
+            "vazio = todos os 12 (ex: nucleo_trimestral,intercambio,atm)"
+        ),
+    )
+
     args = parser.parse_args()
 
     manager = CacheManager()
@@ -125,6 +133,26 @@ def main() -> int:
 
     tipos_atualizados = set()
     for tipo in tipos:
+        if tipo == "spb_meios_pagamento":
+            cache = manager.get_cache("spb_meios_pagamento")
+            datasets = _parse_periodos_list(args.spb_datasets) or None
+            _print(
+                f"==> Atualizando cache 'spb_meios_pagamento' (datasets={datasets or 'todos'}), modo={args.modo}"
+            )
+            result = cache.materialize_history(
+                datasets=datasets,
+                overwrite=(args.modo == "overwrite"),
+                progress_callback=lambda p, m: _print(f"[{p:.0%}] {m}"),
+                log_callback=_print,
+            )
+            if result.sucesso:
+                _print(f"OK: {result.mensagem}")
+                tipos_atualizados.add(tipo)
+            else:
+                _print(f"ERRO: {result.mensagem}")
+                return 1
+            continue
+
         if tipo == "bloprudencial":
             if not periodos:
                 if args.mensal_inicio and args.mensal_fim:
