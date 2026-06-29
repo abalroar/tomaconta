@@ -15780,6 +15780,7 @@ MENU_PRINCIPAL = [
     "DRE (Ind. e Congl.)",
     "Carteira 4.966",
     "Taxas de Juros por Produto",
+    "Meios de Pagamento (SPB)",
 ]
 
 # Lista de opções do menu secundário (utilitários)
@@ -16096,12 +16097,13 @@ CACHE_DEPENDENCIAS_POR_ABA = {
     "DRE (Ind. e Congl.)": ["dre", "principal", "dre_individual", "principal_individual"],
     "Carteira 4.966": ["carteira_instrumentos"],
     "Taxas de Juros por Produto": ["taxas_juros_historico"],
+    "Meios de Pagamento (SPB)": ["spb_meios_pagamento"],
     "Contas COSIF": ["bloprudencial"],
     "Distribuição (Ridgeline)": ["principal"],
     "Atualizar Base": [
         "principal", "capital", "ativo", "passivo", "dre", "carteira_pf",
         "carteira_pj", "carteira_instrumentos", "bloprudencial", "taxas_juros_historico",
-        "derived_metrics", "derived_metrics_individual",
+        "spb_meios_pagamento", "derived_metrics", "derived_metrics_individual",
     ],
 }
 
@@ -16115,6 +16117,8 @@ def _nota_cache_dependencia(cache_nome: str) -> str:
         return "fonte mensal BLOPRUDENCIAL (BCB)"
     if cache_nome == "taxas_juros_historico":
         return "histórico batch consolidado de taxas de juros (BCB)"
+    if cache_nome == "spb_meios_pagamento":
+        return "Meios de Pagamento (SPB) - 12 datasets Olinda (MPV_DadosAbertos, BCB)"
     if cache_nome == "critical_screens":
         return "parquet curado materializado a partir de principal/capital/ativo/passivo/carteiras/BLOPRUDENCIAL"
     return "extração/cache padrão"
@@ -28035,6 +28039,299 @@ elif menu == "Taxas de Juros por Produto":
                             if errors_beta:
                                 st.caption(f"Algumas instituições retornaram erro: {errors_beta}")
 
+elif menu == "Meios de Pagamento (SPB)":
+    # =========================================================================
+    # ABA MEIOS DE PAGAMENTO (SPB) - Estatísticas do Adendo Estatístico (Olinda/BCB)
+    # Fonte: serviço Olinda MPV_DadosAbertos (12 entidades). Cada dataset é
+    # baixado em uma única chamada (filtro de período cumulativo) pelo cache
+    # `spb_meios_pagamento`. Esta aba apenas lê os parquets já materializados.
+    # =========================================================================
+    st.markdown("### Meios de Pagamento (SPB)")
+    st.caption(
+        "Estatísticas de Meios de Pagamentos do BCB (Olinda/MPV_DadosAbertos) — "
+        "Pix, TED, boleto, cartões, intercâmbio, desconto (MDR) e canais de acesso."
+    )
+
+    SPB_INSTRUMENTOS_LABEL = {
+        "pix": "Pix",
+        "ted": "TED",
+        "tec": "TEC",
+        "cheque": "Cheque",
+        "boleto": "Boleto",
+        "doc": "DOC",
+        "cartao_credito": "Cartão de Crédito",
+        "cartao_debito": "Cartão de Débito",
+        "cartao_pre_pago": "Cartão Pré-Pago",
+        "trans_intrabancaria": "Transferências Intrabancárias",
+        "convenios": "Convênios",
+        "debito_direto": "Débito Direto",
+        "saques": "Saques",
+    }
+
+    SPB_CONSOLIDADO_MAPA = {
+        "Pix": "Pix",
+        "Saques": "Saques",
+        "Boleto": "Cobranças",
+        "Convênios": "Cobranças",
+        "Débito Direto": "Cobranças",
+        "Cartão de Crédito": "Cartões",
+        "Cartão de Débito": "Cartões",
+        "Cartão Pré-Pago": "Cartões",
+        "TED": "Transferências Interbancárias",
+        "DOC": "Transferências Interbancárias",
+        "TEC": "Transferências Interbancárias",
+        "Cheque": "Cheque",
+        "Transferências Intrabancárias": "Transferências Intrabancárias",
+    }
+
+    def _spb_trimestre_label(value) -> str:
+        s = str(value)
+        if "-" in s:
+            try:
+                dt = pd.Timestamp(s)
+                q = (dt.month - 1) // 3 + 1
+                return f"{dt.year}-T{q}"
+            except Exception:
+                return s
+        if len(s) == 5 and s.isdigit():
+            return f"{s[:4]}-T{s[4]}"
+        return s
+
+    _SPB_MESES_ABBR = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"]
+
+    def _spb_ano_mes_label(value) -> str:
+        s = str(value)
+        if len(s) == 6 and s.isdigit():
+            return f"{_SPB_MESES_ABBR[int(s[4:6]) - 1]}/{s[:4]}"
+        return s
+
+    @st.cache_data(ttl=1800, show_spinner="Carregando dados de Meios de Pagamento (Olinda/BCB)...")
+    def _spb_carregar_dataset(key: str) -> pd.DataFrame:
+        mgr = get_cache_manager()
+        cache_spb = mgr.get_cache("spb_meios_pagamento") if mgr else None
+        if cache_spb is None:
+            return pd.DataFrame()
+        try:
+            resultado = cache_spb.carregar() if key == "nucleo_trimestral" else cache_spb.carregar_dataset(key)
+        except Exception:
+            return pd.DataFrame()
+        if not resultado.sucesso or resultado.dados is None:
+            return pd.DataFrame()
+        return resultado.dados
+
+    def _spb_melt_nucleo(df: pd.DataFrame, periodo_col: str, label_fn) -> pd.DataFrame:
+        if df.empty:
+            return pd.DataFrame(columns=["periodo_label", "instrumento", "tipo", "valor"])
+        linhas = []
+        for prefixo, tipo in (("valor_", "Valor (R$ milhão)"), ("quantidade_", "Quantidade (mil)")):
+            cols = [c for c in df.columns if c.startswith(prefixo)]
+            for col in cols:
+                sufixo = col[len(prefixo):]
+                instrumento = SPB_INSTRUMENTOS_LABEL.get(sufixo, sufixo)
+                parte = df[[periodo_col, col]].copy()
+                parte.columns = ["periodo", "valor"]
+                parte["instrumento"] = instrumento
+                parte["tipo"] = tipo
+                linhas.append(parte)
+        if not linhas:
+            return pd.DataFrame(columns=["periodo_label", "instrumento", "tipo", "valor"])
+        long_df = pd.concat(linhas, ignore_index=True)
+        long_df["valor"] = pd.to_numeric(long_df["valor"], errors="coerce")
+        long_df["periodo_label"] = long_df["periodo"].map(label_fn)
+        return long_df.dropna(subset=["valor"])
+
+    cache_manager = get_cache_manager()
+    spb_cache_obj = cache_manager.get_cache("spb_meios_pagamento") if cache_manager else None
+
+    if spb_cache_obj is None:
+        st.error("Cache 'spb_meios_pagamento' não está registrado. Atualize a base na aba 'Atualizar Base'.")
+    else:
+        tab_nucleo, tab_participacao, tab_tarifas, tab_canais, tab_outros = st.tabs(
+            [
+                "Núcleo (Pix, TED, Cartões...)",
+                "Participação % e Consolidado",
+                "Intercâmbio e Desconto (MDR)",
+                "Canais de Acesso",
+                "Cartões, ATM, Terminais e Outros",
+            ]
+        )
+
+        with tab_nucleo:
+            periodicidade_spb = st.segmented_control(
+                "periodicidade",
+                options=["Trimestral", "Mensal"],
+                default="Trimestral",
+                key="spb_nucleo_periodicidade",
+            ) or "Trimestral"
+
+            if periodicidade_spb == "Mensal":
+                df_nucleo_raw = _spb_carregar_dataset("nucleo_mensal")
+                long_nucleo = _spb_melt_nucleo(df_nucleo_raw, "ano_mes", _spb_ano_mes_label)
+                st.caption("Dados Mensais: conjunto restrito de 6 instrumentos (Pix, Boleto, DOC, TEC, Cheque, TED).")
+            else:
+                df_nucleo_raw = _spb_carregar_dataset("nucleo_trimestral")
+                long_nucleo = _spb_melt_nucleo(df_nucleo_raw, "trimestre", _spb_trimestre_label)
+
+            if long_nucleo.empty:
+                st.warning("Dados de núcleo (Meios de Pagamento) ainda não materializados localmente.")
+            else:
+                col_qtd, col_val = st.columns(2)
+                with col_qtd:
+                    fig_qtd_spb = px.line(
+                        long_nucleo[long_nucleo["tipo"] == "Quantidade (mil)"],
+                        x="periodo_label", y="valor", color="instrumento",
+                        title="Quantidade (mil)", markers=True,
+                    )
+                    fig_qtd_spb.update_layout(xaxis_title="", yaxis_title="mil transações", legend_title="")
+                    st.plotly_chart(fig_qtd_spb, width="stretch")
+                with col_val:
+                    fig_val_spb = px.line(
+                        long_nucleo[long_nucleo["tipo"] == "Valor (R$ milhão)"],
+                        x="periodo_label", y="valor", color="instrumento",
+                        title="Valor (R$ milhão)", markers=True,
+                    )
+                    fig_val_spb.update_layout(xaxis_title="", yaxis_title="R$ milhão", legend_title="")
+                    st.plotly_chart(fig_val_spb, width="stretch")
+
+        with tab_participacao:
+            df_nucleo_part = _spb_carregar_dataset("nucleo_trimestral")
+            long_part = _spb_melt_nucleo(df_nucleo_part, "trimestre", _spb_trimestre_label)
+            if long_part.empty:
+                st.warning("Dados trimestrais de núcleo ainda não materializados localmente.")
+            else:
+                st.markdown("#### Participação percentual por instrumento")
+                col_pq, col_pv = st.columns(2)
+                for col_part, tipo_part, titulo_part in (
+                    (col_pq, "Quantidade (mil)", "Quantidade de Transações (%)"),
+                    (col_pv, "Valor (R$ milhão)", "Volume Financeiro (%)"),
+                ):
+                    with col_part:
+                        df_tipo = long_part[long_part["tipo"] == tipo_part]
+                        fig_part = px.area(
+                            df_tipo, x="periodo_label", y="valor", color="instrumento",
+                            groupnorm="percent", title=titulo_part,
+                        )
+                        fig_part.update_layout(xaxis_title="", yaxis_title="%", legend_title="")
+                        st.plotly_chart(fig_part, width="stretch")
+
+                st.markdown("#### Meios de Pagamentos (Consolidado por macro-categoria)")
+                df_consolidado = long_part.copy()
+                df_consolidado["macro_categoria"] = df_consolidado["instrumento"].map(SPB_CONSOLIDADO_MAPA).fillna(df_consolidado["instrumento"])
+                df_consolidado = (
+                    df_consolidado.groupby(["periodo_label", "periodo", "tipo", "macro_categoria"], as_index=False)["valor"].sum()
+                    .sort_values("periodo")
+                )
+                col_cq, col_cv = st.columns(2)
+                for col_cons, tipo_cons, titulo_cons in (
+                    (col_cq, "Quantidade (mil)", "Quantidade (mil) - Consolidado"),
+                    (col_cv, "Valor (R$ milhão)", "Valor (R$ milhão) - Consolidado"),
+                ):
+                    with col_cons:
+                        fig_cons = px.line(
+                            df_consolidado[df_consolidado["tipo"] == tipo_cons],
+                            x="periodo_label", y="valor", color="macro_categoria",
+                            title=titulo_cons, markers=True,
+                        )
+                        fig_cons.update_layout(xaxis_title="", yaxis_title="", legend_title="")
+                        st.plotly_chart(fig_cons, width="stretch")
+
+        with tab_tarifas:
+            col_int, col_desc = st.columns(2)
+            with col_int:
+                df_intercambio = _spb_carregar_dataset("intercambio")
+                if df_intercambio.empty:
+                    st.warning("Dataset 'intercambio' (INTERCAMDA) ainda não materializado localmente.")
+                else:
+                    agg_int = (
+                        df_intercambio.dropna(subset=["tarifa_intercambio_ponderada"])
+                        .groupby(["trimestre", "funcao_cartao"], as_index=False)["tarifa_intercambio_ponderada"]
+                        .mean()
+                    )
+                    agg_int["periodo_label"] = agg_int["trimestre"].map(_spb_trimestre_label)
+                    fig_int = px.line(
+                        agg_int.sort_values("trimestre"), x="periodo_label", y="tarifa_intercambio_ponderada",
+                        color="funcao_cartao", title="Tarifa de Intercâmbio por Função (% média ponderada)", markers=True,
+                    )
+                    fig_int.update_layout(xaxis_title="", yaxis_title="%", legend_title="")
+                    st.plotly_chart(fig_int, width="stretch")
+                    st.caption("Média simples por trimestre/função entre as combinações de produto/bandeira/forma de captura reportadas pelo BCB.")
+            with col_desc:
+                df_desconto = _spb_carregar_dataset("desconto")
+                if df_desconto.empty:
+                    st.warning("Dataset 'desconto' (DESCONTODA) ainda não materializado localmente.")
+                else:
+                    agg_desc = (
+                        df_desconto.dropna(subset=["tx_media_desconto"])
+                        .groupby(["trimestre", "funcao_cartao"], as_index=False)["tx_media_desconto"]
+                        .mean()
+                    )
+                    agg_desc["periodo_label"] = agg_desc["trimestre"].map(_spb_trimestre_label)
+                    fig_desc = px.line(
+                        agg_desc.sort_values("trimestre"), x="periodo_label", y="tx_media_desconto",
+                        color="funcao_cartao", title="Taxa de Desconto por Função (% média ponderada)", markers=True,
+                    )
+                    fig_desc.update_layout(xaxis_title="", yaxis_title="%", legend_title="")
+                    st.plotly_chart(fig_desc, width="stretch")
+                    st.caption("Média simples por trimestre/função entre as combinações de bandeira/forma de captura/parcelas reportadas pelo BCB.")
+
+        with tab_canais:
+            df_canais_serv = _spb_carregar_dataset("canais_servicos")
+            if df_canais_serv.empty:
+                st.warning("Dataset 'canais_servicos' (OPEINTRADA) ainda não materializado localmente.")
+            else:
+                df_cs = df_canais_serv.dropna(subset=["operacao"]).copy()
+                df_cs["qtd_milhoes"] = pd.to_numeric(df_cs["qtd_transacoes"], errors="coerce") / 1e6
+                df_cs["periodo_label"] = df_cs["trimestre"].map(_spb_trimestre_label)
+                fig_cs = px.line(
+                    df_cs.sort_values("trimestre"), x="periodo_label", y="qtd_milhoes", color="operacao",
+                    title="Serviços por Canal de Acesso - Quantidade de Transações (milhão)", markers=True,
+                )
+                fig_cs.update_layout(xaxis_title="", yaxis_title="milhão", legend_title="")
+                st.plotly_chart(fig_cs, width="stretch")
+
+            df_canais_trans = _spb_carregar_dataset("canais_transacoes")
+            if df_canais_trans.empty:
+                st.warning("Dataset 'canais_transacoes' (TRANSOPADA) ainda não materializado localmente.")
+            else:
+                df_ct = df_canais_trans.dropna(subset=["canal_acesso"]).copy()
+                produtos_ct = sorted(df_ct["produto"].dropna().unique().tolist())
+                produto_sel_ct = st.selectbox("produto", options=produtos_ct, key="spb_canais_produto") if produtos_ct else None
+                if produto_sel_ct:
+                    df_ct = df_ct[df_ct["produto"] == produto_sel_ct]
+                df_ct["qtd_milhoes"] = pd.to_numeric(df_ct["qtd_transacoes"], errors="coerce") / 1e6
+                df_ct["periodo_label"] = df_ct["trimestre"].map(_spb_trimestre_label)
+                fig_ct = px.line(
+                    df_ct.sort_values("trimestre"), x="periodo_label", y="qtd_milhoes", color="canal_acesso",
+                    title=f"Pagamento de Conta/Transferência/Pix por Canal de Acesso ({produto_sel_ct or 'todos'}) - Milhão",
+                    markers=True,
+                )
+                fig_ct.update_layout(xaxis_title="", yaxis_title="milhão", legend_title="")
+                st.plotly_chart(fig_ct, width="stretch")
+
+        with tab_outros:
+            st.caption(
+                "⚠️ Estes datasets ainda não foram conferidos visualmente contra a página oficial do BCB — "
+                "exibição em tabela/gráfico simples, sujeita a ajuste de título/eixo quando confirmados."
+            )
+            opcoes_outros_spb = {
+                "cartoes": "Quantidade e valor de transações de cartões",
+                "atm": "Estatísticas de ATMs por função/localização",
+                "terminais": "Infraestrutura de terminais POS/PDV por UF",
+                "portador": "Portador / programas de recompensa de cartões",
+                "estabelecimentos_credenciados": "Estabelecimentos credenciados e ativos",
+                "infra_estabelecimentos": "Infraestrutura de captura por UF do estabelecimento",
+            }
+            dataset_outro_sel = st.selectbox(
+                "dataset", options=list(opcoes_outros_spb.keys()),
+                format_func=lambda k: opcoes_outros_spb[k], key="spb_outros_dataset",
+            )
+            df_outro = _spb_carregar_dataset(dataset_outro_sel)
+            if df_outro.empty:
+                st.warning(f"Dataset '{dataset_outro_sel}' ainda não materializado localmente.")
+            else:
+                st.caption(f"{len(df_outro):,} linha(s), {len(df_outro.columns)} coluna(s).")
+                st.dataframe(df_outro.head(500), width="stretch", hide_index=True)
+
 elif menu == "Crie sua métrica!":
     if _garantir_dados_principais("Crie sua métrica!"):
         dados_periodos_keys = tuple(sorted(st.session_state['dados_periodos'].keys()))
@@ -29068,6 +29365,7 @@ elif menu == "Atualizar Base":
             "taxas_juros": "Taxas de Juros (API BCB) - TODOS produtos/instituições",
             "taxas_juros_historico": "Taxas de Juros Histórico (Batch) - ConsultaUnificada + cache publicado",
             "bloprudencial": "Conglomerados Prudenciais (BLOPRUDENCIAL) - CSV mensal",
+            "spb_meios_pagamento": "Meios de Pagamento (SPB/Olinda BCB) - 12 datasets",
         }
         caches_dropdown = [cache for cache in caches_disponiveis if cache in opcoes_cache]
 
@@ -29082,9 +29380,18 @@ elif menu == "Atualizar Base":
         is_taxas_juros = (cache_selecionado == "taxas_juros")
         is_taxas_juros_historico = (cache_selecionado == "taxas_juros_historico")
         is_bloprudencial = (cache_selecionado == "bloprudencial")
+        is_spb_meios_pagamento = (cache_selecionado == "spb_meios_pagamento")
 
         # Mostrar status do cache selecionado
-        if is_bloprudencial:
+        if is_spb_meios_pagamento:
+            cache_spb_status = cache_manager.get_cache("spb_meios_pagamento")
+            if cache_spb_status is not None:
+                paths_spb = cache_spb_status.dataset_paths()
+                existentes_spb = [k for k, p in paths_spb.items() if p.exists()]
+                st.info(f"Cache atual SPB: {len(existentes_spb)}/{len(paths_spb)} dataset(s) materializado(s) localmente")
+            else:
+                st.warning("Cache 'spb_meios_pagamento' não está registrado no CacheManager")
+        elif is_bloprudencial:
             base_bloprud = Path("data/cache/bcb_bloprudencial")
             zips_dir = base_bloprud / "zips"
             csv_dir = base_bloprud / "csv"
@@ -29123,7 +29430,25 @@ elif menu == "Atualizar Base":
         st.markdown("#### 3. Selecione o período de extração")
 
         # Taxas de Juros usa seleção de data (diário), demais usam trimestral
-        if is_taxas_juros_historico:
+        if is_spb_meios_pagamento:
+            st.caption(
+                "Meios de Pagamento (SPB): cada um dos 12 datasets exige apenas UMA chamada à API Olinda "
+                "(filtro de período é cumulativo) — a materialização busca o histórico completo por dataset."
+            )
+            cache_spb_sel = cache_manager.get_cache("spb_meios_pagamento")
+            datasets_spb_disponiveis = list(cache_spb_sel.dataset_paths().keys()) if cache_spb_sel is not None else []
+            datasets_spb_selecionados = st.multiselect(
+                "datasets a atualizar (vazio = todos os 12)",
+                options=datasets_spb_disponiveis,
+                default=[],
+                key="spb_datasets_selecionados",
+            )
+            st.caption(
+                f"Serão processados {len(datasets_spb_selecionados) or len(datasets_spb_disponiveis)} dataset(s)."
+            )
+            periodos_extrair = None
+
+        elif is_taxas_juros_historico:
             st.caption("Taxas de Juros Histórico: ingestão batch por janelas diárias oficiais (`ConsultaDatas` + `ConsultaUnificada`).")
             st.info(
                 "Fluxo recomendado para reconstrução robusta do histórico. "
@@ -29357,7 +29682,7 @@ elif menu == "Atualizar Base":
         # =============================================================
         # CONFIGURAÇÕES AVANÇADAS
         # =============================================================
-        if not is_taxas_juros and not is_taxas_juros_historico:
+        if not is_taxas_juros and not is_taxas_juros_historico and not is_spb_meios_pagamento:
             with st.expander("configurações avançadas"):
                 intervalo_save = st.slider(
                     "salvar a cada N períodos",
@@ -29440,7 +29765,7 @@ elif menu == "Atualizar Base":
 
         # A extração não depende mais de alias local.
         pode_extrair = True
-        if not is_taxas_juros and not is_taxas_juros_historico and not is_bloprudencial and not periodos_extrair:
+        if not is_taxas_juros and not is_taxas_juros_historico and not is_bloprudencial and not is_spb_meios_pagamento and not periodos_extrair:
             st.error("nenhum período válido selecionado para extração.")
             pode_extrair = False
 
@@ -29536,7 +29861,7 @@ elif menu == "Atualizar Base":
                 erros_encontrados = []
                 logs_extracao = []
 
-                if not is_taxas_juros and not is_taxas_juros_historico and not is_bloprudencial:
+                if not is_taxas_juros and not is_taxas_juros_historico and not is_bloprudencial and not is_spb_meios_pagamento:
                     periodos_totais = periodos_extrair
                     concluidos = set(checkpoint.get("concluidos") or [])
                     if retomar and checkpoint_pendentes:
@@ -29770,6 +30095,74 @@ elif menu == "Atualizar Base":
                         status_text.empty()
                         save_status.empty()
                         st.error(f"Erro durante materialização histórica: {e}")
+                        import traceback
+                        st.code(traceback.format_exc())
+
+                elif is_spb_meios_pagamento:
+                    def callback_progresso_spb(progress, message):
+                        progress_bar.progress(min(progress, 1.0))
+                        status_text.text(message)
+
+                    def callback_log_spb(message):
+                        logs_extracao.append(message)
+                        with log_container:
+                            st.caption(f"📝 {message}")
+
+                    datasets_spb_exec = datasets_spb_selecionados or None
+                    st.info(
+                        f"Iniciando materialização SPB para "
+                        f"{len(datasets_spb_exec) if datasets_spb_exec else len(datasets_spb_disponiveis)} dataset(s)."
+                    )
+
+                    try:
+                        cache_spb_exec = cache_manager.get_cache("spb_meios_pagamento")
+                        resultado_spb = cache_spb_exec.materialize_history(
+                            datasets=datasets_spb_exec,
+                            overwrite=(modo_atualizacao == "overwrite"),
+                            progress_callback=callback_progresso_spb,
+                            log_callback=callback_log_spb,
+                        )
+
+                        progress_bar.empty()
+                        status_text.empty()
+                        save_status.empty()
+
+                        if resultado_spb.sucesso:
+                            st.success(f"✅ {resultado_spb.mensagem}")
+                            meta_spb = resultado_spb.metadata or {}
+                            failures_spb = meta_spb.get("failures") or []
+                            if failures_spb:
+                                with st.expander("Falhas detectadas", expanded=True):
+                                    st.json(failures_spb)
+
+                            if publicar_auto and gh_token_final and token_validado:
+                                with st.spinner("publicando cache SPB no GitHub Releases..."):
+                                    sucesso_pub, msg_pub = upload_cache_github(
+                                        cache_manager,
+                                        cache_selecionado,
+                                        gh_token_final,
+                                    )
+                                    if sucesso_pub:
+                                        st.success(f"✅ {msg_pub}")
+                                    else:
+                                        st.warning(f"⚠️ falha ao publicar: {msg_pub}")
+                        else:
+                            st.error(f"Erro na materialização SPB: {resultado_spb.mensagem}")
+                            failures_spb = (resultado_spb.metadata or {}).get("failures") or []
+                            if failures_spb:
+                                with st.expander("Falhas detectadas", expanded=True):
+                                    st.json(failures_spb)
+
+                        if logs_extracao:
+                            with st.expander("📋 Log de materialização", expanded=False):
+                                for log_line in logs_extracao:
+                                    st.text(log_line)
+
+                    except Exception as e:
+                        progress_bar.empty()
+                        status_text.empty()
+                        save_status.empty()
+                        st.error(f"Erro durante materialização SPB: {e}")
                         import traceback
                         st.code(traceback.format_exc())
 
@@ -30583,6 +30976,7 @@ elif menu == "Glossário":
         - **Contas COSIF:** lê o BLOPRUDENCIAL mensal e reconstrói saldo, trimestre ou acumulado semestral conforme a natureza da conta COSIF e a competência escolhida.
         - **Modelo de Rating:** usa o cache curado `critical_screens` para os fatores quantitativos e entrada manual para as seis perguntas qualitativas; o fator de qualidade da carteira segue uma hierarquia por período entre Rel. 16 e proxy histórica calibrada.
         - **Balanço, DRE e DMPL (Ind.):** consulta o documento 9011 ao vivo; por isso, a disponibilidade depende do JSON retornado pelo Banco Central para a instituição e competência escolhidas.
+        - **Meios de Pagamento (SPB):** lê o cache `spb_meios_pagamento` (serviço Olinda `MPV_DadosAbertos`), atualizado manualmente pela aba "Atualizar Base" ou pelo CLI; cada um dos 12 datasets é baixado em uma única chamada (filtro de período cumulativo do BCB), sem backfill incremental por trimestre.
         """)
 
     _cols_gloss = ["Indicador", "Aba(s)", "Fonte", "Fórmula", "Unidade", "Interpretação", "Limitação", "Periodicidade"]
@@ -30646,7 +31040,19 @@ elif menu == "Glossário":
         {"Indicador": "Ref. Info Contábil A/S", "Aba(s)": "Balanço, DRE e DMPL (Ind.), Glossário", "Fonte": "Documento 9011 JSON", "Fórmula": "A = acumulado; S = semestre", "Unidade": "Tipo de referência", "Interpretação": "Define quais colunas internas do documento 9011 serão exibidas para comparação.", "Limitação": "A disponibilidade depende do conteúdo efetivamente retornado no documento escolhido.", "Periodicidade": "Por documento / competência"},
     ])
 
-    with st.expander("**7) Definições históricas / não exibidas por padrão**", expanded=False):
+    _render_secao_glossario("7) Meios de Pagamento (SPB)", [
+        {"Indicador": "Quantidade por instrumento (Pix, TED, Boleto...)", "Aba(s)": "Meios de Pagamento (SPB), Glossário", "Fonte": "Olinda `MPV_DadosAbertos` - MeiosdePagamentosTrimestralDA/MensalDA", "Fórmula": "Valor publicado pelo BCB por trimestre/mês e instrumento", "Unidade": "mil transações", "Interpretação": "Volume de transações por instrumento de pagamento.", "Limitação": "Visão mensal cobre só 6 instrumentos (Pix, Boleto, DOC, TEC, Cheque, TED); os demais só aparecem na visão trimestral.", "Periodicidade": "Trimestral / Mensal"},
+        {"Indicador": "Valor por instrumento (Pix, TED, Boleto...)", "Aba(s)": "Meios de Pagamento (SPB), Glossário", "Fonte": "Olinda `MPV_DadosAbertos` - MeiosdePagamentosTrimestralDA/MensalDA", "Fórmula": "Valor publicado pelo BCB por trimestre/mês e instrumento", "Unidade": "R$ milhão", "Interpretação": "Volume financeiro transacionado por instrumento.", "Limitação": "Mesma limitação de cobertura mensal vs. trimestral acima.", "Periodicidade": "Trimestral / Mensal"},
+        {"Indicador": "Participação % por instrumento", "Aba(s)": "Meios de Pagamento (SPB), Glossário", "Fonte": "Derivado de MeiosdePagamentosTrimestralDA", "Fórmula": "Quantidade/Valor do instrumento ÷ total do trimestre × 100", "Unidade": "%", "Interpretação": "Peso relativo de cada instrumento no total transacionado no trimestre.", "Limitação": "Cálculo feito na camada de apresentação, não é campo bruto da API.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Meios de Pagamentos (Consolidado)", "Aba(s)": "Meios de Pagamento (SPB), Glossário", "Fonte": "Derivado de MeiosdePagamentosTrimestralDA", "Fórmula": "Soma fixa de instrumentos em 7 macro-categorias (Pix, Saques, Cobranças, Cartões, Transferências Interbancárias, Cheque, Transferências Intrabancárias)", "Unidade": "mil transações / R$ milhão", "Interpretação": "Visão agrupada por macro-categoria de meio de pagamento.", "Limitação": "Agrupamento fixo definido pelo app, não publicado como entidade separada pelo BCB.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Tarifa de Intercâmbio por Função (%)", "Aba(s)": "Meios de Pagamento (SPB), Glossário", "Fonte": "Olinda `MPV_DadosAbertos` - INTERCAMDA", "Fórmula": "Média ponderada publicada pelo BCB por trimestre e função do cartão", "Unidade": "% (média ponderada)", "Interpretação": "Tarifa de intercâmbio cobrada entre emissor/adquirente por função (Crédito/Débito/Pré-pago).", "Limitação": "O app agrega por média simples entre combinações de produto/bandeira/forma de captura reportadas; não reproduz a ponderação exata interna do BCB.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Taxa de Desconto (MDR) por Função (%)", "Aba(s)": "Meios de Pagamento (SPB), Glossário", "Fonte": "Olinda `MPV_DadosAbertos` - DESCONTODA", "Fórmula": "Média ponderada publicada pelo BCB por trimestre e função do cartão", "Unidade": "% (média ponderada)", "Interpretação": "Taxa de desconto (Merchant Discount Rate) cobrada do estabelecimento por função do cartão.", "Limitação": "Mesma limitação de agregação por média simples descrita acima.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Serviços por Canal de Acesso", "Aba(s)": "Meios de Pagamento (SPB), Glossário", "Fonte": "Olinda `MPV_DadosAbertos` - OPEINTRADA", "Fórmula": "Valor publicado pelo BCB por trimestre e canal (Internet Banking, ATM, Correspondente, Agência, Call Center, Celular)", "Unidade": "milhão de transações", "Interpretação": "Volume de transações financeiras e não financeiras por canal de acesso.", "Limitação": "Nomes de canal seguem a nomenclatura do BCB e podem mudar entre revisões.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Pagamento/Transferência/Pix por Canal de Acesso", "Aba(s)": "Meios de Pagamento (SPB), Glossário", "Fonte": "Olinda `MPV_DadosAbertos` - TRANSOPADA", "Fórmula": "Valor publicado pelo BCB por trimestre, produto e canal", "Unidade": "milhão de transações", "Interpretação": "Volume de pagamento de conta/tributo, transferência de crédito e Pix, por canal de acesso.", "Limitação": "Inclui canal 'Iniciador' (iniciador de pagamento) que não aparece no gráfico de serviços por canal.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Cartões, ATM, Terminais, Portador, Estabelecimentos", "Aba(s)": "Meios de Pagamento (SPB), Glossário", "Fonte": "Olinda `MPV_DadosAbertos` - Quantidadeetransacoesdecartoes/ESTATATMDA/INFRTERMDA/PORTADORDA/EstabCredTransDA/INFRESTADA", "Fórmula": "Valor publicado pelo BCB por trimestre", "Unidade": "Variável por dataset", "Interpretação": "Estatísticas complementares de cartões, infraestrutura de aceitação e portador.", "Limitação": "Layout de título/eixo ainda não conferido contra a página oficial do BCB; exibido em tabela/gráfico genérico.", "Periodicidade": "Trimestral"},
+    ])
+
+    with st.expander("**8) Definições históricas / não exibidas por padrão**", expanded=False):
         st.markdown("""
         - **[LEGADO] Crédito/Ativo (%)** = Carteira de Crédito Bruta ÷ Ativo Total.  
         - **[LEGADO] Carteira de Crédito/Core Funding (%)** = Carteira de Crédito Bruta ÷ Core Funding.  
