@@ -135,6 +135,13 @@ CACHES_INFO = {
         "todas_variaveis": True,
         "periodicidade": "trimestral",
     },
+    "spb_meios_pagamento": {
+        "nome_exibicao": "Meios de Pagamento (SPB/Olinda BCB)",
+        "descricao": "Estatísticas de Meios de Pagamento - 12 entidades (MPV_DadosAbertos)",
+        "relatorio": None,  # API Olinda diferente do IFData
+        "todas_variaveis": True,
+        "periodicidade": "trimestral/mensal",
+    },
 }
 
 
@@ -174,6 +181,7 @@ class CacheManager:
         from .critical_screens import CriticalScreensCache
         from .balancetes import BalancetesCache
         from .bloprudencial_cache import BloprudencialCache
+        from .spb_meios_pagamento import SPBMeiosPagamentoCache
 
         # Caches principais (variáveis selecionadas)
         self.registrar(PrincipalCache(self.base_dir, manter_codinst=True))
@@ -200,6 +208,8 @@ class CacheManager:
         self.registrar(BalancetesCache(self.base_dir))
         # Cache BLOPRUDENCIAL mensal (arquivo estático BCB)
         self.registrar(BloprudencialCache(self.base_dir))
+        # Cache de Meios de Pagamento SPB (API Olinda MPV_DadosAbertos)
+        self.registrar(SPBMeiosPagamentoCache(self.base_dir))
 
     def registrar(self, cache: BaseCache):
         """Registra um novo tipo de cache.
