@@ -299,9 +299,17 @@ def build_spb_pptx(
     summaries: Mapping[str, pd.DataFrame],
     source_note: str,
 ) -> bytes:
+    missing = [chart_title for chart_title, png in figures.items() if not png]
+    if missing:
+        missing_list = ", ".join(missing)
+        raise RuntimeError(
+            "Exportação SPB legada baseada em imagem recebeu gráfico vazio. "
+            "Use build_spb_native_pptx para gerar charts nativos do PowerPoint. "
+            f"Gráficos ausentes: {missing_list}"
+        )
+
     from pptx import Presentation
     from pptx.dml.color import RGBColor
-    from pptx.enum.text import PP_ALIGN
     from pptx.util import Inches, Pt
 
     prs = Presentation()
@@ -350,15 +358,7 @@ def build_spb_pptx(
     for chart_title, png in figures.items():
         slide = prs.slides.add_slide(blank)
         add_title(slide, chart_title)
-        if png:
-            slide.shapes.add_picture(BytesIO(png), Inches(0.45), Inches(0.85), width=Inches(12.25), height=Inches(5.85))
-        else:
-            box = slide.shapes.add_textbox(Inches(1.0), Inches(2.7), Inches(11.2), Inches(0.6))
-            p = box.text_frame.paragraphs[0]
-            p.text = "Imagem do gráfico indisponível neste ambiente."
-            p.alignment = PP_ALIGN.CENTER
-            p.font.size = Pt(16)
-            p.font.color.rgb = RGBColor(105, 105, 105)
+        slide.shapes.add_picture(BytesIO(png), Inches(0.45), Inches(0.85), width=Inches(12.25), height=Inches(5.85))
         add_footer(slide)
 
     slide = prs.slides.add_slide(blank)

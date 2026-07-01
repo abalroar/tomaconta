@@ -6,6 +6,7 @@ from io import BytesIO
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -13,6 +14,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from utils.spb_meios_pagamento_viz import (
     build_line_figure,
     build_spb_native_pptx,
+    build_spb_pptx,
     build_share_figure,
     compute_share,
     format_ano_mes_label,
@@ -143,3 +145,14 @@ def test_native_pptx_contains_powerpoint_chart_parts():
         chart_parts = [name for name in pptx_zip.namelist() if name.startswith("ppt/charts/chart") and name.endswith(".xml")]
 
     assert len(chart_parts) == 2
+    assert b"Imagem do gr" not in pptx_bytes
+
+
+def test_legacy_pptx_export_fails_instead_of_placeholder_when_image_missing():
+    with pytest.raises(RuntimeError, match="build_spb_native_pptx"):
+        build_spb_pptx(
+            title="Dados de Meios de Pagamento - BCB",
+            figures={"Núcleo mensal - quantidade": None},
+            summaries={},
+            source_note="Fonte: BCB",
+        )
