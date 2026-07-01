@@ -479,6 +479,23 @@ def build_credit_package_excel_cdsfn(**kwargs):
 import numpy as np
 from PIL import Image as PILImage
 from io import BytesIO
+from utils.meios_pagamento_bcb import (
+    BCB_MPV_DATASET_URL,
+    BCB_MPV_DOC_URL,
+    BCB_MPV_SITE_URL,
+    ITAU_BBA_PALETTE,
+    MONTHLY_MODALITIES,
+    QUARTERLY_MODALITIES,
+    available_periods as meios_pagamento_available_periods,
+    build_line_figure as meios_pagamento_build_line_figure,
+    build_meios_pagamento_pptx,
+    build_share_figure as meios_pagamento_build_share_figure,
+    filter_period_range as meios_pagamento_filter_period_range,
+    format_monthly_axis_label as meios_pagamento_month_label,
+    format_quarterly_axis_label as meios_pagamento_quarter_label,
+    latest_summary as meios_pagamento_latest_summary,
+    load_meios_pagamento_bcb,
+)
 
 fetch_taxas_juros_scoped = taxas_juros_module.fetch_taxas_juros_scoped
 formatar_nome_modalidade = taxas_juros_module.formatar_nome_modalidade
@@ -13520,6 +13537,17 @@ def _plotly_fig_to_png_bytes(fig, width: int = 1600, height: int = 900, scale: i
         return None
 
 
+@st.cache_data(ttl=6 * 3600, show_spinner=False)
+def _carregar_meios_pagamento_bcb_cached(monthly_start: str = "200501", quarterly_start: str = "20051") -> tuple[pd.DataFrame, pd.DataFrame, str]:
+    mensal, trimestral = load_meios_pagamento_bcb(
+        monthly_start=monthly_start,
+        quarterly_start=quarterly_start,
+        timeout=60,
+    )
+    timestamp = datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%Y-%m-%d %H:%M:%S GMT-3")
+    return mensal, trimestral, timestamp
+
+
 def _get_dados_concatenados(periodos_hash: str, dados_keys: tuple) -> pd.DataFrame:
     """Concatena todos os DataFrames de períodos uma única vez.
 
@@ -15824,6 +15852,7 @@ MENU_PRINCIPAL = [
     "Carteira 4.966",
     "Taxas de Juros por Produto",
     "Meios de Pagamento (SPB)",
+    "Meios de Pagamento BCB",
 ]
 
 # Lista de opções do menu secundário (utilitários)
@@ -28081,6 +28110,305 @@ elif menu == "Taxas de Juros por Produto":
                             errors_beta = meta_recent_beta.get("errors") or {}
                             if errors_beta:
                                 st.caption(f"Algumas instituições retornaram erro: {errors_beta}")
+
+elif menu == "Meios de Pagamento BCB":
+    st.markdown("## Meios de Pagamento BCB")
+    st.caption(
+        "Estatísticas oficiais de pagamentos de varejo do Banco Central. "
+        "Mensal e trimestral são mantidos separados para preservar a periodicidade original da fonte."
+    )
+
+    try:
+        with st.spinner("Carregando Estatísticas de Meios de Pagamento no BCB..."):
+            df_mensal_mpv, df_trimestral_mpv, mpv_timestamp = _carregar_meios_pagamento_bcb_cached()
+    except Exception as exc:
+        st.error(f"Não foi possível carregar os dados de meios de pagamento no BCB: {exc}")
+        st.stop()
+
+    if df_mensal_mpv.empty and df_trimestral_mpv.empty:
+        st.warning("O serviço do BCB retornou bases vazias para meios de pagamento.")
+        st.stop()
+
+    st.markdown(
+        f"Fonte: [Dados Abertos BCB]({BCB_MPV_DATASET_URL}) · "
+        f"[site de consulta]({BCB_MPV_SITE_URL}) · [documentação OData]({BCB_MPV_DOC_URL}). "
+        f"Consulta local: {mpv_timestamp}."
+    )
+
+    metric_col, palette_col = st.columns([1, 2])
+    with metric_col:
+        metrica_mpv = st.radio(
+            "Métrica",
+            ["Quantidade", "Valor"],
+            horizontal=True,
+            key="mpv_metrica",
+            help="Quantidade é publicada em milhares de transações; Valor é publicado em R$ milhões.",
+        )
+    with palette_col:
+        st.caption(
+            "Paleta fixa estilo Itaú BBA: Pix em laranja, TED em preto, boletos/cheques em cinzas, "
+            "cartões em azuis e séries legadas em amarelo/roxo."
+        )
+        st.markdown(
+            " ".join(
+                f"<span style='display:inline-block;width:12px;height:12px;background:{cor};"
+                f"border:1px solid #ddd;margin-right:4px'></span><span style='font-size:12px;margin-right:10px'>{nome}</span>"
+                for nome, cor in ITAU_BBA_PALETTE.items()
+                if nome in ["Pix", "TED", "Boleto", "Cheque", "Cartão de Crédito", "DOC"]
+            ),
+            unsafe_allow_html=True,
+        )
+
+    tabs_mpv = st.tabs(["Mensal", "Trimestral", "Última leitura", "Exportar PPT"])
+
+    with tabs_mpv[0]:
+        periodos_mensais = meios_pagamento_available_periods(df_mensal_mpv)
+        if not periodos_mensais:
+            st.info("Sem períodos mensais disponíveis.")
+        else:
+            default_start_month = pd.Timestamp("2020-11-01")
+            start_idx = next((idx for idx, item in enumerate(periodos_mensais) if item >= default_start_month), 0)
+            col_i, col_f = st.columns(2)
+            with col_i:
+                periodo_mensal_ini = st.selectbox(
+                    "Mês inicial",
+                    options=periodos_mensais,
+                    index=start_idx,
+                    format_func=meios_pagamento_month_label,
+                    key="mpv_mensal_ini",
+                )
+            with col_f:
+                periodo_mensal_fim = st.selectbox(
+                    "Mês final",
+                    options=periodos_mensais,
+                    index=len(periodos_mensais) - 1,
+                    format_func=meios_pagamento_month_label,
+                    key="mpv_mensal_fim",
+                )
+            modalidades_mensais = st.multiselect(
+                "Modalidades mensais",
+                options=MONTHLY_MODALITIES,
+                default=MONTHLY_MODALITIES,
+                key="mpv_modalidades_mensais",
+            )
+            if periodo_mensal_ini > periodo_mensal_fim:
+                st.error("O mês inicial deve ser menor ou igual ao mês final.")
+            elif not modalidades_mensais:
+                st.warning("Selecione ao menos uma modalidade mensal.")
+            else:
+                df_mensal_sel = meios_pagamento_filter_period_range(
+                    df_mensal_mpv,
+                    periodo_mensal_ini,
+                    periodo_mensal_fim,
+                )
+                unidade_mensal = "mil transações" if metrica_mpv == "Quantidade" else "R$ milhão"
+                fig_mensal = meios_pagamento_build_line_figure(
+                    df_mensal_sel,
+                    metric=metrica_mpv,
+                    modalities=modalidades_mensais,
+                    title=f"{metrica_mpv} mensal por modalidade",
+                    unit_label=unidade_mensal,
+                    periodicidade="mensal",
+                )
+                st.plotly_chart(fig_mensal, width="stretch", config={"displaylogo": False})
+                fig_part_mensal = meios_pagamento_build_share_figure(
+                    df_mensal_sel,
+                    metric=metrica_mpv,
+                    modalities=modalidades_mensais,
+                    title=f"Participação mensal no total selecionado · {metrica_mpv.lower()}",
+                    periodicidade="mensal",
+                )
+                st.plotly_chart(fig_part_mensal, width="stretch", config={"displaylogo": False})
+                st.caption("Eixo X mensal em mm-aaaa; rótulos finais indicam o último valor vigente por série.")
+
+    with tabs_mpv[1]:
+        periodos_trimestrais = meios_pagamento_available_periods(df_trimestral_mpv)
+        if not periodos_trimestrais:
+            st.info("Sem períodos trimestrais disponíveis.")
+        else:
+            default_tri_idx = max(0, len(periodos_trimestrais) - 24)
+            col_i, col_f = st.columns(2)
+            with col_i:
+                periodo_tri_ini = st.selectbox(
+                    "Trimestre inicial",
+                    options=periodos_trimestrais,
+                    index=default_tri_idx,
+                    format_func=meios_pagamento_quarter_label,
+                    key="mpv_tri_ini",
+                )
+            with col_f:
+                periodo_tri_fim = st.selectbox(
+                    "Trimestre final",
+                    options=periodos_trimestrais,
+                    index=len(periodos_trimestrais) - 1,
+                    format_func=meios_pagamento_quarter_label,
+                    key="mpv_tri_fim",
+                )
+            default_trimestral = [
+                "Pix",
+                "TED",
+                "Boleto",
+                "Cheque",
+                "Cartão de Crédito",
+                "Cartão de Débito",
+                "Cartão Pré-pago",
+            ]
+            modalidades_trimestrais = st.multiselect(
+                "Modalidades trimestrais",
+                options=QUARTERLY_MODALITIES,
+                default=[m for m in default_trimestral if m in QUARTERLY_MODALITIES],
+                key="mpv_modalidades_trimestrais",
+            )
+            if periodo_tri_ini > periodo_tri_fim:
+                st.error("O trimestre inicial deve ser menor ou igual ao trimestre final.")
+            elif not modalidades_trimestrais:
+                st.warning("Selecione ao menos uma modalidade trimestral.")
+            else:
+                df_tri_sel = meios_pagamento_filter_period_range(
+                    df_trimestral_mpv,
+                    periodo_tri_ini,
+                    periodo_tri_fim,
+                )
+                unidade_tri = "mil transações" if metrica_mpv == "Quantidade" else "R$ milhão"
+                fig_tri = meios_pagamento_build_line_figure(
+                    df_tri_sel,
+                    metric=metrica_mpv,
+                    modalities=modalidades_trimestrais,
+                    title=f"{metrica_mpv} trimestral por modalidade",
+                    unit_label=unidade_tri,
+                    periodicidade="trimestral",
+                )
+                st.plotly_chart(fig_tri, width="stretch", config={"displaylogo": False})
+                fig_part_tri = meios_pagamento_build_share_figure(
+                    df_tri_sel,
+                    metric=metrica_mpv,
+                    modalities=modalidades_trimestrais,
+                    title=f"Participação trimestral no total selecionado · {metrica_mpv.lower()}",
+                    periodicidade="trimestral",
+                )
+                st.plotly_chart(fig_part_tri, width="stretch", config={"displaylogo": False})
+                st.caption("Eixo X trimestral usa o mês de fechamento do trimestre: mar, jun, set e dez.")
+
+    with tabs_mpv[2]:
+        col_last_m, col_last_t = st.columns(2)
+        with col_last_m:
+            st.markdown("#### Mensal")
+            modalidades_last_m = st.session_state.get("mpv_modalidades_mensais") or MONTHLY_MODALITIES
+            df_last_m = meios_pagamento_latest_summary(
+                df_mensal_mpv,
+                metric=metrica_mpv,
+                modalities=modalidades_last_m,
+            )
+            st.dataframe(
+                df_last_m,
+                hide_index=True,
+                width="stretch",
+                column_config={
+                    "Valor": st.column_config.NumberColumn("Valor", format="%.2f"),
+                    "Participação": st.column_config.ProgressColumn("Participação", format="%.1f%%", min_value=0, max_value=1),
+                },
+            )
+        with col_last_t:
+            st.markdown("#### Trimestral")
+            modalidades_last_t = st.session_state.get("mpv_modalidades_trimestrais") or [
+                "Pix", "TED", "Boleto", "Cheque", "Cartão de Crédito", "Cartão de Débito", "Cartão Pré-pago"
+            ]
+            df_last_t = meios_pagamento_latest_summary(
+                df_trimestral_mpv,
+                metric=metrica_mpv,
+                modalities=modalidades_last_t,
+            )
+            st.dataframe(
+                df_last_t,
+                hide_index=True,
+                width="stretch",
+                column_config={
+                    "Valor": st.column_config.NumberColumn("Valor", format="%.2f"),
+                    "Participação": st.column_config.ProgressColumn("Participação", format="%.1f%%", min_value=0, max_value=1),
+                },
+            )
+
+    with tabs_mpv[3]:
+        st.markdown("#### Exportar apresentação")
+        st.caption(
+            "O PPT usa a janela e as modalidades selecionadas nas abas Mensal e Trimestral. "
+            "Quando o ambiente não tiver suporte a exportação PNG do Plotly, o arquivo preserva os resumos tabulares."
+        )
+        if st.button("Preparar PPT", key="mpv_prepare_ppt"):
+            try:
+                mensal_ini_export = st.session_state.get("mpv_mensal_ini")
+                mensal_fim_export = st.session_state.get("mpv_mensal_fim")
+                tri_ini_export = st.session_state.get("mpv_tri_ini")
+                tri_fim_export = st.session_state.get("mpv_tri_fim")
+                modalidades_m_export = st.session_state.get("mpv_modalidades_mensais") or MONTHLY_MODALITIES
+                modalidades_t_export = st.session_state.get("mpv_modalidades_trimestrais") or [
+                    "Pix", "TED", "Boleto", "Cheque", "Cartão de Crédito", "Cartão de Débito", "Cartão Pré-pago"
+                ]
+                df_mensal_export = meios_pagamento_filter_period_range(
+                    df_mensal_mpv,
+                    mensal_ini_export or df_mensal_mpv["periodo"].min(),
+                    mensal_fim_export or df_mensal_mpv["periodo"].max(),
+                )
+                df_tri_export = meios_pagamento_filter_period_range(
+                    df_trimestral_mpv,
+                    tri_ini_export or df_trimestral_mpv["periodo"].min(),
+                    tri_fim_export or df_trimestral_mpv["periodo"].max(),
+                )
+                unidade_export = "mil transações" if metrica_mpv == "Quantidade" else "R$ milhão"
+                fig_mensal_export = meios_pagamento_build_line_figure(
+                    df_mensal_export,
+                    metric=metrica_mpv,
+                    modalities=modalidades_m_export,
+                    title=f"{metrica_mpv} mensal por modalidade",
+                    unit_label=unidade_export,
+                    periodicidade="mensal",
+                )
+                fig_mensal_part_export = meios_pagamento_build_share_figure(
+                    df_mensal_export,
+                    metric=metrica_mpv,
+                    modalities=modalidades_m_export,
+                    title=f"Participação mensal · {metrica_mpv.lower()}",
+                    periodicidade="mensal",
+                )
+                fig_tri_export = meios_pagamento_build_line_figure(
+                    df_tri_export,
+                    metric=metrica_mpv,
+                    modalities=modalidades_t_export,
+                    title=f"{metrica_mpv} trimestral por modalidade",
+                    unit_label=unidade_export,
+                    periodicidade="trimestral",
+                )
+                fig_tri_part_export = meios_pagamento_build_share_figure(
+                    df_tri_export,
+                    metric=metrica_mpv,
+                    modalities=modalidades_t_export,
+                    title=f"Participação trimestral · {metrica_mpv.lower()}",
+                    periodicidade="trimestral",
+                )
+                ppt_bytes = build_meios_pagamento_pptx(
+                    title="Dados de Meios de Pagamento - BCB",
+                    subtitle="Evolução e participação de Pix, TED, TEC, Cheque, Boleto, DOC e cartões com filtros de período.",
+                    figures={
+                        "Mensal · evolução": _plotly_fig_to_png_bytes(fig_mensal_export),
+                        "Mensal · participação percentual": _plotly_fig_to_png_bytes(fig_mensal_part_export),
+                        "Trimestral · evolução": _plotly_fig_to_png_bytes(fig_tri_export),
+                        "Trimestral · participação percentual": _plotly_fig_to_png_bytes(fig_tri_part_export),
+                    },
+                    summaries={
+                        "Mensal": meios_pagamento_latest_summary(df_mensal_export, metric=metrica_mpv, modalities=modalidades_m_export),
+                        "Trimestral": meios_pagamento_latest_summary(df_tri_export, metric=metrica_mpv, modalities=modalidades_t_export),
+                    },
+                    source_note=f"Fonte: Banco Central do Brasil, MPV_DadosAbertos. Consulta local: {mpv_timestamp}.",
+                )
+                st.download_button(
+                    "Baixar PPT",
+                    data=ppt_bytes,
+                    file_name="Dados de Meios de Pagamento - BCB.pptx",
+                    mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                    key="mpv_download_ppt",
+                )
+            except Exception as exc:
+                st.error(f"Não foi possível preparar o PPT: {exc}")
 
 elif menu == "Meios de Pagamento (SPB)":
     # =========================================================================
