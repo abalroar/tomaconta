@@ -410,6 +410,205 @@ def build_spb_pptx(
     return output.getvalue()
 
 
+def build_spb_native_pptx(
+    *,
+    title: str,
+    charts: Sequence[Mapping[str, object]],
+    summaries: Mapping[str, pd.DataFrame],
+    source_note: str,
+) -> bytes:
+    from pptx import Presentation
+    from pptx.chart.data import ChartData
+    from pptx.dml.color import RGBColor
+    from pptx.enum.chart import XL_CHART_TYPE, XL_LEGEND_POSITION
+    from pptx.enum.shapes import MSO_SHAPE
+    from pptx.util import Inches, Pt
+
+    prs = Presentation()
+    prs.slide_width = Inches(13.333)
+    prs.slide_height = Inches(7.5)
+    blank = prs.slide_layouts[6]
+
+    def rgb(hex_color: str) -> RGBColor:
+        value = hex_color.lstrip("#")
+        return RGBColor(int(value[0:2], 16), int(value[2:4], 16), int(value[4:6], 16))
+
+    def add_title(slide, text: str, top: float = 0.28):
+        box = slide.shapes.add_textbox(Inches(0.45), Inches(top), Inches(12.2), Inches(0.4))
+        frame = box.text_frame
+        frame.clear()
+        p = frame.paragraphs[0]
+        p.text = text
+        p.font.size = Pt(18)
+        p.font.bold = True
+        p.font.color.rgb = rgb("#111111")
+
+    def add_footer(slide):
+        box = slide.shapes.add_textbox(Inches(0.45), Inches(7.06), Inches(12.0), Inches(0.22))
+        p = box.text_frame.paragraphs[0]
+        p.text = source_note
+        p.font.size = Pt(7.5)
+        p.font.color.rgb = rgb("#6F6F6F")
+
+    def add_cover():
+        slide = prs.slides.add_slide(blank)
+        slide.background.fill.solid()
+        slide.background.fill.fore_color.rgb = rgb("#FFFFFF")
+        accent = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), Inches(0.12), Inches(7.5))
+        accent.fill.solid()
+        accent.fill.fore_color.rgb = rgb("#EC7000")
+        accent.line.fill.background()
+        title_box = slide.shapes.add_textbox(Inches(0.55), Inches(2.45), Inches(11.8), Inches(0.85))
+        p = title_box.text_frame.paragraphs[0]
+        p.text = title
+        p.font.size = Pt(30)
+        p.font.bold = True
+        p.font.color.rgb = rgb("#111111")
+        sub = slide.shapes.add_textbox(Inches(0.58), Inches(3.35), Inches(10.8), Inches(0.55))
+        p = sub.text_frame.paragraphs[0]
+        p.text = "Banco Central do Brasil | MPV_DadosAbertos"
+        p.font.size = Pt(14)
+        p.font.color.rgb = rgb("#555555")
+        add_footer(slide)
+
+    def add_latest_strip(slide, latest_items: list[dict[str, object]], *, share: bool):
+        box = slide.shapes.add_textbox(Inches(10.45), Inches(1.05), Inches(2.45), Inches(5.65))
+        frame = box.text_frame
+        frame.clear()
+        header = frame.paragraphs[0]
+        header.text = "Último ponto"
+        header.font.bold = True
+        header.font.size = Pt(11)
+        header.font.color.rgb = rgb("#111111")
+        for item in latest_items[:11]:
+            p = frame.add_paragraph()
+            label = f"{item['instrumento']}: {item['label']}"
+            p.text = label
+            p.font.size = Pt(8.5)
+            p.font.color.rgb = rgb(str(item["color"]))
+            p.space_after = Pt(2)
+
+    def add_chart_slide(spec: Mapping[str, object]):
+        chart_title = str(spec["title"])
+        long_df = spec["long_df"]
+        tipo = str(spec["tipo"])
+        instruments = list(spec["instruments"])
+        yaxis_title = str(spec.get("yaxis_title", ""))
+        share = bool(spec.get("share", False))
+        palette = spec.get("palette") or ITAU_BBA_PALETTE
+
+        slide = prs.slides.add_slide(blank)
+        add_title(slide, chart_title)
+        categories, series_payload, latest_items = _native_chart_payload(
+            long_df,
+            tipo=tipo,
+            instruments=instruments,
+            share=share,
+            palette=palette,
+        )
+        if not categories or not series_payload:
+            box = slide.shapes.add_textbox(Inches(0.8), Inches(2.7), Inches(11.6), Inches(0.45))
+            p = box.text_frame.paragraphs[0]
+            p.text = "Sem dados disponíveis para a janela selecionada."
+            p.font.size = Pt(15)
+            p.font.color.rgb = rgb("#6F6F6F")
+            add_footer(slide)
+            return
+
+        chart_data = ChartData()
+        chart_data.categories = categories
+        for series_name, values, _color in series_payload:
+            chart_data.add_series(series_name, values)
+
+        frame = slide.shapes.add_chart(
+            XL_CHART_TYPE.LINE_MARKERS,
+            Inches(0.45),
+            Inches(0.95),
+            Inches(9.75),
+            Inches(5.55),
+            chart_data,
+        )
+        chart = frame.chart
+        chart.has_legend = True
+        chart.legend.position = XL_LEGEND_POSITION.BOTTOM
+        chart.legend.include_in_layout = False
+        chart.value_axis.has_title = True
+        chart.value_axis.axis_title.text_frame.text = yaxis_title
+        chart.value_axis.has_major_gridlines = True
+        chart.value_axis.tick_labels.number_format = "0%" if share else "#,##0"
+        chart.category_axis.tick_labels.font.size = Pt(8)
+        chart.value_axis.tick_labels.font.size = Pt(8)
+
+        for idx, series in enumerate(chart.series):
+            color = rgb(series_payload[idx][2])
+            series.format.line.color.rgb = color
+            series.format.line.width = Pt(2)
+            try:
+                series.marker.format.fill.solid()
+                series.marker.format.fill.fore_color.rgb = color
+                series.marker.format.line.color.rgb = color
+            except Exception:
+                pass
+
+        add_latest_strip(slide, latest_items, share=share)
+        add_footer(slide)
+
+    def add_summary_slide():
+        slide = prs.slides.add_slide(blank)
+        add_title(slide, "Última composição disponível")
+        left = 0.55
+        for section, df in summaries.items():
+            box = slide.shapes.add_textbox(Inches(left), Inches(0.95), Inches(5.9), Inches(5.85))
+            frame = box.text_frame
+            frame.clear()
+            header = frame.paragraphs[0]
+            header.text = section
+            header.font.bold = True
+            header.font.size = Pt(13)
+            header.font.color.rgb = rgb("#EC7000")
+            for _, row in df.head(12).iterrows():
+                p = frame.add_paragraph()
+                value_label = _format_value(row["Valor"], "Valor (R$ milhão)" if "Valor" in section else "Quantidade (mil)")
+                share_label = f"{row['Participação']:.1f}".replace(".", ",")
+                p.text = f"{row['Instrumento']}: {value_label} ({share_label}%)"
+                p.font.size = Pt(9.5)
+                p.font.color.rgb = rgb("#232323")
+            left += 6.25
+        add_footer(slide)
+
+    def add_plan_slide():
+        slide = prs.slides.add_slide(blank)
+        add_title(slide, "Plano de melhorias aplicado")
+        bullets = [
+            "Manter mensal e trimestral separados para preservar a periodicidade oficial do BCB.",
+            "Permitir seleção de período inicial e final para evitar perda de escala após a entrada do Pix.",
+            "Exibir a última informação das séries no PPT e na interface.",
+            "Usar meses compactos no eixo: mm-aaaa no mensal e mês de fechamento no trimestral.",
+            "Mostrar a última participação percentual por instrumento.",
+            "Aplicar paleta fixa de alto contraste em estilo Itaú BBA.",
+        ]
+        box = slide.shapes.add_textbox(Inches(0.75), Inches(1.05), Inches(11.8), Inches(5.7))
+        frame = box.text_frame
+        frame.clear()
+        for idx, bullet in enumerate(bullets):
+            p = frame.paragraphs[0] if idx == 0 else frame.add_paragraph()
+            p.text = bullet
+            p.font.size = Pt(15)
+            p.font.color.rgb = rgb("#232323")
+            p.space_after = Pt(9)
+        add_footer(slide)
+
+    add_cover()
+    for chart_spec in charts:
+        add_chart_slide(chart_spec)
+    add_summary_slide()
+    add_plan_slide()
+
+    output = BytesIO()
+    prs.save(output)
+    return output.getvalue()
+
+
 def _apply_base_layout(fig: go.Figure, title: str, yaxis_title: str, x_order: Sequence[str]) -> None:
     fig.update_layout(
         title=dict(text=title, font=dict(size=15, color="#111111")),
@@ -441,6 +640,61 @@ def _x_order(df: pd.DataFrame) -> list[str]:
         .sort_values("periodo_ordem")["periodo_label"]
         .tolist()
     )
+
+
+def _native_chart_payload(
+    long_df: pd.DataFrame,
+    *,
+    tipo: str,
+    instruments: Sequence[str],
+    share: bool,
+    palette: Mapping[str, str],
+) -> tuple[list[str], list[tuple[str, tuple[float | None, ...], str]], list[dict[str, object]]]:
+    if share:
+        df = compute_share(long_df, tipo, instruments)
+        value_col = "participacao"
+    else:
+        df = long_df[(long_df["tipo"] == tipo) & (long_df["instrumento"].isin(instruments))].copy()
+        value_col = "valor"
+    if df.empty:
+        return [], [], []
+
+    order = (
+        df[["periodo_ordem", "periodo_label"]]
+        .drop_duplicates()
+        .sort_values("periodo_ordem")
+    )
+    categories = order["periodo_label"].tolist()
+    payload: list[tuple[str, tuple[float | None, ...], str]] = []
+    latest_items: list[dict[str, object]] = []
+
+    for instrument in instruments:
+        series = df[df["instrumento"] == instrument].sort_values("periodo_ordem")
+        if series.empty:
+            continue
+        by_label = series.set_index("periodo_label")[value_col]
+        values = []
+        for label in categories:
+            value = by_label.get(label, None)
+            if value is None or pd.isna(value):
+                values.append(None)
+            else:
+                number = float(value) / 100 if share else float(value)
+                values.append(number)
+        color = palette.get(instrument, "#4B5563")
+        payload.append((instrument, tuple(values), color))
+
+        latest = series.dropna(subset=[value_col]).iloc[-1]
+        latest_value = float(latest[value_col])
+        latest_items.append(
+            {
+                "instrumento": instrument,
+                "color": color,
+                "label": f"{latest_value:.1f}%".replace(".", ",") if share else _format_value(latest_value, tipo),
+            }
+        )
+
+    return categories, payload, latest_items
 
 
 def _instrument_sort_key(instrument: str) -> tuple[int, str]:

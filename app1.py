@@ -488,7 +488,7 @@ from utils.spb_meios_pagamento_viz import (
     available_instruments as spb_available_instruments,
     build_line_figure as spb_build_line_figure,
     build_share_figure as spb_build_share_figure,
-    build_spb_pptx,
+    build_spb_native_pptx,
     default_start_index as spb_default_start_index,
     filter_period_range as spb_filter_period_range,
     format_ano_mes_label as spb_format_ano_mes_label,
@@ -28540,62 +28540,60 @@ elif menu == "Meios de Pagamento (SPB)":
                 )
 
                 if st.button("Preparar PPT", key="spb_prepare_ppt"):
-                    fig_mensal_qtd = spb_build_line_figure(
-                        long_mensal_export,
-                        tipo="Quantidade (mil)",
-                        instruments=instrumentos_mensal_export,
-                        title="Quantidade mensal por modalidade",
-                        yaxis_title="mil transações",
-                        palette=SPB_ITAU_BBA_PALETTE,
-                    )
-                    fig_mensal_val = spb_build_line_figure(
-                        long_mensal_export,
-                        tipo="Valor (R$ milhão)",
-                        instruments=instrumentos_mensal_export,
-                        title="Valor mensal por modalidade",
-                        yaxis_title="R$ milhão",
-                        palette=SPB_ITAU_BBA_PALETTE,
-                    )
-                    fig_tri_qtd = spb_build_line_figure(
-                        long_tri_export,
-                        tipo="Quantidade (mil)",
-                        instruments=instrumentos_tri_export,
-                        title="Quantidade trimestral por modalidade",
-                        yaxis_title="mil transações",
-                        palette=SPB_ITAU_BBA_PALETTE,
-                    )
-                    fig_tri_val = spb_build_line_figure(
-                        long_tri_export,
-                        tipo="Valor (R$ milhão)",
-                        instruments=instrumentos_tri_export,
-                        title="Valor trimestral por modalidade",
-                        yaxis_title="R$ milhão",
-                        palette=SPB_ITAU_BBA_PALETTE,
-                    )
-                    fig_share_qtd = spb_build_share_figure(
-                        long_tri_export,
-                        tipo="Quantidade (mil)",
-                        instruments=instrumentos_tri_export,
-                        title="Participação trimestral - quantidade",
-                        palette=SPB_ITAU_BBA_PALETTE,
-                    )
-                    fig_share_val = spb_build_share_figure(
-                        long_tri_export,
-                        tipo="Valor (R$ milhão)",
-                        instruments=instrumentos_tri_export,
-                        title="Participação trimestral - valor",
-                        palette=SPB_ITAU_BBA_PALETTE,
-                    )
-                    ppt_bytes = build_spb_pptx(
+                    ppt_bytes = build_spb_native_pptx(
                         title="Dados de Meios de Pagamento - BCB",
-                        figures={
-                            "Núcleo mensal - quantidade": _plotly_fig_to_png_bytes(fig_mensal_qtd),
-                            "Núcleo mensal - valor": _plotly_fig_to_png_bytes(fig_mensal_val),
-                            "Núcleo trimestral - quantidade": _plotly_fig_to_png_bytes(fig_tri_qtd),
-                            "Núcleo trimestral - valor": _plotly_fig_to_png_bytes(fig_tri_val),
-                            "Participação percentual - quantidade": _plotly_fig_to_png_bytes(fig_share_qtd),
-                            "Participação percentual - valor": _plotly_fig_to_png_bytes(fig_share_val),
-                        },
+                        charts=[
+                            {
+                                "title": "Núcleo mensal - quantidade",
+                                "long_df": long_mensal_export,
+                                "tipo": "Quantidade (mil)",
+                                "instruments": instrumentos_mensal_export,
+                                "yaxis_title": "mil transações",
+                                "palette": SPB_ITAU_BBA_PALETTE,
+                            },
+                            {
+                                "title": "Núcleo mensal - valor",
+                                "long_df": long_mensal_export,
+                                "tipo": "Valor (R$ milhão)",
+                                "instruments": instrumentos_mensal_export,
+                                "yaxis_title": "R$ milhão",
+                                "palette": SPB_ITAU_BBA_PALETTE,
+                            },
+                            {
+                                "title": "Núcleo trimestral - quantidade",
+                                "long_df": long_tri_export,
+                                "tipo": "Quantidade (mil)",
+                                "instruments": instrumentos_tri_export,
+                                "yaxis_title": "mil transações",
+                                "palette": SPB_ITAU_BBA_PALETTE,
+                            },
+                            {
+                                "title": "Núcleo trimestral - valor",
+                                "long_df": long_tri_export,
+                                "tipo": "Valor (R$ milhão)",
+                                "instruments": instrumentos_tri_export,
+                                "yaxis_title": "R$ milhão",
+                                "palette": SPB_ITAU_BBA_PALETTE,
+                            },
+                            {
+                                "title": "Participação percentual - quantidade",
+                                "long_df": long_tri_export,
+                                "tipo": "Quantidade (mil)",
+                                "instruments": instrumentos_tri_export,
+                                "yaxis_title": "% do total selecionado",
+                                "share": True,
+                                "palette": SPB_ITAU_BBA_PALETTE,
+                            },
+                            {
+                                "title": "Participação percentual - valor",
+                                "long_df": long_tri_export,
+                                "tipo": "Valor (R$ milhão)",
+                                "instruments": instrumentos_tri_export,
+                                "yaxis_title": "% do total selecionado",
+                                "share": True,
+                                "palette": SPB_ITAU_BBA_PALETTE,
+                            },
+                        ],
                         summaries={
                             "Quantidade": spb_latest_summary(long_tri_export, "Quantidade (mil)", instrumentos_tri_export),
                             "Valor": spb_latest_summary(long_tri_export, "Valor (R$ milhão)", instrumentos_tri_export),

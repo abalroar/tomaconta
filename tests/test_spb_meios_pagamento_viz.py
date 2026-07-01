@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import sys
+import zipfile
+from io import BytesIO
 from pathlib import Path
 
 import pandas as pd
@@ -10,6 +12,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from utils.spb_meios_pagamento_viz import (
     build_line_figure,
+    build_spb_native_pptx,
     build_share_figure,
     compute_share,
     format_ano_mes_label,
@@ -95,3 +98,48 @@ def test_figures_render_final_point_labels():
 
     assert line_fig.data[0].text[-1] == "20"
     assert share_fig.data[0].text[-1].endswith("%")
+
+
+def test_native_pptx_contains_powerpoint_chart_parts():
+    raw = pd.DataFrame(
+        {
+            "ano_mes": ["202501", "202502"],
+            "quantidade_pix": [10, 20],
+            "quantidade_ted": [5, 4],
+            "valor_pix": [100, 200],
+            "valor_ted": [50, 40],
+        }
+    )
+    long_df = melt_nucleo_spb(raw, "ano_mes", "mensal")
+
+    pptx_bytes = build_spb_native_pptx(
+        title="Dados de Meios de Pagamento - BCB",
+        charts=[
+            {
+                "title": "Núcleo mensal - quantidade",
+                "long_df": long_df,
+                "tipo": "Quantidade (mil)",
+                "instruments": ["Pix", "TED"],
+                "yaxis_title": "mil transações",
+            },
+            {
+                "title": "Participação mensal - quantidade",
+                "long_df": long_df,
+                "tipo": "Quantidade (mil)",
+                "instruments": ["Pix", "TED"],
+                "yaxis_title": "% do total selecionado",
+                "share": True,
+            },
+        ],
+        summaries={
+            "Quantidade": compute_share(long_df, "Quantidade (mil)", ["Pix", "TED"]).rename(
+                columns={"instrumento": "Instrumento", "valor": "Valor", "participacao": "Participação", "periodo_label": "Período"}
+            )[["Período", "Instrumento", "Valor", "Participação"]],
+        },
+        source_note="Fonte: BCB",
+    )
+
+    with zipfile.ZipFile(BytesIO(pptx_bytes)) as pptx_zip:
+        chart_parts = [name for name in pptx_zip.namelist() if name.startswith("ppt/charts/chart") and name.endswith(".xml")]
+
+    assert len(chart_parts) == 2
