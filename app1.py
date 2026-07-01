@@ -479,6 +479,25 @@ def build_credit_package_excel_cdsfn(**kwargs):
 import numpy as np
 from PIL import Image as PILImage
 from io import BytesIO
+from utils.spb_meios_pagamento_viz import (
+    ITAU_BBA_PALETTE as SPB_ITAU_BBA_PALETTE,
+    MONTHLY_DEFAULT_INSTRUMENTS as SPB_MONTHLY_DEFAULT_INSTRUMENTS,
+    QUARTERLY_DEFAULT_INSTRUMENTS as SPB_QUARTERLY_DEFAULT_INSTRUMENTS,
+    SPB_CONSOLIDADO_MAPA,
+    SPB_INSTRUMENTOS_LABEL,
+    available_instruments as spb_available_instruments,
+    build_line_figure as spb_build_line_figure,
+    build_share_figure as spb_build_share_figure,
+    build_spb_pptx,
+    default_start_index as spb_default_start_index,
+    filter_period_range as spb_filter_period_range,
+    format_ano_mes_label as spb_format_ano_mes_label,
+    format_trimestre_label as spb_format_trimestre_label,
+    latest_summary as spb_latest_summary,
+    melt_nucleo_spb,
+    period_label_map as spb_period_label_map,
+    period_options as spb_period_options,
+)
 
 fetch_taxas_juros_scoped = taxas_juros_module.fetch_taxas_juros_scoped
 formatar_nome_modalidade = taxas_juros_module.formatar_nome_modalidade
@@ -28128,25 +28147,12 @@ elif menu == "Meios de Pagamento (SPB)":
     }
 
     def _spb_trimestre_label(value) -> str:
-        s = str(value)
-        if "-" in s:
-            try:
-                dt = pd.Timestamp(s)
-                q = (dt.month - 1) // 3 + 1
-                return f"{dt.year}-T{q}"
-            except Exception:
-                return s
-        if len(s) == 5 and s.isdigit():
-            return f"{s[:4]}-T{s[4]}"
-        return s
+        return spb_format_trimestre_label(value)
 
     _SPB_MESES_ABBR = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"]
 
     def _spb_ano_mes_label(value) -> str:
-        s = str(value)
-        if len(s) == 6 and s.isdigit():
-            return f"{_SPB_MESES_ABBR[int(s[4:6]) - 1]}/{s[:4]}"
-        return s
+        return spb_format_ano_mes_label(value)
 
     @st.cache_data(ttl=1800, show_spinner="Carregando dados de Meios de Pagamento (Olinda/BCB)...")
     def _spb_carregar_dataset(key: str) -> pd.DataFrame:
@@ -28163,25 +28169,8 @@ elif menu == "Meios de Pagamento (SPB)":
         return resultado.dados
 
     def _spb_melt_nucleo(df: pd.DataFrame, periodo_col: str, label_fn) -> pd.DataFrame:
-        if df.empty:
-            return pd.DataFrame(columns=["periodo_label", "instrumento", "tipo", "valor"])
-        linhas = []
-        for prefixo, tipo in (("valor_", "Valor (R$ milhão)"), ("quantidade_", "Quantidade (mil)")):
-            cols = [c for c in df.columns if c.startswith(prefixo)]
-            for col in cols:
-                sufixo = col[len(prefixo):]
-                instrumento = SPB_INSTRUMENTOS_LABEL.get(sufixo, sufixo)
-                parte = df[[periodo_col, col]].copy()
-                parte.columns = ["periodo", "valor"]
-                parte["instrumento"] = instrumento
-                parte["tipo"] = tipo
-                linhas.append(parte)
-        if not linhas:
-            return pd.DataFrame(columns=["periodo_label", "instrumento", "tipo", "valor"])
-        long_df = pd.concat(linhas, ignore_index=True)
-        long_df["valor"] = pd.to_numeric(long_df["valor"], errors="coerce")
-        long_df["periodo_label"] = long_df["periodo"].map(label_fn)
-        return long_df.dropna(subset=["valor"])
+        periodicidade = "mensal" if periodo_col == "ano_mes" else "trimestral"
+        return melt_nucleo_spb(df, periodo_col, periodicidade)
 
     cache_manager = get_cache_manager()
     spb_cache_obj = cache_manager.get_cache("spb_meios_pagamento") if cache_manager else None
@@ -28189,13 +28178,14 @@ elif menu == "Meios de Pagamento (SPB)":
     if spb_cache_obj is None:
         st.error("Cache 'spb_meios_pagamento' não está registrado. Atualize a base na aba 'Atualizar Base'.")
     else:
-        tab_nucleo, tab_participacao, tab_tarifas, tab_canais, tab_outros = st.tabs(
+        tab_nucleo, tab_participacao, tab_tarifas, tab_canais, tab_outros, tab_exportar = st.tabs(
             [
                 "Núcleo (Pix, TED, Cartões...)",
                 "Participação % e Consolidado",
                 "Intercâmbio e Desconto (MDR)",
                 "Canais de Acesso",
                 "Cartões, ATM, Terminais e Outros",
+                "Exportar PPT",
             ]
         )
 
@@ -28218,23 +28208,91 @@ elif menu == "Meios de Pagamento (SPB)":
             if long_nucleo.empty:
                 st.warning("Dados de núcleo (Meios de Pagamento) ainda não materializados localmente.")
             else:
+                periodicidade_key = "mensal" if periodicidade_spb == "Mensal" else "trimestral"
+                periodos_nucleo = spb_period_options(long_nucleo)
+                labels_nucleo = spb_period_label_map(long_nucleo)
+                instrumentos_nucleo = spb_available_instruments(long_nucleo)
+                default_instrumentos = (
+                    [i for i in SPB_MONTHLY_DEFAULT_INSTRUMENTS if i in instrumentos_nucleo]
+                    if periodicidade_key == "mensal"
+                    else [i for i in SPB_QUARTERLY_DEFAULT_INSTRUMENTS if i in instrumentos_nucleo]
+                )
+                default_ini_idx = spb_default_start_index(periodos_nucleo, periodicidade_key)
+
+                col_ini, col_fim, col_inst = st.columns([1, 1, 2])
+                with col_ini:
+                    periodo_ini_spb = st.selectbox(
+                        "período inicial",
+                        options=periodos_nucleo,
+                        index=default_ini_idx,
+                        format_func=lambda p: labels_nucleo.get(p, str(p)),
+                        key=f"spb_nucleo_{periodicidade_key}_ini",
+                    )
+                with col_fim:
+                    periodo_fim_spb = st.selectbox(
+                        "período final",
+                        options=periodos_nucleo,
+                        index=len(periodos_nucleo) - 1,
+                        format_func=lambda p: labels_nucleo.get(p, str(p)),
+                        key=f"spb_nucleo_{periodicidade_key}_fim",
+                    )
+                with col_inst:
+                    instrumentos_sel_spb = st.multiselect(
+                        "modalidades",
+                        options=instrumentos_nucleo,
+                        default=default_instrumentos or instrumentos_nucleo,
+                        key=f"spb_nucleo_{periodicidade_key}_instrumentos",
+                    )
+
+                if periodo_ini_spb > periodo_fim_spb:
+                    st.error("O período inicial deve ser menor ou igual ao período final.")
+                    st.stop()
+                if not instrumentos_sel_spb:
+                    st.warning("Selecione ao menos uma modalidade.")
+                    st.stop()
+
+                long_nucleo_filtrado = spb_filter_period_range(long_nucleo, periodo_ini_spb, periodo_fim_spb)
+                st.caption(
+                    "Eixo X compacto: mensal em mm-aaaa e trimestral no mês de fechamento. "
+                    "Os rótulos no fim das séries mostram o último ponto vigente na cor da modalidade."
+                )
+
                 col_qtd, col_val = st.columns(2)
                 with col_qtd:
-                    fig_qtd_spb = px.line(
-                        long_nucleo[long_nucleo["tipo"] == "Quantidade (mil)"],
-                        x="periodo_label", y="valor", color="instrumento",
-                        title="Quantidade (mil)", markers=True,
+                    fig_qtd_spb = spb_build_line_figure(
+                        long_nucleo_filtrado,
+                        tipo="Quantidade (mil)",
+                        instruments=instrumentos_sel_spb,
+                        title="Quantidade (mil)",
+                        yaxis_title="mil transações",
+                        palette=SPB_ITAU_BBA_PALETTE,
                     )
-                    fig_qtd_spb.update_layout(xaxis_title="", yaxis_title="mil transações", legend_title="")
-                    st.plotly_chart(fig_qtd_spb, width="stretch")
+                    st.plotly_chart(fig_qtd_spb, width="stretch", config={"displaylogo": False})
                 with col_val:
-                    fig_val_spb = px.line(
-                        long_nucleo[long_nucleo["tipo"] == "Valor (R$ milhão)"],
-                        x="periodo_label", y="valor", color="instrumento",
-                        title="Valor (R$ milhão)", markers=True,
+                    fig_val_spb = spb_build_line_figure(
+                        long_nucleo_filtrado,
+                        tipo="Valor (R$ milhão)",
+                        instruments=instrumentos_sel_spb,
+                        title="Valor (R$ milhão)",
+                        yaxis_title="R$ milhão",
+                        palette=SPB_ITAU_BBA_PALETTE,
                     )
-                    fig_val_spb.update_layout(xaxis_title="", yaxis_title="R$ milhão", legend_title="")
-                    st.plotly_chart(fig_val_spb, width="stretch")
+                    st.plotly_chart(fig_val_spb, width="stretch", config={"displaylogo": False})
+
+                with st.expander("Última leitura da janela selecionada", expanded=False):
+                    col_last_q, col_last_v = st.columns(2)
+                    with col_last_q:
+                        st.dataframe(
+                            spb_latest_summary(long_nucleo_filtrado, "Quantidade (mil)", instrumentos_sel_spb),
+                            width="stretch",
+                            hide_index=True,
+                        )
+                    with col_last_v:
+                        st.dataframe(
+                            spb_latest_summary(long_nucleo_filtrado, "Valor (R$ milhão)", instrumentos_sel_spb),
+                            width="stretch",
+                            hide_index=True,
+                        )
 
         with tab_participacao:
             df_nucleo_part = _spb_carregar_dataset("nucleo_trimestral")
@@ -28243,40 +28301,102 @@ elif menu == "Meios de Pagamento (SPB)":
                 st.warning("Dados trimestrais de núcleo ainda não materializados localmente.")
             else:
                 st.markdown("#### Participação percentual por instrumento")
+                periodos_part = spb_period_options(long_part)
+                labels_part = spb_period_label_map(long_part)
+                instrumentos_part = spb_available_instruments(long_part)
+                default_part_idx = max(0, len(periodos_part) - 24)
+                default_part_instrumentos = [i for i in SPB_QUARTERLY_DEFAULT_INSTRUMENTS if i in instrumentos_part]
+
+                col_ini_part, col_fim_part, col_inst_part = st.columns([1, 1, 2])
+                with col_ini_part:
+                    periodo_ini_part = st.selectbox(
+                        "trimestre inicial",
+                        options=periodos_part,
+                        index=default_part_idx,
+                        format_func=lambda p: labels_part.get(p, str(p)),
+                        key="spb_participacao_ini",
+                    )
+                with col_fim_part:
+                    periodo_fim_part = st.selectbox(
+                        "trimestre final",
+                        options=periodos_part,
+                        index=len(periodos_part) - 1,
+                        format_func=lambda p: labels_part.get(p, str(p)),
+                        key="spb_participacao_fim",
+                    )
+                with col_inst_part:
+                    instrumentos_part_sel = st.multiselect(
+                        "modalidades na participação",
+                        options=instrumentos_part,
+                        default=default_part_instrumentos or instrumentos_part,
+                        key="spb_participacao_instrumentos",
+                    )
+
+                if periodo_ini_part > periodo_fim_part:
+                    st.error("O trimestre inicial deve ser menor ou igual ao trimestre final.")
+                    st.stop()
+                if not instrumentos_part_sel:
+                    st.warning("Selecione ao menos uma modalidade para calcular participação.")
+                    st.stop()
+
+                long_part_filtrado = spb_filter_period_range(long_part, periodo_ini_part, periodo_fim_part)
                 col_pq, col_pv = st.columns(2)
                 for col_part, tipo_part, titulo_part in (
                     (col_pq, "Quantidade (mil)", "Quantidade de Transações (%)"),
                     (col_pv, "Valor (R$ milhão)", "Volume Financeiro (%)"),
                 ):
                     with col_part:
-                        df_tipo = long_part[long_part["tipo"] == tipo_part]
-                        fig_part = px.area(
-                            df_tipo, x="periodo_label", y="valor", color="instrumento",
-                            groupnorm="percent", title=titulo_part,
+                        fig_part = spb_build_share_figure(
+                            long_part_filtrado,
+                            tipo=tipo_part,
+                            instruments=instrumentos_part_sel,
+                            title=titulo_part,
+                            palette=SPB_ITAU_BBA_PALETTE,
                         )
-                        fig_part.update_layout(xaxis_title="", yaxis_title="%", legend_title="")
-                        st.plotly_chart(fig_part, width="stretch")
+                        st.plotly_chart(fig_part, width="stretch", config={"displaylogo": False})
+
+                with st.expander("Última composição percentual", expanded=True):
+                    col_comp_q, col_comp_v = st.columns(2)
+                    with col_comp_q:
+                        st.markdown("**Quantidade**")
+                        st.dataframe(
+                            spb_latest_summary(long_part_filtrado, "Quantidade (mil)", instrumentos_part_sel),
+                            width="stretch",
+                            hide_index=True,
+                        )
+                    with col_comp_v:
+                        st.markdown("**Valor**")
+                        st.dataframe(
+                            spb_latest_summary(long_part_filtrado, "Valor (R$ milhão)", instrumentos_part_sel),
+                            width="stretch",
+                            hide_index=True,
+                        )
 
                 st.markdown("#### Meios de Pagamentos (Consolidado por macro-categoria)")
-                df_consolidado = long_part.copy()
+                df_consolidado = long_part_filtrado.copy()
                 df_consolidado["macro_categoria"] = df_consolidado["instrumento"].map(SPB_CONSOLIDADO_MAPA).fillna(df_consolidado["instrumento"])
                 df_consolidado = (
                     df_consolidado.groupby(["periodo_label", "periodo", "tipo", "macro_categoria"], as_index=False)["valor"].sum()
                     .sort_values("periodo")
                 )
+                df_consolidado["instrumento"] = df_consolidado["macro_categoria"]
+                df_consolidado["periodo_ordem"] = df_consolidado["periodo"].map(lambda value: pd.Timestamp(value) if "-" in str(value) else pd.Timestamp(year=int(str(value)[:4]), month=int(str(value)[4]) * 3, day=1))
+                macros_disponiveis = spb_available_instruments(df_consolidado)
                 col_cq, col_cv = st.columns(2)
                 for col_cons, tipo_cons, titulo_cons in (
                     (col_cq, "Quantidade (mil)", "Quantidade (mil) - Consolidado"),
                     (col_cv, "Valor (R$ milhão)", "Valor (R$ milhão) - Consolidado"),
                 ):
                     with col_cons:
-                        fig_cons = px.line(
-                            df_consolidado[df_consolidado["tipo"] == tipo_cons],
-                            x="periodo_label", y="valor", color="macro_categoria",
-                            title=titulo_cons, markers=True,
+                        fig_cons = spb_build_line_figure(
+                            df_consolidado,
+                            tipo=tipo_cons,
+                            instruments=macros_disponiveis,
+                            title=titulo_cons,
+                            yaxis_title="mil transações" if tipo_cons == "Quantidade (mil)" else "R$ milhão",
+                            palette=SPB_ITAU_BBA_PALETTE,
                         )
-                        fig_cons.update_layout(xaxis_title="", yaxis_title="", legend_title="")
-                        st.plotly_chart(fig_cons, width="stretch")
+                        st.plotly_chart(fig_cons, width="stretch", config={"displaylogo": False})
 
         with tab_tarifas:
             col_int, col_desc = st.columns(2)
@@ -28374,6 +28494,122 @@ elif menu == "Meios de Pagamento (SPB)":
             else:
                 st.caption(f"{len(df_outro):,} linha(s), {len(df_outro.columns)} coluna(s).")
                 st.dataframe(df_outro.head(500), width="stretch", hide_index=True)
+
+        with tab_exportar:
+            st.markdown("#### Exportar dashboard")
+            st.caption(
+                "Gera um PPT com fundo branco, paleta Itaú BBA, gráficos do núcleo mensal/trimestral, "
+                "participação percentual e leitura executiva do último período disponível."
+            )
+
+            df_mensal_ppt = _spb_carregar_dataset("nucleo_mensal")
+            df_trimestral_ppt = _spb_carregar_dataset("nucleo_trimestral")
+            long_mensal_ppt = _spb_melt_nucleo(df_mensal_ppt, "ano_mes", _spb_ano_mes_label)
+            long_trimestral_ppt = _spb_melt_nucleo(df_trimestral_ppt, "trimestre", _spb_trimestre_label)
+
+            if long_mensal_ppt.empty or long_trimestral_ppt.empty:
+                st.warning("Materialize os datasets mensal e trimestral de Meios de Pagamento antes de exportar o PPT.")
+            else:
+                def _spb_window_for_export(long_df: pd.DataFrame, periodicidade: str, session_prefix: str, default_instruments: list[str]):
+                    periods = spb_period_options(long_df)
+                    start_default = periods[spb_default_start_index(periods, periodicidade)]
+                    end_default = periods[-1]
+                    instruments = spb_available_instruments(long_df)
+                    selected_default = [i for i in default_instruments if i in instruments] or instruments
+                    start = st.session_state.get(f"{session_prefix}_ini", start_default)
+                    end = st.session_state.get(f"{session_prefix}_fim", end_default)
+                    selected = st.session_state.get(f"{session_prefix}_instrumentos", selected_default) or selected_default
+                    return spb_filter_period_range(long_df, start, end), selected
+
+                long_mensal_export, instrumentos_mensal_export = _spb_window_for_export(
+                    long_mensal_ppt,
+                    "mensal",
+                    "spb_nucleo_mensal",
+                    SPB_MONTHLY_DEFAULT_INSTRUMENTS,
+                )
+                long_tri_export, instrumentos_tri_export = _spb_window_for_export(
+                    long_trimestral_ppt,
+                    "trimestral",
+                    "spb_participacao",
+                    SPB_QUARTERLY_DEFAULT_INSTRUMENTS,
+                )
+
+                st.info(
+                    "O arquivo usa a janela de período e as modalidades já selecionadas nas abas Núcleo/Participação; "
+                    "se ainda não houver seleção, usa a janela pós-lançamento do Pix."
+                )
+
+                if st.button("Preparar PPT", key="spb_prepare_ppt"):
+                    fig_mensal_qtd = spb_build_line_figure(
+                        long_mensal_export,
+                        tipo="Quantidade (mil)",
+                        instruments=instrumentos_mensal_export,
+                        title="Quantidade mensal por modalidade",
+                        yaxis_title="mil transações",
+                        palette=SPB_ITAU_BBA_PALETTE,
+                    )
+                    fig_mensal_val = spb_build_line_figure(
+                        long_mensal_export,
+                        tipo="Valor (R$ milhão)",
+                        instruments=instrumentos_mensal_export,
+                        title="Valor mensal por modalidade",
+                        yaxis_title="R$ milhão",
+                        palette=SPB_ITAU_BBA_PALETTE,
+                    )
+                    fig_tri_qtd = spb_build_line_figure(
+                        long_tri_export,
+                        tipo="Quantidade (mil)",
+                        instruments=instrumentos_tri_export,
+                        title="Quantidade trimestral por modalidade",
+                        yaxis_title="mil transações",
+                        palette=SPB_ITAU_BBA_PALETTE,
+                    )
+                    fig_tri_val = spb_build_line_figure(
+                        long_tri_export,
+                        tipo="Valor (R$ milhão)",
+                        instruments=instrumentos_tri_export,
+                        title="Valor trimestral por modalidade",
+                        yaxis_title="R$ milhão",
+                        palette=SPB_ITAU_BBA_PALETTE,
+                    )
+                    fig_share_qtd = spb_build_share_figure(
+                        long_tri_export,
+                        tipo="Quantidade (mil)",
+                        instruments=instrumentos_tri_export,
+                        title="Participação trimestral - quantidade",
+                        palette=SPB_ITAU_BBA_PALETTE,
+                    )
+                    fig_share_val = spb_build_share_figure(
+                        long_tri_export,
+                        tipo="Valor (R$ milhão)",
+                        instruments=instrumentos_tri_export,
+                        title="Participação trimestral - valor",
+                        palette=SPB_ITAU_BBA_PALETTE,
+                    )
+                    ppt_bytes = build_spb_pptx(
+                        title="Dados de Meios de Pagamento - BCB",
+                        figures={
+                            "Núcleo mensal - quantidade": _plotly_fig_to_png_bytes(fig_mensal_qtd),
+                            "Núcleo mensal - valor": _plotly_fig_to_png_bytes(fig_mensal_val),
+                            "Núcleo trimestral - quantidade": _plotly_fig_to_png_bytes(fig_tri_qtd),
+                            "Núcleo trimestral - valor": _plotly_fig_to_png_bytes(fig_tri_val),
+                            "Participação percentual - quantidade": _plotly_fig_to_png_bytes(fig_share_qtd),
+                            "Participação percentual - valor": _plotly_fig_to_png_bytes(fig_share_val),
+                        },
+                        summaries={
+                            "Quantidade": spb_latest_summary(long_tri_export, "Quantidade (mil)", instrumentos_tri_export),
+                            "Valor": spb_latest_summary(long_tri_export, "Valor (R$ milhão)", instrumentos_tri_export),
+                        },
+                        source_note="Fonte: Banco Central do Brasil, Olinda/MPV_DadosAbertos. Valores em R$ milhão; quantidades em mil transações.",
+                    )
+                    st.download_button(
+                        "Baixar PPT",
+                        data=ppt_bytes,
+                        file_name="Dados de Meios de Pagamento - BCB.pptx",
+                        mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                        key="spb_download_ppt",
+                        width="stretch",
+                    )
 
 elif menu == "Crie sua métrica!":
     if _garantir_dados_principais("Crie sua métrica!"):
