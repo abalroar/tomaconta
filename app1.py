@@ -121,6 +121,7 @@ from utils.ifdata_extractor import (
 )
 # Sistema unificado de cache (capital e principal)
 from utils.ifdata_cache import (
+    CacheResult,
     # Cache principal (compat)
     carregar_cache,
     salvar_cache,
@@ -4507,6 +4508,85 @@ def _manifest_ref_resumo_cache(manifest: dict | None, cache_names: Sequence[str]
     return " | ".join(partes) if partes else "-"
 
 
+def _manifest_items_cache(manifest: dict | Sequence[dict] | None) -> list[dict]:
+    if isinstance(manifest, dict):
+        return [manifest]
+    if isinstance(manifest, (list, tuple)):
+        return [item for item in manifest if isinstance(item, dict)]
+    return []
+
+
+def _manifest_release_base_url_cache(manifest: dict | None) -> str:
+    if not isinstance(manifest, dict):
+        return ""
+    release_info = manifest.get("release")
+    if not isinstance(release_info, dict):
+        return ""
+    return str(release_info.get("release_base_url") or "").strip().rstrip("/")
+
+
+def _release_base_candidates_cache(manifest: dict | Sequence[dict] | None, cache_name: str) -> list[str]:
+    candidates = []
+    for item in _manifest_items_cache(manifest):
+        base_url = _manifest_release_base_url_cache(item)
+        ref = _periodo_maximo_manifest_cache(item, cache_name)
+        if base_url and ref:
+            candidates.append((ref, base_url))
+    candidates.sort(key=lambda pair: _periodo_sort_key_cache(pair[0]), reverse=True)
+    ordered = []
+    seen = set()
+    for _, base_url in candidates:
+        if base_url in seen:
+            continue
+        seen.add(base_url)
+        ordered.append(base_url)
+    return ordered
+
+
+def _baixar_cache_release_base_cache(cache_name: str, release_base_url: str) -> CacheResult:
+    asset_url = f"{release_base_url.rstrip('/')}/{cache_name}_dados.parquet"
+    try:
+        response = requests.get(
+            asset_url,
+            timeout=120,
+            headers={"Cache-Control": "no-cache", "Pragma": "no-cache"},
+            params={"cache_bust": str(int(time.time() * 1000))},
+        )
+        if response.status_code != 200:
+            return CacheResult(
+                sucesso=False,
+                mensagem=f"fallback {asset_url} retornou HTTP {response.status_code}",
+                fonte="nenhum",
+            )
+        import io
+
+        df = pd.read_parquet(io.BytesIO(response.content))
+        return CacheResult(
+            sucesso=True,
+            mensagem=f"Baixado de fallback canônico: {len(df)} registros",
+            dados=df,
+            fonte=f"github_releases_fallback:{release_base_url}",
+        )
+    except Exception as exc:
+        return CacheResult(
+            sucesso=False,
+            mensagem=f"falha no fallback {asset_url}: {exc}",
+            fonte="nenhum",
+        )
+
+
+def _salvar_cache_fallback_local(manager, cache_name: str, result: CacheResult) -> CacheResult:
+    if not result.sucesso or result.dados is None:
+        return result
+    cache = manager.get_cache(cache_name) if manager is not None else None
+    if cache is None:
+        return result
+    saved = cache.salvar_local(result.dados, fonte=result.fonte)
+    if saved.sucesso:
+        result.metadata = saved.metadata
+    return result
+
+
 def _cache_period_status_from_result(cache_name: str, result, manifest: dict | None) -> dict:
     dados = getattr(result, "dados", None)
     metadata = getattr(result, "metadata", None) or {}
@@ -4533,8 +4613,22 @@ def _carregar_cache_com_freshness(manager, cache_name: str, manifest: dict | Non
         result = manager.carregar(cache_name, forcar_remoto=True)
         status = _cache_period_status_from_result(cache_name, result, manifest)
         status["remote_forced"] = True
+        status["fallback_release_base"] = ""
+        if status["stale"]:
+            for release_base_url in _release_base_candidates_cache(manifest, cache_name):
+                fallback_result = _baixar_cache_release_base_cache(cache_name, release_base_url)
+                fallback_status = _cache_period_status_from_result(cache_name, fallback_result, manifest)
+                fallback_status["remote_forced"] = True
+                fallback_status["fallback_release_base"] = release_base_url
+                if fallback_result.sucesso and not fallback_status["stale"]:
+                    result = _salvar_cache_fallback_local(manager, cache_name, fallback_result)
+                    status = _cache_period_status_from_result(cache_name, result, manifest)
+                    status["remote_forced"] = True
+                    status["fallback_release_base"] = release_base_url
+                    break
     else:
         status["remote_forced"] = False
+        status["fallback_release_base"] = ""
     return result, status
 
 
@@ -23715,7 +23809,8 @@ elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolid
         release_txt = _periodo_yyyymm_para_exibicao(release_ref) if release_ref else "-"
         fonte = status.get("fonte") or "-"
         forced = " | remoto forçado" if status.get("remote_forced") else ""
-        return f"{status.get('cache')}: local {local_txt} | release {release_txt} | fonte {fonte}{forced}"
+        fallback = f" | fallback {status.get('fallback_release_base')}" if status.get("fallback_release_base") else ""
+        return f"{status.get('cache')}: local {local_txt} | release {release_txt} | fonte {fonte}{forced}{fallback}"
 
     st.caption(
         "Diagnóstico cache DRE Individual: "

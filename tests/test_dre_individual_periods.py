@@ -99,6 +99,83 @@ def test_dre_individual_cache_loader_forces_remote_when_bundled_manifest_is_newe
     assert status["remote_forced"] is True
 
 
+def test_dre_individual_cache_loader_uses_canonical_fallback_when_configured_release_stays_stale(monkeypatch):
+    class FakeCache:
+        def __init__(self):
+            self.saved_sources = []
+
+        def salvar_local(self, dados, fonte="desconhecida", info_extra=None):
+            self.saved_sources.append(fonte)
+            return SimpleNamespace(
+                sucesso=True,
+                dados=dados,
+                metadata={"periodos": dados["Período"].astype(str).tolist()},
+                fonte="cache_local",
+            )
+
+    class FakeManager:
+        def __init__(self):
+            self.calls = []
+            self.cache = FakeCache()
+
+        def carregar(self, cache_name, forcar_remoto=False):
+            self.calls.append((cache_name, forcar_remoto))
+            return SimpleNamespace(
+                sucesso=True,
+                dados=pd.DataFrame({"Período": ["4/2025"]}),
+                metadata={"periodos": ["4/2025"]},
+                fonte="github_releases" if forcar_remoto else "cache_local",
+            )
+
+        def get_cache(self, cache_name):
+            return self.cache
+
+    remote_manifest = {
+        "release": {"release_base_url": "https://github.com/example/old/releases/download/v1"},
+        "expected_periods": {"quarterly": "4/2025"},
+        "caches": {"dre_individual": {"max_period": "4/2025"}},
+    }
+    bundled_manifest = {
+        "release": {"release_base_url": "https://github.com/abalroar/tomaconta/releases/download/v1.0-cache"},
+        "expected_periods": {"quarterly": "1/2026"},
+        "caches": {"dre_individual": {"max_period": "1/2026"}},
+    }
+
+    def fake_download(cache_name, release_base_url):
+        if release_base_url.endswith("/v1.0-cache"):
+            return SimpleNamespace(
+                sucesso=True,
+                dados=pd.DataFrame({"Período": ["1/2026"]}),
+                metadata=None,
+                fonte=f"github_releases_fallback:{release_base_url}",
+            )
+        return SimpleNamespace(
+            sucesso=False,
+            dados=None,
+            metadata=None,
+            fonte="nenhum",
+            mensagem="old release stale",
+        )
+
+    monkeypatch.setattr(app1, "_baixar_cache_release_base_cache", fake_download)
+    manager = FakeManager()
+
+    result, status = app1._carregar_cache_com_freshness(
+        manager,
+        "dre_individual",
+        [remote_manifest, bundled_manifest],
+    )
+
+    assert manager.calls == [("dre_individual", False), ("dre_individual", True)]
+    assert result.dados["Período"].tolist() == ["1/2026"]
+    assert status["local_ref"] == "202603"
+    assert status["release_ref"] == "202603"
+    assert status["stale"] is False
+    assert status["remote_forced"] is True
+    assert status["fallback_release_base"].endswith("/v1.0-cache")
+    assert manager.cache.saved_sources == [status["fonte"]]
+
+
 def test_dre_individual_cache_loader_forces_remote_when_local_is_stale():
     class FakeManager:
         def __init__(self):
