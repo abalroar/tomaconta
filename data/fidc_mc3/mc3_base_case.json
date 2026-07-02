@@ -1,0 +1,52 @@
+{
+  "case_id": "fidc-mc3-base-technical-fixture",
+  "as_of_date": "2026-03-31",
+  "portfolio_principal": 100000000.0,
+  "projection_months": 24,
+  "receivable_term_months": 4,
+  "revolving_months": 12,
+  "purchase_discount": 0.035,
+  "cdi_annual": 0.1065,
+  "selic_annual": 0.105,
+  "servicing_fee_annual": 0.006,
+  "admin_fee_monthly": 50000.0,
+  "cash_reserve_percent": 0.02,
+  "min_subordination": 0.18,
+  "credit": {
+    "gross_yield_monthly": 0.033,
+    "default_rate_monthly": 0.018,
+    "recovery_rate": 0.2,
+    "recovery_lag_months": 3
+  },
+  "tranches": [
+    {
+      "name": "SEN",
+      "share": 0.70,
+      "seniority": 1,
+      "annual_spread": 0.018,
+      "amortization_start_month": 13,
+      "residual": false
+    },
+    {
+      "name": "MEZZ",
+      "share": 0.12,
+      "seniority": 2,
+      "annual_spread": 0.045,
+      "amortization_start_month": 13,
+      "residual": false
+    },
+    {
+      "name": "SUB",
+      "share": 0.18,
+      "seniority": 3,
+      "annual_spread": 0.0,
+      "amortization_start_month": 1,
+      "residual": true
+    }
+  ],
+  "notes": [
+    "Fixture tecnico para exercitar a modelagem MC3 no repositorio atual.",
+    "Nao substitui premissas aprovadas por comite nem baseline economico externo.",
+    "Todos os percentuais devem ser revisados quando a base oficial do FIDC MC3 for adicionada."
+  ]
+}
