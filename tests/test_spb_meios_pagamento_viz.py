@@ -143,9 +143,14 @@ def test_native_pptx_contains_powerpoint_chart_parts():
 
     with zipfile.ZipFile(BytesIO(pptx_bytes)) as pptx_zip:
         chart_parts = [name for name in pptx_zip.namelist() if name.startswith("ppt/charts/chart") and name.endswith(".xml")]
+        slide_parts = [name for name in pptx_zip.namelist() if name.startswith("ppt/slides/slide") and name.endswith(".xml")]
+        slide_xml = b"\n".join(pptx_zip.read(name) for name in slide_parts)
 
     assert len(chart_parts) == 2
-    assert b"Imagem do gr" not in pptx_bytes
+    assert len(slide_parts) == 4
+    assert b"Imagem do gr" not in slide_xml
+    assert "Plano de melhorias aplicado".encode("utf-8") not in slide_xml
+    assert "Manter mensal e trimestral separados".encode("utf-8") not in slide_xml
 
 
 def test_legacy_pptx_export_fails_instead_of_placeholder_when_image_missing():

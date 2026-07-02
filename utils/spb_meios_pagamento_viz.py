@@ -383,28 +383,6 @@ def build_spb_pptx(
         left += 6.25
     add_footer(slide)
 
-    slide = prs.slides.add_slide(blank)
-    add_title(slide, "Plano de melhorias aplicado")
-    bullets = [
-        "Manter mensal e trimestral separados para preservar a periodicidade oficial do BCB.",
-        "Permitir seleção de período inicial e final para evitar perda de escala após a entrada do Pix.",
-        "Exibir rótulos no último ponto de cada série com a mesma cor da linha.",
-        "Usar meses compactos no eixo: mm-aaaa no mensal e mês de fechamento no trimestral.",
-        "Mostrar a última participação percentual por instrumento.",
-        "Aplicar paleta fixa de alto contraste em estilo Itaú BBA.",
-    ]
-    box = slide.shapes.add_textbox(Inches(0.75), Inches(1.05), Inches(11.8), Inches(5.7))
-    frame = box.text_frame
-    frame.clear()
-    for idx, bullet in enumerate(bullets):
-        p = frame.paragraphs[0] if idx == 0 else frame.add_paragraph()
-        p.text = bullet
-        p.level = 0
-        p.font.size = Pt(15)
-        p.font.color.rgb = RGBColor(35, 35, 35)
-        p.space_after = Pt(9)
-    add_footer(slide)
-
     output = BytesIO()
     prs.save(output)
     return output.getvalue()
@@ -576,33 +554,10 @@ def build_spb_native_pptx(
             left += 6.25
         add_footer(slide)
 
-    def add_plan_slide():
-        slide = prs.slides.add_slide(blank)
-        add_title(slide, "Plano de melhorias aplicado")
-        bullets = [
-            "Manter mensal e trimestral separados para preservar a periodicidade oficial do BCB.",
-            "Permitir seleção de período inicial e final para evitar perda de escala após a entrada do Pix.",
-            "Exibir a última informação das séries no PPT e na interface.",
-            "Usar meses compactos no eixo: mm-aaaa no mensal e mês de fechamento no trimestral.",
-            "Mostrar a última participação percentual por instrumento.",
-            "Aplicar paleta fixa de alto contraste em estilo Itaú BBA.",
-        ]
-        box = slide.shapes.add_textbox(Inches(0.75), Inches(1.05), Inches(11.8), Inches(5.7))
-        frame = box.text_frame
-        frame.clear()
-        for idx, bullet in enumerate(bullets):
-            p = frame.paragraphs[0] if idx == 0 else frame.add_paragraph()
-            p.text = bullet
-            p.font.size = Pt(15)
-            p.font.color.rgb = rgb("#232323")
-            p.space_after = Pt(9)
-        add_footer(slide)
-
     add_cover()
     for chart_spec in charts:
         add_chart_slide(chart_spec)
     add_summary_slide()
-    add_plan_slide()
 
     output = BytesIO()
     prs.save(output)
