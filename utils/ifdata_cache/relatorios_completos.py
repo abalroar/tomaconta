@@ -26,7 +26,7 @@ import pandas as pd
 import requests
 
 from .base import BaseCache, CacheConfig, CacheResult
-from .release_config import get_release_config
+from .release_config import add_release_cache_buster, get_release_config
 
 logger = logging.getLogger("ifdata_cache")
 
@@ -132,9 +132,15 @@ class RelatorioCompletoCache(BaseCache):
     def _baixar_parquet_release(self) -> CacheResult:
         """Baixa parquet do GitHub Releases."""
         try:
-            self._log("info", f"Tentando parquet dos releases: {self.github_release_parquet_url}")
-            response = requests.get(
+            asset_url = add_release_cache_buster(
                 self.github_release_parquet_url,
+                self.release_tag,
+                self.config.nome,
+                "parquet",
+            )
+            self._log("info", f"Tentando parquet dos releases: {asset_url}")
+            response = requests.get(
+                asset_url,
                 timeout=120,
                 headers={"Cache-Control": "no-cache", "Pragma": "no-cache"},
             )
@@ -169,9 +175,15 @@ class RelatorioCompletoCache(BaseCache):
     def _baixar_pickle_releases(self) -> CacheResult:
         """Baixa pickle do GitHub Releases."""
         try:
-            self._log("info", f"Tentando pickle dos releases: {self.github_release_url}")
-            response = requests.get(
+            asset_url = add_release_cache_buster(
                 self.github_release_url,
+                self.release_tag,
+                self.config.nome,
+                "pickle",
+            )
+            self._log("info", f"Tentando pickle dos releases: {asset_url}")
+            response = requests.get(
+                asset_url,
                 timeout=120,
                 headers={"Cache-Control": "no-cache", "Pragma": "no-cache"},
             )

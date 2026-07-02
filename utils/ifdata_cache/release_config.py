@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 import os
+import time
 from typing import Any, Mapping
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 
 DEFAULT_RELEASE_REPO = "abalroar/tomaconta"
@@ -117,6 +119,24 @@ def build_release_asset_url(
     secrets_provider: Mapping[str, Any] | Any | None = None,
 ) -> str:
     return f"{build_release_base_url(repo, tag, secrets_provider=secrets_provider)}/{asset_name}"
+
+
+def add_release_cache_buster(url: str, *parts: Any) -> str:
+    """Adiciona query string para evitar asset antigo em cache/CDN do GitHub Releases."""
+    parsed = urlsplit(str(url))
+    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    token_parts = [str(part).strip() for part in parts if str(part or "").strip()]
+    token_parts.append(str(int(time.time() // 60)))
+    query["cache_bust"] = "|".join(token_parts)
+    return urlunsplit(
+        (
+            parsed.scheme,
+            parsed.netloc,
+            parsed.path,
+            urlencode(query),
+            parsed.fragment,
+        )
+    )
 
 
 def get_release_config(

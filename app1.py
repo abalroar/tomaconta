@@ -4453,7 +4453,9 @@ def _carregar_manifest_bundled_cache(cache_token: str = "") -> dict:
 def _carregar_manifest_release_cache(url: str, cache_token: str = "") -> dict:
     try:
         headers = {"Cache-Control": "no-cache", "Pragma": "no-cache"}
-        params = {"cache_bust": cache_token} if cache_token else None
+        cache_parts = [str(cache_token).strip()] if str(cache_token or "").strip() else []
+        cache_parts.append(str(int(time.time() // 60)))
+        params = {"cache_bust": "|".join(cache_parts)}
         response = requests.get(url, timeout=20, headers=headers, params=params)
         if response.status_code != 200:
             return {"_erro": f"HTTP {response.status_code}"}

@@ -163,6 +163,7 @@ from .institutions import (
 )
 from .release_config import (
     ReleaseConfig,
+    add_release_cache_buster,
     get_release_config,
     build_release_base_url,
     build_release_asset_url,
@@ -375,6 +376,7 @@ __all__ = [
     "canonicalize_institution_dataframe",
     "is_placeholder_institution_name",
     "ReleaseConfig",
+    "add_release_cache_buster",
     "get_release_config",
     "build_release_base_url",
     "build_release_asset_url",

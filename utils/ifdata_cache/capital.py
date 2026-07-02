@@ -14,7 +14,7 @@ import pandas as pd
 import requests
 
 from .base import BaseCache, CacheConfig, CacheResult
-from .release_config import get_release_config
+from .release_config import add_release_cache_buster, get_release_config
 
 logger = logging.getLogger("ifdata_cache")
 
@@ -147,8 +147,18 @@ class CapitalCache(BaseCache):
     def _baixar_parquet_release(self) -> CacheResult:
         """Baixa parquet do GitHub Releases."""
         try:
-            self._log("info", f"Tentando parquet dos releases: {self.github_release_parquet_url}")
-            response = requests.get(self.github_release_parquet_url, timeout=30)
+            asset_url = add_release_cache_buster(
+                self.github_release_parquet_url,
+                self.release_tag,
+                self.config.nome,
+                "parquet",
+            )
+            self._log("info", f"Tentando parquet dos releases: {asset_url}")
+            response = requests.get(
+                asset_url,
+                timeout=30,
+                headers={"Cache-Control": "no-cache", "Pragma": "no-cache"},
+            )
 
             if response.status_code == 404:
                 self._log("warning", "Parquet não encontrado nos releases")
@@ -180,8 +190,18 @@ class CapitalCache(BaseCache):
     def _baixar_pickle_releases(self, url: str, repo_nome: str = "") -> CacheResult:
         """Baixa pickle do GitHub Releases (formato antigo)."""
         try:
-            self._log("info", f"Tentando pickle dos releases ({repo_nome}): {url}")
-            response = requests.get(url, timeout=30)
+            asset_url = add_release_cache_buster(
+                url,
+                self.release_tag,
+                self.config.nome,
+                "pickle",
+            )
+            self._log("info", f"Tentando pickle dos releases ({repo_nome}): {asset_url}")
+            response = requests.get(
+                asset_url,
+                timeout=30,
+                headers={"Cache-Control": "no-cache", "Pragma": "no-cache"},
+            )
 
             if response.status_code == 404:
                 self._log("warning", f"Cache de capital não encontrado nos releases ({repo_nome})")
