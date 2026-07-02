@@ -64,6 +64,90 @@ def test_compute_ytd_irregular_ifdata_frame_handles_unsorted_multi_label_input()
     assert lookup[("Banco A", "Receita", "3/2025")] == 140.0
 
 
+def test_dre_ytd_frame_keeps_banco_gm_mar_2026_unannualized_and_reconciled():
+    df = pd.DataFrame(
+        [
+            {
+                "Instituicao": "BANCO GM S.A.",
+                "Label": "Resultado de Intermediação Financeira Bruto",
+                "Periodo": "1/2026",
+                "valor": 694_729_682.0,
+            },
+            {
+                "Instituicao": "BANCO GM S.A.",
+                "Label": "Rec. Aplicações Interfinanceiras Liquidez",
+                "Periodo": "1/2026",
+                "valor": 16_168_127.0,
+            },
+            {
+                "Instituicao": "BANCO GM S.A.",
+                "Label": "Rec. TVMs",
+                "Periodo": "1/2026",
+                "valor": 858_797.0,
+            },
+            {
+                "Instituicao": "BANCO GM S.A.",
+                "Label": "Rec. Crédito",
+                "Periodo": "1/2026",
+                "valor": 673_936_534.0,
+            },
+            {
+                "Instituicao": "BANCO GM S.A.",
+                "Label": "Rec. Arrendamento Financeiro",
+                "Periodo": "1/2026",
+                "valor": 3_766_224.0,
+            },
+            {
+                "Instituicao": "BANCO GM S.A.",
+                "Label": "Rec. Outras Operações c/ Características de Crédito",
+                "Periodo": "1/2026",
+                "valor": 0.0,
+            },
+        ]
+    )
+
+    result = app1._build_dre_ytd_ifdata_frame(df)
+    gross = result[result["Label"].eq("Resultado de Intermediação Financeira Bruto")].iloc[0]
+
+    assert gross["valor_raw_ifdata"] == 694_729_682.0
+    assert gross["valor_ytd"] == 694_729_682.0
+    assert gross["ytd"] == 694_729_682.0
+    assert math.isnan(gross["valor_anualizado"])
+
+    validation = app1._validate_dre_ytd_identities(result)
+    assert set(validation["status"]) == {"OK"}
+    identity = validation[validation["regra"].eq("resultado_bruto_igual_soma_componentes_ytd")].iloc[0]
+    assert identity["valor_esperado"] == 694_729_682.0
+    assert identity["diferenca"] == 0.0
+
+
+def test_dre_ytd_frame_accumulates_banco_gm_dec_2025_with_june_once():
+    df = pd.DataFrame(
+        [
+            {
+                "Instituicao": "BANCO GM S.A.",
+                "Label": "Resultado de Intermediação Financeira Bruto",
+                "Periodo": "2/2025",
+                "valor": 1_309_428_132.0,
+            },
+            {
+                "Instituicao": "BANCO GM S.A.",
+                "Label": "Resultado de Intermediação Financeira Bruto",
+                "Periodo": "4/2025",
+                "valor": 1_358_440_384.0,
+            },
+        ]
+    )
+
+    result = app1._build_dre_ytd_ifdata_frame(df)
+    lookup = {str(row["Periodo"]): row for _, row in result.iterrows()}
+
+    assert lookup["2/2025"]["valor_ytd"] == 1_309_428_132.0
+    assert lookup["4/2025"]["valor_raw_ifdata"] == 1_358_440_384.0
+    assert lookup["4/2025"]["valor_ytd"] == 2_667_868_516.0
+    assert lookup["4/2025"]["regra_ytd"] == "raw_ifdata_set_ou_dez_mais_jun"
+
+
 def test_normalizar_lucro_liquido_accumulates_semester_for_rankings():
     df = pd.DataFrame(
         [

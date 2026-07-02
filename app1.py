@@ -9321,7 +9321,14 @@ def _compute_ytd_irregular_ifdata_frame(df: pd.DataFrame) -> pd.DataFrame:
     ).astype("Int64")
     out["valor"] = pd.to_numeric(out["valor"], errors="coerce")
     out = out.sort_values(["Instituicao", "Label", "ano", "mes", "Periodo"], na_position="last").reset_index(drop=True)
+    out["valor_raw_ifdata"] = out["valor"]
     out["ytd"] = out["valor"]
+    out["valor_ytd"] = out["ytd"]
+    out["valor_anualizado"] = np.nan
+    out["fator_anualizacao"] = np.nan
+    out["regra_ytd"] = "raw_ifdata_mar_ou_jun"
+    out.loc[out["mes"].isin([9, 12]), "regra_ytd"] = "raw_ifdata_set_ou_dez_mais_jun"
+    out.loc[~out["mes"].isin([3, 6, 9, 12]), "regra_ytd"] = "periodo_nao_padrao"
 
     keys = ["Instituicao", "Label", "ano"]
     jun = (
@@ -9334,9 +9341,123 @@ def _compute_ytd_irregular_ifdata_frame(df: pd.DataFrame) -> pd.DataFrame:
     if mask_set_dez.any():
         out.loc[mask_set_dez, "ytd"] = out.loc[mask_set_dez, "valor"] + out.loc[mask_set_dez, "valor_jun"]
         out.loc[mask_set_dez & out["valor_jun"].isna(), "ytd"] = np.nan
+        out.loc[mask_set_dez & out["valor_jun"].isna(), "regra_ytd"] = "junho_ausente"
+    out["valor_ytd"] = out["ytd"]
     out = out.drop(columns=["valor_jun"])
 
     return out
+
+
+DRE_INTERMEDIATION_GROSS_LABEL = "Resultado de Intermediação Financeira Bruto"
+DRE_INTERMEDIATION_REVENUE_CHILDREN = [
+    "Rec. Aplicações Interfinanceiras Liquidez",
+    "Rec. TVMs",
+    "Rec. Crédito",
+    "Rec. Arrendamento Financeiro",
+    "Rec. Outras Operações c/ Características de Crédito",
+]
+
+
+def _build_dre_ytd_ifdata_frame(df: pd.DataFrame) -> pd.DataFrame:
+    """Monta DRE em YTD preservando bruto IFData e sem anualizar linhas monetárias."""
+    out = _compute_ytd_irregular_ifdata_frame(df)
+    if out.empty:
+        return out
+    out["valor_ytd"] = pd.to_numeric(out["ytd"], errors="coerce")
+    out["valor_anualizado"] = np.nan
+    out["fator_anualizacao"] = np.nan
+    return out
+
+
+def _validate_dre_ytd_identities(df_ytd: pd.DataFrame, tolerance: float = 1.0) -> pd.DataFrame:
+    """Valida regras YTD semestrais e identidade do resultado bruto de intermediação."""
+    columns = [
+        "Instituicao",
+        "Periodo",
+        "Label",
+        "status",
+        "regra",
+        "valor_raw_ifdata",
+        "valor_ytd",
+        "valor_esperado",
+        "diferenca",
+        "observacao",
+    ]
+    if df_ytd is None or df_ytd.empty:
+        return pd.DataFrame(columns=columns)
+
+    df = df_ytd.copy()
+    if "valor_raw_ifdata" not in df.columns:
+        df["valor_raw_ifdata"] = pd.to_numeric(df.get("valor"), errors="coerce")
+    if "valor_ytd" not in df.columns:
+        df["valor_ytd"] = pd.to_numeric(df.get("ytd"), errors="coerce")
+    df["valor_raw_ifdata"] = pd.to_numeric(df["valor_raw_ifdata"], errors="coerce")
+    df["valor_ytd"] = pd.to_numeric(df["valor_ytd"], errors="coerce")
+
+    rows: list[dict[str, Any]] = []
+    key_cols = [col for col in ["CodInst", "Instituicao", "Periodo", "ano", "mes"] if col in df.columns]
+
+    mar_jun = df[df.get("mes").isin([3, 6]) if "mes" in df.columns else pd.Series(False, index=df.index)]
+    for _, row in mar_jun.iterrows():
+        raw = row.get("valor_raw_ifdata")
+        ytd = row.get("valor_ytd")
+        diff = ytd - raw if pd.notna(raw) and pd.notna(ytd) else np.nan
+        status = "OK" if pd.notna(diff) and abs(float(diff)) <= tolerance else "erro"
+        rows.append(
+            {
+                "Instituicao": row.get("Instituicao"),
+                "Periodo": row.get("Periodo"),
+                "Label": row.get("Label"),
+                "status": status,
+                "regra": "mar_jun_sem_soma_sem_anualizacao",
+                "valor_raw_ifdata": raw,
+                "valor_ytd": ytd,
+                "valor_esperado": raw,
+                "diferenca": diff,
+                "observacao": "Mar e Jun devem permanecer iguais ao bruto IFData.",
+            }
+        )
+
+    if not set([DRE_INTERMEDIATION_GROSS_LABEL, *DRE_INTERMEDIATION_REVENUE_CHILDREN]).intersection(set(df["Label"].astype(str))):
+        return pd.DataFrame(rows, columns=columns)
+
+    if key_cols:
+        pivot = (
+            df[df["Label"].isin([DRE_INTERMEDIATION_GROSS_LABEL, *DRE_INTERMEDIATION_REVENUE_CHILDREN])]
+            .pivot_table(index=key_cols, columns="Label", values="valor_ytd", aggfunc="last")
+            .reset_index()
+        )
+        for _, row in pivot.iterrows():
+            if DRE_INTERMEDIATION_GROSS_LABEL not in row.index:
+                continue
+            parent = row.get(DRE_INTERMEDIATION_GROSS_LABEL)
+            child_values = [row.get(label) for label in DRE_INTERMEDIATION_REVENUE_CHILDREN]
+            if pd.isna(parent) or any(pd.isna(value) for value in child_values):
+                status = "não testável"
+                expected = np.nan
+                diff = np.nan
+                obs = "Fonte ausente para ao menos um componente da receita de intermediação."
+            else:
+                expected = float(np.nansum(child_values))
+                diff = float(parent) - expected
+                status = "OK" if abs(diff) <= tolerance else "erro"
+                obs = "Resultado bruto deve bater com a soma das receitas componentes em YTD."
+            rows.append(
+                {
+                    "Instituicao": row.get("Instituicao"),
+                    "Periodo": row.get("Periodo"),
+                    "Label": DRE_INTERMEDIATION_GROSS_LABEL,
+                    "status": status,
+                    "regra": "resultado_bruto_igual_soma_componentes_ytd",
+                    "valor_raw_ifdata": np.nan,
+                    "valor_ytd": parent,
+                    "valor_esperado": expected,
+                    "diferenca": diff,
+                    "observacao": obs,
+                }
+            )
+
+    return pd.DataFrame(rows, columns=columns)
 
 
 _DRE_CONSOLIDATED_ORDER = [
@@ -9509,34 +9630,6 @@ def _resolve_dre_entry_values_period_aware(
             valores.loc[q4_2025_mask] = np.nan
 
     return valores
-
-
-def _anualizar_valor_dre(valor, periodo: str) -> Optional[float]:
-    """Anualiza valor DRE já acumulado YTD: valor_ytd / meses * 12."""
-    if valor is None or pd.isna(valor):
-        return None
-    valor_num = _coerce_numeric_value(valor)
-    if valor_num is None or pd.isna(valor_num):
-        return None
-    parsed = _parse_periodo(periodo)
-    if not parsed:
-        return float(valor_num)
-    parte, _, _ = parsed
-    try:
-        parte_int = int(parte)
-    except ValueError:
-        return float(valor_num)
-    if 1 <= parte_int <= 4:
-        meses = parte_int * 3
-    elif 1 <= parte_int <= 12:
-        meses = parte_int
-    else:
-        meses = None
-    if not meses:
-        return float(valor_num)
-    if meses == 0:
-        return None
-    return float(valor_num) / meses * 12
 
 
 def _ajustar_lucro_acumulado_peers(
@@ -22302,20 +22395,6 @@ elif menu == "DRE" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo ==
     def compute_ytd_irregular(df: pd.DataFrame) -> pd.DataFrame:
         return _compute_ytd_irregular_ifdata_frame(df)
 
-    def anualizar_ytd_por_mes(df: pd.DataFrame, labels: list[str]) -> pd.DataFrame:
-        """Anualiza YTD (ytd * 12/mes) para labels informados."""
-        if df.empty or "mes" not in df.columns or "Label" not in df.columns:
-            return df
-        out = df.copy()
-        mask_label = out["Label"].isin(labels)
-        if not mask_label.any():
-            return out
-        meses = pd.to_numeric(out.loc[mask_label, "mes"], errors="coerce")
-        fator = 12 / meses
-        fator[(meses <= 0) | meses.isna()] = np.nan
-        out.loc[mask_label, "ytd"] = pd.to_numeric(out.loc[mask_label, "ytd"], errors="coerce") * fator
-        return out
-
     def compute_yoy(df: pd.DataFrame) -> pd.DataFrame:
         df = df.copy()
         df["ytd"] = pd.to_numeric(df["ytd"], errors="coerce")
@@ -22400,8 +22479,7 @@ elif menu == "DRE" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo ==
             return pd.DataFrame(), "Nenhuma linha DRE foi encontrada com o mapeamento atual.", df_base, pd.DataFrame()
 
         df_valores = pd.concat(df_values, ignore_index=True)
-        df_ytd = compute_ytd_irregular(df_valores)
-        df_ytd = anualizar_ytd_por_mes(df_ytd, ["Resultado de Intermediação Financeira Bruto"])
+        df_ytd = _build_dre_ytd_ifdata_frame(df_valores)
         df_ytd = compute_yoy(df_ytd)
         df_ytd["PeriodoExib"] = df_ytd["Periodo"].apply(periodo_para_exibicao)
         return df_ytd, dre_msg, df_base, df_valores
@@ -23587,15 +23665,6 @@ elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolid
     def compute_ytd_irregular(df: pd.DataFrame) -> pd.DataFrame:
         return _compute_ytd_irregular_ifdata_frame(df)
 
-    def anualizar_ytd_por_mes(df: pd.DataFrame, labels: list[str]) -> pd.DataFrame:
-        if df.empty:
-            return df.copy()
-        out = df.copy()
-        out["ytd"] = pd.to_numeric(out["ytd"], errors="coerce").astype("Float64")
-        mask = out["Label"].isin(labels) & out["mes"].notna() & (out["mes"] > 0)
-        out.loc[mask, "ytd"] = out.loc[mask, "ytd"] * (12 / out.loc[mask, "mes"])
-        return out
-
     def compute_yoy(df: pd.DataFrame) -> pd.DataFrame:
         if df.empty:
             return df.copy()
@@ -23786,8 +23855,7 @@ elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolid
         df_valores = pd.concat(df_values, ignore_index=True)
         if "CodInst" not in df_valores.columns:
             df_valores["CodInst"] = pd.NA
-        df_ytd = compute_ytd_irregular(df_valores)
-        df_ytd = anualizar_ytd_por_mes(df_ytd, ["Resultado de Intermediação Financeira Bruto"])
+        df_ytd = _build_dre_ytd_ifdata_frame(df_valores)
         df_ytd = compute_yoy(df_ytd)
         df_ytd["PeriodoExib"] = df_ytd["Periodo"].apply(periodo_para_exibicao)
         return df_ytd, None, df_base, df_valores
@@ -24132,6 +24200,33 @@ elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolid
     if df_filtrado.empty:
         st.warning("Não há dados DRE para os períodos selecionados.")
         st.stop()
+
+    validacao_ytd_df = _validate_dre_ytd_identities(df_filtrado)
+    problemas_ytd_df = (
+        validacao_ytd_df[validacao_ytd_df["status"].astype(str) != "OK"].copy()
+        if not validacao_ytd_df.empty
+        else pd.DataFrame()
+    )
+    if not problemas_ytd_df.empty:
+        st.warning("Validação YTD da DRE Individual encontrou inconsistências. Revise antes de usar os valores.")
+        with st.expander("Inconsistências de YTD / identidades DRE", expanded=False):
+            st.dataframe(
+                problemas_ytd_df[
+                    [
+                        "Instituicao",
+                        "Periodo",
+                        "Label",
+                        "status",
+                        "regra",
+                        "valor_ytd",
+                        "valor_esperado",
+                        "diferenca",
+                        "observacao",
+                    ]
+                ],
+                width="stretch",
+                hide_index=True,
+            )
 
     tooltip_celula = {}
     try:
@@ -24650,14 +24745,6 @@ elif menu == "__deprecated__Carteira 4.966 (bloco legado DRE-1)":
     def compute_ytd_irregular(df: pd.DataFrame) -> pd.DataFrame:
         return _compute_ytd_irregular_ifdata_frame(df)
 
-    def anualizar_ytd_por_mes(df: pd.DataFrame, labels: list[str]) -> pd.DataFrame:
-        if df.empty:
-            return df.copy()
-        out = df.copy()
-        mask = out["Label"].isin(labels) & out["mes"].notna() & (out["mes"] > 0)
-        out.loc[mask, "ytd"] = out.loc[mask, "ytd"] * (12 / out.loc[mask, "mes"])
-        return out
-
     def compute_yoy(df: pd.DataFrame) -> pd.DataFrame:
         if df.empty:
             return df.copy()
@@ -24848,8 +24935,7 @@ elif menu == "__deprecated__Carteira 4.966 (bloco legado DRE-1)":
         df_valores = pd.concat(df_values, ignore_index=True)
         if "CodInst" not in df_valores.columns:
             df_valores["CodInst"] = pd.NA
-        df_ytd = compute_ytd_irregular(df_valores)
-        df_ytd = anualizar_ytd_por_mes(df_ytd, ["Resultado de Intermediação Financeira Bruto"])
+        df_ytd = _build_dre_ytd_ifdata_frame(df_valores)
         df_ytd = compute_yoy(df_ytd)
         df_ytd["PeriodoExib"] = df_ytd["Periodo"].apply(periodo_para_exibicao)
         return df_ytd, None, df_base, df_valores
@@ -25580,14 +25666,6 @@ elif menu == "__deprecated__Carteira 4.966 (bloco legado DRE-2)":
     def compute_ytd_irregular(df: pd.DataFrame) -> pd.DataFrame:
         return _compute_ytd_irregular_ifdata_frame(df)
 
-    def anualizar_ytd_por_mes(df: pd.DataFrame, labels: list[str]) -> pd.DataFrame:
-        if df.empty:
-            return df.copy()
-        out = df.copy()
-        mask = out["Label"].isin(labels) & out["mes"].notna() & (out["mes"] > 0)
-        out.loc[mask, "ytd"] = out.loc[mask, "ytd"] * (12 / out.loc[mask, "mes"])
-        return out
-
     def compute_yoy(df: pd.DataFrame) -> pd.DataFrame:
         if df.empty:
             return df.copy()
@@ -25778,8 +25856,7 @@ elif menu == "__deprecated__Carteira 4.966 (bloco legado DRE-2)":
         df_valores = pd.concat(df_values, ignore_index=True)
         if "CodInst" not in df_valores.columns:
             df_valores["CodInst"] = pd.NA
-        df_ytd = compute_ytd_irregular(df_valores)
-        df_ytd = anualizar_ytd_por_mes(df_ytd, ["Resultado de Intermediação Financeira Bruto"])
+        df_ytd = _build_dre_ytd_ifdata_frame(df_valores)
         df_ytd = compute_yoy(df_ytd)
         df_ytd["PeriodoExib"] = df_ytd["Periodo"].apply(periodo_para_exibicao)
         return df_ytd, None, df_base, df_valores
