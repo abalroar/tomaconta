@@ -23585,32 +23585,13 @@ elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolid
         st.stop()
 
     visoes = ["Soma das Partes"] + selecionadas_labels
-    col_ano, col_visao, col_base = st.columns([1, 2, 1])
-    with col_ano:
-        ano_selecionado = st.selectbox("Ano", anos_disponiveis[::-1], index=0, key="dre_individual_ano")
+    col_visao, col_modo = st.columns([2, 1])
     with col_visao:
         visao_sel = st.selectbox("Visão exibida", options=visoes, index=0, key="dre_individual_visao")
-    with col_base:
-        base_comparacao = st.selectbox(
-            "Base lucro",
-            ["Lucro Líquido Acumulado", "Lucro Líquido Trimestral"],
-            index=0,
-            key="dre_individual_base_comparacao_lucro",
-        )
+    with col_modo:
+        st.caption("Base: acumulado do ano (YTD)")
+    base_comparacao = "Lucro Líquido Acumulado"
     timer_box_dre_individual = st.empty()
-    dre_individual_signature = (
-        "dre_individual",
-        tuple(sorted(codinsts_selecionados)),
-        int(ano_selecionado),
-        visao_sel,
-        base_comparacao,
-    )
-    _timer_reset_if_selection_changed("dre_individual_timer_state", dre_individual_signature)
-    _timer_render_caption(
-        "dre_individual_timer_state",
-        timer_box_dre_individual,
-        "Tempo de carregamento da aba DRE Individual",
-    )
     t0_dre_individual = time.perf_counter()
 
     if visao_sel == "Soma das Partes":
@@ -23631,6 +23612,83 @@ elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolid
         detalhe = f" ({dre_msg_visao})" if dre_msg_visao else ""
         st.warning(f"Não foi possível montar a DRE para a visão selecionada.{detalhe}")
         st.stop()
+
+    periodos_catalogo = (
+        df_ytd_base.loc[df_ytd_base["ytd"].notna(), ["Periodo", "ano", "mes"]]
+        .dropna(subset=["Periodo", "ano", "mes"])
+        .copy()
+    )
+    if not periodos_catalogo.empty:
+        periodos_catalogo["Periodo"] = periodos_catalogo["Periodo"].astype(str)
+        periodos_catalogo["ano"] = pd.to_numeric(periodos_catalogo["ano"], errors="coerce").astype("Int64")
+        periodos_catalogo["mes"] = pd.to_numeric(periodos_catalogo["mes"], errors="coerce").astype("Int64")
+        periodos_catalogo = periodos_catalogo.dropna(subset=["ano", "mes"]).copy()
+        periodos_catalogo = periodos_catalogo[
+            periodos_catalogo["mes"].isin([3, 6, 9, 12])
+            & (periodos_catalogo["ano"] >= DRE_ANO_EXIBICAO_INICIAL)
+            & (
+                (periodos_catalogo["ano"] > DRE_ANO_EXIBICAO_INICIAL)
+                | (periodos_catalogo["mes"] >= DRE_MES_EXIBICAO_INICIAL)
+            )
+        ]
+    periodos_catalogo = (
+        periodos_catalogo.drop_duplicates(subset=["Periodo"])
+        .sort_values(["ano", "mes", "Periodo"])
+        .reset_index(drop=True)
+    )
+    if periodos_catalogo.empty:
+        st.warning("Não há períodos publicados para a visão selecionada.")
+        st.stop()
+
+    periodos_opcoes = periodos_catalogo["Periodo"].tolist()
+    mapa_periodo_catalogo = periodos_catalogo.set_index("Periodo")[["ano", "mes"]].to_dict("index")
+    periodo_mais_recente = periodos_opcoes[-1]
+    periodo_default = [periodo_mais_recente]
+    info_mais_recente = mapa_periodo_catalogo.get(periodo_mais_recente, {})
+    if int(info_mais_recente.get("mes") or 0) == 3:
+        ano_anterior = int(info_mais_recente.get("ano") or 0) - 1
+        periodo_dez_anterior = periodos_catalogo[
+            (periodos_catalogo["ano"] == ano_anterior) & (periodos_catalogo["mes"] == 12)
+        ]["Periodo"].tolist()
+        if periodo_dez_anterior:
+            periodo_default = [periodo_dez_anterior[-1], periodo_mais_recente]
+    elif len(periodos_opcoes) >= 2:
+        periodo_default = periodos_opcoes[-2:]
+
+    periodos_selecionados_ui = st.multiselect(
+        "Períodos exibidos (sempre acumulado YTD)",
+        options=periodos_opcoes,
+        default=periodo_default,
+        format_func=periodo_para_exibicao,
+        key="dre_individual_periodos_exibidos",
+    )
+    periodos_selecionados = [p for p in periodos_opcoes if p in set(periodos_selecionados_ui)]
+    if not periodos_selecionados:
+        st.warning("Selecione ao menos um período para exibir a DRE Individual.")
+        st.stop()
+    periodos_disponiveis = [periodo_para_exibicao(p) for p in periodos_selecionados]
+    periodos_selecionados_set = set(periodos_selecionados)
+    periodos_calculo = set(periodos_selecionados)
+    for periodo in periodos_selecionados:
+        info = mapa_periodo_catalogo.get(periodo, {})
+        ano_periodo = int(info.get("ano") or 0)
+        mes_periodo = int(info.get("mes") or 0)
+        if ano_periodo and mes_periodo in (9, 12):
+            periodos_calculo.add(f"2/{ano_periodo}")
+
+    dre_individual_signature = (
+        "dre_individual",
+        tuple(sorted(codinsts_selecionados)),
+        tuple(periodos_selecionados),
+        visao_sel,
+        base_comparacao,
+    )
+    _timer_reset_if_selection_changed("dre_individual_timer_state", dre_individual_signature)
+    _timer_render_caption(
+        "dre_individual_timer_state",
+        timer_box_dre_individual,
+        "Tempo de carregamento da aba DRE Individual",
+    )
 
     col_den_dre = "Captação" if "Captação" in df_principal_visao.columns else ("Captações" if "Captações" in df_principal_visao.columns else None)
     label_desp_capt_dre = _label_desp_captacao_por_denominador(col_den_dre)
@@ -23694,25 +23752,13 @@ elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolid
         tooltip_por_label[entry["label"]] = "\n".join(tooltip_parts)
         entrada_copy = entry.copy()
         label_exib = entry["label"]
-        if (
-            entry.get("label") == "Lucro Líquido Período Acumulado"
-            and base_comparacao == "Lucro Líquido Trimestral"
-        ):
-            label_exib = "Lucro Líquido Trimestral"
-            tooltip_por_label[entry["label"]] = (
-                (tooltip_por_label.get(entry["label"], "") + "\n").strip()
-                + "Exibição trimestral (Rel. 4): Lucro Líquido (aa) = (x) + (y) + (z)."
-            ).strip()
         entrada_copy["label_exib"] = label_exib
         entradas_com_label.append(entrada_copy)
 
-    df_filtrado = df_ytd_base[df_ytd_base["ano"] == int(ano_selecionado)].copy()
+    df_filtrado = df_ytd_base[df_ytd_base["Periodo"].astype(str).isin(periodos_selecionados_set)].copy()
     if df_filtrado.empty:
-        st.warning("Não há dados DRE para o ano selecionado.")
+        st.warning("Não há dados DRE para os períodos selecionados.")
         st.stop()
-    df_filtrado_base = df_filtrado.copy()
-    lucro_label_dre = "Lucro Líquido Período Acumulado"
-    usar_lucro_trimestral = base_comparacao == "Lucro Líquido Trimestral"
 
     tooltip_celula = {}
     try:
@@ -23730,14 +23776,14 @@ elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolid
         df_derived_view = compute_yoy(df_derived_view)
         df_derived_view["PeriodoExib"] = df_derived_view["Periodo"].apply(periodo_para_exibicao)
         df_derived_view = (
-            df_derived_view[df_derived_view["ano"] == int(ano_selecionado)]
+            df_derived_view[df_derived_view["Periodo"].astype(str).isin(periodos_selecionados_set)]
             .sort_values(["Label", "ano", "mes", "Periodo"], na_position="last")
             .drop_duplicates(subset=["Label", "Periodo"], keep="last")
         )
         df_filtrado = pd.concat([df_filtrado, df_derived_view], ignore_index=True)
 
         if not df_base.empty:
-            _df_calc_base = df_base[df_base["ano"] == int(ano_selecionado)].copy()
+            _df_calc_base = df_base[df_base["Periodo"].astype(str).isin(periodos_calculo)].copy()
             if not _df_calc_base.empty:
                 _df_calc_base["Periodo"] = _df_calc_base["Periodo"].astype(str)
                 _df_calc_base["PeriodoExib"] = _df_calc_base["Periodo"].apply(periodo_para_exibicao)
@@ -23808,24 +23854,6 @@ elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolid
                         f"Volume captação: {_fmt_mm_tip(_cap)}\n"
                         f"{label_desp_capt_dre} = {_fmt_mm_tip(_desp_capt_anual)} ÷ {_fmt_mm_tip(_cap)} = {formatar_percentual(_ratio_capt, decimais=2)}"
                     )
-
-    if usar_lucro_trimestral:
-        df_filtrado = _aplicar_base_trimestral_dre(df_filtrado, df_valores)
-
-    meses_com_publicacao = (
-        df_filtrado_base.loc[df_filtrado_base["ytd"].notna(), "mes"]
-        .dropna()
-        .astype(int)
-        .unique()
-        .tolist()
-    )
-    if int(ano_selecionado) == DRE_ANO_EXIBICAO_INICIAL:
-        meses_com_publicacao = [m for m in meses_com_publicacao if m >= DRE_MES_EXIBICAO_INICIAL]
-    meses_ordenados = sorted([m for m in meses_com_publicacao if m in [3, 6, 9, 12]], reverse=True)
-    periodos_disponiveis = [periodo_para_exibicao(f"{int(mes/3)}/{ano_selecionado}") for mes in meses_ordenados]
-    if not periodos_disponiveis:
-        st.warning("Não há períodos publicados para os filtros selecionados.")
-        st.stop()
 
     render_table_like_carteira_4966(df_filtrado, entradas_com_label, periodos_disponiveis, formato_por_label, tooltip_por_label, tooltip_celula)
 
@@ -23975,10 +24003,11 @@ elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolid
         ws_gloss.autofilter(0, 0, max(1, len(gloss_rows)), len(gloss_headers) - 1)
     buffer_excel.seek(0)
     nome_arquivo = re.sub(r"[^A-Za-z0-9_\-]+", "_", nome_visao)[:80]
+    periodos_nome_arquivo = re.sub(r"[^A-Za-z0-9_\-]+", "_", "_".join(periodos_disponiveis))[:80] or "periodos"
     st.download_button(
         label="Download Excel",
         data=buffer_excel,
-        file_name=f"DRE_Individual_{nome_arquivo}_{ano_selecionado}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+        file_name=f"DRE_Individual_{nome_arquivo}_{periodos_nome_arquivo}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         key="dre_individual_download_excel"
     )
