@@ -983,7 +983,7 @@ def _bar_from_canonicals(canonical_lookup: Mapping[str, Mapping[str, Any]], name
     rows = []
     for name in names:
         row = canonical_lookup.get(name)
-        if not row:
+        if row is None:
             continue
         value = row.get("valor_r_mil")
         if value is None or pd.isna(value):
@@ -1009,14 +1009,14 @@ def _waterfall_figure(canonical_lookup: Mapping[str, Mapping[str, Any]]) -> Opti
     measure: list[str] = []
     for label, canonical in steps:
         row = canonical_lookup.get(canonical)
-        value = row.get("valor_r_mil") if row else None
+        value = row.get("valor_r_mil") if row is not None else None
         if value is None or pd.isna(value):
             continue
         x.append(label)
         y.append(float(value) / 1000.0)
         measure.append("relative")
     net = canonical_lookup.get("net_income")
-    net_value = net.get("valor_r_mil") if net else None
+    net_value = net.get("valor_r_mil") if net is not None else None
     if net_value is None or pd.isna(net_value) or not x:
         return None
     x.append("Lucro líquido")

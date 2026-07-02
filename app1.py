@@ -155,7 +155,7 @@ from utils.ifdata_cache import (
     describe_support_window,
 )
 from utils.ifdata_cache.derived_metrics import materialize_derived_metrics_cache
-from utils.ifdata_cache.diagnostics import build_runtime_manifest, max_period_from_values
+from utils.ifdata_cache.diagnostics import build_runtime_manifest, max_period_from_values, normalize_period_reference
 from utils.ifdata_cache.institutions import canonicalize_institution_dataframe
 from utils.ifdata_cache.release_ops import (
     collect_release_assets,
@@ -4366,6 +4366,149 @@ def _periodo_yyyymm_para_exibicao(periodo_yyyymm: str) -> str:
     if not periodo_yyyymm or len(periodo_yyyymm) != 6 or not periodo_yyyymm.isdigit():
         return "-"
     return f"{periodo_yyyymm[4:6]}/{periodo_yyyymm[:4]}"
+
+
+def _periodo_ref_cache(periodo_raw) -> str:
+    """Normaliza período para comparação cronológica YYYYMM."""
+    ref = normalize_period_reference(periodo_raw)
+    if ref and len(str(ref)) == 6 and str(ref).isdigit():
+        return str(ref)
+    return _normalizar_periodo_cache(periodo_raw)
+
+
+def _periodo_sort_key_cache(periodo_raw) -> tuple[int, int, str]:
+    ref = _periodo_ref_cache(periodo_raw)
+    if len(ref) == 6 and ref.isdigit():
+        return (int(ref[:4]), int(ref[4:6]), str(periodo_raw))
+    return (0, 0, str(periodo_raw or ""))
+
+
+def _max_periodo_cache(periodos) -> str:
+    valores = [str(periodo).strip() for periodo in (periodos or []) if str(periodo or "").strip()]
+    if not valores:
+        return ""
+    return max(valores, key=_periodo_sort_key_cache)
+
+
+def _periodos_from_df_cache(df: pd.DataFrame | None) -> list[str]:
+    if df is None or df.empty:
+        return []
+    col_periodo = None
+    for candidato in ("Período", "Periodo", "PERIODO", "PERÍODO"):
+        if candidato in df.columns:
+            col_periodo = candidato
+            break
+    if col_periodo is None:
+        return []
+    return [str(p).strip() for p in df[col_periodo].dropna().astype(str).unique().tolist() if str(p).strip()]
+
+
+def _release_manifest_url() -> str:
+    release_cfg = _release_config_app()
+    return f"{release_cfg.release_base_url}/manifest.json"
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _carregar_manifest_release_cache(url: str) -> dict:
+    try:
+        response = requests.get(url, timeout=20)
+        if response.status_code != 200:
+            return {"_erro": f"HTTP {response.status_code}"}
+        payload = response.json()
+        return payload if isinstance(payload, dict) else {"_erro": "manifesto inválido"}
+    except Exception as exc:
+        return {"_erro": str(exc)}
+
+
+def _periodo_maximo_manifest_cache(manifest: dict | None, cache_name: str) -> str:
+    if not isinstance(manifest, dict):
+        return ""
+    caches = manifest.get("caches") if isinstance(manifest.get("caches"), dict) else {}
+    cache_info = caches.get(cache_name) if isinstance(caches.get(cache_name), dict) else {}
+    for value in (
+        cache_info.get("max_period"),
+        (manifest.get("expected_periods") or {}).get("quarterly") if isinstance(manifest.get("expected_periods"), dict) else None,
+    ):
+        ref = _periodo_ref_cache(value)
+        if ref:
+            return ref
+    return ""
+
+
+def _cache_period_status_from_result(cache_name: str, result, manifest: dict | None) -> dict:
+    dados = getattr(result, "dados", None)
+    metadata = getattr(result, "metadata", None) or {}
+    periodos = metadata.get("periodos") if isinstance(metadata, dict) else None
+    if not periodos:
+        periodos = _periodos_from_df_cache(dados)
+    local_period = _max_periodo_cache(periodos)
+    local_ref = _periodo_ref_cache(local_period)
+    release_ref = _periodo_maximo_manifest_cache(manifest, cache_name)
+    return {
+        "cache": cache_name,
+        "local_period": local_period,
+        "local_ref": local_ref,
+        "release_ref": release_ref,
+        "fonte": getattr(result, "fonte", ""),
+        "stale": bool(release_ref and (not local_ref or local_ref < release_ref)),
+    }
+
+
+def _carregar_cache_com_freshness(manager, cache_name: str, manifest: dict | None):
+    result = manager.carregar(cache_name)
+    status = _cache_period_status_from_result(cache_name, result, manifest)
+    if status["stale"]:
+        result = manager.carregar(cache_name, forcar_remoto=True)
+        status = _cache_period_status_from_result(cache_name, result, manifest)
+        status["remote_forced"] = True
+    else:
+        status["remote_forced"] = False
+    return result, status
+
+
+def _periodos_catalogo_dre_individual(
+    df_periodos: pd.DataFrame,
+    *,
+    ano_inicial: int = 2025,
+    mes_inicial: int = 3,
+) -> pd.DataFrame:
+    if df_periodos is None or df_periodos.empty or "Periodo" not in df_periodos.columns:
+        return pd.DataFrame(columns=["Periodo", "ano", "mes"])
+    catalogo = df_periodos[["Periodo", "ano", "mes"]].dropna(subset=["Periodo", "ano", "mes"]).copy()
+    if catalogo.empty:
+        return pd.DataFrame(columns=["Periodo", "ano", "mes"])
+    catalogo["Periodo"] = catalogo["Periodo"].astype(str)
+    catalogo["ano"] = pd.to_numeric(catalogo["ano"], errors="coerce").astype("Int64")
+    catalogo["mes"] = pd.to_numeric(catalogo["mes"], errors="coerce").astype("Int64")
+    catalogo = catalogo.dropna(subset=["ano", "mes"]).copy()
+    catalogo = catalogo[
+        catalogo["mes"].isin([3, 6, 9, 12])
+        & (catalogo["ano"] >= ano_inicial)
+        & ((catalogo["ano"] > ano_inicial) | (catalogo["mes"] >= mes_inicial))
+    ]
+    return (
+        catalogo.drop_duplicates(subset=["Periodo"])
+        .sort_values(["ano", "mes", "Periodo"])
+        .reset_index(drop=True)
+    )
+
+
+def _default_periodos_dre_individual(periodos_catalogo: pd.DataFrame) -> list[str]:
+    if periodos_catalogo is None or periodos_catalogo.empty:
+        return []
+    periodos_opcoes = periodos_catalogo["Periodo"].astype(str).tolist()
+    periodo_mais_recente = periodos_opcoes[-1]
+    info_mais_recente = periodos_catalogo[periodos_catalogo["Periodo"].astype(str) == periodo_mais_recente].iloc[-1]
+    if int(info_mais_recente.get("mes") or 0) == 3:
+        ano_anterior = int(info_mais_recente.get("ano") or 0) - 1
+        periodo_dez_anterior = periodos_catalogo[
+            (periodos_catalogo["ano"] == ano_anterior) & (periodos_catalogo["mes"] == 12)
+        ]["Periodo"].astype(str).tolist()
+        if periodo_dez_anterior:
+            return [periodo_dez_anterior[-1], periodo_mais_recente]
+    if len(periodos_opcoes) >= 2:
+        return periodos_opcoes[-2:]
+    return [periodo_mais_recente]
 
 
 def _intervalo_periodos_cache(info_local: dict) -> tuple[str, str]:
@@ -23004,22 +23147,32 @@ elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolid
 
     DRE_ANO_EXIBICAO_INICIAL = 2025
     DRE_MES_EXIBICAO_INICIAL = 3
+    _dre_individual_release_manifest = _carregar_manifest_release_cache(_release_manifest_url())
+    _dre_individual_release_token = "|".join(
+        [
+            _periodo_maximo_manifest_cache(_dre_individual_release_manifest, "dre_individual"),
+            _periodo_maximo_manifest_cache(_dre_individual_release_manifest, "principal_individual"),
+            str(_dre_individual_release_manifest.get("generated_at_utc") or ""),
+        ]
+    )
 
     @st.cache_data(ttl=3600, show_spinner=False)
-    def load_dre_individual_data():
+    def load_dre_individual_data(release_token: str):
         manager = get_cache_manager()
-        resultado = manager.carregar("dre_individual")
+        manifest = _carregar_manifest_release_cache(_release_manifest_url())
+        resultado, status = _carregar_cache_com_freshness(manager, "dre_individual", manifest)
         if resultado.sucesso and resultado.dados is not None:
-            return resultado.dados, None
-        return None, resultado.mensagem
+            return resultado.dados, None, status
+        return None, resultado.mensagem, status
 
     @st.cache_data(ttl=3600, show_spinner=False)
-    def load_principal_individual_data():
+    def load_principal_individual_data(release_token: str):
         manager = get_cache_manager()
-        resultado = manager.carregar("principal_individual")
+        manifest = _carregar_manifest_release_cache(_release_manifest_url())
+        resultado, status = _carregar_cache_com_freshness(manager, "principal_individual", manifest)
         if resultado.sucesso and resultado.dados is not None:
-            return resultado.dados, None
-        return pd.DataFrame(), resultado.mensagem
+            return resultado.dados, None, status
+        return pd.DataFrame(), resultado.mensagem, status
 
     def normalize_sources(value):
         if value is None:
@@ -23249,6 +23402,7 @@ elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolid
         if df.empty:
             return df.copy()
         out = df.copy()
+        out["ytd"] = pd.to_numeric(out["ytd"], errors="coerce").astype("Float64")
         mask = out["Label"].isin(labels) & out["mes"].notna() & (out["mes"] > 0)
         out.loc[mask, "ytd"] = out.loc[mask, "ytd"] * (12 / out.loc[mask, "mes"])
         return out
@@ -23449,8 +23603,8 @@ elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolid
         df_ytd["PeriodoExib"] = df_ytd["Periodo"].apply(periodo_para_exibicao)
         return df_ytd, None, df_base, df_valores
 
-    df_dre_individual_raw, dre_msg = load_dre_individual_data()
-    df_principal_individual_raw, principal_msg = load_principal_individual_data()
+    df_dre_individual_raw, dre_msg, dre_cache_status = load_dre_individual_data(_dre_individual_release_token)
+    df_principal_individual_raw, principal_msg, principal_cache_status = load_principal_individual_data(_dre_individual_release_token)
     if df_dre_individual_raw is None or df_dre_individual_raw.empty:
         detalhe = f" ({dre_msg})" if dre_msg else ""
         st.warning(f"Dados DRE individual não disponíveis no cache. Atualize 'dre_individual' e 'principal_individual' no menu 'Atualizar Base'.{detalhe}")
@@ -23460,6 +23614,30 @@ elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolid
         detalhe = f" ({principal_msg})" if principal_msg else ""
         st.warning(f"Dados do resumo individual não disponíveis no cache. Atualize 'principal_individual' no menu 'Atualizar Base'.{detalhe}")
         st.stop()
+
+    def _fmt_status_periodo_cache(status: dict) -> str:
+        local_ref = status.get("local_ref") or ""
+        release_ref = status.get("release_ref") or ""
+        local_txt = _periodo_yyyymm_para_exibicao(local_ref) if local_ref else "-"
+        release_txt = _periodo_yyyymm_para_exibicao(release_ref) if release_ref else "-"
+        fonte = status.get("fonte") or "-"
+        forced = " | remoto forçado" if status.get("remote_forced") else ""
+        return f"{status.get('cache')}: local {local_txt} | release {release_txt} | fonte {fonte}{forced}"
+
+    st.caption(
+        "Diagnóstico cache DRE Individual: "
+        + " ; ".join(
+            [
+                _fmt_status_periodo_cache(dre_cache_status),
+                _fmt_status_periodo_cache(principal_cache_status),
+            ]
+        )
+    )
+    if dre_cache_status.get("stale") or principal_cache_status.get("stale"):
+        st.warning(
+            "O cache local ainda parece defasado em relação ao release publicado. "
+            "O app tentou baixar a versão remota; se os períodos novos não aparecerem, reinicie o runtime ou use Atualizar Base > diagnóstico operacional."
+        )
 
     df_dre_individual_raw = df_dre_individual_raw.copy()
     df_principal_individual_raw = df_principal_individual_raw.copy()
@@ -23613,56 +23791,30 @@ elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolid
         st.warning(f"Não foi possível montar a DRE para a visão selecionada.{detalhe}")
         st.stop()
 
-    periodos_catalogo = (
-        df_ytd_base.loc[df_ytd_base["ytd"].notna(), ["Periodo", "ano", "mes"]]
-        .dropna(subset=["Periodo", "ano", "mes"])
-        .copy()
-    )
-    if not periodos_catalogo.empty:
-        periodos_catalogo["Periodo"] = periodos_catalogo["Periodo"].astype(str)
-        periodos_catalogo["ano"] = pd.to_numeric(periodos_catalogo["ano"], errors="coerce").astype("Int64")
-        periodos_catalogo["mes"] = pd.to_numeric(periodos_catalogo["mes"], errors="coerce").astype("Int64")
-        periodos_catalogo = periodos_catalogo.dropna(subset=["ano", "mes"]).copy()
-        periodos_catalogo = periodos_catalogo[
-            periodos_catalogo["mes"].isin([3, 6, 9, 12])
-            & (periodos_catalogo["ano"] >= DRE_ANO_EXIBICAO_INICIAL)
-            & (
-                (periodos_catalogo["ano"] > DRE_ANO_EXIBICAO_INICIAL)
-                | (periodos_catalogo["mes"] >= DRE_MES_EXIBICAO_INICIAL)
-            )
-        ]
-    periodos_catalogo = (
-        periodos_catalogo.drop_duplicates(subset=["Periodo"])
-        .sort_values(["ano", "mes", "Periodo"])
-        .reset_index(drop=True)
+    periodos_catalogo = _periodos_catalogo_dre_individual(
+        df_base,
+        ano_inicial=DRE_ANO_EXIBICAO_INICIAL,
+        mes_inicial=DRE_MES_EXIBICAO_INICIAL,
     )
     if periodos_catalogo.empty:
         st.warning("Não há períodos publicados para a visão selecionada.")
         st.stop()
 
-    periodos_opcoes = periodos_catalogo["Periodo"].tolist()
+    periodos_opcoes_cron = periodos_catalogo["Periodo"].astype(str).tolist()
+    periodos_opcoes_ui = list(reversed(periodos_opcoes_cron))
     mapa_periodo_catalogo = periodos_catalogo.set_index("Periodo")[["ano", "mes"]].to_dict("index")
-    periodo_mais_recente = periodos_opcoes[-1]
-    periodo_default = [periodo_mais_recente]
-    info_mais_recente = mapa_periodo_catalogo.get(periodo_mais_recente, {})
-    if int(info_mais_recente.get("mes") or 0) == 3:
-        ano_anterior = int(info_mais_recente.get("ano") or 0) - 1
-        periodo_dez_anterior = periodos_catalogo[
-            (periodos_catalogo["ano"] == ano_anterior) & (periodos_catalogo["mes"] == 12)
-        ]["Periodo"].tolist()
-        if periodo_dez_anterior:
-            periodo_default = [periodo_dez_anterior[-1], periodo_mais_recente]
-    elif len(periodos_opcoes) >= 2:
-        periodo_default = periodos_opcoes[-2:]
+    periodo_mais_recente = periodos_opcoes_cron[-1]
+    periodo_default = _default_periodos_dre_individual(periodos_catalogo)
+    periodo_selector_ref = _periodo_ref_cache(periodo_mais_recente) or str(len(periodos_opcoes_cron))
 
     periodos_selecionados_ui = st.multiselect(
         "Períodos exibidos (sempre acumulado YTD)",
-        options=periodos_opcoes,
+        options=periodos_opcoes_ui,
         default=periodo_default,
         format_func=periodo_para_exibicao,
-        key="dre_individual_periodos_exibidos",
+        key=f"dre_individual_periodos_exibidos_{periodo_selector_ref}",
     )
-    periodos_selecionados = [p for p in periodos_opcoes if p in set(periodos_selecionados_ui)]
+    periodos_selecionados = [p for p in periodos_opcoes_cron if p in set(periodos_selecionados_ui)]
     if not periodos_selecionados:
         st.warning("Selecione ao menos um período para exibir a DRE Individual.")
         st.stop()
