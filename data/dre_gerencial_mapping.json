@@ -1,0 +1,702 @@
+{
+  "version": "1.0.0",
+  "updated_at": "2026-07-02",
+  "scope": "DRE gerencial IFData - individual e conglomerado",
+  "notes": "Este arquivo e uma referencia inicial revisavel. As fontes abaixo devem ser validadas contra o schema real do parquet antes de qualquer calculo.",
+  "identifiers": [
+    {
+      "canonical_name": "institution",
+      "display_name": "Instituicao",
+      "description": "Nome da instituicao financeira ou conglomerado.",
+      "aliases": ["Instituição", "Instituicao", "Nome Instituição", "Nome Instituicao", "NOME_INSTITUICAO", "Nome_Congl", "NOME_CONGL"],
+      "semantic_terms": ["instituicao", "nome", "congl"]
+    },
+    {
+      "canonical_name": "period",
+      "display_name": "Data / periodo",
+      "description": "Data-base ou periodo de referencia.",
+      "aliases": ["Período", "Periodo", "Data", "Data-base", "Data Base", "DtBase", "DT_BASE", "data_base"],
+      "semantic_terms": ["periodo", "data", "dtbase"]
+    },
+    {
+      "canonical_name": "institution_code",
+      "display_name": "Codigo da instituicao",
+      "description": "Codigo IFData, CodInst, CNPJ ou codigo do conglomerado.",
+      "aliases": ["CodInst", "Código", "Codigo", "CNPJ", "COD_INST", "COD_CONGL", "Cod_Congl"],
+      "semantic_terms": ["cod", "cnpj"]
+    }
+  ],
+  "rubrics": [
+    {
+      "canonical_name": "asset_total",
+      "group": "INFORMATIVO",
+      "display_name": "Ativo total",
+      "description": "Ativo total publicado no IFData, usado apenas como informativo e para graficos.",
+      "line_type": "informativa",
+      "rubric_type": "informativo",
+      "expected_sign": "positive_or_zero",
+      "include_in_dre": true,
+      "source_groups": [
+        {"name": "IFData", "combine": "sum", "aliases": ["Ativo Total"]}
+      ]
+    },
+    {
+      "canonical_name": "revenue_intermediation_total",
+      "group": "RESULTADO DE INTERMEDIAÇÃO FINANCEIRA",
+      "display_name": "Resultado bruto de intermediação",
+      "description": "Subtotal publicado de receitas de intermediacao quando existir; caso contrario pode ser derivado dos componentes.",
+      "line_type": "subtotal",
+      "rubric_type": "subtotal",
+      "expected_sign": "positive_or_zero",
+      "include_in_dre": true,
+      "source_groups": [
+        {
+          "name": "IFData antigo",
+          "combine": "sum",
+          "valid_for": {"max_year": 2024},
+          "aliases": ["Receitas de Intermediação Financeira (a) = (a1) + (a2) + (a3) + (a4) + (a5) + (a6)"]
+        }
+      ]
+    },
+    {
+      "canonical_name": "revenue_credit",
+      "group": "RECEITAS DE INTERMEDIAÇÃO FINANCEIRA",
+      "display_name": "Operações de crédito",
+      "description": "Rendas de operacoes de credito.",
+      "line_type": "direta",
+      "rubric_type": "valor_atomico",
+      "expected_sign": "positive_or_zero",
+      "include_in_dre": true,
+      "letters": ["c", "a1"],
+      "source_groups": [
+        {"name": "IFData 2025+", "combine": "sum", "valid_for": {"min_year": 2025}, "aliases": ["Rendas de Operações de Crédito (c)"]},
+        {"name": "IFData antigo", "combine": "sum", "valid_for": {"max_year": 2024}, "aliases": ["Rendas de Operações de Crédito (a1)"]}
+      ]
+    },
+    {
+      "canonical_name": "revenue_tvm",
+      "group": "RECEITAS DE INTERMEDIAÇÃO FINANCEIRA",
+      "display_name": "Títulos e valores mobiliários",
+      "description": "Rendas de titulos e valores mobiliarios.",
+      "line_type": "direta",
+      "rubric_type": "valor_atomico",
+      "expected_sign": "positive_or_zero",
+      "include_in_dre": true,
+      "letters": ["b", "a3"],
+      "source_groups": [
+        {"name": "IFData 2025+", "combine": "sum", "valid_for": {"min_year": 2025}, "aliases": ["Rendas de Títulos e Valores Mobiliários (b)"]},
+        {"name": "IFData antigo", "combine": "sum", "valid_for": {"max_year": 2024}, "aliases": ["Rendas de Operações com TVM (a3)"]}
+      ]
+    },
+    {
+      "canonical_name": "revenue_interbank",
+      "group": "RECEITAS DE INTERMEDIAÇÃO FINANCEIRA",
+      "display_name": "Aplicações interfinanceiras",
+      "description": "Rendas de aplicacoes interfinanceiras de liquidez. No layout antigo, a referencia inicial usa aplicacoes compulsorias.",
+      "line_type": "direta",
+      "rubric_type": "valor_atomico",
+      "expected_sign": "positive_or_zero",
+      "include_in_dre": true,
+      "letters": ["a", "a6"],
+      "source_groups": [
+        {"name": "IFData 2025+", "combine": "sum", "valid_for": {"min_year": 2025}, "aliases": ["Rendas de Aplicações Interfinanceiras de Liquidez (a)"]},
+        {"name": "IFData antigo", "combine": "sum", "valid_for": {"max_year": 2024}, "aliases": ["Rendas de Aplicações Compulsórias (a6)"]}
+      ]
+    },
+    {
+      "canonical_name": "revenue_leasing",
+      "group": "RECEITAS DE INTERMEDIAÇÃO FINANCEIRA",
+      "display_name": "Arrendamento",
+      "description": "Rendas de arrendamento financeiro ou mercantil.",
+      "line_type": "direta",
+      "rubric_type": "valor_atomico",
+      "expected_sign": "positive_or_zero",
+      "include_in_dre": true,
+      "letters": ["d", "a2"],
+      "source_groups": [
+        {"name": "IFData 2025+", "combine": "sum", "valid_for": {"min_year": 2025}, "aliases": ["Rendas de Arrendamento Financeiro (d)"]},
+        {"name": "IFData antigo", "combine": "sum", "valid_for": {"max_year": 2024}, "aliases": ["Rendas de Operações de Arrendamento Mercantil (a2)"]}
+      ]
+    },
+    {
+      "canonical_name": "revenue_other_credit",
+      "group": "RECEITAS DE INTERMEDIAÇÃO FINANCEIRA",
+      "display_name": "Outras rendas de concessão",
+      "description": "Rendas de outras operacoes com caracteristicas de concessao de credito.",
+      "line_type": "direta",
+      "rubric_type": "valor_atomico",
+      "expected_sign": "positive_or_zero",
+      "include_in_dre": true,
+      "letters": ["e"],
+      "source_groups": [
+        {"name": "IFData 2025+", "combine": "sum", "valid_for": {"min_year": 2025}, "aliases": ["Rendas de Outras Operações com Características de Concessão de Crédito (e)"]}
+      ]
+    },
+    {
+      "canonical_name": "expected_loss_total",
+      "group": "DESPESAS DE INTERMEDIAÇÃO FINANCEIRA",
+      "display_name": "PDD / perda esperada",
+      "description": "Resultado consolidado com perda esperada ou PDD.",
+      "line_type": "direta",
+      "rubric_type": "valor_atomico",
+      "expected_sign": "negative_or_zero",
+      "include_in_dre": true,
+      "letters": ["f", "b5"],
+      "source_groups": [
+        {"name": "IFData 2025+", "combine": "sum", "valid_for": {"min_year": 2025}, "aliases": ["Resultado com Perda Esperada (f)"]},
+        {"name": "IFData antigo", "combine": "sum", "valid_for": {"max_year": 2024}, "aliases": ["Resultado de Provisão para Créditos de Difícil Liquidação (b5)"]}
+      ]
+    },
+    {
+      "canonical_name": "expected_loss_interbank",
+      "group": "DESPESAS DE INTERMEDIAÇÃO FINANCEIRA",
+      "display_name": "Perda esperada de aplicações",
+      "description": "Perda esperada de aplicacoes interfinanceiras de liquidez.",
+      "line_type": "direta",
+      "rubric_type": "valor_atomico",
+      "expected_sign": "negative_or_zero",
+      "include_in_dre": false,
+      "letters": ["f1"],
+      "source_groups": [
+        {"name": "IFData 2025+", "combine": "sum", "aliases": ["Resultado com Perda Esperada de Aplicações Interfinanceiras de Liquidez (f1)"]}
+      ]
+    },
+    {
+      "canonical_name": "expected_loss_tvm",
+      "group": "DESPESAS DE INTERMEDIAÇÃO FINANCEIRA",
+      "display_name": "Perda esperada de TVM",
+      "description": "Perda esperada de titulos e valores mobiliarios.",
+      "line_type": "direta",
+      "rubric_type": "valor_atomico",
+      "expected_sign": "negative_or_zero",
+      "include_in_dre": false,
+      "letters": ["f2"],
+      "source_groups": [
+        {"name": "IFData 2025+", "combine": "sum", "aliases": ["Resultado com Perda Esperada de TVM (f2)"]}
+      ]
+    },
+    {
+      "canonical_name": "expected_loss_credit",
+      "group": "DESPESAS DE INTERMEDIAÇÃO FINANCEIRA",
+      "display_name": "Perda esperada de crédito",
+      "description": "Perda esperada de operacoes de credito.",
+      "line_type": "direta",
+      "rubric_type": "valor_atomico",
+      "expected_sign": "negative_or_zero",
+      "include_in_dre": false,
+      "letters": ["f3"],
+      "source_groups": [
+        {"name": "IFData 2025+", "combine": "sum", "aliases": ["Resultado com Perda Esperada de Operações de Crédito (f3)"]}
+      ]
+    },
+    {
+      "canonical_name": "expected_loss_leasing",
+      "group": "DESPESAS DE INTERMEDIAÇÃO FINANCEIRA",
+      "display_name": "Perda esperada de arrendamento",
+      "description": "Perda esperada de arrendamento.",
+      "line_type": "direta",
+      "rubric_type": "valor_atomico",
+      "expected_sign": "negative_or_zero",
+      "include_in_dre": false,
+      "letters": ["f4"],
+      "source_groups": [
+        {"name": "IFData 2025+", "combine": "sum", "aliases": ["Resultado com Perda Esperada de Arrendamento (f4)"]}
+      ]
+    },
+    {
+      "canonical_name": "expected_loss_other_credit",
+      "group": "DESPESAS DE INTERMEDIAÇÃO FINANCEIRA",
+      "display_name": "Perda esperada de outras concessões",
+      "description": "Perda esperada de outras operacoes com caracteristicas de concessao de credito.",
+      "line_type": "direta",
+      "rubric_type": "valor_atomico",
+      "expected_sign": "negative_or_zero",
+      "include_in_dre": false,
+      "letters": ["f5"],
+      "source_groups": [
+        {"name": "IFData 2025+", "combine": "sum", "aliases": ["Resultado com Perda Esperada de Outras Operações com Características de Concessão de Crédito (f5)"]}
+      ]
+    },
+    {
+      "canonical_name": "expected_loss_other_income_assets",
+      "group": "DESPESAS DE INTERMEDIAÇÃO FINANCEIRA",
+      "display_name": "Perda esperada de outros ativos",
+      "description": "Perda esperada de outros ativos geradores de renda.",
+      "line_type": "direta",
+      "rubric_type": "valor_atomico",
+      "expected_sign": "negative_or_zero",
+      "include_in_dre": false,
+      "letters": ["f6"],
+      "source_groups": [
+        {"name": "IFData 2025+", "combine": "sum", "aliases": ["Resultado com Perda Esperada de Outros Ativos Geradores de Renda (f6)"]}
+      ]
+    },
+    {
+      "canonical_name": "funding_expense",
+      "group": "DESPESAS DE INTERMEDIAÇÃO FINANCEIRA",
+      "display_name": "Despesas de captação",
+      "description": "Despesas de captacao publicadas no IFData.",
+      "line_type": "direta",
+      "rubric_type": "valor_atomico",
+      "expected_sign": "negative_or_zero",
+      "include_in_dre": true,
+      "letters": ["g", "b1"],
+      "source_groups": [
+        {"name": "IFData 2025+", "combine": "sum", "valid_for": {"min_year": 2025}, "aliases": ["Despesas de Captações (g)"]},
+        {"name": "IFData antigo", "combine": "sum", "valid_for": {"max_year": 2024}, "aliases": ["Despesas de Captação (b1)"]}
+      ]
+    },
+    {
+      "canonical_name": "eligible_debt_expense",
+      "group": "DESPESAS DE INTERMEDIAÇÃO FINANCEIRA",
+      "display_name": "Instrumentos de dívida/capital",
+      "description": "Despesas de instrumentos de divida elegiveis a capital.",
+      "line_type": "direta",
+      "rubric_type": "valor_atomico",
+      "expected_sign": "negative_or_zero",
+      "include_in_dre": true,
+      "letters": ["h"],
+      "source_groups": [
+        {"name": "IFData 2025+", "combine": "sum", "valid_for": {"min_year": 2025}, "aliases": ["Despesas de Instrumentos de Dívida Elegíveis a Capital (h)"]}
+      ]
+    },
+    {
+      "canonical_name": "derivatives_result",
+      "group": "RECEITAS DE INTERMEDIAÇÃO FINANCEIRA",
+      "display_name": "Derivativos",
+      "description": "Resultado com derivativos. O sinal pode ser positivo ou negativo.",
+      "line_type": "direta",
+      "rubric_type": "valor_atomico",
+      "expected_sign": "mixed",
+      "include_in_dre": true,
+      "letters": ["i", "a4"],
+      "source_groups": [
+        {"name": "IFData 2025+", "combine": "sum", "valid_for": {"min_year": 2025}, "aliases": ["Resultado com Derivativos (i)"]},
+        {"name": "IFData antigo", "combine": "sum", "valid_for": {"max_year": 2024}, "aliases": ["Rendas de Operações com Instrumentos Financeiros Derivativos (a4)"]}
+      ]
+    },
+    {
+      "canonical_name": "other_intermediation_result",
+      "group": "RECEITAS DE INTERMEDIAÇÃO FINANCEIRA",
+      "display_name": "Outros resultados de intermediação",
+      "description": "Outros resultados de intermediacao financeira. No layout antigo, inclui resultados de cambio de receita e despesa.",
+      "line_type": "direta",
+      "rubric_type": "valor_atomico",
+      "expected_sign": "mixed",
+      "include_in_dre": true,
+      "letters": ["j", "a5", "b4"],
+      "source_groups": [
+        {"name": "IFData 2025+", "combine": "sum", "valid_for": {"min_year": 2025}, "aliases": ["Outros Resultados de Intermediação Financeira (j)"]},
+        {"name": "IFData antigo", "combine": "sum", "valid_for": {"max_year": 2024}, "aliases": ["Resultado de Operações de Câmbio (a5)", "Resultado de Operações de Câmbio (b4)"]}
+      ]
+    },
+    {
+      "canonical_name": "intermediation_expense_total_old",
+      "group": "DESPESAS DE INTERMEDIAÇÃO FINANCEIRA",
+      "display_name": "Despesas de intermediação financeira publicadas",
+      "description": "Subtotal antigo de despesas de intermediacao financeira.",
+      "line_type": "subtotal",
+      "rubric_type": "subtotal",
+      "expected_sign": "negative_or_zero",
+      "include_in_dre": false,
+      "source_groups": [
+        {"name": "IFData antigo", "combine": "sum", "valid_for": {"max_year": 2024}, "aliases": ["Despesas de Intermediação Financeira (b) = (b1) + (b2) + (b3) + (b4) + (b5)"]}
+      ]
+    },
+    {
+      "canonical_name": "intermediation_result",
+      "group": "RESULTADO DE INTERMEDIAÇÃO FINANCEIRA",
+      "display_name": "Resultado líquido de intermediação",
+      "description": "Resultado de intermediacao financeira, preferencialmente reconciliado com subtotal publicado.",
+      "line_type": "subtotal",
+      "rubric_type": "subtotal",
+      "expected_sign": "mixed",
+      "include_in_dre": true,
+      "letters": ["k", "c"],
+      "source_groups": [
+        {"name": "IFData 2025+", "combine": "sum", "valid_for": {"min_year": 2025}, "aliases": ["Resultado de Intermediação Financeira (k) = (a) + (b) + (c) + (d) + (e) + (f) + (g) + (h) + (i) + (j)"]},
+        {"name": "IFData antigo", "combine": "sum", "valid_for": {"max_year": 2024}, "aliases": ["Resultado de Intermediação Financeira (c) = (a) + (b)"]}
+      ]
+    },
+    {
+      "canonical_name": "payment_services_result",
+      "group": "RECEITAS DE SERVIÇOS E TRANSAÇÕES",
+      "display_name": "Serviços de transações de pagamento",
+      "description": "Resultado com servicos por transacoes de pagamento.",
+      "line_type": "direta",
+      "rubric_type": "valor_atomico",
+      "expected_sign": "mixed",
+      "include_in_dre": false,
+      "letters": ["l1"],
+      "source_groups": [
+        {"name": "IFData 2025+", "combine": "sum", "aliases": ["Resultado com Serviços por Transações de Pagamento (l1)"]}
+      ]
+    },
+    {
+      "canonical_name": "payment_expected_loss",
+      "group": "RECEITAS DE SERVIÇOS E TRANSAÇÕES",
+      "display_name": "Perdas esperadas de transações de pagamento",
+      "description": "Resultado de perda esperada com transacoes de pagamento.",
+      "line_type": "direta",
+      "rubric_type": "valor_atomico",
+      "expected_sign": "negative_or_zero",
+      "include_in_dre": false,
+      "letters": ["l2"],
+      "source_groups": [
+        {"name": "IFData 2025+", "combine": "sum", "aliases": ["Resultados de Perda Esperada com Transações de Pagamento (l2)"]}
+      ]
+    },
+    {
+      "canonical_name": "payment_other_result",
+      "group": "RECEITAS DE SERVIÇOS E TRANSAÇÕES",
+      "display_name": "Outros resultados de transações de pagamento",
+      "description": "Outros resultados com transacoes de pagamento.",
+      "line_type": "direta",
+      "rubric_type": "valor_atomico",
+      "expected_sign": "mixed",
+      "include_in_dre": false,
+      "letters": ["l3"],
+      "source_groups": [
+        {"name": "IFData 2025+", "combine": "sum", "aliases": ["Outros Resultados com Transações de Pagamento (l3)"]}
+      ]
+    },
+    {
+      "canonical_name": "payment_result",
+      "group": "RECEITAS DE SERVIÇOS E TRANSAÇÕES",
+      "display_name": "Resultado de transações de pagamento",
+      "description": "Resultado liquido de transacoes de pagamento.",
+      "line_type": "subtotal",
+      "rubric_type": "subtotal",
+      "expected_sign": "mixed",
+      "include_in_dre": true,
+      "letters": ["l"],
+      "source_groups": [
+        {"name": "IFData 2025+", "combine": "sum", "aliases": ["Resultado com Transações de Pagamento (l)"]}
+      ]
+    },
+    {
+      "canonical_name": "fee_income",
+      "group": "RECEITAS DE SERVIÇOS E TRANSAÇÕES",
+      "display_name": "Tarifas bancárias",
+      "description": "Rendas de tarifas bancarias.",
+      "line_type": "direta",
+      "rubric_type": "valor_atomico",
+      "expected_sign": "positive_or_zero",
+      "include_in_dre": true,
+      "letters": ["m", "d2"],
+      "source_groups": [
+        {"name": "IFData 2025+", "combine": "sum", "valid_for": {"min_year": 2025}, "aliases": ["Rendas de Tarifas Bancárias (m)"]},
+        {"name": "IFData antigo", "combine": "sum", "valid_for": {"max_year": 2024}, "aliases": ["Rendas de Tarifas Bancárias (d2)"]}
+      ]
+    },
+    {
+      "canonical_name": "other_service_income",
+      "group": "RECEITAS DE SERVIÇOS E TRANSAÇÕES",
+      "display_name": "Outras rendas de serviços",
+      "description": "Outras rendas de prestacao de servicos.",
+      "line_type": "direta",
+      "rubric_type": "valor_atomico",
+      "expected_sign": "positive_or_zero",
+      "include_in_dre": true,
+      "letters": ["n", "d1"],
+      "source_groups": [
+        {"name": "IFData 2025+", "combine": "sum", "valid_for": {"min_year": 2025}, "aliases": ["Outras Rendas de Prestação de Serviços (n)"]},
+        {"name": "IFData antigo", "combine": "sum", "valid_for": {"max_year": 2024}, "aliases": ["Rendas de Prestação de Serviços (d1)"]}
+      ]
+    },
+    {
+      "canonical_name": "personnel_expense",
+      "group": "OUTRAS RECEITAS/DESPESAS OPERACIONAIS",
+      "display_name": "Despesas de pessoal",
+      "description": "Despesas de pessoal.",
+      "line_type": "direta",
+      "rubric_type": "valor_atomico",
+      "expected_sign": "negative_or_zero",
+      "include_in_dre": true,
+      "letters": ["o", "d3"],
+      "source_groups": [
+        {"name": "IFData 2025+", "combine": "sum", "valid_for": {"min_year": 2025}, "aliases": ["Despesas de Pessoal (o)"]},
+        {"name": "IFData antigo", "combine": "sum", "valid_for": {"max_year": 2024}, "aliases": ["Despesas de Pessoal (d3)"]}
+      ]
+    },
+    {
+      "canonical_name": "admin_expense",
+      "group": "OUTRAS RECEITAS/DESPESAS OPERACIONAIS",
+      "display_name": "Despesas administrativas",
+      "description": "Despesas administrativas.",
+      "line_type": "direta",
+      "rubric_type": "valor_atomico",
+      "expected_sign": "negative_or_zero",
+      "include_in_dre": true,
+      "letters": ["p", "d4"],
+      "source_groups": [
+        {"name": "IFData 2025+", "combine": "sum", "valid_for": {"min_year": 2025}, "aliases": ["Despesas Administrativas (p)"]},
+        {"name": "IFData antigo", "combine": "sum", "valid_for": {"max_year": 2024}, "aliases": ["Despesas Administrativas (d4)"]}
+      ]
+    },
+    {
+      "canonical_name": "other_operations_expected_loss",
+      "group": "OUTRAS RECEITAS/DESPESAS OPERACIONAIS",
+      "display_name": "Perdas esperadas de outras operações",
+      "description": "Resultado com perdas esperadas de outras operacoes.",
+      "line_type": "direta",
+      "rubric_type": "valor_atomico",
+      "expected_sign": "negative_or_zero",
+      "include_in_dre": true,
+      "letters": ["q"],
+      "source_groups": [
+        {"name": "IFData 2025+", "combine": "sum", "aliases": ["Resultado com Perdas Esperadas de Outras Operações (q)"]}
+      ]
+    },
+    {
+      "canonical_name": "jscp_coop_expense",
+      "group": "OUTRAS RECEITAS/DESPESAS OPERACIONAIS",
+      "display_name": "JCP cooperativas",
+      "description": "Despesas de juros sobre capital proprio de cooperativas, quando existir.",
+      "line_type": "direta",
+      "rubric_type": "valor_atomico",
+      "expected_sign": "negative_or_zero",
+      "include_in_dre": true,
+      "letters": ["r", "aa"],
+      "source_groups": [
+        {"name": "IFData 2025+", "combine": "sum", "valid_for": {"min_year": 2025}, "aliases": ["Despesas de Juros Sobre Capital Próprio de Cooperativas (r)"]},
+        {"name": "IFData antigo", "combine": "sum", "valid_for": {"max_year": 2024}, "aliases": ["Juros Sobre Capital Social de Cooperativas (k)"]}
+      ]
+    },
+    {
+      "canonical_name": "tax_expense",
+      "group": "OUTRAS RECEITAS/DESPESAS OPERACIONAIS",
+      "display_name": "Despesas tributárias",
+      "description": "Despesas tributarias operacionais, distintas de IR/CS.",
+      "line_type": "direta",
+      "rubric_type": "valor_atomico",
+      "expected_sign": "negative_or_zero",
+      "include_in_dre": true,
+      "letters": ["s", "r", "d5"],
+      "source_groups": [
+        {"name": "IFData 4T/2025", "combine": "sum", "valid_for": {"years": [2025], "quarters": [4]}, "aliases": ["Despesas Tributárias (r)"]},
+        {"name": "IFData 2025+", "combine": "sum", "valid_for": {"min_year": 2025}, "aliases": ["Despesas Tributárias (s)"]},
+        {"name": "IFData antigo", "combine": "sum", "valid_for": {"max_year": 2024}, "aliases": ["Despesas Tributárias (d5)"]}
+      ]
+    },
+    {
+      "canonical_name": "participation_result",
+      "group": "OUTRAS RECEITAS/DESPESAS OPERACIONAIS",
+      "display_name": "Resultado de participações",
+      "description": "Resultado de participacoes em controladas, coligadas ou similares.",
+      "line_type": "direta",
+      "rubric_type": "valor_atomico",
+      "expected_sign": "mixed",
+      "include_in_dre": true,
+      "letters": ["t", "s", "d6"],
+      "source_groups": [
+        {"name": "IFData 4T/2025", "combine": "sum", "valid_for": {"years": [2025], "quarters": [4]}, "aliases": ["Resultado de Participações (s)"]},
+        {"name": "IFData 2025+", "combine": "sum", "valid_for": {"min_year": 2025}, "aliases": ["Resultado de Participações (t)"]},
+        {"name": "IFData antigo", "combine": "sum", "valid_for": {"max_year": 2024}, "aliases": ["Resultado de Participações (d6)"]}
+      ]
+    },
+    {
+      "canonical_name": "other_revenue",
+      "group": "OUTRAS RECEITAS/DESPESAS OPERACIONAIS",
+      "display_name": "Outras receitas",
+      "description": "Outras receitas operacionais.",
+      "line_type": "direta",
+      "rubric_type": "valor_atomico",
+      "expected_sign": "positive_or_zero",
+      "include_in_dre": true,
+      "letters": ["u", "t", "d7"],
+      "source_groups": [
+        {"name": "IFData 4T/2025", "combine": "sum", "valid_for": {"years": [2025], "quarters": [4]}, "aliases": ["Outras Receitas (t)"]},
+        {"name": "IFData 2025+", "combine": "sum", "valid_for": {"min_year": 2025}, "aliases": ["Outras Receitas (u)"]},
+        {"name": "IFData antigo", "combine": "sum", "valid_for": {"max_year": 2024}, "aliases": ["Outras Receitas Operacionais (d7)"]}
+      ]
+    },
+    {
+      "canonical_name": "other_expense",
+      "group": "OUTRAS RECEITAS/DESPESAS OPERACIONAIS",
+      "display_name": "Outras despesas",
+      "description": "Outras despesas operacionais.",
+      "line_type": "direta",
+      "rubric_type": "valor_atomico",
+      "expected_sign": "negative_or_zero",
+      "include_in_dre": true,
+      "letters": ["v", "u", "d8"],
+      "source_groups": [
+        {"name": "IFData 4T/2025", "combine": "sum", "valid_for": {"years": [2025], "quarters": [4]}, "aliases": ["Outras Despesas (u)"]},
+        {"name": "IFData 2025+", "combine": "sum", "valid_for": {"min_year": 2025}, "aliases": ["Outras Despesas (v)"]},
+        {"name": "IFData antigo", "combine": "sum", "valid_for": {"max_year": 2024}, "aliases": ["Outras Despesas Operacionais (d8)"]}
+      ]
+    },
+    {
+      "canonical_name": "operating_other_result",
+      "group": "OUTRAS RECEITAS/DESPESAS OPERACIONAIS",
+      "display_name": "Outras receitas/despesas operacionais",
+      "description": "Subtotal de outras receitas e despesas operacionais.",
+      "line_type": "subtotal",
+      "rubric_type": "subtotal",
+      "expected_sign": "mixed",
+      "include_in_dre": true,
+      "letters": ["w", "v", "d"],
+      "source_groups": [
+        {"name": "IFData 4T/2025", "combine": "sum", "valid_for": {"years": [2025], "quarters": [4]}, "aliases": ["Outras Receitas / Despesas (v)= (m) + (n) + (o) + (p) + (q) + (r) + (s) + (t) + (u)"]},
+        {"name": "IFData 2025+", "combine": "sum", "valid_for": {"min_year": 2025}, "aliases": ["Outras Receitas / Despesas (w)= (m) + (n) + (o) + (p) + (q) + (r) + (s) + (t) + (u) + (v)"]},
+        {"name": "IFData antigo", "combine": "sum", "valid_for": {"max_year": 2024}, "aliases": ["Outras Receitas/Despesas Operacionais (d) = (d1) + (d2) + (d3) + (d4) + (d5) + (d6) + (d7) + (d8)"]}
+      ]
+    },
+    {
+      "canonical_name": "non_operating_result",
+      "group": "RESULTADO OPERACIONAL / ANTES DE TRIBUTOS",
+      "display_name": "Resultado não operacional",
+      "description": "Resultado nao operacional no layout antigo. Nao deve ser inventado quando ausente.",
+      "line_type": "direta",
+      "rubric_type": "valor_atomico",
+      "expected_sign": "mixed",
+      "include_in_dre": false,
+      "letters": ["f"],
+      "source_groups": [
+        {"name": "IFData antigo", "combine": "sum", "valid_for": {"max_year": 2024}, "aliases": ["Resultado Não Operacional (f)"]}
+      ]
+    },
+    {
+      "canonical_name": "pretax_result",
+      "group": "RESULTADO OPERACIONAL / ANTES DE TRIBUTOS",
+      "display_name": "Resultado antes de tributos",
+      "description": "Resultado antes da tributacao e participacoes.",
+      "line_type": "subtotal",
+      "rubric_type": "subtotal",
+      "expected_sign": "mixed",
+      "include_in_dre": true,
+      "letters": ["x", "w", "g"],
+      "source_groups": [
+        {"name": "IFData 4T/2025", "combine": "sum", "valid_for": {"years": [2025], "quarters": [4]}, "aliases": ["Resultado antes da Tributação e Participações (w) = (k) + (l) + (v)"]},
+        {"name": "IFData 2025+", "combine": "sum", "valid_for": {"min_year": 2025}, "aliases": ["Resultado antes da Tributação e Participações (x) = (k) + (l) + (w)"]},
+        {"name": "IFData antigo", "combine": "sum", "valid_for": {"max_year": 2024}, "aliases": ["Resultado antes da Tributação, Lucro e Participação (g) = (e) + (f)"]}
+      ]
+    },
+    {
+      "canonical_name": "income_tax_social_contribution",
+      "group": "IMPOSTOS E PARTICIPAÇÕES",
+      "display_name": "IR/CS",
+      "description": "Imposto de renda e contribuicao social.",
+      "line_type": "direta",
+      "rubric_type": "valor_atomico",
+      "expected_sign": "negative_or_zero",
+      "include_in_dre": true,
+      "letters": ["y", "x", "h"],
+      "source_groups": [
+        {"name": "IFData 4T/2025", "combine": "sum", "valid_for": {"years": [2025], "quarters": [4]}, "aliases": ["Imposto de Renda e Contribuição Social (x)"]},
+        {"name": "IFData 2025+", "combine": "sum", "valid_for": {"min_year": 2025}, "aliases": ["Imposto de Renda e Contribuição Social (y)"]},
+        {"name": "IFData antigo", "combine": "sum", "valid_for": {"max_year": 2024}, "aliases": ["Imposto de Renda e Contribuição Social (h)"]}
+      ]
+    },
+    {
+      "canonical_name": "profit_participation",
+      "group": "IMPOSTOS E PARTICIPAÇÕES",
+      "display_name": "Participações no resultado",
+      "description": "Participacoes no lucro.",
+      "line_type": "direta",
+      "rubric_type": "valor_atomico",
+      "expected_sign": "negative_or_zero",
+      "include_in_dre": true,
+      "letters": ["z", "y", "i"],
+      "source_groups": [
+        {"name": "IFData 4T/2025", "combine": "sum", "valid_for": {"years": [2025], "quarters": [4]}, "aliases": ["Participações no Lucro (y)"]},
+        {"name": "IFData 2025+", "combine": "sum", "valid_for": {"min_year": 2025}, "aliases": ["Participações no Lucro (z)"]},
+        {"name": "IFData antigo", "combine": "sum", "valid_for": {"max_year": 2024}, "aliases": ["Participação nos Lucros (i)"]}
+      ]
+    },
+    {
+      "canonical_name": "net_income",
+      "group": "LUCRO LÍQUIDO",
+      "display_name": "Lucro líquido do período",
+      "description": "Lucro liquido do periodo.",
+      "line_type": "subtotal",
+      "rubric_type": "subtotal",
+      "expected_sign": "mixed",
+      "include_in_dre": true,
+      "letters": ["aa", "z", "j"],
+      "source_groups": [
+        {"name": "IFData 4T/2025", "combine": "sum", "valid_for": {"years": [2025], "quarters": [4]}, "aliases": ["Lucro Líquido (z) = (w) + (x) + (y)"]},
+        {"name": "IFData 2025+", "combine": "sum", "valid_for": {"min_year": 2025}, "aliases": ["Lucro Líquido (aa) = (x) + (y) + (z)"]},
+        {"name": "IFData antigo", "combine": "sum", "valid_for": {"max_year": 2024}, "aliases": ["Lucro Líquido (j) = (g) + (h) + (i)", "Lucro Líquido"]}
+      ]
+    },
+    {
+      "canonical_name": "jcp_info",
+      "group": "LINHAS INFORMATIVAS",
+      "display_name": "JCP / item informativo",
+      "description": "Juros sobre capital proprio quando existir como item informativo.",
+      "line_type": "informativa",
+      "rubric_type": "informativo",
+      "expected_sign": "mixed",
+      "include_in_dre": true,
+      "source_groups": [
+        {"name": "IFData 4T/2025", "combine": "sum", "valid_for": {"years": [2025], "quarters": [4]}, "aliases": ["Juros Sobre Capital Próprio de Cooperativas (aa)"]},
+        {"name": "IFData 2025+", "combine": "sum", "valid_for": {"min_year": 2025}, "aliases": ["Despesas de Juros Sobre Capital Próprio de Cooperativas (r)"]},
+        {"name": "IFData antigo", "combine": "sum", "valid_for": {"max_year": 2024}, "aliases": ["Juros Sobre Capital Próprio (k)", "Juros Sobre Capital Social de Cooperativas (k)"]}
+      ]
+    }
+  ],
+  "identities": [
+    {
+      "id": "receita_intermediacao_componentes",
+      "label": "Receitas de intermediação = aplicações + TVM + crédito + arrendamento + outras concessões",
+      "target": "revenue_intermediation_total",
+      "components": ["revenue_interbank", "revenue_tvm", "revenue_credit", "revenue_leasing", "revenue_other_credit"],
+      "optional_components": ["revenue_other_credit"],
+      "formula_text": "receita_intermediacao_total = revenue_interbank + revenue_tvm + revenue_credit + revenue_leasing + revenue_other_credit"
+    },
+    {
+      "id": "perda_esperada_componentes",
+      "label": "Perda esperada consolidada = soma dos componentes f1 a f6",
+      "target": "expected_loss_total",
+      "components": ["expected_loss_interbank", "expected_loss_tvm", "expected_loss_credit", "expected_loss_leasing", "expected_loss_other_credit", "expected_loss_other_income_assets"],
+      "formula_text": "expected_loss_total = f1 + f2 + f3 + f4 + f5 + f6"
+    },
+    {
+      "id": "transacoes_pagamento_componentes",
+      "label": "Resultado de transações de pagamento = l1 + l2 + l3",
+      "target": "payment_result",
+      "components": ["payment_services_result", "payment_expected_loss", "payment_other_result"],
+      "formula_text": "payment_result = payment_services_result + payment_expected_loss + payment_other_result"
+    },
+    {
+      "id": "resultado_intermediacao",
+      "label": "Resultado de intermediação = receitas + perda esperada + captação + dívida + derivativos + outros",
+      "target": "intermediation_result",
+      "components": ["revenue_interbank", "revenue_tvm", "revenue_credit", "revenue_leasing", "revenue_other_credit", "expected_loss_total", "funding_expense", "eligible_debt_expense", "derivatives_result", "other_intermediation_result"],
+      "optional_components": ["revenue_other_credit", "eligible_debt_expense"],
+      "formula_text": "intermediation_result = a + b + c + d + e + f + g + h + i + j"
+    },
+    {
+      "id": "outras_operacionais",
+      "label": "Outras receitas/despesas operacionais = serviços + despesas + participações + outras linhas",
+      "target": "operating_other_result",
+      "components": ["fee_income", "other_service_income", "personnel_expense", "admin_expense", "other_operations_expected_loss", "jscp_coop_expense", "tax_expense", "participation_result", "other_revenue", "other_expense"],
+      "optional_components": ["other_operations_expected_loss", "jscp_coop_expense"],
+      "formula_text": "operating_other_result = m + n + o + p + q + r + s + t + u + v"
+    },
+    {
+      "id": "resultado_antes_tributos",
+      "label": "Resultado antes de tributos = intermediação + transações de pagamento + outras operacionais",
+      "target": "pretax_result",
+      "components": ["intermediation_result", "payment_result", "operating_other_result", "non_operating_result"],
+      "optional_components": ["payment_result", "non_operating_result"],
+      "formula_text": "pretax_result = intermediation_result + payment_result + operating_other_result + non_operating_result"
+    },
+    {
+      "id": "lucro_liquido",
+      "label": "Lucro líquido = resultado antes de tributos + IR/CS + participações",
+      "target": "net_income",
+      "components": ["pretax_result", "income_tax_social_contribution", "profit_participation"],
+      "formula_text": "net_income = pretax_result + income_tax_social_contribution + profit_participation"
+    }
+  ],
+  "ambiguous_lines": [
+    {"group": "LINHAS SEM FONTE OU AMBIGUAS", "display_name": "Carteira de câmbio", "note": "Pode estar diluida em outros resultados de intermediacao ou cambio; nao recebe valor sem coluna clara."},
+    {"group": "LINHAS SEM FONTE OU AMBIGUAS", "display_name": "Fianças e garantias", "note": "Nao e atribuida automaticamente a receita de servicos sem fonte explicita."},
+    {"group": "LINHAS SEM FONTE OU AMBIGUAS", "display_name": "Resultado de seguro", "note": "Nao recebe valor sem rubrica especifica no parquet."},
+    {"group": "LINHAS SEM FONTE OU AMBIGUAS", "display_name": "Venda de ativos / cessão", "note": "Pode estar dentro de outras receitas/despesas; mantida sem fonte quando nao houver coluna propria."},
+    {"group": "LINHAS SEM FONTE OU AMBIGUAS", "display_name": "Itens extraordinários", "note": "Nao ha inferencia automatica sem identificacao explicita no IFData."}
+  ]
+}

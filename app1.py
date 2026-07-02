@@ -177,6 +177,7 @@ except Exception:  # pragma: no cover - fallback defensivo para deploys defasado
     taxas_juros_historico_module = None
 from rating import QUALITATIVE_QUESTIONS, build_audit_tables, build_audit_trail_markdown, calculate_rating, list_available_rating_periods, load_rating_input_dataframe, map_rating_inputs, period_to_display_label
 from rating.engine import get_size_bucket
+from tabs.dre_ifdata_schema import render_streamlit_app as render_dre_ifdata_schema_app
 import io
 import base64
 import subprocess
@@ -16291,18 +16292,22 @@ with st.sidebar:
             args=("Atualizar Base",),
         )
 
+DRE_VISUALIZACOES = ["DRE Gerencial", "Conglomerado Prudencial", "DRE Individual"]
 if "dre_consolidada_tipo_visualizacao" not in st.session_state:
-    st.session_state["dre_consolidada_tipo_visualizacao"] = "Conglomerado Prudencial"
+    st.session_state["dre_consolidada_tipo_visualizacao"] = "DRE Gerencial"
 dre_consolidada_tipo = st.session_state.get("dre_consolidada_tipo_visualizacao", "Conglomerado Prudencial")
 if dre_consolidada_tipo == "Conglomerado prudencial":
     dre_consolidada_tipo = "Conglomerado Prudencial"
     st.session_state["dre_consolidada_tipo_visualizacao"] = "Conglomerado Prudencial"
+if dre_consolidada_tipo not in DRE_VISUALIZACOES:
+    dre_consolidada_tipo = "DRE Gerencial"
+    st.session_state["dre_consolidada_tipo_visualizacao"] = "DRE Gerencial"
 if menu == "DRE (Ind. e Congl.)":
     st.markdown("### DRE (Ind. e Congl.)")
-    st.caption("Selecione a visualização abaixo para acessar exatamente a experiência atual de conglomerado Prudencial ou DRE individual.")
+    st.caption("A DRE Gerencial diagnostica o parquet antes do cálculo. As visualizações legadas continuam disponíveis abaixo.")
     dre_consolidada_tipo = st.segmented_control(
         "Tipo de visualização",
-        options=["Conglomerado Prudencial", "DRE Individual"],
+        options=DRE_VISUALIZACOES,
         key="dre_consolidada_tipo_visualizacao",
     )
     st.markdown("---")
@@ -21767,6 +21772,9 @@ elif menu == "Contas COSIF":
 
 elif menu == "Balanço, DRE e DMPL (Ind.)":
     render_tab_cdsfn()
+
+elif menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo == "DRE Gerencial":
+    render_dre_ifdata_schema_app()
 
 elif menu == "DRE" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo == "Conglomerado Prudencial"):
     st.markdown("### Demonstração de Resultado (DRE)")
