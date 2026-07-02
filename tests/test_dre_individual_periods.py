@@ -36,6 +36,69 @@ def test_dre_individual_cache_status_marks_local_cache_behind_release_as_stale()
     assert status["stale"] is True
 
 
+def test_dre_individual_manifest_uses_latest_reference_across_remote_and_bundled():
+    remote_manifest = {
+        "expected_periods": {"quarterly": "4/2025"},
+        "caches": {"dre_individual": {"max_period": "4/2025"}},
+    }
+    bundled_manifest = {
+        "expected_periods": {"quarterly": "1/2026"},
+        "caches": {"dre_individual": {"max_period": "1/2026"}},
+    }
+
+    assert app1._periodo_maximo_manifest_cache(remote_manifest, "dre_individual") == "202512"
+    assert (
+        app1._periodo_maximo_manifest_cache(
+            [remote_manifest, bundled_manifest],
+            "dre_individual",
+        )
+        == "202603"
+    )
+
+
+def test_dre_individual_cache_loader_forces_remote_when_bundled_manifest_is_newer():
+    class FakeManager:
+        def __init__(self):
+            self.calls = []
+
+        def carregar(self, cache_name, forcar_remoto=False):
+            self.calls.append((cache_name, forcar_remoto))
+            if forcar_remoto:
+                return SimpleNamespace(
+                    sucesso=True,
+                    dados=pd.DataFrame({"Período": ["1/2026"]}),
+                    metadata={"periodos": ["1/2026"]},
+                    fonte="github_releases",
+                )
+            return SimpleNamespace(
+                sucesso=True,
+                dados=pd.DataFrame({"Período": ["4/2025"]}),
+                metadata={"periodos": ["4/2025"]},
+                fonte="cache_local",
+            )
+
+    remote_manifest = {
+        "expected_periods": {"quarterly": "4/2025"},
+        "caches": {"dre_individual": {"max_period": "4/2025"}},
+    }
+    bundled_manifest = {
+        "expected_periods": {"quarterly": "1/2026"},
+        "caches": {"dre_individual": {"max_period": "1/2026"}},
+    }
+
+    result, status = app1._carregar_cache_com_freshness(
+        FakeManager(),
+        "dre_individual",
+        [remote_manifest, bundled_manifest],
+    )
+
+    assert result.fonte == "github_releases"
+    assert status["local_ref"] == "202603"
+    assert status["release_ref"] == "202603"
+    assert status["stale"] is False
+    assert status["remote_forced"] is True
+
+
 def test_dre_individual_cache_loader_forces_remote_when_local_is_stale():
     class FakeManager:
         def __init__(self):

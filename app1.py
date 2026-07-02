@@ -4408,10 +4408,52 @@ def _release_manifest_url() -> str:
     return f"{release_cfg.release_base_url}/manifest.json"
 
 
-@st.cache_data(ttl=300, show_spinner=False)
-def _carregar_manifest_release_cache(url: str) -> dict:
+def _bundled_manifest_path_cache() -> Path:
+    return Path(__file__).resolve().parent / "data" / "cache" / "manifest.json"
+
+
+def _manifest_expected_quarterly_ref_cache(manifest: dict | None) -> str:
+    if not isinstance(manifest, dict):
+        return ""
+    expected_periods = manifest.get("expected_periods")
+    if not isinstance(expected_periods, dict):
+        return ""
+    return _periodo_ref_cache(expected_periods.get("quarterly"))
+
+
+def _manifest_generated_token_cache(manifest: dict | None) -> str:
+    if not isinstance(manifest, dict):
+        return ""
+    return str(manifest.get("generated_at_utc") or manifest.get("_erro") or "")
+
+
+def _bundled_manifest_token_cache() -> str:
+    path = _bundled_manifest_path_cache()
     try:
-        response = requests.get(url, timeout=20)
+        stat = path.stat()
+    except OSError:
+        return "missing"
+    return f"{stat.st_mtime_ns}:{stat.st_size}"
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _carregar_manifest_bundled_cache(cache_token: str = "") -> dict:
+    path = _bundled_manifest_path_cache()
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        return payload if isinstance(payload, dict) else {"_erro": "manifesto bundled inválido"}
+    except FileNotFoundError:
+        return {"_erro": "manifesto bundled ausente"}
+    except Exception as exc:
+        return {"_erro": str(exc)}
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _carregar_manifest_release_cache(url: str, cache_token: str = "") -> dict:
+    try:
+        headers = {"Cache-Control": "no-cache", "Pragma": "no-cache"}
+        params = {"cache_bust": cache_token} if cache_token else None
+        response = requests.get(url, timeout=20, headers=headers, params=params)
         if response.status_code != 200:
             return {"_erro": f"HTTP {response.status_code}"}
         payload = response.json()
@@ -4421,18 +4463,48 @@ def _carregar_manifest_release_cache(url: str) -> dict:
 
 
 def _periodo_maximo_manifest_cache(manifest: dict | None, cache_name: str) -> str:
+    if isinstance(manifest, (list, tuple)):
+        refs = [
+            _periodo_maximo_manifest_cache(item, cache_name)
+            for item in manifest
+        ]
+        refs = [ref for ref in refs if ref]
+        return max(refs, key=_periodo_sort_key_cache) if refs else ""
     if not isinstance(manifest, dict):
         return ""
     caches = manifest.get("caches") if isinstance(manifest.get("caches"), dict) else {}
     cache_info = caches.get(cache_name) if isinstance(caches.get(cache_name), dict) else {}
+    refs = []
     for value in (
         cache_info.get("max_period"),
-        (manifest.get("expected_periods") or {}).get("quarterly") if isinstance(manifest.get("expected_periods"), dict) else None,
+        cache_info.get("max_period_ref"),
+        (manifest.get("expected_periods") or {}).get("quarterly")
+        if isinstance(manifest.get("expected_periods"), dict)
+        else None,
     ):
         ref = _periodo_ref_cache(value)
         if ref:
-            return ref
-    return ""
+            refs.append(ref)
+    return max(refs, key=_periodo_sort_key_cache) if refs else ""
+
+
+def _manifest_ref_resumo_cache(manifest: dict | None, cache_names: Sequence[str]) -> str:
+    if not isinstance(manifest, dict):
+        return "-"
+    erro = manifest.get("_erro")
+    if erro:
+        return f"erro: {erro}"
+    partes = []
+    for cache_name in cache_names:
+        ref = _periodo_maximo_manifest_cache(manifest, cache_name)
+        partes.append(f"{cache_name} {_periodo_yyyymm_para_exibicao(ref) if ref else '-'}")
+    expected = _manifest_expected_quarterly_ref_cache(manifest)
+    if expected:
+        partes.append(f"esperado {_periodo_yyyymm_para_exibicao(expected)}")
+    generated = _manifest_generated_token_cache(manifest)
+    if generated:
+        partes.append(f"gerado {generated}")
+    return " | ".join(partes) if partes else "-"
 
 
 def _cache_period_status_from_result(cache_name: str, result, manifest: dict | None) -> dict:
@@ -23147,20 +23219,36 @@ elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolid
 
     DRE_ANO_EXIBICAO_INICIAL = 2025
     DRE_MES_EXIBICAO_INICIAL = 3
-    _dre_individual_release_manifest = _carregar_manifest_release_cache(_release_manifest_url())
+    _dre_individual_release_cfg = _release_config_app()
+    _dre_individual_release_url = _release_manifest_url()
+    _dre_individual_bundled_manifest = _carregar_manifest_bundled_cache(_bundled_manifest_token_cache())
+    _dre_individual_release_manifest = _carregar_manifest_release_cache(
+        _dre_individual_release_url,
+        _manifest_generated_token_cache(_dre_individual_bundled_manifest) or _bundled_manifest_token_cache(),
+    )
+    _dre_individual_manifest_bundle = [
+        _dre_individual_release_manifest,
+        _dre_individual_bundled_manifest,
+    ]
     _dre_individual_release_token = "|".join(
         [
-            _periodo_maximo_manifest_cache(_dre_individual_release_manifest, "dre_individual"),
-            _periodo_maximo_manifest_cache(_dre_individual_release_manifest, "principal_individual"),
-            str(_dre_individual_release_manifest.get("generated_at_utc") or ""),
+            _periodo_maximo_manifest_cache(_dre_individual_manifest_bundle, "dre_individual"),
+            _periodo_maximo_manifest_cache(_dre_individual_manifest_bundle, "principal_individual"),
+            _manifest_generated_token_cache(_dre_individual_release_manifest),
+            _manifest_generated_token_cache(_dre_individual_bundled_manifest),
         ]
     )
 
     @st.cache_data(ttl=3600, show_spinner=False)
     def load_dre_individual_data(release_token: str):
         manager = get_cache_manager()
-        manifest = _carregar_manifest_release_cache(_release_manifest_url())
-        resultado, status = _carregar_cache_com_freshness(manager, "dre_individual", manifest)
+        bundled_manifest = _carregar_manifest_bundled_cache(_bundled_manifest_token_cache())
+        manifest = _carregar_manifest_release_cache(
+            _release_manifest_url(),
+            release_token or _manifest_generated_token_cache(bundled_manifest),
+        )
+        manifest_bundle = [manifest, bundled_manifest]
+        resultado, status = _carregar_cache_com_freshness(manager, "dre_individual", manifest_bundle)
         if resultado.sucesso and resultado.dados is not None:
             return resultado.dados, None, status
         return None, resultado.mensagem, status
@@ -23168,8 +23256,13 @@ elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolid
     @st.cache_data(ttl=3600, show_spinner=False)
     def load_principal_individual_data(release_token: str):
         manager = get_cache_manager()
-        manifest = _carregar_manifest_release_cache(_release_manifest_url())
-        resultado, status = _carregar_cache_com_freshness(manager, "principal_individual", manifest)
+        bundled_manifest = _carregar_manifest_bundled_cache(_bundled_manifest_token_cache())
+        manifest = _carregar_manifest_release_cache(
+            _release_manifest_url(),
+            release_token or _manifest_generated_token_cache(bundled_manifest),
+        )
+        manifest_bundle = [manifest, bundled_manifest]
+        resultado, status = _carregar_cache_com_freshness(manager, "principal_individual", manifest_bundle)
         if resultado.sucesso and resultado.dados is not None:
             return resultado.dados, None, status
         return pd.DataFrame(), resultado.mensagem, status
@@ -23633,6 +23726,13 @@ elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolid
             ]
         )
     )
+    st.caption(
+        "Manifestos DRE Individual: "
+        f"remoto ({_dre_individual_release_cfg.repo}@{_dre_individual_release_cfg.tag}) "
+        f"{_manifest_ref_resumo_cache(_dre_individual_release_manifest, ['dre_individual', 'principal_individual'])} ; "
+        f"bundled {_manifest_ref_resumo_cache(_dre_individual_bundled_manifest, ['dre_individual', 'principal_individual'])} ; "
+        f"URL {_dre_individual_release_url}"
+    )
     if dre_cache_status.get("stale") or principal_cache_status.get("stale"):
         st.warning(
             "O cache local ainda parece defasado em relação ao release publicado. "
@@ -23806,6 +23906,30 @@ elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolid
     periodo_mais_recente = periodos_opcoes_cron[-1]
     periodo_default = _default_periodos_dre_individual(periodos_catalogo)
     periodo_selector_ref = _periodo_ref_cache(periodo_mais_recente) or str(len(periodos_opcoes_cron))
+    periodo_mais_recente_ref = _periodo_ref_cache(periodo_mais_recente)
+    periodo_esperado_ref = max(
+        [
+            ref
+            for ref in (
+                dre_cache_status.get("release_ref"),
+                principal_cache_status.get("release_ref"),
+            )
+            if ref
+        ],
+        key=_periodo_sort_key_cache,
+        default="",
+    )
+    if periodo_esperado_ref and periodo_mais_recente_ref and periodo_mais_recente_ref < periodo_esperado_ref:
+        st.warning(
+            "A seleção/visão atual não expôs o período mais recente esperado. "
+            f"Último período na visão: {_periodo_yyyymm_para_exibicao(periodo_mais_recente_ref)}; "
+            f"período esperado pelo manifesto: {_periodo_yyyymm_para_exibicao(periodo_esperado_ref)}. "
+            "Isso indica cache local/remoto defasado no runtime ou ausência de linha para a instituição selecionada."
+        )
+    st.caption(
+        "Períodos disponíveis para a visão selecionada: "
+        + ", ".join(periodo_para_exibicao(p) for p in periodos_opcoes_cron)
+    )
 
     periodos_selecionados_ui = st.multiselect(
         "Períodos exibidos (sempre acumulado YTD)",

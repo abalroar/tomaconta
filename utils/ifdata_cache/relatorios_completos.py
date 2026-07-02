@@ -133,7 +133,11 @@ class RelatorioCompletoCache(BaseCache):
         """Baixa parquet do GitHub Releases."""
         try:
             self._log("info", f"Tentando parquet dos releases: {self.github_release_parquet_url}")
-            response = requests.get(self.github_release_parquet_url, timeout=120)
+            response = requests.get(
+                self.github_release_parquet_url,
+                timeout=120,
+                headers={"Cache-Control": "no-cache", "Pragma": "no-cache"},
+            )
 
             if response.status_code == 404:
                 self._log("warning", f"Parquet {self.config.nome} não encontrado nos releases")
@@ -166,7 +170,11 @@ class RelatorioCompletoCache(BaseCache):
         """Baixa pickle do GitHub Releases."""
         try:
             self._log("info", f"Tentando pickle dos releases: {self.github_release_url}")
-            response = requests.get(self.github_release_url, timeout=120)
+            response = requests.get(
+                self.github_release_url,
+                timeout=120,
+                headers={"Cache-Control": "no-cache", "Pragma": "no-cache"},
+            )
 
             if response.status_code == 404:
                 self._log("warning", f"Cache {self.config.nome} não encontrado nos releases (404)")

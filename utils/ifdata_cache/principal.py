@@ -148,7 +148,11 @@ class PrincipalCache(BaseCache):
         """Baixa parquet do GitHub Releases."""
         try:
             self._log("info", f"Tentando parquet dos releases: {self.github_release_parquet_url}")
-            response = requests.get(self.github_release_parquet_url, timeout=120)
+            response = requests.get(
+                self.github_release_parquet_url,
+                timeout=120,
+                headers={"Cache-Control": "no-cache", "Pragma": "no-cache"},
+            )
 
             if response.status_code == 404:
                 self._log("warning", "Parquet não encontrado nos releases")
@@ -181,7 +185,11 @@ class PrincipalCache(BaseCache):
         """Baixa pickle do GitHub Releases (formato antigo)."""
         try:
             self._log("info", f"Tentando pickle dos releases ({repo_nome}): {url}")
-            response = requests.get(url, timeout=120)
+            response = requests.get(
+                url,
+                timeout=120,
+                headers={"Cache-Control": "no-cache", "Pragma": "no-cache"},
+            )
 
             if response.status_code == 404:
                 self._log("warning", "Cache não encontrado no GitHub Releases (404)")
