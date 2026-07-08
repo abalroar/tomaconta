@@ -36,7 +36,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("ifdata_cache")
 
-CRITICAL_SCREENS_SCHEMA_VERSION = 3
+CRITICAL_SCREENS_SCHEMA_VERSION = 4
 BUNDLED_CRITICAL_SCREENS_DIR = Path("data") / "bundled" / "critical_screens"
 
 
@@ -67,8 +67,10 @@ CRITICAL_EXTRA_METRICS = [
     "Carteira de Créd. Class. C4+C5 / Carteira Classificada",
     "Carteira Total 4.966",
     "Inadimplência 4.966",
+    "Inadimplência",
     "Ativos Problemáticos 4.966",
     "Inadimplência / Carteira Total",
+    "Inadimplência / Carteira de Crédito",
     "Ativos Problemáticos / Carteira Total",
     "Perda Esperada / (Carteira C4 + C5)",
     "Saldo PDD Crédito",
@@ -78,6 +80,7 @@ CRITICAL_EXTRA_METRICS = [
     "Ativos Estágio 2",
     "Ativos Estágio 3",
     "PDD / Estágio 3",
+    "Ativos Estágio 3 / Carteira de Crédito",
     "Perda Esperada / Estágio 3",
     "Perda Esperada / Est2+3",
     "Índice de Capital Principal (CET1)",
@@ -482,11 +485,13 @@ def _sum_required_values(values: Iterable[object]) -> Optional[float]:
     return float(sum(nums))
 
 
-def _calc_ratio(valor_num, valor_den) -> Optional[float]:
+def _calc_ratio(valor_num, valor_den, *, abs_num: bool = False) -> Optional[float]:
     num = _coerce_numeric_value(valor_num)
     den = _coerce_numeric_value(valor_den)
     if num is None or den is None or den == 0:
         return None
+    if abs_num:
+        num = abs(num)
     return float(num) / float(den)
 
 
@@ -1749,7 +1754,7 @@ def build_critical_screens_dataframe(
             qualidade_status = "loss_source_unavailable"
         elif blop_status != "available":
             qualidade_status = blop_status
-        elif _calc_ratio(perda_esperada, estagio3) is None and _calc_ratio(perda_esperada, _sum_required_values([estagio2, estagio3])) is None:
+        elif _calc_ratio(perda_esperada, estagio3, abs_num=True) is None and _calc_ratio(perda_esperada, _sum_required_values([estagio2, estagio3]), abs_num=True) is None:
             qualidade_status = "denominator_unavailable"
         else:
             qualidade_status = "available"
@@ -1776,28 +1781,32 @@ def build_critical_screens_dataframe(
                 "Carteira de Crédito Bruta": carteira_bruta,
                 "Carteira de Crédito*": carteira_bruta,
                 "Perda Esperada": perda_esperada,
-                "Perda Esperada / Carteira de Crédito Bruta": _calc_ratio(perda_esperada, carteira_bruta),
-                "Perda Esperada / Carteira de Crédito*": _calc_ratio(perda_esperada, carteira_bruta),
+                "Perda Esperada / Carteira de Crédito Bruta": _calc_ratio(perda_esperada, carteira_bruta, abs_num=True),
+                "Perda Esperada / Carteira de Crédito*": _calc_ratio(perda_esperada, carteira_bruta, abs_num=True),
                 "Carteira de Crédito Classificada": carteira_classificada,
                 "Carteira de Créd. Class. C4+C5": carteira_c4_c5,
                 "Carteira de Créd. Class. C4+C5 / Carteira Classificada": _calc_ratio(carteira_c4_c5, carteira_classificada),
                 "Carteira Total 4.966": carteira_4966_total,
                 "Inadimplência 4.966": inadimplencia_4966,
+                "Inadimplência": inadimplencia_4966,
                 "Ativos Problemáticos 4.966": ativos_problematicos_4966,
                 "Inadimplência / Carteira Total": _calc_ratio(inadimplencia_4966, carteira_4966_total),
+                "Inadimplência / Carteira de Crédito": _calc_ratio(inadimplencia_4966, carteira_bruta),
                 "Ativos Problemáticos / Carteira Total": _calc_ratio(ativos_problematicos_4966, carteira_4966_total),
-                "Perda Esperada / (Carteira C4 + C5)": _calc_ratio(perda_esperada, carteira_c4_c5),
+                "Perda Esperada / (Carteira C4 + C5)": _calc_ratio(perda_esperada, carteira_c4_c5, abs_num=True),
                 "Saldo PDD Crédito": pdd_credito,
                 "Saldo PDD Outros Créditos": pdd_outros,
                 "PDD Total 4060": pdd_total_4060,
                 "Carteira Estágio 1": estagio1,
                 "Ativos Estágio 2": estagio2,
                 "Ativos Estágio 3": estagio3,
-                "PDD / Estágio 3": _calc_ratio(pdd_total_4060, estagio3),
-                "Perda Esperada / Estágio 3": _calc_ratio(perda_esperada, estagio3),
+                "PDD / Estágio 3": _calc_ratio(pdd_total_4060, estagio3, abs_num=True),
+                "Ativos Estágio 3 / Carteira de Crédito": _calc_ratio(estagio3, carteira_bruta),
+                "Perda Esperada / Estágio 3": _calc_ratio(perda_esperada, estagio3, abs_num=True),
                 "Perda Esperada / Est2+3": _calc_ratio(
                     perda_esperada,
                     _sum_required_values([estagio2, estagio3]),
+                    abs_num=True,
                 ),
                 "Índice de Capital Principal (CET1)": indice_cap_principal,
                 "Índice de Basileia Total (%)": indice_basileia,

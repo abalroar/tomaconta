@@ -1226,6 +1226,7 @@ st.markdown("""
 # Diretório base relativo ao app.py (funciona independente do nome do repo)
 APP_DIR = Path(__file__).parent.resolve()
 DATA_DIR = APP_DIR / "data"
+PEER_GROUPS_PATH = DATA_DIR / "peer_groups.json"
 
 
 def _resolver_aliases_path() -> Path:
@@ -1252,8 +1253,10 @@ VARS_PERCENTUAL = [
     'Perda Esperada / (Carteira C4 + C5)',
     'Carteira de Créd. Class. C4+C5 / Carteira Classificada',
     'PDD / Estágio 3',
+    'Ativos Estágio 3 / Carteira de Crédito',
     'Perda Esperada / Estágio 3',
     'Perda Esperada / Est2+3',
+    'Inadimplência / Carteira de Crédito',
     # Variáveis de Capital (Relatório 5)
     'Índice de Capital Principal',
     'Índice de Capital Principal (CET1)',
@@ -1305,6 +1308,8 @@ VARS_MOEDAS = [
     'Carteira Estágio 1',
     'Ativos Estágio 2',
     'Ativos Estágio 3',
+    'Inadimplência',
+    'Inadimplência 4.966',
 ]
 VARS_CONTAGEM = ['Número de Agências', 'Número de Postos de Atendimento']
 
@@ -1361,6 +1366,21 @@ PEERS_TABELA_LAYOUT = [
                 "label": "Ativos Estágio 3",
                 "data_keys": [],
                 "format_key": "Ativos Estágio 3",
+            },
+            {
+                "label": "Ativos Estágio 3 / Carteira de Crédito",
+                "data_keys": [],
+                "format_key": "Ativos Estágio 3 / Carteira de Crédito",
+            },
+            {
+                "label": "Inadimplência",
+                "data_keys": [],
+                "format_key": "Inadimplência",
+            },
+            {
+                "label": "Inadimplência / Carteira de Crédito",
+                "data_keys": [],
+                "format_key": "Inadimplência / Carteira de Crédito",
             },
             {
                 "label": "Perda Esperada / Estágio 3",
@@ -1431,9 +1451,12 @@ PEERS_GLOSSARIO_RESUMIDO = {
     "Patrimônio Líquido (PL)": "Patrimônio Líquido do balanço principal (Rel. 1).",
     "Ativos Estágio 2": "Saldo da conta 3312000001 (Cadoc 4060) no período, quando a fonte mensal publicar o estágio e houver match prudencial confiável.",
     "Ativos Estágio 3": "Saldo da conta 3313000000 (Cadoc 4060) no período, quando a fonte mensal publicar o estágio e houver match prudencial confiável.",
-    "Perda Esperada / Estágio 3": "Perda Esperada (Rel. 2) ÷ Ativos Estágio 3 (Cadoc 4060), somente quando numerador e denominador estiverem disponíveis.",
-    "Perda Esperada / Est2+3": "Perda Esperada (Rel. 2) ÷ (Ativos Estágio 2 + Ativos Estágio 3) do Cadoc 4060, somente com cobertura prudencial válida.",
-    "Perda Esperada / Carteira de Crédito*": "Perda Esperada ÷ Carteira de Crédito*.",
+    "Ativos Estágio 3 / Carteira de Crédito": "Ativos Estágio 3 (Cadoc 4060) ÷ Carteira de Crédito*.",
+    "Inadimplência": "Inadimplência publicada no IFData Rel. 16 (Carteira de crédito ativa por carteiras de instrumentos financeiros).",
+    "Inadimplência / Carteira de Crédito": "Inadimplência do Rel. 16 ÷ Carteira de Crédito*.",
+    "Perda Esperada / Estágio 3": "Magnitude da Perda Esperada (Rel. 2) ÷ Ativos Estágio 3 (Cadoc 4060), somente quando numerador e denominador estiverem disponíveis.",
+    "Perda Esperada / Est2+3": "Magnitude da Perda Esperada (Rel. 2) ÷ (Ativos Estágio 2 + Ativos Estágio 3) do Cadoc 4060, somente com cobertura prudencial válida.",
+    "Perda Esperada / Carteira de Crédito*": "Magnitude da Perda Esperada ÷ Carteira de Crédito*.",
     "Ativo Total / PL": "Ativo Total ÷ Patrimônio Líquido.",
     "Carteira de Crédito* / PL": "Carteira de Crédito* ÷ Patrimônio Líquido.",
     "Índice de Capital Principal (CET1)": "Capital Principal ÷ RWA Total (Rel. 5).",
@@ -1444,6 +1467,27 @@ PEERS_GLOSSARIO_RESUMIDO = {
 
 PEERS_PERCENT_DECIMALS = {
     "Perda Esperada / Est2+3": 1,
+}
+
+PEERS_RATIO_COMPONENTS = {
+    "Ativos Estágio 3 / Carteira de Crédito": ("Ativos Estágio 3", "Carteira de Crédito Bruta"),
+    "Inadimplência / Carteira de Crédito": ("Inadimplência", "Carteira de Crédito Bruta"),
+    "Perda Esperada / Carteira de Crédito Bruta": ("Perda Esperada", "Carteira de Crédito Bruta"),
+    "Perda Esperada / Carteira de Crédito*": ("Perda Esperada", "Carteira de Crédito Bruta"),
+    "Carteira de Créd. Class. C4+C5 / Carteira Classificada": ("Carteira de Créd. Class. C4+C5", "Carteira de Crédito Classificada"),
+    "Perda Esperada / (Carteira C4 + C5)": ("Perda Esperada", "Carteira de Créd. Class. C4+C5"),
+    "PDD / Estágio 3": ("PDD Total 4060", "Ativos Estágio 3"),
+    "Perda Esperada / Estágio 3": ("Perda Esperada", "Ativos Estágio 3"),
+}
+
+PEERS_ALLOWANCE_RATIO_METRICS = {
+    "PDD / Estágio 3",
+    "Perda Esperada / Carteira",
+    "Perda Esperada / Carteira de Crédito Bruta",
+    "Perda Esperada / Carteira de Crédito*",
+    "Perda Esperada / (Carteira C4 + C5)",
+    "Perda Esperada / Estágio 3",
+    "Perda Esperada / Est2+3",
 }
 
 # Variáveis disponíveis para ponderação (variáveis de tamanho/volume em valores absolutos)
@@ -4944,6 +4988,79 @@ def _encontrar_bancos_default(bancos_disponiveis: list, slugs=None) -> list:
     return resultado
 
 
+def _carregar_peer_groups_salvos(path: Path = PEER_GROUPS_PATH) -> dict[str, list[str]]:
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    raw_groups = payload.get("groups") if isinstance(payload, dict) else payload
+    if not isinstance(raw_groups, dict):
+        return {}
+    groups: dict[str, list[str]] = {}
+    for nome, membros in raw_groups.items():
+        nome_str = str(nome or "").strip()
+        if not nome_str or not isinstance(membros, list):
+            continue
+        seen = set()
+        validos = []
+        for membro in membros:
+            membro_str = str(membro or "").strip()
+            if membro_str and membro_str not in seen:
+                validos.append(membro_str)
+                seen.add(membro_str)
+        if validos:
+            groups[nome_str] = validos
+    return groups
+
+
+def _salvar_peer_groups_salvos(groups: Mapping[str, Sequence[str]], path: Path = PEER_GROUPS_PATH) -> bool:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "schema_version": 1,
+            "groups": {
+                str(nome): [str(membro) for membro in membros if str(membro).strip()]
+                for nome, membros in sorted((groups or {}).items(), key=lambda item: str(item[0]).lower())
+                if str(nome).strip()
+            },
+        }
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        return True
+    except Exception:
+        return False
+
+
+def _filtrar_peer_group(membros: Sequence[str], bancos_disponiveis: Sequence[str]) -> list[str]:
+    disponiveis = [str(b) for b in bancos_disponiveis or [] if str(b).strip()]
+    if not membros or not disponiveis:
+        return []
+    por_nome = {b: b for b in disponiveis}
+    por_norm = {normalizar_nome_instituicao(b): b for b in disponiveis}
+    selecionados = []
+    seen = set()
+    for membro in membros:
+        membro_str = str(membro or "").strip()
+        candidato = por_nome.get(membro_str) or por_norm.get(normalizar_nome_instituicao(membro_str))
+        if candidato and candidato not in seen:
+            selecionados.append(candidato)
+            seen.add(candidato)
+    return selecionados
+
+
+def _peer_groups_disponiveis(bancos_disponiveis: Sequence[str]) -> dict[str, list[str]]:
+    grupos: dict[str, list[str]] = {}
+    default_itau = _encontrar_bancos_default(list(bancos_disponiveis or []), [("itau", "itaú")])
+    if default_itau:
+        grupos["Itaú"] = default_itau
+    for nome, membros in _carregar_peer_groups_salvos().items():
+        filtrados = _filtrar_peer_group(membros, bancos_disponiveis)
+        if filtrados:
+            grupos[nome] = filtrados
+    return grupos
+
+
 def _encontrar_periodo(periodos: list, trimestre: int, ano: int) -> Optional[str]:
     """Encontra um período na lista pelo trimestre e ano."""
     for p in periodos:
@@ -4981,6 +5098,25 @@ def _is_variavel_percentual(variavel: str) -> bool:
     return "Basileia" in variavel
 
 
+def _percentual_pode_vir_em_0_100(variavel: Optional[str]) -> bool:
+    if not variavel:
+        return False
+    return any(
+        token in str(variavel)
+        for token in (
+            "Basileia",
+            "Capital Principal",
+            "CET1",
+            "Capital T1",
+            "Capital Nível I",
+            "Capital Nivel I",
+            "Capital Nivel",
+            "Razão de Alavancagem",
+            "Índice de Imobilização",
+        )
+    )
+
+
 def _to_ptbr_decimal(texto: str) -> str:
     if texto is None:
         return ""
@@ -5004,11 +5140,9 @@ def _formatar_percentual(valor, decimais: int = 2) -> str:
         valor_float = float(valor)
     except Exception:
         return "N/A"
-    # Normalização estrutural de escala:
-    # - base decimal (0-1)  -> converte para 0-100
-    # - base percentual 0-100 -> preserva
-    if abs(valor_float) <= 1:
-        valor_float *= 100
+    # Métricas percentuais curadas usam escala interna decimal. Não inferir
+    # escala por magnitude: coberturas > 100% são valores válidos.
+    valor_float *= 100
     return f"{_formatar_numero_ptbr(valor_float, decimais)}%"
 
 
@@ -5078,13 +5212,11 @@ def _normalizar_percentual_display(serie: pd.Series, variavel: Optional[str] = N
     serie_num = pd.to_numeric(serie, errors="coerce")
     if serie_num.empty:
         return serie_num
-
-    # Regra de display robusta: valores em base decimal (0-1) viram 0-100.
-    # Valores já em 0-100 permanecem sem nova multiplicação.
-    mask_decimal = serie_num.abs() <= 1
-    serie_display = serie_num.copy()
-    serie_display.loc[mask_decimal] = serie_display.loc[mask_decimal] * 100
-    return serie_display
+    if _percentual_pode_vir_em_0_100(variavel):
+        serie_valid = serie_num.dropna().abs()
+        if not serie_valid.empty and float(serie_valid.median()) >= 1:
+            return serie_num
+    return serie_num * 100
 
 
 def _normalizar_basileia_display(serie: pd.Series) -> pd.Series:
@@ -5161,7 +5293,7 @@ def _normalizar_valor_indicador(valor, variavel: Optional[str]):
     except Exception:
         return np.nan
 
-    if _is_variavel_percentual(variavel) and abs(valor_num) > 1:
+    if _is_variavel_percentual(variavel) and _percentual_pode_vir_em_0_100(variavel) and abs(valor_num) > 1:
         return valor_num / 100
     return valor_num
 
@@ -5525,7 +5657,10 @@ def _tooltip_ratio_peers(label, valor_num, valor_den, valor_ratio):
     _NOMES_COMPONENTES = {
         "Ativo Total / PL": ("Ativo Total", "PL"),
         "Carteira de Crédito* / PL": ("Carteira de Crédito Bruta", "PL"),
+        "Ativos Estágio 3 / Carteira de Crédito": ("Ativos Estágio 3", "Carteira de Crédito Bruta"),
+        "Inadimplência / Carteira de Crédito": ("Inadimplência", "Carteira de Crédito Bruta"),
         "Perda Esperada / Carteira de Crédito*": ("Perda Esperada", "Carteira de Crédito Bruta"),
+        "Perda Esperada / Estágio 3": ("Perda Esperada", "Estágio 3"),
         "Perda Esperada / Est2+3": ("Perda Esperada", "Estágio 2 + Estágio 3"),
         "Carteira de Créd. Class. C4+C5 / Carteira Classificada": ("C4+C5", "Carteira de Crédito Classificada"),
         "Perda Esperada / (Carteira C4 + C5)": ("Perda Esperada", "C4+C5"),
@@ -8364,6 +8499,12 @@ def _preparar_metricas_extra_peers(
         "Perda Esperada / Carteira de Crédito*": {},
         "Carteira de Créd. Class. C4+C5": {},
         "Carteira de Créd. Class. C4+C5 / Carteira Classificada": {},
+        "Carteira Total 4.966": {},
+        "Inadimplência": {},
+        "Inadimplência 4.966": {},
+        "Inadimplência / Carteira Total": {},
+        "Ativos Problemáticos 4.966": {},
+        "Ativos Problemáticos / Carteira Total": {},
         "Perda Esperada / (Carteira C4 + C5)": {},
         "Saldo PDD Crédito": {},
         "Saldo PDD Outros Créditos": {},
@@ -8372,8 +8513,10 @@ def _preparar_metricas_extra_peers(
         "Ativos Estágio 2": {},
         "Ativos Estágio 3": {},
         "PDD / Estágio 3": {},
+        "Ativos Estágio 3 / Carteira de Crédito": {},
         "Perda Esperada / Estágio 3": {},
         "Perda Esperada / Est2+3": {},
+        "Inadimplência / Carteira de Crédito": {},
         "Índice de Capital Principal (CET1)": {},
         "Índice de Basileia Total (%)": {},
     }
@@ -8999,6 +9142,9 @@ def _preparar_metricas_extra_peers(
 
     col_c4 = _resolver_coluna_peers(cache_carteira_instr, ["C4"])
     col_c5 = _resolver_coluna_peers(cache_carteira_instr, ["C5"])
+    col_instr_total = _resolver_coluna_peers(cache_carteira_instr, ["Total Geral"])
+    col_instr_inad = _resolver_coluna_peers(cache_carteira_instr, ["Inadimplência", "Inadimplencia"])
+    col_instr_prob = _resolver_coluna_peers(cache_carteira_instr, ["Ativos problemáticos", "Ativos problematicos"])
 
     # Capital: colunas para Índice de Capital Principal e Índice de Basileia Total
     col_cap_principal = _resolver_coluna_peers(
@@ -9058,7 +9204,7 @@ def _preparar_metricas_extra_peers(
     ]
     cols_pf_pivot = [col_pf_total]
     cols_pj_pivot = [col_pj_total]
-    cols_instr_pivot = [col_c4, col_c5]
+    cols_instr_pivot = [col_c4, col_c5, col_instr_total, col_instr_inad, col_instr_prob]
 
     lk_ativo = _build_metric_pivot(cache_ativo, cols_ativo_pivot)
     lk_passivo = _build_metric_pivot(cache_passivo, cols_passivo_pivot)
@@ -9138,21 +9284,42 @@ def _preparar_metricas_extra_peers(
             perda_ratio = _calcular_ratio_peers(
                 perda_esperada,
                 carteira_bruta,
+                abs_num=True,
             )
             extra["Perda Esperada / Carteira de Crédito Bruta"][chave] = perda_ratio
             extra["Perda Esperada / Carteira de Crédito*"][chave] = perda_ratio
 
             valor_c4 = _lk_get(lk_instr, banco, periodo, col_c4)
             valor_c5 = _lk_get(lk_instr, banco, periodo, col_c5)
+            carteira_4966_total = _coerce_numeric_value(_lk_get(lk_instr, banco, periodo, col_instr_total))
+            inadimplencia_4966 = _coerce_numeric_value(_lk_get(lk_instr, banco, periodo, col_instr_inad))
+            ativos_problematicos_4966 = _coerce_numeric_value(_lk_get(lk_instr, banco, periodo, col_instr_prob))
             carteira_c4_c5 = _somar_valores([valor_c4, valor_c5])
             extra["Carteira de Créd. Class. C4+C5"][chave] = carteira_c4_c5
             extra["Carteira de Créd. Class. C4+C5 / Carteira Classificada"][chave] = _calcular_ratio_peers(
                 carteira_c4_c5,
                 carteira_classificada,
             )
+            extra["Carteira Total 4.966"][chave] = carteira_4966_total
+            extra["Inadimplência"][chave] = inadimplencia_4966
+            extra["Inadimplência 4.966"][chave] = inadimplencia_4966
+            extra["Ativos Problemáticos 4.966"][chave] = ativos_problematicos_4966
+            extra["Inadimplência / Carteira Total"][chave] = _calcular_ratio_peers(
+                inadimplencia_4966,
+                carteira_4966_total,
+            )
+            extra["Ativos Problemáticos / Carteira Total"][chave] = _calcular_ratio_peers(
+                ativos_problematicos_4966,
+                carteira_4966_total,
+            )
+            extra["Inadimplência / Carteira de Crédito"][chave] = _calcular_ratio_peers(
+                inadimplencia_4966,
+                carteira_bruta,
+            )
             extra["Perda Esperada / (Carteira C4 + C5)"][chave] = _calcular_ratio_peers(
                 perda_esperada,
                 carteira_c4_c5,
+                abs_num=True,
             )
 
             pdd_credito = _blop_get_sum_periodo_conta(banco, periodo, "1490000004")
@@ -9168,11 +9335,16 @@ def _preparar_metricas_extra_peers(
             extra["Carteira Estágio 1"][chave] = estagio1_mes
             extra["Ativos Estágio 2"][chave] = estagio2_mes
             extra["Ativos Estágio 3"][chave] = estagio3_mes
-            extra["PDD / Estágio 3"][chave] = _calcular_ratio_peers(pdd_total_4060, estagio3_mes)
-            extra["Perda Esperada / Estágio 3"][chave] = _calcular_ratio_peers(perda_esperada, estagio3_mes)
+            extra["PDD / Estágio 3"][chave] = _calcular_ratio_peers(pdd_total_4060, estagio3_mes, abs_num=True)
+            extra["Ativos Estágio 3 / Carteira de Crédito"][chave] = _calcular_ratio_peers(
+                estagio3_mes,
+                carteira_bruta,
+            )
+            extra["Perda Esperada / Estágio 3"][chave] = _calcular_ratio_peers(perda_esperada, estagio3_mes, abs_num=True)
             extra["Perda Esperada / Est2+3"][chave] = _calcular_ratio_peers(
                 perda_esperada,
                 _somar_estagios_2_3_peers(estagio2_mes, estagio3_mes),
+                abs_num=True,
             )
 
             # Capital: Índice de Capital Principal e Índice de Basileia Total
@@ -9231,16 +9403,19 @@ def _preparar_metricas_extra_peers(
     return extra
 
 
-def _calcular_ratio_peers(valor_num, valor_den) -> Optional[float]:
+def _calcular_ratio_peers(valor_num, valor_den, *, abs_num: bool = False) -> Optional[float]:
     if valor_num is None or valor_den is None:
         return None
     if pd.isna(valor_num) or pd.isna(valor_den):
         return None
     try:
+        valor_num_float = float(valor_num)
         valor_den_float = float(valor_den)
         if valor_den_float == 0:
             return None
-        return float(valor_num) / valor_den_float
+        if abs_num:
+            valor_num_float = abs(valor_num_float)
+        return valor_num_float / valor_den_float
     except Exception:
         return None
 
@@ -9675,11 +9850,76 @@ def _preparar_metricas_extra_peers_cached(
         for periodo in periodos_ext_tuple:
             row = lookup.get((banco, periodo), {})
             for metric in CRITICAL_EXTRA_METRICS:
-                result[metric][(banco, periodo)] = _coerce_numeric_value(row.get(metric))
+                result[metric][(banco, periodo)] = _calcular_metrica_extra_curada_peers(metric, row)
 
     _elapsed_total = _time.perf_counter() - _t0_wrapper
     print(f"[PEERS_TIMING] critical_screens_slice_total: {_elapsed_total:.3f}s")
     return result
+
+
+def _calcular_metrica_extra_curada_peers(metric: str, row: Mapping[str, Any]) -> Optional[float]:
+    """Normaliza métricas curadas e recompõe ratios quando houver componentes."""
+    row = row or {}
+    valor = _coerce_numeric_value(row.get(metric))
+
+    if metric == "Inadimplência":
+        inad = _coerce_numeric_value(row.get("Inadimplência"))
+        if inad is not None and not pd.isna(inad):
+            return inad
+        return _coerce_numeric_value(row.get("Inadimplência 4.966"))
+
+    if metric == "Ativos Estágio 3 / Carteira de Crédito":
+        recomputed = _calcular_ratio_peers(row.get("Ativos Estágio 3"), row.get("Carteira de Crédito Bruta"))
+        return recomputed if recomputed is not None else valor
+
+    if metric == "Inadimplência / Carteira de Crédito":
+        inad = row.get("Inadimplência")
+        if inad is None or pd.isna(inad):
+            inad = row.get("Inadimplência 4.966")
+        recomputed = _calcular_ratio_peers(inad, row.get("Carteira de Crédito Bruta"))
+        return recomputed if recomputed is not None else valor
+
+    if metric == "Inadimplência / Carteira Total":
+        recomputed = _calcular_ratio_peers(row.get("Inadimplência 4.966"), row.get("Carteira Total 4.966"))
+        return recomputed if recomputed is not None else valor
+
+    if metric == "Ativos Problemáticos / Carteira Total":
+        recomputed = _calcular_ratio_peers(row.get("Ativos Problemáticos 4.966"), row.get("Carteira Total 4.966"))
+        return recomputed if recomputed is not None else valor
+
+    if metric in {"Perda Esperada / Carteira de Crédito Bruta", "Perda Esperada / Carteira de Crédito*"}:
+        recomputed = _calcular_ratio_peers(
+            row.get("Perda Esperada"),
+            row.get("Carteira de Crédito Bruta"),
+            abs_num=True,
+        )
+        return recomputed if recomputed is not None else (abs(valor) if valor is not None and not pd.isna(valor) else valor)
+
+    if metric == "Perda Esperada / (Carteira C4 + C5)":
+        recomputed = _calcular_ratio_peers(
+            row.get("Perda Esperada"),
+            row.get("Carteira de Créd. Class. C4+C5"),
+            abs_num=True,
+        )
+        return recomputed if recomputed is not None else (abs(valor) if valor is not None and not pd.isna(valor) else valor)
+
+    if metric == "PDD / Estágio 3":
+        recomputed = _calcular_ratio_peers(row.get("PDD Total 4060"), row.get("Ativos Estágio 3"), abs_num=True)
+        return recomputed if recomputed is not None else (abs(valor) if valor is not None and not pd.isna(valor) else valor)
+
+    if metric == "Perda Esperada / Estágio 3":
+        recomputed = _calcular_ratio_peers(row.get("Perda Esperada"), row.get("Ativos Estágio 3"), abs_num=True)
+        return recomputed if recomputed is not None else (abs(valor) if valor is not None and not pd.isna(valor) else valor)
+
+    if metric == "Perda Esperada / Est2+3":
+        recomputed = _calcular_ratio_peers(
+            row.get("Perda Esperada"),
+            _somar_estagios_2_3_peers(row.get("Ativos Estágio 2"), row.get("Ativos Estágio 3")),
+            abs_num=True,
+        )
+        return recomputed if recomputed is not None else (abs(valor) if valor is not None and not pd.isna(valor) else valor)
+
+    return valor
 
 
 def _preparar_metricas_extra_peers_from_slice(
@@ -9694,16 +9934,25 @@ def _preparar_metricas_extra_peers_from_slice(
         for periodo in periodos:
             row = lookup.get((banco, periodo), {})
             for metric in CRITICAL_EXTRA_METRICS:
-                valor = _coerce_numeric_value(row.get(metric))
-                if metric == "Perda Esperada / Est2+3" and (valor is None or pd.isna(valor)):
-                    valor = _calcular_ratio_peers(
-                        row.get("Perda Esperada"),
-                        _somar_estagios_2_3_peers(
-                            row.get("Ativos Estágio 2"),
-                            row.get("Ativos Estágio 3"),
-                        ),
-                    )
-                result[metric][(banco, periodo)] = valor
+                result[metric][(banco, periodo)] = _calcular_metrica_extra_curada_peers(metric, row)
+    return result
+
+
+def _preparar_metricas_extra_peers_individual_from_slice(
+    df_slice: Optional[pd.DataFrame],
+    bancos: list[str],
+    periodos: Sequence[str],
+) -> dict:
+    """Adapta métricas diretas da base individual ao layout Peers."""
+    lookup = _critical_metric_lookup(df_slice)
+    result = {metric: {} for metric in CRITICAL_EXTRA_METRICS}
+    for banco in bancos:
+        for periodo in periodos:
+            row = lookup.get((banco, periodo), {})
+            chave = (banco, periodo)
+            carteira = _coerce_numeric_value(row.get("Carteira de Crédito"))
+            result["Carteira de Crédito Bruta"][chave] = carteira
+            result["Carteira de Crédito*"][chave] = carteira
     return result
 
 
@@ -9824,14 +10073,6 @@ def _montar_tabela_peers(
                     chave = (label, banco, periodo)
                     valor = None
                     tip = ""
-                    # Mapeamento de ratios → (chave numerador, chave denominador)
-                    _RATIO_COMPONENTS = {
-                        "Perda Esperada / Carteira de Crédito*": ("Perda Esperada", "Carteira de Crédito Bruta"),
-                        "Carteira de Créd. Class. C4+C5 / Carteira Classificada": ("Carteira de Créd. Class. C4+C5", "Carteira de Crédito Classificada"),
-                        "Perda Esperada / (Carteira C4 + C5)": ("Perda Esperada", "Carteira de Créd. Class. C4+C5"),
-                        "PDD / Estágio 3": ("PDD Total 4060", "Ativos Estágio 3"),
-                        "Perda Esperada / Estágio 3": ("Perda Esperada", "Ativos Estágio 3"),
-                    }
                     if label == "Perda Esperada / Est2+3" and label in extra_values:
                         valor = extra_values[label].get((banco, periodo))
                         valor_num = extra_values.get("Perda Esperada", {}).get((banco, periodo))
@@ -9840,9 +10081,9 @@ def _montar_tabela_peers(
                             extra_values.get("Ativos Estágio 3", {}).get((banco, periodo)),
                         )
                         tip = _tooltip_ratio_peers(label, valor_num, valor_den, valor)
-                    elif label in extra_values and label in _RATIO_COMPONENTS:
+                    elif label in extra_values and label in PEERS_RATIO_COMPONENTS:
                         valor = extra_values[label].get((banco, periodo))
-                        num_key, den_key = _RATIO_COMPONENTS[label]
+                        num_key, den_key = PEERS_RATIO_COMPONENTS[label]
                         valor_num = extra_values.get(num_key, {}).get((banco, periodo))
                         valor_den = extra_values.get(den_key, {}).get((banco, periodo))
                         tip = _tooltip_ratio_peers(label, valor_num, valor_den, valor)
@@ -10350,7 +10591,7 @@ def _build_memoria_calculo_curado_metrica(
             valor_est2 = row.get("Ativos Estágio 2")
             valor_est3 = row.get("Ativos Estágio 3")
             denominador = _somar_estagios_2_3_peers(valor_est2, valor_est3)
-            ratio_result = _calcular_ratio_peers(row.get("Perda Esperada"), denominador)
+            ratio_result = _calcular_ratio_peers(row.get("Perda Esperada"), denominador, abs_num=True)
             qualidade_status = str(row.get("Trace::Qualidade Carteira::Status") or "").strip()
             if (resultado is None or pd.isna(resultado)) and qualidade_status:
                 diagnosticos = {
@@ -10364,20 +10605,35 @@ def _build_memoria_calculo_curado_metrica(
             add("Denominador", "Cadoc 4060", "Ativos Estágio 2 — conta 3312000001", "Componente do denominador", _memoria_fmt_monetario(valor_est2))
             add("Denominador", "Cadoc 4060", "Ativos Estágio 3 — conta 3313000000", "Componente do denominador", _memoria_fmt_monetario(valor_est3))
             add("Denominador", "Cache curado", "Ativos Estágio 2 + Ativos Estágio 3", "Soma dos componentes do denominador", _memoria_fmt_monetario(denominador))
-            add("Resultado renderizado", "Snapshot/Peers", metrica, "Perda Esperada ÷ (Estágio 2 + Estágio 3)", _memoria_fmt_resultado(metrica, ratio_result if ratio_result is not None else resultado))
+            add("Resultado renderizado", "Snapshot/Peers", metrica, "|Perda Esperada| ÷ (Estágio 2 + Estágio 3)", _memoria_fmt_resultado(metrica, ratio_result if ratio_result is not None else resultado))
             continue
 
-        if metrica in {"Perda Esperada / Estágio 3", "Perda Esperada / Carteira de Crédito*", "Perda Esperada / Carteira", "Ativo Total / PL", "Carteira de Crédito* / PL", "Crédito / Captações"}:
+        if metrica in {
+            "Ativos Estágio 3 / Carteira de Crédito",
+            "Inadimplência / Carteira de Crédito",
+            "Perda Esperada / Estágio 3",
+            "Perda Esperada / Carteira de Crédito*",
+            "Perda Esperada / Carteira",
+            "Ativo Total / PL",
+            "Carteira de Crédito* / PL",
+            "Crédito / Captações",
+        }:
             ratio_map = {
-                "Perda Esperada / Estágio 3": ("Perda Esperada", "Ativos Estágio 3", "Perda Esperada ÷ Estágio 3"),
-                "Perda Esperada / Carteira de Crédito*": ("Perda Esperada", "Carteira de Crédito*", "Perda Esperada ÷ Carteira de Crédito*"),
-                "Perda Esperada / Carteira": ("Perda Esperada", "Carteira de Crédito Bruta", "Perda Esperada ÷ Carteira de Crédito Bruta"),
+                "Ativos Estágio 3 / Carteira de Crédito": ("Ativos Estágio 3", "Carteira de Crédito Bruta", "Ativos Estágio 3 ÷ Carteira de Crédito Bruta"),
+                "Inadimplência / Carteira de Crédito": ("Inadimplência", "Carteira de Crédito Bruta", "Inadimplência ÷ Carteira de Crédito Bruta"),
+                "Perda Esperada / Estágio 3": ("Perda Esperada", "Ativos Estágio 3", "|Perda Esperada| ÷ Estágio 3"),
+                "Perda Esperada / Carteira de Crédito*": ("Perda Esperada", "Carteira de Crédito*", "|Perda Esperada| ÷ Carteira de Crédito*"),
+                "Perda Esperada / Carteira": ("Perda Esperada", "Carteira de Crédito Bruta", "|Perda Esperada| ÷ Carteira de Crédito Bruta"),
                 "Ativo Total / PL": ("Ativo Total", "Patrimônio Líquido", "Ativo Total ÷ Patrimônio Líquido"),
                 "Carteira de Crédito* / PL": ("Carteira de Crédito*", "Patrimônio Líquido", "Carteira de Crédito* ÷ Patrimônio Líquido"),
                 "Crédito / Captações": ("Carteira de Crédito Bruta", "Core Funding*", "Carteira de Crédito Bruta ÷ Core Funding*"),
             }
             num_col, den_col, formula = ratio_map[metrica]
-            ratio_result = _calcular_ratio_peers(row.get(num_col), row.get(den_col))
+            ratio_result = _calcular_ratio_peers(
+                row.get(num_col),
+                row.get(den_col),
+                abs_num=metrica in PEERS_ALLOWANCE_RATIO_METRICS,
+            )
             if metrica.startswith("Perda Esperada /"):
                 qualidade_status = str(row.get("Trace::Qualidade Carteira::Status") or "").strip()
                 if (resultado is None or pd.isna(resultado)) and qualidade_status:
@@ -10776,6 +11032,8 @@ def _write_analytical_status_sheet(
         elif format_key in PEERS_PERCENT_DECIMALS:
             dec = PEERS_PERCENT_DECIMALS[format_key]
             status_ws.write_number(row_idx, 3, float(valor_num), pct1_fmt if dec == 1 else pct2_fmt)
+        elif _is_variavel_percentual(format_key):
+            status_ws.write_number(row_idx, 3, float(valor_num), pct2_fmt)
         elif format_key in {"percent", "percent_1"}:
             status_ws.write_number(row_idx, 3, float(valor_num), pct1_fmt)
         elif format_key == "percent_2":
@@ -11507,8 +11765,8 @@ _SNAPSHOT_PROVENANCE = [
     ("ROE Ac. Anualizado", "Calculado", "(LL_YTD × Fator Anualização) ÷ PL Médio × 100", "↑ = melhora (maior retorno)"),
     ("Crédito / Captações", "BCB IFData Rel. 2 ÷ Rel. 3", "Carteira de Crédito Bruta ÷ Core Funding. Na Snapshot, QoQ e YoY comparam o valor trimestral de fechamento, não acumulado YTD.", "↓ = melhora (menor alavancagem)"),
     ("Desp. Anualizada Captação / Volume Captação", "Métricas derivadas (DRE ÷ Passivo)", "Despesa de captação anualizada ÷ captações médias YTD", "↓ = melhora (menor custo de funding)"),
-    ("Perda Esperada / Estágio 3", "BCB IFData Rel. 2 + Cadoc 4060", "Perda Esperada ÷ Ativos Estágio 3", "↓ = melhora (menor pressão de perda)"),
-    ("Perda Esperada / Carteira", "BCB IFData Rel. 2", "Perda Esperada ÷ Carteira de Crédito Bruta", "↓ = melhora (menor pressão de perda)"),
+    ("Perda Esperada / Estágio 3", "BCB IFData Rel. 2 + Cadoc 4060", "|Perda Esperada| ÷ Ativos Estágio 3", "↓ = melhora (menor pressão de perda)"),
+    ("Perda Esperada / Carteira", "BCB IFData Rel. 2", "|Perda Esperada| ÷ Carteira de Crédito Bruta", "↓ = melhora (menor pressão de perda)"),
     ("CET1", "BCB IFData Rel. 5 — Patrimônio de Referência", "Capital Principal ÷ RWA Total", "↑ = melhora (maior folga de capital)"),
 ]
 
@@ -12592,6 +12850,8 @@ def _gerar_excel_peers_dados_puros(
         if format_key in PEERS_PERCENT_DECIMALS:
             dec = PEERS_PERCENT_DECIMALS[format_key]
             return number_formats["percent_1" if dec == 1 else "percent_2"]
+        if _is_variavel_percentual(format_key):
+            return number_formats["percent_2"]
         if format_key in ("Ativo/PL", "Crédito/PL (%)", "Carteira de Crédito Bruta / PL"):
             return number_formats["multiple"]
         return number_formats["money"]
@@ -14041,6 +14301,42 @@ def _get_peers_filters_context(critical_token: str) -> dict:
     """Retorna bancos/períodos da aba Peers a partir do cache curado final."""
     _ = critical_token
     return load_critical_screens_filters_context(base_dir=APP_DIR)
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def _get_peers_individual_filters_context(principal_individual_token: str) -> dict:
+    """Retorna bancos/períodos da base individual para Peers."""
+    _ = principal_individual_token
+    manager = get_cache_manager()
+    cache = manager.get_cache("principal_individual") if manager else None
+    if cache is None:
+        return {"bancos_todos": (), "periodos_disponiveis": ()}
+
+    df = None
+    if cache.arquivo_dados.exists():
+        try:
+            import pyarrow.dataset as ds
+
+            dataset = ds.dataset(cache.arquivo_dados, format="parquet")
+            schema_names = {str(name) for name in dataset.schema.names}
+            cols = [col for col in ("Instituição", "Período") if col in schema_names]
+            if cols:
+                df = dataset.to_table(columns=cols).to_pandas()
+        except Exception:
+            df = None
+
+    if df is None:
+        resultado = cache.carregar_local()
+        if not resultado.sucesso or resultado.dados is None or resultado.dados.empty:
+            return {"bancos_todos": (), "periodos_disponiveis": ()}
+        cols = [col for col in ("Instituição", "Período") if col in resultado.dados.columns]
+        if not cols:
+            return {"bancos_todos": (), "periodos_disponiveis": ()}
+        df = resultado.dados.loc[:, cols].copy()
+
+    bancos = tuple(sorted(df["Instituição"].dropna().astype(str).unique().tolist())) if "Instituição" in df.columns else ()
+    periodos = tuple(sorted(df["Período"].dropna().astype(str).unique().tolist())) if "Período" in df.columns else ()
+    return {"bancos_todos": bancos, "periodos_disponiveis": periodos}
 
 
 @st.cache_data(ttl=900, show_spinner=False)
@@ -17597,17 +17893,39 @@ elif menu == "Peers (Tabela)":
 
         _t = time.perf_counter()
         t_dados = time.perf_counter()
-        peers_ctx = _get_peers_filters_context(
+        peers_ctx_consolidado = _get_peers_filters_context(
             _cache_version_token("critical_screens"),
+        )
+        peers_ctx_individual = _get_peers_individual_filters_context(
+            _cache_version_token("principal_individual"),
         )
         _elapsed = time.perf_counter() - _t
         _log_timing("1_get_peers_context_curado", _elapsed)
         print(f"[PEERS_TIMING] 1_get_peers_context_curado: {_elapsed:.3f}s")
         _perf_peers_stage(peers_perf, "a_leitura_dados_brutos", t_dados)
 
-        bancos_todos = peers_ctx.get("bancos_todos", []) or []
-        periodos_ctx = peers_ctx.get("periodos_disponiveis", []) or []
-        if bancos_todos and periodos_ctx:
+        bancos_consolidados = peers_ctx_consolidado.get("bancos_todos", []) or []
+        periodos_consolidados = peers_ctx_consolidado.get("periodos_disponiveis", []) or []
+        bancos_individuais = peers_ctx_individual.get("bancos_todos", []) or []
+        periodos_individuais = peers_ctx_individual.get("periodos_disponiveis", []) or []
+        if (bancos_consolidados and periodos_consolidados) or (bancos_individuais and periodos_individuais):
+            st.markdown("### Peers (Tabela)")
+            st.caption("comparativo multi-bancos com períodos sincronizados.")
+
+            bases_dre_peers = ["Consolidada"]
+            if bancos_individuais and periodos_individuais:
+                bases_dre_peers.append("Individual")
+            if st.session_state.get("peers_tabela_base_dre") not in bases_dre_peers:
+                st.session_state["peers_tabela_base_dre"] = bases_dre_peers[0]
+            base_dre_peers = st.segmented_control(
+                "base das demonstrações",
+                options=bases_dre_peers,
+                key="peers_tabela_base_dre",
+            )
+            usando_base_individual_peers = base_dre_peers == "Individual"
+            bancos_todos = bancos_individuais if usando_base_individual_peers else bancos_consolidados
+            periodos_ctx = periodos_individuais if usando_base_individual_peers else periodos_consolidados
+
             _t = time.perf_counter()
             bancos_disponiveis = ordenar_bancos_com_alias(bancos_todos, {})
             periodos_disponiveis = ordenar_periodos(list(periodos_ctx))
@@ -17617,9 +17935,6 @@ elif menu == "Peers (Tabela)":
             print(f"[PEERS_TIMING] 2_build_dropdowns: {_elapsed:.3f}s")
 
             if bancos_disponiveis and periodos_disponiveis:
-                st.markdown("### Peers (Tabela)")
-                st.caption("comparativo multi-bancos com períodos sincronizados.")
-
                 _default_peers_bancos = _encontrar_bancos_default(
                     bancos_disponiveis, [("itau", "itaú")]
                 )
@@ -17627,14 +17942,38 @@ elif menu == "Peers (Tabela)":
                     _default_peers_bancos = bancos_disponiveis[:1]
 
                 _default_peers_periodos = _periodos_mais_recentes(periodos_dropdown, 3)
+                peer_groups = _peer_groups_disponiveis(bancos_disponiveis)
+                peer_group_options = ["Seleção manual"] + list(peer_groups.keys())
+                if st.session_state.get("peers_tabela_peer_group") not in peer_group_options:
+                    st.session_state["peers_tabela_peer_group"] = peer_group_options[1] if len(peer_group_options) > 1 else "Seleção manual"
 
-                col_bancos, col_periodos = st.columns([2, 2])
+                col_grupo, col_bancos, col_periodos = st.columns([1.4, 2, 2])
+                with col_grupo:
+                    grupo_peers_selecionado = st.selectbox(
+                        "grupo de peers",
+                        options=peer_group_options,
+                        key="peers_tabela_peer_group",
+                    )
+                if (
+                    grupo_peers_selecionado != "Seleção manual"
+                    and st.session_state.get("peers_tabela_peer_group_applied") != grupo_peers_selecionado
+                ):
+                    st.session_state["peers_tabela_bancos"] = peer_groups.get(grupo_peers_selecionado, [])
+                    st.session_state["peers_tabela_peer_group_applied"] = grupo_peers_selecionado
+                elif grupo_peers_selecionado == "Seleção manual":
+                    st.session_state["peers_tabela_peer_group_applied"] = "Seleção manual"
+
+                _default_bancos_widget = _filtrar_peer_group(
+                    st.session_state.get("peers_tabela_bancos", _default_peers_bancos),
+                    bancos_disponiveis,
+                ) or _default_peers_bancos
+                if st.session_state.get("peers_tabela_bancos") != _default_bancos_widget:
+                    st.session_state["peers_tabela_bancos"] = _default_bancos_widget
                 with col_bancos:
                     bancos_selecionados = st.multiselect(
-                        "selecionar instituições (até 5)",
+                        "selecionar instituições",
                         bancos_disponiveis,
-                        default=_default_peers_bancos,
-                        max_selections=5,
+                        default=_default_bancos_widget,
                         key="peers_tabela_bancos",
                     )
                 with col_periodos:
@@ -17647,10 +17986,41 @@ elif menu == "Peers (Tabela)":
                         format_func=periodo_para_exibicao,
                     )
 
+                with st.expander("Grupos de peers", expanded=False):
+                    nome_grupo_peers = st.text_input(
+                        "Nome do grupo",
+                        key="peers_tabela_nome_grupo",
+                    )
+                    col_salvar_grupo, col_remover_grupo = st.columns([1, 1])
+                    with col_salvar_grupo:
+                        if st.button("Salvar grupo", key="peers_tabela_salvar_grupo", disabled=not bancos_selecionados):
+                            nome_limpo = str(nome_grupo_peers or "").strip()
+                            if not nome_limpo:
+                                st.warning("Informe um nome para salvar o grupo.")
+                            else:
+                                grupos_salvos = _carregar_peer_groups_salvos()
+                                grupos_salvos[nome_limpo] = list(bancos_selecionados)
+                                if _salvar_peer_groups_salvos(grupos_salvos):
+                                    st.success(f"Grupo '{nome_limpo}' salvo.")
+                                    st.rerun()
+                                else:
+                                    st.error("Não foi possível salvar o grupo.")
+                    with col_remover_grupo:
+                        grupos_salvos = _carregar_peer_groups_salvos()
+                        pode_remover_grupo = grupo_peers_selecionado in grupos_salvos
+                        if st.button("Remover grupo", key="peers_tabela_remover_grupo", disabled=not pode_remover_grupo):
+                            grupos_salvos.pop(grupo_peers_selecionado, None)
+                            if _salvar_peer_groups_salvos(grupos_salvos):
+                                st.success(f"Grupo '{grupo_peers_selecionado}' removido.")
+                                st.rerun()
+                            else:
+                                st.error("Não foi possível remover o grupo.")
+
                 if bancos_selecionados and periodos_selecionados:
                     timer_box_peers = st.empty()
                     peers_signature = (
                         "peers_tabela",
+                        base_dre_peers,
                         tuple(sorted(bancos_selecionados)),
                         tuple(sorted(periodos_selecionados)),
                     )
@@ -17661,7 +18031,7 @@ elif menu == "Peers (Tabela)":
                         timer_box_peers,
                         "Tempo de carregamento da aba Peers (Tabela)",
                     )
-                    periodos_selecionados = ordenar_periodos(periodos_selecionados, reverso=True)
+                    periodos_selecionados = ordenar_periodos(periodos_selecionados, reverso=False)
                     periodos_base_peers = {_periodo_ano_anterior(p) for p in periodos_selecionados}
                     periodos_dez_roe = {
                         _periodo_dez_ano_anterior(p)
@@ -17676,23 +18046,31 @@ elif menu == "Peers (Tabela)":
                     }))
                     bancos_tuple = tuple(bancos_selecionados)
                     instituicoes_slice_tuple = tuple(sorted(i for i in bancos_selecionados if i))
+                    cache_tabela_peers = "principal_individual" if usando_base_individual_peers else "critical_screens"
                     _t = time.perf_counter()
                     df = _carregar_cache_relatorio_slice(
-                        "critical_screens",
-                        _cache_version_token("critical_screens"),
+                        cache_tabela_peers,
+                        _cache_version_token(cache_tabela_peers),
                         periodos_ext_peers,
                         instituicoes_slice_tuple,
                     )
                     _elapsed = time.perf_counter() - _t
-                    _log_timing("3_load_critical_screens_slice", _elapsed)
-                    print(f"[PEERS_TIMING] 3_load_critical_screens_slice: {_elapsed:.3f}s")
+                    _log_timing(f"3_load_{cache_tabela_peers}_slice", _elapsed)
+                    print(f"[PEERS_TIMING] 3_load_{cache_tabela_peers}_slice: {_elapsed:.3f}s")
 
                     _t = time.perf_counter()
-                    _extra_values = _preparar_metricas_extra_peers_from_slice(
-                        df,
-                        list(bancos_tuple),
-                        list(periodos_ext_peers),
-                    )
+                    if usando_base_individual_peers:
+                        _extra_values = _preparar_metricas_extra_peers_individual_from_slice(
+                            df,
+                            list(bancos_tuple),
+                            list(periodos_ext_peers),
+                        )
+                    else:
+                        _extra_values = _preparar_metricas_extra_peers_from_slice(
+                            df,
+                            list(bancos_tuple),
+                            list(periodos_ext_peers),
+                        )
                     _elapsed = time.perf_counter() - _t
                     _log_timing("4_metricas_extra_from_slice", _elapsed)
                     print(f"[PEERS_TIMING] 4_metricas_extra_from_slice: {_elapsed:.3f}s")
@@ -17704,7 +18082,7 @@ elif menu == "Peers (Tabela)":
                         periodos_selecionados,
                         perf=peers_perf,
                         extra_values_precomputed=_extra_values,
-                        allow_capital_fallback=True,
+                        allow_capital_fallback=not usando_base_individual_peers,
                     )
                     _elapsed = time.perf_counter() - _t
                     _log_timing("5_montar_tabela_peers", _elapsed)
@@ -17757,6 +18135,7 @@ elif menu == "Peers (Tabela)":
                     export_signature_key = "peers_tabela_export_signature"
                     export_payload_key = "peers_tabela_export_payload"
                     selection_signature = (
+                        base_dre_peers,
                         tuple(sorted(bancos_selecionados)),
                         tuple(periodos_selecionados),
                     )
@@ -17926,11 +18305,14 @@ elif menu == "Peers (Tabela)":
                             <em>Qualidade Carteira</em><br>
                             <strong>Perda Esperada</strong> = Soma das linhas Perda Esperada (e2), Hedge de Valor Justo (e3), Ajuste a Valor Justo (e4), Perda Esperada (f2), Hedge de Valor Justo (f3), Perda Esperada (g2), Hedge de Valor Justo (g3), Ajuste a Valor Justo (g4) e Perda Esperada (h2), no relatório de Ativo (Rel. 2).<br>
                             Base (e,f,g,h) refere-se a Operações de Crédito, Operações de Arrendamento Financeiro, Outras Operações com Características de Concessão de Crédito e Valores a Receber de Transações de Pagamentos - Usuários Finais (Pós-pago).<br>
-                            <strong>Perda Esperada / Carteira de Crédito*</strong> = Perda Esperada ÷ Carteira de Crédito*.<br>
+                            <strong>Perda Esperada / Carteira de Crédito*</strong> = |Perda Esperada| ÷ Carteira de Crédito*.<br>
                             <strong>Ativos Estágio 2</strong> = Saldo da conta 3312000001 (Cadoc 4060) no mês/período selecionado, quando a fonte mensal publicar o estágio e houver match prudencial confiável.<br>
                             <strong>Ativos Estágio 3</strong> = Saldo da conta 3313000000 (Cadoc 4060) no mês/período selecionado, quando a fonte mensal publicar o estágio e houver match prudencial confiável.<br>
-                            <strong>Perda Esperada / Estágio 3</strong> = Perda Esperada (Rel. 2) ÷ Ativos Estágio 3 (Cadoc 4060) do mesmo período, apenas quando numerador e denominador estiverem disponíveis.<br>
-                            <strong>Perda Esperada / Est2+3</strong> = Perda Esperada (Rel. 2) ÷ (Ativos Estágio 2 + Ativos Estágio 3) do mesmo período, apenas com cobertura prudencial válida.<br>
+                            <strong>Ativos Estágio 3 / Carteira de Crédito</strong> = Ativos Estágio 3 (Cadoc 4060) ÷ Carteira de Crédito*.<br>
+                            <strong>Inadimplência</strong> = Inadimplência publicada no Rel. 16 (Carteira 4.966).<br>
+                            <strong>Inadimplência / Carteira de Crédito</strong> = Inadimplência (Rel. 16) ÷ Carteira de Crédito*.<br>
+                            <strong>Perda Esperada / Estágio 3</strong> = |Perda Esperada| (Rel. 2) ÷ Ativos Estágio 3 (Cadoc 4060) do mesmo período, apenas quando numerador e denominador estiverem disponíveis.<br>
+                            <strong>Perda Esperada / Est2+3</strong> = |Perda Esperada| (Rel. 2) ÷ (Ativos Estágio 2 + Ativos Estágio 3) do mesmo período, apenas com cobertura prudencial válida.<br>
                             <br>
                             <em>Alavancagem</em><br>
                             <strong>Ativo Total / PL</strong> = Ativo Total ÷ Patrimônio Líquido.<br>
@@ -31781,8 +32163,11 @@ elif menu == "Glossário":
         {"Indicador": "Ativos Estágio 2", "Aba(s)": "Snapshot, Peers (Tabela), Glossário", "Fonte": "Cadoc 4060", "Fórmula": "Conta 3312000001", "Unidade": "R$", "Interpretação": "Estoque de ativos em estágio 2.", "Limitação": "Pode ficar estruturalmente indisponível em parte da série mensal ou sem match prudencial confiável.", "Periodicidade": "Mensal/Trimestral"},
         {"Indicador": "Ativos Estágio 3", "Aba(s)": "Snapshot, Peers (Tabela), Glossário", "Fonte": "Cadoc 4060", "Fórmula": "Conta 3313000000", "Unidade": "R$", "Interpretação": "Estoque de ativos em estágio 3.", "Limitação": "Pode ficar estruturalmente indisponível em parte da série mensal ou sem match prudencial confiável.", "Periodicidade": "Mensal/Trimestral"},
         {"Indicador": "Qualidade da Carteira (fator do rating)", "Aba(s)": "Modelo de Rating, Glossário", "Fonte": "Rel. 16 (Carteira 4.966) + proxy calibrada de transição", "Fórmula": "4T/2025+: Inadimplência ÷ Carteira Total; mar/25-jun/25-set/25: proxy |Perda Esperada ÷ Carteira de Crédito Bruta|; até 2024: o ideal conceitual seria D-H ÷ Carteira, mas o fator permanece indisponível enquanto essa série não estiver integrada", "Unidade": "%", "Interpretação": "Indicador de deterioração da carteira usado como fator quantitativo no rating.", "Limitação": "Mistura fonte exata e proxy apenas na transição de 2025; até 2024 o rating pode ficar incompleto por ausência da série histórica ideal.", "Periodicidade": "Trimestral"},
-        {"Indicador": "Perda Esperada / Estágio 3 (%)", "Aba(s)": "Peers (Tabela), Glossário", "Fonte": "IFData Rel.2 + Cadoc 4060", "Fórmula": "Perda Esperada ÷ Ativos Estágio 3", "Unidade": "%", "Interpretação": "Proxy de cobertura da perda esperada sobre estágio 3.", "Limitação": "Não deve ser exibido como comparável quando o 4060 estiver estruturalmente ausente ou sem match prudencial confiável.", "Periodicidade": "Mensal/Trimestral"},
-        {"Indicador": "Perda Esperada / Est2+3 (%)", "Aba(s)": "Peers (Tabela), Glossário", "Fonte": "IFData Rel.2 + Cadoc 4060", "Fórmula": "Perda Esperada ÷ (Ativos Estágio 2 + Ativos Estágio 3)", "Unidade": "%", "Interpretação": "Proxy de cobertura da perda esperada sobre estágios 2 e 3 combinados.", "Limitação": "Exige Estágio 2 e Estágio 3 publicados no mesmo período e match prudencial confiável.", "Periodicidade": "Mensal/Trimestral"},
+        {"Indicador": "Ativos Estágio 3 / Carteira de Crédito (%)", "Aba(s)": "Peers (Tabela), Glossário", "Fonte": "Cadoc 4060 + IFData Rel.2", "Fórmula": "Ativos Estágio 3 ÷ Carteira de Crédito Bruta", "Unidade": "%", "Interpretação": "Peso dos ativos em estágio 3 sobre a carteira.", "Limitação": "Exige estágio 3 publicado e match prudencial confiável.", "Periodicidade": "Mensal/Trimestral"},
+        {"Indicador": "Inadimplência", "Aba(s)": "Peers (Tabela), Glossário", "Fonte": "IFData Rel.16", "Fórmula": "Linha Inadimplência da Carteira 4.966", "Unidade": "R$", "Interpretação": "Estoque de inadimplência informado por carteira de instrumentos financeiros.", "Limitação": "Série depende da disponibilidade do Rel.16 por período/instituição.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Inadimplência / Carteira de Crédito (%)", "Aba(s)": "Peers (Tabela), Glossário", "Fonte": "IFData Rel.16 + Rel.2", "Fórmula": "Inadimplência ÷ Carteira de Crédito Bruta", "Unidade": "%", "Interpretação": "Inadimplência relativa ao estoque de crédito.", "Limitação": "Combina carteira do Rel.2 com inadimplência do Rel.16.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Perda Esperada / Estágio 3 (%)", "Aba(s)": "Peers (Tabela), Glossário", "Fonte": "IFData Rel.2 + Cadoc 4060", "Fórmula": "|Perda Esperada| ÷ Ativos Estágio 3", "Unidade": "%", "Interpretação": "Proxy de cobertura da perda esperada sobre estágio 3.", "Limitação": "Não deve ser exibido como comparável quando o 4060 estiver estruturalmente ausente ou sem match prudencial confiável.", "Periodicidade": "Mensal/Trimestral"},
+        {"Indicador": "Perda Esperada / Est2+3 (%)", "Aba(s)": "Peers (Tabela), Glossário", "Fonte": "IFData Rel.2 + Cadoc 4060", "Fórmula": "|Perda Esperada| ÷ (Ativos Estágio 2 + Ativos Estágio 3)", "Unidade": "%", "Interpretação": "Proxy de cobertura da perda esperada sobre estágios 2 e 3 combinados.", "Limitação": "Exige Estágio 2 e Estágio 3 publicados no mesmo período e match prudencial confiável.", "Periodicidade": "Mensal/Trimestral"},
     ])
 
     _render_secao_glossario("5) Alavancagem e Relações de Estrutura", [
