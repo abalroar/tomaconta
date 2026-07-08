@@ -37,6 +37,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger("ifdata_cache")
 
 CRITICAL_SCREENS_SCHEMA_VERSION = 4
+CRITICAL_SCREENS_RUNTIME_COMPATIBLE_SCHEMA_VERSIONS = {3}
 BUNDLED_CRITICAL_SCREENS_DIR = Path("data") / "bundled" / "critical_screens"
 
 
@@ -98,6 +99,20 @@ CRITICAL_BASE_METRICS = [
     "Crédito / Captações",
     "Desp Captação / Captação",
 ]
+
+CRITICAL_SCHEMA_COMPAT_BASE_COLUMNS = {
+    "Instituição",
+    "Período",
+    "InstituiçãoKey",
+    "Carteira de Crédito Bruta",
+    "Perda Esperada",
+    "Carteira de Créd. Class. C4+C5",
+    "PDD Total 4060",
+    "Ativos Estágio 2",
+    "Ativos Estágio 3",
+    "Inadimplência 4.966",
+    "Carteira Total 4.966",
+}
 
 DEPOSITOS_TOTAIS_AGGREGATE_CANDIDATES = [
     "Depósitos (e)",
@@ -293,6 +308,19 @@ def _critical_screens_schema_valid(metadata: Optional[dict]) -> bool:
     return extra.get("schema_version") == CRITICAL_SCREENS_SCHEMA_VERSION
 
 
+def _critical_screens_runtime_schema_valid(metadata: Optional[dict]) -> bool:
+    if _critical_screens_schema_valid(metadata):
+        return True
+    if not metadata:
+        return False
+    extra = metadata.get("extra") or {}
+    schema_version = extra.get("schema_version")
+    if schema_version not in CRITICAL_SCREENS_RUNTIME_COMPATIBLE_SCHEMA_VERSIONS:
+        return False
+    colunas = {str(col) for col in (metadata.get("colunas") or [])}
+    return CRITICAL_SCHEMA_COMPAT_BASE_COLUMNS.issubset(colunas)
+
+
 def _parse_metadata_timestamp(metadata: Optional[dict]) -> Optional[datetime]:
     if not metadata:
         return None
@@ -308,10 +336,13 @@ def _parse_metadata_timestamp(metadata: Optional[dict]) -> Optional[datetime]:
 def _bundle_is_newer_than_local(
     local_metadata: Optional[dict],
     bundled_metadata: Optional[dict],
+    *,
+    runtime_compatible: bool = False,
 ) -> bool:
-    if not _critical_screens_schema_valid(bundled_metadata):
+    schema_ok = _critical_screens_runtime_schema_valid if runtime_compatible else _critical_screens_schema_valid
+    if not schema_ok(bundled_metadata):
         return False
-    if not _critical_screens_schema_valid(local_metadata):
+    if not schema_ok(local_metadata):
         return True
 
     local_period_ref = normalize_period_reference(max_period_from_metadata(local_metadata))
@@ -357,9 +388,13 @@ def get_critical_screens_runtime_status(
     local_metadata = _read_metadata_if_exists(cache.arquivo_metadata)
     bundled_metadata = _read_metadata_if_exists(cache.bundled_metadata_file)
 
-    local_ready = cache.existe() and _critical_screens_schema_valid(local_metadata)
-    bundle_ready = cache.bundle_available() and _critical_screens_schema_valid(bundled_metadata)
-    bundle_newer_than_local = bundle_ready and _bundle_is_newer_than_local(local_metadata, bundled_metadata)
+    local_ready = cache.existe() and _critical_screens_runtime_schema_valid(local_metadata)
+    bundle_ready = cache.bundle_available() and _critical_screens_runtime_schema_valid(bundled_metadata)
+    bundle_newer_than_local = bundle_ready and _bundle_is_newer_than_local(
+        local_metadata,
+        bundled_metadata,
+        runtime_compatible=True,
+    )
     missing_local_sources = _missing_local_source_caches(cache_manager)
     can_materialize_from_local_sources = not missing_local_sources
 
@@ -493,6 +528,67 @@ def _calc_ratio(valor_num, valor_den, *, abs_num: bool = False) -> Optional[floa
     if abs_num:
         num = abs(num)
     return float(num) / float(den)
+
+
+def _numeric_runtime_series(df: pd.DataFrame, column: str) -> pd.Series:
+    if column in df.columns:
+        return pd.to_numeric(df[column], errors="coerce")
+    return pd.Series(np.nan, index=df.index, dtype="float64")
+
+
+def _runtime_ratio_series(num: pd.Series, den: pd.Series, *, abs_num: bool = False) -> pd.Series:
+    num = pd.to_numeric(num, errors="coerce")
+    den = pd.to_numeric(den, errors="coerce")
+    if abs_num:
+        num = num.abs()
+    den = den.mask(den == 0)
+    return num / den
+
+
+def _derive_runtime_compatible_metrics(df: pd.DataFrame) -> pd.DataFrame:
+    """Completa métricas novas/corrigidas quando o bundle curado é legado."""
+    if df is None or df.empty:
+        return df
+
+    out = df.copy()
+    carteira_bruta = _numeric_runtime_series(out, "Carteira de Crédito Bruta")
+    perda_esperada = _numeric_runtime_series(out, "Perda Esperada")
+    estagio2 = _numeric_runtime_series(out, "Ativos Estágio 2")
+    estagio3 = _numeric_runtime_series(out, "Ativos Estágio 3")
+    pdd_total = _numeric_runtime_series(out, "PDD Total 4060")
+    carteira_c4_c5 = _numeric_runtime_series(out, "Carteira de Créd. Class. C4+C5")
+    inadimplencia = _numeric_runtime_series(out, "Inadimplência")
+    inadimplencia_4966 = _numeric_runtime_series(out, "Inadimplência 4.966")
+    carteira_total_4966 = _numeric_runtime_series(out, "Carteira Total 4.966")
+
+    inadimplencia = inadimplencia.combine_first(inadimplencia_4966)
+    out["Inadimplência"] = inadimplencia
+
+    def assign_ratio(column: str, numerator: pd.Series, denominator: pd.Series, *, abs_num: bool = False) -> None:
+        ratio = _runtime_ratio_series(numerator, denominator, abs_num=abs_num)
+        if column in out.columns:
+            current = pd.to_numeric(out[column], errors="coerce")
+            if abs_num:
+                current = current.abs()
+            out[column] = ratio.combine_first(current)
+        else:
+            out[column] = ratio
+
+    assign_ratio("Inadimplência / Carteira de Crédito", inadimplencia, carteira_bruta)
+    assign_ratio("Inadimplência / Carteira Total", inadimplencia_4966, carteira_total_4966)
+    assign_ratio("Ativos Estágio 3 / Carteira de Crédito", estagio3, carteira_bruta)
+    assign_ratio("Perda Esperada / Carteira de Crédito Bruta", perda_esperada, carteira_bruta, abs_num=True)
+    assign_ratio("Perda Esperada / Carteira de Crédito*", perda_esperada, carteira_bruta, abs_num=True)
+    assign_ratio("Perda Esperada / (Carteira C4 + C5)", perda_esperada, carteira_c4_c5, abs_num=True)
+    assign_ratio("PDD / Estágio 3", pdd_total, estagio3, abs_num=True)
+    assign_ratio("Perda Esperada / Estágio 3", perda_esperada, estagio3, abs_num=True)
+    assign_ratio(
+        "Perda Esperada / Est2+3",
+        perda_esperada,
+        pd.concat([estagio2, estagio3], axis=1).sum(axis=1, min_count=2),
+        abs_num=True,
+    )
+    return out
 
 
 def resolve_depositos_totais_value(
@@ -1138,12 +1234,15 @@ def critical_screens_needs_refresh(
         return True
 
     extra = metadata.get("extra") or {}
+    missing_local_sources = _missing_local_source_caches(cache_manager)
     if extra.get("schema_version") != CRITICAL_SCREENS_SCHEMA_VERSION:
+        if missing_local_sources and _critical_screens_runtime_schema_valid(metadata):
+            return False
         return True
 
     # Sem todas as fontes locais, não há base para afirmar que o artefato
     # bundled/local está desatualizado em runtime. Esse caso é comum no deploy.
-    if _missing_local_source_caches(cache_manager):
+    if missing_local_sources:
         return False
 
     previous = extra.get("source_fingerprints") or {}
@@ -2093,6 +2192,7 @@ def load_critical_screens_slice(
         canonicas = build_institution_to_conglomerate_map(root)
         instituicoes_canonicas = [canonicalize_institution_name(nome, catalog_map=canonicas) for nome in instituicoes]
         df = df[df["Instituição"].astype(str).isin([str(inst) for inst in instituicoes_canonicas])].copy()
+    df = _derive_runtime_compatible_metrics(df)
     df = _supplement_runtime_missing_funding(df, base_dir=root)
     return df.reset_index(drop=True)
 
