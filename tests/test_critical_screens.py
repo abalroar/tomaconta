@@ -932,6 +932,62 @@ def test_runtime_status_prefers_bundle_without_forcing_refresh(tmp_path: Path):
     assert status["mode"] == "bootstrap_bundle"
 
 
+def test_runtime_accepts_legacy_bundle_and_derives_new_metrics_without_sources(tmp_path: Path):
+    cache = CriticalScreensCache(tmp_path)
+    legacy_df = pd.DataFrame(
+        [
+            {
+                "Instituição": "GM - PRUDENCIAL",
+                "Período": "1/2026",
+                "InstituiçãoKey": "GM PRUDENCIAL",
+                "Carteira de Crédito Bruta": 1000.0,
+                "Perda Esperada": -399.13,
+                "Carteira de Créd. Class. C4+C5": 250.0,
+                "PDD Total 4060": -300.0,
+                "Ativos Estágio 2": 200.0,
+                "Ativos Estágio 3": 333.2,
+                "Inadimplência 4.966": 20.0,
+                "Carteira Total 4.966": 1100.0,
+                "Perda Esperada / Estágio 3": -1.197869,
+            }
+        ]
+    )
+    cache.bundled_dir.mkdir(parents=True, exist_ok=True)
+    legacy_df.to_parquet(cache.bundled_data_file, index=False)
+    cache.bundled_metadata_file.write_text(
+        json.dumps(
+            {
+                "timestamp_salvamento": "2026-06-22T15:22:11",
+                "fonte": "materialized",
+                "total_registros": len(legacy_df),
+                "colunas": list(legacy_df.columns),
+                "formato": "parquet",
+                "periodos": ["1/2026"],
+                "total_periodos": 1,
+                "extra": {"schema_version": 3},
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    status = get_critical_screens_runtime_status(base_dir=tmp_path, manager=_FakeManager(blop_df=None, blop_exists=False))
+    assert status["bundle_ready"]
+    assert not status["local_ready"]
+    assert not status["can_materialize_from_local_sources"]
+    assert status["mode"] == "bootstrap_bundle"
+
+    slice_df = load_critical_screens_slice(base_dir=tmp_path, periodos=["1/2026"], instituicoes=["GM - PRUDENCIAL"])
+
+    assert not slice_df.empty
+    row = slice_df.iloc[0]
+    assert cache.existe()
+    assert row["Inadimplência"] == 20.0
+    assert round(row["Inadimplência / Carteira de Crédito"], 6) == 0.02
+    assert round(row["Ativos Estágio 3 / Carteira de Crédito"], 6) == round(333.2 / 1000.0, 6)
+    assert round(row["Perda Esperada / Estágio 3"], 6) == round(399.13 / 333.2, 6)
+
+
 def test_runtime_status_prefers_newer_bundle_over_stale_local(tmp_path: Path):
     cache = CriticalScreensCache(tmp_path)
     stale_df = pd.DataFrame(
