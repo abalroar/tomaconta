@@ -223,9 +223,12 @@ def test_build_critical_screens_dataframe_materializes_expected_metrics(tmp_path
     assert row["Carteira de Créd. Class. C4+C5"] == 15.0
     assert row["Carteira Total 4.966"] == 400.0
     assert row["Inadimplência 4.966"] == 12.0
+    assert row["Inadimplência"] == 12.0
     assert row["Ativos Problemáticos 4.966"] == 24.0
     assert round(row["Inadimplência / Carteira Total"], 6) == round(12.0 / 400.0, 6)
+    assert round(row["Inadimplência / Carteira de Crédito"], 6) == round(12.0 / 1900.0, 6)
     assert round(row["Ativos Problemáticos / Carteira Total"], 6) == round(24.0 / 400.0, 6)
+    assert round(row["Ativos Estágio 3 / Carteira de Crédito"], 6) == round(500.0 / 1900.0, 6)
     assert round(row["Perda Esperada / Estágio 3"], 6) == 0.2
     assert round(row["Perda Esperada / Est2+3"], 6) == round(100.0 / (400.0 + 500.0), 6)
     assert round(row["Índice de Capital Principal (CET1)"], 6) == 0.12
@@ -331,6 +334,62 @@ def test_build_critical_screens_dataframe_marks_structural_prudential_unavailabi
     assert row["Trace::Bloprudencial::Status"] == "source_structurally_unavailable"
     assert row["Trace::Qualidade Carteira::Status"] == "source_structurally_unavailable"
     assert pd.isna(row["Perda Esperada / Estágio 3"])
+
+
+def test_build_critical_screens_dataframe_uses_loss_magnitude_for_stage3_coverage():
+    principal = pd.DataFrame(
+        [
+            {
+                "Instituição": "GM - PRUDENCIAL",
+                "Período": "1/2026",
+                "Ativo Total": 1000.0,
+                "Patrimônio Líquido": 100.0,
+                "Lucro Líquido Acumulado YTD": 10.0,
+            }
+        ]
+    )
+    ativo = pd.DataFrame(
+        [
+            {
+                "Instituição": "GM - PRUDENCIAL",
+                "Período": "1/2026",
+                "Valor Contábil Bruto (e1)": 1000.0,
+                "Valor Contábil Bruto (f1)": 0.0,
+                "Valor Contábil Bruto (g1)": 0.0,
+                "Valor Contábil Bruto (h1)": 0.0,
+                "Perda Esperada (e2)": -399.13,
+            }
+        ]
+    )
+    bloprud = pd.DataFrame(
+        [
+            {
+                "DATA_BASE": "202603",
+                "DOCUMENTO": 4060,
+                "NOME_INSTITUICAO": "BCO GM S.A.",
+                "NOME_CONGL": "GM - PRUDENCIAL",
+                "CONTA": "3313000000",
+                "SALDO": 333.2,
+            }
+        ]
+    )
+
+    result = build_critical_screens_dataframe(
+        df_principal=principal,
+        df_ativo=ativo,
+        df_passivo=pd.DataFrame(),
+        df_capital=pd.DataFrame(),
+        df_dre=pd.DataFrame(),
+        df_carteira_pf=pd.DataFrame(),
+        df_carteira_pj=pd.DataFrame(),
+        df_carteira_instrumentos=pd.DataFrame(),
+        df_bloprudencial=bloprud,
+    )
+
+    row = result.iloc[0]
+    assert row["Perda Esperada"] == -399.13
+    assert round(row["Perda Esperada / Estágio 3"], 6) == round(399.13 / 333.2, 6)
+    assert round(row["Perda Esperada / Carteira de Crédito*"], 6) == round(399.13 / 1000.0, 6)
 
 
 def test_resolve_core_funding_value_requires_all_components_post_2025():

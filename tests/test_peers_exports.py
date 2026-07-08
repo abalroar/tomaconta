@@ -337,6 +337,33 @@ def test_decorate_peers_visual_value_preserves_marker_and_delta_order():
     assert app1._decorate_peers_visual_value("N/D", status_marker="†", delta_flag=None) == "N/D†"
 
 
+def test_peers_slice_recomputes_loss_coverage_and_formats_above_100_percent():
+    df_slice = pd.DataFrame(
+        [
+            {
+                "Instituição": "GM - PRUDENCIAL",
+                "Período": "1/2026",
+                "Perda Esperada": -399.13,
+                "Ativos Estágio 3": 333.2,
+                "Perda Esperada / Estágio 3": -1.197869,
+                "Carteira de Crédito Bruta": 1000.0,
+                "Inadimplência 4.966": 20.0,
+            }
+        ]
+    )
+
+    extra = app1._preparar_metricas_extra_peers_from_slice(
+        df_slice,
+        ["GM - PRUDENCIAL"],
+        ["1/2026"],
+    )
+
+    chave = ("GM - PRUDENCIAL", "1/2026")
+    assert round(extra["Perda Esperada / Estágio 3"][chave], 6) == round(399.13 / 333.2, 6)
+    assert round(extra["Inadimplência / Carteira de Crédito"][chave], 6) == round(20.0 / 1000.0, 6)
+    assert app1._formatar_valor_peers(extra["Perda Esperada / Estágio 3"][chave], "Perda Esperada / Estágio 3") == "119,79%"
+
+
 def test_peers_generic_missing_value_gets_unavailability_note_and_marker():
     bancos = ["TEST BANK - PRUDENCIAL"]
     periodos = ["4/2025"]
