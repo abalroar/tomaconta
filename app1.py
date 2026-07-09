@@ -1490,6 +1490,17 @@ PEERS_ALLOWANCE_RATIO_METRICS = {
     "Perda Esperada / Est2+3",
 }
 
+PEERS_BASE_CONSOLIDADA_LABEL = "Consolidada / Prudencial"
+PEERS_BASE_INDIVIDUAL_LABEL = "Individual"
+PEERS_BASE_DRE_OPTIONS = [PEERS_BASE_CONSOLIDADA_LABEL, PEERS_BASE_INDIVIDUAL_LABEL]
+
+
+def _normalizar_base_dre_peers(base: Optional[str]) -> str:
+    if str(base or "").strip() == PEERS_BASE_INDIVIDUAL_LABEL:
+        return PEERS_BASE_INDIVIDUAL_LABEL
+    return PEERS_BASE_CONSOLIDADA_LABEL
+
+
 # Variáveis disponíveis para ponderação (variáveis de tamanho/volume em valores absolutos)
 # Mapeamento: label exibido -> nome da coluna no DataFrame
 VARIAVEIS_PONDERACAO = {
@@ -14327,6 +14338,8 @@ def _get_peers_individual_filters_context(principal_individual_token: str) -> di
 
     if df is None:
         resultado = cache.carregar_local()
+        if not resultado.sucesso:
+            resultado = manager.carregar("principal_individual")
         if not resultado.sucesso or resultado.dados is None or resultado.dados.empty:
             return {"bancos_todos": (), "periodos_disponiveis": ()}
         cols = [col for col in ("Instituição", "Período") if col in resultado.dados.columns]
@@ -17912,17 +17925,17 @@ elif menu == "Peers (Tabela)":
             st.markdown("### Peers (Tabela)")
             st.caption("comparativo multi-bancos com períodos sincronizados.")
 
-            bases_dre_peers = ["Consolidada"]
-            if bancos_individuais and periodos_individuais:
-                bases_dre_peers.append("Individual")
-            if st.session_state.get("peers_tabela_base_dre") not in bases_dre_peers:
-                st.session_state["peers_tabela_base_dre"] = bases_dre_peers[0]
+            if st.session_state.get("peers_tabela_base_dre") not in PEERS_BASE_DRE_OPTIONS:
+                st.session_state["peers_tabela_base_dre"] = _normalizar_base_dre_peers(
+                    st.session_state.get("peers_tabela_base_dre")
+                )
             base_dre_peers = st.segmented_control(
                 "base das demonstrações",
-                options=bases_dre_peers,
+                options=PEERS_BASE_DRE_OPTIONS,
                 key="peers_tabela_base_dre",
             )
-            usando_base_individual_peers = base_dre_peers == "Individual"
+            base_dre_peers = _normalizar_base_dre_peers(base_dre_peers)
+            usando_base_individual_peers = base_dre_peers == PEERS_BASE_INDIVIDUAL_LABEL
             bancos_todos = bancos_individuais if usando_base_individual_peers else bancos_consolidados
             periodos_ctx = periodos_individuais if usando_base_individual_peers else periodos_consolidados
 
@@ -17934,7 +17947,13 @@ elif menu == "Peers (Tabela)":
             _log_timing("2_build_dropdowns", _elapsed)
             print(f"[PEERS_TIMING] 2_build_dropdowns: {_elapsed:.3f}s")
 
-            if bancos_disponiveis and periodos_disponiveis:
+            if usando_base_individual_peers and not (bancos_disponiveis and periodos_disponiveis):
+                st.warning(
+                    "Base Individual selecionada, mas o cache `principal_individual` ainda não está disponível "
+                    "para montar instituições e períodos nesta aba."
+                )
+                st.caption("Atualize/publique `principal_individual` ou aguarde o carregamento automático e recarregue a página.")
+            elif bancos_disponiveis and periodos_disponiveis:
                 _default_peers_bancos = _encontrar_bancos_default(
                     bancos_disponiveis, [("itau", "itaú")]
                 )

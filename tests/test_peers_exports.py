@@ -337,6 +337,12 @@ def test_decorate_peers_visual_value_preserves_marker_and_delta_order():
     assert app1._decorate_peers_visual_value("N/D", status_marker="†", delta_flag=None) == "N/D†"
 
 
+def test_peers_base_dre_options_always_include_individual():
+    assert app1.PEERS_BASE_DRE_OPTIONS == ["Consolidada / Prudencial", "Individual"]
+    assert app1._normalizar_base_dre_peers("Consolidada") == "Consolidada / Prudencial"
+    assert app1._normalizar_base_dre_peers("Individual") == "Individual"
+
+
 def test_peers_slice_recomputes_loss_coverage_and_formats_above_100_percent():
     df_slice = pd.DataFrame(
         [
