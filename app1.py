@@ -14435,6 +14435,7 @@ def _get_peers_individual_filters_context(
                 "periodos_disponiveis": (),
                 "nome_para_codinsts": {},
                 "codinst_para_nome": {},
+                "erro": f"{resultado.fonte}: {resultado.mensagem}",
             }
         cols = [col for col in ("CodInst", "Instituição", "Período") if col in resultado.dados.columns]
         if not cols:
@@ -14450,11 +14451,17 @@ def _get_peers_individual_filters_context(
             expected_period_count=expected_period_count,
             expected_record_count=expected_record_count,
         ):
+            period_count = int(df["Período"].dropna().astype(str).nunique()) if "Período" in df.columns else 0
             return {
                 "bancos_todos": (),
                 "periodos_disponiveis": (),
                 "nome_para_codinsts": {},
                 "codinst_para_nome": {},
+                "erro": (
+                    f"{resultado.fonte}: {resultado.mensagem}; recebido {len(df)} registros/"
+                    f"{period_count} períodos; esperado {expected_record_count or '?'} registros/"
+                    f"{max(PEERS_INDIVIDUAL_MIN_PERIODS, expected_period_count or 0)} períodos"
+                ),
             }
 
     df = stabilize_institution_names_by_code(df)
@@ -18106,6 +18113,8 @@ elif menu == "Peers (Tabela)":
                     "Base Individual selecionada, mas o cache `principal_individual` ainda não está disponível "
                     "para montar instituições e períodos nesta aba."
                 )
+                if peers_ctx_individual.get("erro"):
+                    st.code(str(peers_ctx_individual["erro"]), language=None)
                 st.caption("Atualize/publique `principal_individual` ou aguarde o carregamento automático e recarregue a página.")
             elif bancos_disponiveis and periodos_disponiveis:
                 _default_peers_bancos = _encontrar_bancos_default(
