@@ -4,7 +4,7 @@
 
 O TomaConta não depende só do cache local. Para vários caches, o carregamento tenta nesta ordem:
 1. cache local em `data/cache/<tipo>/dados.parquet`;
-2. fallback remoto em GitHub (`raw` do repo + GitHub Releases `v1.0-cache`);
+2. fallback remoto em GitHub (`raw` do repo + GitHub Releases `v1.1-cache`);
 3. em alguns fluxos, dados já em memória (`st.session_state`).
 
 Por isso, apagar apenas o cache local não derruba automaticamente a aplicação quando o fallback remoto está acessível.
@@ -32,7 +32,7 @@ Por isso, apagar apenas o cache local não derruba automaticamente a aplicação
 Na prática, ela executa:
 - extração (por período/tipo de cache);
 - persistência local (`dados.parquet` + `metadata.json`);
-- publicação opcional no GitHub Release `v1.0-cache` do repositório de release.
+- publicação opcional no GitHub Release `v1.1-cache` do repositório de release.
 
 Se a publicação falhar, o app pode continuar “aparentemente normal” quando:
 - ainda existe cache local válido; **ou**
@@ -50,13 +50,13 @@ Se a publicação falhar, o app pode continuar “aparentemente normal” quando
 4. **Publicar caches apenas via release assets**
    - não commitar `data/cache/*` no git.
 5. **Validar release final**
-   - checar se assets `*_dados.parquet` e `*_metadata.json` estão na tag `v1.0-cache`.
+   - checar se assets `*_dados.parquet` e `*_metadata.json` estão na tag `v1.1-cache`.
 
 ## 5) Causas mais comuns de erro “atualizar via backend” e “upload para GitHub”
 
 1. token sem escopo suficiente para Releases;
 2. token válido, mas para outro repositório (ex.: publicar em `tomaconta`, código em `tomaconta-dev`);
-3. release/tag `v1.0-cache` inexistente no repo de destino;
+3. release/tag `v1.1-cache` inexistente no repo de destino;
 4. `gh` CLI autenticado em conta sem permissão;
 5. inconsistência entre cache local atualizado e publicação remota falha.
 
@@ -69,4 +69,4 @@ Se a publicação falhar, o app pode continuar “aparentemente normal” quando
 - Rodar atualização dos caches críticos:
   - `principal`, `capital`, `dre`, `principal_individual`, `dre_individual`, `carteira_instrumentos`, `bloprudencial`, `taxas_juros`.
 - Habilitar “publicar automaticamente no GitHub ao concluir”.
-- Confirmar, ao final, a presença dos assets no release `v1.0-cache`.
+- Confirmar, ao final, a presença dos assets no release `v1.1-cache`.

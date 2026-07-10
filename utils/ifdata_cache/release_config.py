@@ -10,7 +10,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 
 DEFAULT_RELEASE_REPO = "abalroar/tomaconta"
-DEFAULT_RELEASE_TAG = "v1.0-cache"
+DEFAULT_RELEASE_TAG = "v1.1-cache"
 DEFAULT_RAW_REPO = "abalroar/tomaconta"
 
 
