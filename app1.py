@@ -157,11 +157,18 @@ from utils.ifdata_cache import (
 )
 from utils.ifdata_cache.derived_metrics import materialize_derived_metrics_cache
 from utils.ifdata_cache.diagnostics import build_runtime_manifest, max_period_from_values, normalize_period_reference
-from utils.ifdata_cache.institutions import (
-    canonicalize_institution_dataframe,
-    normalize_institution_code,
-    stabilize_institution_names_by_code,
-)
+import utils.ifdata_cache.institutions as _ifdata_institutions
+
+# O hot reload do Streamlit pode manter este modulo em sys.modules enquanto
+# app1.py ja aponta para uma revisao mais nova do mesmo deploy.
+if not all(
+    hasattr(_ifdata_institutions, helper)
+    for helper in ("normalize_institution_code", "stabilize_institution_names_by_code")
+):
+    _ifdata_institutions = importlib.reload(_ifdata_institutions)
+canonicalize_institution_dataframe = _ifdata_institutions.canonicalize_institution_dataframe
+normalize_institution_code = _ifdata_institutions.normalize_institution_code
+stabilize_institution_names_by_code = _ifdata_institutions.stabilize_institution_names_by_code
 from utils.ifdata_cache.release_ops import (
     collect_release_assets,
     github_error_detail,
