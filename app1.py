@@ -94,6 +94,9 @@ import utils  # garante pacote utils carregado
 importlib.invalidate_caches()
 
 _EXPECTED_CACHE_RELEASE_TAG = "v1.1-cache"
+_PEERS_INDIVIDUAL_RELEASE_BASE_URL = (
+    f"https://github.com/abalroar/tomaconta/releases/download/{_EXPECTED_CACHE_RELEASE_TAG}"
+)
 if str(os.getenv("TOMACONTA_RELEASE_TAG") or "").strip() in {"", "v1.0-cache"}:
     os.environ["TOMACONTA_RELEASE_TAG"] = _EXPECTED_CACHE_RELEASE_TAG
 
@@ -14394,6 +14397,39 @@ def _peers_individual_cache_matches_release(
     return not bool(nomes.str.match(r"^\[IF\s+[^\]]+\]$", case=False, na=False).any())
 
 
+def _download_peers_individual_curated_cache(
+    *,
+    expected_period_count: int,
+    expected_record_count: int,
+) -> tuple[Optional[pd.DataFrame], str]:
+    """Baixa o asset imutável usado por Peers sem herdar tag legado do runtime."""
+    asset_url = f"{_PEERS_INDIVIDUAL_RELEASE_BASE_URL}/principal_individual_dados.parquet"
+    last_error = "download não iniciado"
+    for tentativa in range(3):
+        try:
+            response = requests.get(
+                asset_url,
+                params={"cache_bust": f"peers-individual-{time.time_ns()}"},
+                timeout=120,
+                headers={"Cache-Control": "no-cache", "Pragma": "no-cache"},
+            )
+            response.raise_for_status()
+            remote_df = pd.read_parquet(io.BytesIO(response.content))
+            if _peers_individual_cache_matches_release(
+                remote_df,
+                expected_period_count=expected_period_count,
+                expected_record_count=expected_record_count,
+            ):
+                return remote_df, ""
+            period_count = int(remote_df["Período"].nunique()) if "Período" in remote_df.columns else 0
+            last_error = f"asset reprovado: {len(remote_df)} registros/{period_count} períodos"
+        except Exception as exc:
+            last_error = str(exc)
+        if tentativa < 2:
+            time.sleep(1.0)
+    return None, last_error
+
+
 @st.cache_data(ttl=60, show_spinner=False)
 def _get_peers_individual_filters_context(
     principal_individual_token: str,
@@ -14433,22 +14469,24 @@ def _get_peers_individual_filters_context(
     )
     if force_release_refresh:
         df = None
+        remote_df, remote_error = _download_peers_individual_curated_cache(
+            expected_period_count=expected_period_count,
+            expected_record_count=expected_record_count,
+        )
+        if remote_df is None:
+            return {
+                "bancos_todos": (),
+                "periodos_disponiveis": (),
+                "nome_para_codinsts": {},
+                "codinst_para_nome": {},
+                "erro": f"{_EXPECTED_CACHE_RELEASE_TAG}: {remote_error}",
+            }
+        cache.salvar_local(remote_df, fonte=f"github_releases:{_EXPECTED_CACHE_RELEASE_TAG}")
+        df = remote_df.loc[:, ["CodInst", "Instituição", "Período"]].copy()
 
     if df is None:
         resultado = cache.carregar_local()
-        if force_release_refresh:
-            for tentativa in range(3):
-                resultado = cache.baixar_remoto()
-                if resultado.sucesso and _peers_individual_cache_matches_release(
-                    resultado.dados,
-                    expected_period_count=expected_period_count,
-                    expected_record_count=expected_record_count,
-                ):
-                    cache.salvar_local(resultado.dados, fonte=resultado.fonte)
-                    break
-                if tentativa < 2:
-                    time.sleep(1.0)
-        elif not resultado.sucesso:
+        if not resultado.sucesso:
             resultado = manager.carregar("principal_individual")
         if not resultado.sucesso or resultado.dados is None or resultado.dados.empty:
             return {
@@ -14472,18 +14510,20 @@ def _get_peers_individual_filters_context(
             expected_period_count=expected_period_count,
             expected_record_count=expected_record_count,
         ):
-            period_count = int(df["Período"].dropna().astype(str).nunique()) if "Período" in df.columns else 0
-            return {
-                "bancos_todos": (),
-                "periodos_disponiveis": (),
-                "nome_para_codinsts": {},
-                "codinst_para_nome": {},
-                "erro": (
-                    f"{resultado.fonte}: {resultado.mensagem}; recebido {len(df)} registros/"
-                    f"{period_count} períodos; esperado {expected_record_count or '?'} registros/"
-                    f"{max(PEERS_INDIVIDUAL_MIN_PERIODS, expected_period_count or 0)} períodos"
-                ),
-            }
+            remote_df, remote_error = _download_peers_individual_curated_cache(
+                expected_period_count=expected_period_count,
+                expected_record_count=expected_record_count,
+            )
+            if remote_df is None:
+                return {
+                    "bancos_todos": (),
+                    "periodos_disponiveis": (),
+                    "nome_para_codinsts": {},
+                    "codinst_para_nome": {},
+                    "erro": f"{_EXPECTED_CACHE_RELEASE_TAG}: {remote_error}",
+                }
+            cache.salvar_local(remote_df, fonte=f"github_releases:{_EXPECTED_CACHE_RELEASE_TAG}")
+            df = remote_df.loc[:, ["CodInst", "Instituição", "Período"]].copy()
 
     df = stabilize_institution_names_by_code(df)
     periodos = tuple(sorted(df["Período"].dropna().astype(str).unique().tolist())) if "Período" in df.columns else ()
@@ -18079,7 +18119,9 @@ elif menu == "Peers (Tabela)":
         peers_ctx_consolidado = _get_peers_filters_context(
             _cache_version_token("critical_screens"),
         )
-        peers_individual_manifest = _carregar_manifest_release_cache(_release_manifest_url())
+        peers_individual_manifest = _carregar_manifest_release_cache(
+            f"{_PEERS_INDIVIDUAL_RELEASE_BASE_URL}/manifest.json"
+        )
         peers_individual_quality = (
             (peers_individual_manifest.get("quality_checks") or {}).get("principal_individual") or {}
         )
