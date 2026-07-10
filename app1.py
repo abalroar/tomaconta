@@ -92,6 +92,11 @@ def _timer_render_caption(timer_key: str, container, label: str) -> None:
     container.caption(f"⏱️ {label}: {elapsed:.2f}s (seleção atual)")
 import utils  # garante pacote utils carregado
 importlib.invalidate_caches()
+
+_EXPECTED_CACHE_RELEASE_TAG = "v1.1-cache"
+if str(os.getenv("TOMACONTA_RELEASE_TAG") or "").strip() in {"", "v1.0-cache"}:
+    os.environ["TOMACONTA_RELEASE_TAG"] = _EXPECTED_CACHE_RELEASE_TAG
+
 from utils.formatting import (
     formatar_monetario_br_auto_reais,
     formatar_numero_br,
@@ -181,7 +186,6 @@ from utils.ifdata_cache.release_ops import (
 )
 import utils.ifdata_cache.release_config as _ifdata_release_config
 
-_EXPECTED_CACHE_RELEASE_TAG = "v1.1-cache"
 if (
     _ifdata_release_config.DEFAULT_RELEASE_TAG != _EXPECTED_CACHE_RELEASE_TAG
     or not hasattr(_ifdata_release_config, "DEPRECATED_RELEASE_TAGS")
@@ -191,6 +195,11 @@ if (
 
     _ifdata_cache_package._manager = None
     _ifdata_cache_package._manager_release_tag = None
+import utils.ifdata_cache as _ifdata_cache_package
+
+if getattr(_ifdata_cache_package, "_manager_release_tag", None) != _EXPECTED_CACHE_RELEASE_TAG:
+    _ifdata_cache_package._manager = None
+    _ifdata_cache_package._manager_release_tag = _EXPECTED_CACHE_RELEASE_TAG
 get_release_config = _ifdata_release_config.get_release_config
 from utils import cdsfn_live as cdsfn_live_module
 from utils.pessoas_juridicas_api import consultar_pessoas_juridicas
