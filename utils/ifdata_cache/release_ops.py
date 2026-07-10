@@ -12,7 +12,7 @@ import requests
 
 from .critical_screens import CRITICAL_SOURCE_TYPES, materialize_critical_screens_cache
 from .derived_metrics import materialize_derived_metrics_cache
-from .diagnostics import build_runtime_manifest
+from .diagnostics import build_runtime_manifest, count_placeholder_names
 from .release_config import ReleaseConfig, get_release_config
 
 
@@ -55,6 +55,12 @@ PUBLISH_ORDER = [
     "derived_metrics_individual",
     "critical_screens",
 ]
+
+INDIVIDUAL_CACHE_MIN_PERIODS = 13
+INDIVIDUAL_CACHE_QUALITY_SPECS = {
+    "principal_individual": {"min_periods": INDIVIDUAL_CACHE_MIN_PERIODS},
+    "dre_individual": {"min_periods": INDIVIDUAL_CACHE_MIN_PERIODS},
+}
 
 
 def _unique_cache_names(cache_names: Iterable[str]) -> list[str]:
@@ -99,6 +105,75 @@ def _sources_for_target(target_name: str) -> list[str]:
     if target_name == "critical_screens":
         return _sorted_cache_names(CRITICAL_TRIGGER_CACHES - {"critical_screens"})
     return []
+
+
+def validate_cache_quality(manager, cache_names: Iterable[str]) -> dict[str, dict[str, Any]]:
+    """Valida identidade e cobertura antes de publicar caches individuais."""
+    checks: dict[str, dict[str, Any]] = {}
+    for cache_name in _sorted_cache_names(cache_names):
+        spec = INDIVIDUAL_CACHE_QUALITY_SPECS.get(cache_name)
+        if spec is None:
+            continue
+
+        cache = manager.get_cache(cache_name) if manager else None
+        if cache is None:
+            checks[cache_name] = {
+                "success": False,
+                "message": "cache não configurado",
+                "period_count": 0,
+                "placeholder_count": 0,
+            }
+            continue
+
+        result = cache.carregar_local()
+        if not result.sucesso or result.dados is None or result.dados.empty:
+            checks[cache_name] = {
+                "success": False,
+                "message": result.mensagem or "cache local indisponível",
+                "period_count": 0,
+                "placeholder_count": 0,
+            }
+            continue
+
+        df = result.dados
+        required = {"CodInst", "Instituição", "Período"}
+        missing = sorted(required - set(df.columns))
+        period_count = int(df["Período"].dropna().astype(str).nunique()) if "Período" in df.columns else 0
+        placeholder_count = count_placeholder_names(df)
+        duplicate_count = (
+            int(df.duplicated(subset=["CodInst", "Período"]).sum())
+            if {"CodInst", "Período"}.issubset(df.columns)
+            else 0
+        )
+        unstable_name_count = (
+            int((df.groupby("CodInst", dropna=False)["Instituição"].nunique(dropna=False) > 1).sum())
+            if {"CodInst", "Instituição"}.issubset(df.columns)
+            else 0
+        )
+        min_periods = int(spec["min_periods"])
+        failures = []
+        if missing:
+            failures.append(f"colunas ausentes: {', '.join(missing)}")
+        if period_count < min_periods:
+            failures.append(f"cobertura insuficiente: {period_count} períodos; mínimo {min_periods}")
+        if placeholder_count:
+            failures.append(f"{placeholder_count} nome(s) placeholder")
+        if duplicate_count:
+            failures.append(f"{duplicate_count} chave(s) CodInst/Período duplicada(s)")
+        if unstable_name_count:
+            failures.append(f"{unstable_name_count} CodInst(s) com rótulos históricos inconsistentes")
+
+        checks[cache_name] = {
+            "success": not failures,
+            "message": "; ".join(failures) if failures else "ok",
+            "period_count": period_count,
+            "minimum_period_count": min_periods,
+            "placeholder_count": placeholder_count,
+            "duplicate_identity_count": duplicate_count,
+            "unstable_name_count": unstable_name_count,
+            "record_count": int(len(df)),
+        }
+    return checks
 
 
 def _hydrate_source_caches(
@@ -221,13 +296,20 @@ def write_release_manifest(
         expected_periods=expected_periods,
         include_hashes=include_hashes,
     )
+    selected = _sorted_cache_names(selected_caches)
+    postprocess_targets = get_postprocess_targets(selected)
+    quality_checks = validate_cache_quality(
+        manager,
+        [*selected, *postprocess_targets],
+    )
     payload = {
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "release": release.to_dict(),
         "expected_periods": dict(expected_periods or {}),
-        "selected_caches": _sorted_cache_names(selected_caches),
-        "postprocess_targets": get_postprocess_targets(selected_caches),
+        "selected_caches": selected,
+        "postprocess_targets": postprocess_targets,
         "materialization": list(materialization_details or []),
+        "quality_checks": quality_checks,
         "caches": runtime_manifest.get("caches", {}),
         "gates": runtime_manifest.get("gates", {}),
         "summary": runtime_manifest.get("summary", {}),
@@ -246,7 +328,17 @@ def get_publishable_bundle(
 ) -> tuple[list[str], list[str]]:
     selected = _sorted_cache_names(selected_caches)
     warnings: list[str] = []
-    publishable = list(selected)
+    quality_map = dict((manifest_payload or {}).get("quality_checks") or {})
+    failed_quality = {
+        cache_name
+        for cache_name, check in quality_map.items()
+        if not bool((check or {}).get("success"))
+    }
+    publishable = [cache_name for cache_name in selected if cache_name not in failed_quality]
+    for cache_name in selected:
+        if cache_name in failed_quality:
+            check = quality_map.get(cache_name) or {}
+            warnings.append(f"{cache_name}: {check.get('message') or 'falha de qualidade'}")
     detail_map = {
         str(item.get("cache")): item
         for item in (materialization_details or [])
@@ -255,6 +347,12 @@ def get_publishable_bundle(
     gate_map = dict((manifest_payload or {}).get("gates") or {})
 
     for target_name in get_postprocess_targets(selected):
+        failed_sources = [source for source in _sources_for_target(target_name) if source in failed_quality]
+        if failed_sources:
+            warnings.append(
+                f"{target_name}: fonte(s) reprovada(s) no gate de qualidade: {', '.join(failed_sources)}"
+            )
+            continue
         detail = detail_map.get(target_name) or {}
         if detail.get("status") != "ok":
             if detail.get("message"):

@@ -26,6 +26,7 @@ import pandas as pd
 import requests
 
 from .base import BaseCache, CacheConfig, CacheResult
+from .extractor import TIPO_INSTITUICAO_INDIVIDUAL
 from .release_config import add_release_cache_buster, get_release_config
 
 logger = logging.getLogger("ifdata_cache")
@@ -501,7 +502,7 @@ class DREIndividualCache(RelatorioCompletoCache):
             DRE_INDIVIDUAL_CONFIG,
             base_dir,
             relatorio_num=4,
-            tipo_instituicao=2,
+            tipo_instituicao=TIPO_INSTITUICAO_INDIVIDUAL,
             manter_codinst=True,
         )
 

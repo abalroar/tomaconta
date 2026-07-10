@@ -554,6 +554,29 @@ class CacheManager:
         # Calcular total de registros
         df_final = resultado_save.dados if resultado_save.dados is not None else df_extraido
 
+        if tipo in {"principal_individual", "dre_individual"}:
+            from .diagnostics import count_placeholder_names
+
+            placeholders = count_placeholder_names(df_final)
+            if placeholders:
+                return CacheResult(
+                    sucesso=False,
+                    mensagem=(
+                        f"Extração rejeitada: {placeholders} nome(s) de instituição não resolvido(s). "
+                        "O cache foi salvo para diagnóstico, mas não deve ser publicado."
+                    ),
+                    dados=df_final,
+                    metadata={
+                        "periodos_extraidos": len(dados_extraidos),
+                        "periodos_total": len(periodos),
+                        "total_registros": len(df_final),
+                        "placeholders": placeholders,
+                        "erros": erros,
+                        "modo": modo,
+                    },
+                    fonte="api",
+                )
+
         logger.info(f"[CACHE:{tipo.upper()}] Extração concluída: {len(dados_extraidos)}/{len(periodos)} períodos, {len(df_final)} registros")
 
         return CacheResult(
@@ -605,6 +628,11 @@ class CacheManager:
             logger.info(f"[CACHE] Merge: {len(periodos_existentes)} existentes, {len(periodos_novos)} novos/atualizados")
         else:
             df_final = df_novos
+
+        if cache.config.nome in {"principal_individual", "dre_individual"}:
+            from .institutions import stabilize_institution_names_by_code
+
+            df_final = stabilize_institution_names_by_code(df_final)
 
         # Salvar
         return cache.salvar_local(df_final, fonte="api", info_extra={"operacao": info})

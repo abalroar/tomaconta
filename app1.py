@@ -157,7 +157,11 @@ from utils.ifdata_cache import (
 )
 from utils.ifdata_cache.derived_metrics import materialize_derived_metrics_cache
 from utils.ifdata_cache.diagnostics import build_runtime_manifest, max_period_from_values, normalize_period_reference
-from utils.ifdata_cache.institutions import canonicalize_institution_dataframe
+from utils.ifdata_cache.institutions import (
+    canonicalize_institution_dataframe,
+    normalize_institution_code,
+    stabilize_institution_names_by_code,
+)
 from utils.ifdata_cache.release_ops import (
     collect_release_assets,
     github_error_detail,
@@ -7497,6 +7501,8 @@ def _build_peers_lookup(df: Optional[pd.DataFrame]) -> dict:
                 "cod_conglomerado",
                 "codigoconglomerado",
                 "cod_congl",
+                "codinst",
+                "cod_inst",
             }
         ),
         None,
@@ -8187,6 +8193,7 @@ def _carregar_cache_relatorio_slice(
     cache_token: str,
     periodos: tuple = (),
     instituicoes: tuple = (),
+    codinsts: tuple = (),
 ) -> Optional[pd.DataFrame]:
     """Carrega recorte de cache por período/instituição para reduzir I/O e RAM."""
     def _periodos_to_yyyymm(periodos_src: tuple) -> tuple[str, ...]:
@@ -8226,9 +8233,11 @@ def _carregar_cache_relatorio_slice(
 
     periodos = tuple(periodos or ())
     instituicoes = tuple(instituicoes or ())
+    codinsts = tuple(normalize_institution_code(codigo) for codigo in (codinsts or ()))
+    codinsts = tuple(codigo for codigo in codinsts if codigo)
     instituicoes_expandidas = (
         _expandir_instituicoes_canonicas(instituicoes)
-        if instituicoes and tipo_cache != "bloprudencial"
+        if instituicoes and tipo_cache not in {"bloprudencial", "principal_individual"}
         else instituicoes
     )
 
@@ -8256,7 +8265,10 @@ def _carregar_cache_relatorio_slice(
                         # DATA_BASE pode vir como YYYYMM, YYYYMMDD, int ou data string.
                         f = ds.field("DATA_BASE").isin(list(yyyymm_needed))
                         filtro = f if filtro is None else filtro & f
-            if instituicoes_expandidas and "Instituição" in schema_names and tipo_cache != "bloprudencial":
+            if codinsts and "CodInst" in schema_names:
+                f = ds.field("CodInst").isin(list(codinsts))
+                filtro = f if filtro is None else filtro & f
+            elif instituicoes_expandidas and "Instituição" in schema_names and tipo_cache != "bloprudencial":
                 f = ds.field("Instituição").isin(list(instituicoes_expandidas))
                 filtro = f if filtro is None else filtro & f
             if tipo_cache == "bloprudencial":
@@ -8295,7 +8307,10 @@ def _carregar_cache_relatorio_slice(
                 if periodos_yyyymm:
                     base_txt = df[col_data_base].astype(str).str.replace(r"\D", "", regex=True).str[:6]
                     df = df[base_txt.isin(periodos_yyyymm)]
-    if instituicoes_expandidas and "Instituição" in df.columns and tipo_cache != "bloprudencial":
+    if codinsts and "CodInst" in df.columns:
+        codigos_df = df["CodInst"].map(normalize_institution_code)
+        df = df[codigos_df.isin(codinsts)]
+    elif instituicoes_expandidas and "Instituição" in df.columns and tipo_cache != "bloprudencial":
         mask = df["Instituição"].isin(instituicoes_expandidas)
         if not mask.any():
             inst_norm = df["Instituição"].apply(normalizar_nome_instituicao)
@@ -8305,6 +8320,20 @@ def _carregar_cache_relatorio_slice(
                 mask = inst_norm.isin(filtros_norm)
         df = df[mask]
     return df
+
+
+def _apply_peers_individual_display_names(
+    df: Optional[pd.DataFrame],
+    codinst_para_nome: Mapping[str, str],
+) -> Optional[pd.DataFrame]:
+    """Mantém CodInst como identidade e aplica o nome oficial apenas para exibição."""
+    if df is None or df.empty or "CodInst" not in df.columns or "Instituição" not in df.columns:
+        return df
+    out = df.copy()
+    codigos = out["CodInst"].map(normalize_institution_code)
+    nomes = codigos.map({normalize_institution_code(k): str(v).strip() for k, v in codinst_para_nome.items()})
+    out["Instituição"] = nomes.where(nomes.notna(), out["Instituição"].astype(str).str.strip())
+    return out
 
 
 def _critical_metric_lookup(df: Optional[pd.DataFrame]) -> dict:
@@ -9962,6 +9991,8 @@ def _preparar_metricas_extra_peers_individual_from_slice(
             row = lookup.get((banco, periodo), {})
             chave = (banco, periodo)
             carteira = _coerce_numeric_value(row.get("Carteira de Crédito"))
+            if carteira is None or pd.isna(carteira):
+                carteira = _coerce_numeric_value(row.get("Carteira de Crédito Classificada"))
             result["Carteira de Crédito Bruta"][chave] = carteira
             result["Carteira de Crédito*"][chave] = carteira
     return result
@@ -14321,7 +14352,12 @@ def _get_peers_individual_filters_context(principal_individual_token: str) -> di
     manager = get_cache_manager()
     cache = manager.get_cache("principal_individual") if manager else None
     if cache is None:
-        return {"bancos_todos": (), "periodos_disponiveis": ()}
+        return {
+            "bancos_todos": (),
+            "periodos_disponiveis": (),
+            "nome_para_codinsts": {},
+            "codinst_para_nome": {},
+        }
 
     df = None
     if cache.arquivo_dados.exists():
@@ -14330,7 +14366,7 @@ def _get_peers_individual_filters_context(principal_individual_token: str) -> di
 
             dataset = ds.dataset(cache.arquivo_dados, format="parquet")
             schema_names = {str(name) for name in dataset.schema.names}
-            cols = [col for col in ("Instituição", "Período") if col in schema_names]
+            cols = [col for col in ("CodInst", "Instituição", "Período") if col in schema_names]
             if cols:
                 df = dataset.to_table(columns=cols).to_pandas()
         except Exception:
@@ -14341,15 +14377,57 @@ def _get_peers_individual_filters_context(principal_individual_token: str) -> di
         if not resultado.sucesso:
             resultado = manager.carregar("principal_individual")
         if not resultado.sucesso or resultado.dados is None or resultado.dados.empty:
-            return {"bancos_todos": (), "periodos_disponiveis": ()}
-        cols = [col for col in ("Instituição", "Período") if col in resultado.dados.columns]
+            return {
+                "bancos_todos": (),
+                "periodos_disponiveis": (),
+                "nome_para_codinsts": {},
+                "codinst_para_nome": {},
+            }
+        cols = [col for col in ("CodInst", "Instituição", "Período") if col in resultado.dados.columns]
         if not cols:
-            return {"bancos_todos": (), "periodos_disponiveis": ()}
+            return {
+                "bancos_todos": (),
+                "periodos_disponiveis": (),
+                "nome_para_codinsts": {},
+                "codinst_para_nome": {},
+            }
         df = resultado.dados.loc[:, cols].copy()
 
-    bancos = tuple(sorted(df["Instituição"].dropna().astype(str).unique().tolist())) if "Instituição" in df.columns else ()
+    df = stabilize_institution_names_by_code(df)
     periodos = tuple(sorted(df["Período"].dropna().astype(str).unique().tolist())) if "Período" in df.columns else ()
-    return {"bancos_todos": bancos, "periodos_disponiveis": periodos}
+    nome_para_codinsts: dict[str, tuple[str, ...]] = {}
+    codinst_para_nome: dict[str, str] = {}
+    if {"CodInst", "Instituição"}.issubset(df.columns):
+        pares = df[["CodInst", "Instituição"]].dropna().drop_duplicates().copy()
+        pares["CodInst"] = pares["CodInst"].map(normalize_institution_code)
+        pares["Instituição"] = pares["Instituição"].astype(str).str.strip()
+        pares = pares[pares["CodInst"].astype(bool) & pares["Instituição"].astype(bool)]
+        codigos_por_nome = pares.groupby("Instituição")["CodInst"].nunique()
+        nomes_duplicados = set(codigos_por_nome[codigos_por_nome > 1].index.astype(str))
+        pares["Rótulo"] = pares.apply(
+            lambda row: (
+                f"{row['Instituição']} (CodInst {row['CodInst']})"
+                if str(row["Instituição"]) in nomes_duplicados
+                else str(row["Instituição"])
+            ),
+            axis=1,
+        )
+        codinst_para_nome = dict(zip(pares["CodInst"], pares["Rótulo"]))
+        nome_para_codinsts = {
+            str(nome): tuple(sorted(grupo["CodInst"].astype(str).unique().tolist()))
+            for nome, grupo in pares.groupby("Rótulo", sort=True)
+        }
+    bancos = tuple(sorted(nome_para_codinsts)) if nome_para_codinsts else (
+        tuple(sorted(df["Instituição"].dropna().astype(str).unique().tolist()))
+        if "Instituição" in df.columns
+        else ()
+    )
+    return {
+        "bancos_todos": bancos,
+        "periodos_disponiveis": periodos,
+        "nome_para_codinsts": nome_para_codinsts,
+        "codinst_para_nome": codinst_para_nome,
+    }
 
 
 @st.cache_data(ttl=900, show_spinner=False)
@@ -17921,6 +17999,8 @@ elif menu == "Peers (Tabela)":
         periodos_consolidados = peers_ctx_consolidado.get("periodos_disponiveis", []) or []
         bancos_individuais = peers_ctx_individual.get("bancos_todos", []) or []
         periodos_individuais = peers_ctx_individual.get("periodos_disponiveis", []) or []
+        nome_para_codinsts_individual = peers_ctx_individual.get("nome_para_codinsts", {}) or {}
+        codinst_para_nome_individual = peers_ctx_individual.get("codinst_para_nome", {}) or {}
         if (bancos_consolidados and periodos_consolidados) or (bancos_individuais and periodos_individuais):
             st.markdown("### Peers (Tabela)")
             st.caption("comparativo multi-bancos com períodos sincronizados.")
@@ -18065,6 +18145,14 @@ elif menu == "Peers (Tabela)":
                     }))
                     bancos_tuple = tuple(bancos_selecionados)
                     instituicoes_slice_tuple = tuple(sorted(i for i in bancos_selecionados if i))
+                    codinsts_slice_tuple = tuple()
+                    if usando_base_individual_peers:
+                        codinsts_slice_tuple = tuple(sorted({
+                            normalize_institution_code(codigo)
+                            for nome in bancos_selecionados
+                            for codigo in nome_para_codinsts_individual.get(str(nome), ())
+                            if normalize_institution_code(codigo)
+                        }))
                     cache_tabela_peers = "principal_individual" if usando_base_individual_peers else "critical_screens"
                     _t = time.perf_counter()
                     df = _carregar_cache_relatorio_slice(
@@ -18072,7 +18160,10 @@ elif menu == "Peers (Tabela)":
                         _cache_version_token(cache_tabela_peers),
                         periodos_ext_peers,
                         instituicoes_slice_tuple,
+                        codinsts_slice_tuple,
                     )
+                    if usando_base_individual_peers:
+                        df = _apply_peers_individual_display_names(df, codinst_para_nome_individual)
                     _elapsed = time.perf_counter() - _t
                     _log_timing(f"3_load_{cache_tabela_peers}_slice", _elapsed)
                     print(f"[PEERS_TIMING] 3_load_{cache_tabela_peers}_slice: {_elapsed:.3f}s")

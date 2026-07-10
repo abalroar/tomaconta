@@ -14,6 +14,7 @@ import pandas as pd
 import requests
 
 from .base import BaseCache, CacheConfig, CacheResult
+from .extractor import TIPO_INSTITUICAO_INDIVIDUAL
 from .release_config import add_release_cache_buster, get_release_config
 
 logger = logging.getLogger("ifdata_cache")
@@ -372,6 +373,6 @@ class PrincipalIndividualCache(PrincipalCache):
             base_dir,
             config=PRINCIPAL_INDIVIDUAL_CONFIG,
             repo_prefix="principal_individual",
-            tipo_instituicao=2,
+            tipo_instituicao=TIPO_INSTITUICAO_INDIVIDUAL,
             manter_codinst=True,
         )

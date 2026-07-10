@@ -288,6 +288,81 @@ def is_placeholder_institution_name(nome: str | None) -> bool:
     return bool(PLACEHOLDER_IF_PATTERN.fullmatch(texto))
 
 
+def normalize_institution_code(codinst: object) -> str:
+    """Normaliza CodInst sem destruir prefixos usados pelo IFData."""
+    if codinst is None or pd.isna(codinst):
+        return ""
+    if isinstance(codinst, str):
+        return codinst.strip()
+    texto = str(codinst).strip()
+    if not texto:
+        return ""
+    try:
+        numero = float(texto)
+        if numero.is_integer():
+            return str(int(numero))
+    except (TypeError, ValueError):
+        pass
+    return texto
+
+
+def _institution_period_sort_key(periodo: object) -> tuple[int, int, str]:
+    texto = str(periodo or "").strip()
+    if "/" in texto:
+        parte, ano = (item.strip() for item in texto.split("/", 1))
+        if parte.isdigit() and ano.isdigit():
+            valor = int(parte)
+            mes = valor * 3 if 1 <= valor <= 4 else valor
+            return int(ano), mes, texto
+    digitos = re.sub(r"\D", "", texto)
+    if len(digitos) >= 6:
+        return int(digitos[:4]), int(digitos[4:6]), texto
+    return 0, 0, texto
+
+
+def stabilize_institution_names_by_code(
+    df: pd.DataFrame | None,
+    *,
+    code_column: str = "CodInst",
+    name_column: str = "Instituição",
+    period_column: str = "Período",
+) -> pd.DataFrame:
+    """Aplica o nome oficial válido mais recente a todo o histórico do CodInst.
+
+    O cadastro do IFData é temporal e pode mudar o nome de uma instituição. Os
+    relatórios analíticos precisam manter essa informação como rótulo, mas nunca
+    como identidade; por isso a escolha é feita por código e período.
+    """
+    if df is None or df.empty:
+        return df.copy() if isinstance(df, pd.DataFrame) else pd.DataFrame()
+    if code_column not in df.columns or name_column not in df.columns:
+        return df.copy()
+
+    out = df.copy()
+    out[code_column] = out[code_column].map(normalize_institution_code)
+    nomes = out[name_column].astype(str).str.strip()
+    validos = ~nomes.map(is_placeholder_institution_name) & ~nomes.map(parece_codigo_instituicao)
+    candidatos = out.loc[validos, [code_column, name_column]].copy()
+    candidatos = candidatos[candidatos[code_column].astype(bool)]
+    if candidatos.empty:
+        return out
+
+    if period_column in out.columns:
+        candidatos["_period_sort"] = out.loc[candidatos.index, period_column].map(_institution_period_sort_key)
+        candidatos = candidatos.sort_values("_period_sort", kind="stable")
+
+    mapa = (
+        candidatos.drop_duplicates(subset=[code_column], keep="last")
+        .set_index(code_column)[name_column]
+        .astype(str)
+        .str.strip()
+        .to_dict()
+    )
+    nomes_estaveis = out[code_column].map(mapa)
+    out[name_column] = nomes_estaveis.where(nomes_estaveis.notna(), nomes)
+    return out
+
+
 def build_code_to_name_map(
     *frames: pd.DataFrame | None,
     code_columns: Iterable[str] = ("CodInst", "COD_INST", "cod_inst", "CODINST"),
@@ -314,10 +389,7 @@ def build_code_to_name_map(
                 continue
             if is_placeholder_institution_name(name_val) or parece_codigo_instituicao(name_val):
                 continue
-            try:
-                code_key = str(int(float(code_val)))
-            except Exception:
-                code_key = str(code_val).strip()
+            code_key = normalize_institution_code(code_val)
             if code_key and code_key not in mapping:
                 mapping[code_key] = name_val
     return mapping
@@ -346,10 +418,7 @@ def canonicalize_institution_dataframe(
             code_val = row.get(code_col)
             if pd.isna(code_val):
                 continue
-            try:
-                code_key = str(int(float(code_val)))
-            except Exception:
-                code_key = str(code_val).strip()
+            code_key = normalize_institution_code(code_val)
             if code_key:
                 break
 

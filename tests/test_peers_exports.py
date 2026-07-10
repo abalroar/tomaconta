@@ -4,6 +4,7 @@ import pandas as pd
 from openpyxl import load_workbook
 
 import app1
+from utils.ifdata_cache import CacheManager
 
 
 def _find_row_by_label(ws, label: str) -> int:
@@ -341,6 +342,50 @@ def test_peers_base_dre_options_always_include_individual():
     assert app1.PEERS_BASE_DRE_OPTIONS == ["Consolidada / Prudencial", "Individual"]
     assert app1._normalizar_base_dre_peers("Consolidada") == "Consolidada / Prudencial"
     assert app1._normalizar_base_dre_peers("Individual") == "Individual"
+
+
+def test_individual_caches_use_official_ifdata_type_three():
+    manager = CacheManager()
+
+    assert manager.get_cache("principal_individual").tipo_instituicao == 3
+    assert manager.get_cache("dre_individual").tipo_instituicao == 3
+
+
+def test_peers_individual_identity_keeps_historical_rows_under_latest_name():
+    df = pd.DataFrame(
+        [
+            {"CodInst": "C001", "Instituição": "Banco Antigo", "Período": "1/2025", "Ativo Total": 90.0},
+            {"CodInst": "C001", "Instituição": "Banco Atual", "Período": "1/2026", "Ativo Total": 100.0},
+        ]
+    )
+
+    out = app1._apply_peers_individual_display_names(df, {"C001": "Banco Atual"})
+
+    assert out["Instituição"].tolist() == ["Banco Atual", "Banco Atual"]
+    assert app1._obter_valor_peers(out, "Banco Atual", "1/2025", "Ativo Total") == 90.0
+    assert app1._obter_valor_peers(out, "Banco Atual", "1/2026", "Ativo Total") == 100.0
+
+
+def test_peers_individual_uses_classified_credit_before_cosif_2025():
+    df = pd.DataFrame(
+        [
+            {
+                "CodInst": "001",
+                "Instituição": "Banco A",
+                "Período": "4/2024",
+                "Carteira de Crédito Classificada": 123.0,
+                "Carteira de Crédito": None,
+            }
+        ]
+    )
+
+    extra = app1._preparar_metricas_extra_peers_individual_from_slice(
+        df,
+        ["Banco A"],
+        ["4/2024"],
+    )
+
+    assert extra["Carteira de Crédito*"][("Banco A", "4/2024")] == 123.0
 
 
 def test_peers_slice_recomputes_loss_coverage_and_formats_above_100_percent():

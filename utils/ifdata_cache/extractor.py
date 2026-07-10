@@ -40,7 +40,8 @@ logger = logging.getLogger("ifdata_extractor")
 # =============================================================================
 BASE_URL = "https://olinda.bcb.gov.br/olinda/servico/IFDATA/versao/v1/odata"
 TIPO_INSTITUICAO_PRUDENCIAL = 1
-TIPO_INSTITUICAO_INDIVIDUAL = 2
+TIPO_INSTITUICAO_FINANCEIRO = 2
+TIPO_INSTITUICAO_INDIVIDUAL = 3
 TIPO_INSTITUICAO = TIPO_INSTITUICAO_PRUDENCIAL
 
 # Timeout e retry

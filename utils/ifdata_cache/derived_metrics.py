@@ -12,11 +12,13 @@ Formato LONG/TIDY:
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+import io
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
 import pandas as pd
+import requests
 
 from .base import BaseCache, CacheConfig, CacheResult
 from .metric_registry import (
@@ -24,6 +26,7 @@ from .metric_registry import (
     get_derived_metric_format_map,
     get_derived_metric_formula_map,
 )
+from .release_config import add_release_cache_buster, get_release_config
 
 logger = logging.getLogger("ifdata_cache")
 
@@ -91,11 +94,37 @@ DERIVED_INDIVIDUAL_CACHE_CONFIG = CacheConfig(
 class DerivedMetricsCache(BaseCache):
     """Cache dedicado para métricas derivadas."""
 
-    def __init__(self, base_dir: Path):
-        super().__init__(DERIVED_CACHE_CONFIG, base_dir)
+    def __init__(self, base_dir: Path, config: CacheConfig = DERIVED_CACHE_CONFIG):
+        release = get_release_config()
+        super().__init__(replace(config, github_url_base=release.release_base_url), base_dir)
+        self.release_tag = release.tag
+        self.github_release_parquet_url = f"{release.release_base_url}/{config.nome}_dados.parquet"
 
     def baixar_remoto(self):
-        return self._unsupported("Cache derivado não possui fonte remota")
+        asset_url = add_release_cache_buster(
+            self.github_release_parquet_url,
+            self.release_tag,
+            self.config.nome,
+            "parquet",
+        )
+        try:
+            response = requests.get(
+                asset_url,
+                timeout=120,
+                headers={"Cache-Control": "no-cache", "Pragma": "no-cache"},
+            )
+            if response.status_code == 404:
+                return CacheResult(sucesso=False, mensagem="Parquet derivado ausente no release", fonte="nenhum")
+            response.raise_for_status()
+            df = pd.read_parquet(io.BytesIO(response.content))
+            return CacheResult(
+                sucesso=True,
+                mensagem=f"Baixado dos releases: {len(df)} registros",
+                dados=df,
+                fonte="github_releases",
+            )
+        except Exception as exc:
+            return CacheResult(sucesso=False, mensagem=f"Falha ao baixar cache derivado: {exc}", fonte="nenhum")
 
     def extrair_periodo(self, periodo: str, **kwargs):
         return self._unsupported("Cache derivado não suporta extração direta")
@@ -110,7 +139,7 @@ class DerivedMetricsIndividualCache(DerivedMetricsCache):
     """Cache dedicado para métricas derivadas da base individual."""
 
     def __init__(self, base_dir: Path):
-        BaseCache.__init__(self, DERIVED_INDIVIDUAL_CACHE_CONFIG, base_dir)
+        super().__init__(base_dir, config=DERIVED_INDIVIDUAL_CACHE_CONFIG)
 
 
 @dataclass

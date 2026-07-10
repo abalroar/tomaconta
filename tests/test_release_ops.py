@@ -1,16 +1,20 @@
 import json
+from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
 
+import pandas as pd
 import pytest
 
 from utils.ifdata_cache.release_config import ReleaseConfig
+from utils.ifdata_cache.derived_metrics import DerivedMetricsIndividualCache
 from utils.ifdata_cache.release_ops import (
     _hydrate_source_caches,
     collect_release_assets,
     get_postprocess_targets,
     get_publishable_bundle,
     upload_release_assets,
+    validate_cache_quality,
     write_release_manifest,
 )
 
@@ -92,6 +96,40 @@ class _Response:
         return self._payload
 
 
+def test_derived_individual_cache_downloads_published_parquet(tmp_path: Path, monkeypatch):
+    source = pd.DataFrame(
+        {
+            "Instituição": ["Banco A"],
+            "Período": ["1/2026"],
+            "Métrica": ["Métrica A"],
+            "Valor": [0.1],
+            "Unidade": ["pct"],
+        }
+    )
+    payload = BytesIO()
+    source.to_parquet(payload, index=False)
+
+    class _ParquetResponse:
+        status_code = 200
+
+        @staticmethod
+        def raise_for_status():
+            return None
+
+    _ParquetResponse.content = payload.getvalue()
+
+    monkeypatch.setattr(
+        "utils.ifdata_cache.derived_metrics.requests.get",
+        lambda *args, **kwargs: _ParquetResponse(),
+    )
+
+    result = DerivedMetricsIndividualCache(tmp_path).baixar_remoto()
+
+    assert result.sucesso is True
+    assert result.fonte == "github_releases"
+    assert result.dados.to_dict("records") == source.to_dict("records")
+
+
 def test_get_postprocess_targets_maps_base_caches():
     assert get_postprocess_targets(["principal"]) == ["derived_metrics", "critical_screens"]
     assert get_postprocess_targets(["dre_individual"]) == ["derived_metrics_individual"]
@@ -115,6 +153,71 @@ def test_get_publishable_bundle_skips_failed_gate_targets():
 
     assert publishable == ["principal", "critical_screens"]
     assert warnings == ["derived_metrics: esperado 202512, encontrado 202509"]
+
+
+class _QualityCache:
+    def __init__(self, df):
+        self.df = df
+
+    def carregar_local(self):
+        return SimpleNamespace(sucesso=True, dados=self.df, mensagem="ok", fonte="cache_local")
+
+
+class _QualityManager:
+    def __init__(self, caches):
+        self.caches = caches
+
+    def get_cache(self, cache_name):
+        return self.caches.get(cache_name)
+
+
+def test_individual_cache_quality_requires_history_and_resolved_names():
+    periods = [f"{quarter}/{year}" for year in range(2023, 2026) for quarter in range(1, 5)]
+    periods.append("1/2026")
+    valid = pd.DataFrame(
+        {
+            "CodInst": ["001"] * len(periods),
+            "Instituição": ["Banco A"] * len(periods),
+            "Período": periods,
+        }
+    )
+    invalid = valid.iloc[:5].copy()
+    invalid.loc[invalid.index[0], "Instituição"] = "[IF 001]"
+    manager = _QualityManager(
+        {
+            "principal_individual": _QualityCache(invalid),
+            "dre_individual": _QualityCache(valid),
+        }
+    )
+
+    checks = validate_cache_quality(manager, ["principal_individual", "dre_individual"])
+
+    assert checks["principal_individual"]["success"] is False
+    assert "cobertura insuficiente" in checks["principal_individual"]["message"]
+    assert "placeholder" in checks["principal_individual"]["message"]
+    assert checks["dre_individual"]["success"] is True
+
+
+def test_publishable_bundle_blocks_invalid_individual_source_and_derivative():
+    publishable, warnings = get_publishable_bundle(
+        ["principal_individual"],
+        materialization_details=[
+            {"cache": "derived_metrics_individual", "status": "ok", "message": "ok"},
+        ],
+        manifest_payload={
+            "quality_checks": {
+                "principal_individual": {
+                    "success": False,
+                    "message": "cobertura insuficiente: 5 períodos; mínimo 13",
+                }
+            },
+            "gates": {"dre_individual": {"success": True, "message": "ok"}},
+        },
+    )
+
+    assert publishable == []
+    assert any("principal_individual" in warning for warning in warnings)
+    assert any("derived_metrics_individual" in warning for warning in warnings)
 
 
 def test_hydrate_source_caches_prefers_existing_local_sources():

@@ -181,8 +181,10 @@ def parece_codigo_instituicao(valor) -> bool:
     if re.match(r'^C\d+$', s, re.IGNORECASE):
         return True
 
-    # Começa com dígitos seguido de separador (ex: "123_", "123-", "123 ")
-    if re.match(r'^\d+[\s_\-\.:]', s):
+    # Separadores técnicos após um prefixo numérico costumam indicar um código.
+    # Espaço não entra aqui: nomes oficiais como "321 SOCIEDADE DE CRÉDITO..."
+    # são válidos no cadastro do IFData.
+    if re.match(r'^\d+[_\-\.:]', s):
         return True
 
     # String muito curta (menos de 3 chars) e numérica
