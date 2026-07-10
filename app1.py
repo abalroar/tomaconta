@@ -14373,7 +14373,7 @@ def _peers_individual_cache_matches_release(
     return not bool(nomes.str.match(r"^\[IF\s+[^\]]+\]$", case=False, na=False).any())
 
 
-@st.cache_data(ttl=900, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def _get_peers_individual_filters_context(
     principal_individual_token: str,
     release_token: str = "",
@@ -14416,9 +14416,17 @@ def _get_peers_individual_filters_context(
     if df is None:
         resultado = cache.carregar_local()
         if force_release_refresh:
-            resultado = cache.baixar_remoto()
-            if resultado.sucesso and resultado.dados is not None:
-                cache.salvar_local(resultado.dados, fonte=resultado.fonte)
+            for tentativa in range(3):
+                resultado = cache.baixar_remoto()
+                if resultado.sucesso and _peers_individual_cache_matches_release(
+                    resultado.dados,
+                    expected_period_count=expected_period_count,
+                    expected_record_count=expected_record_count,
+                ):
+                    cache.salvar_local(resultado.dados, fonte=resultado.fonte)
+                    break
+                if tentativa < 2:
+                    time.sleep(1.0)
         elif not resultado.sucesso:
             resultado = manager.carregar("principal_individual")
         if not resultado.sucesso or resultado.dados is None or resultado.dados.empty:
