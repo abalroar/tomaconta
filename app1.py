@@ -14352,10 +14352,36 @@ def _get_peers_filters_context(critical_token: str) -> dict:
     return load_critical_screens_filters_context(base_dir=APP_DIR)
 
 
+PEERS_INDIVIDUAL_MIN_PERIODS = 13
+
+
+def _peers_individual_cache_matches_release(
+    df: Optional[pd.DataFrame],
+    *,
+    expected_period_count: int = 0,
+    expected_record_count: int = 0,
+) -> bool:
+    """Confirma que o cache local corresponde ao bundle individual curado."""
+    if df is None or df.empty or not {"CodInst", "Instituição", "Período"}.issubset(df.columns):
+        return False
+    minimum_periods = max(PEERS_INDIVIDUAL_MIN_PERIODS, int(expected_period_count or 0))
+    if int(df["Período"].dropna().astype(str).nunique()) < minimum_periods:
+        return False
+    if expected_record_count and len(df) != int(expected_record_count):
+        return False
+    nomes = df["Instituição"].astype(str).str.strip()
+    return not bool(nomes.str.match(r"^\[IF\s+[^\]]+\]$", case=False, na=False).any())
+
+
 @st.cache_data(ttl=900, show_spinner=False)
-def _get_peers_individual_filters_context(principal_individual_token: str) -> dict:
+def _get_peers_individual_filters_context(
+    principal_individual_token: str,
+    release_token: str = "",
+    expected_period_count: int = 0,
+    expected_record_count: int = 0,
+) -> dict:
     """Retorna bancos/períodos da base individual para Peers."""
-    _ = principal_individual_token
+    _ = (principal_individual_token, release_token)
     manager = get_cache_manager()
     cache = manager.get_cache("principal_individual") if manager else None
     if cache is None:
@@ -14379,9 +14405,21 @@ def _get_peers_individual_filters_context(principal_individual_token: str) -> di
         except Exception:
             df = None
 
+    force_release_refresh = df is not None and not _peers_individual_cache_matches_release(
+        df,
+        expected_period_count=expected_period_count,
+        expected_record_count=expected_record_count,
+    )
+    if force_release_refresh:
+        df = None
+
     if df is None:
         resultado = cache.carregar_local()
-        if not resultado.sucesso:
+        if force_release_refresh:
+            resultado = cache.baixar_remoto()
+            if resultado.sucesso and resultado.dados is not None:
+                cache.salvar_local(resultado.dados, fonte=resultado.fonte)
+        elif not resultado.sucesso:
             resultado = manager.carregar("principal_individual")
         if not resultado.sucesso or resultado.dados is None or resultado.dados.empty:
             return {
@@ -14399,6 +14437,17 @@ def _get_peers_individual_filters_context(principal_individual_token: str) -> di
                 "codinst_para_nome": {},
             }
         df = resultado.dados.loc[:, cols].copy()
+        if not _peers_individual_cache_matches_release(
+            df,
+            expected_period_count=expected_period_count,
+            expected_record_count=expected_record_count,
+        ):
+            return {
+                "bancos_todos": (),
+                "periodos_disponiveis": (),
+                "nome_para_codinsts": {},
+                "codinst_para_nome": {},
+            }
 
     df = stabilize_institution_names_by_code(df)
     periodos = tuple(sorted(df["Período"].dropna().astype(str).unique().tolist())) if "Período" in df.columns else ()
@@ -17994,8 +18043,18 @@ elif menu == "Peers (Tabela)":
         peers_ctx_consolidado = _get_peers_filters_context(
             _cache_version_token("critical_screens"),
         )
+        peers_individual_manifest = _carregar_manifest_release_cache(_release_manifest_url())
+        peers_individual_quality = (
+            (peers_individual_manifest.get("quality_checks") or {}).get("principal_individual") or {}
+        )
+        peers_individual_cache_info = (
+            (peers_individual_manifest.get("caches") or {}).get("principal_individual") or {}
+        )
         peers_ctx_individual = _get_peers_individual_filters_context(
             _cache_version_token("principal_individual"),
+            _manifest_generated_token_cache(peers_individual_manifest),
+            int(peers_individual_quality.get("period_count") or 0),
+            int(peers_individual_cache_info.get("record_count") or 0),
         )
         _elapsed = time.perf_counter() - _t
         _log_timing("1_get_peers_context_curado", _elapsed)

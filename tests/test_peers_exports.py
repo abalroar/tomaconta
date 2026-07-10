@@ -25,6 +25,34 @@ def _find_status_row(ws, instituicao: str, periodo: str, indicador: str) -> int:
     raise AssertionError(f"status row not found: {instituicao=} {periodo=} {indicador=}")
 
 
+def test_peers_individual_cache_must_match_curated_release_coverage():
+    periodos = [f"{quarter}/{year}" for year in range(2022, 2026) for quarter in range(1, 5)]
+    periodos.append("1/2026")
+    curated = pd.DataFrame(
+        {
+            "CodInst": ["60701190"] * len(periodos),
+            "Instituição": ["ITAÚ UNIBANCO S.A."] * len(periodos),
+            "Período": periodos,
+        }
+    )
+
+    assert app1._peers_individual_cache_matches_release(
+        curated,
+        expected_period_count=17,
+        expected_record_count=17,
+    )
+    assert not app1._peers_individual_cache_matches_release(
+        curated.tail(5),
+        expected_period_count=17,
+        expected_record_count=17,
+    )
+    assert not app1._peers_individual_cache_matches_release(
+        curated.assign(Instituição="[IF 60701190]"),
+        expected_period_count=17,
+        expected_record_count=17,
+    )
+
+
 def test_peers_raw_export_writes_numeric_values_without_visual_arrows():
     bancos = ["TEST BANK - PRUDENCIAL"]
     periodos = ["4/2025"]
