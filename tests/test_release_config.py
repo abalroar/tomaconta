@@ -51,6 +51,15 @@ def test_release_config_prefers_env_over_secrets(monkeypatch):
     assert cfg.release_base_url == "https://github.com/org/repo-env/releases/download/v9-cache"
 
 
+def test_release_config_migrates_deprecated_tag_override(monkeypatch):
+    monkeypatch.setenv("TOMACONTA_RELEASE_TAG", "v1.0-cache")
+
+    cfg = get_release_config()
+
+    assert cfg.tag == "v1.1-cache"
+    assert cfg.tag_source == "migrated:env:TOMACONTA_RELEASE_TAG"
+
+
 def test_release_config_falls_back_to_secrets(monkeypatch):
     monkeypatch.delenv("TOMACONTA_RELEASE_REPO", raising=False)
     monkeypatch.delenv("TOMACONTA_RELEASE_TAG", raising=False)

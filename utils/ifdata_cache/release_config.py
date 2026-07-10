@@ -12,6 +12,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 DEFAULT_RELEASE_REPO = "abalroar/tomaconta"
 DEFAULT_RELEASE_TAG = "v1.1-cache"
 DEFAULT_RAW_REPO = "abalroar/tomaconta"
+DEPRECATED_RELEASE_TAGS = {"v1.0-cache"}
 
 
 @dataclass(frozen=True)
@@ -82,11 +83,12 @@ def resolve_release_tag(
     secrets_provider: Mapping[str, Any] | Any | None = None,
     default: str = DEFAULT_RELEASE_TAG,
 ) -> str:
-    return _resolve_value(
+    value, _ = _resolve_value(
         env_key="TOMACONTA_RELEASE_TAG",
         default=default,
         secrets_provider=secrets_provider,
-    )[0]
+    )
+    return default if value in DEPRECATED_RELEASE_TAGS else value
 
 
 def resolve_raw_repo(
@@ -152,6 +154,9 @@ def get_release_config(
         default=DEFAULT_RELEASE_TAG,
         secrets_provider=secrets_provider,
     )
+    if tag in DEPRECATED_RELEASE_TAGS:
+        tag = DEFAULT_RELEASE_TAG
+        tag_source = f"migrated:{tag_source}"
     raw_repo, raw_repo_source = _resolve_value(
         env_key="TOMACONTA_RAW_REPO",
         default=DEFAULT_RAW_REPO,

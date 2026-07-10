@@ -182,7 +182,10 @@ from utils.ifdata_cache.release_ops import (
 import utils.ifdata_cache.release_config as _ifdata_release_config
 
 _EXPECTED_CACHE_RELEASE_TAG = "v1.1-cache"
-if _ifdata_release_config.DEFAULT_RELEASE_TAG != _EXPECTED_CACHE_RELEASE_TAG:
+if (
+    _ifdata_release_config.DEFAULT_RELEASE_TAG != _EXPECTED_CACHE_RELEASE_TAG
+    or not hasattr(_ifdata_release_config, "DEPRECATED_RELEASE_TAGS")
+):
     _ifdata_release_config = importlib.reload(_ifdata_release_config)
     import utils.ifdata_cache as _ifdata_cache_package
 
