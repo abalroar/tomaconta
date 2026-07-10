@@ -245,13 +245,18 @@ from .compat import (
 
 # Instancia global para uso simplificado
 _manager = None
+_manager_release_tag = None
 
 
 def get_manager() -> CacheManager:
     """Retorna instancia global do gerenciador de cache."""
-    global _manager
-    if _manager is None:
+    from .release_config import get_release_config
+
+    global _manager, _manager_release_tag
+    release_tag = get_release_config().tag
+    if _manager is None or _manager_release_tag != release_tag:
         _manager = CacheManager()
+        _manager_release_tag = release_tag
     return _manager
 
 

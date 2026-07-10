@@ -1,7 +1,33 @@
+from types import SimpleNamespace
+
+import utils.ifdata_cache as cache_package
+import utils.ifdata_cache.release_config as release_config_module
 from utils.ifdata_cache.release_config import (
     build_release_asset_url,
     get_release_config,
 )
+
+
+def test_cache_manager_is_recreated_when_release_tag_changes(monkeypatch):
+    active_tag = {"value": "v1-cache"}
+
+    class DummyManager:
+        pass
+
+    monkeypatch.setattr(cache_package, "CacheManager", DummyManager)
+    monkeypatch.setattr(
+        release_config_module,
+        "get_release_config",
+        lambda: SimpleNamespace(tag=active_tag["value"]),
+    )
+    monkeypatch.setattr(cache_package, "_manager", None)
+    monkeypatch.setattr(cache_package, "_manager_release_tag", None)
+
+    first = cache_package.get_manager()
+    assert cache_package.get_manager() is first
+
+    active_tag["value"] = "v2-cache"
+    assert cache_package.get_manager() is not first
 
 
 def test_release_config_prefers_env_over_secrets(monkeypatch):

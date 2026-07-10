@@ -179,7 +179,16 @@ from utils.ifdata_cache.release_ops import (
     upload_release_assets,
     write_release_manifest,
 )
-from utils.ifdata_cache.release_config import get_release_config
+import utils.ifdata_cache.release_config as _ifdata_release_config
+
+_EXPECTED_CACHE_RELEASE_TAG = "v1.1-cache"
+if _ifdata_release_config.DEFAULT_RELEASE_TAG != _EXPECTED_CACHE_RELEASE_TAG:
+    _ifdata_release_config = importlib.reload(_ifdata_release_config)
+    import utils.ifdata_cache as _ifdata_cache_package
+
+    _ifdata_cache_package._manager = None
+    _ifdata_cache_package._manager_release_tag = None
+get_release_config = _ifdata_release_config.get_release_config
 from utils import cdsfn_live as cdsfn_live_module
 from utils.pessoas_juridicas_api import consultar_pessoas_juridicas
 from utils.ifdata_cache import taxas_juros as taxas_juros_module
