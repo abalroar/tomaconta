@@ -33,9 +33,20 @@ data/cache/bcb_bloprudencial/
 # Cache parquet local
 data/cache/
 
+# Snapshots operacionais locais (recriados pelo CLI de refresh)
+data/cache_versions/
+
+# Intermediários regeneráveis de QA dos artefatos publicados
+outputs/**/excel/preview/
+outputs/**/presentations/**/preview/
+outputs/**/presentations/**/layout/
+outputs/**/presentations/**/qa/contact-sheet.png
+outputs/**/presentations/**/output/artifact-build-manifest.json
+
 # Logs locais
 streamlit.log
 docs/.Rhistory
+.playwright-cli/
 
 # Artefato gerado localmente (não versionar binário)
 data/DRE_COSIF_mapeamento_explicativo.xlsx

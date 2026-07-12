@@ -48,7 +48,7 @@ CSV_REQUIRED_COLUMNS = ("CNPJ", "NOME DA INSTITUICAO")
 def _safe_response_json(response: Any, contexto: str) -> dict[str, Any]:
     try:
         return response.json()
-    except Exception as exc:
+    except Exception:
         try:
             return json.loads(response.text)
         except Exception as json_exc:

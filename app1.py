@@ -14,7 +14,7 @@ import plotly.graph_objects as go
 from pathlib import Path
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-from typing import Tuple, Optional
+from typing import Tuple
 import time
 import html as _html_mod
 
@@ -90,7 +90,6 @@ def _timer_render_caption(timer_key: str, container, label: str) -> None:
         container.caption(f"⏱️ {label}: medindo carregamento desta seleção...")
         return
     container.caption(f"⏱️ {label}: {elapsed:.2f}s (seleção atual)")
-import utils  # garante pacote utils carregado
 importlib.invalidate_caches()
 
 _EXPECTED_CACHE_RELEASE_TAG = "v1.1-cache"
@@ -104,7 +103,6 @@ from utils.formatting import (
     formatar_monetario_br_auto_reais,
     formatar_numero_br,
     formatar_percentual_br,
-    formatar_razao_br,
 )
 from utils.snapshot_delta import compute_delta
 from utils.device_detection import detect_device_from_headers
@@ -120,38 +118,21 @@ from data_sources.cosif_metadata import (
 )
 
 from utils.ifdata_extractor import (
-    gerar_periodos,
-    processar_todos_periodos,
     construir_mapa_codinst,
-    construir_mapa_codinst_multiperiodo,
-    get_log_file_path,
-    parece_codigo_instituicao,
 )
 # Sistema unificado de cache (capital e principal)
 from utils.ifdata_cache import (
     CacheResult,
     # Cache principal (compat)
     carregar_cache,
-    salvar_cache,
-    get_cache_info,
-    # Cache de capital
-    gerar_periodos_capital,
-    processar_todos_periodos_capital,
-    salvar_cache_capital,
-    carregar_cache_capital,
-    get_capital_cache_info,
-    ler_info_cache_capital,
-    get_campos_capital_info,
-    # Gerenciador unificado
     CacheManager,
     get_manager as get_cache_manager,
     DERIVED_METRICS,
-    DERIVED_METRICS_FORMAT,
     DERIVED_METRICS_FORMULAS,
     build_derived_metrics,
     load_derived_metrics_slice,
     CRITICAL_EXTRA_METRICS,
-    materialize_critical_screens_cache,
+    materialize_critical_screens_cache as materialize_critical_screens_cache,
     load_critical_screens_filters_context,
     load_critical_screens_slice,
     get_critical_screens_runtime_status,
@@ -211,21 +192,15 @@ try:
     from utils.ifdata_cache import taxas_juros_historico as taxas_juros_historico_module
 except Exception:  # pragma: no cover - fallback defensivo para deploys defasados
     taxas_juros_historico_module = None
-from rating import QUALITATIVE_QUESTIONS, build_audit_tables, build_audit_trail_markdown, calculate_rating, list_available_rating_periods, load_rating_input_dataframe, map_rating_inputs, period_to_display_label
-from rating.engine import get_size_bucket
 from tabs.dre_ifdata_schema import render_streamlit_app as render_dre_ifdata_schema_app
 import io
 import base64
-import subprocess
 import re
 import unicodedata
 import xlsxwriter
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-from pptx import Presentation
-from pptx.util import Inches
-from matplotlib.ticker import FuncFormatter
 
 CDSFN_BLOCKS = cdsfn_live_module.CDSFN_BLOCKS
 combine_normalized_blocks_cdsfn = cdsfn_live_module.combine_normalized_blocks_cdsfn
@@ -1903,20 +1878,6 @@ def _extrair_mes_periodo(periodo_preferencial: Optional[str], periodo_fallback: 
     return None
 
 # Variáveis de capital que serão mescladas com os dados principais
-VARS_CAPITAL_MERGE = [
-    'Capital Principal',
-    'Capital Complementar',
-    'Capital Nível II',
-    'RWA Total',
-    'RWA Crédito',
-    'RWA Mercado',
-    'RWA Operacional',
-    'Exposição Total',
-    'Índice de Capital Principal',
-    'Índice de Capital Nível I',
-    'Razão de Alavancagem',
-    'Adicional de Capital Principal',
-]
 
 def normalizar_colunas_capital(df_capital: pd.DataFrame) -> pd.DataFrame:
     mapa_colunas = {
@@ -1939,83 +1900,6 @@ def normalizar_colunas_capital(df_capital: pd.DataFrame) -> pd.DataFrame:
             df_capital = df_capital.rename(columns={alternativa: nome_padrao})
     return df_capital
 
-def mesclar_dados_capital(dados_periodos, dados_capital):
-    """Mescla dados de capital (Relatório 5) com os dados principais.
-
-    Permite que as variáveis de capital estejam disponíveis nas abas
-    Resumo, Análise Individual, Série Histórica, Scatter Plot, Deltas e Brincar.
-    """
-    if not dados_periodos or not dados_capital:
-        return dados_periodos
-
-    dados_mesclados = {}
-
-    for periodo, df_principal in dados_periodos.items():
-        df_merged = df_principal.copy()
-
-        # Encontrar período correspondente no cache de capital
-        # O formato pode ser diferente, então precisamos normalizar
-        if periodo in dados_capital:
-            df_capital = dados_capital[periodo]
-        else:
-            # Tentar formatos alternativos (ex: "03/2024" vs "202403")
-            periodo_alt = None
-            for p in dados_capital.keys():
-                # Normalizar ambos para comparação
-                p_norm = p.replace('/', '')
-                periodo_norm = periodo.replace('/', '')
-                if p_norm == periodo_norm or p == periodo:
-                    periodo_alt = p
-                    break
-            if periodo_alt:
-                df_capital = dados_capital[periodo_alt]
-            else:
-                dados_mesclados[periodo] = df_merged
-                continue
-
-        df_capital = normalizar_colunas_capital(df_capital)
-
-        # Fazer merge por nome da instituição
-        if 'Instituição' in df_capital.columns:
-            # Selecionar apenas as colunas de capital que queremos mesclar
-            colunas_para_merge = ['Instituição'] + [c for c in VARS_CAPITAL_MERGE if c in df_capital.columns]
-
-            if len(colunas_para_merge) > 1:  # Tem pelo menos uma variável de capital
-                df_capital_subset = df_capital[colunas_para_merge].drop_duplicates(subset=['Instituição'])
-
-                # Fazer merge preservando os dados principais
-                df_merged = df_merged.merge(
-                    df_capital_subset,
-                    on='Instituição',
-                    how='left',
-                    suffixes=('', '_capital')
-                )
-
-                # Se houver colunas duplicadas, manter a versão do capital (mais atualizada/específica)
-                for col in VARS_CAPITAL_MERGE:
-                    if f'{col}_capital' in df_merged.columns:
-                        df_merged[col] = df_merged[f'{col}_capital']
-                        df_merged = df_merged.drop(columns=[f'{col}_capital'])
-
-        # Normalizar índices percentuais de capital para base decimal (0-1).
-        # O cache de capital pode ter valores em 0-100 (API bruta) ou 0-1 (extrator normalizado).
-        _INDICES_CAPITAL_PERCENTUAL = [
-            'Índice de Capital Principal',
-            'Índice de Capital Nível I',
-            'Razão de Alavancagem',
-        ]
-        for col in _INDICES_CAPITAL_PERCENTUAL:
-            if col in df_merged.columns:
-                df_merged[col] = _normalizar_indice_para_decimal(df_merged[col])
-
-        dados_mesclados[periodo] = df_merged
-
-    # Renomear coluna para display (CET1) sem afetar chaves internas do cache
-    for periodo, df_m in dados_mesclados.items():
-        if 'Índice de Capital Principal' in df_m.columns:
-            df_m.rename(columns={'Índice de Capital Principal': 'Índice de Capital Principal (CET1)'}, inplace=True)
-
-    return dados_mesclados
 
 def ler_info_cache():
     cache_manager = get_cache_manager()
@@ -2368,24 +2252,6 @@ def upload_cache_github(cache_manager: CacheManager, tipo_cache: str, gh_token: 
     return sucesso, mensagem
 
 
-def preparar_download_cache_local(cache_manager: CacheManager, tipo_cache: str) -> Optional[dict]:
-    """Prepara bytes do cache local para download (parquet ou pickle)."""
-    cache = cache_manager.get_cache(tipo_cache) if cache_manager else None
-    if cache is None:
-        return None
-
-    if cache.arquivo_dados.exists():
-        data_path = cache.arquivo_dados
-    elif cache.arquivo_dados_pickle.exists():
-        data_path = cache.arquivo_dados_pickle
-    else:
-        return None
-
-    return {
-        "data": data_path.read_bytes(),
-        "file_name": f"{tipo_cache}_cache{data_path.suffix}",
-        "mime": "application/octet-stream",
-    }
 
 def _aliases_file_token() -> str:
     """Token estável mantido apenas para compatibilidade de cache."""
@@ -2417,40 +2283,6 @@ def normalizar_nome_instituicao(nome):
     return " ".join(str(nome).split()).upper()
 
 
-def normalizar_nome_instituicao_match(nome):
-    """Gera chave determinística para conciliação de instituições.
-
-    Regras:
-    - remove acentos;
-    - converte para uppercase;
-    - remove pontuação;
-    - remove sufixos societários/prudenciais recorrentes;
-    - colapsa espaços.
-    """
-    if pd.isna(nome):
-        return ""
-
-    txt = _normalizar_texto_sem_acento(nome)
-    txt = re.sub(r"[^A-Z0-9\s]", " ", txt)
-    txt = re.sub(r"\s+", " ", txt).strip()
-    txt = re.sub(r"\bS\s*A\b$", "", txt).strip()
-
-    sufixos = [
-        " PRUDENCIAL",
-        " HOLDING",
-        " BANCO MULTIPLO",
-        " BANCO COMERCIAL",
-        " CONGLOMERADO",
-    ]
-    alterado = True
-    while alterado and txt:
-        alterado = False
-        for sufixo in sufixos:
-            if txt.endswith(sufixo):
-                txt = txt[: -len(sufixo)].strip()
-                alterado = True
-
-    return re.sub(r"\s+", " ", txt).strip()
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def construir_dict_aliases_normalizado(_df_aliases_hash: str, df_aliases_data: tuple):
@@ -4294,16 +4126,6 @@ def formatar_periodo_mm_yyyy(periodo_val: object, trimestral_para_mes_final: boo
 
     return periodo_str
 
-def formatar_periodos_lista(periodos: list) -> list:
-    """Converte lista de períodos para formato de exibição (Mar/25).
-
-    Args:
-        periodos: Lista de períodos no formato "trimestre/ano"
-
-    Returns:
-        Lista de períodos formatados
-    """
-    return [periodo_para_exibicao(p) for p in periodos]
 
 def _prox_periodo_api(periodo_exib: str) -> str:
     if not periodo_exib or "/" not in str(periodo_exib):
@@ -5107,12 +4929,6 @@ def _peer_groups_disponiveis(bancos_disponiveis: Sequence[str]) -> dict[str, lis
     return grupos
 
 
-def _encontrar_periodo(periodos: list, trimestre: int, ano: int) -> Optional[str]:
-    """Encontra um período na lista pelo trimestre e ano."""
-    for p in periodos:
-        if f"{trimestre}/{ano}" == p or f"{trimestre}/{str(ano)[-2:]}" == p:
-            return p
-    return None
 
 
 def _obter_top_instituicoes_por_ativo(df_periodo: pd.DataFrame, top_n: int) -> list[str]:
@@ -5362,22 +5178,6 @@ def _selecionar_valor_delta(df_periodo: pd.DataFrame, instituicao: str, coluna_v
     return _normalizar_valor_indicador(serie.loc[idx], coluna_variavel)
 
 
-def _delta_percentual_em_bps(variavel: Optional[str]) -> bool:
-    """Indica se o delta percentual deve ser exibido em bps para a variável."""
-    if not variavel:
-        return False
-    return variavel in {
-        "Índice de Basileia",
-        "Índice de Capital Principal",
-        "Índice de Capital Principal (CET1)",
-        "Índice de Capital T1 (%)",
-        "Índice de Capital T1",
-        "Índice de Capital Nível I",
-        "Índice de Capital Nivel I",
-        "Índice Capital Nível I",
-        "Índice Capital Nivel I",
-        "Índice Capital T1",
-    }
 
 
 def _classificar_par_periodos(p1: str, p2: str) -> str:
@@ -7675,16 +7475,6 @@ def _somar_valores(valores: list) -> Optional[float]:
     return float(sum(numeros))
 
 
-def _somar_valores_requeridos(valores: list) -> Optional[float]:
-    numeros = []
-    for valor in valores:
-        val_num = _coerce_numeric_value(valor)
-        if val_num is None or pd.isna(val_num):
-            return None
-        numeros.append(float(val_num))
-    if not numeros:
-        return None
-    return float(sum(numeros))
 
 
 def _periodo_ano_int(periodo_txt: str) -> Optional[int]:
@@ -7695,37 +7485,6 @@ def _periodo_ano_int(periodo_txt: str) -> Optional[int]:
     return int(ano)
 
 
-def _calcular_core_funding(
-    cache_passivo: Optional[pd.DataFrame],
-    instituicao: str,
-    periodo: str,
-    col_capt: Optional[str],
-    col_instr: Optional[str],
-    lk_passivo: Optional[dict] = None,
-) -> Optional[float]:
-    """Core Funding por período: até 2024 usa Captações (e); 2025+ exige Captações (e) + Instrumentos de Dívida Elegíveis a Capital (h)."""
-    if cache_passivo is None or cache_passivo.empty:
-        return None
-    ano_ref = _periodo_ano_int(periodo)
-    if lk_passivo is not None:
-        row = lk_passivo.get((instituicao, str(periodo)))
-        cap_val = row.get(col_capt) if (row is not None and col_capt) else None
-    else:
-        cap_val = _obter_valor_peers(cache_passivo, instituicao, periodo, col_capt) if col_capt else None
-    if ano_ref is None or ano_ref <= 2024:
-        return _coerce_numeric_value(cap_val)
-    if lk_passivo is not None:
-        row = lk_passivo.get((instituicao, str(periodo)))
-        instr_val = row.get(col_instr) if (row is not None and col_instr) else None
-    else:
-        instr_val = _obter_valor_peers(cache_passivo, instituicao, periodo, col_instr) if col_instr else None
-    return _coerce_numeric_value(
-        resolve_core_funding_value(
-            year_ref=ano_ref,
-            captacoes_value=cap_val,
-            instrumentos_value=instr_val,
-        ).get("value")
-    )
 
 
 def _prefer_carteira_bruta(colunas: list) -> str:
@@ -7925,14 +7684,6 @@ def _scatter_metric_criteria(label_exibicao: str) -> str:
     return criterios.get(label_exibicao, "Definição específica não cadastrada; usa série da base principal conforme nome da variável.")
 
 
-def _scatter_preferred_ui_option(opcoes_ui: list, display_to_internal: Dict[str, str], prefer_internal: str) -> Optional[str]:
-    """Retorna a opção de UI preferida para o Top N considerando aliases UI→interno."""
-    if prefer_internal in opcoes_ui:
-        return prefer_internal
-    for opcao in opcoes_ui:
-        if display_to_internal.get(opcao, opcao) == prefer_internal:
-            return opcao
-    return opcoes_ui[0] if opcoes_ui else None
 
 
 def _scatter_variable_health(df_periodo: pd.DataFrame, opcoes_ui: list, display_to_internal: Dict[str, str]) -> pd.DataFrame:
@@ -8176,23 +7927,8 @@ def _aplicar_aliases_df(df: Optional[pd.DataFrame], dict_aliases: dict) -> Optio
     return df_out
 
 
-def _instituicoes_filtro_snapshot(banco: str, dict_aliases: dict) -> tuple:
-    """Retorna apenas a instituição oficial selecionada."""
-    _ = dict_aliases
-    if not banco:
-        return tuple()
-    return (str(banco),)
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
-def _carregar_cache_relatorio(tipo_cache: str) -> Optional[pd.DataFrame]:
-    manager = get_cache_manager()
-    if manager is None:
-        return None
-    resultado = manager.carregar(tipo_cache)
-    if resultado.sucesso and resultado.dados is not None:
-        return _normalizar_nomes_carteira(resultado.dados)
-    return None
 
 
 
@@ -8550,7 +8286,6 @@ def _preparar_metricas_extra_peers(
     cache_carteira_pf: Optional[pd.DataFrame],
     cache_carteira_pj: Optional[pd.DataFrame],
     cache_carteira_instr: Optional[pd.DataFrame],
-    cache_dre: Optional[pd.DataFrame],
     cache_capital: Optional[pd.DataFrame] = None,
     cache_bloprudencial: Optional[pd.DataFrame] = None,
 ) -> dict:
@@ -9501,57 +9236,6 @@ def _somar_estagios_2_3_peers(estagio2, estagio3) -> Optional[float]:
     return float(valor_est2) + float(valor_est3)
 
 
-def _acumular_dre_ytd_peers(
-    cache_dre: Optional[pd.DataFrame],
-    banco: str,
-    periodo: str,
-    coluna: Optional[str],
-) -> Optional[float]:
-    """Converte valor DRE bruto para YTD acumulado.
-
-    O BCB (Relatório 4) publica dados DRE de forma semestral:
-      - Mar (parte=1): Jan-Mar → já é YTD (3 meses)
-      - Jun (parte=2): Jan-Jun → já é YTD (6 meses)
-      - Set (parte=3): Jul-Set → precisa somar Jun (Jan-Jun) para YTD (9 meses)
-      - Dez (parte=4): Jul-Dez → precisa somar Jun (Jan-Jun) para YTD (12 meses)
-
-    Retorna valor numérico YTD ou None se dados insuficientes.
-    """
-    valor_raw = _obter_valor_peers(cache_dre, banco, periodo, coluna)
-    if valor_raw is None or pd.isna(valor_raw):
-        return None
-    valor_num = _coerce_numeric_value(valor_raw)
-    if valor_num is None or pd.isna(valor_num):
-        return None
-    parsed = _parse_periodo(periodo)
-    if not parsed:
-        return float(valor_num)
-    parte, _, _ = parsed
-    try:
-        parte_int = int(parte)
-    except ValueError:
-        return float(valor_num)
-    # Determinar se precisa acumular (Set e Dez precisam de Jun)
-    if 1 <= parte_int <= 4:
-        precisa_jun = parte_int in (3, 4)
-        parte_jun = 2
-    elif 1 <= parte_int <= 12:
-        precisa_jun = parte_int in (9, 12)
-        parte_jun = 6
-    else:
-        return float(valor_num)
-    if not precisa_jun:
-        return float(valor_num)
-    periodo_jun = _periodo_mesma_estrutura(periodo, parte_jun)
-    if not periodo_jun:
-        return None
-    valor_jun = _obter_valor_peers(cache_dre, banco, periodo_jun, coluna)
-    if valor_jun is None or pd.isna(valor_jun):
-        return None
-    valor_jun_num = _coerce_numeric_value(valor_jun)
-    if valor_jun_num is None or pd.isna(valor_jun_num):
-        return None
-    return float(valor_num) + float(valor_jun_num)
 
 
 def _compute_ytd_irregular_ifdata_frame(df: pd.DataFrame) -> pd.DataFrame:
@@ -9893,39 +9577,6 @@ def _ajustar_lucro_acumulado_peers(
     return _obter_valor_peers(df, banco, periodo, coluna)
 
 
-@st.cache_data(ttl=900, show_spinner=False)
-def _preparar_metricas_extra_peers_cached(
-    bancos_tuple: tuple,
-    periodos_tuple: tuple,
-    periodos_ext_tuple: tuple,
-    instituicoes_slice_tuple: tuple,
-    alias_sig: tuple,
-    slice_tokens: tuple,
-) -> dict:
-    """Wrapper cacheado: lê apenas o parquet curado de Snapshot/Peers."""
-    import time as _time
-
-    _ = alias_sig
-    _t0_wrapper = _time.perf_counter()
-    slice_tokens_dict = dict(slice_tokens)
-    token = slice_tokens_dict.get("critical_screens")
-    df_slice = _carregar_cache_relatorio_slice(
-        "critical_screens",
-        token or _cache_version_token("critical_screens"),
-        periodos_ext_tuple,
-        instituicoes_slice_tuple,
-    )
-    lookup = _critical_metric_lookup(df_slice)
-    result = {metric: {} for metric in CRITICAL_EXTRA_METRICS}
-    for banco in bancos_tuple:
-        for periodo in periodos_ext_tuple:
-            row = lookup.get((banco, periodo), {})
-            for metric in CRITICAL_EXTRA_METRICS:
-                result[metric][(banco, periodo)] = _calcular_metrica_extra_curada_peers(metric, row)
-
-    _elapsed_total = _time.perf_counter() - _t0_wrapper
-    print(f"[PEERS_TIMING] critical_screens_slice_total: {_elapsed_total:.3f}s")
-    return result
 
 
 def _calcular_metrica_extra_curada_peers(metric: str, row: Mapping[str, Any]) -> Optional[float]:
@@ -10047,7 +9698,6 @@ def _montar_tabela_peers(
     tooltips = {}
     coluna_ativo = _resolver_coluna_peers(df, ["Ativo Total"])
     coluna_pl = _resolver_coluna_peers(df, ["Patrimônio Líquido"])
-    coluna_lucro = _resolver_coluna_peers(df, ["Lucro Líquido Acumulado YTD", "Lucro Líquido"])
     if perf is None:
         perf = {}
 
@@ -10072,7 +9722,6 @@ def _montar_tabela_peers(
             (caches_extras or {}).get("carteira_pf"),
             (caches_extras or {}).get("carteira_pj"),
             (caches_extras or {}).get("carteira_instrumentos"),
-            (caches_extras or {}).get("dre"),
             (caches_extras or {}).get("capital"),
             (caches_extras or {}).get("bloprudencial"),
         )
@@ -11155,26 +10804,6 @@ def _periodo_trimestre_anterior(periodo: Optional[str], periodos_disponiveis: li
     return None
 
 
-def _obter_valor_snapshot(
-    df_base: pd.DataFrame,
-    banco: str,
-    periodo: str,
-    metrica_cfg: dict,
-    extra_values: Optional[dict] = None,
-):
-    """Obtém valor bruto para Snapshot reutilizando o padrão da aba Peers."""
-    extra_key = metrica_cfg.get("extra_key")
-    if extra_key:
-        return (extra_values or {}).get(extra_key, {}).get((banco, periodo))
-
-    for coluna in metrica_cfg.get("data_keys", []):
-        col_resolvida = _resolver_coluna_peers(df_base, [coluna])
-        if not col_resolvida:
-            continue
-        val = _obter_valor_peers(df_base, banco, periodo, col_resolvida)
-        if val is not None and not pd.isna(val):
-            return val
-    return None
 
 
 def _formatar_valor_snapshot(metrica_cfg: dict, valor) -> str:
@@ -11276,188 +10905,10 @@ def _snapshot_pick_col(df: Optional[pd.DataFrame], candidatos: list[str]) -> Opt
     return _resolver_coluna_peers(df, candidatos)
 
 
-def _snapshot_carteira_bruta_por_periodo(
-    cache_ativo: Optional[pd.DataFrame],
-    banco: str,
-    periodos: list[str],
-) -> dict[str, Optional[float]]:
-    """Calcula Carteira de Crédito Bruta para poucos períodos (Snapshot)."""
-    out = {p: None for p in periodos}
-    if cache_ativo is None or cache_ativo.empty:
-        return out
-
-    col_e1 = _snapshot_pick_col(cache_ativo, ["Valor Contábil Bruto (e1)", "Valor Contabil Bruto (e1)"])
-    col_f1 = _snapshot_pick_col(cache_ativo, ["Valor Contábil Bruto (f1)", "Valor Contabil Bruto (f1)"])
-    col_g1 = _snapshot_pick_col(cache_ativo, ["Valor Contábil Bruto (g1)", "Valor Contabil Bruto (g1)"])
-    col_h1 = _snapshot_pick_col(cache_ativo, ["Valor Contábil Bruto (h1)", "Valor Contabil Bruto (h1)"])
-    col_d1 = _snapshot_pick_col(cache_ativo, ["Operações de Crédito (d1)", "Operacoes de Credito (d1)"])
-    col_e1_alt = _snapshot_pick_col(cache_ativo, ["Arrendamento Mercantil a Receber (e1)", "Arrendamento Mercantil a Receber"])
-    col_f_old = _snapshot_pick_col(cache_ativo, ["Outros Créditos - Líquido de Provisão (f)", "Outros Creditos - Liquido de Provisao (f)"])
-    col_e = _snapshot_pick_col(cache_ativo, ["Operações de Crédito (e)", "Operacoes de Credito (e)"])
-    col_f = _snapshot_pick_col(cache_ativo, ["Operações de Arrendamento Financeiro (f)", "Operacoes de Arrendamento Financeiro (f)"])
-    col_g = _snapshot_pick_col(cache_ativo, ["Outras Operações com Características de Concessão de Crédito (g)", "Outras Operacoes com Caracteristicas de Concessao de Credito (g)"])
-    col_h = _snapshot_pick_col(cache_ativo, ["Valores a Receber de Transações de Pagamentos - Usuários Finais (Pós-pago) (h)", "Valores a Receber de Transacoes de Pagamentos - Usuarios Finais (Pos-pago) (h)"])
-
-    for periodo in periodos:
-        ano_ref = _periodo_ano_int(periodo)
-        valor = resolve_carteira_credito_bruta_value(
-            year_ref=ano_ref,
-            legacy_credito_value=_obter_valor_peers(cache_ativo, banco, periodo, col_d1),
-            legacy_arrendamento_value=_obter_valor_peers(cache_ativo, banco, periodo, col_e1_alt),
-            legacy_outros_value=_obter_valor_peers(cache_ativo, banco, periodo, col_f_old),
-            vcb_credito_value=_obter_valor_peers(cache_ativo, banco, periodo, col_e1),
-            vcb_arrendamento_value=_obter_valor_peers(cache_ativo, banco, periodo, col_f1),
-            vcb_outras_ops_value=_obter_valor_peers(cache_ativo, banco, periodo, col_g1),
-            vcb_pagamentos_value=_obter_valor_peers(cache_ativo, banco, periodo, col_h1),
-            net_credito_value=_obter_valor_peers(cache_ativo, banco, periodo, col_e),
-            net_arrendamento_value=_obter_valor_peers(cache_ativo, banco, periodo, col_f),
-            net_outras_ops_value=_obter_valor_peers(cache_ativo, banco, periodo, col_g),
-            net_pagamentos_value=_obter_valor_peers(cache_ativo, banco, periodo, col_h),
-        ).get("value")
-        out[periodo] = valor
-    return out
 
 
-def _snapshot_bloprud_stage3_pdd_por_periodo(
-    cache_bloprudencial: Optional[pd.DataFrame],
-    banco: str,
-    periodos: list[str],
-) -> tuple[dict[str, Optional[float]], dict[str, Optional[float]]]:
-    """Extrai Ativos Estágio 3 e PDD Total 4060 por período para um banco."""
-    stage3_map = {p: None for p in periodos}
-    pdd_map = {p: None for p in periodos}
-    if cache_bloprudencial is None or cache_bloprudencial.empty:
-        return stage3_map, pdd_map
-
-    col_inst = _snapshot_pick_col(cache_bloprudencial, ["NOME_INSTITUICAO", "Instituição", "Instituicao", "NOME_CONGL", "Nome_Congl"])
-    col_conta = _snapshot_pick_col(cache_bloprudencial, ["CONTA", "Conta", "codigo_conta", "COD_CONTA"])
-    col_saldo = _snapshot_pick_col(cache_bloprudencial, ["SALDO", "Saldo", "VALOR", "Valor"])
-    col_documento = _snapshot_pick_col(cache_bloprudencial, ["DOCUMENTO", "Documento", "doc", "cadoc"])
-    if not col_inst or not col_conta or not col_saldo:
-        return stage3_map, pdd_map
-
-    df_blop = cache_bloprudencial.copy()
-    if col_documento:
-        docs_num = pd.to_numeric(df_blop[col_documento], errors="coerce")
-        mask_4060 = docs_num == 4060
-        # Mesmo critério de peers: quando coexistem 4060/4066 no mês, manter Cadoc 4060
-        # para evitar contagem em dobro nas contas prudenciais.
-        if mask_4060.any():
-            df_blop = df_blop.loc[mask_4060].copy()
-
-    if "Período" not in df_blop.columns:
-        col_data_base = _snapshot_pick_col(df_blop, ["DATA_BASE", "Data_Base", "data_base"])
-        if not col_data_base:
-            return stage3_map, pdd_map
-        base_txt = df_blop[col_data_base].astype(str).str.replace(r"\D", "", regex=True).str[:6]
-        df_blop["Período"] = base_txt.str[4:6] + "/" + base_txt.str[:4]
-
-    # Match principal por código (quando disponível), evitando variações textuais.
-    col_cod_blop = _snapshot_pick_col(df_blop, ["COD_CONGL", "Cod_Congl", "cod_congl", "COD_INST", "CodInst"])
-    dict_aliases_codinst = st.session_state.get("dict_aliases_codinst", {}) or {}
-    if col_cod_blop and dict_aliases_codinst:
-        alias_para_codigos = {}
-        for cod, alias in dict_aliases_codinst.items():
-            alias_para_codigos.setdefault(str(alias), set()).add(int(cod))
-        codigos_alvo = alias_para_codigos.get(str(banco), set())
-        if codigos_alvo:
-            cod_series = pd.to_numeric(df_blop[col_cod_blop], errors="coerce")
-            df_blop = df_blop.loc[cod_series.isin(codigos_alvo)].copy()
-            if df_blop.empty:
-                return stage3_map, pdd_map
-
-    def _snapshot_nome_variants(valor: str) -> set[str]:
-        base = _normalizar_label_peers(valor)
-        if not base:
-            return set()
-        variantes = {base}
-        txt = base
-        for suffix in [" - prudencial", " prudencial", " s.a.", " s a", " sa"]:
-            if txt.endswith(suffix):
-                txt = txt[: -len(suffix)].strip()
-        if txt:
-            variantes.add(txt)
-        if " - " in base:
-            variantes.add(base.split(" - ", 1)[0].strip())
-        return {v for v in variantes if v}
-
-    banco_variants = _snapshot_nome_variants(str(banco))
-    inst_norm = df_blop[col_inst].astype(str).map(_normalizar_label_peers)
-    df_blop["_inst_norm"] = inst_norm
-    df_blop_match_source = df_blop.copy()
-    df_blop = df_blop.loc[df_blop["_inst_norm"].isin(banco_variants)].copy()
-    if df_blop.empty and banco_variants:
-        # fallback único e determinístico: comparação por inclusão para acomodar pequenas variações de nome
-        banco_alvo = next(iter(banco_variants))
-        mask_like = inst_norm.astype(str).str.contains(banco_alvo, regex=False) | pd.Series(
-            [banco_alvo in v for v in inst_norm.astype(str)], index=inst_norm.index
-        )
-        df_blop = df_blop_match_source.loc[mask_like].copy()
-        if not df_blop.empty:
-            df_blop["_conta"] = df_blop[col_conta].astype(str).str.replace(r"\D", "", regex=True)
-            df_blop["_saldo"] = pd.to_numeric(df_blop[col_saldo], errors="coerce")
-    if df_blop.empty:
-        return stage3_map, pdd_map
-
-    df_blop["_conta"] = df_blop[col_conta].astype(str).str.replace(r"\D", "", regex=True)
-    df_blop["_saldo"] = pd.to_numeric(df_blop[col_saldo], errors="coerce")
-
-    for periodo in periodos:
-        per_mask = df_blop["Período"].astype(str).apply(lambda p: _periodos_equivalentes(p, periodo))
-        recorte = df_blop.loc[per_mask]
-        if recorte.empty:
-            continue
-        stage3_val = recorte.loc[recorte["_conta"] == "3313000000", "_saldo"].sum(min_count=1)
-        pdd_credito = recorte.loc[recorte["_conta"] == "1490000004", "_saldo"].sum(min_count=1)
-        pdd_outros = recorte.loc[recorte["_conta"] == "1890000006", "_saldo"].sum(min_count=1)
-        stage3_map[periodo] = None if pd.isna(stage3_val) else float(stage3_val)
-        pdd_map[periodo] = _somar_valores([pdd_credito, pdd_outros])
-    return stage3_map, pdd_map
 
 
-def _snapshot_capital_indices_por_periodo(
-    cache_capital: Optional[pd.DataFrame],
-    banco: str,
-    periodos: list[str],
-) -> tuple[dict[str, Optional[float]], dict[str, Optional[float]]]:
-    cet1 = {p: None for p in periodos}
-    basileia = {p: None for p in periodos}
-    if cache_capital is None or cache_capital.empty:
-        return cet1, basileia
-
-    col_cp = _snapshot_pick_col(cache_capital, ["Capital Principal", "Capital Principal para Comparação com RWA (a)"])
-    col_cc = _snapshot_pick_col(cache_capital, ["Capital Complementar", "Capital Complementar (b)"])
-    col_n2 = _snapshot_pick_col(cache_capital, ["Capital Nível II", "Capital Nível II (d)", "Capital Nivel II"])
-    col_rwa = _snapshot_pick_col(cache_capital, ["RWA Total", "Ativos Ponderados pelo Risco (RWA) (j)", "RWA"])
-    col_cet1_pre = _snapshot_pick_col(cache_capital, ["Índice de Capital Principal", "Índice de Capital Principal (l) = (a) / (j)"])
-    col_bas_pre = _snapshot_pick_col(cache_capital, ["Índice de Basileia", "Índice de Basileia Capital", "Índice de Basileia (n) = (e) / (j)"])
-
-    for periodo in periodos:
-        val_cet1 = None
-        if col_cp and col_rwa:
-            cp = _coerce_numeric_value(_obter_valor_peers(cache_capital, banco, periodo, col_cp))
-            rwa = _coerce_numeric_value(_obter_valor_peers(cache_capital, banco, periodo, col_rwa))
-            val_cet1 = _calcular_ratio_peers(cp, rwa)
-        if val_cet1 is None and col_cet1_pre:
-            pre = _coerce_numeric_value(_obter_valor_peers(cache_capital, banco, periodo, col_cet1_pre))
-            if pre is not None and not pd.isna(pre):
-                val_cet1 = float(pre) / 100 if abs(float(pre)) > 1 else float(pre)
-        cet1[periodo] = val_cet1
-
-        val_bas = None
-        if col_cp and col_cc and col_n2 and col_rwa:
-            cp = _coerce_numeric_value(_obter_valor_peers(cache_capital, banco, periodo, col_cp))
-            cc = _coerce_numeric_value(_obter_valor_peers(cache_capital, banco, periodo, col_cc))
-            n2 = _coerce_numeric_value(_obter_valor_peers(cache_capital, banco, periodo, col_n2))
-            rwa = _coerce_numeric_value(_obter_valor_peers(cache_capital, banco, periodo, col_rwa))
-            if all(v is not None and not pd.isna(v) for v in (cp, cc, n2, rwa)) and float(rwa) != 0:
-                val_bas = (float(cp) + float(cc) + float(n2)) / float(rwa)
-        if val_bas is None and col_bas_pre:
-            pre = _coerce_numeric_value(_obter_valor_peers(cache_capital, banco, periodo, col_bas_pre))
-            if pre is not None and not pd.isna(pre):
-                val_bas = float(pre) / 100 if abs(float(pre)) > 1 else float(pre)
-        basileia[periodo] = val_bas
-    return cet1, basileia
 
 
 def _snapshot_normalize_cmp_values(valor_atual, valor_base, higher_is_better: bool):
@@ -11468,30 +10919,6 @@ def _snapshot_normalize_cmp_values(valor_atual, valor_base, higher_is_better: bo
     return a, b
 
 
-def _snapshot_delta_ui(metrica_cfg: dict, valor_atual, valor_base) -> str:
-    """Retorna o indicador visual HTML de melhora/piora/estabilidade da métrica."""
-    if (
-        valor_atual is None or valor_base is None
-        or pd.isna(valor_atual) or pd.isna(valor_base)
-    ):
-        return '<span class="snapshot-direction snapshot-direction--neutral">—</span>'
-
-    regra_sobe_bom = bool(metrica_cfg.get("higher_is_better", True))
-    atual_f, base_f = _snapshot_normalize_cmp_values(valor_atual, valor_base, regra_sobe_bom)
-    if atual_f > base_f:
-        direcao = "up"
-    elif atual_f < base_f:
-        direcao = "down"
-    else:
-        direcao = "neutral"
-
-    if direcao == "neutral":
-        return '<span class="snapshot-direction snapshot-direction--neutral">—</span>'
-
-    melhorou = (direcao == "up" and regra_sobe_bom) or (direcao == "down" and not regra_sobe_bom)
-    classe = "snapshot-direction--positive" if melhorou else "snapshot-direction--negative"
-    simbolo = "↑" if melhorou else "↓"
-    return f'<span class="snapshot-direction {classe}">{simbolo}</span>'
 
 
 # ---------------------------------------------------------------------------
@@ -12209,7 +11636,6 @@ def pagina_snapshot():
     _timer_reset_if_selection_changed("snapshot_timer_state", snapshot_signature)
     _timer_render_caption("snapshot_timer_state", timer_box, "Tempo de carregamento da aba Snapshot")
 
-    t_dados = time.perf_counter()
     df_bank_all = _carregar_cache_relatorio_slice(
         "critical_screens",
         critical_token,
@@ -12250,7 +11676,6 @@ def pagina_snapshot():
 
     cache_snapshot = df_bank_all[df_bank_all["Período"].astype(str).isin(periodos_snapshot)].copy()
     critical_lookup = _critical_metric_lookup(cache_snapshot)
-    tempo_dados = time.perf_counter() - t_dados
 
     label_desp_captacao = "Desp. Anualizada Captação / Volume Captação"
     ativo_map = _critical_metric_map(cache_snapshot, banco, periodos_snapshot, "Ativo Total")
@@ -12409,8 +11834,6 @@ def pagina_snapshot():
     spark_perda_carteira = _spark_from_map({p: perda_carteira_map.get(p) for p in periodos_sparkline})
     spark_cet1 = _spark_from_map(cet1_map)
     spark_basileia = _spark_from_map(bas_map)
-
-    t_render = time.perf_counter()
 
     # ===================================================================
     # TIER 1: Hero KPIs
@@ -12606,7 +12029,6 @@ def pagina_snapshot():
                 )
             )
 
-    tempo_render = time.perf_counter() - t_render
     tempo_total = time.perf_counter() - t0
     _timer_store_elapsed("snapshot_timer_state", snapshot_signature, tempo_total)
     _timer_render_caption("snapshot_timer_state", timer_box, "Tempo de carregamento da aba Snapshot")
@@ -13662,37 +13084,6 @@ def _gerar_png_tabela_evolucao(
     return buf.getvalue()
 
 
-def _gerar_pptx_evolucao(
-    instituicao: str,
-    periodo_inicio: str,
-    periodo_final: str,
-    tabela_png: Optional[bytes],
-    grafico_png: Optional[bytes],
-) -> Optional[bytes]:
-    """Gera PPTX com tabela (PNG) e gráfico (PNG)."""
-    if tabela_png is None and grafico_png is None:
-        return None
-
-    prs = Presentation()
-
-    def _add_slide_with_image(title: str, img_bytes: bytes):
-        slide = prs.slides.add_slide(prs.slide_layouts[5])  # Title Only
-        title_box = slide.shapes.title
-        if title_box:
-            title_box.text = title
-        img_stream = io.BytesIO(img_bytes)
-        slide.shapes.add_picture(img_stream, Inches(0.7), Inches(1.3), width=Inches(12.0))
-
-    title_base = f"Evolução - {instituicao} | {periodo_para_exibicao(periodo_inicio)} a {periodo_para_exibicao(periodo_final)}"
-    if tabela_png is not None:
-        _add_slide_with_image(f"{title_base} (Tabela)", tabela_png)
-    if grafico_png is not None:
-        _add_slide_with_image(f"{title_base} (Gráfico)", grafico_png)
-
-    out = io.BytesIO()
-    prs.save(out)
-    out.seek(0)
-    return out.getvalue()
 
 
 def _mapear_colunas_capital(df_capital: pd.DataFrame):
@@ -13766,88 +13157,7 @@ def _preparar_df_capital_base(periodos_filter: Optional[tuple] = None) -> pd.Dat
     return df_capital
 
 
-def _calcular_basileia_periodo(
-    df_capital: pd.DataFrame,
-    periodo: str,
-    colunas_encontradas: dict,
-) -> Tuple[pd.DataFrame, dict]:
-    df_periodo_cap = df_capital[df_capital['Período'] == periodo].copy()
-    info = {"usou_precalc": False, "mensagem": None}
 
-    pode_calcular_composicao = all(
-        col in colunas_encontradas
-        for col in ['Capital Principal', 'Capital Complementar', 'Capital Nível II', 'RWA Total']
-    )
-
-    if pode_calcular_composicao:
-        col_capital_principal = colunas_encontradas['Capital Principal']
-        col_capital_complementar = colunas_encontradas['Capital Complementar']
-        col_capital_nivel2 = colunas_encontradas['Capital Nível II']
-        col_rwa_total = colunas_encontradas['RWA Total']
-
-        df_periodo_cap['RWA_valido'] = (
-            df_periodo_cap[col_rwa_total].notna() &
-            (df_periodo_cap[col_rwa_total] != 0)
-        )
-
-        df_periodo_cap['CET1 (%)'] = np.where(
-            df_periodo_cap['RWA_valido'],
-            (df_periodo_cap[col_capital_principal] / df_periodo_cap[col_rwa_total]) * 100,
-            np.nan
-        )
-        df_periodo_cap['AT1 (%)'] = np.where(
-            df_periodo_cap['RWA_valido'],
-            (df_periodo_cap[col_capital_complementar] / df_periodo_cap[col_rwa_total]) * 100,
-            np.nan
-        )
-        df_periodo_cap['T2 (%)'] = np.where(
-            df_periodo_cap['RWA_valido'],
-            (df_periodo_cap[col_capital_nivel2] / df_periodo_cap[col_rwa_total]) * 100,
-            np.nan
-        )
-
-        df_periodo_cap['Índice de Basileia Total (%)'] = (
-            df_periodo_cap['CET1 (%)'] +
-            df_periodo_cap['AT1 (%)'] +
-            df_periodo_cap['T2 (%)']
-        )
-    else:
-        df_periodo_cap['Índice de Basileia Total (%)'] = np.nan
-        df_periodo_cap['CET1 (%)'] = np.nan
-        df_periodo_cap['AT1 (%)'] = np.nan
-        df_periodo_cap['T2 (%)'] = np.nan
-        df_periodo_cap['RWA_valido'] = False
-
-    if 'Índice de Basileia Capital' in colunas_encontradas:
-        col_indice_basileia = colunas_encontradas['Índice de Basileia Capital']
-        valores_ib = pd.to_numeric(df_periodo_cap[col_indice_basileia], errors="coerce")
-        mask_preencher = df_periodo_cap['Índice de Basileia Total (%)'].isna() & valores_ib.notna()
-        if mask_preencher.any():
-            valores_fill = valores_ib[mask_preencher].copy()
-            mask_decimal = valores_fill.abs() <= 1
-            valores_fill.loc[mask_decimal] = valores_fill.loc[mask_decimal] * 100
-            df_periodo_cap.loc[mask_preencher, 'Índice de Basileia Total (%)'] = valores_fill
-            df_periodo_cap.loc[mask_preencher, 'RWA_valido'] = True
-            info["usou_precalc"] = True
-        return df_periodo_cap, info
-
-    info["mensagem"] = "Não foi possível calcular o Índice de Basileia. Verifique se o cache possui as colunas necessárias."
-    return pd.DataFrame(), info
-
-def adicionar_indice_cet1(df_base: pd.DataFrame) -> pd.DataFrame:
-    if df_base.empty or "Índice de CET1" in df_base.columns:
-        return df_base
-    if "CET1 (%)" in df_base.columns:
-        df_base = df_base.copy()
-        df_base["Índice de CET1"] = df_base["CET1 (%)"] / 100
-        return df_base
-    if "Capital Principal" not in df_base.columns or "RWA Total" not in df_base.columns:
-        return df_base
-    df_base = df_base.copy()
-    df_base["Índice de CET1"] = (
-        df_base["Capital Principal"] / df_base["RWA Total"].replace(0, np.nan)
-    )
-    return df_base
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -14162,84 +13472,8 @@ def _periodos_equivalentes(periodo_a: str, periodo_b: str) -> bool:
     return normalizar_periodo_chave(periodo_a) == normalizar_periodo_chave(periodo_b)
 
 
-def construir_cet1_capital(
-    dados_capital: dict,
-    dict_aliases: Optional[dict] = None,
-    df_aliases: Optional[pd.DataFrame] = None,
-    dados_periodos: Optional[dict] = None,
-) -> pd.DataFrame:
-    if not dados_capital:
-        return pd.DataFrame()
-    registros = []
-    for periodo, df_capital in dados_capital.items():
-        if df_capital is None or df_capital.empty:
-            continue
-        df_capital = normalizar_colunas_capital(df_capital)
-        if dict_aliases:
-            df_capital = resolver_nomes_instituicoes_capital(
-                df_capital, dict_aliases, df_aliases, dados_periodos
-            )
-        if "Instituição" not in df_capital.columns:
-            continue
-        if "CET1 (%)" in df_capital.columns:
-            df_temp = df_capital[["Instituição", "CET1 (%)"]].copy()
-            df_temp["Índice de CET1"] = df_temp["CET1 (%)"] / 100
-        elif "Capital Principal" in df_capital.columns and "RWA Total" in df_capital.columns:
-            df_temp = df_capital[["Instituição", "Capital Principal", "RWA Total"]].copy()
-            df_temp["Índice de CET1"] = (
-                df_temp["Capital Principal"] / df_temp["RWA Total"].replace(0, np.nan)
-            )
-        else:
-            continue
-        df_temp["Período"] = normalizar_periodo_chave(periodo)
-        registros.append(df_temp[["Período", "Instituição", "Índice de CET1"]])
-    if not registros:
-        return pd.DataFrame()
-    return pd.concat(registros, ignore_index=True)
 
 
-def obter_cet1_periodo(
-    periodo: str,
-    dados_capital: dict,
-    dict_aliases: dict,
-    df_aliases: Optional[pd.DataFrame] = None,
-    dados_periodos: Optional[dict] = None,
-) -> pd.DataFrame:
-    if not dados_capital:
-        return pd.DataFrame()
-    chave_periodo = None
-    for chave in dados_capital.keys():
-        if _periodos_equivalentes(chave, periodo):
-            chave_periodo = chave
-            break
-    if chave_periodo is None:
-        return pd.DataFrame()
-
-    df_capital = dados_capital.get(chave_periodo)
-    if df_capital is None or df_capital.empty:
-        return pd.DataFrame()
-
-    df_capital = normalizar_colunas_capital(df_capital)
-    df_capital = resolver_nomes_instituicoes_capital(
-        df_capital, dict_aliases, df_aliases, dados_periodos
-    )
-
-    colunas_saida = ["Instituição"]
-    if "CodInst" in df_capital.columns:
-        colunas_saida.append("CodInst")
-
-    if "CET1 (%)" in df_capital.columns:
-        df_temp = df_capital[colunas_saida + ["CET1 (%)"]].copy()
-        df_temp["Índice de CET1"] = df_temp["CET1 (%)"] / 100
-    elif "Capital Principal" in df_capital.columns and "RWA Total" in df_capital.columns:
-        df_temp = df_capital[colunas_saida + ["Capital Principal", "RWA Total"]].copy()
-        df_temp["Índice de CET1"] = (
-            df_temp["Capital Principal"] / df_temp["RWA Total"].replace(0, np.nan)
-        )
-    else:
-        return pd.DataFrame()
-
-    return df_temp[colunas_saida + ["Índice de CET1"]]
 
 
 @st.cache_resource(show_spinner=False)
@@ -14277,96 +13511,10 @@ def _plotly_fig_to_png_bytes(fig, width: int = 1600, height: int = 900, scale: i
         return None
 
 
-def _get_dados_concatenados(periodos_hash: str, dados_keys: tuple) -> pd.DataFrame:
-    """Concatena todos os DataFrames de períodos uma única vez.
-
-    Evita pd.concat() repetido em cada página/rerun.
-    Usa hash dos períodos para invalidar cache quando dados mudam.
-    """
-    _perf_start("concat_dados")
-    if 'dados_periodos' not in st.session_state:
-        print(_perf_log("concat_dados"))
-        return pd.DataFrame()
-
-    cache_hash_key = '_dados_concatenados_hash'
-    cache_df_key = '_dados_concatenados_df'
-
-    if (
-        cache_hash_key in st.session_state
-        and cache_df_key in st.session_state
-        and st.session_state[cache_hash_key] == periodos_hash
-    ):
-        print(_perf_log("concat_dados"))
-        return st.session_state[cache_df_key]
-
-    df = pd.concat(st.session_state['dados_periodos'].values(), ignore_index=True)
-    st.session_state[cache_hash_key] = periodos_hash
-    st.session_state[cache_df_key] = df
-    print(_perf_log("concat_dados"))
-    return df
 
 
-def get_dados_concatenados() -> pd.DataFrame:
-    """Retorna DataFrame concatenado de todos os períodos (com cache)."""
-    if 'dados_periodos' not in st.session_state or not st.session_state['dados_periodos']:
-        return pd.DataFrame()
-
-    # Hash baseado nas chaves dos períodos E nas colunas para invalidação de cache
-    # Isso garante que o cache seja invalidado quando métricas derivadas são recalculadas
-    # ou quando dados de capital são mesclados
-    periodos_keys = tuple(sorted(st.session_state['dados_periodos'].keys()))
-
-    # Incluir colunas do primeiro DataFrame no hash para detectar mudanças
-    primeiro_periodo = next(iter(st.session_state['dados_periodos'].values()))
-    colunas_hash = tuple(sorted(primeiro_periodo.columns.tolist()))
-
-    # Flag de mesclagem de capital também invalida o cache
-    capital_mesclado = st.session_state.get('_dados_capital_mesclados', False)
-
-    periodos_hash = str(hash((periodos_keys, colunas_hash, capital_mesclado)))
-
-    return _get_dados_concatenados(periodos_hash, periodos_keys)
 
 
-@st.cache_data(show_spinner=False)
-def _get_crie_metrica_context(periodos_hash: str, periodos_keys: tuple):
-    """Pré-processa metadados leves da aba Crie sua métrica sem concatenar tudo."""
-    dados_periodos = st.session_state.get('dados_periodos', {})
-    if not dados_periodos:
-        return {
-            'colunas_numericas': [],
-            'periodos_disponiveis': [],
-            'periodos_dropdown': [],
-            'bancos_todos': [],
-        }
-
-    colunas_numericas = set()
-    bancos_todos = set()
-
-    for periodo in periodos_keys:
-        df_periodo = dados_periodos.get(periodo)
-        if df_periodo is None or df_periodo.empty:
-            continue
-
-        if 'Instituição' in df_periodo.columns:
-            bancos_todos.update(df_periodo['Instituição'].dropna().unique().tolist())
-
-        for col in df_periodo.columns:
-            if col in ['Instituição', 'Período']:
-                continue
-            if pd.api.types.is_numeric_dtype(df_periodo[col]):
-                colunas_numericas.add(col)
-
-    periodos_disponiveis = ordenar_periodos(list(periodos_keys))
-    periodos_dropdown = ordenar_periodos(list(periodos_keys), reverso=True)
-
-    colunas_numericas_list = _ajustar_colunas_core_funding(sorted(colunas_numericas))
-    return {
-        'colunas_numericas': colunas_numericas_list,
-        'periodos_disponiveis': periodos_disponiveis,
-        'periodos_dropdown': periodos_dropdown,
-        'bancos_todos': sorted(bancos_todos),
-    }
 
 
 @st.cache_data(ttl=900, show_spinner=False)
@@ -14879,13 +14027,6 @@ def _resolve_rankings_source_request(
     }
 
 
-def get_df_periodo_brincar(periodo: str) -> pd.DataFrame:
-    """Obtém DataFrame de um período específico sem concatenar todos os períodos."""
-    dados_periodos = st.session_state.get('dados_periodos', {})
-    df_periodo = dados_periodos.get(periodo)
-    if df_periodo is None:
-        return pd.DataFrame()
-    return df_periodo
 
 
 
@@ -15326,78 +14467,7 @@ ITAU_BBA_COLOR_SEQUENCE = [
 ]
 
 
-def _mapear_cores_itau_bba(chaves: list[str]) -> dict[str, str]:
-    """Mapeia uma lista ordenada de chaves para a paleta Itaú BBA."""
-    chaves_validas = [str(chave) for chave in chaves if chave is not None]
-    if not chaves_validas:
-        return {}
-    return {
-        chave: ITAU_BBA_COLOR_SEQUENCE[idx % len(ITAU_BBA_COLOR_SEQUENCE)]
-        for idx, chave in enumerate(chaves_validas)
-    }
 
-def criar_mini_grafico(df_banco, variavel, titulo, tipo='linha'):
-    df_sorted = df_banco.copy()
-    if 'ano' not in df_sorted.columns:
-        df_sorted['ano'] = df_sorted['Período'].str.split('/').str[1].astype(int)
-        df_sorted['trimestre'] = df_sorted['Período'].str.split('/').str[0].astype(int)
-    df_sorted = df_sorted.sort_values(['ano', 'trimestre'])
-
-    instituicao = df_sorted['Instituição'].iloc[0]
-    cor_banco = obter_cor_banco(instituicao)
-    if not cor_banco:
-        cor_banco = '#1f77b4'
-
-    if variavel in VARS_PERCENTUAL:
-        hover_values = df_sorted[variavel] * 100
-        tickformat = '.2f'
-        suffix = '%'
-    elif variavel in VARS_MOEDAS:
-        hover_values = df_sorted[variavel] / 1e6
-        tickformat = ',.0f'
-        suffix = 'M'
-    elif variavel in VARS_CONTAGEM:
-        hover_values = df_sorted[variavel]
-        tickformat = ',.0f'
-        suffix = ''
-    else:
-        hover_values = df_sorted[variavel]
-        tickformat = '.2f'
-        suffix = ''
-
-    fig = go.Figure()
-
-    if tipo == 'barra':
-        fig.add_trace(go.Bar(
-            x=df_sorted['Período'],
-            y=hover_values,
-            marker=dict(color=cor_banco, opacity=0.8),
-            hovertemplate='%{x}<br>%{y:' + tickformat + '}' + suffix + '<extra></extra>'
-        ))
-    else:
-        fig.add_trace(go.Scatter(
-            x=df_sorted['Período'],
-            y=hover_values,
-            mode='lines',
-            line=dict(color=cor_banco, width=2),
-            fill='tozeroy',
-            fillcolor=f'rgba({int(cor_banco[1:3], 16)}, {int(cor_banco[3:5], 16)}, {int(cor_banco[5:7], 16)}, 0.2)',
-            hovertemplate='%{x}<br>%{y:' + tickformat + '}' + suffix + '<extra></extra>'
-        ))
-
-    fig.update_layout(
-        title=dict(text=titulo, font=dict(size=12, color='#333', family='IBM Plex Sans')),
-        height=180,
-        margin=dict(l=10, r=10, t=35, b=30),
-        plot_bgcolor='#f8f9fa',
-        paper_bgcolor='white',
-        xaxis=dict(showgrid=False, showticklabels=False),
-        yaxis=dict(showgrid=True, gridcolor='#e0e0e0', tickformat=tickformat, ticksuffix=suffix),
-        hovermode='x',
-        font=dict(family='IBM Plex Sans')
-    )
-
-    return fig
 
 # === INICIALIZAÇÃO COM CACHE E PERFORMANCE LOGS ===
 _perf_start("init_total")
@@ -16058,680 +15128,6 @@ with col_header:
     """, unsafe_allow_html=True)
 
 
-@st.cache_data(ttl=900, show_spinner=False)
-def _get_test_period_options(critical_token: str) -> tuple[str, ...]:
-    _ = critical_token
-    return tuple(list_available_rating_periods())
-
-
-@st.cache_data(ttl=900, show_spinner=False)
-def _load_test_period_dataframe(critical_token: str, carteira_token: str, period: str) -> pd.DataFrame:
-    _ = critical_token
-    _ = carteira_token
-    return load_rating_input_dataframe(period)
-
-
-def _formatar_test_rating_valor(campo: str, valor) -> str:
-    campo_txt = str(campo or "")
-    if valor is None or pd.isna(valor):
-        return "N/A"
-    if campo_txt in {
-        "Ativo Total",
-        "Core Funding",
-        "Core Funding (prev)",
-        "Carteira de Crédito Bruta",
-        "Carteira de Crédito Bruta (prev)",
-        "Perda Esperada",
-        "Perda Esperada (prev)",
-        "Ativos Estágio 2",
-        "Ativos Estágio 2 (prev)",
-        "Ativos Estágio 3",
-        "Ativos Estágio 3 (prev)",
-    }:
-        return _formatar_monetario_br_inteligente(valor, decimais=2)
-    if campo_txt in {
-        "Índice de Capital Principal (CET1)",
-        "Índice de Basileia Total (%)",
-        "ROE Ac. Anualizado (%)",
-        "ROE Ac. Anualizado (%) (prev)",
-        "Crédito / Captações",
-        "Perda Esperada / Carteira de Crédito Bruta",
-        "Perda Esperada / Carteira de Crédito Bruta (prev)",
-        "Inadimplência / Carteira Total",
-        "Ativos Problemáticos / Carteira Total",
-        "Variação % Core Funding",
-        "Qualidade da Carteira",
-    }:
-        return _formatar_percentual(valor, decimais=2)
-    return _formatar_numero_ptbr(valor, decimais=4)
-
-
-def _build_test_input_tables(mapped_payload: dict) -> tuple[pd.DataFrame, pd.DataFrame]:
-    raw_rows = []
-    for campo, valor in (mapped_payload.get("raw_inputs") or {}).items():
-        raw_rows.append(
-            {
-                "Campo bruto": campo,
-                "Valor": _formatar_test_rating_valor(campo, valor),
-            }
-        )
-
-    mapped_rows = []
-    for chave, payload in (mapped_payload.get("mapped_inputs") or {}).items():
-        mapped_rows.append(
-            {
-                "Input do modelo": chave,
-                "Display": payload.get("display_label"),
-                "Valor": _formatar_test_rating_valor(str(payload.get("display_label") or chave), payload.get("value")),
-                "Fonte": payload.get("source_field") or "N/A",
-                "Tipo de fonte": payload.get("source_kind") or "N/A",
-                "Observação": payload.get("note") or "",
-            }
-        )
-    return pd.DataFrame(raw_rows), pd.DataFrame(mapped_rows)
-
-
-def _format_missing_rating_inputs(
-    mapped_inputs: dict[str, dict],
-    missing_keys: list[str] | tuple[str, ...] | None,
-) -> str:
-    if not missing_keys:
-        return ""
-    labels: list[str] = []
-    for key in missing_keys:
-        payload = mapped_inputs.get(str(key)) or {}
-        label = str(payload.get("display_label") or _rating_factor_display_map().get(str(key), str(key)))
-        labels.append(label)
-    return ", ".join(labels)
-
-
-def _format_test_question_option(question: dict, option_code: str) -> str:
-    if not option_code:
-        return "Selecione uma resposta"
-    option = next((item for item in question["options"] if str(item["code"]) == str(option_code)), None)
-    if option is None:
-        return str(option_code)
-    return f"{option['code']} | {option['label']} ({option['score']:+.2f})"
-
-
-def _render_test_qualitative_form(key_prefix: str) -> tuple[dict[str, str], bool, pd.DataFrame]:
-    answers: dict[str, str] = {}
-    preview_rows: list[dict[str, str]] = []
-    cols = st.columns(2)
-
-    for idx, question in enumerate(QUALITATIVE_QUESTIONS):
-        with cols[idx % 2]:
-            qid = str(question["id"])
-            options = [""] + [str(item["code"]) for item in question["options"]]
-            selected = st.selectbox(
-                f"{question['label']} - {question['title']}",
-                options=options,
-                index=0,
-                format_func=lambda code, q=question: _format_test_question_option(q, code),
-                key=f"{key_prefix}_{qid}",
-            )
-            if selected:
-                answers[qid] = selected
-                option = next((item for item in question["options"] if str(item["code"]) == selected), None)
-                if option is not None:
-                    preview_rows.append(
-                        {
-                            "Pergunta": f"{question['label']} - {question['title']}",
-                            "Resposta": str(option["label"]),
-                            "Impacto": f"{float(option['score']):+.2f}",
-                            "Grupo": str(question["group"]),
-                        }
-                    )
-
-    all_answered = len(answers) == len(QUALITATIVE_QUESTIONS)
-    return answers, all_answered, pd.DataFrame(preview_rows)
-
-
-def _resultado_batch_rating_df(results: list[dict]) -> pd.DataFrame:
-    rows = []
-    for result in results:
-        missing_labels = _format_missing_rating_inputs(
-            dict(result.get("mapped_inputs") or {}),
-            list(result.get("missing_quantitative_inputs") or []),
-        )
-        rows.append(
-            {
-                "Instituição": result.get("institution_name"),
-                "Status": result.get("status"),
-                "Score Final": result.get("final_numeric_rating"),
-                "Score bruto": round(float(result["raw_final_score"]), 4) if result.get("raw_final_score") is not None else None,
-                "Score inicial": result.get("starting_score"),
-                "Porte": (result.get("size_bucket") or {}).get("label") or "",
-                "Campos faltantes": missing_labels,
-            }
-        )
-    df_out = pd.DataFrame(rows)
-    if df_out.empty:
-        return df_out
-    ordem_status = {"ok": 0, "incomplete": 1}
-    df_out["_ordem_status"] = df_out["Status"].map(lambda valor: ordem_status.get(str(valor), 9))
-    df_out["_rating_sort"] = pd.to_numeric(df_out["Score Final"], errors="coerce").fillna(-1)
-    df_out = df_out.sort_values(["_ordem_status", "_rating_sort", "Instituição"], ascending=[True, False, True])
-    return df_out.drop(columns=["_ordem_status", "_rating_sort"])
-
-
-def _rating_factor_display_map() -> dict[str, str]:
-    return {
-        "cet1": "CET1",
-        "roe": "ROE",
-        "asset_quality": "Qualidade da Carteira",
-        "funding": "Funding",
-        "q1": "Auditoria",
-        "q2": "Ressalvas",
-        "q3": "Suporte acionário",
-        "q4": "Governança",
-        "q5": "Concentração",
-        "q6": "Resiliência",
-    }
-
-
-def _build_rating_waterfall_figure(result: dict) -> go.Figure:
-    factor_labels = _rating_factor_display_map()
-    starting_score = float(result.get("starting_score") or 0)
-    x = ["Score Inicial"]
-    y = [starting_score]
-    measure = ["total"]
-    text = [""]
-    running_total = starting_score
-    cumulative_values = [running_total]
-
-    for key, payload in (result.get("quantitative_scores") or {}).items():
-        score = float(payload.get("score") or 0.0)
-        x.append(factor_labels.get(key, key.upper()))
-        y.append(score)
-        measure.append("relative")
-        text.append(f"{score:+.2f}")
-        running_total += score
-        cumulative_values.append(running_total)
-
-    for key in ["q1", "q2", "q3", "q4", "q5", "q6"]:
-        payload = (result.get("qualitative_scores") or {}).get(key) or {}
-        score = float(payload.get("score") or 0.0)
-        x.append(factor_labels.get(key, key.upper()))
-        y.append(score)
-        measure.append("relative")
-        text.append(f"{score:+.2f}")
-        running_total += score
-        cumulative_values.append(running_total)
-
-    x.append("Score Final")
-    y.append(0)
-    measure.append("total")
-    text.append(str(result.get("final_numeric_rating") or "N/A"))
-    cumulative_values.append(float(result.get("final_numeric_rating") or running_total or 0))
-
-    y_min = min(15.0, min(cumulative_values) if cumulative_values else 15.0)
-    y_max = max(cumulative_values) if cumulative_values else 25.0
-    altura_minima_visual_inicial = 2.0
-    if starting_score > 0 and starting_score - y_min < altura_minima_visual_inicial:
-        y_min = max(0.0, starting_score - altura_minima_visual_inicial)
-
-    fig = go.Figure()
-    altura_visual_inicial = max(0.0, starting_score - y_min)
-    if altura_visual_inicial > 0:
-        fig.add_trace(
-            go.Bar(
-                x=["Score Inicial"],
-                y=[altura_visual_inicial],
-                base=[y_min],
-                width=0.62,
-                marker=dict(color="#111111", line=dict(color="#111111", width=0)),
-                hovertemplate=f"<b>Score Inicial</b><br>Score: {starting_score:.2f}<extra></extra>",
-                showlegend=False,
-            )
-        )
-    fig.add_trace(
-        go.Waterfall(
-            x=x,
-            y=y,
-            measure=measure,
-            text=text,
-            textposition="outside",
-            textfont=dict(size=12, color="#111111"),
-            cliponaxis=False,
-            constraintext="none",
-            increasing={"marker": {"color": "#0f9d58"}},
-            decreasing={"marker": {"color": "#d93025"}},
-            totals={"marker": {"color": "#111111"}},
-            connector={"line": {"color": "#8a8a8a", "width": 1}},
-        )
-    )
-    if starting_score > 0:
-        fig.add_annotation(
-            x="Score Inicial",
-            y=starting_score,
-            text=f"{starting_score:.2f}",
-            showarrow=False,
-            yshift=12,
-            font=dict(size=12, color="#111111"),
-            bgcolor="rgba(255,255,255,0.82)",
-            bordercolor="rgba(17,17,17,0.18)",
-            borderpad=2,
-        )
-    fig.update_layout(
-        margin=dict(l=20, r=20, t=30, b=20),
-        height=360,
-        showlegend=False,
-        barmode="overlay",
-        yaxis_title="Score",
-        yaxis=dict(range=[y_min, y_max + 1.0], layer="below traces"),
-    )
-    return fig
-
-
-def _rating_intro_text() -> str:
-    return (
-        "O modelo começa com um score inicial definido pelo porte e ajusta esse ponto de partida por CET1, ROE "
-        "acumulado anualizado, qualidade da carteira, funding e seis respostas qualitativas. Capital e rentabilidade mais altos "
-        "tendem a melhorar a nota; piora da qualidade da carteira, pressão de funding e respostas qualitativas "
-        "mais fracas reduzem o score. O resultado final é arredondado e limitado à escala de 1 a 25."
-    )
-
-
-def _rating_starting_score_table() -> pd.DataFrame:
-    return pd.DataFrame(
-        [
-            {"Porte": "Acima de R$ 200 bi", "Score inicial": 22},
-            {"Porte": "Entre R$ 20 bi e R$ 200 bi", "Score inicial": 19},
-            {"Porte": "Abaixo de R$ 20 bi", "Score inicial": 16},
-        ]
-    )
-
-
-def _rating_quantitative_table() -> pd.DataFrame:
-    return pd.DataFrame(
-        [
-            {
-                "Variável": "CET1",
-                "Campo usado": "Índice de Capital Principal (CET1)",
-                "Janela / comparação": "Período selecionado",
-                "Lógica": "Faixas por porte. Capital mais alto sustenta score melhor.",
-                "Faixa de impacto": "+0,41 a -0,22",
-            },
-            {
-                "Variável": "ROE",
-                "Campo usado": "ROE Ac. Anualizado (%)",
-                "Janela / comparação": "Período selecionado, auditado contra o mesmo trimestre do ano anterior",
-                "Lógica": "Rentabilidade mais alta melhora a nota; ROE negativo penaliza mais.",
-                "Faixa de impacto": "+0,91 a -0,83",
-            },
-            {
-                "Variável": "Qualidade da Carteira",
-                "Campo usado": "4T/2025+: Inadimplência / Carteira Total | histórico sem série ideal: proxy explícita",
-                "Janela / comparação": "Período selecionado",
-                "Lógica": "4T/2025+ usa Inadimplência / Carteira Total do Rel. 16. Em mar/25, jun/25 e set/25 a série exata ainda não veio preenchida e o modelo usa a proxy calibrada |Perda Esperada / Carteira de Crédito Bruta|. Até 2024, o ideal conceitual seria D-H / Carteira; como essa série ainda não está integrada ao app, o fator fica indisponível e o rating pode sair incompleto. Faixas: exato <=2,5% / <=5,0% / >5,0%; proxy <=4,0% / <=8,0% / >8,0%.",
-                "Faixa de impacto": "0,00 a -0,43",
-            },
-            {
-                "Variável": "Funding",
-                "Campo usado": "%Δ Core Funding e Crédito / Captações",
-                "Janela / comparação": "Core Funding do período vs mesmo trimestre do ano anterior",
-                "Lógica": "Funding não negativo não penaliza. Funding negativo usa Crédito / Captações para graduar a penalização.",
-                "Faixa de impacto": "0,00 a -0,45",
-            },
-        ]
-    )
-
-
-def _rating_qualitative_table() -> pd.DataFrame:
-    return pd.DataFrame(
-        [
-            {"Pergunta": "Q1 - Auditoria", "Melhor cenário": "Auditoria sem ressalva relevante", "Pior cenário": "Sem auditoria ou com problema material", "Faixa de impacto": "0,00 a -0,58"},
-            {"Pergunta": "Q2 - Ressalvas", "Melhor cenário": "Sem ressalva relevante", "Pior cenário": "Ressalva material", "Faixa de impacto": "0,00 a -0,58"},
-            {"Pergunta": "Q3 - Suporte acionário", "Melhor cenário": "Suporte forte do acionista", "Pior cenário": "Suporte fraco ou risco reputacional", "Faixa de impacto": "+1,13 a -1,13"},
-            {"Pergunta": "Q4 - Governança", "Melhor cenário": "Aderência plena", "Pior cenário": "Não aderente ou com problema grave", "Faixa de impacto": "0,00 a -0,82"},
-            {"Pergunta": "Q5 - Concentração", "Melhor cenário": "Perfil diversificado", "Pior cenário": "Alta concentração", "Faixa de impacto": "+0,22 a -0,22"},
-            {"Pergunta": "Q6 - Resiliência de mercado", "Melhor cenário": "Perfil resiliente", "Pior cenário": "Perfil frágil", "Faixa de impacto": "+0,72 a -0,72"},
-        ]
-    )
-
-
-def _split_rating_contributions_tables(contributions_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    if contributions_df is None or contributions_df.empty:
-        return pd.DataFrame(), pd.DataFrame()
-
-    factor_map = _rating_factor_display_map()
-    quantitative = contributions_df[contributions_df["Block"].astype(str) == "Quantitative"].copy()
-    qualitative = contributions_df[contributions_df["Block"].astype(str) == "Qualitative"].copy()
-
-    if not quantitative.empty:
-        quantitative["Fator"] = quantitative["Factor"].astype(str).map(lambda valor: factor_map.get(valor, valor))
-        quantitative["Impacto"] = quantitative["Score"].astype(float).map(lambda valor: f"{valor:+.2f}")
-        quantitative = quantitative.rename(columns={"Bucket": "Faixa"})[["Fator", "Faixa", "Impacto"]]
-
-    if not qualitative.empty:
-        qualitative["Pergunta"] = qualitative["Factor"].astype(str).map(lambda valor: factor_map.get(valor, valor))
-        qualitative["Impacto"] = qualitative["Score"].astype(float).map(lambda valor: f"{valor:+.2f}")
-        qualitative = qualitative.rename(columns={"Bucket": "Resposta"})[["Pergunta", "Resposta", "Impacto"]]
-
-    return quantitative, qualitative
-
-
-def pagina_test():
-    st.markdown("### Modelo de Rating")
-    st.caption(_rating_intro_text())
-
-    if not _garantir_cache_telas_criticas("Modelo de Rating"):
-        return
-
-    critical_token = _cache_version_token("critical_screens")
-    period_options = list(_get_test_period_options(critical_token))
-    if not period_options:
-        st.warning("nenhum período disponível em `critical_screens`.")
-        return
-
-    with st.expander("Variáveis e pesos", expanded=False):
-        st.markdown("**Score inicial por porte**")
-        st.dataframe(_rating_starting_score_table(), hide_index=True, use_container_width=True)
-        st.markdown("**Variáveis quantitativas**")
-        st.dataframe(_rating_quantitative_table(), hide_index=True, use_container_width=True)
-        st.markdown("**Perguntas qualitativas**")
-        st.dataframe(_rating_qualitative_table(), hide_index=True, use_container_width=True)
-    with st.expander("Mini-glossário", expanded=False):
-        st.dataframe(
-            pd.DataFrame(
-                [
-                    {
-                        "Bloco": "Score inicial",
-                        "Fonte": "critical_screens (IFData consolidado)",
-                        "Cálculo / regra": "Definido pelo porte com base no Ativo Total do período selecionado.",
-                    },
-                    {
-                        "Bloco": "CET1",
-                        "Fonte": "IFData Rel. 5",
-                        "Cálculo / regra": "Índice de Capital Principal (CET1) do período selecionado, aplicado em faixas por porte.",
-                    },
-                    {
-                        "Bloco": "ROE",
-                        "Fonte": "critical_screens (Rel. 1 + derivação local)",
-                        "Cálculo / regra": "ROE acumulado anualizado do período; a auditoria mostra também a comparação com o mesmo trimestre do ano anterior.",
-                    },
-                    {
-                        "Bloco": "Qualidade da Carteira",
-                        "Fonte": "Rel. 16 (Carteira 4.966) + proxy histórica calibrada quando necessário",
-                        "Cálculo / regra": "4T/2025+ usa Inadimplência ÷ Carteira Total, a mesma base da aba Carteira 4.966. Em mar/25, jun/25 e set/25, como a série exata ainda não veio preenchida no Rel. 16 local, o modelo usa a proxy |Perda Esperada ÷ Carteira de Crédito Bruta|. Até 2024, o ideal conceitual seria D-H ÷ Carteira; enquanto essa série não estiver integrada ao app, o fator fica indisponível e o rating pode sair incompleto. Faixas do exato: <=2,5% = 0,00 | >2,5% e <=5,0% = -0,21 | >5,0% = -0,43. Faixas da proxy: <=4,0% = 0,00 | >4,0% e <=8,0% = -0,21 | >8,0% = -0,43.",
-                    },
-                    {
-                        "Bloco": "Funding",
-                        "Fonte": "IFData Rel. 3 + derivação local",
-                        "Cálculo / regra": "Combina variação do Core Funding contra o mesmo trimestre do ano anterior e a razão Crédito / Captações para graduar penalização.",
-                    },
-                    {
-                        "Bloco": "Perguntas Q1–Q6",
-                        "Fonte": "Entrada manual do usuário",
-                        "Cálculo / regra": "Cada resposta qualitativa adiciona ou retira pontos conforme a grade versionada do modelo.",
-                    },
-                    {
-                        "Bloco": "Score final",
-                        "Fonte": "Engine local do modelo",
-                        "Cálculo / regra": "Score inicial + impactos quantitativos + impactos qualitativos, arredondado e limitado à escala de 1 a 25.",
-                    },
-                ]
-            ),
-            hide_index=True,
-            use_container_width=True,
-        )
-        st.caption("A aba usa o cache curado `critical_screens` como base quantitativa e preserva os inputs faltantes na auditoria.")
-
-    col_mode, col_period = st.columns([1.0, 1.2])
-    with col_mode:
-        modo = st.radio(
-            "Modo",
-            ["Instituição", "Batch"],
-            horizontal=True,
-            key="test_rating_mode",
-        )
-    with col_period:
-        periodo_selecionado = st.selectbox(
-            "Período",
-            period_options,
-            index=_indice_periodo_mais_recente(period_options),
-            format_func=period_to_display_label,
-            key="test_rating_period",
-        )
-
-    st.caption(
-        "Modo Instituição: calcula e audita uma instituição por vez. "
-        "Modo Batch: aplica o mesmo conjunto de respostas qualitativas a todas as instituições do período."
-    )
-
-    carteira_token = _cache_version_token("carteira_instrumentos")
-    df_periodo = _load_test_period_dataframe(critical_token, carteira_token, periodo_selecionado)
-    if df_periodo is None or df_periodo.empty:
-        st.warning("não foi possível carregar o recorte do período selecionado.")
-        return
-
-    if modo == "Instituição":
-        instituicoes = sorted(df_periodo["Instituição"].dropna().astype(str).unique().tolist())
-        banco = st.selectbox(
-            "Conglomerado prudencial",
-            instituicoes,
-            index=0 if instituicoes else None,
-            key="test_rating_instituicao",
-        )
-        if not banco:
-            st.info("selecione uma instituição.")
-            return
-
-        registro = (
-            df_periodo[df_periodo["Instituição"].astype(str) == str(banco)]
-            .iloc[0]
-            .to_dict()
-        )
-        mapped_payload = map_rating_inputs(registro)
-        raw_table, mapped_table = _build_test_input_tables(mapped_payload)
-
-        ativos = (mapped_payload.get("mapped_inputs") or {}).get("total_assets", {}).get("value")
-        size_bucket = get_size_bucket(float(ativos)) if ativos is not None else None
-        comparacao = mapped_payload.get("previous_period") or "N/A"
-        st.caption(
-            f"Porte: {size_bucket['label'] if size_bucket else 'N/A'} | "
-            f"Score inicial: {size_bucket['starting_score'] if size_bucket else 'N/A'} | "
-            f"Comparação do funding: {period_to_display_label(comparacao) if comparacao != 'N/A' else 'N/A'}"
-        )
-
-        if mapped_payload.get("missing_inputs"):
-            missing_labels = _format_missing_rating_inputs(
-                dict(mapped_payload.get("mapped_inputs") or {}),
-                list(mapped_payload.get("missing_inputs") or []),
-            )
-            st.warning(
-                "inputs quantitativos indisponíveis antes do cálculo: "
-                + missing_labels
-            )
-
-        st.markdown("**Perguntas qualitativas (Q1 a Q6)**")
-        answers, all_answered, preview_df = _render_test_qualitative_form("test_rating_single")
-        if not preview_df.empty:
-            with st.expander("Resumo das respostas qualitativas", expanded=False):
-                st.dataframe(preview_df, hide_index=True, use_container_width=True)
-
-        if not all_answered:
-            st.info("responda as seis perguntas qualitativas para calcular o rating.")
-            return
-
-        result = calculate_rating(mapped_payload, answers)
-        audit_tables = build_audit_tables(result)
-        audit_markdown = build_audit_trail_markdown(result)
-
-        if result.get("status") != "ok":
-            missing_labels = _format_missing_rating_inputs(
-                dict(result.get("mapped_inputs") or {}),
-                list(result.get("missing_quantitative_inputs") or []),
-            )
-            st.error(
-                "não foi possível calcular o rating desta instituição com os dados atualmente disponíveis. "
-                "Campos faltantes: "
-                + (missing_labels or "N/A")
-            )
-            with st.expander("Base quantitativa usada", expanded=True):
-                st.dataframe(mapped_table, hide_index=True, use_container_width=True)
-            with st.expander("Dados brutos usados", expanded=False):
-                st.dataframe(raw_table, hide_index=True, use_container_width=True)
-            with st.expander("Memória completa de cálculo", expanded=True):
-                st.code(audit_markdown, language="markdown")
-                st.download_button(
-                    "Baixar auditoria (.md)",
-                    data=audit_markdown.encode("utf-8"),
-                    file_name=f"rating_audit_{str(banco).replace(' ', '_')}_{periodo_selecionado.replace('/', '-')}.md",
-                    mime="text/markdown",
-                    key="test_rating_single_download_md_incomplete",
-                )
-            return
-
-        col_r1, col_r2 = st.columns([1, 1])
-        with col_r1:
-            st.metric("Score Final (1-25)", result["final_numeric_rating"])
-        with col_r2:
-            st.metric("Score bruto", _formatar_numero_ptbr(result["raw_final_score"], decimais=4))
-
-        contrib_quant, contrib_qual = _split_rating_contributions_tables(audit_tables["contributions"])
-        col_chart, col_contrib = st.columns([1, 1])
-        with col_chart:
-            st.plotly_chart(_build_rating_waterfall_figure(result), use_container_width=True)
-        with col_contrib:
-            st.markdown("**Contribuições quantitativas**")
-            st.dataframe(contrib_quant, hide_index=True, use_container_width=True)
-            st.markdown("**Contribuições qualitativas**")
-            st.dataframe(contrib_qual, hide_index=True, use_container_width=True)
-
-        with st.expander("Base quantitativa usada", expanded=False):
-            st.dataframe(mapped_table, hide_index=True, use_container_width=True)
-        with st.expander("Dados brutos usados", expanded=False):
-            st.dataframe(raw_table, hide_index=True, use_container_width=True)
-
-        with st.expander("Memória completa de cálculo", expanded=True):
-            st.code(audit_markdown, language="markdown")
-            st.download_button(
-                "Baixar auditoria (.md)",
-                data=audit_markdown.encode("utf-8"),
-                file_name=f"rating_audit_{str(banco).replace(' ', '_')}_{periodo_selecionado.replace('/', '-')}.md",
-                mime="text/markdown",
-                key="test_rating_single_download_md",
-            )
-
-    else:
-        st.markdown("**Template qualitativo global do cenário**")
-        answers, all_answered, preview_df = _render_test_qualitative_form("test_rating_batch")
-        if not preview_df.empty:
-            with st.expander("Resumo das respostas qualitativas", expanded=False):
-                st.dataframe(preview_df, hide_index=True, use_container_width=True)
-
-        assinatura_batch = (
-            str(periodo_selecionado),
-            tuple(sorted((k, v) for k, v in answers.items())),
-            int(len(df_periodo)),
-        )
-        if st.button("Calcular batch do período", key="test_rating_batch_run", width="stretch"):
-            if not all_answered:
-                st.warning("responda as seis perguntas qualitativas antes de rodar o batch.")
-            else:
-                with st.spinner("calculando rating para o período selecionado..."):
-                    resultados = []
-                    for registro in df_periodo.to_dict("records"):
-                        mapped_payload = map_rating_inputs(registro)
-                        resultado = calculate_rating(mapped_payload, answers)
-                        resultado["audit_trail_markdown"] = build_audit_trail_markdown(resultado)
-                        resultados.append(resultado)
-                st.session_state["test_rating_batch_state"] = {
-                    "signature": assinatura_batch,
-                    "results": resultados,
-                }
-
-        batch_state = st.session_state.get("test_rating_batch_state") or {}
-        if batch_state.get("signature") != assinatura_batch:
-            st.info("defina o template qualitativo e clique em calcular para gerar o batch.")
-            return
-
-        resultados = list(batch_state.get("results") or [])
-        if not resultados:
-            st.warning("nenhum resultado calculado para o batch.")
-            return
-
-        df_resultados = _resultado_batch_rating_df(resultados)
-        total = len(resultados)
-        concluidos = int(sum(1 for item in resultados if item.get("status") == "ok"))
-        incompletos = total - concluidos
-
-        col_b1, col_b2 = st.columns(2)
-        with col_b1:
-            st.metric("Ratings calculados", concluidos)
-        with col_b2:
-            st.metric("Não calculados", incompletos)
-
-        st.dataframe(df_resultados, hide_index=True, use_container_width=True)
-        st.download_button(
-            "Baixar batch (.csv)",
-            data=df_resultados.to_csv(index=False).encode("utf-8"),
-            file_name=f"rating_batch_{periodo_selecionado.replace('/', '-')}.csv",
-            mime="text/csv",
-            key="test_rating_batch_download_csv",
-        )
-
-        opcoes_inspecao = df_resultados["Instituição"].dropna().astype(str).tolist()
-        if not opcoes_inspecao:
-            return
-        banco_inspecao = st.selectbox(
-            "Inspecionar auditoria de uma instituição do batch",
-            opcoes_inspecao,
-            key="test_rating_batch_institution",
-        )
-        resultado_inspecao = next(
-            (item for item in resultados if str(item.get("institution_name")) == str(banco_inspecao)),
-            None,
-        )
-        if resultado_inspecao is None:
-            return
-
-        st.markdown("**Resumo da instituição selecionada**")
-        col_i1, col_i2 = st.columns(2)
-        with col_i1:
-            st.metric("Score Final (1-25)", resultado_inspecao.get("final_numeric_rating") or "N/A")
-        with col_i2:
-            st.metric("Score bruto", _formatar_numero_ptbr(resultado_inspecao.get("raw_final_score"), decimais=4))
-
-        audit_tables = build_audit_tables(resultado_inspecao)
-        raw_table, mapped_table = _build_test_input_tables(resultado_inspecao)
-        if resultado_inspecao.get("status") != "ok":
-            missing_labels = _format_missing_rating_inputs(
-                dict(resultado_inspecao.get("mapped_inputs") or {}),
-                list(resultado_inspecao.get("missing_quantitative_inputs") or []),
-            )
-            st.warning(
-                "rating não calculado para esta instituição no batch. "
-                "Campos faltantes: "
-                + (missing_labels or "N/A")
-            )
-        else:
-            contrib_quant, contrib_qual = _split_rating_contributions_tables(audit_tables["contributions"])
-            col_chart, col_contrib = st.columns([1, 1])
-            with col_chart:
-                st.plotly_chart(_build_rating_waterfall_figure(resultado_inspecao), use_container_width=True)
-            with col_contrib:
-                st.markdown("**Contribuições quantitativas**")
-                st.dataframe(contrib_quant, hide_index=True, use_container_width=True)
-                st.markdown("**Contribuições qualitativas**")
-                st.dataframe(contrib_qual, hide_index=True, use_container_width=True)
-        with st.expander("Base quantitativa usada", expanded=False):
-            st.dataframe(mapped_table, hide_index=True, use_container_width=True)
-        with st.expander("Dados brutos usados", expanded=False):
-            st.dataframe(raw_table, hide_index=True, use_container_width=True)
-        with st.expander("Memória completa de cálculo", expanded=False):
-            st.code(resultado_inspecao.get("audit_trail_markdown") or "", language="markdown")
-            st.download_button(
-                "Baixar auditoria selecionada (.md)",
-                data=(resultado_inspecao.get("audit_trail_markdown") or "").encode("utf-8"),
-                file_name=f"rating_audit_{str(banco_inspecao).replace(' ', '_')}_{periodo_selecionado.replace('/', '-')}.md",
-                mime="text/markdown",
-                key="test_rating_batch_download_md",
-            )
-
-
 def _normalizar_rotulo_menu(valor):
     if valor is None:
         return None
@@ -16745,8 +15141,6 @@ def _normalizar_rotulo_menu(valor):
         "Painel": "Rankings",
         "Contribuições FGC": "Contas COSIF",
         "Contribuições FGC/FGCoop": "Contas COSIF",
-        "test": "Modelo de Rating",
-        "Modelagem Teste": "Modelo de Rating",
         "DRE": "DRE (Ind. e Congl.)",
         "DRE Individual": "DRE (Ind. e Congl.)",
         "Balanco, DRE e DMPL Ind.": "Balanço, DRE e DMPL (Ind.)",
@@ -16764,6 +15158,8 @@ MENU_PRINCIPAL = [
     "Evolução",
     "Scatter Plot",
     "DRE (Ind. e Congl.)",
+    "Balanço, DRE e DMPL (Ind.)",
+    "Contas COSIF",
     "Carteira 4.966",
     "Taxas de Juros por Produto",
     "Meios de Pagamento (SPB)",
@@ -16772,15 +15168,7 @@ MENU_PRINCIPAL = [
 # Lista de opções do menu secundário (utilitários)
 MENU_SECUNDARIO = ["Sobre", "Atualizar Base", "Glossário"]
 
-# Linha dedicada para módulos beta / testes
-MENU_TESTES = [
-    "Modelo de Rating",
-    "Contas COSIF",
-    "Balanço, DRE e DMPL (Ind.)",
-    "Distribuição (Ridgeline)",
-]
-
-TODOS_MENUS = MENU_PRINCIPAL + MENU_SECUNDARIO + MENU_TESTES
+TODOS_MENUS = MENU_PRINCIPAL + MENU_SECUNDARIO
 
 
 _DEVICE_PROFILE_JS = """
@@ -16932,7 +15320,7 @@ st.session_state['menu_atual'] = _normalizar_rotulo_menu(st.session_state.get('m
 if st.session_state['menu_atual'] not in TODOS_MENUS:
     st.session_state['menu_atual'] = "Sobre"
 
-for _nav_key in ("nav_main", "nav_sec", "nav_testes"):
+for _nav_key in ("nav_main", "nav_sec"):
     _valor_nav = _normalizar_rotulo_menu(st.session_state.get(_nav_key))
     st.session_state[_nav_key] = _valor_nav if _valor_nav in TODOS_MENUS else None
 
@@ -16964,8 +15352,6 @@ def _on_main_menu_change():
         # Limpar seleção do menu secundário
         if 'nav_sec' in st.session_state:
             st.session_state['nav_sec'] = None
-        if 'nav_testes' in st.session_state:
-            st.session_state['nav_testes'] = None
 
 def _on_sec_menu_change():
     """Callback quando menu secundário é clicado."""
@@ -16976,19 +15362,6 @@ def _on_sec_menu_change():
         # Limpar seleção do menu principal
         if 'nav_main' in st.session_state:
             st.session_state['nav_main'] = None
-        if 'nav_testes' in st.session_state:
-            st.session_state['nav_testes'] = None
-
-def _on_test_menu_change():
-    """Callback quando menu de testes é clicado."""
-    sel = st.session_state.get('nav_testes')
-    if sel is not None and sel in MENU_TESTES:
-        st.session_state['_user_selected_menu'] = True
-        st.session_state['menu_atual'] = sel
-        if 'nav_main' in st.session_state:
-            st.session_state['nav_main'] = None
-        if 'nav_sec' in st.session_state:
-            st.session_state['nav_sec'] = None
 
 def _nav_para_menu(dest: str):
     """Callback de navegação direta: atualiza menu_atual sem st.rerun() explícito.
@@ -17001,15 +15374,9 @@ def _nav_para_menu(dest: str):
     if dest in MENU_PRINCIPAL:
         st.session_state['nav_main'] = dest
         st.session_state['nav_sec'] = None
-        st.session_state['nav_testes'] = None
     elif dest in MENU_SECUNDARIO:
         st.session_state['nav_sec'] = dest
         st.session_state['nav_main'] = None
-        st.session_state['nav_testes'] = None
-    elif dest in MENU_TESTES:
-        st.session_state['nav_testes'] = dest
-        st.session_state['nav_main'] = None
-        st.session_state['nav_sec'] = None
 
 def _recarregar_cache_callback():
     """Callback para o botão de recarga de cache: evita double rerun."""
@@ -17022,15 +15389,9 @@ def _recarregar_cache_callback():
 if menu_atual in MENU_PRINCIPAL:
     st.session_state['nav_main'] = menu_atual
     st.session_state['nav_sec'] = None
-    st.session_state['nav_testes'] = None
-elif menu_atual in MENU_SECUNDARIO:
-    st.session_state['nav_main'] = None
-    st.session_state['nav_sec'] = menu_atual
-    st.session_state['nav_testes'] = None
 else:
     st.session_state['nav_main'] = None
-    st.session_state['nav_sec'] = None
-    st.session_state['nav_testes'] = menu_atual
+    st.session_state['nav_sec'] = menu_atual
 
 # Menu principal (análise)
 st.markdown('<div class="header-nav">', unsafe_allow_html=True)
@@ -17054,28 +15415,15 @@ st.segmented_control(
 )
 st.markdown('</div>', unsafe_allow_html=True)
 
-# Menu beta / testes
-st.markdown('<div class="header-nav">', unsafe_allow_html=True)
-st.segmented_control(
-    "menu testes",
-    MENU_TESTES,
-    label_visibility="collapsed",
-    key="nav_testes",
-    on_change=_on_test_menu_change,
-)
-st.markdown('</div>', unsafe_allow_html=True)
-
 # Usar menu_atual (já atualizado pelos callbacks)
 menu = st.session_state['menu_atual']
 _menu_prev_rendered = st.session_state.get('_menu_prev_rendered')
-_just_changed_tab = menu != _menu_prev_rendered and _menu_prev_rendered is not None
 st.session_state['_menu_prev_rendered'] = menu
 
 st.markdown("---")
 
 CACHE_DEPENDENCIAS_POR_ABA = {
     "Snapshot": ["critical_screens"],
-    "Modelo de Rating": ["critical_screens", "carteira_instrumentos", "passivo", "principal"],
     "Rankings": ["principal", "capital"],
     "Peers (Tabela)": ["critical_screens"],
     "Evolução": ["principal", "passivo", "ativo", "capital"],
@@ -17085,7 +15433,6 @@ CACHE_DEPENDENCIAS_POR_ABA = {
     "Taxas de Juros por Produto": ["taxas_juros_historico"],
     "Meios de Pagamento (SPB)": ["spb_meios_pagamento"],
     "Contas COSIF": ["bloprudencial"],
-    "Distribuição (Ridgeline)": ["principal"],
     "Atualizar Base": [
         "principal", "capital", "ativo", "passivo", "dre", "carteira_pf",
         "carteira_pj", "carteira_instrumentos", "bloprudencial", "taxas_juros_historico",
@@ -17239,7 +15586,7 @@ timer_box_menu = None
 menu_timer_state_key = None
 menu_timer_signature = None
 t0_menu_timer = None
-if (menu in MENU_PRINCIPAL or menu in MENU_TESTES) and menu not in {"Snapshot", "Peers (Tabela)", "DRE (Ind. e Congl.)", "Evolução", "Rankings"}:
+if menu in MENU_PRINCIPAL and menu not in {"Snapshot", "Peers (Tabela)", "DRE (Ind. e Congl.)", "Evolução", "Rankings"}:
     timer_box_menu = st.empty()
     menu_timer_state_key = f"timer_state_{menu}"
     menu_timer_signature = ("menu", menu)
@@ -17312,10 +15659,10 @@ if menu == "Sobre":
             </div>
             <div class="module-chip">
                 <div class="module-top">
-                    <span class="module-title">métrica + glossário</span>
-                    <span class="module-pill">custom</span>
+                    <span class="module-title">glossário</span>
+                    <span class="module-pill">referência</span>
                 </div>
-                <div class="module-desc">crie indicadores e navegue a documentação técnica.</div>
+                <div class="module-desc">consulte fórmulas, fontes, unidades e limitações.</div>
             </div>
             <div class="module-chip">
                 <div class="module-top">
@@ -17428,7 +15775,7 @@ if menu == "Sobre":
         <ul class="steps-list">
             <li class="steps-item">
                 <div class="steps-num">1</div>
-                <div class="steps-text"><strong>selecione o módulo</strong> com foco no objetivo (snapshot, rankings, peers, evolução, scatter, dre, carteira 4.966, taxas, conselho, fgc ou métrica customizada).</div>
+                <div class="steps-text"><strong>selecione o módulo</strong> com foco no objetivo (snapshot, rankings, peers, evolução, scatter, dre, carteira 4.966, taxas, conselho, contas COSIF ou glossário).</div>
             </li>
             <li class="steps-item">
                 <div class="steps-num">2</div>
@@ -17750,347 +16097,9 @@ Pausas longas tendem a indicar interrupção real; abaixo disso tratamos como co
     st.markdown("---")
     st.caption("desenvolvido por matheus prates, cfa | ferramenta open-source para análise de instituições financeiras brasileiras")
 
-elif False and menu == "Painel":
-    st.markdown("## resumo comparativo por período")
-    st.caption("compare múltiplas instituições em um único trimestre, com ranking e média do grupo selecionado.")
-
-    if 'dados_periodos' in st.session_state and st.session_state['dados_periodos']:
-        df = get_dados_concatenados()  # OTIMIZAÇÃO: usar cache
-
-        indicadores_config = {
-            'Ativo Total': ['Ativo Total'],
-            'Carteira de Crédito Bruta': ['Carteira de Crédito Bruta', 'Carteira de Crédito'],
-            'Títulos e Valores Mobiliários': ['Títulos e Valores Mobiliários'],
-            'Passivo Exigível': ['Passivo Exigível'],
-            'Core Funding': ['Core Funding', 'Captações'],
-            'Patrimônio Líquido': ['Patrimônio Líquido'],
-            'Lucro Líquido Acumulado YTD': ['Lucro Líquido Acumulado YTD'],
-            'Lucro Líquido Trimestral': ['Lucro Líquido Trimestral'],
-            'Índice de CET1': ['Índice de CET1'],
-            'Patrimônio de Referência': [
-                'Patrimônio de Referência para Comparação com o RWA (e)',
-                'Patrimônio de Referência',
-            ],
-            'Índice de Basileia': ['Índice de Basileia'],
-            'Índice de Imobilização': ['Índice de Imobilização'],
-            'Número de Agências': ['Número de Agências'],
-            'Número de Postos de Atendimento': ['Número de Postos de Atendimento'],
-            # Variáveis de Capital (Relatório 5)
-            'RWA Total': ['RWA Total'],
-            'Capital Principal': ['Capital Principal'],
-            'Índice de Capital Principal (CET1)': ['Índice de Capital Principal (CET1)', 'Índice de Capital Principal'],
-            'Índice de Capital Nível I': ['Índice de Capital Nível I'],
-            'Razão de Alavancagem': ['Razão de Alavancagem'],
-        }
-
-        indicadores_disponiveis = {}
-        for label, colunas in indicadores_config.items():
-            coluna_valida = next((col for col in colunas if col in df.columns), None)
-            if coluna_valida:
-                indicadores_disponiveis[label] = coluna_valida
-        if 'Índice de CET1' not in indicadores_disponiveis:
-            df_cet1_check = construir_cet1_capital(
-                st.session_state.get("dados_capital", {}),
-                st.session_state.get("dict_aliases", {}),
-                st.session_state.get("df_aliases"),
-                st.session_state.get("dados_periodos"),
-            )
-            if not df_cet1_check.empty:
-                indicadores_disponiveis['Índice de CET1'] = 'Índice de CET1'
-        if 'Índice de CET1' not in indicadores_disponiveis:
-            df_cet1_check = construir_cet1_capital(
-                st.session_state.get("dados_capital", {}),
-                st.session_state.get("dict_aliases", {}),
-                st.session_state.get("df_aliases"),
-                st.session_state.get("dados_periodos"),
-            )
-            if not df_cet1_check.empty:
-                indicadores_disponiveis['Índice de CET1'] = 'Índice de CET1'
-
-        if not indicadores_disponiveis:
-            st.warning("nenhum dos indicadores requeridos foi encontrado nos dados atuais.")
-        else:
-            periodos = ordenar_periodos(df['Período'].dropna().unique(), reverso=True)
-
-            componentes_indicador = {
-                'Patrimônio de Referência': [
-                    'RWA Crédito',
-                    'RWA Contraparte',
-                    'RWA Operacional',
-                    'RWA Mercado',
-                    'RWA Outros',
-                ]
-            }
-
-            col_periodo, col_indicador, col_media = st.columns([1.2, 2, 1.8])
-            with col_periodo:
-                periodo_resumo = st.selectbox(
-                    "período",
-                    periodos,
-                    index=_indice_periodo_mais_recente(periodos),
-                    key="periodo_resumo",
-                    format_func=periodo_para_exibicao
-                )
-            with col_indicador:
-                indicador_label = st.selectbox(
-                    "indicador",
-                    list(indicadores_disponiveis.keys()),
-                    key="indicador_resumo"
-                )
-            componentes_disponiveis = [
-                col for col in componentes_indicador.get(indicador_label, []) if col in df.columns
-            ]
-            tipo_grafico = "Composição (100%)" if componentes_disponiveis else None
-            with col_media:
-                tipo_media_label = st.selectbox(
-                    "ponderar média por",
-                    list(VARIAVEIS_PONDERACAO.keys()),
-                    index=0,
-                    key="tipo_media_resumo"
-                )
-                coluna_peso_resumo = VARIAVEIS_PONDERACAO[tipo_media_label]
-
-            df_periodo = df[df['Período'] == periodo_resumo].copy()
-            if indicador_label == "Índice de CET1":
-                df_cet1_periodo = obter_cet1_periodo(
-                    periodo_resumo,
-                    st.session_state.get("dados_capital", {}),
-                    st.session_state.get("dict_aliases", {}),
-                    st.session_state.get("df_aliases"),
-                    st.session_state.get("dados_periodos"),
-                )
-                if not df_cet1_periodo.empty:
-                    df_periodo = df_periodo.merge(
-                        df_cet1_periodo,
-                        on="Instituição",
-                        how="left",
-                    )
-            if indicador_label == "Índice de CET1":
-                df_cet1_periodo = obter_cet1_periodo(
-                    periodo_resumo,
-                    st.session_state.get("dados_capital", {}),
-                    st.session_state.get("dict_aliases", {}),
-                    st.session_state.get("df_aliases"),
-                    st.session_state.get("dados_periodos"),
-                )
-                if not df_cet1_periodo.empty:
-                    df_periodo = df_periodo.merge(
-                        df_cet1_periodo,
-                        on="Instituição",
-                        how="left",
-                    )
-            df_periodo_universo = df_periodo.copy()
-
-            bancos_todos = df_periodo['Instituição'].dropna().unique().tolist()
-            dict_aliases = st.session_state.get('dict_aliases', {})
-            bancos_todos = ordenar_bancos_com_alias(bancos_todos, dict_aliases)
-
-            indicador_col = indicadores_disponiveis[indicador_label]
-            coluna_selecao = indicador_col
-            if componentes_disponiveis:
-                df_periodo['total_componentes'] = df_periodo[componentes_disponiveis].sum(axis=1, skipna=True)
-                df_periodo_universo['total_componentes'] = df_periodo_universo[componentes_disponiveis].sum(axis=1, skipna=True)
-                coluna_selecao = 'total_componentes'
-
-            bancos_default = []
-            if usar_top_universo:
-                df_universo_valid = df_periodo_universo.dropna(subset=[coluna_selecao]).copy()
-                if df_universo_valid.empty:
-                    st.warning("não há dados disponíveis para calcular o top N do universo.")
-                else:
-                    df_universo_top = df_universo_valid.sort_values(coluna_selecao, ascending=False).head(top_universo_n)
-                    bancos_default = df_universo_top['Instituição'].tolist()
-
-            bancos_default = [banco for banco in bancos_default if banco in bancos_todos]
-
-            with col_bancos:
-                bancos_selecionados = st.multiselect(
-                    "selecionar instituições (até 40)",
-                    bancos_todos,
-                    default=bancos_default,
-                    key="bancos_resumo"
-                )
-
-            col_top, col_ordem, col_sort = st.columns([1.4, 1.4, 1.8])
-            with col_top:
-                usar_top_n = st.toggle("usar top/bottom n", value=True, key="usar_top_resumo")
-                top_n_resumo = st.selectbox("n", [10, 15, 20], index=0, key="top_n_resumo")
-            with col_ordem:
-                direcao_top = st.radio(
-                    "top/bottom",
-                    ["Top", "Bottom"],
-                    horizontal=True,
-                    key="top_bottom_resumo"
-                )
-            with col_sort:
-                modo_ordenacao = st.radio(
-                    "ordenação",
-                    ["Ordenar por valor", "Manter ordem de seleção"],
-                    horizontal=True,
-                    key="ordenacao_resumo"
-                )
-
-            format_info = get_axis_format(indicador_col)
-
-            def formatar_numero(valor, fmt_info, incluir_sinal=False, variavel_ref: Optional[str] = None):
-                valor_norm = _normalizar_valor_indicador(valor, variavel_ref)
-                if pd.isna(valor_norm):
-                    return "N/A"
-
-                valor_display = valor_norm * fmt_info['multiplicador']
-                valor_formatado = format(valor_display, fmt_info['tickformat'])
-                if incluir_sinal and valor_display > 0:
-                    valor_formatado = f"+{valor_formatado}"
-                return f"{valor_formatado}{fmt_info['ticksuffix']}"
-
-            max_bancos = 40
-            if bancos_selecionados and len(bancos_selecionados) > max_bancos:
-                st.warning(f"limite de {max_bancos} instituições excedido; exibindo as primeiras {max_bancos}.")
-                bancos_selecionados = bancos_selecionados[:max_bancos]
-
-            if usar_top_n or not bancos_selecionados:
-                df_periodo_valid = df_periodo.dropna(subset=[coluna_selecao]).copy()
-                if df_periodo_valid.empty:
-                    st.info("não há dados suficientes para o período e indicador selecionados.")
-                else:
-                    ascending = direcao_top == "Bottom"
-                    df_selecionado = df_periodo_valid.sort_values(coluna_selecao, ascending=ascending).head(top_n_resumo)
-            else:
-                df_selecionado = df_periodo[df_periodo['Instituição'].isin(bancos_selecionados)].copy()
-
-            df_selecionado = df_selecionado.dropna(subset=[coluna_selecao])
-
-            if df_selecionado.empty:
-                st.info("selecione instituições ou ajuste os filtros para visualizar o resumo.")
-            else:
-                df_selecionado['valor_display'] = df_selecionado[indicador_col] * format_info['multiplicador']
-                media_display = calcular_media_ponderada(df_selecionado, 'valor_display', coluna_peso_resumo)
-                label_media = get_label_media(coluna_peso_resumo)
-
-                if modo_ordenacao == "Ordenar por valor":
-                    ordenar_asc = direcao_top == "Bottom"
-                    if tipo_grafico == "Composição (100%)" and componentes_disponiveis:
-                        df_selecionado = df_selecionado.sort_values(coluna_selecao, ascending=ordenar_asc)
-                    else:
-                        df_selecionado = df_selecionado.sort_values('valor_display', ascending=ordenar_asc)
-                elif bancos_selecionados:
-                    ordem = bancos_selecionados
-                    df_selecionado['ordem'] = pd.Categorical(df_selecionado['Instituição'], categories=ordem, ordered=True)
-                    df_selecionado = df_selecionado.sort_values('ordem')
-
-                if componentes_disponiveis:
-                    df_componentes = df_selecionado[['Instituição'] + componentes_disponiveis].copy()
-                    df_componentes['total'] = df_componentes[componentes_disponiveis].sum(axis=1, skipna=True)
-                    df_componentes = df_componentes[df_componentes['total'] > 0]
-
-                    if df_componentes.empty:
-                        st.info("não há dados suficientes para exibir a composição selecionada.")
-                    else:
-                        df_percent = df_componentes.copy()
-                        df_percent[componentes_disponiveis] = df_percent[componentes_disponiveis].div(
-                            df_componentes['total'],
-                            axis=0
-                        ) * 100
-
-                        fig_resumo = go.Figure()
-                        for componente in componentes_disponiveis:
-                            fig_resumo.add_trace(go.Bar(
-                                x=df_percent['Instituição'],
-                                y=df_percent[componente],
-                                name=componente,
-                                hovertemplate=(
-                                    "<b>%{x}</b><br>"
-                                    f"{componente}: %{{y:.1f}}%<extra></extra>"
-                                )
-                            ))
-
-                        fig_resumo.update_layout(
-                            title=f"{indicador_label} - {formatar_periodo_mm_yyyy(periodo_resumo)} ({len(df_percent)} instituições)",
-                            xaxis_title="instituições",
-                            yaxis_title="participação (%)",
-                            plot_bgcolor='#f8f9fa',
-                            paper_bgcolor='white',
-                            height=max(650, len(df_percent) * 24),
-                            barmode='stack',
-                            showlegend=True,
-                            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
-                            xaxis=dict(tickangle=-45),
-                            yaxis=dict(tickformat='.1f', ticksuffix='%'),
-                            font=dict(family='IBM Plex Sans')
-                        )
-
-                        st.plotly_chart(fig_resumo, width='stretch', config={'displayModeBar': 'hover', 'displaylogo': False})
-
-                        df_componentes['ranking'] = df_componentes['total'].rank(method='first', ascending=False).astype(int)
-                        # Merge com df_selecionado para ter acesso às colunas de peso
-                        colunas_peso_possiveis = [v for v in VARIAVEIS_PONDERACAO.values() if v is not None]
-                        colunas_peso_disponiveis = ['Instituição'] + [c for c in colunas_peso_possiveis if c in df_selecionado.columns]
-                        if len(colunas_peso_disponiveis) > 1:
-                            df_componentes_merge = df_componentes.merge(
-                                df_selecionado[colunas_peso_disponiveis].drop_duplicates(),
-                                on='Instituição',
-                                how='left'
-                            )
-                        else:
-                            df_componentes_merge = df_componentes.copy()
-                        media_grupo_raw = calcular_media_ponderada(df_componentes_merge, 'total', coluna_peso_resumo)
-                        df_export_base = df_componentes.copy()
-                        df_export_base['Período'] = periodo_resumo
-                        df_export_base['Indicador'] = indicador_label
-                        df_export_base['Valor'] = df_export_base['total']
-                        df_export_base['Média do Grupo'] = media_grupo_raw
-                        df_export_base['Tipo de Média'] = tipo_media_label
-                        df_export_base['Diferença vs Média'] = df_export_base['Valor'] - media_grupo_raw
-                        df_export_base = df_export_base[[
-                            'Período',
-                            'Instituição',
-                            'Indicador',
-                            'Valor',
-                            'ranking',
-                            'Média do Grupo',
-                            'Tipo de Média',
-                            'Diferença vs Média'
-                        ]].rename(columns={'ranking': 'Ranking'})
-
-                        df_export_comp = df_percent.melt(
-                            id_vars=['Instituição'],
-                            value_vars=componentes_disponiveis,
-                            var_name='Componente',
-                            value_name='Participação (%)'
-                        )
-                        df_export_comp['Período'] = periodo_resumo
-                        df_export_comp['Indicador'] = indicador_label
-
-                        buffer_excel = BytesIO()
-                        with pd.ExcelWriter(buffer_excel, engine='xlsxwriter') as writer:
-                            df_export_base.to_excel(writer, index=False, sheet_name='resumo')
-                            df_export_comp.to_excel(writer, index=False, sheet_name='composicao')
-                        buffer_excel.seek(0)
-
-                        st.download_button(
-                            label="Download Excel",
-                            data=buffer_excel,
-                            file_name=f"resumo_{periodo_resumo.replace('/', '-')}.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            key="exportar_resumo_excel"
-                        )
-                else:
-                    st.info("composição disponível apenas para indicadores com componentes detalhados (ex.: Patrimônio de Referência).")
-    else:
-        erro_cache = st.session_state.get('dados_periodos_erro')
-        if erro_cache:
-            st.error("dados principais indisponíveis no cache.")
-            st.caption(f"detalhe: {erro_cache}")
-            st.caption("abra 'Atualizar Base' e publique o cache no GitHub Releases.")
-        else:
-            st.info("carregando dados automaticamente do github...")
-            st.markdown("por favor, aguarde alguns segundos e recarregue a página")
 
 # GUARDA DO DISPATCHER: cada rótulo de `menu` deve aparecer uma única vez
 # neste bloco `if/elif` para evitar branches mortos e comportamento inesperado.
-elif menu == "Modelo de Rating":
-    pagina_test()
-
 elif menu == "Snapshot":
     pagina_snapshot()
 
@@ -18512,15 +16521,6 @@ elif menu == "Peers (Tabela)":
                             }
                             metricas_memoria = list(formatos_metrica.keys())
 
-                            def _fmt_memoria_peers(metrica: str, componente: str, valor_ref):
-                                if valor_ref is None or pd.isna(valor_ref):
-                                    return "N/D"
-                                comp_txt = str(componente)
-                                if "Fator de anualização" in comp_txt:
-                                    return f"{float(valor_ref):.2f}x".replace(".", ",")
-                                if comp_txt.strip().startswith("="):
-                                    return _formatar_valor_peers(valor_ref, formatos_metrica.get(metrica, metrica))
-                                return _formatar_monetario_br_inteligente(valor_ref, decimais=2, usar_sufixo_mm_maiusculo=True)
 
                             tabs_mem_peers = st.tabs(bancos_selecionados)
                             for tab_mem, banco_mem in zip(tabs_mem_peers, bancos_selecionados):
@@ -20740,18 +18740,6 @@ elif menu == "Rankings":
             paleta_itau_bba = ["#1A1A1A", "#EE7203", "#6D6E71", "#B0B0B0", "#D9C8A9"]
             cor_unica_cross_section = "#1A1A1A"
 
-            def _casas_decimais_unicas(valores: list[float], casas_iniciais: int = 1, max_casas: int = 6) -> int:
-                valores_validos = [float(v) for v in valores if pd.notna(v)]
-                if len(valores_validos) <= 1:
-                    return casas_iniciais
-                distintos = sorted(set(valores_validos))
-                if len(distintos) <= 1:
-                    return casas_iniciais
-                for casas in range(casas_iniciais, max_casas + 1):
-                    formatados = [f"{v:.{casas}f}" for v in distintos]
-                    if len(formatados) == len(set(formatados)):
-                        return casas
-                return max_casas
 
             def _formatar_br(valor: float, casas: int, sufixo: str = "", incluir_sinal: bool = False) -> str:
                 if valor is None or pd.isna(valor):
@@ -23030,8 +21018,6 @@ elif menu == "DRE" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo ==
 
         return pd.DataFrame({"ano": ano.astype("Int64"), "mes": mes.astype("Int64")})
 
-    def compute_ytd_irregular(df: pd.DataFrame) -> pd.DataFrame:
-        return _compute_ytd_irregular_ifdata_frame(df)
 
     def compute_yoy(df: pd.DataFrame) -> pd.DataFrame:
         df = df.copy()
@@ -23122,23 +21108,6 @@ elif menu == "DRE" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo ==
         df_ytd["PeriodoExib"] = df_ytd["Periodo"].apply(periodo_para_exibicao)
         return df_ytd, dre_msg, df_base, df_valores
 
-    def compute_line_values(df_base: pd.DataFrame, entry: dict) -> pd.DataFrame:
-        if entry.get("derived_metric"):
-            return pd.DataFrame()
-        fontes = normalize_sources(entry.get("sources", []))
-        colunas = []
-        for fonte in fontes:
-            col = find_column(df_base, fonte)
-            if col:
-                colunas.append(col)
-        if not colunas:
-            return pd.DataFrame()
-        series_list = [coerce_numeric(df_base[col]) for col in colunas]
-        valores = pd.concat(series_list, axis=1).sum(axis=1, min_count=1)
-        df_out = df_base[["Instituicao", "Periodo"]].copy()
-        df_out["Label"] = entry["label"]
-        df_out["valor"] = valores
-        return df_out
 
     def formatar_valor_br(valor, decimais=0):
         if pd.isna(valor) or valor is None:
@@ -23905,10 +21874,8 @@ elif menu == "DRE" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo ==
                             & (df_filtrado["PeriodoExib"] == periodo)
                         ]
                         valor = pd.NA
-                        yoy_val = pd.NA
                         if not cell.empty:
                             valor = cell["ytd"].iloc[0]
-                            yoy_val = pd.to_numeric(cell["yoy"].iloc[0], errors="coerce")
 
                         formato = formato_por_label.get(label, "num")
                         base_fmt = fmt_pct if formato == "pct" else fmt_num
@@ -24300,8 +22267,6 @@ elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolid
         parsed = serie_periodo.apply(parse_periodo)
         return pd.DataFrame(parsed.tolist(), columns=["ano", "mes"], index=serie_periodo.index)
 
-    def compute_ytd_irregular(df: pd.DataFrame) -> pd.DataFrame:
-        return _compute_ytd_irregular_ifdata_frame(df)
 
     def compute_yoy(df: pd.DataFrame) -> pd.DataFrame:
         if df.empty:
@@ -24967,7 +22932,6 @@ elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolid
     DRE_GLOSSARIO_LABEL_ALIAS = {"Lucro Líquido Período Acumulado": "Lucro Líquido Período"}
     def _montar_glossario_export_rows():
         rows = []
-        mapa_entries = {e.get("label"): e for e in mapping_entries_ordenado if e.get("label")}
         all_accounts = []
         for entry in mapping_entries_ordenado:
             label_export = entry["label"]
@@ -25138,1910 +23102,7 @@ elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolid
         "Tempo de carregamento da aba DRE Individual",
     )
 
-elif menu == "__deprecated__Carteira 4.966 (bloco legado DRE-1)":
-    # =========================================================================
-    # ABA CARTEIRA 4.966 - Classificação de Instrumentos Financeiros (Res. 4.966)
-    # =========================================================================
 
-    @st.cache_data(ttl=3600, show_spinner=False)
-    def load_dre_individual_data():
-        manager = get_cache_manager()
-        resultado = manager.carregar("dre_individual")
-        if resultado.sucesso and resultado.dados is not None:
-            return resultado.dados, None
-        return None, resultado.mensagem
-
-    @st.cache_data(ttl=3600, show_spinner=False)
-    def load_principal_individual_data():
-        manager = get_cache_manager()
-        resultado = manager.carregar("principal_individual")
-        if resultado.sucesso and resultado.dados is not None:
-            return resultado.dados, None
-        return pd.DataFrame(), resultado.mensagem
-
-    def normalize_sources(value):
-        if value is None:
-            return []
-        if isinstance(value, list):
-            return [v for v in value if isinstance(v, str) and v.strip()]
-        if isinstance(value, str):
-            parts = [p.strip() for p in value.replace("|", ";").split(";")]
-            return [p for p in parts if p]
-        return []
-
-    @st.cache_data(ttl=3600, show_spinner=False)
-    def load_dre_cosif_mapping():
-        caminho = Path("data/dre_cosif_mapping.json")
-        if not caminho.exists():
-            return {}
-        try:
-            payload = json.loads(caminho.read_text(encoding="utf-8"))
-        except Exception:
-            return {}
-
-        mappings = payload.get("mappings", []) if isinstance(payload, dict) else []
-        mapa = {}
-        for item in mappings:
-            if not isinstance(item, dict):
-                continue
-            label = str(item.get("label") or "").strip()
-            if not label:
-                continue
-            contas = [
-                str(c).strip() for c in item.get("cosif_accounts", [])
-                if str(c).strip()
-            ]
-            depara = []
-            for linha in item.get("cosif_depara", []) if isinstance(item.get("cosif_depara", []), list) else []:
-                if not isinstance(linha, dict):
-                    continue
-                conta = str(linha.get("account") or "").strip()
-                desc = str(linha.get("description") or "").strip()
-                if not conta:
-                    continue
-                depara.append({"account": conta, "description": desc})
-            if not depara and contas:
-                depara = [{"account": c, "description": ""} for c in contas]
-            mapa[label] = {
-                "ifdata_label": str(item.get("ifdata_label") or "").strip(),
-                "contas": contas,
-                "depara": depara,
-                "formula": str(item.get("cosif_formula") or "").strip(),
-                "status": str(item.get("status") or "").strip(),
-                "source": str(item.get("source") or "").strip(),
-            }
-        return mapa
-
-    @st.cache_data(ttl=3600, show_spinner=False)
-    def load_cosif_pdf_description_map():
-        try:
-            return get_cosif_description_map_cached()
-        except Exception:
-            return {}
-
-    @st.cache_data(ttl=86400, show_spinner=False)
-    def load_cosif_metadata_batch_cached(accounts_tuple):
-        try:
-            return get_cosif_metadata_for_accounts(list(accounts_tuple), force_refresh=False)
-        except Exception:
-            return {}
-
-    def load_dre_mapping_individual():
-        caminho = Path("data/dre_mapping.json")
-        if not caminho.exists():
-            return []
-        try:
-            payload = json.loads(caminho.read_text(encoding="utf-8"))
-        except Exception:
-            return []
-
-        payload_map = {str(item.get("label") or "").strip(): item for item in payload if isinstance(item, dict)}
-        ordered_labels = [
-            "Resultado de Intermediação Financeira Bruto",
-            "Rec. Aplicações Interfinanceiras Liquidez",
-            "Rec. TVMs",
-            "Rec. Crédito",
-            "Rec. Arrendamento Financeiro",
-            "Rec. Outras Operações c/ Características de Crédito",
-            "Desp. PDD",
-            "Desp. Captação",
-            "Desp. Dívida Elegível a Capital",
-            "Res. Derivativos",
-            "Outros Res. Intermediação Financeira",
-            "Resultado Int. Financeira Líquido",
-            "Resultado Transações Pgto",
-            "Renda Tarifas Bancárias",
-            "Outras Prestações de Serviços",
-            "Desp. Pessoal",
-            "Desp. Adm",
-            "Desp. PDD Outras Operações",
-            "Desp. JSCP Cooperativas",
-            "Desp. Tributárias",
-            "Res. Participação Controladas",
-            "Outras Receitas",
-            "Outras Despesas",
-            "IR/CSLL",
-            "Res. Participação Lucro",
-            "Lucro Líquido Período Acumulado",
-        ]
-        child_labels = {
-            "Rec. Aplicações Interfinanceiras Liquidez",
-            "Rec. TVMs",
-            "Rec. Crédito",
-            "Rec. Arrendamento Financeiro",
-            "Rec. Outras Operações c/ Características de Crédito",
-        }
-        alias_lookup = {
-            "Lucro Líquido Período Acumulado": "Lucro Líquido Período",
-        }
-        entries = []
-        for label in ordered_labels:
-            lookup = alias_lookup.get(label, label)
-            base_item = payload_map.get(lookup, {})
-            sources = base_item.get("sources_new") or []
-            entries.append({
-                "label": label,
-                "sources": sources,
-                "concept": str(base_item.get("concept") or "").strip(),
-                "original_label": sources[0] if sources else lookup,
-                "is_child": label in child_labels,
-            })
-
-        entries.extend([
-            {
-                "label": "Desp PDD / Resultado Intermediação Fin. Bruto",
-                "derived_metric": "Desp PDD / Resultado Intermediação Fin. Bruto",
-                "format": "pct",
-                "concept": "Desp. PDD dividido pelo Resultado de Intermediação Financeira Bruto.",
-            },
-            {
-                "label": "Desp Captação / Captação",
-                "derived_metric": "Desp Captação / Captação",
-                "format": "pct",
-                "concept": "Desp. Captação anualizada dividida por Captações.",
-            },
-        ])
-        return entries
-
-    def find_column(df, source_name: str):
-        if source_name in df.columns:
-            return source_name
-        target = source_name.strip().lower()
-        for col in df.columns:
-            if str(col).strip().lower() == target:
-                return col
-        for col in df.columns:
-            if target in str(col).strip().lower():
-                return col
-        return None
-
-    def coerce_numeric(series: pd.Series) -> pd.Series:
-        if series is None:
-            return series
-        if series.dtype == object:
-            cleaned = (
-                series.astype(str)
-                .str.replace(".", "", regex=False)
-                .str.replace(",", ".", regex=False)
-            )
-            return pd.to_numeric(cleaned, errors="coerce")
-        return pd.to_numeric(series, errors="coerce")
-
-    def detectar_colunas_basicas(df: pd.DataFrame):
-        col_periodo = None
-        for candidato in ["Período", "Periodo", "PERIODO", "PERÍODO"]:
-            if candidato in df.columns:
-                col_periodo = candidato
-                break
-        if col_periodo is None:
-            for col in df.columns:
-                if "period" in str(col).lower():
-                    col_periodo = col
-                    break
-        col_inst = None
-        for candidato in ["Instituição", "Instituicao", "INSTITUICAO", "INSTITUIÇÃO"]:
-            if candidato in df.columns:
-                col_inst = candidato
-                break
-        if col_inst is None:
-            for col in df.columns:
-                if "institu" in str(col).lower():
-                    col_inst = col
-                    break
-        col_cod = None
-        for candidato in ["CodInst", "CODINST", "codinst"]:
-            if candidato in df.columns:
-                col_cod = candidato
-                break
-        return col_periodo, col_inst, col_cod
-
-    def parse_periodo(periodo_val):
-        if periodo_val is None:
-            return None, None
-        texto = str(periodo_val).strip()
-        if "/" in texto:
-            partes = texto.split("/")
-            if len(partes) >= 2 and partes[0].isdigit() and partes[1].isdigit():
-                parte1 = int(partes[0])
-                ano = int(partes[1])
-                if 1 <= parte1 <= 4:
-                    mes = {1: 3, 2: 6, 3: 9, 4: 12}.get(parte1)
-                else:
-                    mes = parte1
-                return ano, mes
-        if texto.isdigit():
-            if len(texto) == 6:
-                return int(texto[:4]), int(texto[4:])
-            if len(texto) == 8:
-                return int(texto[:4]), int(texto[4:6])
-        return None, None
-
-    def extrair_ano_mes_periodo(serie_periodo: pd.Series) -> pd.DataFrame:
-        parsed = serie_periodo.apply(parse_periodo)
-        return pd.DataFrame(parsed.tolist(), columns=["ano", "mes"], index=serie_periodo.index)
-
-    def compute_ytd_irregular(df: pd.DataFrame) -> pd.DataFrame:
-        return _compute_ytd_irregular_ifdata_frame(df)
-
-    def compute_yoy(df: pd.DataFrame) -> pd.DataFrame:
-        if df.empty:
-            return df.copy()
-        prev = df[["Instituicao", "Label", "ano", "mes", "ytd"]].copy()
-        prev["ano"] = prev["ano"] + 1
-        prev = prev.rename(columns={"ytd": "ytd_prev"})
-        df = df.merge(prev, on=["Instituicao", "Label", "mes", "ano"], how="left")
-        df["yoy"] = (df["ytd"] / df["ytd_prev"]) - 1
-        df.loc[df["ytd_prev"].isna() | (df["ytd_prev"] == 0), "yoy"] = np.nan
-        return df.drop(columns=["ytd_prev"])
-
-    def formatar_valor_br(valor, decimais=0):
-        if pd.isna(valor) or valor is None:
-            return "—"
-        try:
-            if decimais == 0:
-                return f"{valor:,.0f}".replace(",", "X").replace(".", ",").replace("X", ".")
-            return f"{valor:,.{decimais}f}".replace(",", "X").replace(".", ",").replace("X", ".")
-        except Exception:
-            return "—"
-
-    def formatar_percentual(valor, decimais=1):
-        if pd.isna(valor) or valor is None:
-            return "—"
-        try:
-            return f"{valor * 100:.{decimais}f}%".replace(".", ",")
-        except Exception:
-            return "—"
-
-    def render_table_like_carteira_4966(
-        df_linhas: pd.DataFrame,
-        entradas: list,
-        periodos: list,
-        formato_por_label: dict,
-        tooltip_por_label: dict,
-        tooltip_celula: Optional[dict] = None,
-    ):
-        html_tabela = """
-        <style>
-        .carteira-table {width: max-content; max-width: 100%; margin: 10px auto 0 auto; border-collapse: collapse; font-size: 14px; table-layout: auto;}
-        .carteira-table th, .carteira-table td {border: 1px solid #ddd; padding: 6px 10px; text-align: right; vertical-align: top;}
-        .carteira-table th {background-color: #f5f5f5; font-weight: 600;}
-        .carteira-table td:first-child {text-align: left; font-weight: 500; white-space: nowrap; width: 1%; padding-right: 8px;}
-        .carteira-table thead tr:first-child th {background-color: #111111; color: white; text-align: center;}
-        .carteira-table thead tr:nth-child(2) th {background-color: #6E6E6E; color: white;}
-        .dre-info {font-size: 12px; color: #666; margin-left: 6px; cursor: help;}
-        .dre-cell.has-tip {position: relative; cursor: help;}
-        .dre-cell .tip-text {display: none; position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); background: #333; color: #fff; padding: 8px 10px; border-radius: 4px; font-size: 11px; white-space: normal; z-index: 9999; min-width: 220px; max-width: 360px; text-align: left; box-shadow: 0 2px 8px rgba(0,0,0,0.25); pointer-events: none; line-height: 1.5;}
-        .dre-cell.has-tip:hover .tip-text {display: block;}
-        .dre-subitem {font-size: 12px;}
-        .dre-subitem td:first-child {padding-left: 18px;}
-        .dre-negative {color: #7a1e2b; font-weight: 600;}
-        .dre-delta-up {color: #28a745; margin-left: 4px; font-weight: 600;}
-        .dre-delta-down {color: #dc3545; margin-left: 4px; font-weight: 600;}
-        </style>
-        <div style="width:100%;overflow-x:auto;"><table class="carteira-table"><thead><tr><th rowspan="2">Item</th>
-        """
-        for periodo in periodos:
-            html_tabela += f'<th>{periodo}</th>'
-        html_tabela += "</tr><tr>" + "".join(["<th>YTD</th>" for _ in periodos]) + "</tr></thead><tbody>"
-        for entry in entradas:
-            label = entry["label"]
-            label_exib = entry.get("label_exib", label)
-            tooltip = tooltip_por_label.get(label, "")
-            if tooltip:
-                tip_html = _html_mod.escape(str(tooltip)).replace("\n", "<br>")
-                info_html = f'<span class="dre-info">ⓘ</span><span class="tip-text tip-main">{tip_html}</span>'
-            else:
-                info_html = ""
-            row_class = "dre-subitem" if entry.get("is_child") else ""
-            label_cell_class = "dre-cell has-tip" if tooltip else "dre-cell"
-            html_tabela += f'<tr class="{row_class}"><td class="{label_cell_class}">{label_exib} {info_html}</td>'
-            linha = df_linhas[df_linhas["Label"] == label]
-            for periodo in periodos:
-                cell = linha[linha["PeriodoExib"] == periodo]
-                if not cell.empty:
-                    ytd_val = cell["ytd"].iloc[0]
-                    yoy_val = pd.to_numeric(cell["yoy"].iloc[0], errors="coerce")
-                else:
-                    ytd_val = pd.NA
-                    yoy_val = pd.NA
-                formato = formato_por_label.get(label, "num")
-                if formato == "pct":
-                    ytd_fmt = formatar_percentual(ytd_val, decimais=2)
-                    ytd_neg = False
-                else:
-                    ytd_fmt = formatar_valor_br(ytd_val)
-                    ytd_neg = pd.notna(ytd_val) and ytd_val < 0
-                ytd_span = f'<span class="dre-negative">{ytd_fmt}</span>' if ytd_neg else ytd_fmt
-                marcador = ''
-                if pd.notna(yoy_val):
-                    if yoy_val > 0:
-                        marcador = '<span class="dre-delta-up">▲</span>'
-                    elif yoy_val < 0:
-                        marcador = '<span class="dre-delta-down">▼</span>'
-                tip_celula = (tooltip_celula or {}).get((label, periodo), '') if tooltip_celula else ''
-                if tip_celula:
-                    tip_celula_html = _html_mod.escape(str(tip_celula)).replace("\n", "<br>")
-                    html_tabela += f'<td class="dre-cell has-tip">{ytd_span}{marcador}<span class="tip-text">{tip_celula_html}</span></td>'
-                else:
-                    html_tabela += f'<td>{ytd_span}{marcador}</td>'
-            html_tabela += "</tr>"
-        html_tabela += "</tbody></table></div>"
-        st.markdown(html_tabela, unsafe_allow_html=True)
-
-    def _agrupar_instituicoes(df_raw: pd.DataFrame, codinsts: list[int], nome_visao: str) -> pd.DataFrame:
-        if df_raw is None or df_raw.empty:
-            return pd.DataFrame()
-        if "CodInst" not in df_raw.columns:
-            return pd.DataFrame()
-        codinsts_norm = {int(str(c)) for c in codinsts}
-        recorte = df_raw[df_raw["CodInst"].astype(str).str.extract(r"(\d+)")[0].fillna("0").astype(int).isin(codinsts_norm)].copy()
-        if recorte.empty:
-            return recorte
-        if len(codinsts_norm) == 1:
-            return recorte
-        col_periodo = find_column(recorte, "Período") or find_column(recorte, "Periodo")
-        col_inst = find_column(recorte, "Instituição") or find_column(recorte, "Instituicao")
-        if not col_periodo or not col_inst:
-            return pd.DataFrame()
-        base = recorte[[col_periodo]].copy()
-        numeric_cols = []
-        for col in recorte.columns:
-            if col in {"CodInst", col_periodo, col_inst}:
-                continue
-            serie = coerce_numeric(recorte[col])
-            if serie.notna().any():
-                base[col] = serie
-                numeric_cols.append(col)
-        if not numeric_cols:
-            return pd.DataFrame()
-        agrupado = base.groupby(col_periodo, as_index=False).sum(min_count=1)
-        agrupado.insert(0, "CodInst", -1)
-        agrupado.insert(1, "Instituição", nome_visao)
-        agrupado = agrupado.rename(columns={col_periodo: "Período"})
-        return agrupado
-
-    def _build_dre_base_from_df(df_dre_raw: pd.DataFrame) -> tuple[pd.DataFrame, str, pd.DataFrame, pd.DataFrame]:
-        if df_dre_raw is None or df_dre_raw.empty:
-            return pd.DataFrame(), "Sem dados DRE para a visão selecionada.", pd.DataFrame(), pd.DataFrame()
-        col_periodo, col_inst, col_cod = detectar_colunas_basicas(df_dre_raw)
-        if col_periodo is None:
-            return pd.DataFrame(), "Coluna de período não encontrada nos dados DRE.", pd.DataFrame(), pd.DataFrame()
-        mapping_entries = load_dre_mapping_individual()
-        if not mapping_entries:
-            return pd.DataFrame(), "Mapeamento DRE não encontrado ou vazio.", pd.DataFrame(), pd.DataFrame()
-        colunas_necessarias = {col_periodo}
-        if col_inst:
-            colunas_necessarias.add(col_inst)
-        if col_cod:
-            colunas_necessarias.add(col_cod)
-        fonte_para_coluna = {}
-        for entry in mapping_entries:
-            for fonte in entry.get("sources", []):
-                if fonte in fonte_para_coluna:
-                    continue
-                col_encontrada = find_column(df_dre_raw, fonte)
-                if col_encontrada:
-                    fonte_para_coluna[fonte] = col_encontrada
-                    colunas_necessarias.add(col_encontrada)
-        colunas_necessarias = [c for c in df_dre_raw.columns if c in colunas_necessarias]
-        df_base = df_dre_raw[colunas_necessarias].copy() if colunas_necessarias else df_dre_raw.copy()
-        if col_inst is None:
-            df_base["Instituicao"] = df_base.get("CodInst", "Instituição")
-        else:
-            df_base = df_base.rename(columns={col_inst: "Instituicao"})
-        if col_cod and col_cod in df_base.columns:
-            df_base = df_base.rename(columns={col_cod: "CodInst"})
-        df_base = df_base.rename(columns={col_periodo: "Periodo"})
-        df_base[["ano", "mes"]] = extrair_ano_mes_periodo(df_base["Periodo"])
-        df_new = df_base[df_base["ano"].fillna(0) >= (DRE_ANO_EXIBICAO_INICIAL - 1)].copy()
-        numericas = {col: coerce_numeric(df_new[col]) for col in set(fonte_para_coluna.values())}
-        df_values = []
-        for entry in mapping_entries:
-            if entry.get("derived_metric"):
-                continue
-            colunas = [fonte_para_coluna[f] for f in normalize_sources(entry.get("sources", [])) if f in fonte_para_coluna]
-            if not colunas:
-                continue
-            valores = pd.concat([numericas[col] for col in colunas], axis=1).sum(axis=1, min_count=1)
-            cols_saida = [c for c in ["CodInst", "Instituicao", "Periodo"] if c in df_new.columns]
-            df_entry = df_new[cols_saida].copy()
-            df_entry["Label"] = entry["label"]
-            df_entry["valor"] = valores
-            df_values.append(df_entry)
-        if not df_values:
-            return pd.DataFrame(), "Nenhuma linha DRE foi encontrada com o mapeamento atual.", df_base, pd.DataFrame()
-        df_valores = pd.concat(df_values, ignore_index=True)
-        if "CodInst" not in df_valores.columns:
-            df_valores["CodInst"] = pd.NA
-        df_ytd = _build_dre_ytd_ifdata_frame(df_valores)
-        df_ytd = compute_yoy(df_ytd)
-        df_ytd["PeriodoExib"] = df_ytd["Periodo"].apply(periodo_para_exibicao)
-        return df_ytd, None, df_base, df_valores
-
-    df_dre_individual_raw, dre_msg = load_dre_individual_data()
-    df_principal_individual_raw, principal_msg = load_principal_individual_data()
-    if df_dre_individual_raw is None or df_dre_individual_raw.empty:
-        detalhe = f" ({dre_msg})" if dre_msg else ""
-        st.warning(f"Dados DRE individual não disponíveis no cache. Atualize 'dre_individual' e 'principal_individual' no menu 'Atualizar Base'.{detalhe}")
-        st.stop()
-
-    if df_principal_individual_raw.empty:
-        detalhe = f" ({principal_msg})" if principal_msg else ""
-        st.warning(f"Dados do resumo individual não disponíveis no cache. Atualize 'principal_individual' no menu 'Atualizar Base'.{detalhe}")
-        st.stop()
-
-    df_dre_individual_raw = df_dre_individual_raw.copy()
-    df_principal_individual_raw = df_principal_individual_raw.copy()
-    col_periodo_dre, col_inst_dre, col_cod_dre = detectar_colunas_basicas(df_dre_individual_raw)
-    col_periodo_pr, col_inst_pr, col_cod_pr = detectar_colunas_basicas(df_principal_individual_raw)
-    if not col_cod_dre or not col_periodo_dre or not col_inst_dre:
-        st.warning("O cache dre_individual precisa conter CodInst, Instituição e Período para esta aba.")
-        st.stop()
-    if not col_cod_pr or not col_periodo_pr or not col_inst_pr:
-        st.warning("O cache principal_individual precisa conter CodInst, Instituição e Período para esta aba.")
-        st.stop()
-
-    df_dre_individual_raw = df_dre_individual_raw.rename(columns={col_cod_dre: "CodInst", col_inst_dre: "Instituição", col_periodo_dre: "Período"})
-    df_principal_individual_raw = df_principal_individual_raw.rename(columns={col_cod_pr: "CodInst", col_inst_pr: "Instituição", col_periodo_pr: "Período"})
-    df_dre_individual_raw["CodInst"] = pd.to_numeric(df_dre_individual_raw["CodInst"], errors="coerce").astype("Int64")
-    df_principal_individual_raw["CodInst"] = pd.to_numeric(df_principal_individual_raw["CodInst"], errors="coerce").astype("Int64")
-    df_dre_individual_raw["Instituição"] = df_dre_individual_raw["Instituição"].astype(str).str.strip()
-    df_principal_individual_raw["Instituição"] = df_principal_individual_raw["Instituição"].astype(str).str.strip()
-    df_dre_individual_raw[["ano", "mes"]] = extrair_ano_mes_periodo(df_dre_individual_raw["Período"])
-    df_principal_individual_raw[["ano", "mes"]] = extrair_ano_mes_periodo(df_principal_individual_raw["Período"])
-
-    _dict_aliases_dre = st.session_state.get('dict_aliases', {})
-    def _alias_instituicao_dre(nome):
-        if pd.isna(nome):
-            return nome
-        nome_str = str(nome).strip()
-        if not _dict_aliases_dre:
-            return nome_str
-        nome_norm = normalizar_nome_instituicao(nome_str)
-        return _dict_aliases_dre.get(nome_str, _dict_aliases_dre.get(nome_norm, nome_str))
-
-    catalogo = (
-        df_dre_individual_raw[["CodInst", "Instituição"]]
-        .dropna(subset=["CodInst"])
-        .drop_duplicates(subset=["CodInst", "Instituição"])
-        .sort_values(["Instituição", "CodInst"])
-    )
-    catalogo["CodInst"] = catalogo["CodInst"].astype(int)
-    catalogo["InstituicaoExib"] = catalogo["Instituição"].apply(_alias_instituicao_dre)
-    catalogo = catalogo.sort_values(["InstituicaoExib", "CodInst"])
-    instituicoes_disponiveis = [
-        {
-            "codinst": int(row.CodInst),
-            "nome": str(row.Instituição),
-            "nome_exib": str(row.InstituicaoExib),
-        }
-        for row in catalogo.itertuples(index=False)
-    ]
-    labels_instituicoes = [
-        f"{item['nome_exib']} [{item['codinst']}]"
-        for item in instituicoes_disponiveis
-    ]
-    mapa_label_instituicao = {
-        label: item for label, item in zip(labels_instituicoes, instituicoes_disponiveis)
-    }
-    default_labels = labels_instituicoes[:1]
-    selecionadas_labels = st.multiselect(
-        "Instituições individuais",
-        options=labels_instituicoes,
-        default=default_labels,
-        key="dre_individual_instituicoes",
-    )
-    if not selecionadas_labels:
-        st.warning("Selecione ao menos uma instituição individual.")
-        st.stop()
-
-    codinsts_selecionados = [mapa_label_instituicao[label]["codinst"] for label in selecionadas_labels]
-    recorte_anos = df_dre_individual_raw[df_dre_individual_raw["CodInst"].isin(codinsts_selecionados)].copy()
-    anos_disponiveis = sorted([ano for ano in recorte_anos["ano"].dropna().astype(int).unique().tolist() if ano >= DRE_ANO_EXIBICAO_INICIAL])
-    if not anos_disponiveis:
-        st.warning("Não há anos publicados para as instituições selecionadas.")
-        st.stop()
-
-    visoes = ["Soma das Partes"] + selecionadas_labels
-    col_ano, col_visao, col_base = st.columns([1, 2, 1])
-    with col_ano:
-        ano_selecionado = st.selectbox("Ano", anos_disponiveis[::-1], index=0, key="dre_individual_ano")
-    with col_visao:
-        visao_sel = st.selectbox("Visão exibida", options=visoes, index=0, key="dre_individual_visao")
-    with col_base:
-        base_comparacao = st.selectbox(
-            "Base lucro",
-            ["Lucro Líquido Acumulado", "Lucro Líquido Trimestral"],
-            index=0,
-            key="dre_individual_base_comparacao_lucro",
-        )
-
-    if visao_sel == "Soma das Partes":
-        nome_visao = "Soma das Partes — Seleção Atual"
-        df_dre_visao = _agrupar_instituicoes(df_dre_individual_raw, codinsts_selecionados, nome_visao)
-        df_principal_visao = _agrupar_instituicoes(df_principal_individual_raw, codinsts_selecionados, nome_visao)
-        st.caption(f"Agregando {len(codinsts_selecionados)} instituições individuais selecionadas.")
-    else:
-        inst_sel = mapa_label_instituicao[visao_sel]
-        nome_visao = inst_sel["nome_exib"]
-        cod_sel = inst_sel["codinst"]
-        df_dre_visao = df_dre_individual_raw[df_dre_individual_raw["CodInst"] == cod_sel].copy()
-        df_principal_visao = df_principal_individual_raw[df_principal_individual_raw["CodInst"] == cod_sel].copy()
-        st.caption(f"Instituição individual: {inst_sel['nome']} (CodInst {cod_sel}).")
-
-    df_ytd_base, dre_msg_visao, df_base, df_valores = _build_dre_base_from_df(df_dre_visao)
-    if df_ytd_base.empty:
-        detalhe = f" ({dre_msg_visao})" if dre_msg_visao else ""
-        st.warning(f"Não foi possível montar a DRE para a visão selecionada.{detalhe}")
-        st.stop()
-
-    col_den_dre = "Captação" if "Captação" in df_principal_visao.columns else ("Captações" if "Captações" in df_principal_visao.columns else None)
-    label_desp_capt_dre = _label_desp_captacao_por_denominador(col_den_dre)
-    aliases_desp_capt_dre = _aliases_metrica_desp_captacao(label_desp_capt_dre)
-
-    mapping_entries = load_dre_mapping_individual()
-    for _entry in mapping_entries:
-        if _entry.get("label") in aliases_desp_capt_dre:
-            _entry["label"] = label_desp_capt_dre
-        if _entry.get("derived_metric") in aliases_desp_capt_dre:
-            _entry["derived_metric"] = label_desp_capt_dre
-        if _entry.get("concept") == "Desp. Captação anualizada dividida por Captações.":
-            _entry["concept"] = f"{label_desp_capt_dre}."
-    _labels_ratio_dre = {
-        "Desp PDD / Resultado Intermediação Fin. Bruto",
-        label_desp_capt_dre,
-    }
-    mapping_entries_ordenado = [e for e in mapping_entries if e.get("label") not in _labels_ratio_dre] + [e for e in mapping_entries if e.get("label") in _labels_ratio_dre]
-    for _entry in mapping_entries_ordenado:
-        if _entry.get("label") in _labels_ratio_dre:
-            _entry["is_ratio_footer"] = True
-    formato_por_label = {entry["label"]: entry.get("format", "num") for entry in mapping_entries_ordenado}
-    dre_cosif_map = load_dre_cosif_mapping()
-    cosif_desc_pdf_map = load_cosif_pdf_description_map()
-    tooltip_por_label = {}
-    entradas_com_label = []
-    for entry in mapping_entries_ordenado:
-        fonte_original = entry.get("original_label")
-        fontes = [fonte_original] if fonte_original else entry.get("sources", [])
-        fontes_fmt = ", ".join([f for f in fontes if f])
-        tooltip_parts = []
-        if entry.get("concept"):
-            tooltip_parts.append(entry["concept"])
-        if entry.get("derived_metric"):
-            formula = DERIVED_METRICS_FORMULAS.get(entry["label"])
-            if formula:
-                tooltip_parts.append(f"Fórmula: {formula}")
-        if fontes_fmt:
-            tooltip_parts.append(f"Denominação IFData: {fontes_fmt}")
-            tooltip_parts.append(f"Fontes: {fontes_fmt}")
-        cosif_info = dre_cosif_map.get(entry["label"])
-        if cosif_info:
-            if cosif_info.get("ifdata_label"):
-                tooltip_parts.append(f"IFData (reconciliação): {cosif_info['ifdata_label']}")
-            depara = cosif_info.get("depara") or []
-            if depara:
-                tooltip_parts.append("De-para COSIF (conta → descrição):")
-                for item_depara in depara:
-                    conta = str(item_depara.get("account") or "").strip()
-                    desc = str(item_depara.get("description") or "").strip()
-                    desc_pdf = cosif_desc_pdf_map.get(normalize_cosif_code_digits(conta), "") if conta else ""
-                    desc_final = desc_pdf or desc
-                    if conta and desc_final:
-                        tooltip_parts.append(f"[{conta}] {desc_final}")
-                    elif conta:
-                        tooltip_parts.append(f"[{conta}]")
-            if cosif_info.get("formula"):
-                tooltip_parts.append(cosif_info["formula"])
-            if cosif_info.get("status"):
-                tooltip_parts.append(f"Status do mapeamento: {cosif_info['status']}")
-        tooltip_por_label[entry["label"]] = "\n".join(tooltip_parts)
-        entrada_copy = entry.copy()
-        label_exib = entry["label"]
-        if (
-            entry.get("label") == "Lucro Líquido Período Acumulado"
-            and base_comparacao == "Lucro Líquido Trimestral"
-        ):
-            label_exib = "Lucro Líquido Trimestral"
-            tooltip_por_label[entry["label"]] = (
-                (tooltip_por_label.get(entry["label"], "") + "\n").strip()
-                + "Exibição trimestral (Rel. 4): Lucro Líquido (aa) = (x) + (y) + (z)."
-            ).strip()
-        entrada_copy["label_exib"] = label_exib
-        entradas_com_label.append(entrada_copy)
-
-    df_filtrado = df_ytd_base[df_ytd_base["ano"] == int(ano_selecionado)].copy()
-    if df_filtrado.empty:
-        st.warning("Não há dados DRE para o ano selecionado.")
-        st.stop()
-    df_filtrado_base = df_filtrado.copy()
-    lucro_label_dre = "Lucro Líquido Período Acumulado"
-    usar_lucro_trimestral = base_comparacao == "Lucro Líquido Trimestral"
-
-    tooltip_celula = {}
-    try:
-        df_derived_view, _ = build_derived_metrics(df_dre_visao.copy(), df_principal_visao.copy())
-    except Exception:
-        df_derived_view = pd.DataFrame()
-    if not df_derived_view.empty:
-        df_derived_view = df_derived_view.rename(columns={"Métrica": "Label", "Valor": "valor", "Instituição": "Instituicao", "Período": "Periodo"})
-        df_derived_view["Label"] = df_derived_view["Label"].astype(str)
-        _mask_alias_desp_capt = df_derived_view["Label"].isin(aliases_desp_capt_dre)
-        df_derived_view.loc[_mask_alias_desp_capt, "Label"] = label_desp_capt_dre
-        df_derived_view["Periodo"] = df_derived_view["Periodo"].astype(str)
-        df_derived_view[["ano", "mes"]] = extrair_ano_mes_periodo(df_derived_view["Periodo"])
-        df_derived_view["ytd"] = pd.to_numeric(df_derived_view["valor"], errors="coerce")
-        df_derived_view = compute_yoy(df_derived_view)
-        df_derived_view["PeriodoExib"] = df_derived_view["Periodo"].apply(periodo_para_exibicao)
-        df_derived_view = (
-            df_derived_view[df_derived_view["ano"] == int(ano_selecionado)]
-            .sort_values(["Label", "ano", "mes", "Periodo"], na_position="last")
-            .drop_duplicates(subset=["Label", "Periodo"], keep="last")
-        )
-        df_filtrado = pd.concat([df_filtrado, df_derived_view], ignore_index=True)
-
-        if not df_base.empty:
-            _df_calc_base = df_base[df_base["ano"] == int(ano_selecionado)].copy()
-            if not _df_calc_base.empty:
-                _df_calc_base["Periodo"] = _df_calc_base["Periodo"].astype(str)
-                _df_calc_base["PeriodoExib"] = _df_calc_base["Periodo"].apply(periodo_para_exibicao)
-                _colunas_calculo = [
-                    "Resultado com Perda Esperada (f)",
-                    "Rendas de Operações de Crédito (c)",
-                    "Rendas de Arrendamento Financeiro (d)",
-                    "Rendas de Outras Operações com Características de Concessão de Crédito (e)",
-                    "Rendas de Aplicações Interfinanceiras de Liquidez (a)",
-                    "Rendas de Títulos e Valores Mobiliários (b)",
-                    "Despesas de Captações (g)",
-                ]
-                for _col in [c for c in _colunas_calculo if c in _df_calc_base.columns]:
-                    _df_calc_base[_col] = pd.to_numeric(_df_calc_base[_col], errors="coerce")
-                df_principal_calc = df_principal_visao.copy()
-                col_den_calc = "Captações" if "Captações" in df_principal_calc.columns else ("Captação" if "Captação" in df_principal_calc.columns else None)
-                if col_den_calc:
-                    df_principal_calc[col_den_calc] = pd.to_numeric(df_principal_calc[col_den_calc], errors="coerce")
-                def _fmt_mm_tip(_v):
-                    if pd.isna(_v):
-                        return "—"
-                    return formatar_valor_br(_v)
-                for _, _r in _df_calc_base.iterrows():
-                    _periodo_exib = _r.get("PeriodoExib")
-                    if not _periodo_exib:
-                        continue
-                    _mes_periodo = _r.get("mes", pd.NA)
-                    _mes_periodo = int(_mes_periodo) if pd.notna(_mes_periodo) and _mes_periodo else None
-                    _fator_anual = (12 / _mes_periodo) if _mes_periodo else None
-                    _desp_pdd = pd.to_numeric(_r.get("Resultado com Perda Esperada (f)"), errors="coerce")
-                    _rec_cred = pd.to_numeric(_r.get("Rendas de Operações de Crédito (c)"), errors="coerce")
-                    _rec_arr = pd.to_numeric(_r.get("Rendas de Arrendamento Financeiro (d)"), errors="coerce")
-                    _rec_out = pd.to_numeric(_r.get("Rendas de Outras Operações com Características de Concessão de Crédito (e)"), errors="coerce")
-                    _rec_liq = pd.to_numeric(_r.get("Rendas de Aplicações Interfinanceiras de Liquidez (a)"), errors="coerce")
-                    _rec_tvm = pd.to_numeric(_r.get("Rendas de Títulos e Valores Mobiliários (b)"), errors="coerce")
-                    _desp_capt_periodo = pd.to_numeric(_r.get("Despesas de Captações (g)"), errors="coerce")
-                    _desp_capt = _desp_capt_periodo
-                    _desp_capt_jun = pd.NA
-                    if _mes_periodo in (9, 12):
-                        _jun_series = pd.to_numeric(_df_calc_base.loc[_df_calc_base["mes"] == 6, "Despesas de Captações (g)"], errors="coerce")
-                        _desp_capt_jun = _jun_series.iloc[-1] if not _jun_series.empty else pd.NA
-                        if pd.notna(_desp_capt_jun) and pd.notna(_desp_capt_periodo):
-                            _desp_capt = _desp_capt_jun + _desp_capt_periodo
-                    _interm = _rec_liq + _rec_tvm + _rec_cred + _rec_arr + _rec_out if all(pd.notna(v) for v in [_rec_liq, _rec_tvm, _rec_cred, _rec_arr, _rec_out]) else pd.NA
-                    _desp_capt_anual = _desp_capt * _fator_anual if pd.notna(_desp_capt) and _fator_anual else pd.NA
-                    _cap = pd.NA
-                    _per = str(_r.get("Periodo") or "").strip()
-                    if _per and not df_principal_calc.empty:
-                        _m_cap = df_principal_calc[df_principal_calc["Período"].astype(str) == _per]
-                        if not _m_cap.empty and col_den_calc in _m_cap.columns:
-                            _cap = _m_cap[col_den_calc].iloc[0]
-                    _ratio_pdd_interm = (_desp_pdd / _interm) if pd.notna(_desp_pdd) and pd.notna(_interm) and _interm != 0 else pd.NA
-                    _ratio_capt = (_desp_capt_anual / _cap) if pd.notna(_desp_capt_anual) and pd.notna(_cap) and _cap != 0 else pd.NA
-                    tooltip_celula[("Desp PDD / Resultado Intermediação Fin. Bruto", _periodo_exib)] = (
-                        f"Memória de cálculo\n"
-                        f"Desp. PDD: {_fmt_mm_tip(_desp_pdd)}\n"
-                        f"Resultado Interm. Fin. Bruto = Rec. AIL ({_fmt_mm_tip(_rec_liq)}) + Rec. TVM ({_fmt_mm_tip(_rec_tvm)}) + Rec. Crédito ({_fmt_mm_tip(_rec_cred)}) + Rec. Arrendamento ({_fmt_mm_tip(_rec_arr)}) + Rec. Outras Op. Crédito ({_fmt_mm_tip(_rec_out)}) = {_fmt_mm_tip(_interm)}\n"
-                        f"Desp PDD / Resultado Interm. Fin. Bruto = {_fmt_mm_tip(_desp_pdd)} ÷ {_fmt_mm_tip(_interm)} = {formatar_percentual(_ratio_pdd_interm, decimais=2)}"
-                    )
-                    _fator_txt = f"12/{_mes_periodo}" if _mes_periodo else "12/mes"
-                    _desp_capt_memoria = _fmt_mm_tip(_desp_capt)
-                    if _mes_periodo in (9, 12):
-                        _desp_capt_memoria = f"{_fmt_mm_tip(_desp_capt_jun)} + {_fmt_mm_tip(_desp_capt_periodo)} = {_fmt_mm_tip(_desp_capt)}"
-                    tooltip_celula[(label_desp_capt_dre, _periodo_exib)] = (
-                        f"Memória de cálculo\n"
-                        f"Desp. Captação (YTD): {_desp_capt_memoria}\n"
-                        f"Desp. Captação anualizada = {_fmt_mm_tip(_desp_capt)} × ({_fator_txt}) = {_fmt_mm_tip(_desp_capt_anual)}\n"
-                        f"Volume captação: {_fmt_mm_tip(_cap)}\n"
-                        f"{label_desp_capt_dre} = {_fmt_mm_tip(_desp_capt_anual)} ÷ {_fmt_mm_tip(_cap)} = {formatar_percentual(_ratio_capt, decimais=2)}"
-                    )
-
-    if usar_lucro_trimestral:
-        df_filtrado = _aplicar_base_trimestral_dre(df_filtrado, df_valores)
-
-    meses_com_publicacao = (
-        df_filtrado_base.loc[df_filtrado_base["ytd"].notna(), "mes"]
-        .dropna()
-        .astype(int)
-        .unique()
-        .tolist()
-    )
-    if int(ano_selecionado) == DRE_ANO_EXIBICAO_INICIAL:
-        meses_com_publicacao = [m for m in meses_com_publicacao if m >= DRE_MES_EXIBICAO_INICIAL]
-    meses_ordenados = sorted([m for m in meses_com_publicacao if m in [3, 6, 9, 12]], reverse=True)
-    periodos_disponiveis = [periodo_para_exibicao(f"{int(mes/3)}/{ano_selecionado}") for mes in meses_ordenados]
-    if not periodos_disponiveis:
-        st.warning("Não há períodos publicados para os filtros selecionados.")
-        st.stop()
-
-    render_table_like_carteira_4966(df_filtrado, entradas_com_label, periodos_disponiveis, formato_por_label, tooltip_por_label, tooltip_celula)
-
-    st.markdown("#### Exportar DRE Individual (layout da tabela)")
-    DRE_GLOSSARIO_LABEL_ALIAS = {"Lucro Líquido Período Acumulado": "Lucro Líquido Período"}
-    def _montar_glossario_export_rows():
-        rows = []
-        mapa_entries = {e.get("label"): e for e in mapping_entries_ordenado if e.get("label")}
-        all_accounts = []
-        for entry in mapping_entries_ordenado:
-            label_export = entry["label"]
-            label_lookup = DRE_GLOSSARIO_LABEL_ALIAS.get(label_export, label_export)
-            cosif_info = dre_cosif_map.get(label_lookup, {})
-            for item_depara in (cosif_info.get("depara") or []):
-                conta = str(item_depara.get("account") or "").strip()
-                if conta:
-                    all_accounts.append(conta)
-        cosif_metadata_map = load_cosif_metadata_batch_cached(tuple(sorted(set(all_accounts))))
-        for ordem, entry in enumerate(mapping_entries_ordenado, start=1):
-            label_export = entry["label"]
-            label_lookup = DRE_GLOSSARIO_LABEL_ALIAS.get(label_export, label_export)
-            cosif_info = dre_cosif_map.get(label_lookup, {})
-            depara = cosif_info.get("depara") or []
-            contas = []
-            descricoes = []
-            for item_depara in depara:
-                conta = str(item_depara.get("account") or "").strip()
-                desc = str(item_depara.get("description") or "").strip()
-                desc_pdf = cosif_desc_pdf_map.get(normalize_cosif_code_digits(conta), "") if conta else ""
-                desc_final = desc_pdf or desc
-                if conta:
-                    contas.append(f"[{conta}]")
-                if desc_final:
-                    descricoes.append(desc_final)
-            ifdata_ref = str(cosif_info.get("ifdata_label") or "").strip() or str(entry.get("original_label") or "").strip() or "N/D"
-            nivel = "Principal"
-            if entry.get("is_child"):
-                nivel = "Filho"
-            elif entry.get("is_ratio_footer"):
-                nivel = "Rodapé (ratio)"
-            status_mapeamento = str(cosif_info.get("status") or "").strip() or ("mapeado" if depara else "não mapeado")
-            rows.append({
-                "Ordem": ordem,
-                "Nível": nivel,
-                "Linha DRE": label_export,
-                "Referência IFData": ifdata_ref,
-                "Contas COSIF": " | ".join(contas) if contas else "N/D",
-                "Descrição COSIF": " | ".join(descricoes) if descricoes else "N/D",
-                "Fórmula COSIF": str(cosif_info.get("formula") or "").strip() or "N/D",
-                "Título": "",
-                "Função": "",
-                "Base normativa": "",
-                "Status Mapeamento": status_mapeamento,
-            })
-            for item_depara in depara:
-                conta = str(item_depara.get("account") or "").strip()
-                if not conta:
-                    continue
-                desc = str(item_depara.get("description") or "").strip()
-                desc_pdf = cosif_desc_pdf_map.get(normalize_cosif_code_digits(conta), "") if conta else ""
-                desc_final = desc_pdf or desc
-                meta = cosif_metadata_map.get(normalize_cosif_code_digits(conta), {}) if cosif_metadata_map else {}
-                conta_cosif_formatada = ""
-                try:
-                    conta_cosif_formatada = ifdata_to_cosif_code(conta)
-                except Exception:
-                    conta_cosif_formatada = ""
-                rows.append({
-                    "Ordem": ordem,
-                    "Nível": "Filho COSIF",
-                    "Linha DRE": f"↳ [{conta}]",
-                    "Referência IFData": ifdata_ref,
-                    "Contas COSIF": f"[{conta}]" + (f" ({conta_cosif_formatada})" if conta_cosif_formatada else ""),
-                    "Descrição COSIF": desc_final or "N/D",
-                    "Fórmula COSIF": "N/D",
-                    "Título": str(meta.get("titulo") or "").strip() or (desc_final or "N/D"),
-                    "Função": str(meta.get("funcao") or "").strip() or "N/D",
-                    "Base normativa": str(meta.get("base_normativa") or "").strip(),
-                    "Status Mapeamento": "metadata_ok" if str(meta.get("source_status") or "") == "ok" else "metadata_pendente",
-                })
-        return rows
-
-    buffer_excel = BytesIO()
-    with pd.ExcelWriter(buffer_excel, engine="xlsxwriter") as writer:
-        workbook = writer.book
-        worksheet = workbook.add_worksheet("DRE Individual")
-        writer.sheets["DRE Individual"] = worksheet
-        fmt_head_dark = workbook.add_format({"bold": True, "font_color": "white", "bg_color": "#111111", "align": "center", "valign": "vcenter", "border": 1})
-        fmt_head_mid = workbook.add_format({"bold": True, "font_color": "white", "bg_color": "#6E6E6E", "align": "center", "valign": "vcenter", "border": 1})
-        fmt_item = workbook.add_format({"align": "left", "valign": "vcenter", "border": 1})
-        fmt_item_child = workbook.add_format({"align": "left", "valign": "vcenter", "border": 1, "indent": 1})
-        fmt_num = workbook.add_format({"align": "right", "valign": "vcenter", "border": 1, "num_format": "#,##0"})
-        fmt_pct = workbook.add_format({"align": "right", "valign": "vcenter", "border": 1, "num_format": "0.00%"})
-        worksheet.merge_range(0, 0, 1, 0, "Item", fmt_head_dark)
-        for idx, periodo in enumerate(periodos_disponiveis):
-            col_idx = 1 + idx
-            worksheet.write(0, col_idx, periodo, fmt_head_dark)
-            worksheet.write(1, col_idx, "YTD", fmt_head_mid)
-        row_idx = 2
-        for entry in entradas_com_label:
-            label = entry["label"]
-            worksheet.write(row_idx, 0, entry.get("label_exib", label), fmt_item_child if entry.get("is_child") else fmt_item)
-            for idx, periodo in enumerate(periodos_disponiveis):
-                cell = df_filtrado[(df_filtrado["Label"] == label) & (df_filtrado["PeriodoExib"] == periodo)]
-                valor = pd.NA
-                yoy_val = pd.NA
-                if not cell.empty:
-                    valor = cell["ytd"].iloc[0]
-                    yoy_val = pd.to_numeric(cell["yoy"].iloc[0], errors="coerce")
-                formato = formato_por_label.get(label, "num")
-                base_fmt = fmt_pct if formato == "pct" else fmt_num
-                _write_excel_number_or_blank(worksheet, row_idx, 1 + idx, valor, base_fmt)
-            row_idx += 1
-        worksheet.set_column(0, 0, 52)
-        worksheet.set_column(1, len(periodos_disponiveis), 16)
-        worksheet.freeze_panes(2, 1)
-        ws_gloss = workbook.add_worksheet("Glossário COSIF")
-        writer.sheets["Glossário COSIF"] = ws_gloss
-        gloss_headers = ["Ordem", "Nível", "Linha DRE", "Referência IFData", "Contas COSIF", "Descrição COSIF", "Fórmula COSIF", "Título", "Função", "Base normativa", "Status Mapeamento"]
-        for col_idx, head in enumerate(gloss_headers):
-            ws_gloss.write(0, col_idx, head, fmt_head_dark)
-        gloss_rows = _montar_glossario_export_rows()
-        for row_idx_gl, row_data in enumerate(gloss_rows, start=1):
-            ws_gloss.write_number(row_idx_gl, 0, int(row_data["Ordem"]))
-            ws_gloss.write(row_idx_gl, 1, row_data["Nível"])
-            ws_gloss.write(row_idx_gl, 2, row_data["Linha DRE"])
-            ws_gloss.write(row_idx_gl, 3, row_data["Referência IFData"])
-            ws_gloss.write(row_idx_gl, 4, row_data["Contas COSIF"])
-            ws_gloss.write(row_idx_gl, 5, row_data["Descrição COSIF"])
-            ws_gloss.write(row_idx_gl, 6, row_data["Fórmula COSIF"])
-            ws_gloss.write(row_idx_gl, 7, row_data["Título"])
-            ws_gloss.write(row_idx_gl, 8, row_data["Função"])
-            ws_gloss.write(row_idx_gl, 9, row_data["Base normativa"])
-            ws_gloss.write(row_idx_gl, 10, row_data["Status Mapeamento"])
-        ws_gloss.set_column(0, 0, 8)
-        ws_gloss.set_column(1, 1, 18)
-        ws_gloss.set_column(2, 2, 50)
-        ws_gloss.set_column(3, 3, 50)
-        ws_gloss.set_column(4, 4, 45)
-        ws_gloss.set_column(5, 5, 90)
-        ws_gloss.set_column(6, 6, 55)
-        ws_gloss.set_column(7, 7, 45)
-        ws_gloss.set_column(8, 8, 80)
-        ws_gloss.set_column(9, 9, 22)
-        ws_gloss.set_column(10, 10, 22)
-        ws_gloss.freeze_panes(1, 0)
-        ws_gloss.autofilter(0, 0, max(1, len(gloss_rows)), len(gloss_headers) - 1)
-    buffer_excel.seek(0)
-    nome_arquivo = re.sub(r"[^A-Za-z0-9_\-]+", "_", nome_visao)[:80]
-    st.download_button(
-        label="Download Excel",
-        data=buffer_excel,
-        file_name=f"DRE_Individual_{nome_arquivo}_{ano_selecionado}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        key="dre_individual_download_excel"
-    )
-
-    with st.expander("Mini-glossário", expanded=False):
-        st.markdown(
-            f"""
-            <div style="font-size: 12px; color: #666; margin-top: 6px;">
-                <strong>Base BC (Rel. 4 individual):</strong> a visão de instituições individuais também é tratada aqui em acumulado do ano (YTD), recompondo set/dez com a base de junho quando necessário.<br>
-                <strong>Seleção de instituições:</strong> a seleção superior usa diretamente as instituições disponíveis no cache individual, identificadas por nome exibido e CodInst.<br>
-                <strong>Soma das Partes:</strong> a visão agregada soma as instituições individuais selecionadas antes do cálculo de YTD/YoY e das métricas derivadas.<br>
-                <strong>Cobertura COSIF atual:</strong> {len(dre_cosif_map)} linha(s) com mapeamento explícito no arquivo versionado.<br>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-elif menu == "__deprecated__Carteira 4.966 (bloco legado DRE-2)":
-    # =========================================================================
-    # ABA CARTEIRA 4.966 - Classificação de Instrumentos Financeiros (Res. 4.966)
-    # =========================================================================
-
-    @st.cache_data(ttl=3600, show_spinner=False)
-    def load_dre_individual_data():
-        manager = get_cache_manager()
-        resultado = manager.carregar("dre_individual")
-        if resultado.sucesso and resultado.dados is not None:
-            return resultado.dados, None
-        return None, resultado.mensagem
-
-    @st.cache_data(ttl=3600, show_spinner=False)
-    def load_principal_individual_data():
-        manager = get_cache_manager()
-        resultado = manager.carregar("principal_individual")
-        if resultado.sucesso and resultado.dados is not None:
-            return resultado.dados, None
-        return pd.DataFrame(), resultado.mensagem
-
-    def normalize_sources(value):
-        if value is None:
-            return []
-        if isinstance(value, list):
-            return [v for v in value if isinstance(v, str) and v.strip()]
-        if isinstance(value, str):
-            parts = [p.strip() for p in value.replace("|", ";").split(";")]
-            return [p for p in parts if p]
-        return []
-
-    @st.cache_data(ttl=3600, show_spinner=False)
-    def load_dre_cosif_mapping():
-        caminho = Path("data/dre_cosif_mapping.json")
-        if not caminho.exists():
-            return {}
-        try:
-            payload = json.loads(caminho.read_text(encoding="utf-8"))
-        except Exception:
-            return {}
-
-        mappings = payload.get("mappings", []) if isinstance(payload, dict) else []
-        mapa = {}
-        for item in mappings:
-            if not isinstance(item, dict):
-                continue
-            label = str(item.get("label") or "").strip()
-            if not label:
-                continue
-            contas = [
-                str(c).strip() for c in item.get("cosif_accounts", [])
-                if str(c).strip()
-            ]
-            depara = []
-            for linha in item.get("cosif_depara", []) if isinstance(item.get("cosif_depara", []), list) else []:
-                if not isinstance(linha, dict):
-                    continue
-                conta = str(linha.get("account") or "").strip()
-                desc = str(linha.get("description") or "").strip()
-                if not conta:
-                    continue
-                depara.append({"account": conta, "description": desc})
-            if not depara and contas:
-                depara = [{"account": c, "description": ""} for c in contas]
-            mapa[label] = {
-                "ifdata_label": str(item.get("ifdata_label") or "").strip(),
-                "contas": contas,
-                "depara": depara,
-                "formula": str(item.get("cosif_formula") or "").strip(),
-                "status": str(item.get("status") or "").strip(),
-                "source": str(item.get("source") or "").strip(),
-            }
-        return mapa
-
-    @st.cache_data(ttl=3600, show_spinner=False)
-    def load_cosif_pdf_description_map():
-        try:
-            return get_cosif_description_map_cached()
-        except Exception:
-            return {}
-
-    @st.cache_data(ttl=86400, show_spinner=False)
-    def load_cosif_metadata_batch_cached(accounts_tuple):
-        try:
-            return get_cosif_metadata_for_accounts(list(accounts_tuple), force_refresh=False)
-        except Exception:
-            return {}
-
-    def load_dre_mapping_individual():
-        caminho = Path("data/dre_mapping.json")
-        if not caminho.exists():
-            return []
-        try:
-            payload = json.loads(caminho.read_text(encoding="utf-8"))
-        except Exception:
-            return []
-
-        payload_map = {str(item.get("label") or "").strip(): item for item in payload if isinstance(item, dict)}
-        ordered_labels = [
-            "Resultado de Intermediação Financeira Bruto",
-            "Rec. Aplicações Interfinanceiras Liquidez",
-            "Rec. TVMs",
-            "Rec. Crédito",
-            "Rec. Arrendamento Financeiro",
-            "Rec. Outras Operações c/ Características de Crédito",
-            "Desp. PDD",
-            "Desp. Captação",
-            "Desp. Dívida Elegível a Capital",
-            "Res. Derivativos",
-            "Outros Res. Intermediação Financeira",
-            "Resultado Int. Financeira Líquido",
-            "Resultado Transações Pgto",
-            "Renda Tarifas Bancárias",
-            "Outras Prestações de Serviços",
-            "Desp. Pessoal",
-            "Desp. Adm",
-            "Desp. PDD Outras Operações",
-            "Desp. JSCP Cooperativas",
-            "Desp. Tributárias",
-            "Res. Participação Controladas",
-            "Outras Receitas",
-            "Outras Despesas",
-            "IR/CSLL",
-            "Res. Participação Lucro",
-            "Lucro Líquido Período Acumulado",
-        ]
-        child_labels = {
-            "Rec. Aplicações Interfinanceiras Liquidez",
-            "Rec. TVMs",
-            "Rec. Crédito",
-            "Rec. Arrendamento Financeiro",
-            "Rec. Outras Operações c/ Características de Crédito",
-        }
-        alias_lookup = {
-            "Lucro Líquido Período Acumulado": "Lucro Líquido Período",
-        }
-        entries = []
-        for label in ordered_labels:
-            lookup = alias_lookup.get(label, label)
-            base_item = payload_map.get(lookup, {})
-            sources = base_item.get("sources_new") or []
-            entries.append({
-                "label": label,
-                "sources": sources,
-                "concept": str(base_item.get("concept") or "").strip(),
-                "original_label": sources[0] if sources else lookup,
-                "is_child": label in child_labels,
-            })
-
-        entries.extend([
-            {
-                "label": "Desp PDD / Resultado Intermediação Fin. Bruto",
-                "derived_metric": "Desp PDD / Resultado Intermediação Fin. Bruto",
-                "format": "pct",
-                "concept": "Desp. PDD dividido pelo Resultado de Intermediação Financeira Bruto.",
-            },
-            {
-                "label": "Desp Captação / Captação",
-                "derived_metric": "Desp Captação / Captação",
-                "format": "pct",
-                "concept": "Desp. Captação anualizada dividida por Captações.",
-            },
-        ])
-        return entries
-
-    def find_column(df, source_name: str):
-        if source_name in df.columns:
-            return source_name
-        target = source_name.strip().lower()
-        for col in df.columns:
-            if str(col).strip().lower() == target:
-                return col
-        for col in df.columns:
-            if target in str(col).strip().lower():
-                return col
-        return None
-
-    def coerce_numeric(series: pd.Series) -> pd.Series:
-        if series is None:
-            return series
-        if series.dtype == object:
-            cleaned = (
-                series.astype(str)
-                .str.replace(".", "", regex=False)
-                .str.replace(",", ".", regex=False)
-            )
-            return pd.to_numeric(cleaned, errors="coerce")
-        return pd.to_numeric(series, errors="coerce")
-
-    def detectar_colunas_basicas(df: pd.DataFrame):
-        col_periodo = None
-        for candidato in ["Período", "Periodo", "PERIODO", "PERÍODO"]:
-            if candidato in df.columns:
-                col_periodo = candidato
-                break
-        if col_periodo is None:
-            for col in df.columns:
-                if "period" in str(col).lower():
-                    col_periodo = col
-                    break
-        col_inst = None
-        for candidato in ["Instituição", "Instituicao", "INSTITUICAO", "INSTITUIÇÃO"]:
-            if candidato in df.columns:
-                col_inst = candidato
-                break
-        if col_inst is None:
-            for col in df.columns:
-                if "institu" in str(col).lower():
-                    col_inst = col
-                    break
-        col_cod = None
-        for candidato in ["CodInst", "CODINST", "codinst"]:
-            if candidato in df.columns:
-                col_cod = candidato
-                break
-        return col_periodo, col_inst, col_cod
-
-    def parse_periodo(periodo_val):
-        if periodo_val is None:
-            return None, None
-        texto = str(periodo_val).strip()
-        if "/" in texto:
-            partes = texto.split("/")
-            if len(partes) >= 2 and partes[0].isdigit() and partes[1].isdigit():
-                parte1 = int(partes[0])
-                ano = int(partes[1])
-                if 1 <= parte1 <= 4:
-                    mes = {1: 3, 2: 6, 3: 9, 4: 12}.get(parte1)
-                else:
-                    mes = parte1
-                return ano, mes
-        if texto.isdigit():
-            if len(texto) == 6:
-                return int(texto[:4]), int(texto[4:])
-            if len(texto) == 8:
-                return int(texto[:4]), int(texto[4:6])
-        return None, None
-
-    def extrair_ano_mes_periodo(serie_periodo: pd.Series) -> pd.DataFrame:
-        parsed = serie_periodo.apply(parse_periodo)
-        return pd.DataFrame(parsed.tolist(), columns=["ano", "mes"], index=serie_periodo.index)
-
-    def compute_ytd_irregular(df: pd.DataFrame) -> pd.DataFrame:
-        return _compute_ytd_irregular_ifdata_frame(df)
-
-    def compute_yoy(df: pd.DataFrame) -> pd.DataFrame:
-        if df.empty:
-            return df.copy()
-        prev = df[["Instituicao", "Label", "ano", "mes", "ytd"]].copy()
-        prev["ano"] = prev["ano"] + 1
-        prev = prev.rename(columns={"ytd": "ytd_prev"})
-        df = df.merge(prev, on=["Instituicao", "Label", "mes", "ano"], how="left")
-        df["yoy"] = (df["ytd"] / df["ytd_prev"]) - 1
-        df.loc[df["ytd_prev"].isna() | (df["ytd_prev"] == 0), "yoy"] = np.nan
-        return df.drop(columns=["ytd_prev"])
-
-    def formatar_valor_br(valor, decimais=0):
-        if pd.isna(valor) or valor is None:
-            return "—"
-        try:
-            if decimais == 0:
-                return f"{valor:,.0f}".replace(",", "X").replace(".", ",").replace("X", ".")
-            return f"{valor:,.{decimais}f}".replace(",", "X").replace(".", ",").replace("X", ".")
-        except Exception:
-            return "—"
-
-    def formatar_percentual(valor, decimais=1):
-        if pd.isna(valor) or valor is None:
-            return "—"
-        try:
-            return f"{valor * 100:.{decimais}f}%".replace(".", ",")
-        except Exception:
-            return "—"
-
-    def render_table_like_carteira_4966(
-        df_linhas: pd.DataFrame,
-        entradas: list,
-        periodos: list,
-        formato_por_label: dict,
-        tooltip_por_label: dict,
-        tooltip_celula: Optional[dict] = None,
-    ):
-        html_tabela = """
-        <style>
-        .carteira-table {width: max-content; max-width: 100%; margin: 10px auto 0 auto; border-collapse: collapse; font-size: 14px; table-layout: auto;}
-        .carteira-table th, .carteira-table td {border: 1px solid #ddd; padding: 6px 10px; text-align: right; vertical-align: top;}
-        .carteira-table th {background-color: #f5f5f5; font-weight: 600;}
-        .carteira-table td:first-child {text-align: left; font-weight: 500; white-space: nowrap; width: 1%; padding-right: 8px;}
-        .carteira-table thead tr:first-child th {background-color: #111111; color: white; text-align: center;}
-        .carteira-table thead tr:nth-child(2) th {background-color: #6E6E6E; color: white;}
-        .dre-info {font-size: 12px; color: #666; margin-left: 6px; cursor: help;}
-        .dre-cell.has-tip {position: relative; cursor: help;}
-        .dre-cell .tip-text {display: none; position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); background: #333; color: #fff; padding: 8px 10px; border-radius: 4px; font-size: 11px; white-space: normal; z-index: 9999; min-width: 220px; max-width: 360px; text-align: left; box-shadow: 0 2px 8px rgba(0,0,0,0.25); pointer-events: none; line-height: 1.5;}
-        .dre-cell.has-tip:hover .tip-text {display: block;}
-        .dre-subitem {font-size: 12px;}
-        .dre-subitem td:first-child {padding-left: 18px;}
-        .dre-negative {color: #7a1e2b; font-weight: 600;}
-        .dre-delta-up {color: #28a745; margin-left: 4px; font-weight: 600;}
-        .dre-delta-down {color: #dc3545; margin-left: 4px; font-weight: 600;}
-        </style>
-        <div style="width:100%;overflow-x:auto;"><table class="carteira-table"><thead><tr><th rowspan="2">Item</th>
-        """
-        for periodo in periodos:
-            html_tabela += f'<th>{periodo}</th>'
-        html_tabela += "</tr><tr>" + "".join(["<th>YTD</th>" for _ in periodos]) + "</tr></thead><tbody>"
-        for entry in entradas:
-            label = entry["label"]
-            label_exib = entry.get("label_exib", label)
-            tooltip = tooltip_por_label.get(label, "")
-            if tooltip:
-                tip_html = _html_mod.escape(str(tooltip)).replace("\n", "<br>")
-                info_html = f'<span class="dre-info">ⓘ</span><span class="tip-text tip-main">{tip_html}</span>'
-            else:
-                info_html = ""
-            row_class = "dre-subitem" if entry.get("is_child") else ""
-            label_cell_class = "dre-cell has-tip" if tooltip else "dre-cell"
-            html_tabela += f'<tr class="{row_class}"><td class="{label_cell_class}">{label_exib} {info_html}</td>'
-            linha = df_linhas[df_linhas["Label"] == label]
-            for periodo in periodos:
-                cell = linha[linha["PeriodoExib"] == periodo]
-                if not cell.empty:
-                    ytd_val = cell["ytd"].iloc[0]
-                    yoy_val = pd.to_numeric(cell["yoy"].iloc[0], errors="coerce")
-                else:
-                    ytd_val = pd.NA
-                    yoy_val = pd.NA
-                formato = formato_por_label.get(label, "num")
-                if formato == "pct":
-                    ytd_fmt = formatar_percentual(ytd_val, decimais=2)
-                    ytd_neg = False
-                else:
-                    ytd_fmt = formatar_valor_br(ytd_val)
-                    ytd_neg = pd.notna(ytd_val) and ytd_val < 0
-                ytd_span = f'<span class="dre-negative">{ytd_fmt}</span>' if ytd_neg else ytd_fmt
-                marcador = ''
-                if pd.notna(yoy_val):
-                    if yoy_val > 0:
-                        marcador = '<span class="dre-delta-up">▲</span>'
-                    elif yoy_val < 0:
-                        marcador = '<span class="dre-delta-down">▼</span>'
-                tip_celula = (tooltip_celula or {}).get((label, periodo), '') if tooltip_celula else ''
-                if tip_celula:
-                    tip_celula_html = _html_mod.escape(str(tip_celula)).replace("\n", "<br>")
-                    html_tabela += f'<td class="dre-cell has-tip">{ytd_span}{marcador}<span class="tip-text">{tip_celula_html}</span></td>'
-                else:
-                    html_tabela += f'<td>{ytd_span}{marcador}</td>'
-            html_tabela += "</tr>"
-        html_tabela += "</tbody></table></div>"
-        st.markdown(html_tabela, unsafe_allow_html=True)
-
-    def _agrupar_instituicoes(df_raw: pd.DataFrame, codinsts: list[int], nome_visao: str) -> pd.DataFrame:
-        if df_raw is None or df_raw.empty:
-            return pd.DataFrame()
-        if "CodInst" not in df_raw.columns:
-            return pd.DataFrame()
-        codinsts_norm = {int(str(c)) for c in codinsts}
-        recorte = df_raw[df_raw["CodInst"].astype(str).str.extract(r"(\d+)")[0].fillna("0").astype(int).isin(codinsts_norm)].copy()
-        if recorte.empty:
-            return recorte
-        if len(codinsts_norm) == 1:
-            return recorte
-        col_periodo = find_column(recorte, "Período") or find_column(recorte, "Periodo")
-        col_inst = find_column(recorte, "Instituição") or find_column(recorte, "Instituicao")
-        if not col_periodo or not col_inst:
-            return pd.DataFrame()
-        base = recorte[[col_periodo]].copy()
-        numeric_cols = []
-        for col in recorte.columns:
-            if col in {"CodInst", col_periodo, col_inst}:
-                continue
-            serie = coerce_numeric(recorte[col])
-            if serie.notna().any():
-                base[col] = serie
-                numeric_cols.append(col)
-        if not numeric_cols:
-            return pd.DataFrame()
-        agrupado = base.groupby(col_periodo, as_index=False).sum(min_count=1)
-        agrupado.insert(0, "CodInst", -1)
-        agrupado.insert(1, "Instituição", nome_visao)
-        agrupado = agrupado.rename(columns={col_periodo: "Período"})
-        return agrupado
-
-    def _build_dre_base_from_df(df_dre_raw: pd.DataFrame) -> tuple[pd.DataFrame, str, pd.DataFrame, pd.DataFrame]:
-        if df_dre_raw is None or df_dre_raw.empty:
-            return pd.DataFrame(), "Sem dados DRE para a visão selecionada.", pd.DataFrame(), pd.DataFrame()
-        col_periodo, col_inst, col_cod = detectar_colunas_basicas(df_dre_raw)
-        if col_periodo is None:
-            return pd.DataFrame(), "Coluna de período não encontrada nos dados DRE.", pd.DataFrame(), pd.DataFrame()
-        mapping_entries = load_dre_mapping_individual()
-        if not mapping_entries:
-            return pd.DataFrame(), "Mapeamento DRE não encontrado ou vazio.", pd.DataFrame(), pd.DataFrame()
-        colunas_necessarias = {col_periodo}
-        if col_inst:
-            colunas_necessarias.add(col_inst)
-        if col_cod:
-            colunas_necessarias.add(col_cod)
-        fonte_para_coluna = {}
-        for entry in mapping_entries:
-            for fonte in entry.get("sources", []):
-                if fonte in fonte_para_coluna:
-                    continue
-                col_encontrada = find_column(df_dre_raw, fonte)
-                if col_encontrada:
-                    fonte_para_coluna[fonte] = col_encontrada
-                    colunas_necessarias.add(col_encontrada)
-        colunas_necessarias = [c for c in df_dre_raw.columns if c in colunas_necessarias]
-        df_base = df_dre_raw[colunas_necessarias].copy() if colunas_necessarias else df_dre_raw.copy()
-        if col_inst is None:
-            df_base["Instituicao"] = df_base.get("CodInst", "Instituição")
-        else:
-            df_base = df_base.rename(columns={col_inst: "Instituicao"})
-        if col_cod and col_cod in df_base.columns:
-            df_base = df_base.rename(columns={col_cod: "CodInst"})
-        df_base = df_base.rename(columns={col_periodo: "Periodo"})
-        df_base[["ano", "mes"]] = extrair_ano_mes_periodo(df_base["Periodo"])
-        df_new = df_base[df_base["ano"].fillna(0) >= (DRE_ANO_EXIBICAO_INICIAL - 1)].copy()
-        numericas = {col: coerce_numeric(df_new[col]) for col in set(fonte_para_coluna.values())}
-        df_values = []
-        for entry in mapping_entries:
-            if entry.get("derived_metric"):
-                continue
-            colunas = [fonte_para_coluna[f] for f in normalize_sources(entry.get("sources", [])) if f in fonte_para_coluna]
-            if not colunas:
-                continue
-            valores = pd.concat([numericas[col] for col in colunas], axis=1).sum(axis=1, min_count=1)
-            cols_saida = [c for c in ["CodInst", "Instituicao", "Periodo"] if c in df_new.columns]
-            df_entry = df_new[cols_saida].copy()
-            df_entry["Label"] = entry["label"]
-            df_entry["valor"] = valores
-            df_values.append(df_entry)
-        if not df_values:
-            return pd.DataFrame(), "Nenhuma linha DRE foi encontrada com o mapeamento atual.", df_base, pd.DataFrame()
-        df_valores = pd.concat(df_values, ignore_index=True)
-        if "CodInst" not in df_valores.columns:
-            df_valores["CodInst"] = pd.NA
-        df_ytd = _build_dre_ytd_ifdata_frame(df_valores)
-        df_ytd = compute_yoy(df_ytd)
-        df_ytd["PeriodoExib"] = df_ytd["Periodo"].apply(periodo_para_exibicao)
-        return df_ytd, None, df_base, df_valores
-
-    df_dre_individual_raw, dre_msg = load_dre_individual_data()
-    df_principal_individual_raw, principal_msg = load_principal_individual_data()
-    if df_dre_individual_raw is None or df_dre_individual_raw.empty:
-        detalhe = f" ({dre_msg})" if dre_msg else ""
-        st.warning(f"Dados DRE individual não disponíveis no cache. Atualize 'dre_individual' e 'principal_individual' no menu 'Atualizar Base'.{detalhe}")
-        st.stop()
-
-    if df_principal_individual_raw.empty:
-        detalhe = f" ({principal_msg})" if principal_msg else ""
-        st.warning(f"Dados do resumo individual não disponíveis no cache. Atualize 'principal_individual' no menu 'Atualizar Base'.{detalhe}")
-        st.stop()
-
-    df_dre_individual_raw = df_dre_individual_raw.copy()
-    df_principal_individual_raw = df_principal_individual_raw.copy()
-    col_periodo_dre, col_inst_dre, col_cod_dre = detectar_colunas_basicas(df_dre_individual_raw)
-    col_periodo_pr, col_inst_pr, col_cod_pr = detectar_colunas_basicas(df_principal_individual_raw)
-    if not col_cod_dre or not col_periodo_dre or not col_inst_dre:
-        st.warning("O cache dre_individual precisa conter CodInst, Instituição e Período para esta aba.")
-        st.stop()
-    if not col_cod_pr or not col_periodo_pr or not col_inst_pr:
-        st.warning("O cache principal_individual precisa conter CodInst, Instituição e Período para esta aba.")
-        st.stop()
-
-    df_dre_individual_raw = df_dre_individual_raw.rename(columns={col_cod_dre: "CodInst", col_inst_dre: "Instituição", col_periodo_dre: "Período"})
-    df_principal_individual_raw = df_principal_individual_raw.rename(columns={col_cod_pr: "CodInst", col_inst_pr: "Instituição", col_periodo_pr: "Período"})
-    df_dre_individual_raw["CodInst"] = pd.to_numeric(df_dre_individual_raw["CodInst"], errors="coerce").astype("Int64")
-    df_principal_individual_raw["CodInst"] = pd.to_numeric(df_principal_individual_raw["CodInst"], errors="coerce").astype("Int64")
-    df_dre_individual_raw["Instituição"] = df_dre_individual_raw["Instituição"].astype(str).str.strip()
-    df_principal_individual_raw["Instituição"] = df_principal_individual_raw["Instituição"].astype(str).str.strip()
-    df_dre_individual_raw[["ano", "mes"]] = extrair_ano_mes_periodo(df_dre_individual_raw["Período"])
-    df_principal_individual_raw[["ano", "mes"]] = extrair_ano_mes_periodo(df_principal_individual_raw["Período"])
-
-    _dict_aliases_dre = st.session_state.get('dict_aliases', {})
-    def _alias_instituicao_dre(nome):
-        if pd.isna(nome):
-            return nome
-        nome_str = str(nome).strip()
-        if not _dict_aliases_dre:
-            return nome_str
-        nome_norm = normalizar_nome_instituicao(nome_str)
-        return _dict_aliases_dre.get(nome_str, _dict_aliases_dre.get(nome_norm, nome_str))
-
-    catalogo = (
-        df_dre_individual_raw[["CodInst", "Instituição"]]
-        .dropna(subset=["CodInst"])
-        .drop_duplicates(subset=["CodInst", "Instituição"])
-        .sort_values(["Instituição", "CodInst"])
-    )
-    catalogo["CodInst"] = catalogo["CodInst"].astype(int)
-    catalogo["InstituicaoExib"] = catalogo["Instituição"].apply(_alias_instituicao_dre)
-    mapa_codinst = {int(row.CodInst): row for row in catalogo.itertuples(index=False)}
-    mapa_nome = {}
-    for row in catalogo.itertuples(index=False):
-        chave_nome = normalizar_nome_instituicao_match(row.Instituição)
-        mapa_nome.setdefault(chave_nome, []).append(int(row.CodInst))
-
-    try:
-        conglomerados = carregar_conglomerados()
-    except Exception as exc:
-        st.warning(f"Não foi possível carregar conglomerados: {exc}")
-        st.stop()
-
-    mapa_conglomerado = {}
-    opcoes_conglomerado = []
-    for item in conglomerados:
-        codigo = str(item.get("codigo") or "").strip()
-        nome = str(item.get("nome") or "SEM NOME").strip()
-        if not codigo:
-            continue
-        chave = f"{codigo} - {nome}"
-        mapa_conglomerado[chave] = item
-        opcoes_conglomerado.append(chave)
-    opcoes_conglomerado = sorted(opcoes_conglomerado)
-    idx_default = opcoes_conglomerado.index("80099 - ITAU") if "80099 - ITAU" in opcoes_conglomerado else 0
-    conglomerado_sel = st.selectbox("Conglomerado Prudencial", options=opcoes_conglomerado, index=idx_default, key="dre_individual_conglomerado")
-    conglomerado_obj = mapa_conglomerado.get(conglomerado_sel, {})
-
-    instituicoes_match = []
-    vistos_codinst = set()
-    falhas_conciliacao = []
-    for part in conglomerado_obj.get("participacoes", []) or []:
-        codinst_match = None
-        motivo_match = None
-        id_bacen = re.sub(r"\D", "", str(part.get("idBacen") or "").strip())
-        if id_bacen:
-            cod_candidate = int(id_bacen)
-            if cod_candidate in mapa_codinst:
-                codinst_match = cod_candidate
-                motivo_match = "idBacen"
-        if codinst_match is None:
-            nome_part = str(part.get("nome") or "").strip()
-            chave_nome = normalizar_nome_instituicao_match(nome_part)
-            cods = mapa_nome.get(chave_nome, [])
-            if len(cods) == 1:
-                codinst_match = cods[0]
-                motivo_match = "nome"
-        if codinst_match is None:
-            falhas_conciliacao.append({
-                "nome": str(part.get("nome") or "").strip() or "SEM NOME",
-                "id_bacen": id_bacen or "—",
-            })
-            continue
-        if codinst_match in vistos_codinst:
-            continue
-        vistos_codinst.add(codinst_match)
-        row = mapa_codinst.get(codinst_match)
-        instituicoes_match.append({
-            "codinst": codinst_match,
-            "nome": str(row.Instituição),
-            "nome_exib": str(row.InstituicaoExib),
-            "condicao": _normalizar_texto_sem_acento(part.get("condicao", "")) or "PARTICIPANTE",
-            "origem_match": motivo_match or "desconhecida",
-        })
-
-    if not instituicoes_match:
-        detalhes = ""
-        if falhas_conciliacao:
-            exemplos = "; ".join(
-                f"{item['nome']} (idBacen: {item['id_bacen']})"
-                for item in falhas_conciliacao[:5]
-            )
-            detalhes = f" Exemplos sem match: {exemplos}."
-        st.warning(
-            "Nenhuma instituição individual do conglomerado foi conciliada com o cache DRE individual."
-            + detalhes
-        )
-        st.stop()
-
-    labels_instituicoes = [f"{item['condicao']} • {item['nome_exib']} [{item['codinst']}]" for item in instituicoes_match]
-    mapa_label_instituicao = {label: item for label, item in zip(labels_instituicoes, instituicoes_match)}
-    selecionadas_labels = st.multiselect(
-        "Instituições individuais do conglomerado",
-        options=labels_instituicoes,
-        default=labels_instituicoes,
-        key="dre_individual_instituicoes",
-    )
-    if not selecionadas_labels:
-        st.warning("Selecione ao menos uma instituição individual.")
-        st.stop()
-
-    codinsts_selecionados = [mapa_label_instituicao[label]["codinst"] for label in selecionadas_labels]
-    recorte_anos = df_dre_individual_raw[df_dre_individual_raw["CodInst"].isin(codinsts_selecionados)].copy()
-    anos_disponiveis = sorted([ano for ano in recorte_anos["ano"].dropna().astype(int).unique().tolist() if ano >= DRE_ANO_EXIBICAO_INICIAL])
-    if not anos_disponiveis:
-        st.warning("Não há anos publicados para as instituições selecionadas.")
-        st.stop()
-
-    visoes = ["Soma das Partes"] + selecionadas_labels
-    col_ano, col_visao, col_base = st.columns([1, 2, 1])
-    with col_ano:
-        ano_selecionado = st.selectbox("Ano", anos_disponiveis[::-1], index=0, key="dre_individual_ano")
-    with col_visao:
-        visao_sel = st.selectbox("Visão exibida", options=visoes, index=0, key="dre_individual_visao")
-    with col_base:
-        base_comparacao = st.selectbox(
-            "Base lucro",
-            ["Lucro Líquido Acumulado", "Lucro Líquido Trimestral"],
-            index=0,
-            key="dre_individual_base_comparacao_lucro",
-        )
-
-    if visao_sel == "Soma das Partes":
-        nome_visao = f"Soma das Partes — {conglomerado_sel}"
-        df_dre_visao = _agrupar_instituicoes(df_dre_individual_raw, codinsts_selecionados, nome_visao)
-        df_principal_visao = _agrupar_instituicoes(df_principal_individual_raw, codinsts_selecionados, nome_visao)
-        st.caption(f"Agregando {len(codinsts_selecionados)} instituições individuais selecionadas.")
-    else:
-        inst_sel = mapa_label_instituicao[visao_sel]
-        nome_visao = inst_sel["nome_exib"]
-        cod_sel = inst_sel["codinst"]
-        df_dre_visao = df_dre_individual_raw[df_dre_individual_raw["CodInst"] == cod_sel].copy()
-        df_principal_visao = df_principal_individual_raw[df_principal_individual_raw["CodInst"] == cod_sel].copy()
-        st.caption(f"Instituição individual: {inst_sel['nome']} (CodInst {cod_sel}).")
-
-    df_ytd_base, dre_msg_visao, df_base, df_valores = _build_dre_base_from_df(df_dre_visao)
-    if df_ytd_base.empty:
-        detalhe = f" ({dre_msg_visao})" if dre_msg_visao else ""
-        st.warning(f"Não foi possível montar a DRE para a visão selecionada.{detalhe}")
-        st.stop()
-
-    col_den_dre = "Captação" if "Captação" in df_principal_visao.columns else ("Captações" if "Captações" in df_principal_visao.columns else None)
-    label_desp_capt_dre = _label_desp_captacao_por_denominador(col_den_dre)
-    aliases_desp_capt_dre = _aliases_metrica_desp_captacao(label_desp_capt_dre)
-
-    mapping_entries = load_dre_mapping_individual()
-    for _entry in mapping_entries:
-        if _entry.get("label") in aliases_desp_capt_dre:
-            _entry["label"] = label_desp_capt_dre
-        if _entry.get("derived_metric") in aliases_desp_capt_dre:
-            _entry["derived_metric"] = label_desp_capt_dre
-        if _entry.get("concept") == "Desp. Captação anualizada dividida por Captações.":
-            _entry["concept"] = f"{label_desp_capt_dre}."
-    _labels_ratio_dre = {
-        "Desp PDD / Resultado Intermediação Fin. Bruto",
-        label_desp_capt_dre,
-    }
-    mapping_entries_ordenado = [e for e in mapping_entries if e.get("label") not in _labels_ratio_dre] + [e for e in mapping_entries if e.get("label") in _labels_ratio_dre]
-    for _entry in mapping_entries_ordenado:
-        if _entry.get("label") in _labels_ratio_dre:
-            _entry["is_ratio_footer"] = True
-    formato_por_label = {entry["label"]: entry.get("format", "num") for entry in mapping_entries_ordenado}
-    dre_cosif_map = load_dre_cosif_mapping()
-    cosif_desc_pdf_map = load_cosif_pdf_description_map()
-    tooltip_por_label = {}
-    entradas_com_label = []
-    for entry in mapping_entries_ordenado:
-        fonte_original = entry.get("original_label")
-        fontes = [fonte_original] if fonte_original else entry.get("sources", [])
-        fontes_fmt = ", ".join([f for f in fontes if f])
-        tooltip_parts = []
-        if entry.get("concept"):
-            tooltip_parts.append(entry["concept"])
-        if entry.get("derived_metric"):
-            formula = DERIVED_METRICS_FORMULAS.get(entry["label"])
-            if formula:
-                tooltip_parts.append(f"Fórmula: {formula}")
-        if fontes_fmt:
-            tooltip_parts.append(f"Denominação IFData: {fontes_fmt}")
-            tooltip_parts.append(f"Fontes: {fontes_fmt}")
-        cosif_info = dre_cosif_map.get(entry["label"])
-        if cosif_info:
-            if cosif_info.get("ifdata_label"):
-                tooltip_parts.append(f"IFData (reconciliação): {cosif_info['ifdata_label']}")
-            depara = cosif_info.get("depara") or []
-            if depara:
-                tooltip_parts.append("De-para COSIF (conta → descrição):")
-                for item_depara in depara:
-                    conta = str(item_depara.get("account") or "").strip()
-                    desc = str(item_depara.get("description") or "").strip()
-                    desc_pdf = cosif_desc_pdf_map.get(normalize_cosif_code_digits(conta), "") if conta else ""
-                    desc_final = desc_pdf or desc
-                    if conta and desc_final:
-                        tooltip_parts.append(f"[{conta}] {desc_final}")
-                    elif conta:
-                        tooltip_parts.append(f"[{conta}]")
-            if cosif_info.get("formula"):
-                tooltip_parts.append(cosif_info["formula"])
-            if cosif_info.get("status"):
-                tooltip_parts.append(f"Status do mapeamento: {cosif_info['status']}")
-        tooltip_por_label[entry["label"]] = "\n".join(tooltip_parts)
-        entrada_copy = entry.copy()
-        label_exib = entry["label"]
-        if (
-            entry.get("label") == "Lucro Líquido Período Acumulado"
-            and base_comparacao == "Lucro Líquido Trimestral"
-        ):
-            label_exib = "Lucro Líquido Trimestral"
-            tooltip_por_label[entry["label"]] = (
-                (tooltip_por_label.get(entry["label"], "") + "\n").strip()
-                + "Exibição trimestral (Rel. 4): Lucro Líquido (aa) = (x) + (y) + (z)."
-            ).strip()
-        entrada_copy["label_exib"] = label_exib
-        entradas_com_label.append(entrada_copy)
-
-    df_filtrado = df_ytd_base[df_ytd_base["ano"] == int(ano_selecionado)].copy()
-    if df_filtrado.empty:
-        st.warning("Não há dados DRE para o ano selecionado.")
-        st.stop()
-    df_filtrado_base = df_filtrado.copy()
-    lucro_label_dre = "Lucro Líquido Período Acumulado"
-    usar_lucro_trimestral = base_comparacao == "Lucro Líquido Trimestral"
-
-    tooltip_celula = {}
-    try:
-        df_derived_view, _ = build_derived_metrics(df_dre_visao.copy(), df_principal_visao.copy())
-    except Exception:
-        df_derived_view = pd.DataFrame()
-    if not df_derived_view.empty:
-        df_derived_view = df_derived_view.rename(columns={"Métrica": "Label", "Valor": "valor", "Instituição": "Instituicao", "Período": "Periodo"})
-        df_derived_view["Label"] = df_derived_view["Label"].astype(str)
-        _mask_alias_desp_capt = df_derived_view["Label"].isin(aliases_desp_capt_dre)
-        df_derived_view.loc[_mask_alias_desp_capt, "Label"] = label_desp_capt_dre
-        df_derived_view["Periodo"] = df_derived_view["Periodo"].astype(str)
-        df_derived_view[["ano", "mes"]] = extrair_ano_mes_periodo(df_derived_view["Periodo"])
-        df_derived_view["ytd"] = pd.to_numeric(df_derived_view["valor"], errors="coerce")
-        df_derived_view = compute_yoy(df_derived_view)
-        df_derived_view["PeriodoExib"] = df_derived_view["Periodo"].apply(periodo_para_exibicao)
-        df_derived_view = (
-            df_derived_view[df_derived_view["ano"] == int(ano_selecionado)]
-            .sort_values(["Label", "ano", "mes", "Periodo"], na_position="last")
-            .drop_duplicates(subset=["Label", "Periodo"], keep="last")
-        )
-        df_filtrado = pd.concat([df_filtrado, df_derived_view], ignore_index=True)
-
-        if not df_base.empty:
-            _df_calc_base = df_base[df_base["ano"] == int(ano_selecionado)].copy()
-            if not _df_calc_base.empty:
-                _df_calc_base["Periodo"] = _df_calc_base["Periodo"].astype(str)
-                _df_calc_base["PeriodoExib"] = _df_calc_base["Periodo"].apply(periodo_para_exibicao)
-                _colunas_calculo = [
-                    "Resultado com Perda Esperada (f)",
-                    "Rendas de Operações de Crédito (c)",
-                    "Rendas de Arrendamento Financeiro (d)",
-                    "Rendas de Outras Operações com Características de Concessão de Crédito (e)",
-                    "Rendas de Aplicações Interfinanceiras de Liquidez (a)",
-                    "Rendas de Títulos e Valores Mobiliários (b)",
-                    "Despesas de Captações (g)",
-                ]
-                for _col in [c for c in _colunas_calculo if c in _df_calc_base.columns]:
-                    _df_calc_base[_col] = pd.to_numeric(_df_calc_base[_col], errors="coerce")
-                df_principal_calc = df_principal_visao.copy()
-                col_den_calc = "Captações" if "Captações" in df_principal_calc.columns else ("Captação" if "Captação" in df_principal_calc.columns else None)
-                if col_den_calc:
-                    df_principal_calc[col_den_calc] = pd.to_numeric(df_principal_calc[col_den_calc], errors="coerce")
-                def _fmt_mm_tip(_v):
-                    if pd.isna(_v):
-                        return "—"
-                    return formatar_valor_br(_v)
-                for _, _r in _df_calc_base.iterrows():
-                    _periodo_exib = _r.get("PeriodoExib")
-                    if not _periodo_exib:
-                        continue
-                    _mes_periodo = _r.get("mes", pd.NA)
-                    _mes_periodo = int(_mes_periodo) if pd.notna(_mes_periodo) and _mes_periodo else None
-                    _fator_anual = (12 / _mes_periodo) if _mes_periodo else None
-                    _desp_pdd = pd.to_numeric(_r.get("Resultado com Perda Esperada (f)"), errors="coerce")
-                    _rec_cred = pd.to_numeric(_r.get("Rendas de Operações de Crédito (c)"), errors="coerce")
-                    _rec_arr = pd.to_numeric(_r.get("Rendas de Arrendamento Financeiro (d)"), errors="coerce")
-                    _rec_out = pd.to_numeric(_r.get("Rendas de Outras Operações com Características de Concessão de Crédito (e)"), errors="coerce")
-                    _rec_liq = pd.to_numeric(_r.get("Rendas de Aplicações Interfinanceiras de Liquidez (a)"), errors="coerce")
-                    _rec_tvm = pd.to_numeric(_r.get("Rendas de Títulos e Valores Mobiliários (b)"), errors="coerce")
-                    _desp_capt_periodo = pd.to_numeric(_r.get("Despesas de Captações (g)"), errors="coerce")
-                    _desp_capt = _desp_capt_periodo
-                    _desp_capt_jun = pd.NA
-                    if _mes_periodo in (9, 12):
-                        _jun_series = pd.to_numeric(_df_calc_base.loc[_df_calc_base["mes"] == 6, "Despesas de Captações (g)"], errors="coerce")
-                        _desp_capt_jun = _jun_series.iloc[-1] if not _jun_series.empty else pd.NA
-                        if pd.notna(_desp_capt_jun) and pd.notna(_desp_capt_periodo):
-                            _desp_capt = _desp_capt_jun + _desp_capt_periodo
-                    _interm = _rec_liq + _rec_tvm + _rec_cred + _rec_arr + _rec_out if all(pd.notna(v) for v in [_rec_liq, _rec_tvm, _rec_cred, _rec_arr, _rec_out]) else pd.NA
-                    _desp_capt_anual = _desp_capt * _fator_anual if pd.notna(_desp_capt) and _fator_anual else pd.NA
-                    _cap = pd.NA
-                    _per = str(_r.get("Periodo") or "").strip()
-                    if _per and not df_principal_calc.empty:
-                        _m_cap = df_principal_calc[df_principal_calc["Período"].astype(str) == _per]
-                        if not _m_cap.empty and col_den_calc in _m_cap.columns:
-                            _cap = _m_cap[col_den_calc].iloc[0]
-                    _ratio_pdd_interm = (_desp_pdd / _interm) if pd.notna(_desp_pdd) and pd.notna(_interm) and _interm != 0 else pd.NA
-                    _ratio_capt = (_desp_capt_anual / _cap) if pd.notna(_desp_capt_anual) and pd.notna(_cap) and _cap != 0 else pd.NA
-                    tooltip_celula[("Desp PDD / Resultado Intermediação Fin. Bruto", _periodo_exib)] = (
-                        f"Memória de cálculo\n"
-                        f"Desp. PDD: {_fmt_mm_tip(_desp_pdd)}\n"
-                        f"Resultado Interm. Fin. Bruto = Rec. AIL ({_fmt_mm_tip(_rec_liq)}) + Rec. TVM ({_fmt_mm_tip(_rec_tvm)}) + Rec. Crédito ({_fmt_mm_tip(_rec_cred)}) + Rec. Arrendamento ({_fmt_mm_tip(_rec_arr)}) + Rec. Outras Op. Crédito ({_fmt_mm_tip(_rec_out)}) = {_fmt_mm_tip(_interm)}\n"
-                        f"Desp PDD / Resultado Interm. Fin. Bruto = {_fmt_mm_tip(_desp_pdd)} ÷ {_fmt_mm_tip(_interm)} = {formatar_percentual(_ratio_pdd_interm, decimais=2)}"
-                    )
-                    _fator_txt = f"12/{_mes_periodo}" if _mes_periodo else "12/mes"
-                    _desp_capt_memoria = _fmt_mm_tip(_desp_capt)
-                    if _mes_periodo in (9, 12):
-                        _desp_capt_memoria = f"{_fmt_mm_tip(_desp_capt_jun)} + {_fmt_mm_tip(_desp_capt_periodo)} = {_fmt_mm_tip(_desp_capt)}"
-                    tooltip_celula[(label_desp_capt_dre, _periodo_exib)] = (
-                        f"Memória de cálculo\n"
-                        f"Desp. Captação (YTD): {_desp_capt_memoria}\n"
-                        f"Desp. Captação anualizada = {_fmt_mm_tip(_desp_capt)} × ({_fator_txt}) = {_fmt_mm_tip(_desp_capt_anual)}\n"
-                        f"Volume captação: {_fmt_mm_tip(_cap)}\n"
-                        f"{label_desp_capt_dre} = {_fmt_mm_tip(_desp_capt_anual)} ÷ {_fmt_mm_tip(_cap)} = {formatar_percentual(_ratio_capt, decimais=2)}"
-                    )
-
-    if usar_lucro_trimestral:
-        df_filtrado = _aplicar_base_trimestral_dre(df_filtrado, df_valores)
-
-    meses_com_publicacao = (
-        df_filtrado_base.loc[df_filtrado_base["ytd"].notna(), "mes"]
-        .dropna()
-        .astype(int)
-        .unique()
-        .tolist()
-    )
-    if int(ano_selecionado) == DRE_ANO_EXIBICAO_INICIAL:
-        meses_com_publicacao = [m for m in meses_com_publicacao if m >= DRE_MES_EXIBICAO_INICIAL]
-    meses_ordenados = sorted([m for m in meses_com_publicacao if m in [3, 6, 9, 12]], reverse=True)
-    periodos_disponiveis = [periodo_para_exibicao(f"{int(mes/3)}/{ano_selecionado}") for mes in meses_ordenados]
-    if not periodos_disponiveis:
-        st.warning("Não há períodos publicados para os filtros selecionados.")
-        st.stop()
-
-    render_table_like_carteira_4966(df_filtrado, entradas_com_label, periodos_disponiveis, formato_por_label, tooltip_por_label, tooltip_celula)
-
-    st.markdown("#### Exportar DRE Individual (layout da tabela)")
-    DRE_GLOSSARIO_LABEL_ALIAS = {"Lucro Líquido Período Acumulado": "Lucro Líquido Período"}
-    def _montar_glossario_export_rows():
-        rows = []
-        mapa_entries = {e.get("label"): e for e in mapping_entries_ordenado if e.get("label")}
-        all_accounts = []
-        for entry in mapping_entries_ordenado:
-            label_export = entry["label"]
-            label_lookup = DRE_GLOSSARIO_LABEL_ALIAS.get(label_export, label_export)
-            cosif_info = dre_cosif_map.get(label_lookup, {})
-            for item_depara in (cosif_info.get("depara") or []):
-                conta = str(item_depara.get("account") or "").strip()
-                if conta:
-                    all_accounts.append(conta)
-        cosif_metadata_map = load_cosif_metadata_batch_cached(tuple(sorted(set(all_accounts))))
-        for ordem, entry in enumerate(mapping_entries_ordenado, start=1):
-            label_export = entry["label"]
-            label_lookup = DRE_GLOSSARIO_LABEL_ALIAS.get(label_export, label_export)
-            cosif_info = dre_cosif_map.get(label_lookup, {})
-            depara = cosif_info.get("depara") or []
-            contas = []
-            descricoes = []
-            for item_depara in depara:
-                conta = str(item_depara.get("account") or "").strip()
-                desc = str(item_depara.get("description") or "").strip()
-                desc_pdf = cosif_desc_pdf_map.get(normalize_cosif_code_digits(conta), "") if conta else ""
-                desc_final = desc_pdf or desc
-                if conta:
-                    contas.append(f"[{conta}]")
-                if desc_final:
-                    descricoes.append(desc_final)
-            ifdata_ref = str(cosif_info.get("ifdata_label") or "").strip() or str(entry.get("original_label") or "").strip() or "N/D"
-            nivel = "Principal"
-            if entry.get("is_child"):
-                nivel = "Filho"
-            elif entry.get("is_ratio_footer"):
-                nivel = "Rodapé (ratio)"
-            status_mapeamento = str(cosif_info.get("status") or "").strip() or ("mapeado" if depara else "não mapeado")
-            rows.append({
-                "Ordem": ordem,
-                "Nível": nivel,
-                "Linha DRE": label_export,
-                "Referência IFData": ifdata_ref,
-                "Contas COSIF": " | ".join(contas) if contas else "N/D",
-                "Descrição COSIF": " | ".join(descricoes) if descricoes else "N/D",
-                "Fórmula COSIF": str(cosif_info.get("formula") or "").strip() or "N/D",
-                "Título": "",
-                "Função": "",
-                "Base normativa": "",
-                "Status Mapeamento": status_mapeamento,
-            })
-            for item_depara in depara:
-                conta = str(item_depara.get("account") or "").strip()
-                if not conta:
-                    continue
-                desc = str(item_depara.get("description") or "").strip()
-                desc_pdf = cosif_desc_pdf_map.get(normalize_cosif_code_digits(conta), "") if conta else ""
-                desc_final = desc_pdf or desc
-                meta = cosif_metadata_map.get(normalize_cosif_code_digits(conta), {}) if cosif_metadata_map else {}
-                conta_cosif_formatada = ""
-                try:
-                    conta_cosif_formatada = ifdata_to_cosif_code(conta)
-                except Exception:
-                    conta_cosif_formatada = ""
-                rows.append({
-                    "Ordem": ordem,
-                    "Nível": "Filho COSIF",
-                    "Linha DRE": f"↳ [{conta}]",
-                    "Referência IFData": ifdata_ref,
-                    "Contas COSIF": f"[{conta}]" + (f" ({conta_cosif_formatada})" if conta_cosif_formatada else ""),
-                    "Descrição COSIF": desc_final or "N/D",
-                    "Fórmula COSIF": "N/D",
-                    "Título": str(meta.get("titulo") or "").strip() or (desc_final or "N/D"),
-                    "Função": str(meta.get("funcao") or "").strip() or "N/D",
-                    "Base normativa": str(meta.get("base_normativa") or "").strip(),
-                    "Status Mapeamento": "metadata_ok" if str(meta.get("source_status") or "") == "ok" else "metadata_pendente",
-                })
-        return rows
-
-    buffer_excel = BytesIO()
-    with pd.ExcelWriter(buffer_excel, engine="xlsxwriter") as writer:
-        workbook = writer.book
-        worksheet = workbook.add_worksheet("DRE Individual")
-        writer.sheets["DRE Individual"] = worksheet
-        fmt_head_dark = workbook.add_format({"bold": True, "font_color": "white", "bg_color": "#111111", "align": "center", "valign": "vcenter", "border": 1})
-        fmt_head_mid = workbook.add_format({"bold": True, "font_color": "white", "bg_color": "#6E6E6E", "align": "center", "valign": "vcenter", "border": 1})
-        fmt_item = workbook.add_format({"align": "left", "valign": "vcenter", "border": 1})
-        fmt_item_child = workbook.add_format({"align": "left", "valign": "vcenter", "border": 1, "indent": 1})
-        fmt_num = workbook.add_format({"align": "right", "valign": "vcenter", "border": 1, "num_format": "#,##0"})
-        fmt_pct = workbook.add_format({"align": "right", "valign": "vcenter", "border": 1, "num_format": "0.00%"})
-        worksheet.merge_range(0, 0, 1, 0, "Item", fmt_head_dark)
-        for idx, periodo in enumerate(periodos_disponiveis):
-            col_idx = 1 + idx
-            worksheet.write(0, col_idx, periodo, fmt_head_dark)
-            worksheet.write(1, col_idx, "YTD", fmt_head_mid)
-        row_idx = 2
-        for entry in entradas_com_label:
-            label = entry["label"]
-            worksheet.write(row_idx, 0, entry.get("label_exib", label), fmt_item_child if entry.get("is_child") else fmt_item)
-            for idx, periodo in enumerate(periodos_disponiveis):
-                cell = df_filtrado[(df_filtrado["Label"] == label) & (df_filtrado["PeriodoExib"] == periodo)]
-                valor = pd.NA
-                yoy_val = pd.NA
-                if not cell.empty:
-                    valor = cell["ytd"].iloc[0]
-                    yoy_val = pd.to_numeric(cell["yoy"].iloc[0], errors="coerce")
-                formato = formato_por_label.get(label, "num")
-                base_fmt = fmt_pct if formato == "pct" else fmt_num
-                _write_excel_number_or_blank(worksheet, row_idx, 1 + idx, valor, base_fmt)
-            row_idx += 1
-        worksheet.set_column(0, 0, 52)
-        worksheet.set_column(1, len(periodos_disponiveis), 16)
-        worksheet.freeze_panes(2, 1)
-        ws_gloss = workbook.add_worksheet("Glossário COSIF")
-        writer.sheets["Glossário COSIF"] = ws_gloss
-        gloss_headers = ["Ordem", "Nível", "Linha DRE", "Referência IFData", "Contas COSIF", "Descrição COSIF", "Fórmula COSIF", "Título", "Função", "Base normativa", "Status Mapeamento"]
-        for col_idx, head in enumerate(gloss_headers):
-            ws_gloss.write(0, col_idx, head, fmt_head_dark)
-        gloss_rows = _montar_glossario_export_rows()
-        for row_idx_gl, row_data in enumerate(gloss_rows, start=1):
-            ws_gloss.write_number(row_idx_gl, 0, int(row_data["Ordem"]))
-            ws_gloss.write(row_idx_gl, 1, row_data["Nível"])
-            ws_gloss.write(row_idx_gl, 2, row_data["Linha DRE"])
-            ws_gloss.write(row_idx_gl, 3, row_data["Referência IFData"])
-            ws_gloss.write(row_idx_gl, 4, row_data["Contas COSIF"])
-            ws_gloss.write(row_idx_gl, 5, row_data["Descrição COSIF"])
-            ws_gloss.write(row_idx_gl, 6, row_data["Fórmula COSIF"])
-            ws_gloss.write(row_idx_gl, 7, row_data["Título"])
-            ws_gloss.write(row_idx_gl, 8, row_data["Função"])
-            ws_gloss.write(row_idx_gl, 9, row_data["Base normativa"])
-            ws_gloss.write(row_idx_gl, 10, row_data["Status Mapeamento"])
-        ws_gloss.set_column(0, 0, 8)
-        ws_gloss.set_column(1, 1, 18)
-        ws_gloss.set_column(2, 2, 50)
-        ws_gloss.set_column(3, 3, 50)
-        ws_gloss.set_column(4, 4, 45)
-        ws_gloss.set_column(5, 5, 90)
-        ws_gloss.set_column(6, 6, 55)
-        ws_gloss.set_column(7, 7, 45)
-        ws_gloss.set_column(8, 8, 80)
-        ws_gloss.set_column(9, 9, 22)
-        ws_gloss.set_column(10, 10, 22)
-        ws_gloss.freeze_panes(1, 0)
-        ws_gloss.autofilter(0, 0, max(1, len(gloss_rows)), len(gloss_headers) - 1)
-    buffer_excel.seek(0)
-    nome_arquivo = re.sub(r"[^A-Za-z0-9_\-]+", "_", nome_visao)[:80]
-    st.download_button(
-        label="Download Excel",
-        data=buffer_excel,
-        file_name=f"DRE_Individual_{nome_arquivo}_{ano_selecionado}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        key="dre_individual_download_excel"
-    )
-
-    with st.expander("Mini-glossário", expanded=False):
-        st.markdown(
-            f"""
-            <div style="font-size: 12px; color: #666; margin-top: 6px;">
-                <strong>Base BC (Rel. 4 individual):</strong> a visão de instituições individuais também é tratada aqui em acumulado do ano (YTD), recompondo set/dez com a base de junho quando necessário.<br>
-                <strong>Filtro por conglomerado:</strong> a seleção superior usa o cadastro de conglomerados para restringir as instituições individuais elegíveis.<br>
-                <strong>Soma das Partes:</strong> a visão agregada soma as instituições individuais selecionadas antes do cálculo de YTD/YoY e das métricas derivadas.<br>
-                <strong>Cobertura COSIF atual:</strong> {len(dre_cosif_map)} linha(s) com mapeamento explícito no arquivo versionado.<br>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
 
 elif menu == "Carteira 4.966":
     # =========================================================================
@@ -27347,17 +23408,12 @@ elif menu == "Carteira 4.966":
                     subheader_fmt = workbook.add_format(
                         {"bold": True, "align": "center", "valign": "vcenter", "bg_color": "#6E6E6E", "font_color": "white", **border}
                     )
-                    row_even = workbook.add_format({"align": "right", "valign": "vcenter", "bg_color": "#f8f9fa", **border})
-                    row_odd = workbook.add_format({"align": "right", "valign": "vcenter", "bg_color": "#ffffff", **border})
                     row_even_num = workbook.add_format({"align": "right", "valign": "vcenter", "bg_color": "#f8f9fa", "num_format": "#,##0", **border})
                     row_odd_num = workbook.add_format({"align": "right", "valign": "vcenter", "bg_color": "#ffffff", "num_format": "#,##0", **border})
                     row_even_pct = workbook.add_format({"align": "right", "valign": "vcenter", "bg_color": "#f8f9fa", "num_format": "0.00%", **border})
                     row_odd_pct = workbook.add_format({"align": "right", "valign": "vcenter", "bg_color": "#ffffff", "num_format": "0.00%", **border})
                     row_even_label = workbook.add_format({"align": "left", "valign": "vcenter", "bg_color": "#f8f9fa", **border})
                     row_odd_label = workbook.add_format({"align": "left", "valign": "vcenter", "bg_color": "#ffffff", **border})
-                    total_row = workbook.add_format(
-                        {"align": "right", "valign": "vcenter", "bg_color": "#e8f4e8", "bold": True, **border}
-                    )
                     total_row_num = workbook.add_format(
                         {"align": "right", "valign": "vcenter", "bg_color": "#e8f4e8", "bold": True, "num_format": "#,##0", **border}
                     )
@@ -27394,7 +23450,6 @@ elif menu == "Carteira 4.966":
                         is_total = tipo == "Carteira Total"
                         is_even = zebra_idx % 2 == 0
                         label_fmt = total_row_label if is_total else (row_even_label if is_even else row_odd_label)
-                        cell_fmt = total_row if is_total else (row_even if is_even else row_odd)
                         valor_cell_fmt = total_row_num if is_total else (row_even_num if is_even else row_odd_num)
                         pct_cell_fmt = total_row_pct if is_total else (row_even_pct if is_even else row_odd_pct)
 
@@ -27471,401 +23526,6 @@ elif menu == "Carteira 4.966":
         if info and not info.get("erro"):
             st.caption(f"Status do cache: {info}")
 
-elif menu == "Taxas de Juros por Produto (Legado)":
-    # =========================================================================
-    # ABA TAXAS DE JUROS POR PRODUTO - Extração direta da API do BCB
-    # Dropdowns cascateados: Segmento → Produto → Bancos
-    # =========================================================================
-    import requests
-
-    # URL da API do BCB
-    API_TAXAS_URL = "https://olinda.bcb.gov.br/olinda/servico/taxaJuros/versao/v2/odata/TaxasJurosDiariaPorInicioPeriodo"
-
-    def formatar_modalidade(nome: str) -> str:
-        """Formata nome da modalidade para exibição."""
-        if not nome:
-            return nome
-        preposicoes = {'de', 'da', 'do', 'das', 'dos', 'e', 'em', 'para', 'com', 'sem', 'por'}
-        palavras = nome.lower().split()
-        resultado = []
-        for i, palavra in enumerate(palavras):
-            if i == 0 or palavra not in preposicoes:
-                resultado.append(palavra.capitalize())
-            else:
-                resultado.append(palavra)
-        return ' '.join(resultado)
-
-    @st.cache_data(ttl=3600, show_spinner="Buscando dados do BCB (12 meses)...")
-    def buscar_taxas_bcb_historico() -> pd.DataFrame:
-        """Busca dados de taxas de juros dos últimos 12 meses da API do BCB.
-        Retorna apenas a última data de cada mês para otimizar performance."""
-        from datetime import date
-
-        # Data de 13 meses atrás (para garantir 12 meses completos)
-        data_inicio = (date.today() - timedelta(days=400)).strftime('%Y-%m-%d')
-
-        # Tentar diferentes formatos de URL
-        urls_tentar = [
-            f"{API_TAXAS_URL}?$format=json&$top=500000",
-            f"{API_TAXAS_URL}(dataInicioPeriodo=@dataInicioPeriodo)?$format=json&$top=500000&@dataInicioPeriodo='{data_inicio}'",
-        ]
-
-        response = None
-        for url in urls_tentar:
-            try:
-                response = requests.get(url, timeout=120)
-                if response.status_code == 200:
-                    break
-            except:
-                continue
-
-        if response is None or response.status_code != 200:
-            return pd.DataFrame()
-
-        try:
-            dados = response.json()
-
-            if 'value' not in dados or not dados['value']:
-                return pd.DataFrame()
-
-            df = pd.DataFrame(dados['value'])
-
-            # Renomear colunas
-            df = df.rename(columns={
-                'InicioPeriodo': 'Início Período',
-                'FimPeriodo': 'Fim Período',
-                'Segmento': 'Segmento',
-                'Modalidade': 'Produto',
-                'Posicao': 'Posição',
-                'InstituicaoFinanceira': 'Instituição Financeira',
-                'TaxaJurosAoMes': 'Taxa Mensal (%)',
-                'TaxaJurosAoAno': 'Taxa Anual (%)'
-            })
-
-            # Converter datas
-            df['Fim Período'] = pd.to_datetime(df['Fim Período'])
-
-            # Filtrar últimos 12 meses
-            data_limite = pd.Timestamp.today() - pd.DateOffset(months=12)
-            df = df[df['Fim Período'] >= data_limite]
-
-            # Criar coluna Ano-Mês para agrupar
-            df['AnoMes'] = df['Fim Período'].dt.to_period('M')
-
-            # Para cada combinação (Segmento, Produto, Instituição, AnoMes), pegar a última data
-            idx = df.groupby(['Segmento', 'Produto', 'Instituição Financeira', 'AnoMes'], observed=False)['Fim Período'].idxmax()
-            df_mensal = df.loc[idx].copy()
-
-            # Criar coluna de data formatada para o gráfico
-            df_mensal['Mês'] = df_mensal['Fim Período'].dt.strftime('%b/%y')
-
-            return df_mensal
-
-        except Exception as e:
-            return pd.DataFrame()
-
-    st.markdown("### Taxas de Juros por Produto (Legado)")
-    st.caption("Histórico dos últimos 12 meses - API do Banco Central do Brasil")
-    st.warning(
-        "Esta é a versão legada e mais pesada da aba. Para uso diário, prefira `Taxas de Juros por Produto`, "
-        "que consulta em etapas e reduz bastante o risco de carga excessiva."
-    )
-    if st.button("Abrir Taxas de Juros por Produto", key="tj_legado_ir_beta", width='stretch'):
-        st.session_state['menu_atual'] = "Taxas de Juros por Produto"
-        st.rerun()
-
-    with st.expander("Sobre os dados", expanded=False):
-        st.markdown("""
-        **Fonte:** API do Banco Central do Brasil - Taxas de Juros
-
-        **Histórico:** Última data disponível de cada mês (últimos 12 meses).
-
-        **Posição:** Ranking da instituição para aquele produto/período.
-        Posição 1 = menor taxa (melhor para o cliente).
-        """)
-
-    st.markdown("---")
-
-    # =============================================================
-    # BUSCAR DADOS HISTÓRICOS (12 MESES)
-    # =============================================================
-    df_taxas = buscar_taxas_bcb_historico()
-
-    if df_taxas.empty:
-        st.warning("Nenhum dado encontrado. A API do BCB pode estar indisponível.")
-        st.info("Tente novamente em alguns minutos.")
-    else:
-        # Data mais recente disponível
-        data_mais_recente = df_taxas['Fim Período'].max()
-        meses_disponiveis = df_taxas['AnoMes'].nunique()
-
-        st.success(f"{len(df_taxas):,} registros | {meses_disponiveis} meses | Até: {data_mais_recente.strftime('%d/%m/%Y')}")
-
-        st.markdown("---")
-
-        # Usar dados da data mais recente para seleção de segmento/produto
-        df_recente = df_taxas[df_taxas['Fim Período'] == data_mais_recente]
-
-        # =============================================================
-        # DROPDOWN 1: SEGMENTO (PF / PJ)
-        # =============================================================
-        segmentos = sorted(df_recente['Segmento'].dropna().unique().tolist())
-
-        segmento_sel = st.selectbox(
-            "1️⃣ Selecione o Segmento",
-            options=segmentos,
-            key="tj_segmento",
-            help="PF = Pessoa Física, PJ = Pessoa Jurídica"
-        )
-
-        if segmento_sel:
-            df_seg_recente = df_recente[df_recente['Segmento'] == segmento_sel]
-
-            # =============================================================
-            # DROPDOWN 2: PRODUTO (filtrado pelo segmento)
-            # =============================================================
-            produtos = sorted(df_seg_recente['Produto'].dropna().unique().tolist())
-
-            produto_sel = st.selectbox(
-                "2️⃣ Selecione o Produto",
-                options=produtos,
-                format_func=formatar_modalidade,
-                key="tj_produto"
-            )
-
-            if produto_sel:
-                # Filtrar dados históricos para o segmento e produto
-                df_prod_hist = df_taxas[
-                    (df_taxas['Segmento'] == segmento_sel) &
-                    (df_taxas['Produto'] == produto_sel)
-                ]
-
-                st.markdown(f"#### {formatar_modalidade(produto_sel)}")
-
-                # =============================================================
-                # MULTISELECT 3: BANCOS (baseado na data mais recente)
-                # =============================================================
-                df_prod_recente = df_prod_hist[df_prod_hist['Fim Período'] == data_mais_recente]
-
-                # Ordenar por posição (menor = melhor taxa)
-                if 'Posição' in df_prod_recente.columns and not df_prod_recente.empty:
-                    df_prod_ord = df_prod_recente.sort_values('Posição', ascending=True)
-                else:
-                    df_prod_ord = df_prod_recente.sort_values('Instituição Financeira')
-
-                bancos_disponiveis = df_prod_ord['Instituição Financeira'].unique().tolist()
-
-                # Top 10 como default
-                top_10 = bancos_disponiveis[:10]
-
-                # Ordenar lista com aliases primeiro
-                dict_aliases = st.session_state.get('dict_aliases', {})
-                bancos_ordenados = ordenar_bancos_com_alias(bancos_disponiveis, dict_aliases)
-
-                bancos_sel = st.multiselect(
-                    "3️⃣ Selecione os Bancos (máx 15)",
-                    options=bancos_ordenados,
-                    default=[b for b in top_10 if b in bancos_ordenados][:10],
-                    max_selections=15,
-                    key="tj_bancos",
-                    help="Top 10 por menor taxa pré-selecionados"
-                )
-
-                if not bancos_sel:
-                    st.warning("Selecione ao menos um banco.")
-                else:
-                    # [CHANGE] Data: 2026-04-05 | Aba: Taxas de Juros por Produto | Prioridade: P4
-                    # Motivo: permitir customização de cores sem compartilhar estado com o Scatter.
-                    # Solução: mapa de cores local da aba com color picker em expander.
-                    # Impacto: apenas na apresentação do gráfico de linhas.
-                    # Testado em: py_compile do app e inspeção estática do fluxo da aba.
-                    taxas_color_state_key = "taxas_juros_color_map_v2"
-                    if taxas_color_state_key not in st.session_state:
-                        st.session_state[taxas_color_state_key] = {}
-                    taxas_color_map = st.session_state[taxas_color_state_key]
-                    taxas_palette_nitida = [
-                        "#0057B8", "#D41159", "#00A087", "#F39C12", "#7B2CBF",
-                        "#E31A1C", "#1B9E77", "#111827", "#FF6F00", "#006D77",
-                        "#9B59B6", "#2A9D8F", "#3A0CA3", "#A05A00", "#0B3954",
-                    ]
-                    with st.expander("🎨 Personalizar cores", expanded=False):
-                        colunas_por_linha_taxas = 4
-                        bancos_taxas_enumerados = list(enumerate(bancos_sel))
-                        for inicio_linha in range(0, len(bancos_taxas_enumerados), colunas_por_linha_taxas):
-                            bancos_linha = bancos_taxas_enumerados[inicio_linha:inicio_linha + colunas_por_linha_taxas]
-                            cols_cores_taxas = st.columns(colunas_por_linha_taxas)
-                            for col_cor_taxas, (idx_cor_taxas, banco_taxas) in zip(cols_cores_taxas, bancos_linha):
-                                with col_cor_taxas:
-                                    banco_norm = normalizar_nome_instituicao(banco_taxas)
-                                    cor_inicial = taxas_color_map.get(banco_norm) or taxas_palette_nitida[idx_cor_taxas % len(taxas_palette_nitida)]
-                                    taxas_color_map[banco_norm] = st.color_picker(
-                                        banco_taxas,
-                                        value=cor_inicial,
-                                        key=f"taxas_v2_color_picker_{banco_norm}",
-                                    )
-
-                    # =============================================================
-                    # TIPO DE TAXA
-                    # =============================================================
-                    tipo_taxa = st.radio(
-                        "Tipo de taxa",
-                        ["Taxa Mensal (%)", "Taxa Anual (%)"],
-                        horizontal=True,
-                        key="tj_tipo_taxa"
-                    )
-
-                    # Filtrar dados históricos para os bancos selecionados
-                    df_chart = df_prod_hist[df_prod_hist['Instituição Financeira'].isin(bancos_sel)].copy()
-                    df_chart = df_chart.sort_values('Fim Período')
-                    color_discrete_map = {
-                        banco_nome: taxas_color_map.get(normalizar_nome_instituicao(banco_nome))
-                        for banco_nome in bancos_sel
-                        if taxas_color_map.get(normalizar_nome_instituicao(banco_nome))
-                    }
-
-                    # =============================================================
-                    # GRÁFICO DE LINHAS - HISTÓRICO 12 MESES
-                    # =============================================================
-                    fig = px.line(
-                        df_chart,
-                        x='Fim Período',
-                        y=tipo_taxa,
-                        color='Instituição Financeira',
-                        title=f'{formatar_modalidade(produto_sel)} - {tipo_taxa} (Últimos 12 meses)',
-                        labels={
-                            'Fim Período': 'Data',
-                            tipo_taxa: tipo_taxa,
-                            'Instituição Financeira': 'Instituição'
-                        },
-                        color_discrete_map=color_discrete_map or None,
-                        template='plotly_white',
-                        markers=True
-                    )
-
-                    fig.update_layout(
-                        height=560,
-                        legend=dict(
-                            orientation="h",
-                            yanchor="bottom",
-                            y=-0.40,
-                            xanchor="center",
-                            x=0.5,
-                            font=dict(size=10),
-                        ),
-                        xaxis_title="",
-                        yaxis_title=tipo_taxa,
-                        hovermode='x unified',
-                        margin=dict(b=110, r=130, t=60, l=60),
-                    )
-
-                    fig.update_xaxes(tickformat="%b/%y")
-                    fig.update_traces(marker=dict(size=5), line=dict(width=1.5))
-
-                    df_last = (
-                        df_chart.sort_values('Fim Período')
-                        .groupby('Instituição Financeira', observed=False)
-                        .tail(1)
-                    )
-
-                    def _formatar_taxa_label(valor) -> str:
-                        valor_num = pd.to_numeric(valor, errors='coerce')
-                        if pd.isna(valor_num):
-                            return ""
-                        return f"{float(valor_num):.2f}%".replace(".", ",")
-
-                    # De-collision: sort by descending value and stagger labels vertically
-                    # so they never overlap, connecting offset labels with a thin leader line.
-                    df_sorted = (
-                        df_last
-                        .assign(_y_num=pd.to_numeric(df_last[tipo_taxa], errors='coerce'))
-                        .sort_values('_y_num', ascending=False)
-                        .reset_index(drop=True)
-                    )
-                    y_vals = df_sorted['_y_num']
-                    valid_y = y_vals.dropna()
-                    y_range = (valid_y.max() - valid_y.min()) if len(valid_y) > 1 else 1.0
-                    min_gap = max(y_range * 0.06, 0.05)
-
-                    staggered_y = []
-                    for _pos in range(len(df_sorted)):
-                        actual = y_vals.iloc[_pos]
-                        if pd.isna(actual):
-                            staggered_y.append(actual)
-                            continue
-                        if _pos == 0 or pd.isna(staggered_y[_pos - 1]):
-                            staggered_y.append(actual)
-                        else:
-                            staggered_y.append(min(actual, staggered_y[_pos - 1] - min_gap))
-
-                    for _idx, row_label in df_sorted.iterrows():
-                        banco_nome = row_label['Instituição Financeira']
-                        cor_texto = color_discrete_map.get(banco_nome) or '#1f2937'
-                        actual_y = row_label['_y_num']
-                        label_taxa = _formatar_taxa_label(actual_y)
-                        if not label_taxa or pd.isna(actual_y):
-                            continue
-                        label_y = staggered_y[_idx]
-                        has_offset = (not pd.isna(label_y)) and abs(actual_y - label_y) > 0.001
-                        ann_kwargs = dict(
-                            text=f"<b>{label_taxa}</b>",
-                            xanchor='left',
-                            yanchor='middle',
-                            font=dict(size=11, color=cor_texto, family="Arial, sans-serif"),
-                            bgcolor="rgba(255,255,255,0.75)",
-                            borderpad=2,
-                        )
-                        if has_offset:
-                            # Leader line from data point to staggered label position
-                            ann_kwargs.update(
-                                x=row_label['Fim Período'],
-                                y=actual_y,
-                                ax=52,
-                                ay=label_y,
-                                axref='pixel',
-                                ayref='y',
-                                showarrow=True,
-                                arrowhead=0,
-                                arrowcolor=cor_texto,
-                                arrowwidth=1,
-                            )
-                        else:
-                            # No stagger — place text directly to the right of the data point
-                            ann_kwargs.update(
-                                x=row_label['Fim Período'],
-                                y=actual_y,
-                                xshift=58,
-                                showarrow=False,
-                            )
-                        fig.add_annotation(**ann_kwargs)
-
-                    st.plotly_chart(fig, width='stretch')
-
-                    # =============================================================
-                    # TABELA DE DADOS (data mais recente)
-                    # =============================================================
-                    st.markdown("#### Ranking atual")
-                    df_rank = df_prod_recente[df_prod_recente['Instituição Financeira'].isin(bancos_sel)]
-                    cols_mostrar = ['Posição', 'Instituição Financeira', 'Taxa Mensal (%)', 'Taxa Anual (%)']
-                    cols_disp = [c for c in cols_mostrar if c in df_rank.columns]
-                    df_display = df_rank[cols_disp].sort_values('Posição' if 'Posição' in cols_disp else tipo_taxa)
-                    st.caption(
-                        f"Posição das instituições selecionadas na fotografia mais recente: "
-                        f"{data_mais_recente.strftime('%d/%m/%Y')}."
-                    )
-                    st.dataframe(df_display, width='stretch', hide_index=True)
-
-                    # =============================================================
-                    # EXPORTAÇÃO
-                    # =============================================================
-                    with st.expander("Exportar dados"):
-                        csv_data = df_chart.to_csv(index=False, sep=';', decimal=',')
-                        st.download_button(
-                            label="Baixar CSV (histórico)",
-                            data=csv_data,
-                            file_name=f"taxas_hist_{segmento_sel}_{produto_sel[:20]}.csv",
-                            mime="text/csv",
-                            key="tj_download_csv"
-                        )
 
 elif menu == "Taxas de Juros por Produto":
     # =========================================================================
@@ -29293,7 +24953,7 @@ elif menu == "Meios de Pagamento (SPB)":
             return pd.DataFrame()
         return resultado.dados
 
-    def _spb_melt_nucleo(df: pd.DataFrame, periodo_col: str, label_fn) -> pd.DataFrame:
+    def _spb_melt_nucleo(df: pd.DataFrame, periodo_col: str) -> pd.DataFrame:
         periodicidade = "mensal" if periodo_col == "ano_mes" else "trimestral"
         return melt_nucleo_spb(df, periodo_col, periodicidade)
 
@@ -29324,11 +24984,11 @@ elif menu == "Meios de Pagamento (SPB)":
 
             if periodicidade_spb == "Mensal":
                 df_nucleo_raw = _spb_carregar_dataset("nucleo_mensal")
-                long_nucleo = _spb_melt_nucleo(df_nucleo_raw, "ano_mes", _spb_ano_mes_label)
+                long_nucleo = _spb_melt_nucleo(df_nucleo_raw, "ano_mes")
                 st.caption("Dados Mensais: conjunto restrito de 6 instrumentos (Pix, Boleto, DOC, TEC, Cheque, TED).")
             else:
                 df_nucleo_raw = _spb_carregar_dataset("nucleo_trimestral")
-                long_nucleo = _spb_melt_nucleo(df_nucleo_raw, "trimestre", _spb_trimestre_label)
+                long_nucleo = _spb_melt_nucleo(df_nucleo_raw, "trimestre")
 
             if long_nucleo.empty:
                 st.warning("Dados de núcleo (Meios de Pagamento) ainda não materializados localmente.")
@@ -29421,7 +25081,7 @@ elif menu == "Meios de Pagamento (SPB)":
 
         with tab_participacao:
             df_nucleo_part = _spb_carregar_dataset("nucleo_trimestral")
-            long_part = _spb_melt_nucleo(df_nucleo_part, "trimestre", _spb_trimestre_label)
+            long_part = _spb_melt_nucleo(df_nucleo_part, "trimestre")
             if long_part.empty:
                 st.warning("Dados trimestrais de núcleo ainda não materializados localmente.")
             else:
@@ -29629,8 +25289,8 @@ elif menu == "Meios de Pagamento (SPB)":
 
             df_mensal_ppt = _spb_carregar_dataset("nucleo_mensal")
             df_trimestral_ppt = _spb_carregar_dataset("nucleo_trimestral")
-            long_mensal_ppt = _spb_melt_nucleo(df_mensal_ppt, "ano_mes", _spb_ano_mes_label)
-            long_trimestral_ppt = _spb_melt_nucleo(df_trimestral_ppt, "trimestre", _spb_trimestre_label)
+            long_mensal_ppt = _spb_melt_nucleo(df_mensal_ppt, "ano_mes")
+            long_trimestral_ppt = _spb_melt_nucleo(df_trimestral_ppt, "trimestre")
 
             if long_mensal_ppt.empty or long_trimestral_ppt.empty:
                 st.warning("Materialize os datasets mensal e trimestral de Meios de Pagamento antes de exportar o PPT.")
@@ -29734,830 +25394,6 @@ elif menu == "Meios de Pagamento (SPB)":
                         width="stretch",
                     )
 
-elif menu == "Crie sua métrica!":
-    if _garantir_dados_principais("Crie sua métrica!"):
-        dados_periodos_keys = tuple(sorted(st.session_state['dados_periodos'].keys()))
-        primeiro_periodo = next(iter(st.session_state['dados_periodos'].values()))
-        colunas_hash = tuple(sorted(primeiro_periodo.columns.tolist()))
-        capital_mesclado = st.session_state.get('_dados_capital_mesclados', False)
-        periodos_hash = str(hash((dados_periodos_keys, colunas_hash, capital_mesclado)))
-
-        _perf_start("brincar_context")
-        brincar_ctx = _get_crie_metrica_context(periodos_hash, dados_periodos_keys)
-        print(_perf_log("brincar_context"))
-
-        colunas_numericas = _ajustar_colunas_core_funding(brincar_ctx['colunas_numericas'])
-        periodos_disponiveis = brincar_ctx['periodos_disponiveis']
-        periodos_dropdown = brincar_ctx['periodos_dropdown']
-
-        # Lista de todos os bancos disponíveis com ordenação por alias
-        bancos_todos = brincar_ctx['bancos_todos']
-        dict_aliases = st.session_state.get('dict_aliases', {})
-        todos_bancos = ordenar_bancos_com_alias(bancos_todos, dict_aliases)
-
-        st.markdown("### construtor de métricas derivadas")
-        st.caption("monte uma métrica personalizada combinando variáveis com operações matemáticas")
-
-        # ===== CONSTRUTOR DE FÓRMULA PASSO-A-PASSO =====
-        # Inicializa session state para a fórmula
-        if 'brincar_formula_steps' not in st.session_state:
-            st.session_state['brincar_formula_steps'] = []
-        if 'brincar_nome_metrica' not in st.session_state:
-            st.session_state['brincar_nome_metrica'] = "Métrica Personalizada"
-
-        col_nome, col_formato = st.columns([2, 1])
-        with col_nome:
-            nome_metrica = st.text_input(
-                "nome da métrica",
-                value=st.session_state['brincar_nome_metrica'],
-                key="nome_metrica_input"
-            )
-            st.session_state['brincar_nome_metrica'] = nome_metrica
-
-        with col_formato:
-            formato_resultado = st.selectbox(
-                "formato do resultado",
-                ["Auto", "Valor bruto (R$)", "Percentual (%)", "Múltiplo (x)", "Número"],
-                key="formato_resultado_brincar"
-            )
-
-        st.markdown("---")
-        st.markdown("**construir fórmula**")
-
-        # Interface de construção
-        col_var, col_op, col_add = st.columns([2, 1, 1])
-
-        with col_var:
-            var_nova = st.selectbox(
-                "variável",
-                colunas_numericas,
-                key="var_nova_brincar"
-            )
-
-        with col_op:
-            operacao = st.selectbox(
-                "operação seguinte",
-                ["(fim)", "+", "-", "×", "÷"],
-                key="operacao_brincar"
-            )
-
-        with col_add:
-            st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("adicionar", key="btn_add_step", width='stretch'):
-                st.session_state['brincar_formula_steps'].append({
-                    'variavel': var_nova,
-                    'operacao': operacao if operacao != "(fim)" else None
-                })
-                st.rerun()
-
-        # Exibir fórmula atual
-        if st.session_state['brincar_formula_steps']:
-            formula_texto = ""
-            for i, step in enumerate(st.session_state['brincar_formula_steps']):
-                formula_texto += f"**{step['variavel']}**"
-                if step['operacao']:
-                    formula_texto += f" {step['operacao']} "
-
-            col_formula, col_limpar = st.columns([3, 1])
-            with col_formula:
-                st.markdown(f"Fórmula: {formula_texto}")
-            with col_limpar:
-                if st.button("limpar fórmula", key="btn_limpar_formula"):
-                    st.session_state['brincar_formula_steps'] = []
-                    st.rerun()
-        else:
-            st.info("adicione variáveis para construir sua fórmula")
-
-        # Função para calcular a métrica derivada
-        def calcular_metrica_derivada(df_input, steps):
-            if not steps:
-                return None
-
-            # Inicializa com a primeira variável
-            resultado = df_input[steps[0]['variavel']].copy()
-
-            for i in range(len(steps) - 1):
-                op = steps[i]['operacao']
-                proxima_var = steps[i + 1]['variavel']
-
-                if op == '+':
-                    resultado = resultado + df_input[proxima_var]
-                elif op == '-':
-                    resultado = resultado - df_input[proxima_var]
-                elif op == '×':
-                    resultado = resultado * df_input[proxima_var]
-                elif op == '÷':
-                    # Evita divisão por zero
-                    resultado = resultado / df_input[proxima_var].replace(0, np.nan)
-
-            return resultado
-
-        # Função para detectar se é uma razão/divisão
-        def formula_eh_divisao(steps):
-            for step in steps:
-                if step['operacao'] == '÷':
-                    return True
-            return False
-
-        # ===== SELEÇÃO DE BANCOS =====
-        st.markdown("---")
-        st.markdown("**seleção de instituições**")
-
-        col_modo, col_config = st.columns([1, 3])
-
-        with col_modo:
-            modo_selecao_brincar = st.radio(
-                "modo de seleção",
-                ["Top N", "Personalizado"],
-                index=0,
-                key="modo_selecao_brincar"
-            )
-
-        bancos_selecionados_brincar = []
-
-        with col_config:
-            if modo_selecao_brincar == "Top N":
-                col_slider, col_var_ord = st.columns(2)
-                with col_slider:
-                    top_n_brincar = st.slider("quantidade de bancos", 5, 40, 15, key="top_n_brincar")
-                with col_var_ord:
-                    prefer_credito = _prefer_carteira_bruta(colunas_numericas)
-                    var_ordenacao_brincar = st.selectbox(
-                        "ordenar por",
-                        colunas_numericas,
-                        index=colunas_numericas.index(prefer_credito) if prefer_credito in colunas_numericas else 0,
-                        key="var_ordenacao_brincar"
-                    )
-                # Obtém top N bancos do período mais recente
-                periodo_mais_recente = periodos_disponiveis[-1]
-                df_recente = get_df_periodo_brincar(periodo_mais_recente).copy()
-                df_recente_valid = df_recente.dropna(subset=[var_ordenacao_brincar])
-                bancos_top_n = df_recente_valid.nlargest(top_n_brincar, var_ordenacao_brincar)['Instituição'].tolist()
-                bancos_selecionados_brincar = bancos_top_n
-
-            else:  # Personalizado
-                bancos_custom_brincar = st.multiselect(
-                    "adicionar/remover bancos",
-                    todos_bancos,
-                    max_selections=40,
-                    key="bancos_custom_brincar"
-                )
-                bancos_selecionados_brincar = bancos_custom_brincar
-
-        # ===== TIPO DE VISUALIZAÇÃO =====
-        st.markdown("---")
-        st.markdown("**visualização**")
-
-        tipo_visualizacao = st.radio(
-            "tipo de gráfico",
-            ["Scatter Plot", "Deltas", "Ranking (barras)"],
-            horizontal=True,
-            key="tipo_viz_brincar"
-        )
-
-        # ===== CALCULAR E VISUALIZAR =====
-        if st.session_state['brincar_formula_steps'] and bancos_selecionados_brincar:
-            steps = st.session_state['brincar_formula_steps']
-
-            # Verifica se a fórmula está completa (última operação é None ou não tem operação pendente)
-            formula_completa = steps[-1]['operacao'] is None
-
-            if not formula_completa:
-                st.warning("adicione mais uma variável ou selecione '(fim)' como operação para completar a fórmula")
-            else:
-                # ===== SCATTER PLOT =====
-                if tipo_visualizacao == "Scatter Plot":
-                    st.markdown("---")
-                    col_periodo, col_eixo_x, col_eixo_y, col_tamanho = st.columns(4)
-
-                    with col_periodo:
-                        periodo_scatter_brincar = st.selectbox(
-                            "período",
-                            periodos_dropdown,
-                            index=_indice_periodo_mais_recente(periodos_dropdown),
-                            key="periodo_scatter_brincar",
-                            format_func=periodo_para_exibicao
-                        )
-
-                    with col_eixo_x:
-                        opcoes_eixo = ['Métrica Derivada'] + colunas_numericas
-                        eixo_x_brincar = st.selectbox(
-                            "eixo X",
-                            opcoes_eixo,
-                            index=0,
-                            key="eixo_x_brincar"
-                        )
-
-                    with col_eixo_y:
-                        eixo_y_brincar = st.selectbox(
-                            "eixo Y",
-                            opcoes_eixo,
-                            index=min(1, len(opcoes_eixo) - 1),
-                            key="eixo_y_brincar"
-                        )
-
-                    with col_tamanho:
-                        opcoes_tamanho = ['Tamanho Fixo', 'Métrica Derivada'] + colunas_numericas
-                        var_tamanho_brincar = st.selectbox(
-                            "tamanho",
-                            opcoes_tamanho,
-                            index=0,
-                            key="var_tamanho_brincar"
-                        )
-
-                    # Filtrar dados para o período
-                    df_periodo = get_df_periodo_brincar(periodo_scatter_brincar).copy()
-                    # Garantir coluna canônica de Basileia (mesma normalização do Scatter Plot principal)
-                    df_periodo = _garantir_indice_basileia_coluna(df_periodo)
-                    df_scatter_brincar = df_periodo[df_periodo['Instituição'].isin(bancos_selecionados_brincar)].copy()
-
-                    # Calcular métrica derivada
-                    df_scatter_brincar['Métrica Derivada'] = calcular_metrica_derivada(df_scatter_brincar, steps)
-
-                    # Remover linhas com NaN na métrica
-                    df_scatter_brincar = df_scatter_brincar.dropna(subset=['Métrica Derivada'])
-
-                    if len(df_scatter_brincar) > 0:
-                        # Preparar dados para o gráfico
-                        def get_format_for_var(var_name):
-                            if var_name == 'Métrica Derivada':
-                                if formato_resultado == "Percentual (%)":
-                                    return {'tickformat': '.2f', 'ticksuffix': '%', 'multiplicador': 100}
-                                elif formato_resultado == "Valor bruto (R$)":
-                                    return {'tickformat': ',.0f', 'ticksuffix': 'M', 'multiplicador': 1/1e6}
-                                elif formato_resultado == "Múltiplo (x)":
-                                    return {'tickformat': '.2f', 'ticksuffix': 'x', 'multiplicador': 1}
-                                elif formato_resultado == "Auto":
-                                    if formula_eh_divisao(steps):
-                                        return {'tickformat': '.2f', 'ticksuffix': 'x', 'multiplicador': 1}
-                                    else:
-                                        return {'tickformat': ',.0f', 'ticksuffix': 'M', 'multiplicador': 1/1e6}
-                                else:
-                                    return {'tickformat': '.2f', 'ticksuffix': '', 'multiplicador': 1}
-                            else:
-                                serie_ref = df_scatter_brincar[var_name] if var_name in df_scatter_brincar.columns else None
-                                return get_axis_format(var_name, serie_ref)
-
-                        format_x = get_format_for_var(eixo_x_brincar)
-                        format_y = get_format_for_var(eixo_y_brincar)
-
-                        df_scatter_brincar['x_display'] = _calcular_valores_display(
-                            df_scatter_brincar[eixo_x_brincar], eixo_x_brincar, format_x
-                        )
-                        df_scatter_brincar['y_display'] = _calcular_valores_display(
-                            df_scatter_brincar[eixo_y_brincar], eixo_y_brincar, format_y
-                        )
-
-                        if var_tamanho_brincar == 'Tamanho Fixo':
-                            tamanho_constante = 25
-                        else:
-                            format_size = get_format_for_var(var_tamanho_brincar)
-                            size_display = _calcular_valores_display(
-                                df_scatter_brincar[var_tamanho_brincar], var_tamanho_brincar, format_size
-                            )
-                            df_scatter_brincar['size_display'] = size_display.abs()
-
-                        fig_scatter_brincar = go.Figure()
-                        cores_plotly = px.colors.qualitative.Plotly
-                        idx_cor = 0
-
-                        for instituicao in df_scatter_brincar['Instituição'].unique():
-                            df_inst = df_scatter_brincar[df_scatter_brincar['Instituição'] == instituicao]
-                            cor = obter_cor_banco(instituicao)
-                            if not cor:
-                                cor = cores_plotly[idx_cor % len(cores_plotly)]
-                                idx_cor += 1
-
-                            if var_tamanho_brincar == 'Tamanho Fixo':
-                                marker_size = tamanho_constante
-                            else:
-                                max_size = df_scatter_brincar['size_display'].max()
-                                if max_size > 0:
-                                    marker_size = df_inst['size_display'] / max_size * 100
-                                else:
-                                    marker_size = 25
-
-                            eixo_x_label = nome_metrica if eixo_x_brincar == 'Métrica Derivada' else eixo_x_brincar
-                            eixo_y_label = nome_metrica if eixo_y_brincar == 'Métrica Derivada' else eixo_y_brincar
-
-                            fig_scatter_brincar.add_trace(go.Scatter(
-                                x=df_inst['x_display'],
-                                y=df_inst['y_display'],
-                                mode='markers',
-                                name=instituicao,
-                                marker=dict(size=marker_size, color=cor, opacity=1.0, line=dict(width=1, color='white')),
-                                hovertemplate=f'<b>{instituicao}</b><br>{eixo_x_label}: %{{x:{format_x["tickformat"]}}}{format_x["ticksuffix"]}<br>{eixo_y_label}: %{{y:{format_y["tickformat"]}}}{format_y["ticksuffix"]}<extra></extra>'
-                            ))
-
-                        titulo_scatter = f'{nome_metrica}: {eixo_y_brincar} vs {eixo_x_brincar} - {periodo_scatter_brincar}'
-
-                        fig_scatter_brincar.update_layout(
-                            title=titulo_scatter,
-                            xaxis_title=eixo_x_label,
-                            yaxis_title=eixo_y_label,
-                            height=650,
-                            plot_bgcolor='#f8f9fa',
-                            paper_bgcolor='white',
-                            showlegend=True,
-                            legend=dict(orientation="v", yanchor="top", y=1, xanchor="left", x=1.02),
-                            xaxis=dict(tickformat=format_x['tickformat'], ticksuffix=format_x['ticksuffix']),
-                            yaxis=dict(tickformat=format_y['tickformat'], ticksuffix=format_y['ticksuffix']),
-                            font=dict(family='IBM Plex Sans')
-                        )
-
-                        st.plotly_chart(fig_scatter_brincar, width='stretch')
-
-                        # Tabela e exportação
-                        st.markdown("#### Exportar")
-                        # Prepara dados para exportação
-                        df_export = df_scatter_brincar[['Instituição', eixo_x_brincar, eixo_y_brincar]].copy()
-                        df_export['Período'] = periodo_scatter_brincar
-
-                        # Adiciona componentes da fórmula
-                        componentes = list(set([s['variavel'] for s in steps]))
-                        for comp in componentes:
-                            if comp not in df_export.columns:
-                                df_export[comp] = df_scatter_brincar[comp]
-
-                        # Reordena colunas
-                        cols_ordem = ['Período', 'Instituição', 'Métrica Derivada'] + [c for c in df_export.columns if c not in ['Período', 'Instituição', 'Métrica Derivada', eixo_x_brincar, eixo_y_brincar]]
-                        if eixo_x_brincar != 'Métrica Derivada':
-                            cols_ordem.append(eixo_x_brincar)
-                        if eixo_y_brincar != 'Métrica Derivada' and eixo_y_brincar not in cols_ordem:
-                            cols_ordem.append(eixo_y_brincar)
-
-                        df_export['Métrica Derivada'] = df_scatter_brincar['Métrica Derivada']
-                        df_export = df_export[[c for c in cols_ordem if c in df_export.columns]]
-
-                        st.dataframe(df_export, width='stretch', hide_index=True)
-
-                        col_excel, col_csv = st.columns(2)
-                        with col_excel:
-                            buffer_excel = BytesIO()
-                            with pd.ExcelWriter(buffer_excel, engine='xlsxwriter') as writer:
-                                df_export.to_excel(writer, index=False, sheet_name='dados')
-                            buffer_excel.seek(0)
-                            st.download_button(
-                                label="Download Excel",
-                                data=buffer_excel,
-                                file_name=f"Brincar_Scatter_{nome_metrica.replace(' ', '_')}_{periodo_scatter_brincar.replace('/', '-')}.xlsx",
-                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                key="export_excel_scatter_brincar",
-                                use_container_width=True,
-                            )
-                        with col_csv:
-                            csv_data = df_export.to_csv(index=False)
-                            st.download_button(
-                                label="exportar CSV",
-                                data=csv_data,
-                                file_name=f"Brincar_Scatter_{nome_metrica.replace(' ', '_')}_{periodo_scatter_brincar.replace('/', '-')}.csv",
-                                mime="text/csv",
-                                key="export_csv_scatter_brincar",
-                                use_container_width=True,
-                            )
-                    else:
-                        st.warning("sem dados válidos para exibir no scatter plot")
-
-                # ===== DELTAS =====
-                elif tipo_visualizacao == "Deltas":
-                    st.markdown("---")
-                    col_p1, col_p2, col_tipo_var = st.columns([2, 2, 1])
-
-                    with col_p1:
-                        _periodos_brincar_recentes = _periodos_mais_recentes(periodos_dropdown, 2)
-                        _periodo_inicial_brincar_default = (
-                            _periodos_brincar_recentes[1]
-                            if len(_periodos_brincar_recentes) > 1
-                            else (_periodos_brincar_recentes[0] if _periodos_brincar_recentes else None)
-                        )
-                        indice_inicial_brincar = (
-                            periodos_dropdown.index(_periodo_inicial_brincar_default)
-                            if _periodo_inicial_brincar_default in periodos_dropdown
-                            else 0
-                        )
-                        periodo_inicial_brincar = st.selectbox(
-                            "período inicial",
-                            periodos_dropdown,
-                            index=indice_inicial_brincar,
-                            key="periodo_inicial_brincar",
-                            format_func=periodo_para_exibicao
-                        )
-                    with col_p2:
-                        periodo_subsequente_brincar = st.selectbox(
-                            "período subsequente",
-                            periodos_dropdown,
-                            index=_indice_periodo_mais_recente(periodos_dropdown),
-                            key="periodo_subsequente_brincar",
-                            format_func=periodo_para_exibicao
-                        )
-                    with col_tipo_var:
-                        tipo_variacao_brincar = st.radio(
-                            "ordenar por",
-                            ["Δ absoluto", "Δ %"],
-                            index=1,
-                            key="tipo_variacao_brincar",
-                            horizontal=True
-                        )
-
-                    # Validação de períodos
-                    idx_ini = periodos_disponiveis.index(periodo_inicial_brincar)
-                    idx_sub = periodos_disponiveis.index(periodo_subsequente_brincar)
-                    periodo_valido = idx_sub > idx_ini
-
-                    if not periodo_valido:
-                        st.warning("o período subsequente deve ser posterior ao período inicial")
-                    else:
-                        # Filtra dados para os dois períodos
-                        df_inicial = get_df_periodo_brincar(periodo_inicial_brincar).copy()
-                        df_subsequente = get_df_periodo_brincar(periodo_subsequente_brincar).copy()
-
-                        # Calcular métrica derivada para ambos os períodos
-                        df_inicial_calc = df_inicial[df_inicial['Instituição'].isin(bancos_selecionados_brincar)].copy()
-                        df_subsequente_calc = df_subsequente[df_subsequente['Instituição'].isin(bancos_selecionados_brincar)].copy()
-
-                        df_inicial_calc['Métrica Derivada'] = calcular_metrica_derivada(df_inicial_calc, steps)
-                        df_subsequente_calc['Métrica Derivada'] = calcular_metrica_derivada(df_subsequente_calc, steps)
-
-                        # Determinar formato
-                        if formato_resultado == "Percentual (%)":
-                            format_info = {'tickformat': '.2f', 'ticksuffix': '%', 'multiplicador': 100}
-                        elif formato_resultado == "Valor bruto (R$)":
-                            format_info = {'tickformat': ',.0f', 'ticksuffix': 'M', 'multiplicador': 1/1e6}
-                        elif formato_resultado == "Múltiplo (x)":
-                            format_info = {'tickformat': '.2f', 'ticksuffix': 'x', 'multiplicador': 1}
-                        elif formato_resultado == "Auto":
-                            if formula_eh_divisao(steps):
-                                format_info = {'tickformat': '.2f', 'ticksuffix': 'x', 'multiplicador': 1}
-                            else:
-                                format_info = {'tickformat': ',.0f', 'ticksuffix': 'M', 'multiplicador': 1/1e6}
-                        else:
-                            format_info = {'tickformat': '.2f', 'ticksuffix': '', 'multiplicador': 1}
-
-                        # Prepara dados para o gráfico (join vetorizado por instituição)
-                        dados_grafico_brincar = []
-                        serie_ini = df_inicial_calc.set_index('Instituição')['Métrica Derivada']
-                        serie_sub = df_subsequente_calc.set_index('Instituição')['Métrica Derivada']
-
-                        for instituicao in bancos_selecionados_brincar:
-                            if instituicao not in serie_ini.index or instituicao not in serie_sub.index:
-                                continue
-
-                            v_ini = serie_ini.loc[instituicao]
-                            v_sub = serie_sub.loc[instituicao]
-
-                            if pd.isna(v_ini) or pd.isna(v_sub):
-                                continue
-
-                            delta_absoluto = v_sub - v_ini
-
-                            # Formata delta texto
-                            if formato_resultado == "Percentual (%)" or (formato_resultado == "Auto" and formula_eh_divisao(steps)):
-                                delta_texto = f"{delta_absoluto * format_info['multiplicador']:+.2f}{format_info['ticksuffix']}"
-                            elif formato_resultado == "Valor bruto (R$)" or (formato_resultado == "Auto" and not formula_eh_divisao(steps)):
-                                delta_texto = f"R$ {delta_absoluto/1e6:+,.0f}MM".replace(",", ".")
-                            else:
-                                delta_texto = f"{delta_absoluto:+.2f}"
-
-                            # Variação percentual
-                            if v_ini == 0:
-                                if delta_absoluto > 0:
-                                    variacao_pct = float('inf')
-                                    variacao_texto = "+∞"
-                                elif delta_absoluto < 0:
-                                    variacao_pct = float('-inf')
-                                    variacao_texto = "-∞"
-                                else:
-                                    variacao_pct = 0
-                                    variacao_texto = "0.0%"
-                            else:
-                                variacao_pct = ((v_sub - v_ini) / abs(v_ini)) * 100
-                                variacao_texto = f"{variacao_pct:+.1f}%"
-
-                            dados_grafico_brincar.append({
-                                'instituicao': instituicao,
-                                'valor_ini': v_ini,
-                                'valor_sub': v_sub,
-                                'delta': delta_absoluto,
-                                'delta_texto': delta_texto,
-                                'variacao_pct': variacao_pct if not (variacao_pct == float('inf') or variacao_pct == float('-inf')) else (1e10 if variacao_pct > 0 else -1e10),
-                                'variacao_texto': variacao_texto
-                            })
-
-                        if dados_grafico_brincar:
-                            # Ordena pela variação
-                            if tipo_variacao_brincar == "Δ %":
-                                dados_grafico_brincar = sorted(dados_grafico_brincar, key=lambda x: x['variacao_pct'], reverse=True)
-                            else:
-                                dados_grafico_brincar = sorted(dados_grafico_brincar, key=lambda x: x['delta'], reverse=True)
-
-                            # Cria o gráfico estilo lollipop
-                            fig_delta_brincar = go.Figure()
-
-                            for i, dado in enumerate(dados_grafico_brincar):
-                                inst = dado['instituicao']
-                                y_ini = dado['valor_ini'] * format_info['multiplicador']
-                                y_sub = dado['valor_sub'] * format_info['multiplicador']
-                                delta_positivo = dado['delta'] > 0
-
-                                cor_sub = '#2E7D32' if delta_positivo else '#C62828'
-
-                                # Linha conectando os dois pontos
-                                fig_delta_brincar.add_trace(go.Scatter(
-                                    x=[inst, inst],
-                                    y=[y_ini, y_sub],
-                                    mode='lines',
-                                    line=dict(color='#9E9E9E', width=2),
-                                    showlegend=False,
-                                    hoverinfo='skip'
-                                ))
-
-                                # Bolinha do período inicial
-                                fig_delta_brincar.add_trace(go.Scatter(
-                                    x=[inst],
-                                    y=[y_ini],
-                                    mode='markers',
-                                    marker=dict(size=12, color='#424242', line=dict(width=1, color='white')),
-                                    name=periodo_inicial_brincar if i == 0 else None,
-                                    showlegend=(i == 0),
-                                    legendgroup='inicial',
-                                    hovertemplate=f'<b>{inst}</b><br>{periodo_inicial_brincar}: %{{y:{format_info["tickformat"]}}}{format_info["ticksuffix"]}<extra></extra>'
-                                ))
-
-                                # Bolinha do período subsequente
-                                fig_delta_brincar.add_trace(go.Scatter(
-                                    x=[inst],
-                                    y=[y_sub],
-                                    mode='markers',
-                                    marker=dict(size=12, color=cor_sub, line=dict(width=1, color='white')),
-                                    name=periodo_subsequente_brincar if i == 0 else None,
-                                    showlegend=(i == 0),
-                                    legendgroup='subsequente',
-                                    customdata=[[dado['delta_texto'], dado['variacao_texto']]],
-                                    hovertemplate=f'<b>{inst}</b><br>{periodo_subsequente_brincar}: %{{y:{format_info["tickformat"]}}}{format_info["ticksuffix"]}<br>Δ: %{{customdata[0]}}<br>Variação: %{{customdata[1]}}<extra></extra>'
-                                ))
-
-                            titulo_delta_brincar = f"{nome_metrica}: {periodo_inicial_brincar} → {periodo_subsequente_brincar}"
-
-                            fig_delta_brincar.update_layout(
-                                title=dict(
-                                    text=titulo_delta_brincar,
-                                    font=dict(size=16, family='IBM Plex Sans')
-                                ),
-                                height=max(400, len(dados_grafico_brincar) * 25 + 150),
-                                plot_bgcolor='#f8f9fa',
-                                paper_bgcolor='white',
-                                showlegend=True,
-                                legend=dict(
-                                    orientation="h",
-                                    yanchor="bottom",
-                                    y=1.02,
-                                    xanchor="left",
-                                    x=0
-                                ),
-                                xaxis=dict(
-                                    showgrid=False,
-                                    tickangle=45 if len(dados_grafico_brincar) > 10 else 0,
-                                    tickfont=dict(size=10)
-                                ),
-                                yaxis=dict(
-                                    showgrid=True,
-                                    gridcolor='#e0e0e0',
-                                    tickformat=format_info['tickformat'],
-                                    ticksuffix=format_info['ticksuffix'],
-                                    title=nome_metrica
-                                ),
-                                font=dict(family='IBM Plex Sans'),
-                                margin=dict(l=60, r=20, t=80, b=100)
-                            )
-
-                            st.plotly_chart(fig_delta_brincar, width='stretch', config={'displayModeBar': False})
-
-                            # Tabela e exportação
-                            st.markdown("#### Exportar")
-                            df_resumo_brincar = pd.DataFrame(dados_grafico_brincar)
-                            df_resumo_brincar = df_resumo_brincar.rename(columns={
-                                'instituicao': 'Instituição',
-                                'valor_ini': periodo_inicial_brincar,
-                                'valor_sub': periodo_subsequente_brincar,
-                                'delta_texto': 'Delta',
-                                'variacao_texto': 'Variação %'
-                            })
-
-                            # Adiciona componentes da fórmula
-                            componentes = list(set([s['variavel'] for s in steps]))
-                            df_export_delta = df_resumo_brincar[['Instituição', periodo_inicial_brincar, periodo_subsequente_brincar, 'Delta', 'Variação %']].copy()
-
-                            st.dataframe(df_export_delta, width='stretch', hide_index=True)
-
-                            col_excel, col_csv, col_png = st.columns(3)
-                            with col_excel:
-                                buffer_excel = BytesIO()
-                                with pd.ExcelWriter(buffer_excel, engine='xlsxwriter') as writer:
-                                    df_export_delta.to_excel(writer, index=False, sheet_name='deltas')
-                                buffer_excel.seek(0)
-                                st.download_button(
-                                    label="Download Excel",
-                                    data=buffer_excel,
-                                    file_name=f"Brincar_Deltas_{nome_metrica.replace(' ', '_')}_{periodo_inicial_brincar.replace('/', '-')}_{periodo_subsequente_brincar.replace('/', '-')}.xlsx",
-                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                    key="export_excel_delta_brincar",
-                                    use_container_width=True,
-                                )
-                            with col_csv:
-                                csv_data = df_export_delta.to_csv(index=False)
-                                st.download_button(
-                                    label="exportar CSV",
-                                    data=csv_data,
-                                    file_name=f"Brincar_Deltas_{nome_metrica.replace(' ', '_')}_{periodo_inicial_brincar.replace('/', '-')}_{periodo_subsequente_brincar.replace('/', '-')}.csv",
-                                    mime="text/csv",
-                                    key="export_csv_delta_brincar",
-                                    use_container_width=True,
-                                )
-                            with col_png:
-                                png_delta_brincar = _plotly_fig_to_png_bytes(fig_delta_brincar)
-                                if png_delta_brincar:
-                                    st.download_button(
-                                        label="exportar gráfico PNG",
-                                        data=png_delta_brincar,
-                                        file_name=f"Brincar_Deltas_{nome_metrica.replace(' ', '_')}_{periodo_inicial_brincar.replace('/', '-')}_{periodo_subsequente_brincar.replace('/', '-')}.png",
-                                        mime="image/png",
-                                        key="export_png_delta_brincar",
-                                        use_container_width=True,
-                                    )
-                        else:
-                            st.info("sem dados válidos para exibir")
-
-                # ===== RANKING (BARRAS) =====
-                elif tipo_visualizacao == "Ranking (barras)":
-                    st.markdown("---")
-                    col_periodo_rank, col_ordem, col_media = st.columns([2, 1, 1])
-
-                    with col_periodo_rank:
-                        periodo_ranking = st.selectbox(
-                            "período",
-                            periodos_dropdown,
-                            index=_indice_periodo_mais_recente(periodos_dropdown),
-                            key="periodo_ranking_brincar",
-                            format_func=periodo_para_exibicao
-                        )
-
-                    with col_ordem:
-                        ordem_ranking = st.radio(
-                            "ordenação",
-                            ["Maior → Menor", "Menor → Maior"],
-                            horizontal=True,
-                            key="ordem_ranking_brincar"
-                        )
-
-                    with col_media:
-                        mostrar_media = st.checkbox("mostrar média do grupo", value=True, key="mostrar_media_brincar")
-
-                    # Filtrar dados para o período
-                    df_periodo_rank = get_df_periodo_brincar(periodo_ranking).copy()
-                    df_ranking = df_periodo_rank[df_periodo_rank['Instituição'].isin(bancos_selecionados_brincar)].copy()
-
-                    # Calcular métrica derivada
-                    df_ranking['Métrica Derivada'] = calcular_metrica_derivada(df_ranking, steps)
-                    df_ranking = df_ranking.dropna(subset=['Métrica Derivada'])
-
-                    if len(df_ranking) > 0:
-                        # Ordenar
-                        ascending = ordem_ranking == "Menor → Maior"
-                        df_ranking = df_ranking.sort_values('Métrica Derivada', ascending=ascending)
-
-                        # Determinar formato
-                        if formato_resultado == "Percentual (%)":
-                            format_info = {'tickformat': '.2f', 'ticksuffix': '%', 'multiplicador': 100}
-                        elif formato_resultado == "Valor bruto (R$)":
-                            format_info = {'tickformat': ',.0f', 'ticksuffix': 'M', 'multiplicador': 1/1e6}
-                        elif formato_resultado == "Múltiplo (x)":
-                            format_info = {'tickformat': '.2f', 'ticksuffix': 'x', 'multiplicador': 1}
-                        elif formato_resultado == "Auto":
-                            if formula_eh_divisao(steps):
-                                format_info = {'tickformat': '.2f', 'ticksuffix': 'x', 'multiplicador': 1}
-                            else:
-                                format_info = {'tickformat': ',.0f', 'ticksuffix': 'M', 'multiplicador': 1/1e6}
-                        else:
-                            format_info = {'tickformat': '.2f', 'ticksuffix': '', 'multiplicador': 1}
-
-                        # Preparar valores para exibição
-                        df_ranking['valor_display'] = df_ranking['Métrica Derivada'] * format_info['multiplicador']
-
-                        # Cores por instituição
-                        cores = []
-                        cores_plotly = px.colors.qualitative.Plotly
-                        idx_cor = 0
-                        for inst in df_ranking['Instituição']:
-                            cor = obter_cor_banco(inst)
-                            if not cor:
-                                cor = cores_plotly[idx_cor % len(cores_plotly)]
-                                idx_cor += 1
-                            cores.append(cor)
-
-                        fig_ranking = go.Figure()
-
-                        fig_ranking.add_trace(go.Bar(
-                            x=df_ranking['Instituição'],
-                            y=df_ranking['valor_display'],
-                            marker=dict(color=cores, line=dict(width=1, color='white')),
-                            hovertemplate='<b>%{x}</b><br>' + nome_metrica + ': %{y:' + format_info['tickformat'] + '}' + format_info['ticksuffix'] + '<extra></extra>'
-                        ))
-
-                        # Adicionar linha de média
-                        if mostrar_media:
-                            media_valor = df_ranking['valor_display'].mean()
-                            fig_ranking.add_hline(
-                                y=media_valor,
-                                line_dash="dash",
-                                line_color="#FF6B6B",
-                                line_width=2,
-                                annotation_text=f"Média: {media_valor:{format_info['tickformat']}}{format_info['ticksuffix']}",
-                                annotation_position="top right",
-                                annotation_font=dict(color="#FF6B6B", size=12)
-                            )
-
-                        titulo_ranking = f"{nome_metrica} - Ranking {periodo_ranking}"
-
-                        fig_ranking.update_layout(
-                            title=dict(
-                                text=titulo_ranking,
-                                font=dict(size=16, family='IBM Plex Sans')
-                            ),
-                            height=max(400, len(df_ranking) * 25 + 150),
-                            plot_bgcolor='#f8f9fa',
-                            paper_bgcolor='white',
-                            showlegend=False,
-                            xaxis=dict(
-                                showgrid=False,
-                                tickangle=45 if len(df_ranking) > 10 else 0,
-                                tickfont=dict(size=10)
-                            ),
-                            yaxis=dict(
-                                showgrid=True,
-                                gridcolor='#e0e0e0',
-                                tickformat=format_info['tickformat'],
-                                ticksuffix=format_info['ticksuffix'],
-                                title=nome_metrica
-                            ),
-                            font=dict(family='IBM Plex Sans'),
-                            margin=dict(l=60, r=20, t=60, b=100)
-                        )
-
-                        st.plotly_chart(fig_ranking, width='stretch', config={'displayModeBar': False})
-
-                        # Tabela e exportação
-                        st.markdown("#### Exportar")
-                        # Prepara dados para exportação
-                        df_export_rank = df_ranking[['Instituição']].copy()
-                        df_export_rank['Período'] = periodo_ranking
-                        df_export_rank[nome_metrica] = df_ranking['Métrica Derivada']
-
-                        # Adiciona componentes da fórmula
-                        componentes = list(set([s['variavel'] for s in steps]))
-                        for comp in componentes:
-                            if comp in df_ranking.columns:
-                                df_export_rank[comp] = df_ranking[comp].values
-
-                        # Reordena colunas
-                        cols_ordem = ['Período', 'Instituição', nome_metrica] + componentes
-                        df_export_rank = df_export_rank[[c for c in cols_ordem if c in df_export_rank.columns]]
-
-                        st.dataframe(df_export_rank, width='stretch', hide_index=True)
-
-                        col_excel, col_csv = st.columns(2)
-                        with col_excel:
-                            buffer_excel = BytesIO()
-                            with pd.ExcelWriter(buffer_excel, engine='xlsxwriter') as writer:
-                                df_export_rank.to_excel(writer, index=False, sheet_name='ranking')
-                            buffer_excel.seek(0)
-                            st.download_button(
-                                label="Download Excel",
-                                data=buffer_excel,
-                                file_name=f"Brincar_Ranking_{nome_metrica.replace(' ', '_')}_{periodo_ranking.replace('/', '-')}.xlsx",
-                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                key="export_excel_ranking_brincar",
-                                use_container_width=True,
-                            )
-                        with col_csv:
-                            csv_data = df_export_rank.to_csv(index=False)
-                            st.download_button(
-                                label="exportar CSV",
-                                data=csv_data,
-                                file_name=f"Brincar_Ranking_{nome_metrica.replace(' ', '_')}_{periodo_ranking.replace('/', '-')}.csv",
-                                mime="text/csv",
-                                key="export_csv_ranking_brincar",
-                                use_container_width=True,
-                            )
-                    else:
-                        st.warning("sem dados válidos para exibir no ranking")
-
-        elif not st.session_state['brincar_formula_steps']:
-            st.info("construa uma fórmula adicionando variáveis para começar a análise")
-        else:
-            st.info("selecione instituições para comparar")
-
-    else:
-        st.caption("Use o botão de carregamento acima para iniciar a aba de métricas personalizadas.")
 
 elif menu == "Atualizar Base":
     st.markdown("## Atualização Base")
@@ -31569,7 +26405,6 @@ elif menu == "Atualizar Base":
                         st.code(traceback.format_exc())
 
                 elif is_taxas_juros:
-                    from utils.ifdata_cache import TaxasJurosCache
 
                     def callback_progresso_tj(progress, message):
                         progress_bar.progress(min(progress, 1.0))
@@ -32058,276 +26893,6 @@ elif menu == "Atualizar Base":
     elif senha_input:
         st.error("senha incorreta")
 
-elif menu == "Distribuição (Ridgeline)":
-    st.markdown("### distribuição entre instituições ao longo do tempo")
-    st.caption("ridgeline — estimativa de densidade (KDE gaussiana) de uma métrica financeira entre as instituições, por período")
-
-    if _garantir_dados_principais("Distribuição (Ridgeline)"):
-        _metricas_ridge_config = {
-            'ROE Trimestral Anualizado': [
-                'ROE Trim. Anualizado (%)', 'ROE trimestral anualizado (%)', 'ROE Trimestral An. (%)',
-            ],
-            'ROE Acumulado Anualizado': [
-                'ROE Ac. Anualizado (%)', 'ROE Ac. YTD an. (%)',
-            ],
-            'Índice de Basileia Total': [
-                'Índice de Basileia Total (%)', 'Índice de Basileia', 'Índice de Basileia Total',
-            ],
-            'Índice de Capital Principal (CET1)': [
-                'Índice de Capital Principal (CET1)', 'Índice de Capital Principal',
-            ],
-            'Índice de Capital T1': [
-                'Índice de Capital T1 (%)', 'Índice de Capital T1',
-                'Índice de Capital Nível I', 'Índice Capital Nível I',
-            ],
-        }
-
-        _ridge_ctx = _get_rankings_filters_context(
-            _cache_version_token("principal"),
-            _alias_signature_cache_key(),
-        )
-        _ridge_periodos_raw = list(_ridge_ctx.get("periodos_disponiveis", []))
-
-        if not _ridge_periodos_raw:
-            st.warning("nenhum período disponível nos dados atuais.")
-        else:
-            col_m, col_a, col_p = st.columns([2, 1, 1])
-            with col_m:
-                _metrica_ridge_label = st.selectbox(
-                    "métrica",
-                    list(_metricas_ridge_config.keys()),
-                    key="ridge_metrica_v1",
-                )
-            with col_a:
-                _agrup_ridge = st.radio(
-                    "agrupar por",
-                    ["Ano", "Trimestre"],
-                    horizontal=True,
-                    key="ridge_agrupamento_v1",
-                )
-            with col_p:
-                _pool_ridge = st.selectbox(
-                    "pool",
-                    ["Todos", "Top 20", "Top 50"],
-                    key="ridge_pool_v1",
-                )
-
-            _df_ridge = _get_rankings_analytical_df(
-                _cache_version_token("principal"),
-                _alias_signature_cache_key(),
-            )
-
-            if _df_ridge is None or _df_ridge.empty:
-                st.warning("dados não disponíveis.")
-            else:
-                _metrica_col_ridge = next(
-                    (c for c in _metricas_ridge_config[_metrica_ridge_label] if c in _df_ridge.columns),
-                    None,
-                )
-                if _metrica_col_ridge is None:
-                    st.warning(f"coluna para '{_metrica_ridge_label}' não encontrada nos dados.")
-                else:
-                    if _pool_ridge != "Todos":
-                        _top_n_ridge = 20 if _pool_ridge == "Top 20" else 50
-                        _periodo_ref_ridge = ordenar_periodos(_ridge_periodos_raw, reverso=True)[0]
-                        _df_ref_ridge = _df_ridge[_df_ridge['Período'] == _periodo_ref_ridge]
-                        _bancos_ridge = _obter_top_instituicoes_por_ativo(_df_ref_ridge, _top_n_ridge)
-                        _df_ridge = _df_ridge[_df_ridge['Instituição'].isin(_bancos_ridge)]
-
-                    _df_r = _df_ridge[['Período', 'Instituição', _metrica_col_ridge]].copy()
-                    _df_r[_metrica_col_ridge] = pd.to_numeric(_df_r[_metrica_col_ridge], errors='coerce')
-                    _df_r[_metrica_col_ridge] = _calcular_valores_display(
-                        _df_r[_metrica_col_ridge],
-                        _metrica_col_ridge,
-                        get_axis_format(_metrica_col_ridge),
-                    )
-
-                    if _agrup_ridge == "Ano":
-                        _df_r['_grupo'] = _df_r['Período'].apply(
-                            lambda p: str(p).split('/')[-1].strip() if '/' in str(p) else str(p)
-                        )
-                    else:
-                        _df_r['_grupo'] = _df_r['Período']
-
-                    def _sort_key_grupo_ridge(g):
-                        if str(g).isdigit():
-                            return (int(g), 0)
-                        try:
-                            parts = str(g).split('/')
-                            return (int(parts[-1]), int(parts[0]))
-                        except Exception:
-                            return (0, 0)
-
-                    _grupos_ridge = sorted(
-                        _df_r['_grupo'].dropna().unique(),
-                        key=_sort_key_grupo_ridge,
-                    )
-
-                    _all_vals_ridge = _df_r[_metrica_col_ridge].dropna()
-                    if _all_vals_ridge.empty or len(_grupos_ridge) < 2:
-                        st.warning("dados insuficientes para o ridgeline.")
-                    else:
-                        _q01_r = float(_all_vals_ridge.quantile(0.01))
-                        _q99_r = float(_all_vals_ridge.quantile(0.99))
-                        _span_r = _q99_r - _q01_r or 1.0
-                        _x_min_r = _q01_r - _span_r * 0.15
-                        _x_max_r = _q99_r + _span_r * 0.15
-                        _x_grid_r = np.linspace(_x_min_r, _x_max_r, 300)
-
-                        def _kde_ridge(values):
-                            x = np.asarray(values, dtype=float)
-                            x = x[~np.isnan(x) & (x > _q01_r - _span_r) & (x < _q99_r + _span_r)]
-                            n = len(x)
-                            if n < 5:
-                                return None
-                            std = float(np.std(x, ddof=1))
-                            if std < 1e-10:
-                                return None
-                            h = 1.06 * std * n ** (-0.2)
-                            diff = (_x_grid_r[:, None] - x[None, :]) / h
-                            kde = np.sum(np.exp(-0.5 * diff ** 2), axis=1) / (n * h * np.sqrt(2 * np.pi))
-                            return kde
-
-                        _ridge_rows = []
-                        for _g in _grupos_ridge:
-                            _vals = _df_r[_df_r['_grupo'] == _g][_metrica_col_ridge].dropna().values
-                            _k = _kde_ridge(_vals)
-                            if _k is not None:
-                                _lbl = periodo_para_exibicao(_g) if _agrup_ridge == "Trimestre" else str(_g)
-                                _ridge_rows.append({
-                                    'grupo': _g,
-                                    'label': _lbl,
-                                    'kde': _k,
-                                    'median': float(np.median(_vals)),
-                                    'n': len(_vals),
-                                })
-
-                        if not _ridge_rows:
-                            st.warning("dados insuficientes para gerar as curvas.")
-                        else:
-                            _n_r = len(_ridge_rows)
-                            _color_stops_r = [
-                                (0.0,  (22,  46,  95)),
-                                (0.35, (32,  110, 170)),
-                                (0.65, (100, 175, 130)),
-                                (0.82, (210, 165,  50)),
-                                (1.0,  (205,  75,  35)),
-                            ]
-
-                            def _ridge_color(t, alpha=0.82):
-                                t = max(0.0, min(1.0, t))
-                                for _ci in range(len(_color_stops_r) - 1):
-                                    t0, c0 = _color_stops_r[_ci]
-                                    t1, c1 = _color_stops_r[_ci + 1]
-                                    if t <= t1:
-                                        frac = (t - t0) / (t1 - t0)
-                                        rv = int(c0[0] + frac * (c1[0] - c0[0]))
-                                        gv = int(c0[1] + frac * (c1[1] - c0[1]))
-                                        bv = int(c0[2] + frac * (c1[2] - c0[2]))
-                                        return f"rgba({rv},{gv},{bv},{alpha})"
-                                rv, gv, bv = _color_stops_r[-1][1]
-                                return f"rgba({rv},{gv},{bv},{alpha})"
-
-                            _row_h = 1.0
-                            _scale_r = _row_h * 0.88
-                            _is_pct_ridge = _is_variavel_percentual(_metrica_col_ridge)
-
-                            fig_ridge = go.Figure()
-
-                            for _i, _rd in enumerate(_ridge_rows):
-                                # oldest at top (high y), newest at bottom (y=0)
-                                _y_base_r = float(_n_r - 1 - _i) * _row_h
-                                _t_color = _i / max(_n_r - 1, 1)
-                                _fill_col = _ridge_color(_t_color, alpha=0.82)
-                                _line_col = _ridge_color(_t_color, alpha=1.0)
-
-                                _kde_norm = _rd['kde'] / (_rd['kde'].max() or 1.0)
-                                _kde_pad = np.concatenate([[0.0], _kde_norm, [0.0]])
-                                _xpad = np.concatenate([[_x_grid_r[0]], _x_grid_r, [_x_grid_r[-1]]])
-                                _y_curve = _y_base_r + _kde_pad * _scale_r
-
-                                _xs_poly = np.concatenate([_xpad, _xpad[::-1]])
-                                _ys_poly = np.concatenate([_y_curve, np.full(len(_xpad), _y_base_r)])
-
-                                fig_ridge.add_trace(go.Scatter(
-                                    x=_xs_poly.tolist(),
-                                    y=_ys_poly.tolist(),
-                                    fill='toself',
-                                    fillcolor=_fill_col,
-                                    line=dict(width=0.8, color=_line_col),
-                                    mode='lines',
-                                    name=_rd['label'],
-                                    showlegend=False,
-                                    hovertemplate=(
-                                        f"<b>{_rd['label']}</b><br>n = {_rd['n']} inst.<extra></extra>"
-                                    ),
-                                ))
-
-                                _med_r = _rd['median']
-                                if _x_min_r <= _med_r <= _x_max_r:
-                                    _kde_at_med = float(np.interp(_med_r, _x_grid_r, _kde_norm))
-                                    _y_med_r = _y_base_r + _kde_at_med * _scale_r
-                                    _med_txt = f"{_med_r:.1f}%" if _is_pct_ridge else f"{_med_r:.2f}"
-                                    fig_ridge.add_trace(go.Scatter(
-                                        x=[_med_r],
-                                        y=[_y_med_r],
-                                        mode='markers',
-                                        marker=dict(
-                                            symbol='triangle-up',
-                                            size=7,
-                                            color='white',
-                                            line=dict(color='rgba(0,0,0,0.5)', width=1),
-                                        ),
-                                        showlegend=False,
-                                        hovertemplate=(
-                                            f"mediana {_rd['label']}: {_med_txt}<extra></extra>"
-                                        ),
-                                    ))
-
-                            _ytick_vals = [
-                                float(_n_r - 1 - _i) * _row_h + _scale_r * 0.35
-                                for _i in range(_n_r)
-                            ]
-                            _ytick_labels = [_rd['label'] for _rd in _ridge_rows]
-                            _x_suffix = "%" if _is_pct_ridge else ""
-
-                            fig_ridge.update_layout(
-                                height=max(420, 38 * _n_r),
-                                yaxis=dict(
-                                    tickvals=_ytick_vals,
-                                    ticktext=_ytick_labels,
-                                    showgrid=False,
-                                    zeroline=False,
-                                    range=[-_row_h * 0.3, _n_r * _row_h + _scale_r * 0.1],
-                                    tickfont=dict(size=11),
-                                ),
-                                xaxis=dict(
-                                    title=_metrica_ridge_label,
-                                    ticksuffix=_x_suffix,
-                                    showgrid=True,
-                                    gridcolor='rgba(0,0,0,0.07)',
-                                    zeroline=True,
-                                    zerolinecolor='rgba(0,0,0,0.15)',
-                                    zerolinewidth=1,
-                                ),
-                                margin=dict(l=85, r=30, t=30, b=55),
-                                plot_bgcolor='white',
-                                paper_bgcolor='white',
-                                showlegend=False,
-                            )
-
-                            _titulo_pool_r = f" — {_pool_ridge}" if _pool_ridge != "Todos" else ""
-                            _titulo_agrup_r = "por ano" if _agrup_ridge == "Ano" else "por trimestre"
-                            st.caption(
-                                f"**{_metrica_ridge_label}** — {_titulo_agrup_r}{_titulo_pool_r} · "
-                                f"{_n_r} {'anos' if _agrup_ridge == 'Ano' else 'trimestres'} · "
-                                f"triângulo branco = mediana · KDE gaussiana (Silverman)"
-                            )
-                            st.plotly_chart(fig_ridge, use_container_width=True)
-    else:
-        st.info("carregando dados automaticamente do github...")
-        st.markdown("por favor, aguarde alguns segundos e recarregue a página")
-
 elif menu == "Glossário":
     st.markdown("## Mapeamento de cachês por aba")
     _map_rows = []
@@ -32376,7 +26941,6 @@ elif menu == "Glossário":
         st.markdown("""
         - **Taxas de Juros por Produto:** consome preferencialmente um cache histórico consolidado e usa a última observação disponível de cada mês para a visão mensal; a série diária mostra os últimos 3 meses ancorados na data mais recente da base.
         - **Contas COSIF:** lê o BLOPRUDENCIAL mensal e reconstrói saldo, trimestre ou acumulado semestral conforme a natureza da conta COSIF e a competência escolhida.
-        - **Modelo de Rating:** usa o cache curado `critical_screens` para os fatores quantitativos e entrada manual para as seis perguntas qualitativas; o fator de qualidade da carteira segue uma hierarquia por período entre Rel. 16 e proxy histórica calibrada.
         - **Balanço, DRE e DMPL (Ind.):** consulta o documento 9011 ao vivo; por isso, a disponibilidade depende do JSON retornado pelo Banco Central para a instituição e competência escolhidas.
         - **Meios de Pagamento (SPB):** lê o cache `spb_meios_pagamento` (serviço Olinda `MPV_DadosAbertos`), atualizado manualmente pela aba "Atualizar Base" ou pelo CLI; cada um dos 12 datasets é baixado em uma única chamada (filtro de período cumulativo do BCB), sem backfill incremental por trimestre.
         """)
@@ -32388,7 +26952,7 @@ elif menu == "Glossário":
             st.dataframe(pd.DataFrame(linhas, columns=_cols_gloss), width="stretch", hide_index=True)
 
     _render_secao_glossario("1) Capital e Regulação", [
-        {"Indicador": "Índice de Capital Principal (CET1)", "Aba(s)": "Snapshot, Peers (Tabela), Evolução, Rankings, Glossário, Modelo de Rating", "Fonte": "IFData Rel.5", "Fórmula": "Capital Principal ÷ RWA Total", "Unidade": "%", "Interpretação": "Folga de capital de maior qualidade frente ao risco ponderado.", "Limitação": "Pode variar por mudanças regulatórias/metodológicas.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Índice de Capital Principal (CET1)", "Aba(s)": "Snapshot, Peers (Tabela), Evolução, Rankings, Glossário", "Fonte": "IFData Rel.5", "Fórmula": "Capital Principal ÷ RWA Total", "Unidade": "%", "Interpretação": "Folga de capital de maior qualidade frente ao risco ponderado.", "Limitação": "Pode variar por mudanças regulatórias/metodológicas.", "Periodicidade": "Trimestral"},
         {"Indicador": "Índice de Capital Nível I", "Aba(s)": "Glossário", "Fonte": "IFData Rel.5", "Fórmula": "PR Nível I ÷ RWA Total", "Unidade": "%", "Interpretação": "Cobertura de risco por capital Nível I.", "Limitação": "Não resume liquidez nem concentração de risco.", "Periodicidade": "Trimestral"},
         {"Indicador": "Índice de Basileia", "Aba(s)": "Snapshot, Peers (Tabela), Evolução, Rankings, Glossário", "Fonte": "IFData Rel.5", "Fórmula": "Patrimônio de Referência ÷ RWA Total", "Unidade": "%", "Interpretação": "Nível total de capital regulatório sobre risco ponderado.", "Limitação": "Comparação histórica depende de contexto normativo.", "Periodicidade": "Trimestral"},
         {"Indicador": "Razão de Alavancagem", "Aba(s)": "Glossário", "Fonte": "IFData Rel.5", "Fórmula": "PR Nível I ÷ Exposição Total", "Unidade": "%", "Interpretação": "Capital Nível I sobre exposição não ponderada.", "Limitação": "Não pondera risco dos ativos.", "Periodicidade": "Trimestral"},
@@ -32397,17 +26961,17 @@ elif menu == "Glossário":
     ])
 
     _render_secao_glossario("2) Balanço e Funding", [
-        {"Indicador": "Ativo Total", "Aba(s)": "Snapshot, Peers (Tabela), Evolução, Glossário, Modelo de Rating", "Fonte": "IFData Rel.1", "Fórmula": "Valor reportado", "Unidade": "R$", "Interpretação": "Tamanho total do balanço.", "Limitação": "Tamanho não implica qualidade dos ativos.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Ativo Total", "Aba(s)": "Snapshot, Peers (Tabela), Evolução, Glossário", "Fonte": "IFData Rel.1", "Fórmula": "Valor reportado", "Unidade": "R$", "Interpretação": "Tamanho total do balanço.", "Limitação": "Tamanho não implica qualidade dos ativos.", "Periodicidade": "Trimestral"},
         {"Indicador": "Ativos Líquidos", "Aba(s)": "Snapshot, Peers (Tabela), Glossário", "Fonte": "IFData Rel.2", "Fórmula": "Disponibilidades (a) + AIL (b) + TVM (c)", "Unidade": "R$", "Interpretação": "Aproximação de ativos de maior liquidez.", "Limitação": "Não substitui métricas regulatórias de liquidez.", "Periodicidade": "Trimestral"},
-        {"Indicador": "Carteira de Crédito Bruta", "Aba(s)": "Snapshot, Peers (Tabela), Evolução, Glossário, Modelo de Rating", "Fonte": "IFData Rel.2", "Fórmula": "Até 2024: d1+e1+f; 2025+: e1+f1+g1+h1", "Unidade": "R$", "Interpretação": "Volume bruto de exposição em crédito.", "Limitação": "Quebra metodológica entre janelas históricas.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Carteira de Crédito Bruta", "Aba(s)": "Snapshot, Peers (Tabela), Evolução, Glossário", "Fonte": "IFData Rel.2", "Fórmula": "Até 2024: d1+e1+f; 2025+: e1+f1+g1+h1", "Unidade": "R$", "Interpretação": "Volume bruto de exposição em crédito.", "Limitação": "Quebra metodológica entre janelas históricas.", "Periodicidade": "Trimestral"},
         {"Indicador": "Carteira de Crédito* (Peers)", "Aba(s)": "Peers (Tabela), Evolução", "Fonte": "IFData Rel.2", "Fórmula": "Alias visual da Carteira de Crédito Bruta", "Unidade": "R$", "Interpretação": "Nome contextual de UI para o mesmo conceito canônico.", "Limitação": "Asterisco é convenção local da aba; quando a regra canônica do período fica incompleta, a UI marca explicitamente o fallback líquido e+f+g+h.", "Periodicidade": "Trimestral"},
         {"Indicador": "Depósitos Totais", "Aba(s)": "Snapshot, Peers (Tabela), Glossário", "Fonte": "IFData Rel.3", "Fórmula": "Prioriza linha agregada oficial por linha; fallback para soma a1..a6 só sem agregado oficial", "Unidade": "R$", "Interpretação": "Principal bloco de funding bancário tradicional.", "Limitação": "Rótulo do agregado muda ao longo da série; fallback não equivale a dado oficial publicado.", "Periodicidade": "Trimestral"},
-        {"Indicador": "Core Funding", "Aba(s)": "Snapshot, Peers (Tabela), Evolução, Glossário, Modelo de Rating", "Fonte": "IFData Rel.3", "Fórmula": "Até 2024: Captações (e); 2025+: (e)+(h)", "Unidade": "R$", "Interpretação": "Base estrutural de captação para métricas de funding.", "Limitação": "Mudança de escopo em 2025; após essa data, o indicador só é exibido quando Captações (e) e Instrumentos (h) estiverem disponíveis.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Core Funding", "Aba(s)": "Snapshot, Peers (Tabela), Evolução, Glossário", "Fonte": "IFData Rel.3", "Fórmula": "Até 2024: Captações (e); 2025+: (e)+(h)", "Unidade": "R$", "Interpretação": "Base estrutural de captação para métricas de funding.", "Limitação": "Mudança de escopo em 2025; após essa data, o indicador só é exibido quando Captações (e) e Instrumentos (h) estiverem disponíveis.", "Periodicidade": "Trimestral"},
         {"Indicador": "Patrimônio Líquido (PL)", "Aba(s)": "Snapshot, Peers (Tabela), Evolução, DRE (Ind. e Congl.), Glossário", "Fonte": "IFData Rel.1", "Fórmula": "Valor reportado", "Unidade": "R$", "Interpretação": "Base patrimonial para rentabilidade e alavancagem.", "Limitação": "Pode refletir eventos contábeis pontuais.", "Periodicidade": "Trimestral"},
     ])
 
     _render_secao_glossario("3) Rentabilidade e Eficiência", [
-        {"Indicador": "ROE Ac. Anualizado (%)", "Aba(s)": "Snapshot, Peers (Tabela), Evolução, Glossário, Modelo de Rating", "Fonte": "IFData Rel.1", "Fórmula": "(LL YTD × fator de anualização) ÷ PL médio", "Unidade": "%", "Interpretação": "Retorno sobre PL com base acumulada anualizada.", "Limitação": "Sensível a sazonalidade e mês de referência.", "Periodicidade": "Trimestral (YTD)"},
+        {"Indicador": "ROE Ac. Anualizado (%)", "Aba(s)": "Snapshot, Peers (Tabela), Evolução, Glossário", "Fonte": "IFData Rel.1", "Fórmula": "(LL YTD × fator de anualização) ÷ PL médio", "Unidade": "%", "Interpretação": "Retorno sobre PL com base acumulada anualizada.", "Limitação": "Sensível a sazonalidade e mês de referência.", "Periodicidade": "Trimestral (YTD)"},
         {"Indicador": "ROE Trim. Anualizado (%)", "Aba(s)": "Rankings, Glossário", "Fonte": "IFData Rel.1", "Fórmula": "(Lucro trimestral × 4) ÷ PL médio", "Unidade": "%", "Interpretação": "Proxy anualizada do trimestre corrente.", "Limitação": "Mais volátil que o ROE acumulado.", "Periodicidade": "Trimestral"},
         {"Indicador": "Lucro Líquido Acumulado YTD", "Aba(s)": "Snapshot, Peers (Tabela), Evolução, Glossário", "Fonte": "IFData Rel.1/4", "Fórmula": "Resultado líquido acumulado no ano", "Unidade": "R$", "Interpretação": "Contribuição de resultado até a data-base.", "Limitação": "Não é lucro run-rate do trimestre isolado.", "Periodicidade": "Trimestral (acumulado)"},
         {"Indicador": "Desp PDD / Resultado Intermediação Fin. Bruto (%)", "Aba(s)": "DRE (Ind. e Congl.), Glossário", "Fonte": "IFData Rel.4", "Fórmula": "Desp. PDD ÷ Resultado Interm. Fin. Bruto", "Unidade": "%", "Interpretação": "Pressão de provisões sobre resultado de intermediação.", "Limitação": "Pode distorcer com denominador muito baixo.", "Periodicidade": "Trimestral/YTD"},
@@ -32415,10 +26979,9 @@ elif menu == "Glossário":
     ])
 
     _render_secao_glossario("4) Qualidade de Carteira", [
-        {"Indicador": "Perda Esperada", "Aba(s)": "Snapshot, Peers (Tabela), Glossário, Modelo de Rating", "Fonte": "IFData Rel.2", "Fórmula": "Soma das parcelas de perda esperada/ajustes e,f,g,h", "Unidade": "R$", "Interpretação": "Montante contábil de perdas esperadas no recorte.", "Limitação": "Depende de premissas/modelos contábeis.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Perda Esperada", "Aba(s)": "Snapshot, Peers (Tabela), Glossário", "Fonte": "IFData Rel.2", "Fórmula": "Soma das parcelas de perda esperada/ajustes e,f,g,h", "Unidade": "R$", "Interpretação": "Montante contábil de perdas esperadas no recorte.", "Limitação": "Depende de premissas/modelos contábeis.", "Periodicidade": "Trimestral"},
         {"Indicador": "Ativos Estágio 2", "Aba(s)": "Snapshot, Peers (Tabela), Glossário", "Fonte": "Cadoc 4060", "Fórmula": "Conta 3312000001", "Unidade": "R$", "Interpretação": "Estoque de ativos em estágio 2.", "Limitação": "Pode ficar estruturalmente indisponível em parte da série mensal ou sem match prudencial confiável.", "Periodicidade": "Mensal/Trimestral"},
         {"Indicador": "Ativos Estágio 3", "Aba(s)": "Snapshot, Peers (Tabela), Glossário", "Fonte": "Cadoc 4060", "Fórmula": "Conta 3313000000", "Unidade": "R$", "Interpretação": "Estoque de ativos em estágio 3.", "Limitação": "Pode ficar estruturalmente indisponível em parte da série mensal ou sem match prudencial confiável.", "Periodicidade": "Mensal/Trimestral"},
-        {"Indicador": "Qualidade da Carteira (fator do rating)", "Aba(s)": "Modelo de Rating, Glossário", "Fonte": "Rel. 16 (Carteira 4.966) + proxy calibrada de transição", "Fórmula": "4T/2025+: Inadimplência ÷ Carteira Total; mar/25-jun/25-set/25: proxy |Perda Esperada ÷ Carteira de Crédito Bruta|; até 2024: o ideal conceitual seria D-H ÷ Carteira, mas o fator permanece indisponível enquanto essa série não estiver integrada", "Unidade": "%", "Interpretação": "Indicador de deterioração da carteira usado como fator quantitativo no rating.", "Limitação": "Mistura fonte exata e proxy apenas na transição de 2025; até 2024 o rating pode ficar incompleto por ausência da série histórica ideal.", "Periodicidade": "Trimestral"},
         {"Indicador": "Ativos Estágio 3 / Carteira de Crédito (%)", "Aba(s)": "Peers (Tabela), Glossário", "Fonte": "Cadoc 4060 + IFData Rel.2", "Fórmula": "Ativos Estágio 3 ÷ Carteira de Crédito Bruta", "Unidade": "%", "Interpretação": "Peso dos ativos em estágio 3 sobre a carteira.", "Limitação": "Exige estágio 3 publicado e match prudencial confiável.", "Periodicidade": "Mensal/Trimestral"},
         {"Indicador": "Inadimplência", "Aba(s)": "Peers (Tabela), Glossário", "Fonte": "IFData Rel.16", "Fórmula": "Linha Inadimplência da Carteira 4.966", "Unidade": "R$", "Interpretação": "Estoque de inadimplência informado por carteira de instrumentos financeiros.", "Limitação": "Série depende da disponibilidade do Rel.16 por período/instituição.", "Periodicidade": "Trimestral"},
         {"Indicador": "Inadimplência / Carteira de Crédito (%)", "Aba(s)": "Peers (Tabela), Glossário", "Fonte": "IFData Rel.16 + Rel.2", "Fórmula": "Inadimplência ÷ Carteira de Crédito Bruta", "Unidade": "%", "Interpretação": "Inadimplência relativa ao estoque de crédito.", "Limitação": "Combina carteira do Rel.2 com inadimplência do Rel.16.", "Periodicidade": "Trimestral"},
@@ -32429,7 +26992,7 @@ elif menu == "Glossário":
     _render_secao_glossario("5) Alavancagem e Relações de Estrutura", [
         {"Indicador": "Ativo Total / PL", "Aba(s)": "Snapshot, Peers (Tabela), Glossário", "Fonte": "IFData Rel.1", "Fórmula": "Ativo Total ÷ Patrimônio Líquido", "Unidade": "x", "Interpretação": "Grau de alavancagem contábil do balanço.", "Limitação": "Não pondera o risco dos ativos.", "Periodicidade": "Trimestral"},
         {"Indicador": "Carteira de Crédito Bruta / PL", "Aba(s)": "Snapshot, Peers (Tabela), Evolução, Glossário", "Fonte": "IFData Rel.2 + Rel.1", "Fórmula": "Carteira de Crédito Bruta ÷ PL", "Unidade": "x", "Interpretação": "Intensidade de crédito sobre base patrimonial.", "Limitação": "Comparabilidade histórica afetada pela mudança de base em 2025.", "Periodicidade": "Trimestral"},
-        {"Indicador": "Crédito / Captações (%)", "Aba(s)": "Snapshot, Evolução, Modelo de Rating, Glossário", "Fonte": "IFData Rel.2 + Rel.3", "Fórmula": "Carteira de Crédito Bruta ÷ Core Funding", "Unidade": "%", "Interpretação": "Pressão do crédito sobre a base estrutural de funding.", "Limitação": "Sensível à mudança de escopo do Core Funding em 2025 e fica indisponível quando o funding pós-2025 estiver incompleto. Na Snapshot, QoQ e YoY comparam o valor trimestral de fechamento, não um acumulado YTD.", "Periodicidade": "Trimestral (point-in-time)"},
+        {"Indicador": "Crédito / Captações (%)", "Aba(s)": "Snapshot, Evolução, Glossário", "Fonte": "IFData Rel.2 + Rel.3", "Fórmula": "Carteira de Crédito Bruta ÷ Core Funding", "Unidade": "%", "Interpretação": "Pressão do crédito sobre a base estrutural de funding.", "Limitação": "Sensível à mudança de escopo do Core Funding em 2025 e fica indisponível quando o funding pós-2025 estiver incompleto. Na Snapshot, QoQ e YoY comparam o valor trimestral de fechamento, não um acumulado YTD.", "Periodicidade": "Trimestral (point-in-time)"},
         {"Indicador": "Perda Esperada / Carteira de Crédito Bruta (%)", "Aba(s)": "Snapshot, Peers (Tabela), Glossário", "Fonte": "IFData Rel.2", "Fórmula": "Perda Esperada ÷ Carteira de Crédito Bruta", "Unidade": "%", "Interpretação": "Nível relativo de perdas esperadas sobre o estoque de crédito.", "Limitação": "Não captura composição por segmento/produto.", "Periodicidade": "Trimestral"},
     ])
 
@@ -32440,8 +27003,6 @@ elif menu == "Glossário":
         {"Indicador": "Conta COSIF", "Aba(s)": "Contas COSIF, Glossário", "Fonte": "BLOPRUDENCIAL mensal", "Fórmula": "Código contábil selecionado no dropdown", "Unidade": "Conta", "Interpretação": "Define a linha contábil usada para construir o ranking mensal.", "Limitação": "A nomenclatura pode variar por período; o app privilegia o código COSIF como chave.", "Periodicidade": "Mensal"},
         {"Indicador": "Valor Calculado", "Aba(s)": "Contas COSIF, Glossário", "Fonte": "BLOPRUDENCIAL mensal", "Fórmula": "Saldo do período, trimestre isolado ou acumulado semestral, conforme a regra aplicável à conta", "Unidade": "R$", "Interpretação": "Valor efetivamente comparado entre instituições no ranking.", "Limitação": "Instituições sem base necessária são excluídas do cálculo.", "Periodicidade": "Mensal / trimestral / semestral reconstruído"},
         {"Indicador": "Valor Calculado (abs)", "Aba(s)": "Contas COSIF, Glossário", "Fonte": "Derivação local sobre o valor calculado", "Fórmula": "abs(Valor Calculado)", "Unidade": "R$", "Interpretação": "Usado apenas para ordenar e medir participação no total exibido.", "Limitação": "Não substitui o sinal econômico do valor original.", "Periodicidade": "Mesmo período do Valor Calculado"},
-        {"Indicador": "Score bruto", "Aba(s)": "Modelo de Rating, Glossário", "Fonte": "Engine local do modelo", "Fórmula": "Score inicial + impactos quantitativos + impactos qualitativos antes do arredondamento final", "Unidade": "Pontos", "Interpretação": "Mostra a nota contínua antes do arredondamento para a escala final.", "Limitação": "É medida interna do modelo experimental, não métrica regulatória.", "Periodicidade": "Trimestral + input qualitativo do usuário"},
-        {"Indicador": "Score Final (1-25)", "Aba(s)": "Modelo de Rating, Glossário", "Fonte": "Engine local do modelo", "Fórmula": "Arredondamento do score bruto, limitado ao intervalo de 1 a 25", "Unidade": "Nota", "Interpretação": "Saída sintética do modelo experimental para fins comparativos internos.", "Limitação": "Não é rating oficial de agência nem parâmetro regulatório do BCB.", "Periodicidade": "Trimestral + input qualitativo do usuário"},
         {"Indicador": "Ref. Info Contábil A/S", "Aba(s)": "Balanço, DRE e DMPL (Ind.), Glossário", "Fonte": "Documento 9011 JSON", "Fórmula": "A = acumulado; S = semestre", "Unidade": "Tipo de referência", "Interpretação": "Define quais colunas internas do documento 9011 serão exibidas para comparação.", "Limitação": "A disponibilidade depende do conteúdo efetivamente retornado no documento escolhido.", "Periodicidade": "Por documento / competência"},
     ])
 

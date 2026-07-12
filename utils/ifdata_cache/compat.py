@@ -6,7 +6,6 @@ para facilitar migracao gradual sem quebrar codigo existente.
 """
 
 import logging
-from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from .manager import CacheManager
@@ -149,7 +148,7 @@ def baixar_cache_capital_inicial() -> Tuple[bool, str]:
 def carregar_cache_capital() -> Optional[Dict[str, Any]]:
     """Carrega cache de capital no formato antigo {periodo: DataFrame}.
 
-    Compativel com: capital_extractor.py carregar_cache_capital()
+    Compatibilidade com a API legada de carregamento do cache de capital.
 
     Returns:
         Dicionario {periodo: DataFrame} ou None
@@ -166,7 +165,7 @@ def salvar_cache_capital(
 ) -> Dict[str, Any]:
     """Salva cache de capital no formato antigo.
 
-    Compativel com: capital_extractor.py salvar_cache_capital()
+    Compatibilidade com a API legada de salvamento do cache de capital.
 
     Returns:
         Dicionario com informacoes do cache salvo
@@ -205,7 +204,7 @@ def gerar_periodos_capital(
 ) -> List[str]:
     """Gera lista de periodos trimestrais.
 
-    Compativel com: capital_extractor.py gerar_periodos_capital()
+    Compatibilidade com a API legada de geração de períodos de capital.
     """
     return gerar_periodos_trimestrais(
         ano_ini, int(mes_ini),
@@ -222,7 +221,7 @@ def processar_todos_periodos_capital(
 ) -> Optional[Dict[str, Any]]:
     """Processa multiplos periodos de capital.
 
-    Compativel com: capital_extractor.py processar_todos_periodos_capital()
+    Compatibilidade com a API legada de processamento do cache de capital.
     """
     manager = _get_manager()
     cache = manager.get_cache("capital")
@@ -256,7 +255,7 @@ def processar_todos_periodos_capital(
 def get_capital_cache_info() -> Dict[str, Any]:
     """Retorna informacoes do cache de capital.
 
-    Compativel com: capital_extractor.py get_capital_cache_info()
+    Compatibilidade com a API legada de informações do cache de capital.
     """
     manager = _get_manager()
     info = manager.info("capital")
@@ -274,7 +273,7 @@ def get_capital_cache_info() -> Dict[str, Any]:
 def get_campos_capital_info() -> Dict[str, str]:
     """Retorna mapeamento de campos de capital.
 
-    Compativel com: capital_extractor.py get_campos_capital_info()
+    Compatibilidade com a API legada do mapeamento de campos de capital.
     """
     return CAMPOS_CAPITAL.copy()
 
@@ -282,7 +281,7 @@ def get_campos_capital_info() -> Dict[str, str]:
 def ler_info_cache_capital() -> Optional[str]:
     """Le informacoes do cache de capital como string.
 
-    Compativel com: capital_extractor.py ler_info_cache_capital()
+    Compatibilidade com a API legada de leitura dos metadados de capital.
 
     Returns:
         String com informacoes ou None se cache nao existir

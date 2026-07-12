@@ -4,7 +4,7 @@ Gera o tracker MVP do TomaConta em Excel — pronto para importar no Google Shee
 
 import openpyxl
 from openpyxl.styles import (
-    PatternFill, Font, Alignment, Border, Side, GradientFill
+    PatternFill, Font, Alignment, Border, Side
 )
 from openpyxl.utils import get_column_letter
 

@@ -24,25 +24,11 @@ def _assigned_list_strings(tree: ast.AST, name: str) -> set[str]:
     return set()
 
 
-def _function_string_literals(tree: ast.AST, name: str) -> set[str]:
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == name:
-            return {child.value for child in ast.walk(node) if isinstance(child, ast.Constant) and isinstance(child.value, str)}
-    return set()
-
-
 def test_rankings_t1_is_classified_as_percentual_metric():
     strings = _assigned_list_strings(_app_tree(), "VARS_PERCENTUAL")
     assert "Índice de Capital T1 (%)" in strings
     assert "Índice de Capital T1" in strings
     assert "Índice de Capital Nível I" in strings
-
-
-def test_rankings_t1_delta_uses_bps_like_other_capital_indexes():
-    strings = _function_string_literals(_app_tree(), "_delta_percentual_em_bps")
-    assert "Índice de Capital T1 (%)" in strings
-    assert "Índice de Capital T1" in strings
-
 
 def test_rankings_delta_history_has_available_periods_alias():
     source = _app_source()

@@ -21,9 +21,8 @@ IMPORTANTE: Este extrator produz dados no formato exato que os gráficos esperam
 """
 
 import logging
-import re
 import time
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional
 
 import pandas as pd
 import requests

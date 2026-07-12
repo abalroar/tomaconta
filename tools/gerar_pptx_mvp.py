@@ -5,12 +5,9 @@ Fonte: Calibri
 """
 
 from pptx import Presentation
-from pptx.util import Inches, Pt, Emu
+from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN
-from pptx.util import Cm
-import pptx.oxml.ns as nsmap
-from lxml import etree
 
 OUTPUT = "TomaConta_MVP_Status.pptx"
 
@@ -50,13 +47,9 @@ prs.slide_height = H
 blank_layout = prs.slide_layouts[6]  # completely blank
 
 
-def rgb_hex(r):
-    return "{:02X}{:02X}{:02X}".format(r[0], r[1], r[2])
-
-
 def add_rect(slide, x, y, w, h, fill=None, line=None):
     shape = slide.shapes.add_shape(
-        pptx.enum.shapes.MSO_SHAPE_TYPE.AUTO_SHAPE if False else 1,
+        pptx.enum.shapes.MSO_SHAPE_TYPE.AUTO_SHAPE,
         x, y, w, h
     )
     shape.line.fill.background()

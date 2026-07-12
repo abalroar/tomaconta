@@ -204,11 +204,3 @@ def test_denominador_zero_nan():
     assert pd.isna(valor_capt)
     assert stats.denominador_zero_ou_nan["Desp PDD / Resultado Intermediação Fin. Bruto"] == 1
     assert stats.denominador_zero_ou_nan["Desp Captação / Captação"] == 1
-
-
-if __name__ == "__main__":
-    test_metricas_derivadas_basico()
-    test_anualizacao_desp_captacao()
-    test_pdd_set_dez_acumulado_e_anualizado_nas_metricas()
-    test_denominador_zero_nan()
-    print("OK")

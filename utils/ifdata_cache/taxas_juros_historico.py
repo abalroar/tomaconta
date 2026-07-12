@@ -14,7 +14,7 @@ import shutil
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 from urllib.parse import quote, urlencode
 
 import pandas as pd
@@ -692,14 +692,6 @@ class TaxasJurosHistoricoCache(BaseCache):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
 
-    def _load_json(self, path: Path) -> Dict[str, Any]:
-        if not path.exists():
-            return {}
-        try:
-            return json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            return {}
-
     def _window_path(self, inicio_periodo: str) -> Path:
         ano = str(inicio_periodo)[:4]
         return self.window_dir / ano / f"{inicio_periodo}.parquet"
@@ -718,9 +710,6 @@ class TaxasJurosHistoricoCache(BaseCache):
         tmp_path = path.with_suffix(".parquet.tmp")
         df.to_parquet(tmp_path, index=False)
         tmp_path.replace(path)
-
-    def _iter_window_paths(self) -> List[Path]:
-        return sorted(self.window_dir.glob("*/*.parquet"))
 
     def _build_annual_slice(self, year: str) -> Tuple[Optional[Path], int]:
         year_dir = self.window_dir / str(year)

@@ -363,6 +363,7 @@ __all__ = [
     "materialize_critical_screens_cache",
     "load_critical_screens_filters_context",
     "load_critical_screens_slice",
+    "critical_screens_needs_refresh",
     "get_critical_screens_runtime_status",
     "resolve_carteira_credito_bruta_value",
     "resolve_core_funding_value",

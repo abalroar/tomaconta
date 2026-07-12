@@ -5,7 +5,7 @@ Workspace: `/Users/matheusjprates/tomaconta`
 
 ## 1. Diagnostico
 
-O workspace atual nao contem o motor FIDC identificado no diagnostico anterior (`services/fidc_model`, `model_data.json`, aba Modelo FIDC etc.). A base local e um app Streamlit monolitico (`app1.py`) com modulos de IF.data, caches, rating, DRE/COSIF e estudos de capital/PL/LL.
+O workspace atual nao contem o motor FIDC identificado no diagnostico anterior (`services/fidc_model`, `model_data.json`, aba Modelo FIDC etc.). A base local e um app Streamlit monolitico (`app1.py`) com modulos de IF.data, caches, DRE/COSIF e estudos de capital/PL/LL.
 
 Referencias a "Mercado Credito" aparecem apenas em metadados cacheados (`data/bundled/critical_screens/metadata.json`). Nao havia arquivo de premissas oficiais, planilha baseline ou output historico especifico de FIDC MC3 para preservar.
 
@@ -135,7 +135,7 @@ Resultado: exit code 0 e `outputs/fidc_mc3/latest/validation.json` vazio (`[]`).
 
 ## 6. Impacto nos resultados existentes
 
-Nao houve mudanca no `app1.py`, nos modulos de rating/IF.data, nos dados brutos existentes ou nos outputs materiais ja presentes no repo.
+Nao houve mudanca no `app1.py`, nos modulos de IF.data, nos dados brutos existentes ou nos outputs materiais ja presentes no repo.
 
 No inicio da rodada ja existiam alteracoes em:
 

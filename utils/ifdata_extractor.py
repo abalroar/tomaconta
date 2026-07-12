@@ -6,7 +6,7 @@ import logging
 import re
 from pathlib import Path
 from datetime import datetime
-from typing import Optional, Dict, List
+from typing import Optional
 
 # =============================================================================
 # CONFIGURAÇÃO DE LOGGING PARA DEPURAÇÃO DE NOMES DE INSTITUIÇÕES

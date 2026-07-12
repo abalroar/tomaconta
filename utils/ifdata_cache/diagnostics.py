@@ -7,7 +7,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
-from typing import Any, Mapping, Optional, Sequence
+from typing import Any, Mapping, Sequence
 
 import pandas as pd
 

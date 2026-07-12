@@ -14,7 +14,8 @@ CRITICAL_LABELS = [
     "Carteira 4.966",
 ]
 
-MENU_PATTERN = re.compile(r'\b(?:if|elif)\s+.*?\bmenu\s*==\s*"([^"]+)"')
+DISPATCH_START = 'if menu == "Sobre":'
+MENU_PATTERN = re.compile(r'^(?:if|elif)\s+menu\s*==\s*"([^"]+)"', re.MULTILINE)
 
 
 def main() -> int:
@@ -23,7 +24,12 @@ def main() -> int:
         return 2
 
     content = APP_FILE.read_text(encoding="utf-8")
-    labels = MENU_PATTERN.findall(content)
+    dispatch_start = content.find(DISPATCH_START)
+    if dispatch_start < 0:
+        print(f"ERRO: início do dispatcher não encontrado: {DISPATCH_START}")
+        return 2
+
+    labels = MENU_PATTERN.findall(content[dispatch_start:])
     counts = Counter(labels)
 
     duplicates = {label: count for label, count in counts.items() if count > 1}

@@ -431,10 +431,6 @@ def get_critical_screens_runtime_status(
     }
 
 
-def _normalize_period_display(periodo: str | None) -> str:
-    return str(periodo or "").strip()
-
-
 def _api_to_display_period(periodo_api: str) -> str:
     ano = periodo_api[:4]
     mes = periodo_api[4:6]
@@ -464,17 +460,6 @@ def _pick_col(df: Optional[pd.DataFrame], candidates: Sequence[str]) -> Optional
             col_key = normalize_institution_name(col)
             if key and (key in col_key or col_key in key):
                 return col
-    return None
-
-
-def _pick_exact_col(df: Optional[pd.DataFrame], candidates: Sequence[str]) -> Optional[str]:
-    if df is None or df.empty:
-        return None
-    normalized = {normalize_institution_name(str(col)): col for col in df.columns}
-    for candidate in candidates:
-        key = normalize_institution_name(candidate)
-        if key in normalized:
-            return normalized[key]
     return None
 
 

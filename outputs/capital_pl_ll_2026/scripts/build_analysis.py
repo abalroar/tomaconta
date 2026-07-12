@@ -97,12 +97,6 @@ def format_brl(value: float | int | None, scale: float = 1_000_000.0, suffix: st
     return f"R$ {float(value) / scale:,.1f}{suffix}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
-def format_pct(value: float | None) -> str:
-    if value is None or pd.isna(value):
-        return "N/D"
-    return f"{float(value) * 100:,.1f}%".replace(",", "X").replace(".", ",").replace("X", ".")
-
-
 def to_records(df: pd.DataFrame, n: int | None = None) -> list[dict]:
     work = df.head(n).copy() if n else df.copy()
     records = []
@@ -236,7 +230,6 @@ def main() -> None:
         "LL_Mar25_vs_Mar26": all_detail.sort_values("Delta_LL_Mar25_Mar26", ascending=False),
         "LL_Var_Pct_Positiva": ll_pos_pct,
         "LL_Var_Pct_Negativa": ll_neg_pct,
-        "LL_Var_Abs": ll_abs,
         "Resumo_Mensal": month_delta_summary,
         "Top_Bridge_PPT": pl_bridge_top,
     }

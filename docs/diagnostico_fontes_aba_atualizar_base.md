@@ -18,7 +18,6 @@ Por isso, apagar apenas o cache local não derruba automaticamente a aplicação
 | Peers (Tabela) | `principal` (+ `capital`) | `data/cache/principal/` e `data/cache/capital/` | Usa os períodos preparados em memória. |
 | Evolução | `principal` (+ `capital`) | `data/cache/principal/` e `data/cache/capital/` | Séries históricas por período. |
 | Scatter Plot | `principal` (+ `capital`) | `data/cache/principal/` e `data/cache/capital/` | Seleção de eixos depende de colunas do cache principal. |
-| Crie sua métrica! | `principal` (+ `capital`) | `data/cache/principal/` e `data/cache/capital/` | Contexto da aba nasce de `dados_periodos`. |
 | Conselho e Diretoria | API externa BCB (não cache IFData principal) | sem pasta fixa do `CacheManager` | Não depende da atualização de cache IFData para funcionar. |
 | DRE (Ind. e Congl.) — Conglomerado | `dre` + `principal` | `data/cache/dre/` e `data/cache/principal/` | Renderiza a DRE consolidada. |
 | DRE (Ind. e Congl.) — Individual | `dre_individual` + `principal_individual` | `data/cache/dre_individual/` e `data/cache/principal_individual/` | Exige ambos atualizados para UX completa. |

@@ -11,11 +11,10 @@ Endpoints utilizados:
 
 import json
 import logging
-import re
 import time
 from dataclasses import replace
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 from io import BytesIO
 
 import pandas as pd
