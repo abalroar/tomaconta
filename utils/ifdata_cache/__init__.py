@@ -58,7 +58,8 @@ from .manager import (
 
 from .principal import PrincipalCache, PrincipalIndividualCache
 from .capital import CapitalCache, CAMPOS_CAPITAL
-from .bloprudencial_cache import BloprudencialCache
+from .bloprudencial_cache import BloprudencialCache, load_bloprudencial_parquet_slice
+from .diagnostics import load_institution_pairs_for_diagnostic
 
 # Novos caches de relatórios completos
 from .relatorios_completos import (
@@ -88,6 +89,7 @@ from .taxas_juros_historico import (
     fetch_taxas_juros_parametros_consulta,
     get_taxas_juros_historico_anchor_date,
     load_taxas_juros_historico_dimension,
+    load_taxas_juros_historico_monthly_slice,
     load_taxas_juros_historico_recent_daily_display,
     load_taxas_juros_historico_slice,
     normalize_taxas_juros_historico_frame,
@@ -299,6 +301,8 @@ __all__ = [
     "CapitalCache",
     "CAMPOS_CAPITAL",
     "BloprudencialCache",
+    "load_bloprudencial_parquet_slice",
+    "load_institution_pairs_for_diagnostic",
     # Implementacoes - relatórios completos
     "AtivoCache",
     "PassivoCache",
@@ -321,6 +325,7 @@ __all__ = [
     "get_taxas_juros_historico_anchor_date",
     "normalize_taxas_juros_historico_frame",
     "load_taxas_juros_historico_slice",
+    "load_taxas_juros_historico_monthly_slice",
     "load_taxas_juros_historico_dimension",
     "load_taxas_juros_historico_recent_daily_display",
     "build_taxas_juros_display_frame",

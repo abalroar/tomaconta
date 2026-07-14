@@ -5,6 +5,10 @@ test_cache.py - Testes do sistema unificado de cache
 Executa: python -m utils.ifdata_cache.test_cache
 """
 
+# Este arquivo é um smoke test operacional destrutivo (limpa caches reais).
+# Ele só deve rodar pelo comando acima, nunca durante a coleta normal do pytest.
+__test__ = False
+
 import sys
 import logging
 from datetime import datetime

@@ -341,7 +341,7 @@ def preload_bloprudencial(
 try:
     import streamlit as st
 
-    @st.cache_data(show_spinner=False)
+    @st.cache_data(ttl=3600, max_entries=8, show_spinner=False)
     def load_bloprudencial_df_cached(
         yyyymm: str,
         cache_dir: str = str(DEFAULT_CACHE_DIR),

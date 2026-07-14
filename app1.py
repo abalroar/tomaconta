@@ -135,6 +135,8 @@ from utils.ifdata_cache import (
     materialize_critical_screens_cache as materialize_critical_screens_cache,
     load_critical_screens_filters_context,
     load_critical_screens_slice,
+    load_bloprudencial_parquet_slice,
+    load_institution_pairs_for_diagnostic,
     get_critical_screens_runtime_status,
     resolve_carteira_credito_bruta_value,
     resolve_core_funding_value,
@@ -516,7 +518,17 @@ formatar_nome_modalidade = taxas_juros_module.formatar_nome_modalidade
 reduce_taxas_juros_to_monthly_snapshot = taxas_juros_module.reduce_taxas_juros_to_monthly_snapshot
 TaxasJurosHistoricoCache = getattr(taxas_juros_historico_module, "TaxasJurosHistoricoCache", None)
 load_taxas_juros_historico_slice = getattr(taxas_juros_historico_module, "load_taxas_juros_historico_slice", None)
+load_taxas_juros_historico_monthly_slice = getattr(
+    taxas_juros_historico_module,
+    "load_taxas_juros_historico_monthly_slice",
+    None,
+)
 load_taxas_juros_historico_dimension = getattr(taxas_juros_historico_module, "load_taxas_juros_historico_dimension", None)
+get_taxas_juros_historico_anchor_date = getattr(
+    taxas_juros_historico_module,
+    "get_taxas_juros_historico_anchor_date",
+    lambda *_args, **_kwargs: pd.NaT,
+)
 load_taxas_juros_historico_recent_daily_display = getattr(
     taxas_juros_historico_module,
     "load_taxas_juros_historico_recent_daily_display",
@@ -2310,6 +2322,11 @@ def construir_dict_aliases_por_codigo(df_aliases: Optional[pd.DataFrame]) -> dic
     return {}
 
 
+def _carregar_pares_instituicoes_para_diagnostico(cache_obj, *, batch_size: int = 65_536):
+    """Compatibilidade local para o leitor projetado e testável do cache."""
+    return load_institution_pairs_for_diagnostic(cache_obj, batch_size=batch_size)
+
+
 def _diagnostico_mapeamento_instituicoes(
     cache_manager,
     df_aliases: Optional[pd.DataFrame],
@@ -2333,35 +2350,12 @@ def _diagnostico_mapeamento_instituicoes(
     cache_catalogo = []
     detalhes_cache = []
     for cache_tipo in ["principal", "capital", "ativo", "passivo", "dre", "bloprudencial"]:
-        resultado = cache_manager.carregar(cache_tipo)
-        if not resultado.sucesso or resultado.dados is None or resultado.dados.empty:
-            detalhes_cache.append(
-                {
-                    "cache": cache_tipo,
-                    "carregado": False,
-                    "registros": 0,
-                    "coluna_codigo": "",
-                    "coluna_nome": "",
-                    "motivo": resultado.mensagem if resultado else "cache vazio/indisponível",
-                }
-            )
+        cache_obj = cache_manager.get_cache(cache_tipo)
+        df_cache, col_cod, col_inst, detalhe = _carregar_pares_instituicoes_para_diagnostico(cache_obj)
+        detalhes_cache.append({"cache": cache_tipo, **detalhe})
+        if df_cache.empty or not col_cod or not col_inst:
             continue
-        df_cache = resultado.dados
-        col_cod = _snapshot_pick_col(df_cache, ["CodInst", "COD_INST", "cod_inst", "CODINST", "COD_CONGL", "cod_congl"])
-        col_inst = _snapshot_pick_col(df_cache, ["Instituição", "NOME_INSTITUICAO", "NOME_CONGL", "Nome_Congl"])
-        detalhes_cache.append(
-            {
-                "cache": cache_tipo,
-                "carregado": True,
-                "registros": int(len(df_cache)),
-                "coluna_codigo": col_cod or "",
-                "coluna_nome": col_inst or "",
-                "motivo": "" if (col_cod and col_inst) else "colunas obrigatórias ausentes para auditoria por código",
-            }
-        )
-        if not col_cod or not col_inst:
-            continue
-        base = df_cache[[col_cod, col_inst]].copy()
+        base = df_cache.copy()
         base[col_cod] = pd.to_numeric(base[col_cod], errors="coerce")
         base = base.dropna(subset=[col_cod]).copy()
         if base.empty:
@@ -5774,14 +5768,21 @@ def _listar_periodos_bloprudencial_disponiveis(_cache_token_bloprud: str) -> lis
         cache = manager.get_cache("bloprudencial") if manager else None
         if cache and cache.arquivo_dados.exists():
             import pyarrow.dataset as ds
+            import pyarrow.compute as pc
 
             dataset = ds.dataset(cache.arquivo_dados)
             schema_names = set(dataset.schema.names)
-            col_periodo = "DATA_BASE" if "DATA_BASE" in schema_names else ("Período" if "Período" in schema_names else None)
+            col_periodo = next(
+                (name for name in ("DATA_BASE", "Data_Base", "data_base", "Período") if name in schema_names),
+                None,
+            )
             if col_periodo:
                 tabela = dataset.to_table(columns=[col_periodo])
-                serie = tabela.to_pandas()[col_periodo].astype(str).str.replace(r"\D", "", regex=True).str[:6]
-                periodos.update({v for v in serie.dropna().unique().tolist() if _validar_yyyymm_str(v)})
+                valores_unicos = pc.unique(tabela[col_periodo]).to_pylist()
+                for valor in valores_unicos:
+                    canonico = re.sub(r"\D", "", str(valor or ""))[:6]
+                    if _validar_yyyymm_str(canonico):
+                        periodos.add(canonico)
     except Exception:
         pass
 
@@ -5812,7 +5813,7 @@ def _listar_periodos_bloprudencial_disponiveis(_cache_token_bloprud: str) -> lis
     return sorted(periodos)
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=3600, max_entries=16, show_spinner=False)
 def _carregar_bloprud_conta_por_periodos(
     periodos_yyyymm: tuple[str, ...],
     conta_cosif: Optional[str] = None,
@@ -5914,18 +5915,29 @@ def _carregar_bloprud_conta_por_periodos(
         return ag[colunas_saida]
 
     cache_bloprud = manager.get_cache("bloprudencial") if manager else None
-    if cache_bloprud is not None and cache_bloprud.existe():
-        resultado_cache = cache_bloprud.carregar_local()
-        if resultado_cache.sucesso and resultado_cache.dados is not None and not resultado_cache.dados.empty:
-            df_cache = resultado_cache.dados.copy()
-            if "DATA_BASE" in df_cache.columns:
-                df_cache["DATA_BASE"] = df_cache["DATA_BASE"].astype(str).str.replace(r"\D", "", regex=True).str[:6]
-                if periodos_validos:
-                    df_cache = df_cache[df_cache["DATA_BASE"].isin(periodos_validos)].copy()
-            elif "Período" in df_cache.columns:
-                df_cache["DATA_BASE"] = df_cache["Período"].astype(str).str.replace(r"\D", "", regex=True).str[:6]
-                if periodos_validos:
-                    df_cache = df_cache[df_cache["DATA_BASE"].isin(periodos_validos)].copy()
+    if cache_bloprud is not None and cache_bloprud.arquivo_dados.exists():
+        try:
+            df_cache = load_bloprudencial_parquet_slice(
+                cache_bloprud,
+                periodos_yyyymm=tuple(sorted(periodos_validos)),
+                contas_cosif=(conta_norm,) if conta_norm else None,
+                documentos=(documento_norm,) if documento_norm else None,
+                columns=(
+                    "DATA_BASE", "Data_Base", "data_base", "Período",
+                    "DOCUMENTO", "Documento", "doc", "cadoc",
+                    "NOME_INSTITUICAO", "Instituição", "Instituicao",
+                    "NOME_CONGL", "Nome_Congl", "nome_congl",
+                    "CONTA", "Conta", "codigo_conta", "COD_CONTA",
+                    "NOME_CONTA", "Nome_Conta", "nome_conta",
+                    "SALDO", "Saldo", "VALOR", "Valor",
+                ),
+            )
+        except Exception as exc:
+            print(f"[BLOPRUD_SLICE] falha no parquet filtrado; usando fontes mensais: {exc}")
+            df_cache = pd.DataFrame()
+        if not df_cache.empty:
+            if "DATA_BASE" not in df_cache.columns and "Período" in df_cache.columns:
+                df_cache["DATA_BASE"] = df_cache["Período"]
             df_cache_norm = _normalizar_bloprud_frame(df_cache)
             if not df_cache_norm.empty:
                 bases_norm.append(df_cache_norm)
@@ -5964,18 +5976,73 @@ def _carregar_bloprud_conta_por_periodos(
     return _agregar_base_bloprud(pd.concat(bases_norm, ignore_index=True))
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=3600, max_entries=8, show_spinner=False)
 def _catalogo_contas_bloprudencial(
     periodos_yyyymm: tuple[str, ...],
     documento_bloprudencial: Optional[str] = "4060",
     loader_version: str = "v1",
 ) -> pd.DataFrame:
-    df = _carregar_bloprud_conta_por_periodos(
-        periodos_yyyymm,
-        conta_cosif=None,
-        documento_bloprudencial=documento_bloprudencial,
-        loader_version=f"catalog_{loader_version}",
-    )
+    _ = loader_version
+    periodos_validos = {
+        periodo
+        for periodo in (_validar_yyyymm_str(value) for value in periodos_yyyymm)
+        if periodo
+    }
+    documento_norm = _normalizar_documento_bloprudencial(documento_bloprudencial)
+    catalog_parts: list[pd.DataFrame] = []
+    periodos_cobertos: set[str] = set()
+
+    manager = get_cache_manager()
+    cache_bloprud = manager.get_cache("bloprudencial") if manager else None
+    if cache_bloprud is not None and cache_bloprud.arquivo_dados.exists() and periodos_validos:
+        try:
+            df_catalogo_cache = load_bloprudencial_parquet_slice(
+                cache_bloprud,
+                periodos_yyyymm=tuple(sorted(periodos_validos)),
+                documentos=(documento_norm,) if documento_norm else None,
+                columns=(
+                    "DATA_BASE", "Data_Base", "data_base", "Período",
+                    "DOCUMENTO", "Documento", "doc", "cadoc",
+                    "CONTA", "Conta", "codigo_conta", "COD_CONTA",
+                    "NOME_CONTA", "Nome_Conta", "nome_conta",
+                ),
+            )
+        except Exception as exc:
+            print(f"[BLOPRUD_CATALOG] falha no parquet filtrado; usando fontes mensais: {exc}")
+            df_catalogo_cache = pd.DataFrame()
+        if not df_catalogo_cache.empty:
+            periodo_col = _bloprud_pick_col(df_catalogo_cache, ["DATA_BASE", "Data_Base", "data_base", "Período"])
+            conta_col = _bloprud_pick_col(df_catalogo_cache, ["CONTA", "Conta", "codigo_conta", "COD_CONTA"])
+            nome_conta_col = _bloprud_pick_col(df_catalogo_cache, ["NOME_CONTA", "Nome_Conta", "nome_conta"])
+            if not periodo_col or not conta_col:
+                df_catalogo_cache = pd.DataFrame()
+        if not df_catalogo_cache.empty:
+            df_catalogo_cache["DATA_BASE"] = (
+                df_catalogo_cache[periodo_col].astype(str).str.replace(r"\D", "", regex=True).str[:6]
+            )
+            df_catalogo_cache["CONTA"] = (
+                df_catalogo_cache[conta_col].astype(str).str.replace(r"\D", "", regex=True)
+            )
+            df_catalogo_cache["NOME_CONTA"] = (
+                df_catalogo_cache[nome_conta_col].fillna("").astype(str).str.strip()
+                if nome_conta_col
+                else ""
+            )
+            periodos_cobertos.update(df_catalogo_cache["DATA_BASE"].dropna().astype(str).unique().tolist())
+            catalog_parts.append(df_catalogo_cache[["CONTA", "NOME_CONTA"]])
+
+    periodos_faltantes = tuple(sorted(periodos_validos - periodos_cobertos))
+    if periodos_faltantes:
+        df_fallback = _carregar_bloprud_conta_por_periodos(
+            periodos_faltantes,
+            conta_cosif=None,
+            documento_bloprudencial=documento_bloprudencial,
+            loader_version=f"catalog_fallback_{loader_version}",
+        )
+        if not df_fallback.empty:
+            catalog_parts.append(df_fallback[["CONTA", "NOME_CONTA"]])
+
+    df = pd.concat(catalog_parts, ignore_index=True) if catalog_parts else pd.DataFrame()
     if df.empty:
         return pd.DataFrame(columns=["CONTA", "NOME_CONTA", "LABEL", "VARIANTES_NOME"])
 
@@ -24048,7 +24115,7 @@ elif menu == "Taxas de Juros por Produto":
         mask = df["segmento"].astype(str).str.upper() == str(segmento).upper()
         return df[mask].copy()
 
-    @st.cache_data(ttl=1800, show_spinner="Verificando cache histórico de taxas...")
+    @st.cache_data(ttl=1800, max_entries=2, show_spinner="Verificando cache histórico de taxas...")
     def _carregar_taxas_beta_catalogo_historico():
         cache = _obter_cache_taxas_historico_beta()
         if cache is None or load_taxas_juros_historico_dimension is None:
@@ -24087,19 +24154,27 @@ elif menu == "Taxas de Juros por Produto":
             "cache_path": str(cache.arquivo_dados),
         }
 
-    @st.cache_data(ttl=1800, show_spinner="Carregando histórico do produto a partir do cache...")
+    @st.cache_data(ttl=1800, max_entries=2, show_spinner="Carregando histórico do produto a partir do cache...")
     def _buscar_taxas_beta_historico_produto_cache(codigo_segmento: str, codigo_modalidade: str):
         cache = _obter_cache_taxas_historico_beta()
-        if cache is None or load_taxas_juros_historico_slice is None:
+        if cache is None or load_taxas_juros_historico_monthly_slice is None:
             return pd.DataFrame(), {"rows_returned": 0, "source": "indisponivel", "error": "helper ausente"}
-        try:
-            df_fact = load_taxas_juros_historico_slice(
-                cache,
-                codigo_segmento=str(codigo_segmento),
-                codigo_modalidade=str(codigo_modalidade),
-            )
-        except Exception as exc:
-            return pd.DataFrame(), {"rows_returned": 0, "source": "historico_cache", "error": str(exc)}
+        anchor_date = get_taxas_juros_historico_anchor_date(cache, tipo_modalidade="D")
+        if pd.isna(anchor_date):
+            anchor_date = pd.Timestamp.now().normalize()
+        history_start = anchor_date - pd.DateOffset(months=61)
+        df_fact = load_taxas_juros_historico_monthly_slice(
+            cache,
+            codigo_segmento=str(codigo_segmento),
+            codigo_modalidade=str(codigo_modalidade),
+            fim_periodo_min=str(history_start.date()),
+            columns=(
+                "tipo_modalidade", "inicio_periodo", "fim_periodo", "codigo_segmento",
+                "segmento", "codigo_modalidade", "modalidade", "institution_key",
+                "instituicao_nome_observado", "posicao", "taxa_juros_ao_mes",
+                "taxa_juros_ao_ano",
+            ),
+        )
 
         df_display = build_taxas_juros_display_frame(df_fact)
         if {'Fim Período', 'Produto'}.issubset(df_display.columns):
@@ -24116,7 +24191,7 @@ elif menu == "Taxas de Juros por Produto":
             "error": "",
         }
 
-    @st.cache_data(ttl=900, show_spinner="Carregando detalhe recente a partir do cache...")
+    @st.cache_data(ttl=900, max_entries=8, show_spinner="Carregando detalhe recente a partir do cache...")
     def _buscar_taxas_beta_detalhe_recente_cache(
         codigo_segmento: str,
         codigo_modalidade: str,
@@ -24127,16 +24202,13 @@ elif menu == "Taxas de Juros por Produto":
         if cache is None or load_taxas_juros_historico_slice is None:
             return pd.DataFrame(), {"rows_returned": 0, "source": "indisponivel", "error": "helper ausente"}
         inicio_min = (datetime.now() - timedelta(days=int(dias_recente))).strftime("%Y-%m-%d")
-        try:
-            df_fact = load_taxas_juros_historico_slice(
-                cache,
-                codigo_segmento=str(codigo_segmento),
-                codigo_modalidade=str(codigo_modalidade),
-                instituicoes_observadas=list(instituicoes_key),
-                inicio_periodo_min=inicio_min,
-            )
-        except Exception as exc:
-            return pd.DataFrame(), {"rows_returned": 0, "source": "historico_cache", "error": str(exc)}
+        df_fact = load_taxas_juros_historico_slice(
+            cache,
+            codigo_segmento=str(codigo_segmento),
+            codigo_modalidade=str(codigo_modalidade),
+            instituicoes_observadas=list(instituicoes_key),
+            inicio_periodo_min=inicio_min,
+        )
 
         df_display = build_taxas_juros_display_frame(df_fact)
         if "Fim Período" in df_display.columns:
@@ -24173,7 +24245,7 @@ elif menu == "Taxas de Juros por Produto":
             label_by_key[str(key)] = str(banco)
         return selected_keys, label_by_key
 
-    @st.cache_data(ttl=900, show_spinner="Carregando série diária dos últimos 3 meses...")
+    @st.cache_data(ttl=900, max_entries=4, show_spinner="Carregando série diária dos últimos 3 meses...")
     def _buscar_taxas_beta_diario_3m_cache(
         codigo_segmento: str,
         codigo_modalidade: str,
@@ -24184,17 +24256,14 @@ elif menu == "Taxas de Juros por Produto":
         cache = _obter_cache_taxas_historico_beta()
         if cache is None or load_taxas_juros_historico_recent_daily_display is None:
             return pd.DataFrame(), {"rows_returned": 0, "source": "indisponivel", "error": "helper ausente"}
-        try:
-            df_display, meta = load_taxas_juros_historico_recent_daily_display(
-                cache,
-                codigo_segmento=str(codigo_segmento),
-                codigo_modalidade=str(codigo_modalidade),
-                institution_keys=list(institution_keys),
-                institution_label_by_key=dict(institution_labels),
-                lookback_months=int(meses_referencia),
-            )
-        except Exception as exc:
-            return pd.DataFrame(), {"rows_returned": 0, "source": "historico_cache", "error": str(exc)}
+        df_display, meta = load_taxas_juros_historico_recent_daily_display(
+            cache,
+            codigo_segmento=str(codigo_segmento),
+            codigo_modalidade=str(codigo_modalidade),
+            institution_keys=list(institution_keys),
+            institution_label_by_key=dict(institution_labels),
+            lookback_months=int(meses_referencia),
+        )
 
         meta = dict(meta or {})
         meta["source"] = "historico_cache"
@@ -24399,10 +24468,14 @@ elif menu == "Taxas de Juros por Produto":
 
         if produto_beta_valor:
             if usa_cache_historico_beta:
-                df_hist_beta_raw, meta_hist_beta = _buscar_taxas_beta_historico_produto_cache(
-                    codigo_segmento_beta,
-                    str(produto_beta_valor),
-                )
+                try:
+                    df_hist_beta_raw, meta_hist_beta = _buscar_taxas_beta_historico_produto_cache(
+                        codigo_segmento_beta,
+                        str(produto_beta_valor),
+                    )
+                except Exception as exc:
+                    df_hist_beta_raw = pd.DataFrame()
+                    meta_hist_beta = {"rows_returned": 0, "source": "historico_cache", "error": str(exc)}
             else:
                 df_hist_beta_raw, meta_hist_beta = _buscar_taxas_beta_historico_produto(
                     segmento_beta,
@@ -24702,12 +24775,16 @@ elif menu == "Taxas de Juros por Produto":
 
                     st.markdown("#### Série diária · últimos 3 meses")
                     if usa_cache_historico_beta and selected_keys_beta:
-                        df_daily_beta, meta_daily_beta = _buscar_taxas_beta_diario_3m_cache(
-                            codigo_segmento_beta,
-                            str(produto_beta_valor),
-                            tuple(selected_keys_beta),
-                            tuple(sorted(label_by_key_beta.items())),
-                        )
+                        try:
+                            df_daily_beta, meta_daily_beta = _buscar_taxas_beta_diario_3m_cache(
+                                codigo_segmento_beta,
+                                str(produto_beta_valor),
+                                tuple(selected_keys_beta),
+                                tuple(sorted(label_by_key_beta.items())),
+                            )
+                        except Exception as exc:
+                            df_daily_beta = pd.DataFrame()
+                            meta_daily_beta = {"rows_returned": 0, "source": "historico_cache", "error": str(exc)}
                     else:
                         df_daily_beta, meta_daily_beta = _montar_taxas_beta_diario_3m_live(
                             df_hist_beta_raw,
@@ -24813,11 +24890,15 @@ elif menu == "Taxas de Juros por Produto":
                             key="tj_beta_granularidade_recente",
                         )
                         if usa_cache_historico_beta:
-                            df_recent_beta_raw, meta_recent_beta = _buscar_taxas_beta_detalhe_recente_cache(
-                                codigo_segmento_beta,
-                                str(produto_beta_valor),
-                                tuple(sorted(bancos_sel_beta)),
-                            )
+                            try:
+                                df_recent_beta_raw, meta_recent_beta = _buscar_taxas_beta_detalhe_recente_cache(
+                                    codigo_segmento_beta,
+                                    str(produto_beta_valor),
+                                    tuple(sorted(bancos_sel_beta)),
+                                )
+                            except Exception as exc:
+                                df_recent_beta_raw = pd.DataFrame()
+                                meta_recent_beta = {"rows_returned": 0, "source": "historico_cache", "errors": {"cache": str(exc)}}
                         else:
                             df_recent_beta_raw, meta_recent_beta = _buscar_taxas_beta_detalhe_recente(
                                 segmento_beta,
