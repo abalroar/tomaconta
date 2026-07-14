@@ -232,7 +232,7 @@ class CriticalScreensCache(BaseCache):
         return self.bundled_data_file.exists() and self.bundled_metadata_file.exists()
 
     def bootstrap_local_from_bundle(self) -> CacheResult:
-        """Replica o artefato bundled para o diretório de cache local."""
+        """Replica e valida o bundle sem materializar o parquet em pandas."""
         if not self.bundle_available():
             return CacheResult(
                 sucesso=False,
@@ -250,7 +250,25 @@ class CriticalScreensCache(BaseCache):
                 mensagem=f"Falha ao copiar artefato bundled: {exc}",
                 fonte="nenhum",
             )
-        return self.carregar_local()
+        try:
+            import pyarrow.parquet as pq
+
+            total_registros = int(pq.ParquetFile(self.arquivo_dados).metadata.num_rows)
+        except Exception as exc:
+            return CacheResult(
+                sucesso=False,
+                mensagem=f"Artefato bundled copiado, mas o parquet é inválido: {exc}",
+                fonte="nenhum",
+            )
+
+        metadata = _read_metadata_if_exists(self.arquivo_metadata) or {}
+        metadata.setdefault("total_registros", total_registros)
+        return CacheResult(
+            sucesso=True,
+            mensagem=f"Artefato bundled disponível localmente: {total_registros:,} registros",
+            metadata=metadata,
+            fonte="bundle_local",
+        )
 
     def sync_bundle_from_local(self) -> CacheResult:
         """Atualiza o artefato bundled a partir do cache local atual."""
