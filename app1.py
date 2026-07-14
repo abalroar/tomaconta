@@ -15906,24 +15906,15 @@ if menu == "Sobre":
     )
 
     if precisa_recalcular_auto:
-        with st.spinner("Atualizando estimativa automaticamente (TTL 24h)..."):
-            try:
-                cache_horas = _calcular_estimativa_horas_dev(
-                    repositorios=config_horas["repositorios"],
-                    limiar_sessao_min=int(config_horas["limiar_sessao_min"]),
-                    overhead_sessao_min=int(config_horas["overhead_sessao_min"]),
-                    incluir_merges=bool(config_horas.get("incluir_merges", False)),
-                )
-                _salvar_json_local(DEV_HOURS_CACHE_PATH, cache_horas)
-                st.success(f"Estimativa atualizada automaticamente ({motivo_recalculo_auto}).")
-            except Exception as exc:
-                if isinstance(cache_horas, dict):
-                    st.info(
-                        "Não foi possível atualizar automaticamente; exibindo a última estimativa salva. "
-                        f"Motivo: {exc}"
-                    )
-                else:
-                    st.warning(f"Não foi possível atualizar automaticamente ({motivo_recalculo_auto}): {exc}")
+        if isinstance(cache_horas, dict):
+            st.info(
+                "A estimativa salva está desatualizada, mas foi mantida para não bloquear a abertura do app "
+                f"com consultas ao GitHub ({motivo_recalculo_auto}). Use **Recalcular estimativa** quando desejar atualizar."
+            )
+        else:
+            st.info(
+                "A estimativa ainda não foi calculada. Use **Recalcular estimativa** para consultar o GitHub sob demanda."
+            )
 
     horas_base_commits_cache = cache_horas.get("horas_base_commits") if isinstance(cache_horas, dict) else None
     horas_overhead_cache = cache_horas.get("horas_overhead") if isinstance(cache_horas, dict) else None
@@ -15942,7 +15933,7 @@ if menu == "Sobre":
         _formatar_data_hora_br(cache_horas.get("calculado_em")) if isinstance(cache_horas, dict) else "—"
     )
     repos_cache = cache_horas.get("repositorios") if isinstance(cache_horas, dict) else []
-    st.info(f"🕒 Última atualização: **{calculado_em_cache}** · cache TTL: {DEV_HOURS_CACHE_TTL_HOURS}h")
+    st.info(f"🕒 Última atualização: **{calculado_em_cache}** · atualização manual após {DEV_HOURS_CACHE_TTL_HOURS}h")
 
     col_h1, col_h2, col_h3 = st.columns(3)
     with col_h1:
