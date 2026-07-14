@@ -8,6 +8,7 @@ import pandas as pd
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from utils.ifdata_cache.base import CacheResult
 from utils.ifdata_cache.taxas_juros_historico import (
     TaxasJurosHistoricoCache,
     _build_odata_url,
@@ -15,6 +16,28 @@ from utils.ifdata_cache.taxas_juros_historico import (
     load_taxas_juros_historico_recent_daily_display,
     normalize_taxas_juros_historico_frame,
 )
+
+
+def test_baixar_remoto_validates_row_count_without_materializing_dataframe(monkeypatch, tmp_path):
+    cache = TaxasJurosHistoricoCache(tmp_path)
+    cache.cache_dir.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame({"codigo_segmento": ["1", "2"]}).to_parquet(cache.arquivo_dados, index=False)
+    monkeypatch.setattr(
+        cache,
+        "bootstrap_local_assets",
+        lambda force=False: CacheResult(sucesso=True, mensagem="ok", fonte="github_releases"),
+    )
+
+    def _forbidden_full_read(*args, **kwargs):
+        raise AssertionError("download remoto não deve materializar o parquet em pandas")
+
+    monkeypatch.setattr(pd, "read_parquet", _forbidden_full_read)
+
+    result = cache.baixar_remoto()
+
+    assert result.sucesso is True
+    assert result.dados is None
+    assert result.metadata == {"total_registros": 2}
 
 
 def test_build_odata_url_encodes_spaces_as_percent_20():

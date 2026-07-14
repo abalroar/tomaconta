@@ -400,6 +400,20 @@ def load_taxas_juros_historico_slice(
     if not cache.arquivo_dados.exists():
         return pd.DataFrame()
 
+    if not any(
+        (
+            codigo_segmento,
+            codigo_modalidade,
+            institution_keys,
+            instituicoes_observadas,
+            inicio_periodo_min,
+            inicio_periodo_max,
+            fim_periodo_min,
+            fim_periodo_max,
+        )
+    ):
+        raise ValueError("ao menos um filtro é obrigatório para ler o histórico de taxas")
+
     filtros = []
     try:
         import pyarrow.dataset as ds
@@ -428,28 +442,100 @@ def load_taxas_juros_historico_slice(
         for extra in filtros:
             filtro_final = extra if filtro_final is None else filtro_final & extra
 
-        table = dataset.to_table(filter=filtro_final, columns=list(columns) if columns else None)
+        table = dataset.to_table(
+            filter=filtro_final,
+            columns=list(columns) if columns is not None else None,
+        )
         return table.to_pandas()
     except Exception as exc:
-        logger.warning("[CACHE:TAXAS_JUROS_HISTORICO] Falha no slice parquet filtrado: %s", exc)
-        df = pd.read_parquet(cache.arquivo_dados, columns=list(columns) if columns else None)
-        if codigo_segmento:
-            df = df[df["codigo_segmento"].astype(str) == str(codigo_segmento)]
-        if codigo_modalidade:
-            df = df[df["codigo_modalidade"].astype(str) == str(codigo_modalidade)]
-        if institution_keys:
-            df = df[df["institution_key"].astype(str).isin([str(v) for v in institution_keys])]
-        if instituicoes_observadas:
-            df = df[df["instituicao_nome_observado"].astype(str).isin([str(v) for v in instituicoes_observadas])]
-        if inicio_periodo_min:
-            df = df[df["inicio_periodo"] >= pd.Timestamp(inicio_periodo_min)]
-        if inicio_periodo_max:
-            df = df[df["inicio_periodo"] <= pd.Timestamp(inicio_periodo_max)]
-        if fim_periodo_min:
-            df = df[df["fim_periodo"] >= pd.Timestamp(fim_periodo_min)]
-        if fim_periodo_max:
-            df = df[df["fim_periodo"] <= pd.Timestamp(fim_periodo_max)]
-        return df.reset_index(drop=True)
+        logger.error("[CACHE:TAXAS_JUROS_HISTORICO] Falha no slice parquet filtrado: %s", exc)
+        raise RuntimeError(
+            "Falha no slice parquet filtrado de taxas; a leitura integral foi bloqueada para evitar OOM"
+        ) from exc
+
+
+def load_taxas_juros_historico_monthly_slice(
+    cache: "TaxasJurosHistoricoCache",
+    *,
+    codigo_segmento: str,
+    codigo_modalidade: str,
+    fim_periodo_min: str,
+    columns: Optional[Sequence[str]] = None,
+    batch_size: int = 32_768,
+) -> pd.DataFrame:
+    """Reduz o histórico por mês durante a leitura para limitar o pico de RAM."""
+    if not cache.arquivo_dados.exists():
+        return pd.DataFrame(columns=list(columns or ()))
+    if not codigo_segmento or not codigo_modalidade or not fim_periodo_min:
+        raise ValueError("segmento, modalidade e data mínima são obrigatórios no slice mensal")
+
+    try:
+        import pyarrow.dataset as ds
+
+        dataset = ds.dataset(cache.arquivo_dados, format="parquet")
+        schema_names = set(dataset.schema.names)
+        requested_columns = list(columns) if columns is not None else list(dataset.schema.names)
+        output_columns = [column for column in requested_columns if column in schema_names]
+        required_columns = [
+            "fim_periodo",
+            "segmento",
+            "modalidade",
+            "instituicao_nome_observado",
+        ]
+        read_columns = list(
+            dict.fromkeys([*output_columns, *(column for column in required_columns if column in schema_names)])
+        )
+        if "fim_periodo" not in read_columns or "instituicao_nome_observado" not in read_columns:
+            raise ValueError("parquet de taxas sem colunas necessárias para a redução mensal")
+
+        filtro = (
+            (ds.field("codigo_segmento") == str(codigo_segmento))
+            & (ds.field("codigo_modalidade") == str(codigo_modalidade))
+            & (ds.field("fim_periodo") >= pd.Timestamp(fim_periodo_min).to_pydatetime())
+        )
+        scanner = dataset.scanner(
+            filter=filtro,
+            columns=read_columns,
+            batch_size=max(1, int(batch_size)),
+            use_threads=False,
+        )
+
+        monthly_candidates: list[pd.DataFrame] = []
+        for batch in scanner.to_batches():
+            if batch.num_rows == 0:
+                continue
+            frame = batch.to_pandas()
+            frame["fim_periodo"] = pd.to_datetime(frame["fim_periodo"], errors="coerce")
+            frame = frame.dropna(subset=["fim_periodo"])
+            if frame.empty:
+                continue
+            frame["_ano_mes"] = frame["fim_periodo"].dt.to_period("M")
+            group_columns = ["_ano_mes", "instituicao_nome_observado"]
+            for optional_column in ("segmento", "modalidade"):
+                if optional_column in frame.columns:
+                    group_columns.insert(0, optional_column)
+            indexes = frame.groupby(group_columns, observed=False)["fim_periodo"].idxmax()
+            monthly_candidates.append(frame.loc[indexes].copy())
+
+        if not monthly_candidates:
+            return pd.DataFrame(columns=output_columns)
+
+        reduced = pd.concat(monthly_candidates, ignore_index=True, copy=False)
+        group_columns = ["_ano_mes", "instituicao_nome_observado"]
+        for optional_column in ("segmento", "modalidade"):
+            if optional_column in reduced.columns:
+                group_columns.insert(0, optional_column)
+        indexes = reduced.groupby(group_columns, observed=False)["fim_periodo"].idxmax()
+        reduced = reduced.loc[indexes].sort_values(
+            ["fim_periodo", "instituicao_nome_observado"],
+            kind="stable",
+        )
+        return reduced[output_columns].reset_index(drop=True)
+    except Exception as exc:
+        logger.error("[CACHE:TAXAS_JUROS_HISTORICO] Falha no slice mensal filtrado: %s", exc)
+        raise RuntimeError(
+            "Falha no slice mensal filtrado de taxas; a leitura integral foi bloqueada para evitar OOM"
+        ) from exc
 
 
 def load_taxas_juros_historico_dimension(
@@ -1148,14 +1234,28 @@ class TaxasJurosHistoricoCache(BaseCache):
         )
 
     def baixar_remoto(self) -> CacheResult:
+        """Baixa e valida o asset sem materializá-lo em pandas.
+
+        ``dados`` fica intencionalmente como ``None``: ``carregar()`` faz a
+        única leitura local necessária depois do download.
+        """
         bootstrap = self.bootstrap_local_assets(force=True)
         if not bootstrap.sucesso:
             return bootstrap
-        loaded_df = pd.read_parquet(self.arquivo_dados)
+        try:
+            import pyarrow.parquet as pq
+
+            total_registros = int(pq.ParquetFile(self.arquivo_dados).metadata.num_rows)
+        except Exception as exc:
+            return CacheResult(
+                sucesso=False,
+                mensagem=f"Asset histórico baixado, mas o parquet é inválido: {exc}",
+                fonte="nenhum",
+            )
         return CacheResult(
             sucesso=True,
-            mensagem=f"Baixado histórico remoto: {len(loaded_df)} registros",
-            dados=loaded_df,
+            mensagem=f"Baixado histórico remoto: {total_registros} registros",
+            metadata={"total_registros": total_registros},
             fonte="github_releases",
         )
 

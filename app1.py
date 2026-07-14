@@ -96,6 +96,17 @@ _EXPECTED_CACHE_RELEASE_TAG = "v1.1-cache"
 _PEERS_INDIVIDUAL_RELEASE_BASE_URL = (
     f"https://github.com/abalroar/tomaconta/releases/download/{_EXPECTED_CACHE_RELEASE_TAG}"
 )
+_CARTEIRA_4966_RELEASE_BASE_URL = (
+    f"https://github.com/abalroar/tomaconta/releases/download/{_EXPECTED_CACHE_RELEASE_TAG}"
+)
+_CARTEIRA_4966_RELEASE_MANIFEST_URL = f"{_CARTEIRA_4966_RELEASE_BASE_URL}/manifest.json"
+_CARTEIRA_4966_REQUIRED_PERIOD_REFS = (
+    "202503",
+    "202506",
+    "202509",
+    "202512",
+    "202603",
+)
 if str(os.getenv("TOMACONTA_RELEASE_TAG") or "").strip() in {"", "v1.0-cache"}:
     os.environ["TOMACONTA_RELEASE_TAG"] = _EXPECTED_CACHE_RELEASE_TAG
 
@@ -135,6 +146,8 @@ from utils.ifdata_cache import (
     materialize_critical_screens_cache as materialize_critical_screens_cache,
     load_critical_screens_filters_context,
     load_critical_screens_slice,
+    load_bloprudencial_parquet_slice,
+    load_institution_pairs_for_diagnostic,
     get_critical_screens_runtime_status,
     resolve_carteira_credito_bruta_value,
     resolve_core_funding_value,
@@ -152,10 +165,15 @@ import utils.ifdata_cache.institutions as _ifdata_institutions
 # app1.py ja aponta para uma revisao mais nova do mesmo deploy.
 if not all(
     hasattr(_ifdata_institutions, helper)
-    for helper in ("normalize_institution_code", "stabilize_institution_names_by_code")
+    for helper in (
+        "normalize_institution_code",
+        "stabilize_institution_names_by_code",
+        "canonicalize_institution_history",
+    )
 ):
     _ifdata_institutions = importlib.reload(_ifdata_institutions)
 canonicalize_institution_dataframe = _ifdata_institutions.canonicalize_institution_dataframe
+canonicalize_institution_history = _ifdata_institutions.canonicalize_institution_history
 normalize_institution_code = _ifdata_institutions.normalize_institution_code
 stabilize_institution_names_by_code = _ifdata_institutions.stabilize_institution_names_by_code
 from utils.ifdata_cache.release_ops import (
@@ -516,7 +534,17 @@ formatar_nome_modalidade = taxas_juros_module.formatar_nome_modalidade
 reduce_taxas_juros_to_monthly_snapshot = taxas_juros_module.reduce_taxas_juros_to_monthly_snapshot
 TaxasJurosHistoricoCache = getattr(taxas_juros_historico_module, "TaxasJurosHistoricoCache", None)
 load_taxas_juros_historico_slice = getattr(taxas_juros_historico_module, "load_taxas_juros_historico_slice", None)
+load_taxas_juros_historico_monthly_slice = getattr(
+    taxas_juros_historico_module,
+    "load_taxas_juros_historico_monthly_slice",
+    None,
+)
 load_taxas_juros_historico_dimension = getattr(taxas_juros_historico_module, "load_taxas_juros_historico_dimension", None)
+get_taxas_juros_historico_anchor_date = getattr(
+    taxas_juros_historico_module,
+    "get_taxas_juros_historico_anchor_date",
+    lambda *_args, **_kwargs: pd.NaT,
+)
 load_taxas_juros_historico_recent_daily_display = getattr(
     taxas_juros_historico_module,
     "load_taxas_juros_historico_recent_daily_display",
@@ -2310,6 +2338,11 @@ def construir_dict_aliases_por_codigo(df_aliases: Optional[pd.DataFrame]) -> dic
     return {}
 
 
+def _carregar_pares_instituicoes_para_diagnostico(cache_obj, *, batch_size: int = 65_536):
+    """Compatibilidade local para o leitor projetado e testável do cache."""
+    return load_institution_pairs_for_diagnostic(cache_obj, batch_size=batch_size)
+
+
 def _diagnostico_mapeamento_instituicoes(
     cache_manager,
     df_aliases: Optional[pd.DataFrame],
@@ -2333,35 +2366,12 @@ def _diagnostico_mapeamento_instituicoes(
     cache_catalogo = []
     detalhes_cache = []
     for cache_tipo in ["principal", "capital", "ativo", "passivo", "dre", "bloprudencial"]:
-        resultado = cache_manager.carregar(cache_tipo)
-        if not resultado.sucesso or resultado.dados is None or resultado.dados.empty:
-            detalhes_cache.append(
-                {
-                    "cache": cache_tipo,
-                    "carregado": False,
-                    "registros": 0,
-                    "coluna_codigo": "",
-                    "coluna_nome": "",
-                    "motivo": resultado.mensagem if resultado else "cache vazio/indisponível",
-                }
-            )
+        cache_obj = cache_manager.get_cache(cache_tipo)
+        df_cache, col_cod, col_inst, detalhe = _carregar_pares_instituicoes_para_diagnostico(cache_obj)
+        detalhes_cache.append({"cache": cache_tipo, **detalhe})
+        if df_cache.empty or not col_cod or not col_inst:
             continue
-        df_cache = resultado.dados
-        col_cod = _snapshot_pick_col(df_cache, ["CodInst", "COD_INST", "cod_inst", "CODINST", "COD_CONGL", "cod_congl"])
-        col_inst = _snapshot_pick_col(df_cache, ["Instituição", "NOME_INSTITUICAO", "NOME_CONGL", "Nome_Congl"])
-        detalhes_cache.append(
-            {
-                "cache": cache_tipo,
-                "carregado": True,
-                "registros": int(len(df_cache)),
-                "coluna_codigo": col_cod or "",
-                "coluna_nome": col_inst or "",
-                "motivo": "" if (col_cod and col_inst) else "colunas obrigatórias ausentes para auditoria por código",
-            }
-        )
-        if not col_cod or not col_inst:
-            continue
-        base = df_cache[[col_cod, col_inst]].copy()
+        base = df_cache.copy()
         base[col_cod] = pd.to_numeric(base[col_cod], errors="coerce")
         base = base.dropna(subset=[col_cod]).copy()
         if base.empty:
@@ -4457,7 +4467,12 @@ def _release_base_candidates_cache(manifest: dict | Sequence[dict] | None, cache
     return ordered
 
 
-def _baixar_cache_release_base_cache(cache_name: str, release_base_url: str) -> CacheResult:
+def _baixar_cache_release_base_cache(
+    cache_name: str,
+    release_base_url: str,
+    *,
+    expected_sha256: str = "",
+) -> CacheResult:
     asset_url = f"{release_base_url.rstrip('/')}/{cache_name}_dados.parquet"
     try:
         response = requests.get(
@@ -4472,6 +4487,17 @@ def _baixar_cache_release_base_cache(cache_name: str, release_base_url: str) -> 
                 mensagem=f"fallback {asset_url} retornou HTTP {response.status_code}",
                 fonte="nenhum",
             )
+        content_sha256 = hashlib.sha256(response.content).hexdigest()
+        expected_sha256 = str(expected_sha256 or "").strip().lower()
+        if expected_sha256 and content_sha256.lower() != expected_sha256:
+            return CacheResult(
+                sucesso=False,
+                mensagem=(
+                    f"integridade inválida para {asset_url}: "
+                    f"sha256 recebido {content_sha256}, esperado {expected_sha256}"
+                ),
+                fonte="nenhum",
+            )
         import io
 
         df = pd.read_parquet(io.BytesIO(response.content))
@@ -4479,6 +4505,7 @@ def _baixar_cache_release_base_cache(cache_name: str, release_base_url: str) -> 
             sucesso=True,
             mensagem=f"Baixado de fallback canônico: {len(df)} registros",
             dados=df,
+            metadata={"sha256": content_sha256},
             fonte=f"github_releases_fallback:{release_base_url}",
         )
     except Exception as exc:
@@ -4501,22 +4528,43 @@ def _salvar_cache_fallback_local(manager, cache_name: str, result: CacheResult) 
     return result
 
 
+def _manifest_period_count_cache(manifest: dict | Sequence[dict] | None, cache_name: str) -> int:
+    counts = []
+    for item in _manifest_items_cache(manifest):
+        caches = item.get("caches") if isinstance(item.get("caches"), dict) else {}
+        cache_info = caches.get(cache_name) if isinstance(caches.get(cache_name), dict) else {}
+        try:
+            count = int(cache_info.get("period_count") or 0)
+        except (TypeError, ValueError):
+            count = 0
+        if count > 0:
+            counts.append(count)
+    return max(counts) if counts else 0
+
+
 def _cache_period_status_from_result(cache_name: str, result, manifest: dict | None) -> dict:
     dados = getattr(result, "dados", None)
     metadata = getattr(result, "metadata", None) or {}
-    periodos = metadata.get("periodos") if isinstance(metadata, dict) else None
+    periodos = _periodos_from_df_cache(dados)
     if not periodos:
-        periodos = _periodos_from_df_cache(dados)
+        periodos = metadata.get("periodos") if isinstance(metadata, dict) else None
+    periodos = [str(periodo).strip() for periodo in (periodos or []) if str(periodo or "").strip()]
     local_period = _max_periodo_cache(periodos)
     local_ref = _periodo_ref_cache(local_period)
     release_ref = _periodo_maximo_manifest_cache(manifest, cache_name)
+    local_period_count = len(set(periodos))
+    release_period_count = _manifest_period_count_cache(manifest, cache_name)
+    stale_period = bool(release_ref and (not local_ref or local_ref < release_ref))
+    stale_count = bool(release_period_count and local_period_count < release_period_count)
     return {
         "cache": cache_name,
         "local_period": local_period,
         "local_ref": local_ref,
+        "local_period_count": local_period_count,
         "release_ref": release_ref,
+        "release_period_count": release_period_count,
         "fonte": getattr(result, "fonte", ""),
-        "stale": bool(release_ref and (not local_ref or local_ref < release_ref)),
+        "stale": stale_period or stale_count,
     }
 
 
@@ -4544,6 +4592,176 @@ def _carregar_cache_com_freshness(manager, cache_name: str, manifest: dict | Non
         status["remote_forced"] = False
         status["fallback_release_base"] = ""
     return result, status
+
+
+def _carteira_4966_manifest_entry(manifest: dict | None) -> dict:
+    if not isinstance(manifest, dict):
+        return {}
+    caches = manifest.get("caches") if isinstance(manifest.get("caches"), dict) else {}
+    entry = caches.get("carteira_instrumentos")
+    return entry if isinstance(entry, dict) else {}
+
+
+def _carteira_4966_release_token(manifest: dict | None) -> str:
+    entry = _carteira_4966_manifest_entry(manifest)
+    parts = [
+        _EXPECTED_CACHE_RELEASE_TAG,
+        str(entry.get("sha256") or ""),
+        str(entry.get("max_period_ref") or entry.get("max_period") or ""),
+        str(entry.get("period_count") or ""),
+        _manifest_generated_token_cache(manifest),
+    ]
+    return "|".join(parts)
+
+
+def _arquivo_sha256_cache(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _carteira_4966_result_status(result, manifest: dict | None) -> dict:
+    status = _cache_period_status_from_result("carteira_instrumentos", result, manifest)
+    dados = getattr(result, "dados", None)
+    missing_columns = []
+    if dados is None or not isinstance(dados, pd.DataFrame) or dados.empty:
+        missing_columns = ["Instituição", "Período"]
+    else:
+        if "Instituição" not in dados.columns:
+            missing_columns.append("Instituição")
+        if not any(column in dados.columns for column in ("Período", "Periodo")):
+            missing_columns.append("Período")
+    available_period_refs = {
+        ref
+        for periodo in _periodos_from_df_cache(dados)
+        if (ref := _periodo_ref_cache(periodo))
+    }
+    missing_required_periods = [
+        ref
+        for ref in _CARTEIRA_4966_REQUIRED_PERIOD_REFS
+        if ref not in available_period_refs
+    ]
+    status["missing_columns"] = missing_columns
+    status["missing_required_periods"] = missing_required_periods
+    status["valid"] = bool(
+        getattr(result, "sucesso", False)
+        and dados is not None
+        and not dados.empty
+        and not missing_columns
+        and not missing_required_periods
+        and not status["stale"]
+    )
+    return status
+
+
+def _load_carteira_4966_data_impl(manifest: dict | None):
+    """Carrega o Rel. 16 do release curado e normaliza a identidade histórica."""
+    manager = get_cache_manager()
+    cache = manager.get_cache("carteira_instrumentos")
+    if cache is None:
+        return None, {"valid": False, "error": "cache carteira_instrumentos não registrado"}
+
+    entry = _carteira_4966_manifest_entry(manifest)
+    expected_sha256 = str(entry.get("sha256") or "").strip().lower()
+    local_integrity_verified = False
+    local_result = None
+
+    if cache.arquivo_dados.exists() and expected_sha256:
+        try:
+            local_integrity_verified = _arquivo_sha256_cache(cache.arquivo_dados).lower() == expected_sha256
+        except OSError:
+            local_integrity_verified = False
+    if not local_integrity_verified and expected_sha256 and cache.existe():
+        local_candidate = cache.carregar_local()
+        candidate_status = _carteira_4966_result_status(local_candidate, manifest)
+        local_is_newer = bool(
+            candidate_status.get("local_ref", "") > candidate_status.get("release_ref", "")
+            or candidate_status.get("local_period_count", 0)
+            > candidate_status.get("release_period_count", 0)
+        )
+        if candidate_status["valid"] and local_is_newer:
+            prepared = canonicalize_institution_history(local_candidate.dados, base_dir=APP_DIR)
+            candidate_status["integrity_verified"] = False
+            candidate_status["warning"] = (
+                "cache local mais recente que o release curado; usando a atualização local validada"
+            )
+            candidate_status["identity_collision_count"] = int(
+                prepared.attrs.get("institution_identity_collision_count", 0)
+            )
+            return prepared, candidate_status
+    if local_integrity_verified or not expected_sha256:
+        local_result = cache.carregar_local()
+        local_status = _carteira_4966_result_status(local_result, manifest)
+        if local_status["valid"]:
+            local_status["integrity_verified"] = local_integrity_verified
+            if not expected_sha256:
+                local_status["warning"] = (
+                    "manifesto do release curado indisponível ou sem digest; "
+                    "usando cache local com cobertura validada"
+                )
+            prepared = canonicalize_institution_history(local_result.dados, base_dir=APP_DIR)
+            local_status["identity_collision_count"] = int(
+                prepared.attrs.get("institution_identity_collision_count", 0)
+            )
+            return prepared, local_status
+
+    remote_result = _baixar_cache_release_base_cache(
+        "carteira_instrumentos",
+        _CARTEIRA_4966_RELEASE_BASE_URL,
+        expected_sha256=expected_sha256,
+    )
+    remote_status = _carteira_4966_result_status(remote_result, manifest)
+    if remote_status["valid"]:
+        remote_result = _salvar_cache_fallback_local(manager, "carteira_instrumentos", remote_result)
+        prepared = canonicalize_institution_history(remote_result.dados, base_dir=APP_DIR)
+        remote_status = _carteira_4966_result_status(remote_result, manifest)
+        remote_status["integrity_verified"] = bool(expected_sha256)
+        remote_status["identity_collision_count"] = int(
+            prepared.attrs.get("institution_identity_collision_count", 0)
+        )
+        return prepared, remote_status
+
+    if local_result is None and cache.existe():
+        local_result = cache.carregar_local()
+    if local_result is not None:
+        local_status = _carteira_4966_result_status(local_result, manifest)
+        if local_status["valid"]:
+            prepared = canonicalize_institution_history(local_result.dados, base_dir=APP_DIR)
+            local_status["integrity_verified"] = False
+            local_status["warning"] = (
+                "release curado indisponível; usando cache local com cobertura validada, "
+                "mas sem confirmação de integridade"
+            )
+            local_status["identity_collision_count"] = int(
+                prepared.attrs.get("institution_identity_collision_count", 0)
+            )
+            return prepared, local_status
+
+        error_message = getattr(remote_result, "mensagem", "falha ao carregar release curado")
+        local_status["error"] = (
+            f"{error_message}. O cache local também foi rejeitado porque não contém "
+            "todos os períodos obrigatórios de mar/25 a mar/26."
+        )
+        local_status["remote_error"] = error_message
+        return None, local_status
+
+    error_message = getattr(remote_result, "mensagem", "falha ao carregar release curado")
+    remote_status["error"] = error_message
+    return None, remote_status
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def load_carteira_4966_data(release_token: str, manifest_payload: str):
+    """Carrega usando exatamente o manifesto que originou a chave de cache."""
+    try:
+        manifest = json.loads(manifest_payload)
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        manifest = {"_erro": f"manifesto serializado inválido: {exc}"}
+    if not isinstance(manifest, dict):
+        manifest = {"_erro": "manifesto serializado não é um objeto"}
+    return _load_carteira_4966_data_impl(manifest)
 
 
 def _periodos_catalogo_dre_individual(
@@ -5774,14 +5992,21 @@ def _listar_periodos_bloprudencial_disponiveis(_cache_token_bloprud: str) -> lis
         cache = manager.get_cache("bloprudencial") if manager else None
         if cache and cache.arquivo_dados.exists():
             import pyarrow.dataset as ds
+            import pyarrow.compute as pc
 
             dataset = ds.dataset(cache.arquivo_dados)
             schema_names = set(dataset.schema.names)
-            col_periodo = "DATA_BASE" if "DATA_BASE" in schema_names else ("Período" if "Período" in schema_names else None)
+            col_periodo = next(
+                (name for name in ("DATA_BASE", "Data_Base", "data_base", "Período") if name in schema_names),
+                None,
+            )
             if col_periodo:
                 tabela = dataset.to_table(columns=[col_periodo])
-                serie = tabela.to_pandas()[col_periodo].astype(str).str.replace(r"\D", "", regex=True).str[:6]
-                periodos.update({v for v in serie.dropna().unique().tolist() if _validar_yyyymm_str(v)})
+                valores_unicos = pc.unique(tabela[col_periodo]).to_pylist()
+                for valor in valores_unicos:
+                    canonico = re.sub(r"\D", "", str(valor or ""))[:6]
+                    if _validar_yyyymm_str(canonico):
+                        periodos.add(canonico)
     except Exception:
         pass
 
@@ -5812,7 +6037,7 @@ def _listar_periodos_bloprudencial_disponiveis(_cache_token_bloprud: str) -> lis
     return sorted(periodos)
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=3600, max_entries=16, show_spinner=False)
 def _carregar_bloprud_conta_por_periodos(
     periodos_yyyymm: tuple[str, ...],
     conta_cosif: Optional[str] = None,
@@ -5914,18 +6139,29 @@ def _carregar_bloprud_conta_por_periodos(
         return ag[colunas_saida]
 
     cache_bloprud = manager.get_cache("bloprudencial") if manager else None
-    if cache_bloprud is not None and cache_bloprud.existe():
-        resultado_cache = cache_bloprud.carregar_local()
-        if resultado_cache.sucesso and resultado_cache.dados is not None and not resultado_cache.dados.empty:
-            df_cache = resultado_cache.dados.copy()
-            if "DATA_BASE" in df_cache.columns:
-                df_cache["DATA_BASE"] = df_cache["DATA_BASE"].astype(str).str.replace(r"\D", "", regex=True).str[:6]
-                if periodos_validos:
-                    df_cache = df_cache[df_cache["DATA_BASE"].isin(periodos_validos)].copy()
-            elif "Período" in df_cache.columns:
-                df_cache["DATA_BASE"] = df_cache["Período"].astype(str).str.replace(r"\D", "", regex=True).str[:6]
-                if periodos_validos:
-                    df_cache = df_cache[df_cache["DATA_BASE"].isin(periodos_validos)].copy()
+    if cache_bloprud is not None and cache_bloprud.arquivo_dados.exists():
+        try:
+            df_cache = load_bloprudencial_parquet_slice(
+                cache_bloprud,
+                periodos_yyyymm=tuple(sorted(periodos_validos)),
+                contas_cosif=(conta_norm,) if conta_norm else None,
+                documentos=(documento_norm,) if documento_norm else None,
+                columns=(
+                    "DATA_BASE", "Data_Base", "data_base", "Período",
+                    "DOCUMENTO", "Documento", "doc", "cadoc",
+                    "NOME_INSTITUICAO", "Instituição", "Instituicao",
+                    "NOME_CONGL", "Nome_Congl", "nome_congl",
+                    "CONTA", "Conta", "codigo_conta", "COD_CONTA",
+                    "NOME_CONTA", "Nome_Conta", "nome_conta",
+                    "SALDO", "Saldo", "VALOR", "Valor",
+                ),
+            )
+        except Exception as exc:
+            print(f"[BLOPRUD_SLICE] falha no parquet filtrado; usando fontes mensais: {exc}")
+            df_cache = pd.DataFrame()
+        if not df_cache.empty:
+            if "DATA_BASE" not in df_cache.columns and "Período" in df_cache.columns:
+                df_cache["DATA_BASE"] = df_cache["Período"]
             df_cache_norm = _normalizar_bloprud_frame(df_cache)
             if not df_cache_norm.empty:
                 bases_norm.append(df_cache_norm)
@@ -5964,18 +6200,73 @@ def _carregar_bloprud_conta_por_periodos(
     return _agregar_base_bloprud(pd.concat(bases_norm, ignore_index=True))
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=3600, max_entries=8, show_spinner=False)
 def _catalogo_contas_bloprudencial(
     periodos_yyyymm: tuple[str, ...],
     documento_bloprudencial: Optional[str] = "4060",
     loader_version: str = "v1",
 ) -> pd.DataFrame:
-    df = _carregar_bloprud_conta_por_periodos(
-        periodos_yyyymm,
-        conta_cosif=None,
-        documento_bloprudencial=documento_bloprudencial,
-        loader_version=f"catalog_{loader_version}",
-    )
+    _ = loader_version
+    periodos_validos = {
+        periodo
+        for periodo in (_validar_yyyymm_str(value) for value in periodos_yyyymm)
+        if periodo
+    }
+    documento_norm = _normalizar_documento_bloprudencial(documento_bloprudencial)
+    catalog_parts: list[pd.DataFrame] = []
+    periodos_cobertos: set[str] = set()
+
+    manager = get_cache_manager()
+    cache_bloprud = manager.get_cache("bloprudencial") if manager else None
+    if cache_bloprud is not None and cache_bloprud.arquivo_dados.exists() and periodos_validos:
+        try:
+            df_catalogo_cache = load_bloprudencial_parquet_slice(
+                cache_bloprud,
+                periodos_yyyymm=tuple(sorted(periodos_validos)),
+                documentos=(documento_norm,) if documento_norm else None,
+                columns=(
+                    "DATA_BASE", "Data_Base", "data_base", "Período",
+                    "DOCUMENTO", "Documento", "doc", "cadoc",
+                    "CONTA", "Conta", "codigo_conta", "COD_CONTA",
+                    "NOME_CONTA", "Nome_Conta", "nome_conta",
+                ),
+            )
+        except Exception as exc:
+            print(f"[BLOPRUD_CATALOG] falha no parquet filtrado; usando fontes mensais: {exc}")
+            df_catalogo_cache = pd.DataFrame()
+        if not df_catalogo_cache.empty:
+            periodo_col = _bloprud_pick_col(df_catalogo_cache, ["DATA_BASE", "Data_Base", "data_base", "Período"])
+            conta_col = _bloprud_pick_col(df_catalogo_cache, ["CONTA", "Conta", "codigo_conta", "COD_CONTA"])
+            nome_conta_col = _bloprud_pick_col(df_catalogo_cache, ["NOME_CONTA", "Nome_Conta", "nome_conta"])
+            if not periodo_col or not conta_col:
+                df_catalogo_cache = pd.DataFrame()
+        if not df_catalogo_cache.empty:
+            df_catalogo_cache["DATA_BASE"] = (
+                df_catalogo_cache[periodo_col].astype(str).str.replace(r"\D", "", regex=True).str[:6]
+            )
+            df_catalogo_cache["CONTA"] = (
+                df_catalogo_cache[conta_col].astype(str).str.replace(r"\D", "", regex=True)
+            )
+            df_catalogo_cache["NOME_CONTA"] = (
+                df_catalogo_cache[nome_conta_col].fillna("").astype(str).str.strip()
+                if nome_conta_col
+                else ""
+            )
+            periodos_cobertos.update(df_catalogo_cache["DATA_BASE"].dropna().astype(str).unique().tolist())
+            catalog_parts.append(df_catalogo_cache[["CONTA", "NOME_CONTA"]])
+
+    periodos_faltantes = tuple(sorted(periodos_validos - periodos_cobertos))
+    if periodos_faltantes:
+        df_fallback = _carregar_bloprud_conta_por_periodos(
+            periodos_faltantes,
+            conta_cosif=None,
+            documento_bloprudencial=documento_bloprudencial,
+            loader_version=f"catalog_fallback_{loader_version}",
+        )
+        if not df_fallback.empty:
+            catalog_parts.append(df_fallback[["CONTA", "NOME_CONTA"]])
+
+    df = pd.concat(catalog_parts, ignore_index=True) if catalog_parts else pd.DataFrame()
     if df.empty:
         return pd.DataFrame(columns=["CONTA", "NOME_CONTA", "LABEL", "VARIANTES_NOME"])
 
@@ -15839,24 +16130,15 @@ if menu == "Sobre":
     )
 
     if precisa_recalcular_auto:
-        with st.spinner("Atualizando estimativa automaticamente (TTL 24h)..."):
-            try:
-                cache_horas = _calcular_estimativa_horas_dev(
-                    repositorios=config_horas["repositorios"],
-                    limiar_sessao_min=int(config_horas["limiar_sessao_min"]),
-                    overhead_sessao_min=int(config_horas["overhead_sessao_min"]),
-                    incluir_merges=bool(config_horas.get("incluir_merges", False)),
-                )
-                _salvar_json_local(DEV_HOURS_CACHE_PATH, cache_horas)
-                st.success(f"Estimativa atualizada automaticamente ({motivo_recalculo_auto}).")
-            except Exception as exc:
-                if isinstance(cache_horas, dict):
-                    st.info(
-                        "Não foi possível atualizar automaticamente; exibindo a última estimativa salva. "
-                        f"Motivo: {exc}"
-                    )
-                else:
-                    st.warning(f"Não foi possível atualizar automaticamente ({motivo_recalculo_auto}): {exc}")
+        if isinstance(cache_horas, dict):
+            st.info(
+                "A estimativa salva está desatualizada, mas foi mantida para não bloquear a abertura do app "
+                f"com consultas ao GitHub ({motivo_recalculo_auto}). Use **Recalcular estimativa** quando desejar atualizar."
+            )
+        else:
+            st.info(
+                "A estimativa ainda não foi calculada. Use **Recalcular estimativa** para consultar o GitHub sob demanda."
+            )
 
     horas_base_commits_cache = cache_horas.get("horas_base_commits") if isinstance(cache_horas, dict) else None
     horas_overhead_cache = cache_horas.get("horas_overhead") if isinstance(cache_horas, dict) else None
@@ -15875,7 +16157,7 @@ if menu == "Sobre":
         _formatar_data_hora_br(cache_horas.get("calculado_em")) if isinstance(cache_horas, dict) else "—"
     )
     repos_cache = cache_horas.get("repositorios") if isinstance(cache_horas, dict) else []
-    st.info(f"🕒 Última atualização: **{calculado_em_cache}** · cache TTL: {DEV_HOURS_CACHE_TTL_HOURS}h")
+    st.info(f"🕒 Última atualização: **{calculado_em_cache}** · atualização manual após {DEV_HOURS_CACHE_TTL_HOURS}h")
 
     col_h1, col_h2, col_h3 = st.columns(3)
     with col_h1:
@@ -23109,16 +23391,6 @@ elif menu == "Carteira 4.966":
     # ABA CARTEIRA 4.966 - Classificação de Instrumentos Financeiros (Res. 4.966)
     # =========================================================================
 
-    @st.cache_data(ttl=3600, show_spinner=False)
-    def load_carteira_4966_data():
-        """Carrega dados da Carteira 4.966 (Relatório 16) com cache."""
-        from utils.ifdata_cache import get_manager
-        manager = get_manager()
-        resultado = manager.carregar("carteira_instrumentos")
-        if resultado.sucesso and resultado.dados is not None:
-            return resultado.dados
-        return None
-
     def periodo_para_exibicao_mes(periodo_trimestre: str) -> str:
         """Wrapper local para manter padrão global de período (Mar/XX, Jun/XX, Set/XX, Dez/XX)."""
         return periodo_para_exibicao(periodo_trimestre)
@@ -23178,9 +23450,31 @@ elif menu == "Carteira 4.966":
         },
     ]
 
-    df_carteira = load_carteira_4966_data()
+    carteira_4966_manifest = _carregar_manifest_release_cache(
+        _CARTEIRA_4966_RELEASE_MANIFEST_URL,
+        _EXPECTED_CACHE_RELEASE_TAG,
+    )
+    carteira_4966_release_token = _carteira_4966_release_token(carteira_4966_manifest)
+    carteira_4966_manifest_payload = json.dumps(
+        carteira_4966_manifest,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    df_carteira, carteira_4966_cache_status = load_carteira_4966_data(
+        carteira_4966_release_token,
+        carteira_4966_manifest_payload,
+    )
 
     if df_carteira is not None and not df_carteira.empty:
+        if carteira_4966_cache_status.get("warning"):
+            st.warning(carteira_4966_cache_status["warning"])
+        if carteira_4966_cache_status.get("identity_collision_count"):
+            st.warning(
+                "Foram encontradas sobreposições de identidade no mesmo período. "
+                "A linha oficial mais completa foi priorizada e o nome original permanece nos dados de auditoria."
+            )
+
         # Verificar colunas disponíveis
         colunas_disponiveis = df_carteira.columns.tolist()
 
@@ -23201,7 +23495,13 @@ elif menu == "Carteira 4.966":
 
         if instituicoes and periodos_disponiveis:
             st.markdown("### Carteira de Crédito por Instrumentos Financeiros (Res. 4.966)")
-            st.caption("Classificação conforme estágios de risco de crédito - C1 a C5")
+            periodo_mais_antigo = ordenar_periodos(periodos_disponiveis, reverso=False)[0]
+            periodo_mais_recente = ordenar_periodos(periodos_disponiveis, reverso=True)[0]
+            st.caption(
+                "Classificação conforme estágios de risco de crédito - C1 a C5 · "
+                f"cobertura disponível: {periodo_para_exibicao_mes(periodo_mais_antigo)} a "
+                f"{periodo_para_exibicao_mes(periodo_mais_recente)}"
+            )
 
             # Seletores
             col_inst, col_periodos = st.columns([1, 2])
@@ -23212,20 +23512,27 @@ elif menu == "Carteira 4.966":
                     "Instituição",
                     instituicoes,
                     index=_idx_carteira_default,
-                    key="carteira_4966_instituicao"
+                    key="carteira_4966_instituicao_v2"
                 )
 
             # Filtrar períodos disponíveis para a instituição selecionada
             df_inst = df_carteira[df_carteira['Instituição'].astype(str).str.strip() == str(instituicao_selecionada).strip()]
             periodos_inst = ordenar_periodos(df_inst[col_periodo].dropna().unique(), reverso=True)
 
+            periodos_contexto = (str(instituicao_selecionada), tuple(str(p) for p in periodos_inst))
+            if st.session_state.get("carteira_4966_periodos_context_v2") != periodos_contexto:
+                st.session_state["carteira_4966_periodos_v2"] = list(periodos_inst)
+                st.session_state["carteira_4966_periodos_context_v2"] = periodos_contexto
+
             with col_periodos:
                 periodos_selecionados = st.multiselect(
                     "Períodos (selecione 2 ou mais para comparação)",
                     periodos_inst,
-                    default=periodos_inst[:2] if len(periodos_inst) >= 2 else periodos_inst,
-                    key="carteira_4966_periodos",
-                    help="Selecione múltiplos períodos para comparar. O delta visual é calculado em relação ao mesmo período do ano anterior."
+                    key="carteira_4966_periodos_v2",
+                    help=(
+                        "Todos os períodos disponíveis para a instituição são selecionados inicialmente. "
+                        "O delta visual é calculado em relação ao mesmo período do ano anterior."
+                    )
                 )
 
             if periodos_selecionados and len(periodos_selecionados) >= 1:
@@ -23502,7 +23809,7 @@ elif menu == "Carteira 4.966":
                     st.dataframe(
                         pd.DataFrame(GLOSSARIO_CARTEIRA_4966),
                         hide_index=True,
-                        use_container_width=True,
+                        width="stretch",
                     )
                     st.caption(
                         "Fonte: Banco Central do Brasil, IFData/Olinda, relatório 16 (classificação da carteira conforme Resolução 4.966), no período selecionado."
@@ -23517,7 +23824,12 @@ elif menu == "Carteira 4.966":
 
     else:
         st.warning("Dados da Carteira 4.966 (Relatório 16) não disponíveis.")
-        st.info("Os dados precisam ser extraídos via 'Atualização Base' no painel de administração.")
+        if carteira_4966_cache_status.get("error"):
+            st.error(carteira_4966_cache_status["error"])
+        st.info(
+            "O app não encontrou uma base completa e validada no release curado. "
+            "Tente novamente ou atualize o Relatório 16 em 'Atualização Base'."
+        )
 
         # Mostrar informações sobre o cache
         from utils.ifdata_cache import get_manager
@@ -24048,7 +24360,7 @@ elif menu == "Taxas de Juros por Produto":
         mask = df["segmento"].astype(str).str.upper() == str(segmento).upper()
         return df[mask].copy()
 
-    @st.cache_data(ttl=1800, show_spinner="Verificando cache histórico de taxas...")
+    @st.cache_data(ttl=1800, max_entries=2, show_spinner="Verificando cache histórico de taxas...")
     def _carregar_taxas_beta_catalogo_historico():
         cache = _obter_cache_taxas_historico_beta()
         if cache is None or load_taxas_juros_historico_dimension is None:
@@ -24087,19 +24399,27 @@ elif menu == "Taxas de Juros por Produto":
             "cache_path": str(cache.arquivo_dados),
         }
 
-    @st.cache_data(ttl=1800, show_spinner="Carregando histórico do produto a partir do cache...")
+    @st.cache_data(ttl=1800, max_entries=2, show_spinner="Carregando histórico do produto a partir do cache...")
     def _buscar_taxas_beta_historico_produto_cache(codigo_segmento: str, codigo_modalidade: str):
         cache = _obter_cache_taxas_historico_beta()
-        if cache is None or load_taxas_juros_historico_slice is None:
+        if cache is None or load_taxas_juros_historico_monthly_slice is None:
             return pd.DataFrame(), {"rows_returned": 0, "source": "indisponivel", "error": "helper ausente"}
-        try:
-            df_fact = load_taxas_juros_historico_slice(
-                cache,
-                codigo_segmento=str(codigo_segmento),
-                codigo_modalidade=str(codigo_modalidade),
-            )
-        except Exception as exc:
-            return pd.DataFrame(), {"rows_returned": 0, "source": "historico_cache", "error": str(exc)}
+        anchor_date = get_taxas_juros_historico_anchor_date(cache, tipo_modalidade="D")
+        if pd.isna(anchor_date):
+            anchor_date = pd.Timestamp.now().normalize()
+        history_start = anchor_date - pd.DateOffset(months=61)
+        df_fact = load_taxas_juros_historico_monthly_slice(
+            cache,
+            codigo_segmento=str(codigo_segmento),
+            codigo_modalidade=str(codigo_modalidade),
+            fim_periodo_min=str(history_start.date()),
+            columns=(
+                "tipo_modalidade", "inicio_periodo", "fim_periodo", "codigo_segmento",
+                "segmento", "codigo_modalidade", "modalidade", "institution_key",
+                "instituicao_nome_observado", "posicao", "taxa_juros_ao_mes",
+                "taxa_juros_ao_ano",
+            ),
+        )
 
         df_display = build_taxas_juros_display_frame(df_fact)
         if {'Fim Período', 'Produto'}.issubset(df_display.columns):
@@ -24116,7 +24436,7 @@ elif menu == "Taxas de Juros por Produto":
             "error": "",
         }
 
-    @st.cache_data(ttl=900, show_spinner="Carregando detalhe recente a partir do cache...")
+    @st.cache_data(ttl=900, max_entries=8, show_spinner="Carregando detalhe recente a partir do cache...")
     def _buscar_taxas_beta_detalhe_recente_cache(
         codigo_segmento: str,
         codigo_modalidade: str,
@@ -24127,16 +24447,13 @@ elif menu == "Taxas de Juros por Produto":
         if cache is None or load_taxas_juros_historico_slice is None:
             return pd.DataFrame(), {"rows_returned": 0, "source": "indisponivel", "error": "helper ausente"}
         inicio_min = (datetime.now() - timedelta(days=int(dias_recente))).strftime("%Y-%m-%d")
-        try:
-            df_fact = load_taxas_juros_historico_slice(
-                cache,
-                codigo_segmento=str(codigo_segmento),
-                codigo_modalidade=str(codigo_modalidade),
-                instituicoes_observadas=list(instituicoes_key),
-                inicio_periodo_min=inicio_min,
-            )
-        except Exception as exc:
-            return pd.DataFrame(), {"rows_returned": 0, "source": "historico_cache", "error": str(exc)}
+        df_fact = load_taxas_juros_historico_slice(
+            cache,
+            codigo_segmento=str(codigo_segmento),
+            codigo_modalidade=str(codigo_modalidade),
+            instituicoes_observadas=list(instituicoes_key),
+            inicio_periodo_min=inicio_min,
+        )
 
         df_display = build_taxas_juros_display_frame(df_fact)
         if "Fim Período" in df_display.columns:
@@ -24173,7 +24490,7 @@ elif menu == "Taxas de Juros por Produto":
             label_by_key[str(key)] = str(banco)
         return selected_keys, label_by_key
 
-    @st.cache_data(ttl=900, show_spinner="Carregando série diária dos últimos 3 meses...")
+    @st.cache_data(ttl=900, max_entries=4, show_spinner="Carregando série diária dos últimos 3 meses...")
     def _buscar_taxas_beta_diario_3m_cache(
         codigo_segmento: str,
         codigo_modalidade: str,
@@ -24184,17 +24501,14 @@ elif menu == "Taxas de Juros por Produto":
         cache = _obter_cache_taxas_historico_beta()
         if cache is None or load_taxas_juros_historico_recent_daily_display is None:
             return pd.DataFrame(), {"rows_returned": 0, "source": "indisponivel", "error": "helper ausente"}
-        try:
-            df_display, meta = load_taxas_juros_historico_recent_daily_display(
-                cache,
-                codigo_segmento=str(codigo_segmento),
-                codigo_modalidade=str(codigo_modalidade),
-                institution_keys=list(institution_keys),
-                institution_label_by_key=dict(institution_labels),
-                lookback_months=int(meses_referencia),
-            )
-        except Exception as exc:
-            return pd.DataFrame(), {"rows_returned": 0, "source": "historico_cache", "error": str(exc)}
+        df_display, meta = load_taxas_juros_historico_recent_daily_display(
+            cache,
+            codigo_segmento=str(codigo_segmento),
+            codigo_modalidade=str(codigo_modalidade),
+            institution_keys=list(institution_keys),
+            institution_label_by_key=dict(institution_labels),
+            lookback_months=int(meses_referencia),
+        )
 
         meta = dict(meta or {})
         meta["source"] = "historico_cache"
@@ -24399,10 +24713,14 @@ elif menu == "Taxas de Juros por Produto":
 
         if produto_beta_valor:
             if usa_cache_historico_beta:
-                df_hist_beta_raw, meta_hist_beta = _buscar_taxas_beta_historico_produto_cache(
-                    codigo_segmento_beta,
-                    str(produto_beta_valor),
-                )
+                try:
+                    df_hist_beta_raw, meta_hist_beta = _buscar_taxas_beta_historico_produto_cache(
+                        codigo_segmento_beta,
+                        str(produto_beta_valor),
+                    )
+                except Exception as exc:
+                    df_hist_beta_raw = pd.DataFrame()
+                    meta_hist_beta = {"rows_returned": 0, "source": "historico_cache", "error": str(exc)}
             else:
                 df_hist_beta_raw, meta_hist_beta = _buscar_taxas_beta_historico_produto(
                     segmento_beta,
@@ -24702,12 +25020,16 @@ elif menu == "Taxas de Juros por Produto":
 
                     st.markdown("#### Série diária · últimos 3 meses")
                     if usa_cache_historico_beta and selected_keys_beta:
-                        df_daily_beta, meta_daily_beta = _buscar_taxas_beta_diario_3m_cache(
-                            codigo_segmento_beta,
-                            str(produto_beta_valor),
-                            tuple(selected_keys_beta),
-                            tuple(sorted(label_by_key_beta.items())),
-                        )
+                        try:
+                            df_daily_beta, meta_daily_beta = _buscar_taxas_beta_diario_3m_cache(
+                                codigo_segmento_beta,
+                                str(produto_beta_valor),
+                                tuple(selected_keys_beta),
+                                tuple(sorted(label_by_key_beta.items())),
+                            )
+                        except Exception as exc:
+                            df_daily_beta = pd.DataFrame()
+                            meta_daily_beta = {"rows_returned": 0, "source": "historico_cache", "error": str(exc)}
                     else:
                         df_daily_beta, meta_daily_beta = _montar_taxas_beta_diario_3m_live(
                             df_hist_beta_raw,
@@ -24813,11 +25135,15 @@ elif menu == "Taxas de Juros por Produto":
                             key="tj_beta_granularidade_recente",
                         )
                         if usa_cache_historico_beta:
-                            df_recent_beta_raw, meta_recent_beta = _buscar_taxas_beta_detalhe_recente_cache(
-                                codigo_segmento_beta,
-                                str(produto_beta_valor),
-                                tuple(sorted(bancos_sel_beta)),
-                            )
+                            try:
+                                df_recent_beta_raw, meta_recent_beta = _buscar_taxas_beta_detalhe_recente_cache(
+                                    codigo_segmento_beta,
+                                    str(produto_beta_valor),
+                                    tuple(sorted(bancos_sel_beta)),
+                                )
+                            except Exception as exc:
+                                df_recent_beta_raw = pd.DataFrame()
+                                meta_recent_beta = {"rows_returned": 0, "source": "historico_cache", "errors": {"cache": str(exc)}}
                         else:
                             df_recent_beta_raw, meta_recent_beta = _buscar_taxas_beta_detalhe_recente(
                                 segmento_beta,

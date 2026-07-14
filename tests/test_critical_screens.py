@@ -863,7 +863,7 @@ def test_critical_screens_needs_refresh_ignores_missing_local_sources(tmp_path: 
     assert not critical_screens_needs_refresh(base_dir=tmp_path, manager=manager_sem_fontes)
 
 
-def test_critical_screens_can_bootstrap_from_bundle(tmp_path: Path):
+def test_critical_screens_can_bootstrap_from_bundle_without_materializing_dataframe(tmp_path: Path, monkeypatch):
     cache = CriticalScreensCache(tmp_path)
     dados = pd.DataFrame(
         [
@@ -887,11 +887,16 @@ def test_critical_screens_can_bootstrap_from_bundle(tmp_path: Path):
     cache.limpar_local()
     assert not cache.existe()
 
+    def _forbidden_full_read(*args, **kwargs):
+        raise AssertionError("bootstrap não deve materializar o parquet em pandas")
+
+    monkeypatch.setattr(pd, "read_parquet", _forbidden_full_read)
+
     bootstrap_result = cache.bootstrap_local_from_bundle()
     assert bootstrap_result.sucesso
     assert cache.existe()
-    assert bootstrap_result.dados is not None
-    assert bootstrap_result.dados.iloc[0]["Instituição"] == "ITAU - PRUDENCIAL"
+    assert bootstrap_result.dados is None
+    assert bootstrap_result.metadata["total_registros"] == 1
 
 
 def test_runtime_status_prefers_bundle_without_forcing_refresh(tmp_path: Path):

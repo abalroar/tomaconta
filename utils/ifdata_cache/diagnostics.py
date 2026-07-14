@@ -7,7 +7,8 @@ import hashlib
 import json
 from pathlib import Path
 import re
-from typing import Any, Mapping, Sequence
+import unicodedata
+from typing import Any, Mapping, Optional, Sequence
 
 import pandas as pd
 
@@ -278,3 +279,101 @@ def build_runtime_manifest(
             "total_gates": len(gates),
         },
     }
+
+
+def _normalize_schema_name(value: object) -> str:
+    text = unicodedata.normalize("NFKD", str(value or ""))
+    return "".join(char for char in text if not unicodedata.combining(char)).strip().lower()
+
+
+def load_institution_pairs_for_diagnostic(cache_obj, *, batch_size: int = 65_536):
+    """Lê só código/nome do parquet e deduplica a cada lote.
+
+    Retorna ``(pares, coluna_codigo, coluna_nome, detalhe)``. Um fallback para
+    pickle é deliberadamente bloqueado porque exigiria materializar o cache
+    inteiro — justamente o comportamento que este leitor evita.
+    """
+    code_candidates = ("CodInst", "COD_INST", "cod_inst", "CODINST", "COD_CONGL", "cod_congl")
+    name_candidates = ("Instituição", "NOME_INSTITUICAO", "NOME_CONGL", "Nome_Congl")
+    parquet_path = getattr(cache_obj, "arquivo_dados", None)
+    pickle_path = getattr(cache_obj, "arquivo_dados_pickle", None)
+    if parquet_path is None or not parquet_path.exists():
+        reason = (
+            "somente pickle disponível; leitura integral bloqueada para proteger memória"
+            if pickle_path is not None and pickle_path.exists()
+            else "parquet local ausente"
+        )
+        return pd.DataFrame(), None, None, {
+            "carregado": False,
+            "registros": 0,
+            "coluna_codigo": "",
+            "coluna_nome": "",
+            "motivo": reason,
+        }
+
+    try:
+        import pyarrow.parquet as pq
+
+        parquet_file = pq.ParquetFile(parquet_path)
+        schema_names = list(parquet_file.schema_arrow.names)
+
+        def _resolve_schema(candidates: tuple[str, ...]) -> Optional[str]:
+            for candidate in candidates:
+                if candidate in schema_names:
+                    return candidate
+            normalized_candidates = [_normalize_schema_name(candidate) for candidate in candidates]
+            for name in schema_names:
+                if _normalize_schema_name(name) in normalized_candidates:
+                    return name
+            for name in schema_names:
+                normalized_name = _normalize_schema_name(name)
+                if any(candidate in normalized_name for candidate in normalized_candidates):
+                    return name
+            return None
+
+        code_column = _resolve_schema(code_candidates)
+        name_column = _resolve_schema(name_candidates)
+        total_rows = int(parquet_file.metadata.num_rows)
+        if not code_column or not name_column:
+            return pd.DataFrame(), code_column, name_column, {
+                "carregado": True,
+                "registros": total_rows,
+                "coluna_codigo": code_column or "",
+                "coluna_nome": name_column or "",
+                "motivo": "colunas obrigatórias ausentes para auditoria por código",
+            }
+
+        parts: list[pd.DataFrame] = []
+        for batch in parquet_file.iter_batches(
+            batch_size=max(1, int(batch_size)),
+            columns=[code_column, name_column],
+            use_threads=False,
+        ):
+            if batch.num_rows == 0:
+                continue
+            part = batch.to_pandas().drop_duplicates(subset=[code_column, name_column])
+            if not part.empty:
+                parts.append(part)
+
+        pairs = (
+            pd.concat(parts, ignore_index=True, copy=False)
+            .drop_duplicates(subset=[code_column, name_column])
+            .reset_index(drop=True)
+            if parts
+            else pd.DataFrame(columns=[code_column, name_column])
+        )
+        return pairs, code_column, name_column, {
+            "carregado": not pairs.empty,
+            "registros": total_rows,
+            "coluna_codigo": code_column,
+            "coluna_nome": name_column,
+            "motivo": "" if not pairs.empty else "cache vazio",
+        }
+    except Exception as exc:
+        return pd.DataFrame(), None, None, {
+            "carregado": False,
+            "registros": 0,
+            "coluna_codigo": "",
+            "coluna_nome": "",
+            "motivo": f"falha na leitura projetada: {exc}",
+        }
