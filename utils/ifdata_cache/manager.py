@@ -628,7 +628,11 @@ class CacheManager:
         else:
             df_final = df_novos
 
-        if cache.config.nome in {"principal_individual", "dre_individual"}:
+        if cache.config.nome == "carteira_instrumentos":
+            from .institutions import canonicalize_institution_history
+
+            df_final = canonicalize_institution_history(df_final, base_dir=self.base_dir)
+        elif cache.config.nome in {"principal_individual", "dre_individual"}:
             from .institutions import stabilize_institution_names_by_code
 
             df_final = stabilize_institution_names_by_code(df_final)

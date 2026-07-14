@@ -161,6 +161,7 @@ from .institutions import (
     canonicalize_institution_name,
     canonicalize_institution_series,
     canonicalize_institution_dataframe,
+    canonicalize_institution_history,
     is_placeholder_institution_name,
 )
 from .release_config import (
@@ -385,6 +386,7 @@ __all__ = [
     "canonicalize_institution_name",
     "canonicalize_institution_series",
     "canonicalize_institution_dataframe",
+    "canonicalize_institution_history",
     "is_placeholder_institution_name",
     "ReleaseConfig",
     "add_release_cache_buster",

@@ -430,3 +430,133 @@ def canonicalize_institution_dataframe(
 
     out[name_column] = out.apply(_resolve_name, axis=1)
     return out
+
+
+def canonicalize_institution_history(
+    df: pd.DataFrame | None,
+    *,
+    catalog_map: Dict[str, str] | None = None,
+    base_dir: Path | None = None,
+    name_column: str = "Instituição",
+    code_column: str = "CodInst",
+    period_column: str = "Período",
+    raw_name_column: str = "InstituiçãoRaw",
+) -> pd.DataFrame:
+    """Unifica rótulos históricos sem usar o nome textual como identidade.
+
+    O IFData pode publicar a mesma instituição com nomes diferentes ao longo do
+    tempo e, em períodos antigos, sem ``CodInst``. A rotina combina as duas
+    evidências disponíveis: estabiliza nomes por código em um frame auxiliar e
+    resolve as variantes nominais pelo catálogo oficial. O nome recebido da
+    fonte é preservado para auditoria em ``raw_name_column``.
+
+    A canonicalização é feita apenas para nomes únicos, evitando o custo de uma
+    resolução linha a linha. Se duas variantes passarem a ocupar a mesma chave
+    instituição/período, a linha já canônica e mais completa é escolhida de
+    forma determinística; o número de colisões fica registrado em ``DataFrame.attrs``.
+    """
+    if df is None or df.empty or name_column not in df.columns:
+        return df.copy() if isinstance(df, pd.DataFrame) else pd.DataFrame()
+
+    out = df.copy()
+    if period_column not in out.columns:
+        period_column = next(
+            (candidate for candidate in ("Período", "Periodo") if candidate in out.columns),
+            period_column,
+        )
+    source_order = pd.Series(range(len(out)), index=out.index, dtype="int64")
+    raw_names = out[name_column].fillna("").astype(str).str.strip()
+    if raw_name_column not in out.columns:
+        out[raw_name_column] = raw_names
+
+    names_for_resolution = raw_names
+    if code_column in out.columns:
+        auxiliary_columns = [code_column, name_column]
+        if period_column in out.columns:
+            auxiliary_columns.append(period_column)
+        stabilized = stabilize_institution_names_by_code(
+            out[auxiliary_columns],
+            code_column=code_column,
+            name_column=name_column,
+            period_column=period_column,
+        )
+        names_for_resolution = stabilized[name_column].fillna("").astype(str).str.strip()
+
+    catalog = catalog_map if catalog_map is not None else build_institution_to_conglomerate_map(base_dir)
+    unique_names = [name for name in names_for_resolution.unique().tolist() if name]
+    canonical_by_name = {
+        name: canonicalize_institution_name(name, catalog_map=catalog, base_dir=base_dir)
+        for name in unique_names
+    }
+    canonical_names = names_for_resolution.map(canonical_by_name).fillna(names_for_resolution).astype(str).str.strip()
+    out[name_column] = canonical_names.where(canonical_names.astype(bool), raw_names)
+
+    out.attrs["institution_identity_collision_count"] = 0
+    out.attrs["institution_identity_collision_keys"] = []
+    if period_column not in out.columns:
+        return out
+
+    period_values = out[period_column].fillna("").astype(str).str.strip()
+    valid_keys = out[name_column].astype(str).str.strip().astype(bool) & period_values.astype(bool)
+    duplicate_mask = valid_keys & out.duplicated(subset=[name_column, period_column], keep=False)
+    if not duplicate_mask.any():
+        return out
+
+    duplicate_rows = out.loc[duplicate_mask].copy()
+    value_columns = [
+        column
+        for column in out.columns
+        if column not in {name_column, period_column, raw_name_column}
+    ]
+    if value_columns:
+        conflicting_groups = (
+            duplicate_rows.groupby([name_column, period_column], dropna=False)[value_columns]
+            .nunique(dropna=True)
+            .gt(1)
+            .any(axis=1)
+        )
+        conflict_keys = [tuple(key) for key in conflicting_groups[conflicting_groups].index.tolist()]
+    else:
+        conflict_keys = []
+
+    duplicate_rows["_identity_source_order"] = source_order.loc[duplicate_rows.index]
+    duplicate_rows["_identity_canonical_exact"] = (
+        duplicate_rows[raw_name_column].map(normalize_institution_name)
+        == duplicate_rows[name_column].map(normalize_institution_name)
+    )
+    duplicate_rows["_identity_non_null_score"] = duplicate_rows[value_columns].notna().sum(axis=1)
+    preferred_rows = (
+        duplicate_rows.sort_values(
+            [
+                name_column,
+                period_column,
+                "_identity_canonical_exact",
+                "_identity_non_null_score",
+                "_identity_source_order",
+            ],
+            ascending=[True, True, False, False, True],
+            kind="stable",
+        )
+        .drop_duplicates(subset=[name_column, period_column], keep="first")
+    )
+
+    untouched_rows = out.loc[~duplicate_mask].copy()
+    untouched_rows["_identity_source_order"] = source_order.loc[untouched_rows.index]
+    out = (
+        pd.concat([untouched_rows, preferred_rows], ignore_index=True, sort=False)
+        .sort_values("_identity_source_order", kind="stable")
+        .drop(
+            columns=[
+                "_identity_source_order",
+                "_identity_canonical_exact",
+                "_identity_non_null_score",
+            ],
+            errors="ignore",
+        )
+        .reset_index(drop=True)
+    )
+    out.attrs["institution_identity_collision_count"] = int(
+        duplicate_rows.groupby([name_column, period_column], dropna=False).ngroups
+    )
+    out.attrs["institution_identity_collision_keys"] = conflict_keys
+    return out

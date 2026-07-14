@@ -96,6 +96,17 @@ _EXPECTED_CACHE_RELEASE_TAG = "v1.1-cache"
 _PEERS_INDIVIDUAL_RELEASE_BASE_URL = (
     f"https://github.com/abalroar/tomaconta/releases/download/{_EXPECTED_CACHE_RELEASE_TAG}"
 )
+_CARTEIRA_4966_RELEASE_BASE_URL = (
+    f"https://github.com/abalroar/tomaconta/releases/download/{_EXPECTED_CACHE_RELEASE_TAG}"
+)
+_CARTEIRA_4966_RELEASE_MANIFEST_URL = f"{_CARTEIRA_4966_RELEASE_BASE_URL}/manifest.json"
+_CARTEIRA_4966_REQUIRED_PERIOD_REFS = (
+    "202503",
+    "202506",
+    "202509",
+    "202512",
+    "202603",
+)
 if str(os.getenv("TOMACONTA_RELEASE_TAG") or "").strip() in {"", "v1.0-cache"}:
     os.environ["TOMACONTA_RELEASE_TAG"] = _EXPECTED_CACHE_RELEASE_TAG
 
@@ -154,10 +165,15 @@ import utils.ifdata_cache.institutions as _ifdata_institutions
 # app1.py ja aponta para uma revisao mais nova do mesmo deploy.
 if not all(
     hasattr(_ifdata_institutions, helper)
-    for helper in ("normalize_institution_code", "stabilize_institution_names_by_code")
+    for helper in (
+        "normalize_institution_code",
+        "stabilize_institution_names_by_code",
+        "canonicalize_institution_history",
+    )
 ):
     _ifdata_institutions = importlib.reload(_ifdata_institutions)
 canonicalize_institution_dataframe = _ifdata_institutions.canonicalize_institution_dataframe
+canonicalize_institution_history = _ifdata_institutions.canonicalize_institution_history
 normalize_institution_code = _ifdata_institutions.normalize_institution_code
 stabilize_institution_names_by_code = _ifdata_institutions.stabilize_institution_names_by_code
 from utils.ifdata_cache.release_ops import (
@@ -4451,7 +4467,12 @@ def _release_base_candidates_cache(manifest: dict | Sequence[dict] | None, cache
     return ordered
 
 
-def _baixar_cache_release_base_cache(cache_name: str, release_base_url: str) -> CacheResult:
+def _baixar_cache_release_base_cache(
+    cache_name: str,
+    release_base_url: str,
+    *,
+    expected_sha256: str = "",
+) -> CacheResult:
     asset_url = f"{release_base_url.rstrip('/')}/{cache_name}_dados.parquet"
     try:
         response = requests.get(
@@ -4466,6 +4487,17 @@ def _baixar_cache_release_base_cache(cache_name: str, release_base_url: str) -> 
                 mensagem=f"fallback {asset_url} retornou HTTP {response.status_code}",
                 fonte="nenhum",
             )
+        content_sha256 = hashlib.sha256(response.content).hexdigest()
+        expected_sha256 = str(expected_sha256 or "").strip().lower()
+        if expected_sha256 and content_sha256.lower() != expected_sha256:
+            return CacheResult(
+                sucesso=False,
+                mensagem=(
+                    f"integridade inválida para {asset_url}: "
+                    f"sha256 recebido {content_sha256}, esperado {expected_sha256}"
+                ),
+                fonte="nenhum",
+            )
         import io
 
         df = pd.read_parquet(io.BytesIO(response.content))
@@ -4473,6 +4505,7 @@ def _baixar_cache_release_base_cache(cache_name: str, release_base_url: str) -> 
             sucesso=True,
             mensagem=f"Baixado de fallback canônico: {len(df)} registros",
             dados=df,
+            metadata={"sha256": content_sha256},
             fonte=f"github_releases_fallback:{release_base_url}",
         )
     except Exception as exc:
@@ -4495,22 +4528,43 @@ def _salvar_cache_fallback_local(manager, cache_name: str, result: CacheResult) 
     return result
 
 
+def _manifest_period_count_cache(manifest: dict | Sequence[dict] | None, cache_name: str) -> int:
+    counts = []
+    for item in _manifest_items_cache(manifest):
+        caches = item.get("caches") if isinstance(item.get("caches"), dict) else {}
+        cache_info = caches.get(cache_name) if isinstance(caches.get(cache_name), dict) else {}
+        try:
+            count = int(cache_info.get("period_count") or 0)
+        except (TypeError, ValueError):
+            count = 0
+        if count > 0:
+            counts.append(count)
+    return max(counts) if counts else 0
+
+
 def _cache_period_status_from_result(cache_name: str, result, manifest: dict | None) -> dict:
     dados = getattr(result, "dados", None)
     metadata = getattr(result, "metadata", None) or {}
-    periodos = metadata.get("periodos") if isinstance(metadata, dict) else None
+    periodos = _periodos_from_df_cache(dados)
     if not periodos:
-        periodos = _periodos_from_df_cache(dados)
+        periodos = metadata.get("periodos") if isinstance(metadata, dict) else None
+    periodos = [str(periodo).strip() for periodo in (periodos or []) if str(periodo or "").strip()]
     local_period = _max_periodo_cache(periodos)
     local_ref = _periodo_ref_cache(local_period)
     release_ref = _periodo_maximo_manifest_cache(manifest, cache_name)
+    local_period_count = len(set(periodos))
+    release_period_count = _manifest_period_count_cache(manifest, cache_name)
+    stale_period = bool(release_ref and (not local_ref or local_ref < release_ref))
+    stale_count = bool(release_period_count and local_period_count < release_period_count)
     return {
         "cache": cache_name,
         "local_period": local_period,
         "local_ref": local_ref,
+        "local_period_count": local_period_count,
         "release_ref": release_ref,
+        "release_period_count": release_period_count,
         "fonte": getattr(result, "fonte", ""),
-        "stale": bool(release_ref and (not local_ref or local_ref < release_ref)),
+        "stale": stale_period or stale_count,
     }
 
 
@@ -4538,6 +4592,176 @@ def _carregar_cache_com_freshness(manager, cache_name: str, manifest: dict | Non
         status["remote_forced"] = False
         status["fallback_release_base"] = ""
     return result, status
+
+
+def _carteira_4966_manifest_entry(manifest: dict | None) -> dict:
+    if not isinstance(manifest, dict):
+        return {}
+    caches = manifest.get("caches") if isinstance(manifest.get("caches"), dict) else {}
+    entry = caches.get("carteira_instrumentos")
+    return entry if isinstance(entry, dict) else {}
+
+
+def _carteira_4966_release_token(manifest: dict | None) -> str:
+    entry = _carteira_4966_manifest_entry(manifest)
+    parts = [
+        _EXPECTED_CACHE_RELEASE_TAG,
+        str(entry.get("sha256") or ""),
+        str(entry.get("max_period_ref") or entry.get("max_period") or ""),
+        str(entry.get("period_count") or ""),
+        _manifest_generated_token_cache(manifest),
+    ]
+    return "|".join(parts)
+
+
+def _arquivo_sha256_cache(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _carteira_4966_result_status(result, manifest: dict | None) -> dict:
+    status = _cache_period_status_from_result("carteira_instrumentos", result, manifest)
+    dados = getattr(result, "dados", None)
+    missing_columns = []
+    if dados is None or not isinstance(dados, pd.DataFrame) or dados.empty:
+        missing_columns = ["Instituição", "Período"]
+    else:
+        if "Instituição" not in dados.columns:
+            missing_columns.append("Instituição")
+        if not any(column in dados.columns for column in ("Período", "Periodo")):
+            missing_columns.append("Período")
+    available_period_refs = {
+        ref
+        for periodo in _periodos_from_df_cache(dados)
+        if (ref := _periodo_ref_cache(periodo))
+    }
+    missing_required_periods = [
+        ref
+        for ref in _CARTEIRA_4966_REQUIRED_PERIOD_REFS
+        if ref not in available_period_refs
+    ]
+    status["missing_columns"] = missing_columns
+    status["missing_required_periods"] = missing_required_periods
+    status["valid"] = bool(
+        getattr(result, "sucesso", False)
+        and dados is not None
+        and not dados.empty
+        and not missing_columns
+        and not missing_required_periods
+        and not status["stale"]
+    )
+    return status
+
+
+def _load_carteira_4966_data_impl(manifest: dict | None):
+    """Carrega o Rel. 16 do release curado e normaliza a identidade histórica."""
+    manager = get_cache_manager()
+    cache = manager.get_cache("carteira_instrumentos")
+    if cache is None:
+        return None, {"valid": False, "error": "cache carteira_instrumentos não registrado"}
+
+    entry = _carteira_4966_manifest_entry(manifest)
+    expected_sha256 = str(entry.get("sha256") or "").strip().lower()
+    local_integrity_verified = False
+    local_result = None
+
+    if cache.arquivo_dados.exists() and expected_sha256:
+        try:
+            local_integrity_verified = _arquivo_sha256_cache(cache.arquivo_dados).lower() == expected_sha256
+        except OSError:
+            local_integrity_verified = False
+    if not local_integrity_verified and expected_sha256 and cache.existe():
+        local_candidate = cache.carregar_local()
+        candidate_status = _carteira_4966_result_status(local_candidate, manifest)
+        local_is_newer = bool(
+            candidate_status.get("local_ref", "") > candidate_status.get("release_ref", "")
+            or candidate_status.get("local_period_count", 0)
+            > candidate_status.get("release_period_count", 0)
+        )
+        if candidate_status["valid"] and local_is_newer:
+            prepared = canonicalize_institution_history(local_candidate.dados, base_dir=APP_DIR)
+            candidate_status["integrity_verified"] = False
+            candidate_status["warning"] = (
+                "cache local mais recente que o release curado; usando a atualização local validada"
+            )
+            candidate_status["identity_collision_count"] = int(
+                prepared.attrs.get("institution_identity_collision_count", 0)
+            )
+            return prepared, candidate_status
+    if local_integrity_verified or not expected_sha256:
+        local_result = cache.carregar_local()
+        local_status = _carteira_4966_result_status(local_result, manifest)
+        if local_status["valid"]:
+            local_status["integrity_verified"] = local_integrity_verified
+            if not expected_sha256:
+                local_status["warning"] = (
+                    "manifesto do release curado indisponível ou sem digest; "
+                    "usando cache local com cobertura validada"
+                )
+            prepared = canonicalize_institution_history(local_result.dados, base_dir=APP_DIR)
+            local_status["identity_collision_count"] = int(
+                prepared.attrs.get("institution_identity_collision_count", 0)
+            )
+            return prepared, local_status
+
+    remote_result = _baixar_cache_release_base_cache(
+        "carteira_instrumentos",
+        _CARTEIRA_4966_RELEASE_BASE_URL,
+        expected_sha256=expected_sha256,
+    )
+    remote_status = _carteira_4966_result_status(remote_result, manifest)
+    if remote_status["valid"]:
+        remote_result = _salvar_cache_fallback_local(manager, "carteira_instrumentos", remote_result)
+        prepared = canonicalize_institution_history(remote_result.dados, base_dir=APP_DIR)
+        remote_status = _carteira_4966_result_status(remote_result, manifest)
+        remote_status["integrity_verified"] = bool(expected_sha256)
+        remote_status["identity_collision_count"] = int(
+            prepared.attrs.get("institution_identity_collision_count", 0)
+        )
+        return prepared, remote_status
+
+    if local_result is None and cache.existe():
+        local_result = cache.carregar_local()
+    if local_result is not None:
+        local_status = _carteira_4966_result_status(local_result, manifest)
+        if local_status["valid"]:
+            prepared = canonicalize_institution_history(local_result.dados, base_dir=APP_DIR)
+            local_status["integrity_verified"] = False
+            local_status["warning"] = (
+                "release curado indisponível; usando cache local com cobertura validada, "
+                "mas sem confirmação de integridade"
+            )
+            local_status["identity_collision_count"] = int(
+                prepared.attrs.get("institution_identity_collision_count", 0)
+            )
+            return prepared, local_status
+
+        error_message = getattr(remote_result, "mensagem", "falha ao carregar release curado")
+        local_status["error"] = (
+            f"{error_message}. O cache local também foi rejeitado porque não contém "
+            "todos os períodos obrigatórios de mar/25 a mar/26."
+        )
+        local_status["remote_error"] = error_message
+        return None, local_status
+
+    error_message = getattr(remote_result, "mensagem", "falha ao carregar release curado")
+    remote_status["error"] = error_message
+    return None, remote_status
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def load_carteira_4966_data(release_token: str, manifest_payload: str):
+    """Carrega usando exatamente o manifesto que originou a chave de cache."""
+    try:
+        manifest = json.loads(manifest_payload)
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        manifest = {"_erro": f"manifesto serializado inválido: {exc}"}
+    if not isinstance(manifest, dict):
+        manifest = {"_erro": "manifesto serializado não é um objeto"}
+    return _load_carteira_4966_data_impl(manifest)
 
 
 def _periodos_catalogo_dre_individual(
@@ -23167,16 +23391,6 @@ elif menu == "Carteira 4.966":
     # ABA CARTEIRA 4.966 - Classificação de Instrumentos Financeiros (Res. 4.966)
     # =========================================================================
 
-    @st.cache_data(ttl=3600, show_spinner=False)
-    def load_carteira_4966_data():
-        """Carrega dados da Carteira 4.966 (Relatório 16) com cache."""
-        from utils.ifdata_cache import get_manager
-        manager = get_manager()
-        resultado = manager.carregar("carteira_instrumentos")
-        if resultado.sucesso and resultado.dados is not None:
-            return resultado.dados
-        return None
-
     def periodo_para_exibicao_mes(periodo_trimestre: str) -> str:
         """Wrapper local para manter padrão global de período (Mar/XX, Jun/XX, Set/XX, Dez/XX)."""
         return periodo_para_exibicao(periodo_trimestre)
@@ -23236,9 +23450,31 @@ elif menu == "Carteira 4.966":
         },
     ]
 
-    df_carteira = load_carteira_4966_data()
+    carteira_4966_manifest = _carregar_manifest_release_cache(
+        _CARTEIRA_4966_RELEASE_MANIFEST_URL,
+        _EXPECTED_CACHE_RELEASE_TAG,
+    )
+    carteira_4966_release_token = _carteira_4966_release_token(carteira_4966_manifest)
+    carteira_4966_manifest_payload = json.dumps(
+        carteira_4966_manifest,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    df_carteira, carteira_4966_cache_status = load_carteira_4966_data(
+        carteira_4966_release_token,
+        carteira_4966_manifest_payload,
+    )
 
     if df_carteira is not None and not df_carteira.empty:
+        if carteira_4966_cache_status.get("warning"):
+            st.warning(carteira_4966_cache_status["warning"])
+        if carteira_4966_cache_status.get("identity_collision_count"):
+            st.warning(
+                "Foram encontradas sobreposições de identidade no mesmo período. "
+                "A linha oficial mais completa foi priorizada e o nome original permanece nos dados de auditoria."
+            )
+
         # Verificar colunas disponíveis
         colunas_disponiveis = df_carteira.columns.tolist()
 
@@ -23259,7 +23495,13 @@ elif menu == "Carteira 4.966":
 
         if instituicoes and periodos_disponiveis:
             st.markdown("### Carteira de Crédito por Instrumentos Financeiros (Res. 4.966)")
-            st.caption("Classificação conforme estágios de risco de crédito - C1 a C5")
+            periodo_mais_antigo = ordenar_periodos(periodos_disponiveis, reverso=False)[0]
+            periodo_mais_recente = ordenar_periodos(periodos_disponiveis, reverso=True)[0]
+            st.caption(
+                "Classificação conforme estágios de risco de crédito - C1 a C5 · "
+                f"cobertura disponível: {periodo_para_exibicao_mes(periodo_mais_antigo)} a "
+                f"{periodo_para_exibicao_mes(periodo_mais_recente)}"
+            )
 
             # Seletores
             col_inst, col_periodos = st.columns([1, 2])
@@ -23270,20 +23512,27 @@ elif menu == "Carteira 4.966":
                     "Instituição",
                     instituicoes,
                     index=_idx_carteira_default,
-                    key="carteira_4966_instituicao"
+                    key="carteira_4966_instituicao_v2"
                 )
 
             # Filtrar períodos disponíveis para a instituição selecionada
             df_inst = df_carteira[df_carteira['Instituição'].astype(str).str.strip() == str(instituicao_selecionada).strip()]
             periodos_inst = ordenar_periodos(df_inst[col_periodo].dropna().unique(), reverso=True)
 
+            periodos_contexto = (str(instituicao_selecionada), tuple(str(p) for p in periodos_inst))
+            if st.session_state.get("carteira_4966_periodos_context_v2") != periodos_contexto:
+                st.session_state["carteira_4966_periodos_v2"] = list(periodos_inst)
+                st.session_state["carteira_4966_periodos_context_v2"] = periodos_contexto
+
             with col_periodos:
                 periodos_selecionados = st.multiselect(
                     "Períodos (selecione 2 ou mais para comparação)",
                     periodos_inst,
-                    default=periodos_inst[:2] if len(periodos_inst) >= 2 else periodos_inst,
-                    key="carteira_4966_periodos",
-                    help="Selecione múltiplos períodos para comparar. O delta visual é calculado em relação ao mesmo período do ano anterior."
+                    key="carteira_4966_periodos_v2",
+                    help=(
+                        "Todos os períodos disponíveis para a instituição são selecionados inicialmente. "
+                        "O delta visual é calculado em relação ao mesmo período do ano anterior."
+                    )
                 )
 
             if periodos_selecionados and len(periodos_selecionados) >= 1:
@@ -23560,7 +23809,7 @@ elif menu == "Carteira 4.966":
                     st.dataframe(
                         pd.DataFrame(GLOSSARIO_CARTEIRA_4966),
                         hide_index=True,
-                        use_container_width=True,
+                        width="stretch",
                     )
                     st.caption(
                         "Fonte: Banco Central do Brasil, IFData/Olinda, relatório 16 (classificação da carteira conforme Resolução 4.966), no período selecionado."
@@ -23575,7 +23824,12 @@ elif menu == "Carteira 4.966":
 
     else:
         st.warning("Dados da Carteira 4.966 (Relatório 16) não disponíveis.")
-        st.info("Os dados precisam ser extraídos via 'Atualização Base' no painel de administração.")
+        if carteira_4966_cache_status.get("error"):
+            st.error(carteira_4966_cache_status["error"])
+        st.info(
+            "O app não encontrou uma base completa e validada no release curado. "
+            "Tente novamente ou atualize o Relatório 16 em 'Atualização Base'."
+        )
 
         # Mostrar informações sobre o cache
         from utils.ifdata_cache import get_manager
