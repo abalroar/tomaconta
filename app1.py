@@ -4604,21 +4604,29 @@ def _carregar_cache_com_freshness(manager, cache_name: str, manifest: dict | Non
     return result, status
 
 
-def _carteira_4966_manifest_entry(manifest: dict | None) -> dict:
+def _manifest_cache_entry_cache(manifest: dict | None, cache_name: str) -> dict:
     if not isinstance(manifest, dict):
         return {}
     caches = manifest.get("caches") if isinstance(manifest.get("caches"), dict) else {}
-    entry = caches.get("carteira_instrumentos")
+    entry = caches.get(cache_name)
     return entry if isinstance(entry, dict) else {}
 
 
+def _carteira_4966_manifest_entry(manifest: dict | None) -> dict:
+    return _manifest_cache_entry_cache(manifest, "carteira_instrumentos")
+
+
 def _carteira_4966_release_token(manifest: dict | None) -> str:
-    entry = _carteira_4966_manifest_entry(manifest)
+    carteira_entry = _carteira_4966_manifest_entry(manifest)
+    ativo_entry = _manifest_cache_entry_cache(manifest, "ativo")
     parts = [
         _EXPECTED_CACHE_RELEASE_TAG,
-        str(entry.get("sha256") or ""),
-        str(entry.get("max_period_ref") or entry.get("max_period") or ""),
-        str(entry.get("period_count") or ""),
+        str(carteira_entry.get("sha256") or ""),
+        str(carteira_entry.get("max_period_ref") or carteira_entry.get("max_period") or ""),
+        str(carteira_entry.get("period_count") or ""),
+        str(ativo_entry.get("sha256") or ""),
+        str(ativo_entry.get("max_period_ref") or ativo_entry.get("max_period") or ""),
+        str(ativo_entry.get("period_count") or ""),
         _manifest_generated_token_cache(manifest),
     ]
     return "|".join(parts)
@@ -4630,6 +4638,100 @@ def _arquivo_sha256_cache(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _filtrar_periodos_carteira_4966(
+    dados: pd.DataFrame | None,
+    periodos: Sequence[str],
+) -> pd.DataFrame:
+    if dados is None or dados.empty:
+        return pd.DataFrame()
+    out = _normalizar_nomes_carteira(dados)
+    col_periodo = next(
+        (column for column in ("Período", "Periodo") if column in out.columns),
+        None,
+    )
+    periodos_normalizados = {str(periodo).strip() for periodo in periodos if str(periodo).strip()}
+    if col_periodo is None or not periodos_normalizados:
+        return out.copy()
+    return out[out[col_periodo].astype(str).str.strip().isin(periodos_normalizados)].copy()
+
+
+def _load_carteira_4966_ativo_periods_impl(
+    manifest: dict | None,
+    periodos: Sequence[str],
+) -> tuple[pd.DataFrame, dict]:
+    """Carrega o Rel. 2 fixado ao mesmo manifesto usado pela Carteira 4.966.
+
+    O recorte genérico de cache considera apenas o arquivo local. Como assets de
+    GitHub Release são substituídos no mesmo tag, esse arquivo pode permanecer
+    defasado mesmo após a atualização do manifesto. Aqui o SHA-256 publicado é a
+    fonte de verdade: um arquivo divergente é substituído pelo asset verificado
+    antes de calcular PDD.
+    """
+    manager = get_cache_manager()
+    cache = manager.get_cache("ativo") if manager is not None else None
+    if cache is None:
+        return pd.DataFrame(), {
+            "valid": False,
+            "integrity_verified": False,
+            "error": "cache Ativo (Relatório 2) não registrado",
+        }
+
+    entry = _manifest_cache_entry_cache(manifest, "ativo")
+    expected_sha256 = str(entry.get("sha256") or "").strip().lower()
+    local_integrity_verified = False
+    if cache.arquivo_dados.exists() and expected_sha256:
+        try:
+            local_integrity_verified = (
+                _arquivo_sha256_cache(cache.arquivo_dados).lower() == expected_sha256
+            )
+        except OSError:
+            local_integrity_verified = False
+
+    if local_integrity_verified or not expected_sha256:
+        local_result = cache.carregar_local() if cache.existe() else None
+        if local_result is not None and local_result.sucesso and local_result.dados is not None:
+            status = {
+                "valid": True,
+                "integrity_verified": local_integrity_verified,
+                "source": local_result.fonte,
+            }
+            if not expected_sha256:
+                status["warning"] = (
+                    "manifesto do release sem digest do Relatório 2; "
+                    "usando o cache local disponível"
+                )
+            return _filtrar_periodos_carteira_4966(local_result.dados, periodos), status
+
+    remote_result = _baixar_cache_release_base_cache(
+        "ativo",
+        _CARTEIRA_4966_RELEASE_BASE_URL,
+        expected_sha256=expected_sha256,
+    )
+    if remote_result.sucesso and remote_result.dados is not None:
+        _salvar_cache_fallback_local(manager, "ativo", remote_result)
+        status = {
+            "valid": True,
+            "integrity_verified": bool(expected_sha256),
+            "source": remote_result.fonte,
+        }
+        if not expected_sha256:
+            status["warning"] = (
+                "Relatório 2 baixado sem digest publicado no manifesto; "
+                "a origem foi validada, mas a integridade não pôde ser fixada"
+            )
+        return _filtrar_periodos_carteira_4966(remote_result.dados, periodos), status
+
+    return pd.DataFrame(), {
+        "valid": False,
+        "integrity_verified": False,
+        "error": getattr(
+            remote_result,
+            "mensagem",
+            "falha ao carregar o cache Ativo (Relatório 2)",
+        ),
+    }
 
 
 def _carteira_4966_result_status(result, manifest: dict | None) -> dict:
@@ -4786,6 +4888,23 @@ def load_carteira_4966_data(release_token: str, manifest_payload: str):
     if not isinstance(manifest, dict):
         manifest = {"_erro": "manifesto serializado não é um objeto"}
     return _load_carteira_4966_data_impl(manifest)
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def load_carteira_4966_ativo_periods(
+    release_token: str,
+    manifest_payload: str,
+    periodos: tuple[str, ...],
+):
+    """Carrega a Perda Esperada usando o digest que compõe ``release_token``."""
+    del release_token  # Faz parte da chave do cache Streamlit.
+    try:
+        manifest = json.loads(manifest_payload)
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        manifest = {"_erro": f"manifesto serializado inválido: {exc}"}
+    if not isinstance(manifest, dict):
+        manifest = {"_erro": "manifesto serializado não é um objeto"}
+    return _load_carteira_4966_ativo_periods_impl(manifest, periodos)
 
 
 def _periodos_catalogo_dre_individual(
@@ -23512,16 +23631,24 @@ elif menu == "Carteira 4.966":
                 periodos_ordenados = ordenar_periodos(periodos_selecionados, reverso=False)
                 df_ativo_inst = pd.DataFrame()
                 ativo_load_error = ""
+                ativo_load_warning = ""
 
                 with st.spinner("Compondo o modelo 4966..."):
                     try:
-                        # O recorte inicial usa somente períodos. A canonicalização vem antes
-                        # do filtro institucional para preservar aliases históricos sem CodInst.
-                        df_ativo_periodos = _carregar_cache_relatorio_slice(
-                            "ativo",
-                            _cache_version_token("ativo"),
+                        # O Rel. 2 é fixado ao digest do mesmo manifesto da Carteira 4.966.
+                        # A canonicalização vem antes do filtro institucional para preservar
+                        # aliases históricos sem CodInst.
+                        df_ativo_periodos, ativo_cache_status = load_carteira_4966_ativo_periods(
+                            carteira_4966_release_token,
+                            carteira_4966_manifest_payload,
                             tuple(periodos_ordenados),
                         )
+                        if not ativo_cache_status.get("valid"):
+                            ativo_load_error = str(
+                                ativo_cache_status.get("error")
+                                or "fonte de provisão indisponível"
+                            )
+                        ativo_load_warning = str(ativo_cache_status.get("warning") or "")
                         if df_ativo_periodos is not None and not df_ativo_periodos.empty:
                             df_ativo_canonico = canonicalize_institution_history(
                                 df_ativo_periodos,
@@ -23639,6 +23766,11 @@ elif menu == "Carteira 4.966":
                     st.warning(
                         "A carteira foi carregada, mas a fonte de provisão está temporariamente indisponível. "
                         "As linhas correspondentes permanecem como N/D."
+                    )
+                elif ativo_load_warning:
+                    st.warning(
+                        "A Perda Esperada foi carregada sem confirmação de integridade pelo manifesto do "
+                        "release. Os valores permanecem visíveis, mas devem ser validados na fonte."
                     )
 
                 exterior_col = _resolver_coluna_peers(df_inst, ["Total Exterior"])
