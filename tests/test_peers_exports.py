@@ -443,6 +443,70 @@ def test_peers_slice_recomputes_loss_coverage_and_formats_above_100_percent():
     assert app1._formatar_valor_peers(extra["Perda Esperada / Estágio 3"][chave], "Perda Esperada / Estágio 3") == "119,79%"
 
 
+def test_peers_outputs_force_chronological_order_and_native_percentage_scale():
+    banco = "GM - PRUDENCIAL"
+    periodos = ["1/2026", "4/2025", "3/2025", "4/2025"]
+    metric = "Perda Esperada / Estágio 3"
+    valores = {
+        (metric, banco, "3/2025"): 0.50,
+        (metric, banco, "4/2025"): 0.75,
+        (metric, banco, "1/2026"): 399.13 / 333.20,
+    }
+    colunas_usadas = {metric: None}
+    delta_flags = {}
+
+    html = app1._render_peers_table_html(
+        [banco],
+        periodos,
+        valores,
+        colunas_usadas,
+        delta_flags,
+    )
+    assert html.index("Set/25") < html.index("Dez/25") < html.index("Mar/26")
+    assert "119,79%" in html
+
+    visual = load_workbook(
+        BytesIO(
+            app1._gerar_excel_peers_tabela(
+                [banco],
+                periodos,
+                valores,
+                colunas_usadas,
+                delta_flags,
+            ).getvalue()
+        ),
+        data_only=True,
+    )["peers_tabela"]
+    assert [visual.cell(row=2, column=column).value for column in range(2, 5)] == [
+        "Set/25",
+        "Dez/25",
+        "Mar/26",
+    ]
+    visual_ratio_row = _find_row_by_label(visual, metric)
+    assert visual.cell(row=visual_ratio_row, column=4).value == "119,79%"
+
+    raw = load_workbook(
+        BytesIO(
+            app1._gerar_excel_peers_dados_puros(
+                [banco],
+                periodos,
+                valores,
+                colunas_usadas,
+                delta_flags,
+            ).getvalue()
+        ),
+        data_only=True,
+    )["dados_numericos"]
+    assert [raw.cell(row=2, column=column).value for column in range(2, 5)] == [
+        "Set/25",
+        "Dez/25",
+        "Mar/26",
+    ]
+    raw_ratio = raw.cell(row=_find_row_by_label(raw, metric), column=4)
+    assert abs(raw_ratio.value - (399.13 / 333.20)) < 1e-12
+    assert raw_ratio.number_format == "0.00%"
+
+
 def test_peers_generic_missing_value_gets_unavailability_note_and_marker():
     bancos = ["TEST BANK - PRUDENCIAL"]
     periodos = ["4/2025"]

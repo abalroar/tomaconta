@@ -50,7 +50,7 @@ class RowSpec:
     denominator_key: Optional[str] = None
     denominator_label: str = ""
     emphasis: bool = False
-    percent_decimals: int = 0
+    percent_decimals: int = 2
     help_text: str = ""
 
 
@@ -168,7 +168,7 @@ ROW_SPECS = (
         "total_general",
         "Carteira total do mesmo período",
         emphasis=True,
-        percent_decimals=1,
+        percent_decimals=2,
         help_text=(
             "Inadimplência do Relatório 16: operações a vencer e vencidas que "
             "possuem alguma parcela vencida há mais de 90 dias."
@@ -194,7 +194,7 @@ ROW_SPECS = (
         "provision",
         "total_general",
         "Carteira total do mesmo período",
-        percent_decimals=1,
+        percent_decimals=2,
         help_text="Provisão total dividida pela carteira total do mesmo período.",
     ),
     RowSpec(
@@ -623,6 +623,11 @@ def format_percentage(value: Optional[float], decimals: int = 0) -> str:
     return f"{_format_number_ptbr(percentage, decimals)}%"
 
 
+def _excel_percentage_format_code(decimals: int = 2) -> str:
+    decimals = max(0, int(decimals))
+    return "0%" if decimals == 0 else f"0.{('0' * decimals)}%"
+
+
 def quality_issue_message(issue: QualityIssue) -> str:
     period_label = format_period_label(issue.period)
     pdd_label = _format_brl_millions_for_alert(issue.pdd_value)
@@ -970,6 +975,153 @@ def model_to_audit_dataframe(model: Carteira4966Model) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def build_carteira_4966_raw_excel(
+    model: Carteira4966Model,
+    carteira_source: Optional[pd.DataFrame] = None,
+    ativo_source: Optional[pd.DataFrame] = None,
+) -> bytes:
+    """Exporta dados auditáveis com percentuais Excel em escala decimal.
+
+    A tabela de auditoria do Streamlit usa pontos percentuais para facilitar a
+    leitura. No arquivo, esses campos voltam à escala decimal e recebem formato
+    percentual nativo. Assim, 3,91% é gravado como ``0,0391`` com ``0.00%``.
+    """
+
+    output = BytesIO()
+    audit = model_to_audit_dataframe(model).copy()
+    quality = quality_issues_dataframe(model).copy()
+
+    audit_percent_columns = [
+        column for column in audit.columns if str(column).endswith(" (%)")
+    ]
+    for column in audit_percent_columns:
+        audit[column] = pd.to_numeric(audit[column], errors="coerce") / 100.0
+
+    quality_percent_columns = [
+        column for column in quality.columns if str(column).endswith(" (%)")
+    ]
+    for column in quality_percent_columns:
+        quality[column] = pd.to_numeric(quality[column], errors="coerce") / 100.0
+
+    carteira_export = (
+        carteira_source.copy()
+        if isinstance(carteira_source, pd.DataFrame)
+        else pd.DataFrame()
+    )
+    ativo_export = (
+        ativo_source.copy()
+        if isinstance(ativo_source, pd.DataFrame)
+        else pd.DataFrame()
+    )
+    if ativo_export.empty:
+        ativo_export = pd.DataFrame(
+            {
+                "Status": [
+                    "Dados de provisão indisponíveis para a instituição e os períodos selecionados."
+                ]
+            }
+        )
+
+    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+        if not quality.empty:
+            quality.to_excel(writer, index=False, sheet_name="Alertas qualidade")
+        audit.to_excel(writer, index=False, sheet_name="Modelo calculado")
+        carteira_export.to_excel(writer, index=False, sheet_name="Rel16 Carteira")
+        ativo_export.to_excel(writer, index=False, sheet_name="Rel2 Ativo")
+
+        workbook = writer.book
+        header_format = workbook.add_format(
+            {
+                "bold": True,
+                "font_color": "#FFFFFF",
+                "bg_color": "#24262D",
+                "border": 1,
+                "border_color": "#C9CBD0",
+                "valign": "vcenter",
+                "text_wrap": True,
+            }
+        )
+        percent_format = workbook.add_format(
+            {"num_format": _excel_percentage_format_code(2), "align": "right"}
+        )
+        number_format = workbook.add_format(
+            {"num_format": "#,##0.00", "align": "right"}
+        )
+
+        def style_sheet(
+            sheet_name: str,
+            frame: pd.DataFrame,
+            *,
+            percent_columns: Sequence[str] = (),
+        ) -> None:
+            worksheet = writer.sheets[sheet_name]
+            for column_index, column_name in enumerate(frame.columns):
+                worksheet.write(0, column_index, column_name, header_format)
+                content_lengths = [
+                    len(str(value))
+                    for value in frame[column_name].dropna().head(100)
+                ]
+                width = min(
+                    max([len(str(column_name)), *content_lengths], default=12) + 2,
+                    60,
+                )
+                width = max(width, 14)
+                if column_name in percent_columns:
+                    worksheet.set_column(column_index, column_index, max(width, 18))
+                    for row_index, value in enumerate(frame[column_name], start=1):
+                        number = _finite_number(value)
+                        if number is None:
+                            worksheet.write_blank(
+                                row_index,
+                                column_index,
+                                None,
+                                percent_format,
+                            )
+                        else:
+                            worksheet.write_number(
+                                row_index,
+                                column_index,
+                                number,
+                                percent_format,
+                            )
+                elif str(column_name).endswith("(R$ mm)"):
+                    worksheet.set_column(
+                        column_index,
+                        column_index,
+                        max(width, 18),
+                        number_format,
+                    )
+                else:
+                    worksheet.set_column(column_index, column_index, width)
+            worksheet.freeze_panes(1, 0)
+            worksheet.set_row(0, 30)
+            if len(frame.index) > 0 and len(frame.columns) > 0:
+                worksheet.autofilter(
+                    0,
+                    0,
+                    len(frame.index),
+                    len(frame.columns) - 1,
+                )
+            worksheet.hide_gridlines(2)
+
+        if not quality.empty:
+            style_sheet(
+                "Alertas qualidade",
+                quality,
+                percent_columns=quality_percent_columns,
+            )
+        style_sheet(
+            "Modelo calculado",
+            audit,
+            percent_columns=audit_percent_columns,
+        )
+        style_sheet("Rel16 Carteira", carteira_export)
+        style_sheet("Rel2 Ativo", ativo_export)
+
+    output.seek(0)
+    return output.getvalue()
+
+
 def build_carteira_4966_excel(model: Carteira4966Model) -> bytes:
     """Gera o workbook visual usando a mesma ROW_SPECS da tela."""
 
@@ -1043,28 +1195,31 @@ def build_carteira_4966_excel(model: Carteira4966Model) -> bytes:
             **border,
         }
     )
-    percent_fmt = workbook.add_format({"align": "right", "valign": "vcenter", "num_format": "0%", **border})
-    percent_one_fmt = workbook.add_format({"align": "right", "valign": "vcenter", "num_format": "0.0%", **border})
-    percent_span_fmt = workbook.add_format(
-        {
-            **border,
-            "align": "center",
-            "valign": "vcenter",
-            "num_format": "0%",
-            "bottom": 3,
-            "bottom_color": "#C9CBD0",
-        }
-    )
-    percent_span_one_fmt = workbook.add_format(
-        {
-            **border,
-            "align": "center",
-            "valign": "vcenter",
-            "num_format": "0.0%",
-            "bottom": 3,
-            "bottom_color": "#C9CBD0",
-        }
-    )
+    percent_decimals = sorted({spec.percent_decimals for spec in ROW_SPECS})
+    percent_formats = {
+        decimals: workbook.add_format(
+            {
+                "align": "right",
+                "valign": "vcenter",
+                "num_format": _excel_percentage_format_code(decimals),
+                **border,
+            }
+        )
+        for decimals in percent_decimals
+    }
+    percent_span_formats = {
+        decimals: workbook.add_format(
+            {
+                **border,
+                "align": "center",
+                "valign": "vcenter",
+                "num_format": _excel_percentage_format_code(decimals),
+                "bottom": 3,
+                "bottom_color": "#C9CBD0",
+            }
+        )
+        for decimals in percent_decimals
+    }
     missing_fmt = workbook.add_format(
         {
             "align": "center",
@@ -1082,7 +1237,9 @@ def build_carteira_4966_excel(model: Carteira4966Model) -> bytes:
             "bg_color": "#FFF4CC",
             "align": "center",
             "valign": "vcenter",
-            "num_format": "0.0%",
+            "num_format": _excel_percentage_format_code(
+                ROW_BY_KEY["provision_over_portfolio"].percent_decimals
+            ),
             "bottom": 3,
             "bottom_color": "#C9CBD0",
         }
@@ -1095,7 +1252,9 @@ def build_carteira_4966_excel(model: Carteira4966Model) -> bytes:
             "bg_color": "#FDE8E7",
             "align": "center",
             "valign": "vcenter",
-            "num_format": "0.0%",
+            "num_format": _excel_percentage_format_code(
+                ROW_BY_KEY["provision_over_portfolio"].percent_decimals
+            ),
             "bottom": 3,
             "bottom_color": "#C9CBD0",
         }
@@ -1158,7 +1317,7 @@ def build_carteira_4966_excel(model: Carteira4966Model) -> bytes:
                             row_index,
                             column + 1,
                             cell.secondary,
-                            percent_one_fmt if spec.percent_decimals else percent_fmt,
+                            percent_formats[spec.percent_decimals],
                         )
                 elif spec.layout == "currency_span":
                     value = "N/D" if cell.primary is None else cell.primary / 1_000_000
@@ -1180,10 +1339,8 @@ def build_carteira_4966_excel(model: Carteira4966Model) -> bytes:
                     else:
                         if cell.primary is None:
                             cell_format = missing_fmt
-                        elif spec.percent_decimals:
-                            cell_format = percent_span_one_fmt
                         else:
-                            cell_format = percent_span_fmt
+                            cell_format = percent_span_formats[spec.percent_decimals]
                     worksheet.merge_range(row_index, column, row_index, column + 1, value, cell_format)
                     if quality_issue is not None:
                         worksheet.write_comment(
@@ -1220,7 +1377,13 @@ def build_carteira_4966_excel(model: Carteira4966Model) -> bytes:
             {"num_format": "#,##0.00", "valign": "top", **border}
         )
         alert_percent = workbook.add_format(
-            {"num_format": "0.0%", "valign": "top", **border}
+            {
+                "num_format": _excel_percentage_format_code(
+                    ROW_BY_KEY["provision_over_portfolio"].percent_decimals
+                ),
+                "valign": "top",
+                **border,
+            }
         )
         alert_headers = (
             "Período",

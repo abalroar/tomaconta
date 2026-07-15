@@ -123,6 +123,7 @@ from tabs.carteira_4966 import (
     GLOSSARY_ROWS as CARTEIRA_4966_GLOSSARY_ROWS,
     build_carteira_4966_excel,
     build_carteira_4966_model,
+    build_carteira_4966_raw_excel,
     model_to_audit_dataframe as carteira_4966_audit_dataframe,
     quality_issue_message as carteira_4966_quality_issue_message,
     quality_issues_dataframe as carteira_4966_quality_dataframe,
@@ -10188,6 +10189,11 @@ def _montar_tabela_peers(
     return valores, colunas_usadas, faltas, delta_flags, delta_context, tooltips
 
 
+def _ordenar_periodos_peers_saida(periodos: Sequence[str]) -> list[str]:
+    unicos = list(dict.fromkeys(str(periodo) for periodo in (periodos or []) if periodo))
+    return ordenar_periodos(unicos, reverso=False)
+
+
 def _render_peers_table_html(
     bancos: list,
     periodos: list,
@@ -10198,6 +10204,7 @@ def _render_peers_table_html(
     tooltips: Optional[dict] = None,
     status_markers: Optional[dict] = None,
 ):
+    periodos = _ordenar_periodos_peers_saida(periodos)
     colunas_total = 1 + len(bancos) * len(periodos)
     html = """
     <style>
@@ -12345,6 +12352,7 @@ def _gerar_imagem_peers_tabela(
     scale: float = 1.0,
 ):
     """Gera imagem PNG da tabela peers para exportação."""
+    periodos = _ordenar_periodos_peers_saida(periodos)
     status_markers, marker_presence = _build_peers_visual_status_artifacts(
         df_base=df_base,
         bancos=list(bancos),
@@ -12481,6 +12489,7 @@ def _gerar_excel_peers_tabela(
     delta_flags: dict,
     df_base: Optional[pd.DataFrame] = None,
 ) -> BytesIO:
+    periodos = _ordenar_periodos_peers_saida(periodos)
     output = BytesIO()
     workbook = xlsxwriter.Workbook(output, {"in_memory": True})
     worksheet = workbook.add_worksheet("peers_tabela")
@@ -12618,6 +12627,7 @@ def _gerar_excel_peers_dados_puros(
     df_base: Optional[pd.DataFrame] = None,
 ) -> BytesIO:
     """Exporta tabela Peers com valores numéricos, sem layout visual."""
+    periodos = _ordenar_periodos_peers_saida(periodos)
     output = BytesIO()
     workbook = xlsxwriter.Workbook(output, {"in_memory": True})
     worksheet = workbook.add_worksheet("dados_numericos")
@@ -23666,43 +23676,13 @@ elif menu == "Carteira 4.966":
                     )
 
                 with col_btn2:
-                    buffer_raw = BytesIO()
-                    with pd.ExcelWriter(buffer_raw, engine="openpyxl") as writer:
-                        quality_dataframe = carteira_4966_quality_dataframe(modelo_4966)
-                        if not quality_dataframe.empty:
-                            quality_dataframe.to_excel(
-                                writer,
-                                index=False,
-                                sheet_name="Alertas qualidade",
-                            )
-                        carteira_4966_audit_dataframe(modelo_4966).to_excel(
-                            writer,
-                            index=False,
-                            sheet_name="Modelo calculado",
-                        )
-                        df_inst[df_inst[col_periodo].isin(periodos_ordenados)].to_excel(
-                            writer,
-                            index=False,
-                            sheet_name="Rel16 Carteira",
-                        )
-                        if df_ativo_inst is not None and not df_ativo_inst.empty:
-                            df_ativo_inst.to_excel(
-                                writer,
-                                index=False,
-                                sheet_name="Rel2 Ativo",
-                            )
-                        else:
-                            pd.DataFrame(
-                                {
-                                    "Status": [
-                                        "Dados de provisão indisponíveis para a instituição e os períodos selecionados."
-                                    ]
-                                }
-                            ).to_excel(writer, index=False, sheet_name="Rel2 Ativo")
-                    buffer_raw.seek(0)
                     st.download_button(
                         label="Download Dados Puros",
-                        data=buffer_raw.getvalue(),
+                        data=build_carteira_4966_raw_excel(
+                            modelo_4966,
+                            df_inst[df_inst[col_periodo].isin(periodos_ordenados)],
+                            df_ativo_inst,
+                        ),
                         file_name=(
                             f"Carteira_4966_Dados_Puros_{instituicao_nome}_"
                             f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"

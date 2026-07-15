@@ -10,6 +10,7 @@ from tabs.carteira_4966 import (
     TITLE,
     build_carteira_4966_excel,
     build_carteira_4966_model,
+    build_carteira_4966_raw_excel,
     format_brl_millions,
     format_percentage,
     model_to_audit_dataframe,
@@ -152,6 +153,8 @@ def test_html_has_exact_structure_hatched_highlight_and_missing_marker():
     assert "Vencidos acima de 90 dias (conceito de arrasto)" in rendered
     assert "N/D" in rendered
     assert "PDD / Carteira Total (%)" in rendered
+    assert "7,41%" in rendered
+    assert "14,81%" in rendered
     assert "&gt;" not in rendered
     assert "—" not in rendered
 
@@ -189,8 +192,11 @@ def test_excel_matches_row_spec_order_units_and_hatched_marker():
     provision_ratio_row = labels.index("PDD / Carteira Total (%)") + 1
     assert sheet.cell(carteira_row, 7).value == pytest.approx(270)
     assert sheet.cell(carteira_row, 8).value == pytest.approx(1.0)
+    assert sheet.cell(carteira_row, 8).number_format == "0.00%"
     assert sheet.cell(provision_row, 7).value == pytest.approx(40)
     assert sheet.cell(provision_row, 7).number_format == "#,##0"
+    assert sheet.cell(provision_ratio_row, 7).value == pytest.approx(40 / 270)
+    assert sheet.cell(provision_ratio_row, 7).number_format == "0.00%"
     assert sheet.cell(provision_ratio_row, 2).border.left.style is not None
     assert sheet.cell(provision_ratio_row, 3).border.left.style is not None
     assert sheet.cell(provision_ratio_row, 4).border.right.style is not None
@@ -204,6 +210,76 @@ def _model_with_pdd_ratio(pdd: float, total: float = 100.0):
     for column in EXPECTED_LOSS_COLUMNS[1:]:
         ativo.loc[:, column] = 0.0
     return build_carteira_4966_model(carteira, ativo, ["4/2025"])
+
+
+def test_visual_and_raw_excel_keep_native_percentage_scale_and_two_decimals():
+    carteira = _carteira_frame().query("`Período` == '4/2025'").copy()
+    carteira.loc[:, "Total Geral"] = 100 * MM
+    carteira.loc[:, "C1"] = 0.49 * MM
+    ativo = _ativo_frame().query("`Período` == '4/2025'").copy()
+    ativo.loc[:, EXPECTED_LOSS_COLUMNS[0]] = -120 * MM
+    for column in EXPECTED_LOSS_COLUMNS[1:]:
+        ativo.loc[:, column] = 0.0
+    model = build_carteira_4966_model(carteira, ativo, ["4/2025"])
+
+    rendered = render_carteira_4966_html(model)
+    assert "0,49%" in rendered
+    assert "120,00%" in rendered
+
+    visual = openpyxl.load_workbook(
+        BytesIO(build_carteira_4966_excel(model)),
+        data_only=True,
+    )["Modelo 4966"]
+    visual_labels = {
+        visual.cell(row=row, column=2).value: row
+        for row in range(1, visual.max_row + 1)
+    }
+    c1_cell = visual.cell(row=visual_labels["C1"], column=4)
+    pdd_ratio_cell = visual.cell(
+        row=visual_labels["PDD / Carteira Total (%)"],
+        column=3,
+    )
+    assert c1_cell.value == pytest.approx(0.0049)
+    assert c1_cell.number_format == "0.00%"
+    assert pdd_ratio_cell.value == pytest.approx(1.2)
+    assert pdd_ratio_cell.number_format == "0.00%"
+
+    raw = openpyxl.load_workbook(
+        BytesIO(build_carteira_4966_raw_excel(model, carteira, ativo)),
+        data_only=True,
+    )
+    raw_sheet = raw["Modelo calculado"]
+    raw_headers = {
+        raw_sheet.cell(row=1, column=column).value: column
+        for column in range(1, raw_sheet.max_column + 1)
+    }
+    raw_labels = {
+        raw_sheet.cell(row=row, column=1).value: row
+        for row in range(2, raw_sheet.max_row + 1)
+    }
+    percent_column = raw_headers["Dez/25 (%)"]
+    raw_c1 = raw_sheet.cell(row=raw_labels["C1"], column=percent_column)
+    raw_pdd_ratio = raw_sheet.cell(
+        row=raw_labels["PDD / Carteira Total (%)"],
+        column=percent_column,
+    )
+    assert raw_c1.value == pytest.approx(0.0049)
+    assert raw_c1.number_format == "0.00%"
+    assert raw_pdd_ratio.value == pytest.approx(1.2)
+    assert raw_pdd_ratio.number_format == "0.00%"
+    assert {"Alertas qualidade", "Rel16 Carteira", "Rel2 Ativo"}.issubset(
+        raw.sheetnames
+    )
+    assert raw["Rel16 Carteira"]["B2"].value == "4/2025"
+    assert raw["Rel2 Ativo"]["B2"].value == "4/2025"
+
+    raw_without_ativo = openpyxl.load_workbook(
+        BytesIO(build_carteira_4966_raw_excel(model, carteira, pd.DataFrame())),
+        data_only=True,
+    )
+    assert raw_without_ativo["Rel2 Ativo"]["A2"].value.startswith(
+        "Dados de provisão indisponíveis"
+    )
 
 
 @pytest.mark.parametrize(
@@ -231,7 +307,7 @@ def test_pdd_above_portfolio_is_flagged_in_html_audit_and_excel():
 
     assert "tc-4966-quality-critical" in rendered
     assert "Alerta de confiabilidade" in rendered
-    assert "120,0%" in rendered
+    assert "120,00%" in rendered
     assert quality.loc[0, "Severidade"] == "Não confiável"
     assert quality.loc[0, "PDD / Carteira Total (%)"] == pytest.approx(120.0)
 
@@ -243,6 +319,7 @@ def test_pdd_above_portfolio_is_flagged_in_html_audit_and_excel():
     alerts = workbook["Alertas qualidade"]
     assert alerts["B2"].value == "Não confiável"
     assert alerts["F2"].value == pytest.approx(1.2)
+    assert alerts["F2"].number_format == "0.00%"
 
 
 def test_positive_pdd_with_zero_portfolio_is_unreliable_and_ratio_stays_missing():
