@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pandas as pd
@@ -458,3 +459,19 @@ def test_cache_manager_canonicalizes_carteira_before_persisting(monkeypatch, tmp
 
     assert captured["base_dir"] == tmp_path
     assert captured["dados"]["Instituição"].tolist() == ["NOME CANÔNICO"]
+
+
+def test_carteira_route_uses_new_pdd_model_and_ativo_dependency():
+    source = Path(app1.__file__).read_text(encoding="utf-8")
+    route_start = source.index('elif menu == "Carteira 4.966":')
+    route_end = source.index('elif menu == "Taxas de Juros por Produto":', route_start)
+    route_source = source[route_start:route_end]
+
+    assert app1.CACHE_DEPENDENCIAS_POR_ABA["Carteira 4.966"] == [
+        "carteira_instrumentos",
+        "ativo",
+    ]
+    assert "build_carteira_4966_model" in route_source
+    assert "render_carteira_4966_html" in route_source
+    assert "carteira_4966_quality_issue_message" in route_source
+    assert "Ativos Problemáticos" not in route_source

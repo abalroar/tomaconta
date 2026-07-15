@@ -32,6 +32,13 @@ EXPECTED_LOSS_COLUMNS = (
     "Perda Esperada (h2)",
 )
 
+# Limites de sanidade para o cruzamento entre Relatório 2 e Relatório 16.
+# A tolerância evita classificar como erro diferenças residuais de arredondamento
+# quando PDD e carteira são praticamente iguais.
+PDD_ATTENTION_RATIO = 0.55
+PDD_UNRELIABLE_RELATIVE_TOLERANCE = 0.001
+PDD_UNRELIABLE_ABSOLUTE_TOLERANCE = 1.0
+
 
 @dataclass(frozen=True)
 class RowSpec:
@@ -59,6 +66,16 @@ class MetricCell:
     secondary: Optional[float] = None
 
 
+@dataclass(frozen=True)
+class QualityIssue:
+    period: str
+    severity: str
+    code: str
+    pdd_value: Optional[float]
+    portfolio_value: Optional[float]
+    ratio: Optional[float]
+
+
 @dataclass
 class Carteira4966Model:
     periods: tuple[str, ...]
@@ -67,6 +84,7 @@ class Carteira4966Model:
     base_value: Optional[float]
     qoq: Mapping[str, Optional[float]]
     cells: Mapping[str, Mapping[str, MetricCell]]
+    quality_issues: tuple[QualityIssue, ...] = ()
 
     @property
     def missing_provision_periods(self) -> tuple[str, ...]:
@@ -76,6 +94,15 @@ class Carteira4966Model:
             for period in self.periods
             if provision.get(period) is None or provision[period].primary is None
         )
+
+    def pdd_quality_issue(self, period: str) -> Optional[QualityIssue]:
+        issues = [issue for issue in self.quality_issues if issue.period == period]
+        if not issues:
+            return None
+        return sorted(
+            issues,
+            key=lambda issue: 0 if issue.severity == "critical" else 1,
+        )[0]
 
 
 GROUP_SPECS = (
@@ -149,7 +176,7 @@ ROW_SPECS = (
     ),
     RowSpec(
         "provision",
-        "Provisão do banco",
+        "PDD (Perda Esperada)",
         "provision",
         "currency_span",
         "provision",
@@ -161,17 +188,18 @@ ROW_SPECS = (
     ),
     RowSpec(
         "provision_over_portfolio",
-        "Provisão total / Carteira",
+        "PDD / Carteira Total (%)",
         "provision",
         "percent_span",
         "provision",
         "total_general",
         "Carteira total do mesmo período",
+        percent_decimals=1,
         help_text="Provisão total dividida pela carteira total do mesmo período.",
     ),
     RowSpec(
         "provision_over_c5",
-        "Provisão total / C5",
+        "PDD / C5 (%)",
         "provision",
         "percent_span",
         "provision",
@@ -181,7 +209,7 @@ ROW_SPECS = (
     ),
     RowSpec(
         "provision_over_delinquency",
-        "Provisão total / Créditos vencidos acima de 90 dias",
+        "PDD / Créditos vencidos acima de 90 dias (%)",
         "provision",
         "percent_span",
         "provision",
@@ -219,12 +247,22 @@ GLOSSARY_ROWS = (
         "Fonte": "BCB IFData, Relatório 16, coluna Inadimplência",
     },
     {
-        "Variável": "Provisão do banco",
+        "Variável": "PDD (Perda Esperada)",
         "Definição": (
             "Magnitude da soma de Perda Esperada (e2), (f2), (g2) e (h2). "
             "Não inclui Hedge de Valor Justo nem Ajuste a Valor Justo."
         ),
         "Fonte": "BCB IFData, Relatório 2 Ativo, Conglomerado Prudencial",
+    },
+    {
+        "Variável": "PDD / Carteira Total (%)",
+        "Definição": (
+            "PDD dividida pelo Total Geral do Relatório 16 no mesmo período. "
+            "Razões acima de 55% recebem atenção. A PDD que superar a carteira além "
+            "da tolerância equivalente ao maior entre R$ 1 e 0,1% da Carteira Total "
+            "é sinalizada como não confiável."
+        ),
+        "Fonte": "Cruzamento BCB IFData, Relatórios 2 e 16",
     },
     {
         "Variável": "Total Geral do Relatório 16",
@@ -281,7 +319,7 @@ def _sum_available(values: Sequence[object]) -> Optional[float]:
 def _safe_ratio(numerator: object, denominator: object) -> Optional[float]:
     num = _numeric(numerator)
     den = _numeric(denominator)
-    if num is None or den is None or den == 0:
+    if num is None or den is None or den <= 0:
         return None
     ratio = num / den
     return ratio if math.isfinite(ratio) else None
@@ -335,17 +373,16 @@ def _best_row_for_period(
 def _expected_loss_from_row(row: Optional[pd.Series], frame: Optional[pd.DataFrame]) -> Optional[float]:
     if row is None or frame is None:
         return None
-    precomputed = _resolve_column(frame, ("Perda Esperada",))
-    if precomputed:
-        value = _numeric(row.get(precomputed))
-        return abs(value) if value is not None else None
-    resolved = [
-        column
-        for candidate in EXPECTED_LOSS_COLUMNS
-        if (column := _resolve_column(frame, (candidate,))) is not None
-    ]
-    value = _sum_available([row.get(column) for column in resolved])
-    return abs(value) if value is not None else None
+    values: list[float] = []
+    for candidate in EXPECTED_LOSS_COLUMNS:
+        column = _resolve_column(frame, (candidate,))
+        if column is None:
+            return None
+        value = _numeric(row.get(column))
+        if value is None:
+            return None
+        values.append(value)
+    return abs(float(sum(values)))
 
 
 def _metrics_for_row(row: Optional[pd.Series], frame: Optional[pd.DataFrame]) -> dict[str, Optional[float]]:
@@ -367,6 +404,75 @@ def _metrics_for_row(row: Optional[pd.Series], frame: Optional[pd.DataFrame]) ->
         "total_general": get("Total Geral"),
         "delinquency": get("Inadimplência", "Inadimplencia"),
     }
+
+
+def _build_pdd_quality_issues(
+    metrics_by_period: Mapping[str, Mapping[str, Optional[float]]],
+    periods: Sequence[str],
+) -> tuple[QualityIssue, ...]:
+    issues: list[QualityIssue] = []
+    for period in periods:
+        metrics = metrics_by_period.get(period, {})
+        pdd_value = _numeric(metrics.get("provision"))
+        portfolio_value = _numeric(metrics.get("total_general"))
+        if pdd_value is None or portfolio_value is None:
+            continue
+
+        if portfolio_value < 0:
+            issues.append(
+                QualityIssue(
+                    period=period,
+                    severity="critical",
+                    code="negative_portfolio",
+                    pdd_value=pdd_value,
+                    portfolio_value=portfolio_value,
+                    ratio=None,
+                )
+            )
+            continue
+
+        if portfolio_value == 0:
+            if pdd_value > 0:
+                issues.append(
+                    QualityIssue(
+                        period=period,
+                        severity="critical",
+                        code="pdd_with_zero_portfolio",
+                        pdd_value=pdd_value,
+                        portfolio_value=portfolio_value,
+                        ratio=None,
+                    )
+                )
+            continue
+
+        ratio = pdd_value / portfolio_value
+        excess_tolerance = max(
+            PDD_UNRELIABLE_ABSOLUTE_TOLERANCE,
+            portfolio_value * PDD_UNRELIABLE_RELATIVE_TOLERANCE,
+        )
+        if pdd_value - portfolio_value > excess_tolerance:
+            issues.append(
+                QualityIssue(
+                    period=period,
+                    severity="critical",
+                    code="pdd_exceeds_portfolio",
+                    pdd_value=pdd_value,
+                    portfolio_value=portfolio_value,
+                    ratio=ratio,
+                )
+            )
+        elif ratio > PDD_ATTENTION_RATIO:
+            issues.append(
+                QualityIssue(
+                    period=period,
+                    severity="warning",
+                    code="high_pdd_ratio",
+                    pdd_value=pdd_value,
+                    portfolio_value=portfolio_value,
+                    ratio=ratio,
+                )
+            )
+    return tuple(issues)
 
 
 def build_carteira_4966_model(
@@ -398,7 +504,7 @@ def build_carteira_4966_model(
     ]
     ativo_relevant = [
         column
-        for candidate in ("Perda Esperada", *EXPECTED_LOSS_COLUMNS)
+        for candidate in EXPECTED_LOSS_COLUMNS
         if (column := _resolve_column(ativo, (candidate,))) is not None
     ]
 
@@ -418,11 +524,11 @@ def build_carteira_4966_model(
         provision_by_period[period] = _expected_loss_from_row(ativo_row, ativo)
         metrics_by_period.setdefault(period, {})["provision"] = provision_by_period[period]
 
-    valid_base_periods = [
-        period
-        for period in ordered_periods
-        if _numeric(metrics_by_period.get(period, {}).get("total_general")) not in (None, 0)
-    ]
+    valid_base_periods = []
+    for period in ordered_periods:
+        total_general = _numeric(metrics_by_period.get(period, {}).get("total_general"))
+        if total_general is not None and total_general > 0:
+            valid_base_periods.append(period)
     selected_base = None
     if base_period in valid_base_periods:
         selected_base = str(base_period)
@@ -474,6 +580,7 @@ def build_carteira_4966_model(
         base_value=base_value,
         qoq=qoq,
         cells=cells,
+        quality_issues=_build_pdd_quality_issues(metrics_by_period, ordered_periods),
     )
 
 
@@ -487,6 +594,23 @@ def format_brl_millions(value: Optional[float]) -> str:
     return "N/D" if number is None else _format_number_ptbr(number / 1_000_000, 0)
 
 
+def _format_brl_millions_for_alert(value: Optional[float]) -> str:
+    number = _numeric(value)
+    if number is None:
+        return "N/D"
+    millions = number / 1_000_000
+    magnitude = abs(millions)
+    if magnitude >= 100:
+        decimals = 0
+    elif magnitude >= 10:
+        decimals = 1
+    elif magnitude >= 1:
+        decimals = 2
+    else:
+        decimals = 3
+    return _format_number_ptbr(millions, decimals)
+
+
 def format_percentage(value: Optional[float], decimals: int = 0) -> str:
     # Percentuais chegam como frações. Não aplique aqui o limiar monetário de
     # `_numeric`, pois 0,0049 representa 0,49%, e não um resíduo desprezível.
@@ -497,6 +621,67 @@ def format_percentage(value: Optional[float], decimals: int = 0) -> str:
     if round(percentage, decimals) == 0:
         percentage = 0.0
     return f"{_format_number_ptbr(percentage, decimals)}%"
+
+
+def quality_issue_message(issue: QualityIssue) -> str:
+    period_label = format_period_label(issue.period)
+    pdd_label = _format_brl_millions_for_alert(issue.pdd_value)
+    portfolio_label = _format_brl_millions_for_alert(issue.portfolio_value)
+    if issue.code == "pdd_exceeds_portfolio":
+        return (
+            f"{period_label}: PDD de R$ {pdd_label} mi equivale a "
+            f"{format_percentage(issue.ratio, 1)} da Carteira Total de R$ {portfolio_label} mi. "
+            "Como a PDD supera a carteira, o cruzamento foi sinalizado como não confiável."
+        )
+    if issue.code == "pdd_with_zero_portfolio":
+        return (
+            f"{period_label}: há PDD de R$ {pdd_label} mi, mas a Carteira Total está zerada. "
+            "A razão não pode ser calculada e o cruzamento foi sinalizado como não confiável."
+        )
+    if issue.code == "negative_portfolio":
+        return (
+            f"{period_label}: a Carteira Total é negativa (R$ {portfolio_label} mi). "
+            "O denominador deve ser validado no Relatório 16 antes do uso."
+        )
+    return (
+        f"{period_label}: PDD de R$ {pdd_label} mi equivale a "
+        f"{format_percentage(issue.ratio, 1)} da Carteira Total de R$ {portfolio_label} mi. "
+        f"A razão ultrapassa o limiar de atenção de {format_percentage(PDD_ATTENTION_RATIO, 0)}."
+    )
+
+
+def quality_issues_dataframe(model: Carteira4966Model) -> pd.DataFrame:
+    columns = [
+        "Período",
+        "Severidade",
+        "Checagem",
+        "PDD (R$ mm)",
+        "Carteira Total (R$ mm)",
+        "PDD / Carteira Total (%)",
+        "Diagnóstico",
+    ]
+    rows = []
+    for issue in model.quality_issues:
+        rows.append(
+            {
+                "Período": model.period_labels.get(issue.period, format_period_label(issue.period)),
+                "Severidade": "Não confiável" if issue.severity == "critical" else "Atenção",
+                "Checagem": issue.code,
+                "PDD (R$ mm)": (
+                    None if issue.pdd_value is None else issue.pdd_value / 1_000_000
+                ),
+                "Carteira Total (R$ mm)": (
+                    None
+                    if issue.portfolio_value is None
+                    else issue.portfolio_value / 1_000_000
+                ),
+                "PDD / Carteira Total (%)": (
+                    None if issue.ratio is None else issue.ratio * 100
+                ),
+                "Diagnóstico": quality_issue_message(issue),
+            }
+        )
+    return pd.DataFrame(rows, columns=columns)
 
 
 def _cell_title(spec: RowSpec, cell: MetricCell, *, secondary: bool = False) -> str:
@@ -613,6 +798,17 @@ def render_carteira_4966_html(model: Carteira4966Model) -> str:
 .tc-4966-table .tc-4966-ratio-row .tc-4966-label { padding-left: 20px; color: var(--tc-ink-soft); }
 .tc-4966-table .tc-4966-ratio-row td { border-bottom-style: dotted; }
 .tc-4966-table .tc-4966-missing { color: #6d7077; font-style: italic; }
+.tc-4966-table .tc-4966-quality-warning {
+  color: #654c00;
+  background: #fff4cc;
+  font-weight: 700;
+}
+.tc-4966-table .tc-4966-quality-critical {
+  color: #9f231b;
+  background: #fde8e7;
+  font-weight: 750;
+}
+.tc-4966-quality-badge { margin-left: 4px; font-style: normal; }
 .tc-4966-table tr:last-child > * { border-bottom: 0; }
 .tc-4966-table tr > *:last-child { border-right: 0; }
 @media (max-width: 768px) {
@@ -713,9 +909,31 @@ def render_carteira_4966_html(model: Carteira4966Model) -> str:
                 else:
                     rendered = format_percentage(cell.primary, spec.percent_decimals)
                     missing = " tc-4966-missing" if cell.primary is None else ""
+                    quality_issue = (
+                        model.pdd_quality_issue(period)
+                        if spec.key == "provision_over_portfolio"
+                        else None
+                    )
+                    quality_class = (
+                        f" tc-4966-quality-{quality_issue.severity}"
+                        if quality_issue is not None
+                        else ""
+                    )
+                    quality_badge = (
+                        '<span class="tc-4966-quality-badge" '
+                        'aria-label="Alerta de confiabilidade">⚠</span>'
+                        if quality_issue is not None
+                        else ""
+                    )
+                    cell_title = (
+                        quality_issue_message(quality_issue)
+                        if quality_issue is not None
+                        else _cell_title(spec, cell)
+                    )
                     parts.append(
-                        f'<td class="tc-4966-period-end{missing}" colspan="2" '
-                        f'title="{html.escape(_cell_title(spec, cell), quote=True)}">{html.escape(rendered)}</td>'
+                        f'<td class="tc-4966-period-end{missing}{quality_class}" colspan="2" '
+                        f'title="{html.escape(cell_title, quote=True)}">'
+                        f'{html.escape(rendered)}{quality_badge}</td>'
                     )
             parts.append("</tr>")
         parts.append("</tbody>")
@@ -837,6 +1055,16 @@ def build_carteira_4966_excel(model: Carteira4966Model) -> bytes:
             "bottom_color": "#C9CBD0",
         }
     )
+    percent_span_one_fmt = workbook.add_format(
+        {
+            **border,
+            "align": "center",
+            "valign": "vcenter",
+            "num_format": "0.0%",
+            "bottom": 3,
+            "bottom_color": "#C9CBD0",
+        }
+    )
     missing_fmt = workbook.add_format(
         {
             "align": "center",
@@ -844,6 +1072,32 @@ def build_carteira_4966_excel(model: Carteira4966Model) -> bytes:
             "italic": True,
             "font_color": "#6D7077",
             **border,
+        }
+    )
+    quality_warning_fmt = workbook.add_format(
+        {
+            **border,
+            "bold": True,
+            "font_color": "#654C00",
+            "bg_color": "#FFF4CC",
+            "align": "center",
+            "valign": "vcenter",
+            "num_format": "0.0%",
+            "bottom": 3,
+            "bottom_color": "#C9CBD0",
+        }
+    )
+    quality_critical_fmt = workbook.add_format(
+        {
+            **border,
+            "bold": True,
+            "font_color": "#9F231B",
+            "bg_color": "#FDE8E7",
+            "align": "center",
+            "valign": "vcenter",
+            "num_format": "0.0%",
+            "bottom": 3,
+            "bottom_color": "#C9CBD0",
         }
     )
 
@@ -912,8 +1166,32 @@ def build_carteira_4966_excel(model: Carteira4966Model) -> bytes:
                     worksheet.merge_range(row_index, column, row_index, column + 1, value, cell_format)
                 else:
                     value = "N/D" if cell.primary is None else cell.primary
-                    cell_format = missing_fmt if cell.primary is None else percent_span_fmt
+                    quality_issue = (
+                        model.pdd_quality_issue(period)
+                        if spec.key == "provision_over_portfolio"
+                        else None
+                    )
+                    if quality_issue is not None:
+                        cell_format = (
+                            quality_critical_fmt
+                            if quality_issue.severity == "critical"
+                            else quality_warning_fmt
+                        )
+                    else:
+                        if cell.primary is None:
+                            cell_format = missing_fmt
+                        elif spec.percent_decimals:
+                            cell_format = percent_span_one_fmt
+                        else:
+                            cell_format = percent_span_fmt
                     worksheet.merge_range(row_index, column, row_index, column + 1, value, cell_format)
+                    if quality_issue is not None:
+                        worksheet.write_comment(
+                            row_index,
+                            column,
+                            quality_issue_message(quality_issue),
+                            {"author": "Toma Conta"},
+                        )
                 column += 2
             row_index += 1
 
@@ -925,6 +1203,71 @@ def build_carteira_4966_excel(model: Carteira4966Model) -> bytes:
     worksheet.set_landscape()
     worksheet.fit_to_pages(1, 1)
     worksheet.set_margins(0.25, 0.25, 0.5, 0.5)
+
+    if model.quality_issues:
+        alerts = workbook.add_worksheet("Alertas qualidade")
+        alert_header = workbook.add_format(
+            {
+                "bold": True,
+                "font_color": "#FFFFFF",
+                "bg_color": "#9F231B",
+                "align": "left",
+                **border,
+            }
+        )
+        alert_text = workbook.add_format({"text_wrap": True, "valign": "top", **border})
+        alert_number = workbook.add_format(
+            {"num_format": "#,##0.00", "valign": "top", **border}
+        )
+        alert_percent = workbook.add_format(
+            {"num_format": "0.0%", "valign": "top", **border}
+        )
+        alert_headers = (
+            "Período",
+            "Severidade",
+            "Checagem",
+            "PDD (R$ mm)",
+            "Carteira Total (R$ mm)",
+            "PDD / Carteira Total (%)",
+            "Diagnóstico",
+        )
+        for column, header in enumerate(alert_headers):
+            alerts.write(0, column, header, alert_header)
+        for row, issue in enumerate(model.quality_issues, start=1):
+            alerts.write(row, 0, model.period_labels.get(issue.period, issue.period), alert_text)
+            alerts.write(
+                row,
+                1,
+                "Não confiável" if issue.severity == "critical" else "Atenção",
+                alert_text,
+            )
+            alerts.write(row, 2, issue.code, alert_text)
+            if issue.pdd_value is None:
+                alerts.write_blank(row, 3, None, alert_number)
+            else:
+                alerts.write_number(row, 3, issue.pdd_value / 1_000_000, alert_number)
+            if issue.portfolio_value is None:
+                alerts.write_blank(row, 4, None, alert_number)
+            else:
+                alerts.write_number(
+                    row,
+                    4,
+                    issue.portfolio_value / 1_000_000,
+                    alert_number,
+                )
+            if issue.ratio is None:
+                alerts.write(row, 5, "N/D", alert_text)
+            else:
+                alerts.write_number(row, 5, issue.ratio, alert_percent)
+            alerts.write(row, 6, quality_issue_message(issue), alert_text)
+        alerts.set_column(0, 0, 12)
+        alerts.set_column(1, 2, 18)
+        alerts.set_column(3, 5, 23)
+        alerts.set_column(6, 6, 90)
+        alerts.set_default_row(42)
+        alerts.freeze_panes(1, 0)
+        alerts.autofilter(0, 0, len(model.quality_issues), len(alert_headers) - 1)
+        alerts.hide_gridlines(2)
 
     glossary = workbook.add_worksheet("Glossário")
     gloss_header = workbook.add_format(

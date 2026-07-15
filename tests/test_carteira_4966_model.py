@@ -13,6 +13,8 @@ from tabs.carteira_4966 import (
     format_brl_millions,
     format_percentage,
     model_to_audit_dataframe,
+    quality_issue_message,
+    quality_issues_dataframe,
     render_carteira_4966_html,
 )
 
@@ -103,6 +105,7 @@ def test_provision_is_literal_expected_loss_and_excludes_hedge_and_fair_value():
     assert model.cells["provision_over_portfolio"]["4/2025"].primary == pytest.approx(40 / 270)
     assert model.cells["provision_over_c5"]["4/2025"].primary == pytest.approx(40 / 100)
     assert model.cells["provision_over_delinquency"]["4/2025"].primary == pytest.approx(40 / 30)
+    assert model.quality_issues == ()
 
 
 def test_missing_source_and_zero_denominator_stay_distinct_from_published_zero():
@@ -148,6 +151,7 @@ def test_html_has_exact_structure_hatched_highlight_and_missing_marker():
     assert 'colspan="2"' in rendered
     assert "Vencidos acima de 90 dias (conceito de arrasto)" in rendered
     assert "N/D" in rendered
+    assert "PDD / Carteira Total (%)" in rendered
     assert "&gt;" not in rendered
     assert "—" not in rendered
 
@@ -157,8 +161,8 @@ def test_audit_dataframe_scales_only_currency_values_to_millions():
 
     assert audit.loc["Carteira total", "Dez/25 (R$ mm)"] == pytest.approx(270)
     assert audit.loc["Carteira total", "Dez/25 (%)"] == pytest.approx(100)
-    assert audit.loc["Provisão do banco", "Dez/25 (R$ mm)"] == pytest.approx(40)
-    assert audit.loc["Provisão total / C5", "Dez/25 (%)"] == pytest.approx(40)
+    assert audit.loc["PDD (Perda Esperada)", "Dez/25 (R$ mm)"] == pytest.approx(40)
+    assert audit.loc["PDD / C5 (%)", "Dez/25 (%)"] == pytest.approx(40)
     assert format_brl_millions(1_234_567_890) == "1.235"
 
 
@@ -181,8 +185,8 @@ def test_excel_matches_row_spec_order_units_and_hatched_marker():
     assert rendered_rows == [spec.label for spec in ROW_SPECS]
 
     carteira_row = labels.index("Carteira total") + 1
-    provision_row = labels.index("Provisão do banco") + 1
-    provision_ratio_row = labels.index("Provisão total / Carteira") + 1
+    provision_row = labels.index("PDD (Perda Esperada)") + 1
+    provision_ratio_row = labels.index("PDD / Carteira Total (%)") + 1
     assert sheet.cell(carteira_row, 7).value == pytest.approx(270)
     assert sheet.cell(carteira_row, 8).value == pytest.approx(1.0)
     assert sheet.cell(provision_row, 7).value == pytest.approx(40)
@@ -190,3 +194,102 @@ def test_excel_matches_row_spec_order_units_and_hatched_marker():
     assert sheet.cell(provision_ratio_row, 2).border.left.style is not None
     assert sheet.cell(provision_ratio_row, 3).border.left.style is not None
     assert sheet.cell(provision_ratio_row, 4).border.right.style is not None
+
+
+def _model_with_pdd_ratio(pdd: float, total: float = 100.0):
+    carteira = _carteira_frame().query("`Período` == '4/2025'").copy()
+    carteira.loc[:, "Total Geral"] = total * MM
+    ativo = _ativo_frame().query("`Período` == '4/2025'").copy()
+    ativo.loc[:, EXPECTED_LOSS_COLUMNS[0]] = -pdd * MM
+    for column in EXPECTED_LOSS_COLUMNS[1:]:
+        ativo.loc[:, column] = 0.0
+    return build_carteira_4966_model(carteira, ativo, ["4/2025"])
+
+
+@pytest.mark.parametrize(
+    ("pdd", "expected_severity"),
+    [(40.0, None), (60.0, "warning"), (120.0, "critical")],
+)
+def test_pdd_quality_thresholds(pdd, expected_severity):
+    model = _model_with_pdd_ratio(pdd)
+
+    if expected_severity is None:
+        assert model.quality_issues == ()
+        assert quality_issues_dataframe(model).empty
+        return
+
+    issue = model.quality_issues[0]
+    assert issue.severity == expected_severity
+    assert issue.ratio == pytest.approx(pdd / 100)
+    assert "Dez/25" in quality_issue_message(issue)
+
+
+def test_pdd_above_portfolio_is_flagged_in_html_audit_and_excel():
+    model = _model_with_pdd_ratio(120.0)
+    rendered = render_carteira_4966_html(model)
+    quality = quality_issues_dataframe(model)
+
+    assert "tc-4966-quality-critical" in rendered
+    assert "Alerta de confiabilidade" in rendered
+    assert "120,0%" in rendered
+    assert quality.loc[0, "Severidade"] == "Não confiável"
+    assert quality.loc[0, "PDD / Carteira Total (%)"] == pytest.approx(120.0)
+
+    workbook = openpyxl.load_workbook(
+        BytesIO(build_carteira_4966_excel(model)),
+        data_only=True,
+    )
+    assert workbook.sheetnames == ["Modelo 4966", "Alertas qualidade", "Glossário"]
+    alerts = workbook["Alertas qualidade"]
+    assert alerts["B2"].value == "Não confiável"
+    assert alerts["F2"].value == pytest.approx(1.2)
+
+
+def test_positive_pdd_with_zero_portfolio_is_unreliable_and_ratio_stays_missing():
+    model = _model_with_pdd_ratio(10.0, total=0.0)
+
+    issue = model.quality_issues[0]
+    assert issue.code == "pdd_with_zero_portfolio"
+    assert issue.severity == "critical"
+    assert model.cells["provision_over_portfolio"]["4/2025"].primary is None
+    assert "Carteira Total está zerada" in quality_issue_message(issue)
+
+
+def test_negative_portfolio_is_unreliable_and_ratio_stays_missing():
+    model = _model_with_pdd_ratio(10.0, total=-1.0)
+
+    issue = model.quality_issues[0]
+    assert issue.code == "negative_portfolio"
+    assert issue.severity == "critical"
+    assert model.cells["provision_over_portfolio"]["4/2025"].primary is None
+    assert "Carteira Total é negativa" in quality_issue_message(issue)
+
+
+def test_rounding_residue_above_portfolio_does_not_trigger_critical_alert():
+    total = 73.61904855
+    model = _model_with_pdd_ratio(total + 0.00000002, total=total)
+
+    assert len(model.quality_issues) == 1
+    assert model.quality_issues[0].severity == "warning"
+
+
+def test_generic_expected_loss_is_ignored_and_all_four_leaf_values_are_required():
+    carteira = _carteira_frame().query("`Período` == '4/2025'").copy()
+    ativo = _ativo_frame().query("`Período` == '4/2025'").copy()
+    ativo.loc[:, "Perda Esperada"] = -999 * MM
+
+    complete = build_carteira_4966_model(carteira, ativo, ["4/2025"])
+    assert complete.cells["provision"]["4/2025"].primary == pytest.approx(40 * MM)
+
+    ativo.loc[:, EXPECTED_LOSS_COLUMNS[-1]] = float("nan")
+    incomplete = build_carteira_4966_model(carteira, ativo, ["4/2025"])
+    assert incomplete.cells["provision"]["4/2025"].primary is None
+    assert incomplete.missing_provision_periods == ("4/2025",)
+
+
+def test_small_portfolio_alert_keeps_useful_million_precision():
+    model = _model_with_pdd_ratio(0.096, total=0.019)
+
+    message = quality_issue_message(model.quality_issues[0])
+    assert "R$ 0,096 mi" in message
+    assert "R$ 0,019 mi" in message
