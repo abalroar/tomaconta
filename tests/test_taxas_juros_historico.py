@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -15,6 +17,7 @@ from utils.ifdata_cache.taxas_juros_historico import (
     get_taxas_juros_historico_anchor_date,
     load_taxas_juros_historico_recent_daily_display,
     normalize_taxas_juros_historico_frame,
+    prepare_taxas_juros_historico_daily_window,
 )
 
 
@@ -95,6 +98,109 @@ def test_normalize_taxas_juros_historico_frame_builds_institution_key_with_fallb
     assert list(normalized["institution_key_quality"]) == ["cnpj8", "name_fallback"]
     assert str(normalized["taxa_juros_ao_mes"].dtype) == "float32"
     assert str(normalized["posicao"].dtype) == "Int16"
+
+
+def test_prepare_daily_window_discards_monthly_rows_from_mixed_response():
+    raw_df = pd.DataFrame(
+        [
+            {
+                "InicioPeriodo": "2026-03-23",
+                "FimPeriodo": "2026-03-27",
+                "codigoSegmento": "1",
+                "Segmento": "Pessoa Física",
+                "codigoModalidade": "402101",
+                "Modalidade": "Cheque especial",
+                "Posicao": 1,
+                "InstituicaoFinanceira": "Banco A",
+                "TaxaJurosAoMes": 7.5,
+                "TaxaJurosAoAno": 138.0,
+                "cnpj8": "12345678",
+            },
+            {
+                "InicioPeriodo": "2026-03-23",
+                "FimPeriodo": "2026-03-31",
+                "codigoSegmento": "1",
+                "Segmento": "Pessoa Física",
+                "codigoModalidade": "499999",
+                "Modalidade": "Financiamento imobiliário mensal",
+                "Posicao": 1,
+                "InstituicaoFinanceira": "Banco A",
+                "TaxaJurosAoMes": 1.0,
+                "TaxaJurosAoAno": 12.7,
+                "cnpj8": "12345678",
+            },
+        ]
+    )
+    df_datas = pd.DataFrame(
+        {
+            "inicio_periodo": pd.to_datetime(["2026-03-23", "2026-03-23"]),
+            "fim_periodo": pd.to_datetime(["2026-03-27", "2026-03-31"]),
+            "tipo_modalidade": ["D", "M"],
+        }
+    )
+    df_parametros = pd.DataFrame(
+        {
+            "tipo_modalidade": ["D", "M"],
+            "codigo_segmento": ["1", "1"],
+            "codigo_modalidade": ["402101", "499999"],
+        }
+    )
+
+    normalized = normalize_taxas_juros_historico_frame(raw_df, run_id="run-mixed")
+    prepared = prepare_taxas_juros_historico_daily_window(
+        normalized,
+        inicio_periodo_esperado="2026-03-23",
+        df_datas=df_datas,
+        df_parametros_diarios=df_parametros,
+    )
+
+    assert len(prepared) == 1
+    assert prepared.iloc[0]["fim_periodo"] == pd.Timestamp("2026-03-27")
+    assert prepared.iloc[0]["codigo_modalidade"] == "402101"
+
+
+def test_prepare_daily_window_fails_for_unknown_daily_pair():
+    raw_df = pd.DataFrame(
+        [
+            {
+                "InicioPeriodo": "2026-03-23",
+                "FimPeriodo": "2026-03-27",
+                "codigoSegmento": "1",
+                "Segmento": "Pessoa Física",
+                "codigoModalidade": "499999",
+                "Modalidade": "Modalidade desconhecida",
+                "Posicao": 1,
+                "InstituicaoFinanceira": "Banco A",
+                "TaxaJurosAoMes": 7.5,
+                "TaxaJurosAoAno": 138.0,
+                "cnpj8": "12345678",
+            }
+        ]
+    )
+    df_datas = pd.DataFrame(
+        {
+            "inicio_periodo": pd.to_datetime(["2026-03-23"]),
+            "fim_periodo": pd.to_datetime(["2026-03-27"]),
+            "tipo_modalidade": ["D"],
+        }
+    )
+    df_parametros = pd.DataFrame(
+        {
+            "tipo_modalidade": ["D"],
+            "codigo_segmento": ["1"],
+            "codigo_modalidade": ["402101"],
+        }
+    )
+
+    normalized = normalize_taxas_juros_historico_frame(raw_df, run_id="run-unknown")
+
+    with pytest.raises(ValueError, match=r"ParametrosConsulta\(D\).*1/499999"):
+        prepare_taxas_juros_historico_daily_window(
+            normalized,
+            inicio_periodo_esperado="2026-03-23",
+            df_datas=df_datas,
+            df_parametros_diarios=df_parametros,
+        )
 
 
 def test_materialize_history_runs_in_chunks_and_finalizes(monkeypatch, tmp_path):
@@ -192,6 +298,182 @@ def test_materialize_history_runs_in_chunks_and_finalizes(monkeypatch, tmp_path)
     assert cache.dimension_paths()["parametros"].exists() is True
     assert cache.dimension_paths()["datas"].exists() is True
     assert cache.dimension_paths()["instituicoes"].exists() is True
+
+
+def test_materialize_without_new_windows_reconciles_legacy_mixed_staging(monkeypatch, tmp_path):
+    cache = TaxasJurosHistoricoCache(tmp_path)
+    df_datas = pd.DataFrame(
+        {
+            "inicio_periodo": pd.to_datetime(["2026-03-23"]),
+            "fim_periodo": pd.to_datetime(["2026-03-27"]),
+            "tipo_modalidade": ["D"],
+            "ano_inicio": pd.Series([2026], dtype="Int16"),
+        }
+    )
+    df_parametros = pd.DataFrame(
+        {
+            "tipo_modalidade": ["D"],
+            "codigo_segmento": ["1"],
+            "segmento": ["Pessoa Física"],
+            "codigo_modalidade": ["402101"],
+            "modalidade": ["Cheque especial"],
+        }
+    )
+    raw_df = pd.DataFrame(
+        [
+            {
+                "InicioPeriodo": "2026-03-23",
+                "FimPeriodo": "2026-03-27",
+                "codigoSegmento": "1",
+                "Segmento": "Pessoa Física",
+                "codigoModalidade": "402101",
+                "Modalidade": "Cheque especial",
+                "Posicao": 1,
+                "InstituicaoFinanceira": "Banco A",
+                "TaxaJurosAoMes": 7.5,
+                "TaxaJurosAoAno": 138.0,
+                "cnpj8": "12345678",
+            },
+            {
+                "InicioPeriodo": "2026-03-23",
+                "FimPeriodo": "2026-03-31",
+                "codigoSegmento": "1",
+                "Segmento": "Pessoa Física",
+                "codigoModalidade": "499999",
+                "Modalidade": "Financiamento imobiliário mensal",
+                "Posicao": 1,
+                "InstituicaoFinanceira": "Banco A",
+                "TaxaJurosAoMes": 1.0,
+                "TaxaJurosAoAno": 12.7,
+                "cnpj8": "12345678",
+            },
+        ]
+    )
+    legacy_staged = normalize_taxas_juros_historico_frame(raw_df, run_id="legacy")
+    cache._write_window_file("2026-03-23", legacy_staged)
+
+    monkeypatch.setattr(
+        "utils.ifdata_cache.taxas_juros_historico.fetch_taxas_juros_datas_disponiveis",
+        lambda session=None: df_datas.copy(),
+    )
+    monkeypatch.setattr(
+        "utils.ifdata_cache.taxas_juros_historico.fetch_taxas_juros_parametros_consulta",
+        lambda tipo_modalidade="D", session=None: df_parametros.copy(),
+    )
+
+    def _unexpected_fetch(*args, **kwargs):
+        raise AssertionError("não deveria baixar janela já materializada com reprocess_tail_windows=0")
+
+    monkeypatch.setattr(
+        "utils.ifdata_cache.taxas_juros_historico.fetch_taxas_juros_historico_window",
+        _unexpected_fetch,
+    )
+
+    result = cache.materialize_history(reprocess_tail_windows=0)
+
+    assert result.sucesso is True
+    assert result.fonte == "cache_local"
+    assert result.metadata["discarded_other_periodicity_rows"] == 1
+    assert result.metadata["reconciled_windows"] == ["2026-03-23"]
+
+    staged = pd.read_parquet(cache._window_path("2026-03-23"))
+    final = pd.read_parquet(cache.arquivo_dados)
+    assert staged["fim_periodo"].tolist() == [pd.Timestamp("2026-03-27")]
+    assert final["codigo_modalidade"].tolist() == ["402101"]
+
+    manifest = json.loads(cache.manifest_path.read_text(encoding="utf-8"))
+    assert manifest["discarded_other_periodicity_rows"] == 1
+    assert manifest["reconciled_windows"] == ["2026-03-23"]
+
+
+def test_limited_update_preserves_materialized_history_outside_selected_range(monkeypatch, tmp_path):
+    cache = TaxasJurosHistoricoCache(tmp_path)
+    df_datas = pd.DataFrame(
+        {
+            "inicio_periodo": pd.to_datetime(["2020-01-06", "2026-01-05"]),
+            "fim_periodo": pd.to_datetime(["2020-01-10", "2026-01-09"]),
+            "tipo_modalidade": ["D", "D"],
+            "ano_inicio": pd.Series([2020, 2026], dtype="Int16"),
+        }
+    )
+    df_parametros = pd.DataFrame(
+        {
+            "tipo_modalidade": ["D"],
+            "codigo_segmento": ["1"],
+            "segmento": ["Pessoa Física"],
+            "codigo_modalidade": ["402101"],
+            "modalidade": ["Cheque especial"],
+        }
+    )
+
+    for inicio_periodo, fim_periodo, taxa in (
+        ("2020-01-06", "2020-01-10", 7.8),
+        ("2026-01-05", "2026-01-09", 7.2),
+    ):
+        raw_df = pd.DataFrame(
+            [
+                {
+                    "InicioPeriodo": inicio_periodo,
+                    "FimPeriodo": fim_periodo,
+                    "codigoSegmento": "1",
+                    "Segmento": "Pessoa Física",
+                    "codigoModalidade": "402101",
+                    "Modalidade": "Cheque especial",
+                    "Posicao": 1,
+                    "InstituicaoFinanceira": "Banco A",
+                    "TaxaJurosAoMes": taxa,
+                    "TaxaJurosAoAno": 140.0,
+                    "cnpj8": "12345678",
+                }
+            ]
+        )
+        cache._write_window_file(
+            inicio_periodo,
+            normalize_taxas_juros_historico_frame(raw_df, run_id="legacy"),
+        )
+
+    monkeypatch.setattr(
+        "utils.ifdata_cache.taxas_juros_historico.fetch_taxas_juros_datas_disponiveis",
+        lambda session=None: df_datas.copy(),
+    )
+    monkeypatch.setattr(
+        "utils.ifdata_cache.taxas_juros_historico.fetch_taxas_juros_parametros_consulta",
+        lambda tipo_modalidade="D", session=None: df_parametros.copy(),
+    )
+
+    def _unexpected_fetch(*args, **kwargs):
+        raise AssertionError("não deveria baixar janelas já materializadas")
+
+    monkeypatch.setattr(
+        "utils.ifdata_cache.taxas_juros_historico.fetch_taxas_juros_historico_window",
+        _unexpected_fetch,
+    )
+
+    result = cache.materialize_history(
+        data_inicio="2026-01-01",
+        data_fim="2026-12-31",
+        reprocess_tail_windows=0,
+    )
+
+    assert result.sucesso is True
+    assert result.metadata["total_periodos"] == 2
+    assert result.metadata["periodo_inicial"] == "2020-01-06"
+    assert result.metadata["periodo_final"] == "2026-01-05"
+
+    final = pd.read_parquet(cache.arquivo_dados)
+    assert final["inicio_periodo"].dt.strftime("%Y-%m-%d").tolist() == [
+        "2020-01-06",
+        "2026-01-05",
+    ]
+    dimension_dates = pd.read_parquet(cache.dimension_paths()["datas"])
+    assert dimension_dates["inicio_periodo"].dt.strftime("%Y-%m-%d").tolist() == [
+        "2020-01-06",
+        "2026-01-05",
+    ]
+
+    manifest = json.loads(cache.manifest_path.read_text(encoding="utf-8"))
+    assert manifest["target_windows"] == manifest["processed_windows"] == 2
+    assert manifest["total_rows"] == 2
 
 
 def test_get_taxas_juros_historico_anchor_date_uses_daily_dimension_max(tmp_path):

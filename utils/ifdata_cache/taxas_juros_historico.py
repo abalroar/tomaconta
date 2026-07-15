@@ -351,7 +351,70 @@ def normalize_taxas_juros_historico_frame(
     return df
 
 
-def validate_taxas_juros_historico_window(df: pd.DataFrame, *, inicio_periodo_esperado: str) -> None:
+def get_taxas_juros_official_daily_window_end(
+    df_datas: pd.DataFrame,
+    *,
+    inicio_periodo: str,
+) -> pd.Timestamp:
+    """Resolve o fim oficial de uma janela diária a partir de ``ConsultaDatas``."""
+    required_columns = {"inicio_periodo", "fim_periodo"}
+    missing_columns = sorted(required_columns.difference(df_datas.columns))
+    if missing_columns:
+        raise ValueError(
+            "ConsultaDatas sem coluna(s) obrigatória(s): " + ", ".join(missing_columns)
+        )
+
+    inicio_esperado = pd.to_datetime(inicio_periodo, errors="coerce")
+    if pd.isna(inicio_esperado):
+        raise ValueError(f"Início de período inválido: {inicio_periodo}")
+
+    datas = df_datas.copy()
+    if "tipo_modalidade" in datas.columns:
+        datas = datas[datas["tipo_modalidade"].astype("string").str.strip().str.upper() == "D"]
+
+    inicios = pd.to_datetime(datas["inicio_periodo"], errors="coerce")
+    datas = datas[inicios.dt.normalize() == pd.Timestamp(inicio_esperado).normalize()]
+    fins = (
+        pd.to_datetime(datas["fim_periodo"], errors="coerce")
+        .dropna()
+        .dt.normalize()
+        .drop_duplicates()
+        .sort_values()
+    )
+    if len(fins) != 1:
+        fins_encontrados = [str(pd.Timestamp(value).date()) for value in fins]
+        raise ValueError(
+            f"ConsultaDatas(D) não definiu um fim único para {pd.Timestamp(inicio_esperado).date()}: "
+            f"{fins_encontrados}"
+        )
+    return pd.Timestamp(fins.iloc[0])
+
+
+def filter_taxas_juros_historico_daily_window(
+    df: pd.DataFrame,
+    *,
+    fim_periodo_esperado: Any,
+) -> pd.DataFrame:
+    """Descarta observações de outras periodicidades misturadas pela API."""
+    if "fim_periodo" not in df.columns:
+        raise ValueError("Janela normalizada sem a coluna fim_periodo")
+
+    fim_esperado = pd.to_datetime(fim_periodo_esperado, errors="coerce")
+    if pd.isna(fim_esperado):
+        raise ValueError(f"Fim de período oficial inválido: {fim_periodo_esperado}")
+
+    fins_observados = pd.to_datetime(df["fim_periodo"], errors="coerce")
+    mask = fins_observados.dt.normalize() == pd.Timestamp(fim_esperado).normalize()
+    return df.loc[mask].copy().reset_index(drop=True)
+
+
+def validate_taxas_juros_historico_window(
+    df: pd.DataFrame,
+    *,
+    inicio_periodo_esperado: str,
+    fim_periodo_esperado: Optional[Any] = None,
+    df_parametros_diarios: Optional[pd.DataFrame] = None,
+) -> None:
     if df.empty:
         raise ValueError(f"Janela {inicio_periodo_esperado} retornou vazia")
 
@@ -361,11 +424,85 @@ def validate_taxas_juros_historico_window(df: pd.DataFrame, *, inicio_periodo_es
             f"Janela {inicio_periodo_esperado} retornou períodos inesperados: {periodos}"
         )
 
+    if fim_periodo_esperado is not None:
+        fim_esperado = pd.to_datetime(fim_periodo_esperado, errors="coerce")
+        if pd.isna(fim_esperado):
+            raise ValueError(f"Fim de período oficial inválido: {fim_periodo_esperado}")
+        fins = sorted({str(pd.Timestamp(value).date()) for value in df["fim_periodo"].dropna().unique()})
+        fim_esperado_texto = str(pd.Timestamp(fim_esperado).date())
+        if fins != [fim_esperado_texto]:
+            raise ValueError(
+                f"Janela {inicio_periodo_esperado} retornou fins inesperados: {fins}; "
+                f"fim oficial diário: {fim_esperado_texto}"
+            )
+
+    if df_parametros_diarios is not None:
+        pair_columns = ["codigo_segmento", "codigo_modalidade"]
+        missing_fact_columns = [column for column in pair_columns if column not in df.columns]
+        missing_param_columns = [column for column in pair_columns if column not in df_parametros_diarios.columns]
+        if missing_fact_columns:
+            raise ValueError("Janela sem coluna(s) de modalidade: " + ", ".join(missing_fact_columns))
+        if missing_param_columns:
+            raise ValueError(
+                "ParametrosConsulta(D) sem coluna(s) obrigatória(s): " + ", ".join(missing_param_columns)
+            )
+
+        parametros = df_parametros_diarios.copy()
+        if "tipo_modalidade" in parametros.columns:
+            parametros = parametros[
+                parametros["tipo_modalidade"].astype("string").str.strip().str.upper() == "D"
+            ]
+
+        allowed_pairs_frame = parametros[pair_columns].copy()
+        observed_pairs_frame = df[pair_columns].copy()
+        for column in pair_columns:
+            allowed_pairs_frame[column] = allowed_pairs_frame[column].astype("string").str.strip()
+            observed_pairs_frame[column] = observed_pairs_frame[column].astype("string").str.strip()
+
+        allowed_pairs = set(
+            map(tuple, allowed_pairs_frame.dropna().drop_duplicates().itertuples(index=False, name=None))
+        )
+        observed_pairs = set(
+            map(tuple, observed_pairs_frame.dropna().drop_duplicates().itertuples(index=False, name=None))
+        )
+        unknown_pairs = sorted(observed_pairs.difference(allowed_pairs))
+        if unknown_pairs:
+            detalhe = ", ".join(f"{segmento}/{modalidade}" for segmento, modalidade in unknown_pairs)
+            raise ValueError(
+                f"Janela {inicio_periodo_esperado} retornou par(es) ausente(s) em "
+                f"ParametrosConsulta(D): {detalhe}"
+            )
+
     duplicated = df.duplicated(
         subset=["inicio_periodo", "codigo_segmento", "codigo_modalidade", "institution_key"]
     ).sum()
     if int(duplicated) > 0:
         raise ValueError(f"Janela {inicio_periodo_esperado} retornou {duplicated} duplicidades")
+
+
+def prepare_taxas_juros_historico_daily_window(
+    df: pd.DataFrame,
+    *,
+    inicio_periodo_esperado: str,
+    df_datas: pd.DataFrame,
+    df_parametros_diarios: pd.DataFrame,
+) -> pd.DataFrame:
+    """Reconcilia uma resposta de ``ConsultaUnificada`` com os catálogos diários."""
+    fim_periodo_esperado = get_taxas_juros_official_daily_window_end(
+        df_datas,
+        inicio_periodo=inicio_periodo_esperado,
+    )
+    filtered = filter_taxas_juros_historico_daily_window(
+        df,
+        fim_periodo_esperado=fim_periodo_esperado,
+    )
+    validate_taxas_juros_historico_window(
+        filtered,
+        inicio_periodo_esperado=inicio_periodo_esperado,
+        fim_periodo_esperado=fim_periodo_esperado,
+        df_parametros_diarios=df_parametros_diarios,
+    )
+    return filtered
 
 
 def build_taxas_juros_display_frame(df: pd.DataFrame) -> pd.DataFrame:
@@ -797,6 +934,100 @@ class TaxasJurosHistoricoCache(BaseCache):
         df.to_parquet(tmp_path, index=False)
         tmp_path.replace(path)
 
+    def _get_materialized_daily_calendar(
+        self,
+        df_datas_disponiveis: pd.DataFrame,
+    ) -> Tuple[List[str], pd.DataFrame]:
+        """Alinha o calendário publicado a todas as janelas presentes no staging."""
+        staged_windows = self._list_window_dates()
+        if not staged_windows:
+            raise RuntimeError("Nenhuma janela disponível no staging para consolidação")
+
+        required_columns = {"inicio_periodo", "fim_periodo"}
+        missing_columns = sorted(required_columns.difference(df_datas_disponiveis.columns))
+        if missing_columns:
+            raise ValueError(
+                "ConsultaDatas sem coluna(s) obrigatória(s): " + ", ".join(missing_columns)
+            )
+
+        calendar = df_datas_disponiveis.copy()
+        if "tipo_modalidade" in calendar.columns:
+            calendar = calendar[
+                calendar["tipo_modalidade"].astype("string").str.strip().str.upper() == "D"
+            ]
+        calendar["inicio_periodo"] = pd.to_datetime(calendar["inicio_periodo"], errors="coerce")
+        calendar["fim_periodo"] = pd.to_datetime(calendar["fim_periodo"], errors="coerce")
+        calendar = calendar.dropna(subset=["inicio_periodo", "fim_periodo"])
+        calendar["_inicio_key"] = calendar["inicio_periodo"].dt.strftime("%Y-%m-%d")
+
+        conflicting_ends = (
+            calendar.groupby("_inicio_key", observed=False)["fim_periodo"].nunique().loc[lambda values: values > 1]
+        )
+        if not conflicting_ends.empty:
+            raise ValueError(
+                "ConsultaDatas(D) retornou fins conflitantes para: "
+                + ", ".join(conflicting_ends.index.astype(str))
+            )
+
+        calendar = (
+            calendar.sort_values(["inicio_periodo", "fim_periodo"], kind="stable")
+            .drop_duplicates(subset=["_inicio_key"], keep="last")
+        )
+        official_windows = set(calendar["_inicio_key"].astype(str))
+        unknown_staged_windows = sorted(set(staged_windows).difference(official_windows))
+        if unknown_staged_windows:
+            raise ValueError(
+                "Staging contém janela(s) ausente(s) em ConsultaDatas(D): "
+                + ", ".join(unknown_staged_windows)
+            )
+
+        materialized_calendar = (
+            calendar[calendar["_inicio_key"].isin(staged_windows)]
+            .drop(columns=["_inicio_key"])
+            .sort_values("inicio_periodo", kind="stable")
+            .reset_index(drop=True)
+        )
+        materialized_windows = materialized_calendar["inicio_periodo"].dt.strftime("%Y-%m-%d").tolist()
+        if materialized_windows != staged_windows:
+            raise RuntimeError("Calendário oficial e janelas do staging ficaram desalinhados")
+        return materialized_windows, materialized_calendar
+
+    def _reconcile_staged_daily_windows(
+        self,
+        *,
+        target_windows: Sequence[str],
+        df_parametros: pd.DataFrame,
+        df_datas: pd.DataFrame,
+    ) -> Dict[str, Any]:
+        """Sanitiza staging legado antes de compor os artefatos publicados."""
+        discarded_rows = 0
+        reconciled_windows: List[str] = []
+
+        for inicio_periodo in target_windows:
+            window_path = self._window_path(inicio_periodo)
+            if not window_path.exists():
+                raise RuntimeError(f"Janela alvo ausente no staging: {inicio_periodo}")
+
+            staged_df = pd.read_parquet(window_path)
+            prepared_df = prepare_taxas_juros_historico_daily_window(
+                staged_df,
+                inicio_periodo_esperado=inicio_periodo,
+                df_datas=df_datas,
+                df_parametros_diarios=df_parametros,
+            )
+            removed_rows = int(len(staged_df) - len(prepared_df))
+            if removed_rows <= 0:
+                continue
+
+            self._write_window_file(inicio_periodo, prepared_df)
+            discarded_rows += removed_rows
+            reconciled_windows.append(inicio_periodo)
+
+        return {
+            "discarded_other_periodicity_rows": discarded_rows,
+            "reconciled_windows": reconciled_windows,
+        }
+
     def _build_annual_slice(self, year: str) -> Tuple[Optional[Path], int]:
         year_dir = self.window_dir / str(year)
         window_files = sorted(year_dir.glob("*.parquet"))
@@ -944,6 +1175,7 @@ class TaxasJurosHistoricoCache(BaseCache):
         processed_windows: Sequence[str],
         df_parametros: pd.DataFrame,
         finalized_at: str,
+        reconciliation_stats: Dict[str, Any],
     ) -> Dict[str, Any]:
         return {
             "timestamp_salvamento": finalized_at,
@@ -962,6 +1194,10 @@ class TaxasJurosHistoricoCache(BaseCache):
                     ][["codigo_segmento", "codigo_modalidade"]].drop_duplicates()
                 )
             ),
+            "discarded_other_periodicity_rows": int(
+                reconciliation_stats.get("discarded_other_periodicity_rows", 0)
+            ),
+            "reconciled_windows": list(reconciliation_stats.get("reconciled_windows", [])),
             "schema_version": 1,
         }
 
@@ -973,6 +1209,23 @@ class TaxasJurosHistoricoCache(BaseCache):
         df_datas: pd.DataFrame,
         log_callback: Optional[Callable[[str], None]] = None,
     ) -> Dict[str, Any]:
+        reconciliation_stats = self._reconcile_staged_daily_windows(
+            target_windows=target_windows,
+            df_parametros=df_parametros,
+            df_datas=df_datas,
+        )
+        discarded_rows = int(reconciliation_stats["discarded_other_periodicity_rows"])
+        reconciled_windows = list(reconciliation_stats["reconciled_windows"])
+        if reconciled_windows:
+            self._log_local(
+                "info",
+                (
+                    f"Reconciliação diária descartou {discarded_rows} linha(s) de outra periodicidade "
+                    f"em {len(reconciled_windows)} janela(s)."
+                ),
+                log_callback,
+            )
+
         self._log_local("info", "Consolidando slices anuais...", log_callback)
         annual_paths: List[Path] = []
         annual_rows: Dict[str, int] = {}
@@ -998,6 +1251,7 @@ class TaxasJurosHistoricoCache(BaseCache):
             processed_windows=self._list_window_dates(),
             df_parametros=df_parametros,
             finalized_at=finalized_at,
+            reconciliation_stats=reconciliation_stats,
         )
         self._save_json(self.arquivo_metadata, metadata)
         self._save_json(
@@ -1008,9 +1262,29 @@ class TaxasJurosHistoricoCache(BaseCache):
                 "annual_rows": annual_rows,
                 "target_windows": len(target_windows),
                 "processed_windows": len(self._list_window_dates()),
+                "discarded_other_periodicity_rows": discarded_rows,
+                "reconciled_windows": reconciled_windows,
             },
         )
         return metadata
+
+    def _write_materialized_artifacts(
+        self,
+        *,
+        df_parametros: pd.DataFrame,
+        df_datas_disponiveis: pd.DataFrame,
+        log_callback: Optional[Callable[[str], None]] = None,
+    ) -> Dict[str, Any]:
+        """Publica todo o staging válido, independentemente do recorte reprocessado."""
+        materialized_windows, materialized_calendar = self._get_materialized_daily_calendar(
+            df_datas_disponiveis
+        )
+        return self._write_artifacts(
+            target_windows=materialized_windows,
+            df_parametros=df_parametros,
+            df_datas=materialized_calendar,
+            log_callback=log_callback,
+        )
 
     def materialize_history(
         self,
@@ -1032,9 +1306,10 @@ class TaxasJurosHistoricoCache(BaseCache):
             self._garantir_estrutura()
 
         with requests.Session() as session:
-            df_datas = fetch_taxas_juros_datas_disponiveis(session=session)
+            df_datas_disponiveis = fetch_taxas_juros_datas_disponiveis(session=session)
             df_parametros = fetch_taxas_juros_parametros_consulta(tipo_modalidade="D", session=session)
 
+            df_datas = df_datas_disponiveis.copy()
             if data_inicio:
                 df_datas = df_datas[df_datas["inicio_periodo"] >= pd.Timestamp(data_inicio)]
             if data_fim:
@@ -1051,7 +1326,8 @@ class TaxasJurosHistoricoCache(BaseCache):
 
             existing_windows = set(self._list_window_dates())
             missing_windows = [item for item in target_windows if item not in existing_windows]
-            tail_windows = target_windows[-max(int(reprocess_tail_windows), 0):] if existing_windows else []
+            tail_window_count = max(int(reprocess_tail_windows), 0)
+            tail_windows = target_windows[-tail_window_count:] if existing_windows and tail_window_count else []
             windows_to_process = []
             seen = set()
             for item in missing_windows + tail_windows:
@@ -1078,10 +1354,9 @@ class TaxasJurosHistoricoCache(BaseCache):
             self._save_json(self.checkpoint_path, checkpoint)
 
             if not windows_to_process:
-                metadata = self._write_artifacts(
-                    target_windows=target_windows,
+                metadata = self._write_materialized_artifacts(
                     df_parametros=df_parametros,
-                    df_datas=df_datas,
+                    df_datas_disponiveis=df_datas_disponiveis,
                     log_callback=log_callback,
                 )
                 return CacheResult(
@@ -1112,7 +1387,12 @@ class TaxasJurosHistoricoCache(BaseCache):
                         ingested_at=datetime.now(timezone.utc).isoformat(),
                         tipo_modalidade="D",
                     )
-                    validate_taxas_juros_historico_window(fact_df, inicio_periodo_esperado=inicio_periodo)
+                    fact_df = prepare_taxas_juros_historico_daily_window(
+                        fact_df,
+                        inicio_periodo_esperado=inicio_periodo,
+                        df_datas=df_datas,
+                        df_parametros_diarios=df_parametros,
+                    )
                     self._write_window_file(inicio_periodo, fact_df)
                     checkpoint["completed_windows"].append(inicio_periodo)
                     self._save_json(self.checkpoint_path, checkpoint)
@@ -1155,10 +1435,9 @@ class TaxasJurosHistoricoCache(BaseCache):
                     fonte="api",
                 )
 
-            metadata = self._write_artifacts(
-                target_windows=target_windows,
+            metadata = self._write_materialized_artifacts(
                 df_parametros=df_parametros,
-                df_datas=df_datas,
+                df_datas_disponiveis=df_datas_disponiveis,
                 log_callback=log_callback,
             )
             checkpoint["finished_at"] = datetime.now().isoformat()
@@ -1273,15 +1552,24 @@ class TaxasJurosHistoricoCache(BaseCache):
         return self.carregar_local()
 
     def extrair_periodo(self, periodo: str, **kwargs) -> CacheResult:
-        raw_df = fetch_taxas_juros_historico_window(
-            periodo,
-            timeout=int(kwargs.get("timeout", REQUEST_TIMEOUT)),
-        )
+        with requests.Session() as session:
+            df_datas = fetch_taxas_juros_datas_disponiveis(session=session)
+            df_parametros = fetch_taxas_juros_parametros_consulta(tipo_modalidade="D", session=session)
+            raw_df = fetch_taxas_juros_historico_window(
+                periodo,
+                session=session,
+                timeout=int(kwargs.get("timeout", REQUEST_TIMEOUT)),
+            )
         normalized = normalize_taxas_juros_historico_frame(
             raw_df,
             run_id=datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S"),
         )
-        validate_taxas_juros_historico_window(normalized, inicio_periodo_esperado=periodo)
+        normalized = prepare_taxas_juros_historico_daily_window(
+            normalized,
+            inicio_periodo_esperado=periodo,
+            df_datas=df_datas,
+            df_parametros_diarios=df_parametros,
+        )
         return CacheResult(
             sucesso=True,
             mensagem=f"Janela {periodo} extraída com {len(normalized)} linhas",
