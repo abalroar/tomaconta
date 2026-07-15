@@ -1189,7 +1189,10 @@ def render_carteira_4966_html(model: Carteira4966Model) -> str:
             attributes.append(f'colspan="{int(colspan)}"')
         if period:
             attributes.append(f'data-period="{html.escape(period, quote=True)}"')
-        if title:
+        # Células sinalizadas já expõem o diagnóstico por um tooltip próprio,
+        # associado via aria-describedby. Manter também o title nativo faz os
+        # dois balões se sobreporem e duplica a mensagem no hover/foco.
+        if title and quality_issue is None:
             attributes.append(f'title="{html.escape(title, quote=True)}"')
         attribute_text = f" {' '.join(attributes)}" if attributes else ""
         return f"<td{attribute_text}>{content}{tooltip}</td>"

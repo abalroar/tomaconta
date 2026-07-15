@@ -200,6 +200,7 @@ def test_quality_tooltip_is_visible_on_hover_and_keyboard_focus():
     assert 'role="tooltip"' in row
     assert 'tabindex="0"' in row
     assert 'data-quality="warning"' in row
+    assert ' title=' not in row
     assert ".tc-4966-has-tooltip:hover .tc-4966-tooltip" in rendered
     assert ".tc-4966-has-tooltip:focus .tc-4966-tooltip" in rendered
     assert "Passe o cursor ou use a tecla Tab" in rendered

@@ -213,7 +213,7 @@ def test_questionable_delinquency_marks_both_paired_cells_in_all_exports(
         assert "tc-4966-quality-" in rendered_cell
         assert "*" in _visible_text(rendered_cell)
         assert re.search(r'aria-describedby="[^"]+"', rendered_cell), rendered_cell
-        assert re.search(r'title="[^"]+"', rendered_cell), rendered_cell
+        assert ' title=' not in rendered_cell
         assert 'tabindex="0"' in rendered_cell
         assert 'role="tooltip"' in rendered_cell
     html_diagnostic = html.unescape(amount_html + percent_html).lower()
