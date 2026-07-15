@@ -272,6 +272,16 @@ def test_write_manifest_and_collect_assets(tmp_path: Path, monkeypatch):
             "summary": {"total_caches": 1},
         },
     )
+    quality_scope = []
+
+    def fake_validate_cache_quality(_manager, cache_names):
+        quality_scope.extend(cache_names)
+        return {}
+
+    monkeypatch.setattr(
+        "utils.ifdata_cache.release_ops.validate_cache_quality",
+        fake_validate_cache_quality,
+    )
 
     manifest_path, payload = write_release_manifest(
         manager,
@@ -287,6 +297,7 @@ def test_write_manifest_and_collect_assets(tmp_path: Path, monkeypatch):
     assert payload["selected_caches"] == ["principal"]
     assert payload["postprocess_targets"] == ["derived_metrics", "critical_screens"]
     assert payload["expected_periods"] == {"quarterly": "202512"}
+    assert "carteira_instrumentos" in quality_scope
 
     assets = collect_release_assets(
         manager,

@@ -773,6 +773,47 @@ def test_load_bloprud_sources_uses_persisted_cache_when_available(tmp_path: Path
     assert len(result) == 2
 
 
+def test_load_bloprud_sources_normalizes_existing_persisted_period_formats(tmp_path: Path):
+    blop_persistido = pd.DataFrame(
+        [
+            {
+                "Período": "202603",
+                "DOCUMENTO": 4060,
+                "NOME_CONGL": "GM - PRUDENCIAL",
+                "CONTA": "3313000000",
+                "SALDO": 333_203_924.19,
+            },
+            {
+                "Período": pd.Timestamp("2025-12-31"),
+                "DOCUMENTO": 4060,
+                "NOME_CONGL": "GM - PRUDENCIAL",
+                "CONTA": "3313000000",
+                "SALDO": 320_000_000.0,
+            },
+            {
+                "Período": "3/2025",
+                "DOCUMENTO": 4060,
+                "NOME_CONGL": "GM - PRUDENCIAL",
+                "CONTA": "3313000000",
+                "SALDO": 310_000_000.0,
+            },
+        ]
+    )
+    manager = _FakeManager(blop_df=blop_persistido)
+
+    result = _load_bloprud_sources(
+        manager=manager,
+        base_dir=tmp_path,
+        periodos_display=["3/2025", "4/2025", "1/2026"],
+    )
+
+    assert result[["Período", "SALDO"]].sort_values("Período").to_records(index=False).tolist() == [
+        ("1/2026", 333_203_924.19),
+        ("3/2025", 310_000_000.0),
+        ("4/2025", 320_000_000.0),
+    ]
+
+
 def test_critical_screens_needs_refresh_detects_source_fingerprint_change(tmp_path: Path):
     cache = CriticalScreensCache(tmp_path)
     fingerprint_base = {

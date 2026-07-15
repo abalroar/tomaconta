@@ -675,6 +675,95 @@ def _build_pdd_quality_issues(
     return tuple(issues)
 
 
+def _build_delinquency_quality_issues(
+    metrics_by_period: Mapping[str, Mapping[str, Optional[float]]],
+    periods: Sequence[str],
+) -> tuple[QualityIssue, ...]:
+    """Valida a Inadimplencia do Relatorio 16 na propria linha exibida."""
+
+    issues: list[QualityIssue] = []
+    denominator_label = ROW_BY_KEY["delinquency"].denominator_label
+    for period in periods:
+        metrics = metrics_by_period.get(period, {})
+        delinquency = _numeric(metrics.get("delinquency"))
+        portfolio = _numeric(metrics.get("total_general"))
+
+        if delinquency is None:
+            issues.append(
+                QualityIssue(
+                    period=period,
+                    severity="warning",
+                    code="delinquency_missing",
+                    pdd_value=None,
+                    portfolio_value=portfolio,
+                    ratio=None,
+                    row_key="delinquency",
+                    denominator_label=denominator_label,
+                    details=("Inadimplência", "Relatório 16"),
+                )
+            )
+            continue
+
+        ratio = _safe_ratio(delinquency, portfolio)
+        if delinquency < 0:
+            issues.append(
+                QualityIssue(
+                    period=period,
+                    severity="critical",
+                    code="delinquency_negative",
+                    pdd_value=delinquency,
+                    portfolio_value=portfolio,
+                    ratio=ratio,
+                    row_key="delinquency",
+                    denominator_label=denominator_label,
+                )
+            )
+
+        if portfolio is None:
+            issues.append(
+                QualityIssue(
+                    period=period,
+                    severity="warning",
+                    code="delinquency_portfolio_missing",
+                    pdd_value=delinquency,
+                    portfolio_value=None,
+                    ratio=None,
+                    row_key="delinquency",
+                    denominator_label=denominator_label,
+                )
+            )
+            continue
+        if portfolio <= 0:
+            issues.append(
+                QualityIssue(
+                    period=period,
+                    severity="critical",
+                    code="delinquency_invalid_portfolio",
+                    pdd_value=delinquency,
+                    portfolio_value=portfolio,
+                    ratio=None,
+                    row_key="delinquency",
+                    denominator_label=denominator_label,
+                )
+            )
+            continue
+
+        if delinquency > portfolio:
+            issues.append(
+                QualityIssue(
+                    period=period,
+                    severity="critical",
+                    code="delinquency_exceeds_portfolio",
+                    pdd_value=delinquency,
+                    portfolio_value=portfolio,
+                    ratio=delinquency / portfolio,
+                    row_key="delinquency",
+                    denominator_label=denominator_label,
+                )
+            )
+    return tuple(issues)
+
+
 def build_carteira_4966_model(
     carteira: pd.DataFrame,
     ativo: Optional[pd.DataFrame],
@@ -792,6 +881,16 @@ def build_carteira_4966_model(
             else:
                 raise ValueError(f"Layout de linha não suportado: {spec.layout}")
 
+    pdd_quality_issues = _build_pdd_quality_issues(
+        metrics_by_period,
+        ordered_periods,
+        provision_findings,
+    )
+    delinquency_quality_issues = _build_delinquency_quality_issues(
+        metrics_by_period,
+        ordered_periods,
+    )
+
     return Carteira4966Model(
         periods=ordered_periods,
         period_labels={period: format_period_label(period) for period in ordered_periods},
@@ -799,11 +898,7 @@ def build_carteira_4966_model(
         base_value=base_value,
         qoq=qoq,
         cells=cells,
-        quality_issues=_build_pdd_quality_issues(
-            metrics_by_period,
-            ordered_periods,
-            provision_findings,
-        ),
+        quality_issues=(*pdd_quality_issues, *delinquency_quality_issues),
     )
 
 
@@ -862,6 +957,37 @@ def quality_issue_message(issue: QualityIssue) -> str:
     affected_label = ROW_BY_KEY.get(issue.row_key, ROW_BY_KEY["provision"]).label
     details = ", ".join(issue.details)
 
+    if issue.code == "delinquency_missing":
+        return (
+            f"{period_label}: a coluna Inadimplência do Relatório 16 está indisponível "
+            "ou não foi publicada para a instituição. Vencidos acima de 90 dias "
+            "(conceito de arrasto) permanece como N/D até validação da fonte."
+        )
+    if issue.code == "delinquency_negative":
+        return (
+            f"{period_label}: a Inadimplência publicada no Relatório 16 é negativa "
+            f"(R$ {pdd_label} mi). O valor permanece visível para auditoria, mas é "
+            "considerado não confiável até validação no IFData."
+        )
+    if issue.code == "delinquency_portfolio_missing":
+        return (
+            f"{period_label}: a Inadimplência de R$ {pdd_label} mi foi publicada, mas a "
+            "Carteira Total do mesmo período está indisponível. O valor bruto permanece "
+            "visível e o percentual fica N/D até validação da fonte."
+        )
+    if issue.code == "delinquency_invalid_portfolio":
+        return (
+            f"{period_label}: a Inadimplência é R$ {pdd_label} mi, mas a Carteira Total "
+            f"do mesmo período é R$ {denominator_label} mi. O valor bruto permanece "
+            "visível para auditoria e o percentual fica N/D, mas o cruzamento é não confiável."
+        )
+    if issue.code == "delinquency_exceeds_portfolio":
+        return (
+            f"{period_label}: a Inadimplência de R$ {pdd_label} mi equivale a "
+            f"{format_percentage(issue.ratio, 2)} da Carteira Total de R$ "
+            f"{denominator_label} mi e supera o total do mesmo período. O valor permanece "
+            "visível para auditoria, mas o cruzamento requer validação no IFData."
+        )
     if issue.code == "pdd_source_unavailable":
         return (
             f"{period_label}: a tabela Ativo (Relatório 2) não está disponível. "
@@ -954,7 +1080,7 @@ def quality_issues_dataframe(model: Carteira4966Model) -> pd.DataFrame:
         "Período",
         "Severidade",
         "Checagem",
-        "PDD (R$ mm)",
+        "Valor observado (R$ mm)",
         "Denominador",
         "Denominador (R$ mm)",
         "Resultado (%)",
@@ -972,7 +1098,7 @@ def quality_issues_dataframe(model: Carteira4966Model) -> pd.DataFrame:
                 "Período": model.period_labels.get(issue.period, format_period_label(issue.period)),
                 "Severidade": "Não confiável" if issue.severity == "critical" else "Atenção",
                 "Checagem": issue.code,
-                "PDD (R$ mm)": (
+                "Valor observado (R$ mm)": (
                     None if issue.pdd_value is None else issue.pdd_value / 1_000_000
                 ),
                 "Denominador": issue.denominator_label or "Não se aplica",
@@ -1013,33 +1139,84 @@ def _cell_title(spec: RowSpec, cell: MetricCell, *, secondary: bool = False) -> 
 def render_carteira_4966_html(model: Carteira4966Model) -> str:
     """Renderiza tabela HTML acessivel, responsiva e isolada por namespace CSS."""
 
-    min_width = max(700, 254 + len(model.periods) * 136)
+    min_width = max(700, 240 + len(model.periods) * 136)
     base_label = model.period_labels.get(model.base_period or "", "N/D")
+
+    def render_data_cell(
+        content: str,
+        *,
+        classes: Sequence[str] = (),
+        title: str = "",
+        period: str = "",
+        colspan: Optional[int] = None,
+        quality_issue: Optional[QualityIssue] = None,
+        quality_message: str = "",
+        tooltip_id: str = "",
+    ) -> str:
+        """Monta uma celula sem atributos vazios e com alerta acessivel."""
+
+        class_names = [class_name for class_name in classes if class_name]
+        attributes: list[str] = []
+        tooltip = ""
+        if quality_issue is not None:
+            class_names.extend(
+                (
+                    f"tc-4966-quality-{quality_issue.severity}",
+                    "tc-4966-has-tooltip",
+                )
+            )
+            attributes.extend(
+                (
+                    'tabindex="0"',
+                    f'aria-describedby="{html.escape(tooltip_id, quote=True)}"',
+                    f'data-quality="{html.escape(quality_issue.severity, quote=True)}"',
+                )
+            )
+            tooltip_text = html.escape(quality_message).replace("\n", "<br>")
+            tooltip = (
+                '<span class="tc-4966-quality-marker" aria-hidden="true">*</span>'
+                f'<span id="{html.escape(tooltip_id, quote=True)}" '
+                'class="tc-4966-tooltip" role="tooltip">'
+                '<strong>Alerta de confiabilidade.</strong> '
+                f'{tooltip_text}</span>'
+            )
+        if class_names:
+            attributes.insert(
+                0,
+                f'class="{html.escape(" ".join(class_names), quote=True)}"',
+            )
+        if colspan is not None:
+            attributes.append(f'colspan="{int(colspan)}"')
+        if period:
+            attributes.append(f'data-period="{html.escape(period, quote=True)}"')
+        if title:
+            attributes.append(f'title="{html.escape(title, quote=True)}"')
+        attribute_text = f" {' '.join(attributes)}" if attributes else ""
+        return f"<td{attribute_text}>{content}{tooltip}</td>"
+
     parts = [
         """
 <style>
 .tc-4966-region {
   --tc-ink: #24262d;
   --tc-ink-soft: #555961;
-  --tc-line: #c9cbd0;
-  --tc-line-strong: #72767e;
+  --tc-line: #dddddd;
   --tc-surface: #ffffff;
-  --tc-surface-soft: #f2f3f4;
-  --tc-highlight: #e4c900;
+  --tc-surface-soft: #f5f5f5;
   width: 100%;
   overflow-x: auto;
   margin: .75rem 0 1rem;
-  border: 1px solid var(--tc-line);
-  border-radius: 4px;
   background: var(--tc-surface);
   outline: none;
 }
-.tc-4966-region:focus-visible { box-shadow: 0 0 0 3px rgba(255, 90, 0, .28); }
+.tc-4966-region:focus-visible {
+  outline: 2px solid #6e6e6e;
+  outline-offset: 2px;
+}
 .tc-4966-table {
   width: 100%;
   table-layout: fixed;
-  border-collapse: separate;
-  border-spacing: 0;
+  border-collapse: collapse;
   color: var(--tc-ink);
   background: var(--tc-surface);
   font-size: 13px;
@@ -1058,35 +1235,22 @@ def render_carteira_4966_html(model: Carteira4966Model) -> str:
 }
 .tc-4966-table th, .tc-4966-table td {
   box-sizing: border-box;
-  border-right: 1px solid var(--tc-line);
-  border-bottom: 1px solid var(--tc-line);
+  border: 1px solid var(--tc-line);
   padding: 7px 5px;
   vertical-align: middle;
 }
 .tc-4966-table thead th {
   color: #f8f8f8;
-  background: var(--tc-ink);
+  background: #111111;
   text-align: center;
   font-weight: 650;
   white-space: nowrap;
 }
 .tc-4966-table thead .tc-4966-qoq { color: #d8d9dc; font-size: 11px; font-weight: 500; }
-.tc-4966-table thead .tc-4966-subhead { background: #444850; color: #f5f5f5; font-size: 11px; }
-.tc-4966-table .tc-4966-marker {
-  position: sticky;
-  left: 0;
-  z-index: 3;
-  width: 14px;
-  min-width: 14px;
-  padding: 0;
-  border-right: 1px solid #a28f00;
-  background-color: var(--tc-highlight);
-  background-image: repeating-linear-gradient(135deg, rgba(116, 99, 0, .35) 0 2px, transparent 2px 6px);
-}
-.tc-4966-table thead .tc-4966-marker { z-index: 5; background-color: var(--tc-highlight); }
+.tc-4966-table thead .tc-4966-subhead { background: #6e6e6e; color: #f5f5f5; font-size: 11px; }
 .tc-4966-table .tc-4966-label {
   position: sticky;
-  left: 14px;
+  left: 0;
   z-index: 2;
   min-width: 220px;
   max-width: 260px;
@@ -1094,9 +1258,9 @@ def render_carteira_4966_html(model: Carteira4966Model) -> str:
   text-align: left;
   font-weight: 500;
 }
-.tc-4966-table thead .tc-4966-label { z-index: 4; background: var(--tc-ink); }
+.tc-4966-table thead .tc-4966-label { z-index: 4; background: #111111; }
 .tc-4966-table td { min-width: 0; text-align: right; white-space: nowrap; }
-.tc-4966-table .tc-4966-period-end { border-right: 2px solid var(--tc-line-strong); }
+.tc-4966-table .tc-4966-period-end { border-right: 1px solid var(--tc-line); }
 .tc-4966-table .tc-4966-section-label {
   background: var(--tc-surface-soft);
   color: var(--tc-ink-soft);
@@ -1105,10 +1269,12 @@ def render_carteira_4966_html(model: Carteira4966Model) -> str:
   font-weight: 650;
   letter-spacing: .01em;
 }
-.tc-4966-table tbody + tbody tr:first-child > :not(.tc-4966-marker) { border-top: 9px solid var(--tc-surface); }
 .tc-4966-table .tc-4966-emphasis { font-weight: 700; }
 .tc-4966-table .tc-4966-ratio-row .tc-4966-label { padding-left: 20px; color: var(--tc-ink-soft); }
-.tc-4966-table .tc-4966-ratio-row td { border-bottom-style: dotted; }
+.tc-4966-table .tc-4966-total-row > * {
+  background: #e8f4e8;
+  font-weight: 700;
+}
 .tc-4966-table .tc-4966-missing { color: #6d7077; font-style: italic; }
 .tc-4966-table .tc-4966-quality-warning {
   color: #654c00;
@@ -1120,26 +1286,61 @@ def render_carteira_4966_html(model: Carteira4966Model) -> str:
   background: #fde8e7;
   font-weight: 750;
 }
-.tc-4966-quality-marker { margin-left: 1px; font-weight: 850; }
-.tc-4966-quality-badge { margin-left: 4px; font-style: normal; }
-.tc-4966-sr-only {
+.tc-4966-table .tc-4966-has-tooltip {
+  position: relative;
+  cursor: help;
+  outline: none;
+}
+.tc-4966-table .tc-4966-has-tooltip:focus-visible {
+  box-shadow: inset 0 0 0 2px #6e6e6e;
+}
+.tc-4966-table .tc-4966-has-tooltip:hover,
+.tc-4966-table .tc-4966-has-tooltip:focus,
+.tc-4966-table .tc-4966-has-tooltip:focus-within {
+  z-index: 20;
+}
+.tc-4966-quality-marker {
+  margin-left: 2px;
+  font-weight: 850;
+}
+.tc-4966-tooltip {
   position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
+  right: 4px;
+  bottom: calc(100% + 6px);
+  z-index: 30;
+  width: 300px;
+  max-width: calc(100vw - 48px);
+  padding: 8px 10px;
+  border-radius: 3px;
+  color: #ffffff;
+  background: #333333;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .25);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 1.45;
+  text-align: left;
+  white-space: normal;
+  pointer-events: auto;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity .12s ease, transform .12s ease;
+}
+.tc-4966-has-tooltip:hover .tc-4966-tooltip,
+.tc-4966-has-tooltip:focus .tc-4966-tooltip,
+.tc-4966-has-tooltip:focus-within .tc-4966-tooltip {
+  opacity: 1;
+  transform: translateY(0);
+}
+.tc-4966-tooltip:hover {
+  opacity: 1;
+  transform: translateY(0);
 }
 .tc-4966-quality-legend {
   margin: 8px 12px 10px;
   color: var(--tc-ink-soft);
   font-size: 11px;
 }
-.tc-4966-table tr:last-child > * { border-bottom: 0; }
-.tc-4966-table tr > *:last-child { border-right: 0; }
 @media (max-width: 768px) {
   .tc-4966-table { font-size: 12px; }
   .tc-4966-table th, .tc-4966-table td { padding: 7px 8px; }
@@ -1152,10 +1353,9 @@ def render_carteira_4966_html(model: Carteira4966Model) -> str:
             f'aria-label="{html.escape(TITLE, quote=True)}">'
             f'<table class="tc-4966-table" style="min-width:{min_width}px">'
             f'<caption>{html.escape(TITLE)}. Valores em milhões de reais.</caption>'
-            '<colgroup><col style="width:14px"><col style="width:240px">'
+            '<colgroup><col style="width:240px">'
             + "".join('<col style="width:68px"><col style="width:68px">' for _ in model.periods)
             + "</colgroup><thead><tr>"
-            '<th class="tc-4966-marker" rowspan="3" aria-hidden="true"></th>'
             '<th class="tc-4966-label" rowspan="3" scope="col">Indicador</th>'
         ),
     ]
@@ -1178,7 +1378,8 @@ def render_carteira_4966_html(model: Carteira4966Model) -> str:
         parts.append('<th class="tc-4966-subhead" scope="col">R$ mm</th>')
         parts.append(
             f'<th class="tc-4966-subhead tc-4966-period-end" scope="col" '
-            f'title="Base comum: {html.escape(base_label, quote=True)}">% base</th>'
+            f'title="Classificação: base comum {html.escape(base_label, quote=True)}; '
+            'vencidos: Carteira Total do mesmo período">%</th>'
         )
     parts.append("</tr></thead>")
 
@@ -1188,7 +1389,6 @@ def render_carteira_4966_html(model: Carteira4966Model) -> str:
             section_id = f"tc-4966-group-{group.key}"
             parts.append(
                 '<tr class="tc-4966-section">'
-                '<td class="tc-4966-marker" aria-hidden="true"></td>'
                 f'<th id="{section_id}" class="tc-4966-section-label" '
                 f'colspan="{1 + len(model.periods) * 2}">{html.escape(group.label)}</th></tr>'
             )
@@ -1198,13 +1398,19 @@ def render_carteira_4966_html(model: Carteira4966Model) -> str:
             row_classes = []
             if spec.emphasis:
                 row_classes.append("tc-4966-emphasis-row")
+            if spec.key == "total_portfolio":
+                row_classes.append("tc-4966-total-row")
             if spec.layout == "percent_span":
                 row_classes.append("tc-4966-ratio-row")
+            row_class_attribute = (
+                f' class="{html.escape(" ".join(row_classes), quote=True)}"'
+                if row_classes
+                else ""
+            )
             parts.append(
-                f'<tr class="{" ".join(row_classes)}" '
+                f'<tr{row_class_attribute} '
                 f'data-row-key="{html.escape(spec.key, quote=True)}">'
             )
-            parts.append('<td class="tc-4966-marker" aria-hidden="true"></td>')
             label_classes = "tc-4966-label" + (" tc-4966-emphasis" if spec.emphasis else "")
             parts.append(
                 f'<th class="{label_classes}" scope="row" '
@@ -1213,11 +1419,6 @@ def render_carteira_4966_html(model: Carteira4966Model) -> str:
             for period in model.periods:
                 cell = model.cells[spec.key][period]
                 quality_issue = model.cell_quality_issue(spec.key, period)
-                quality_class = (
-                    f" tc-4966-quality-{quality_issue.severity}"
-                    if quality_issue is not None
-                    else ""
-                )
                 quality_message = (
                     _cell_quality_message(model, spec.key, period)
                     if quality_issue is not None
@@ -1227,68 +1428,89 @@ def render_carteira_4966_html(model: Carteira4966Model) -> str:
                     "tc-4966-quality-"
                     f"{spec.key}-{re.sub(r'[^a-zA-Z0-9_-]+', '-', period)}"
                 )
-                quality_attributes = (
-                    f' aria-describedby="{quality_description_id}"'
-                    if quality_issue is not None
-                    else ""
-                )
-                quality_marker = (
-                    '<span class="tc-4966-quality-marker" aria-hidden="true">*</span>'
-                    '<span class="tc-4966-quality-badge" '
-                    'aria-label="Alerta de confiabilidade">⚠</span>'
-                    f'<span id="{quality_description_id}" class="tc-4966-sr-only">'
-                    f'{html.escape(quality_message)}</span>'
-                    if quality_issue is not None
-                    else ""
-                )
                 if spec.layout == "paired":
                     primary = format_brl_millions(cell.primary)
                     secondary = format_percentage(cell.secondary, spec.percent_decimals)
-                    primary_class = " tc-4966-missing" if cell.primary is None else ""
-                    secondary_class = " tc-4966-missing" if cell.secondary is None else ""
-                    primary_title = html.escape(_cell_title(spec, cell), quote=True)
-                    secondary_title = html.escape(
-                        _cell_title(spec, cell, secondary=True),
-                        quote=True,
+                    primary_title = (
+                        quality_message
+                        if quality_issue is not None
+                        else _cell_title(spec, cell)
+                    )
+                    secondary_title = (
+                        quality_message
+                        if quality_issue is not None
+                        else _cell_title(spec, cell, secondary=True)
                     )
                     parts.append(
-                        f'<td class="{primary_class.strip()}" title="{primary_title}">'
-                        f'{html.escape(primary)}</td>'
+                        render_data_cell(
+                            html.escape(primary),
+                            classes=(
+                                "tc-4966-missing" if cell.primary is None else "",
+                            ),
+                            title=primary_title,
+                            period=period,
+                            quality_issue=quality_issue,
+                            quality_message=quality_message,
+                            tooltip_id=f"{quality_description_id}-primary",
+                        )
                     )
                     parts.append(
-                        f'<td class="tc-4966-period-end{secondary_class}" '
-                        f'title="{secondary_title}">'
-                        f'{html.escape(secondary)}</td>'
+                        render_data_cell(
+                            html.escape(secondary),
+                            classes=(
+                                "tc-4966-period-end",
+                                "tc-4966-missing" if cell.secondary is None else "",
+                            ),
+                            title=secondary_title,
+                            period=period,
+                            quality_issue=quality_issue,
+                            quality_message=quality_message,
+                            tooltip_id=f"{quality_description_id}-secondary",
+                        )
                     )
                 elif spec.layout == "currency_span":
                     rendered = format_brl_millions(cell.primary)
-                    missing = " tc-4966-missing" if cell.primary is None else ""
                     cell_title = (
                         quality_message
                         if quality_issue is not None
                         else _cell_title(spec, cell)
                     )
                     parts.append(
-                        f'<td class="tc-4966-period-end{missing}{quality_class}" colspan="2" '
-                        f'data-period="{html.escape(period, quote=True)}" '
-                        f'{quality_attributes}'
-                        f'title="{html.escape(cell_title, quote=True)}">'
-                        f'{html.escape(rendered)}{quality_marker}</td>'
+                        render_data_cell(
+                            html.escape(rendered),
+                            classes=(
+                                "tc-4966-period-end",
+                                "tc-4966-missing" if cell.primary is None else "",
+                            ),
+                            title=cell_title,
+                            period=period,
+                            colspan=2,
+                            quality_issue=quality_issue,
+                            quality_message=quality_message,
+                            tooltip_id=quality_description_id,
+                        )
                     )
                 else:
                     rendered = format_percentage(cell.primary, spec.percent_decimals)
-                    missing = " tc-4966-missing" if cell.primary is None else ""
                     cell_title = (
                         quality_message
                         if quality_issue is not None
                         else _cell_title(spec, cell)
                     )
                     parts.append(
-                        f'<td class="tc-4966-period-end{missing}{quality_class}" colspan="2" '
-                        f'data-period="{html.escape(period, quote=True)}" '
-                        f'{quality_attributes}'
-                        f'title="{html.escape(cell_title, quote=True)}">'
-                        f'{html.escape(rendered)}{quality_marker}</td>'
+                        render_data_cell(
+                            html.escape(rendered),
+                            classes=(
+                                "tc-4966-period-end",
+                                "tc-4966-missing" if cell.primary is None else "",
+                            ),
+                            title=cell_title,
+                            period=period,
+                            colspan=2,
+                            quality_issue=quality_issue,
+                            quality_message=quality_message,
+                            tooltip_id=quality_description_id,
+                        )
                     )
             parts.append("</tr>")
         parts.append("</tbody>")
@@ -1297,8 +1519,9 @@ def render_carteira_4966_html(model: Carteira4966Model) -> str:
     if model.quality_issues:
         parts.append(
             '<div class="tc-4966-quality-legend">'
-            '<span aria-hidden="true">*</span> valor indisponível ou sujeito a validação. '
-            'Passe o cursor sobre a célula e consulte os alertas para o diagnóstico.'
+            '<span aria-hidden="true">*</span> célula sujeita a validação. '
+            'Passe o cursor ou use a tecla Tab para consultar o diagnóstico; '
+            'os alertas também permanecem disponíveis fora da tabela.'
             "</div>"
         )
     parts.append("</div>")
@@ -1532,38 +1755,46 @@ def build_carteira_4966_raw_excel(
                     issue.period,
                     format_period_label(issue.period),
                 )
-                column_name = (
-                    f"{period_label} (R$ mm)"
-                    if spec.layout == "currency_span"
-                    else f"{period_label} (%)"
-                )
-                column_index = audit_column_by_name.get(column_name)
-                if column_index is None:
-                    continue
                 row_index = audit_row_by_key[row_key]
-                value = audit.iloc[row_index - 1, column_index]
-                number = _finite_number(value)
-                if number is None:
-                    audit_sheet.write(
-                        row_index,
-                        column_index,
-                        "N/D*",
-                        raw_quality_formats[(cell_issue.severity, "missing")],
+                if spec.layout == "paired":
+                    column_names = (
+                        f"{period_label} (R$ mm)",
+                        f"{period_label} (%)",
                     )
+                elif spec.layout == "currency_span":
+                    column_names = (f"{period_label} (R$ mm)",)
                 else:
-                    format_kind = "percent" if column_name.endswith(" (%)") else "number"
-                    audit_sheet.write_number(
+                    column_names = (f"{period_label} (%)",)
+
+                for column_name in column_names:
+                    column_index = audit_column_by_name.get(column_name)
+                    if column_index is None:
+                        continue
+                    value = audit.iloc[row_index - 1, column_index]
+                    number = _finite_number(value)
+                    if number is None:
+                        audit_sheet.write(
+                            row_index,
+                            column_index,
+                            "N/D*",
+                            raw_quality_formats[(cell_issue.severity, "missing")],
+                        )
+                    else:
+                        format_kind = (
+                            "percent" if column_name.endswith(" (%)") else "number"
+                        )
+                        audit_sheet.write_number(
+                            row_index,
+                            column_index,
+                            number,
+                            raw_quality_formats[(cell_issue.severity, format_kind)],
+                        )
+                    audit_sheet.write_comment(
                         row_index,
                         column_index,
-                        number,
-                        raw_quality_formats[(cell_issue.severity, format_kind)],
+                        message,
+                        {"author": "Toma Conta"},
                     )
-                audit_sheet.write_comment(
-                    row_index,
-                    column_index,
-                    message,
-                    {"author": "Toma Conta"},
-                )
 
         style_sheet("Rel16 Carteira", carteira_export)
         style_sheet("Rel2 Ativo", ativo_export)
@@ -1580,9 +1811,10 @@ def build_carteira_4966_excel(model: Carteira4966Model) -> bytes:
     output = BytesIO()
     workbook = xlsxwriter.Workbook(output, {"in_memory": True})
     worksheet = workbook.add_worksheet("Modelo 4966")
-    last_column = 1 + len(model.periods) * 2
+    last_column = len(model.periods) * 2
+    base_label = model.period_labels.get(model.base_period or "", "N/D")
 
-    border = {"border": 1, "border_color": "#C9CBD0"}
+    border = {"border": 1, "border_color": "#DDDDDD"}
     title_fmt = workbook.add_format(
         {"bold": True, "font_size": 15, "font_color": "#374151", "align": "left", "valign": "vcenter"}
     )
@@ -1590,7 +1822,7 @@ def build_carteira_4966_excel(model: Carteira4966Model) -> bytes:
         {
             "bold": True,
             "font_color": "#FFFFFF",
-            "bg_color": "#24262D",
+            "bg_color": "#111111",
             "align": "center",
             "valign": "vcenter",
             **border,
@@ -1599,7 +1831,7 @@ def build_carteira_4966_excel(model: Carteira4966Model) -> bytes:
     qoq_fmt = workbook.add_format(
         {
             "font_color": "#D8D9DC",
-            "bg_color": "#24262D",
+            "bg_color": "#111111",
             "align": "center",
             "valign": "vcenter",
             "font_size": 9,
@@ -1610,21 +1842,27 @@ def build_carteira_4966_excel(model: Carteira4966Model) -> bytes:
         {
             "bold": True,
             "font_color": "#FFFFFF",
-            "bg_color": "#444850",
+            "bg_color": "#6E6E6E",
             "align": "center",
             "valign": "vcenter",
             "font_size": 9,
             **border,
         }
     )
-    marker_fmt = workbook.add_format(
-        {"pattern": 7, "fg_color": "#E4C900", "bg_color": "#9F8B00", "border": 1, "border_color": "#A28F00"}
-    )
     section_fmt = workbook.add_format(
-        {"bold": True, "font_color": "#555961", "bg_color": "#F2F3F4", "align": "left", "valign": "vcenter", **border}
+        {"bold": True, "font_color": "#555961", "bg_color": "#F5F5F5", "align": "left", "valign": "vcenter", **border}
     )
     label_fmt = workbook.add_format({"align": "left", "valign": "vcenter", **border})
     label_bold_fmt = workbook.add_format({"bold": True, "align": "left", "valign": "vcenter", **border})
+    total_label_fmt = workbook.add_format(
+        {
+            "bold": True,
+            "align": "left",
+            "valign": "vcenter",
+            "bg_color": "#E8F4E8",
+            **border,
+        }
+    )
     label_ratio_fmt = workbook.add_format(
         {
             **border,
@@ -1645,12 +1883,35 @@ def build_carteira_4966_excel(model: Carteira4966Model) -> bytes:
             **border,
         }
     )
+    total_currency_fmt = workbook.add_format(
+        {
+            "bold": True,
+            "align": "right",
+            "valign": "vcenter",
+            "bg_color": "#E8F4E8",
+            "num_format": "#,##0",
+            **border,
+        }
+    )
     percent_decimals = sorted({spec.percent_decimals for spec in ROW_SPECS})
     percent_formats = {
         decimals: workbook.add_format(
             {
                 "align": "right",
                 "valign": "vcenter",
+                "num_format": _excel_percentage_format_code(decimals),
+                **border,
+            }
+        )
+        for decimals in percent_decimals
+    }
+    total_percent_formats = {
+        decimals: workbook.add_format(
+            {
+                "bold": True,
+                "align": "right",
+                "valign": "vcenter",
+                "bg_color": "#E8F4E8",
                 "num_format": _excel_percentage_format_code(decimals),
                 **border,
             }
@@ -1729,67 +1990,143 @@ def build_carteira_4966_excel(model: Carteira4966Model) -> bytes:
         for severity, (font_color, background) in quality_palette.items()
         for decimals in percent_decimals
     }
+    quality_paired_percent_formats = {
+        (severity, decimals): workbook.add_format(
+            {
+                **border,
+                "bold": True,
+                "font_color": font_color,
+                "bg_color": background,
+                "align": "right",
+                "valign": "vcenter",
+                "num_format": _excel_marked_format_code(
+                    _excel_percentage_format_code(decimals)
+                ),
+            }
+        )
+        for severity, (font_color, background) in quality_palette.items()
+        for decimals in percent_decimals
+    }
 
-    worksheet.merge_range(0, 1, 0, last_column, TITLE, title_fmt)
+    worksheet.merge_range(0, 0, 0, last_column, TITLE, title_fmt)
     worksheet.set_row(0, 24)
-    worksheet.merge_range(1, 0, 3, 0, "", marker_fmt)
-    worksheet.merge_range(1, 1, 3, 1, "Indicador", header_fmt)
+    worksheet.merge_range(1, 0, 3, 0, "Indicador", header_fmt)
 
-    column = 2
+    column = 1
     for period in model.periods:
         qoq_value = model.qoq.get(period)
         qoq_text = "QoQ: N/D" if qoq_value is None else f"QoQ: {format_percentage(qoq_value, 0)}"
         worksheet.merge_range(1, column, 1, column + 1, qoq_text, qoq_fmt)
         worksheet.merge_range(2, column, 2, column + 1, model.period_labels[period], header_fmt)
         worksheet.write(3, column, "R$ mm", subheader_fmt)
-        worksheet.write(3, column + 1, "% base", subheader_fmt)
+        worksheet.write(3, column + 1, "%", subheader_fmt)
+        worksheet.write_comment(
+            3,
+            column + 1,
+            (
+                f"Classificação: Carteira Total de {base_label} como base comum. "
+                "Vencidos acima de 90 dias: Carteira Total do mesmo período."
+            ),
+            {"author": "Toma Conta"},
+        )
         column += 2
 
     row_index = 4
-    for group_index, group in enumerate(GROUP_SPECS):
-        if group_index > 0:
-            worksheet.set_row(row_index, 6)
-            worksheet.write_blank(row_index, 0, None, marker_fmt)
-            row_index += 1
+    for group in GROUP_SPECS:
         if group.label:
-            worksheet.write_blank(row_index, 0, None, marker_fmt)
-            worksheet.merge_range(row_index, 1, row_index, last_column, group.label, section_fmt)
+            worksheet.merge_range(row_index, 0, row_index, last_column, group.label, section_fmt)
             row_index += 1
 
         for spec in (item for item in ROW_SPECS if item.group == group.key):
-            worksheet.write_blank(row_index, 0, None, marker_fmt)
-            if spec.layout == "percent_span":
+            if spec.key == "total_portfolio":
+                label_format = total_label_fmt
+            elif spec.layout == "percent_span":
                 label_format = label_ratio_fmt
             elif spec.emphasis:
                 label_format = label_bold_fmt
             else:
                 label_format = label_fmt
-            worksheet.write(row_index, 1, spec.label, label_format)
+            worksheet.write(row_index, 0, spec.label, label_format)
             if spec.help_text:
-                worksheet.write_comment(row_index, 1, spec.help_text, {"author": "Toma Conta"})
-            column = 2
+                worksheet.write_comment(row_index, 0, spec.help_text, {"author": "Toma Conta"})
+            column = 1
             for period in model.periods:
                 cell = model.cells[spec.key][period]
                 quality_issue = model.cell_quality_issue(spec.key, period)
                 if spec.layout == "paired":
-                    if cell.primary is None:
-                        worksheet.write(row_index, column, "N/D", missing_fmt)
+                    if quality_issue is not None:
+                        if cell.primary is None:
+                            worksheet.write(
+                                row_index,
+                                column,
+                                "N/D*",
+                                quality_missing_formats[quality_issue.severity],
+                            )
+                        else:
+                            worksheet.write_number(
+                                row_index,
+                                column,
+                                cell.primary / 1_000_000,
+                                quality_currency_formats[quality_issue.severity],
+                            )
+                        if cell.secondary is None:
+                            worksheet.write(
+                                row_index,
+                                column + 1,
+                                "N/D*",
+                                quality_missing_formats[quality_issue.severity],
+                            )
+                        else:
+                            worksheet.write_number(
+                                row_index,
+                                column + 1,
+                                cell.secondary,
+                                quality_paired_percent_formats[
+                                    (quality_issue.severity, spec.percent_decimals)
+                                ],
+                            )
+                        quality_message = _cell_quality_message(model, spec.key, period)
+                        for quality_column in (column, column + 1):
+                            worksheet.write_comment(
+                                row_index,
+                                quality_column,
+                                quality_message,
+                                {"author": "Toma Conta"},
+                            )
                     else:
-                        worksheet.write_number(
-                            row_index,
-                            column,
-                            cell.primary / 1_000_000,
-                            currency_bold_fmt if spec.emphasis else currency_fmt,
-                        )
-                    if cell.secondary is None:
-                        worksheet.write(row_index, column + 1, "N/D", missing_fmt)
-                    else:
-                        worksheet.write_number(
-                            row_index,
-                            column + 1,
-                            cell.secondary,
-                            percent_formats[spec.percent_decimals],
-                        )
+                        if cell.primary is None:
+                            worksheet.write(row_index, column, "N/D", missing_fmt)
+                        else:
+                            worksheet.write_number(
+                                row_index,
+                                column,
+                                cell.primary / 1_000_000,
+                                (
+                                    total_currency_fmt
+                                    if spec.key == "total_portfolio"
+                                    else currency_bold_fmt if spec.emphasis else currency_fmt
+                                ),
+                            )
+                        if cell.secondary is None:
+                            worksheet.write(row_index, column + 1, "N/D", missing_fmt)
+                        else:
+                            worksheet.write_number(
+                                row_index,
+                                column + 1,
+                                cell.secondary,
+                                (
+                                    total_percent_formats[spec.percent_decimals]
+                                    if spec.key == "total_portfolio"
+                                    else percent_formats[spec.percent_decimals]
+                                ),
+                            )
+                        if spec.denominator_key != "base_total" and spec.denominator_label:
+                            worksheet.write_comment(
+                                row_index,
+                                column + 1,
+                                spec.denominator_label,
+                                {"author": "Toma Conta"},
+                            )
                 elif spec.layout == "currency_span":
                     value = "N/D*" if cell.primary is None and quality_issue is not None else (
                         "N/D" if cell.primary is None else cell.primary / 1_000_000
@@ -1838,10 +2175,9 @@ def build_carteira_4966_excel(model: Carteira4966Model) -> bytes:
                 column += 2
             row_index += 1
 
-    worksheet.set_column(0, 0, 2.5)
-    worksheet.set_column(1, 1, 49)
-    worksheet.set_column(2, last_column, 13)
-    worksheet.freeze_panes(4, 2)
+    worksheet.set_column(0, 0, 49)
+    worksheet.set_column(1, last_column, 13)
+    worksheet.freeze_panes(4, 1)
     worksheet.hide_gridlines(2)
     worksheet.set_landscape()
     worksheet.fit_to_pages(1, 1)
@@ -1875,7 +2211,7 @@ def build_carteira_4966_excel(model: Carteira4966Model) -> bytes:
             "Período",
             "Severidade",
             "Checagem",
-            "PDD (R$ mm)",
+            "Valor observado (R$ mm)",
             "Denominador (R$ mm)",
             "Resultado (%)",
             "Diagnóstico",

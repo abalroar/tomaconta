@@ -27,8 +27,18 @@ def _itau_history() -> pd.DataFrame:
                 "ITAU - PRUDENCIAL",
             ],
             "Período": ["1/2025", "2/2025", "3/2025", "4/2025", "1/2026"],
-            "CodInst": [None, None, None, "C0080099", "C0080099"],
+            "CodInst": ["C0080099"] * 5,
+            "C1": [10.0] * 5,
+            "C2": [10.0] * 5,
+            "C3": [10.0] * 5,
+            "C4": [10.0] * 5,
+            "C5": [50.0] * 5,
+            "Carteira não Informada ou não se Aplica": [0.0] * 5,
+            "Total Exterior": [0.0] * 5,
+            "Total não Individualizado": [0.0] * 5,
             "Total Geral": [100.0, 110.0, 120.0, 130.0, 140.0],
+            "Inadimplência": [2.0, 2.1, 2.2, 2.3, 2.4],
+            "Ativos problemáticos": [3.0, 3.1, 3.2, 3.3, 3.4],
         }
     )
 
@@ -361,6 +371,91 @@ def test_manifest_outage_does_not_accept_an_incomplete_local_cache(monkeypatch, 
     assert out is None
     assert status["valid"] is False
     assert status["missing_required_periods"] == ["202503", "202506", "202509", "202603"]
+
+
+def test_carteira_status_rejects_incomplete_required_metric_coverage():
+    incomplete_data = _itau_history()
+    incomplete_data.loc[
+        incomplete_data["Período"].eq("1/2025"),
+        "Inadimplência",
+    ] = pd.NA
+    incomplete_data.loc[
+        incomplete_data["Período"].eq("2/2025"),
+        "Ativos problemáticos",
+    ] = pd.NA
+    manifest = {
+        "caches": {
+            "carteira_instrumentos": {
+                "max_period_ref": "202603",
+                "period_count": 5,
+            }
+        }
+    }
+
+    status = app1._carteira_4966_result_status(
+        CacheResult(
+            sucesso=True,
+            mensagem="cache incompleto",
+            dados=incomplete_data,
+            fonte="cache_local",
+        ),
+        manifest,
+    )
+
+    assert status["valid"] is False
+    assert status["missing_required_periods"] == []
+    assert status["incomplete_metric_periods"] == {
+        "Inadimplência": ["202503"],
+        "Ativos problemáticos": ["202506"],
+    }
+    assert status["metric_coverage"]["Inadimplência"]["202503"] == {
+        "valid_rows": 0,
+        "total_rows": 1,
+        "eligible_rows": 1,
+        "coverage_ratio": 0.0,
+    }
+
+
+def test_carteira_status_accepts_residual_missing_metrics_in_registered_entities():
+    rows = []
+    for period in ("1/2025", "2/2025", "3/2025", "4/2025", "1/2026"):
+        for index in range(20):
+            rows.append(
+                {
+                    "Instituição": f"Banco {index}",
+                        "Período": period,
+                        "CodInst": f"C{index:07d}",
+                        "C1": 10.0,
+                        "C2": 10.0,
+                        "C3": 10.0,
+                        "C4": 10.0,
+                        "C5": 50.0,
+                        "Carteira não Informada ou não se Aplica": 0.0,
+                        "Total Exterior": 0.0,
+                        "Total não Individualizado": 0.0,
+                        "Total Geral": 100.0,
+                    "Inadimplência": None if index == 0 else 2.0,
+                    "Ativos problemáticos": None if index == 0 else 3.0,
+                }
+            )
+    data = pd.DataFrame(rows)
+    manifest = {
+        "caches": {
+            "carteira_instrumentos": {
+                "max_period_ref": "202603",
+                "period_count": 5,
+            }
+        }
+    }
+
+    status = app1._carteira_4966_result_status(
+        CacheResult(True, "cache com N/D residual", data, fonte="cache_local"),
+        manifest,
+    )
+
+    assert status["valid"] is True
+    assert status["incomplete_metric_periods"] == {}
+    assert status["metric_coverage"]["Inadimplência"]["202503"]["coverage_ratio"] == 0.95
 
 
 def test_newer_local_cache_with_a_historical_gap_is_rejected(monkeypatch, tmp_path):

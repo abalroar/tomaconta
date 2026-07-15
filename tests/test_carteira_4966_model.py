@@ -8,6 +8,7 @@ import pytest
 
 from tabs.carteira_4966 import (
     EXPECTED_LOSS_COLUMNS,
+    QualityIssue,
     ROW_SPECS,
     TITLE,
     build_carteira_4966_excel,
@@ -101,11 +102,11 @@ def _visible_text(fragment: str) -> str:
 
 def _excel_value_cell(sheet, label: str):
     labels = {
-        sheet.cell(row=row, column=2).value: row
+        sheet.cell(row=row, column=1).value: row
         for row in range(1, sheet.max_row + 1)
     }
     assert label in labels, f"Linha {label!r} não encontrada no Excel"
-    return sheet.cell(row=labels[label], column=3)
+    return sheet.cell(row=labels[label], column=2)
 
 
 def test_model_uses_latest_q4_as_common_base_and_period_specific_ratios():
@@ -166,12 +167,16 @@ def test_without_q4_the_latest_displayed_period_becomes_the_base():
     assert model.cells["total_portfolio"]["2/2025"].secondary == pytest.approx(1.0)
 
 
-def test_html_has_exact_structure_hatched_highlight_and_missing_marker():
+def test_html_has_clean_grid_without_decorative_hatched_column():
     model = _model()
     rendered = render_carteira_4966_html(model)
 
     assert TITLE in rendered
-    assert "repeating-linear-gradient" in rendered
+    assert "repeating-linear-gradient" not in rendered
+    assert "tc-4966-marker" not in rendered
+    assert '<col style="width:14px">' not in rendered
+    assert "border-collapse: collapse" in rendered
+    assert "--tc-line: #dddddd" in rendered
     assert 'role="region"' in rendered
     assert 'tabindex="0"' in rendered
     assert rendered.count('<tbody data-group=') == 3
@@ -183,6 +188,69 @@ def test_html_has_exact_structure_hatched_highlight_and_missing_marker():
     assert "14,81%" in rendered
     assert "&gt;" not in rendered
     assert "—" not in rendered
+
+
+def test_quality_tooltip_is_visible_on_hover_and_keyboard_focus():
+    rendered = render_carteira_4966_html(_model_with_pdd_ratio(60.0))
+    row = _html_row(rendered, "PDD / Carteira Total (%)")
+
+    described_by = re.search(r'aria-describedby="([^"]+)"', row)
+    assert described_by is not None
+    assert f'id="{described_by.group(1)}"' in row
+    assert 'role="tooltip"' in row
+    assert 'tabindex="0"' in row
+    assert 'data-quality="warning"' in row
+    assert ".tc-4966-has-tooltip:hover .tc-4966-tooltip" in rendered
+    assert ".tc-4966-has-tooltip:focus .tc-4966-tooltip" in rendered
+    assert "Passe o cursor ou use a tecla Tab" in rendered
+
+    reliable_row = _html_row(rendered, "C1")
+    assert "tc-4966-quality-warning" not in reliable_row
+    assert 'role="tooltip"' not in reliable_row
+
+
+def test_paired_quality_issue_marks_both_subcells_in_html_and_visual_excel():
+    model = _model()
+    model.quality_issues = (
+        QualityIssue(
+            period="2/2025",
+            severity="warning",
+            code="missing_denominator",
+            pdd_value=24 * MM,
+            portfolio_value=None,
+            ratio=None,
+            row_key="delinquency",
+            denominator_label="Inadimplência do Relatório 16",
+        ),
+    )
+
+    row = _html_row(
+        render_carteira_4966_html(model),
+        "Vencidos acima de 90 dias (conceito de arrasto)",
+    )
+    assert row.count("tc-4966-quality-warning") == 2
+    assert row.count('role="tooltip"') == 2
+    assert row.count('tabindex="0"') == 2
+    assert _visible_text(row).count("N/D*") == 2
+
+    workbook = openpyxl.load_workbook(
+        BytesIO(build_carteira_4966_excel(model)),
+        data_only=True,
+    )
+    sheet = workbook["Modelo 4966"]
+    labels = {
+        sheet.cell(row=row_number, column=1).value: row_number
+        for row_number in range(1, sheet.max_row + 1)
+    }
+    row_number = labels["Vencidos acima de 90 dias (conceito de arrasto)"]
+    primary = sheet.cell(row=row_number, column=4)
+    secondary = sheet.cell(row=row_number, column=5)
+    assert primary.value == "N/D*"
+    assert secondary.value == "N/D*"
+    assert primary.comment is not None
+    assert secondary.comment is not None
+    assert primary.fill.patternType == "solid"
+    assert secondary.fill.patternType == "solid"
 
 
 def test_audit_dataframe_scales_only_currency_values_to_millions():
@@ -201,31 +269,37 @@ def test_percentage_format_preserves_rates_below_half_percent():
     assert format_percentage(-0.0001, 0) == "0%"
 
 
-def test_excel_matches_row_spec_order_units_and_hatched_marker():
+def test_excel_matches_row_spec_order_units_without_hatched_marker_column():
     workbook = openpyxl.load_workbook(BytesIO(build_carteira_4966_excel(_model())), data_only=True)
 
     assert workbook.sheetnames == ["Modelo 4966", "Alertas qualidade", "Glossário"]
     sheet = workbook["Modelo 4966"]
-    assert sheet["B1"].value == TITLE
-    assert sheet["A5"].fill.patternType is not None
+    assert sheet["A1"].value == TITLE
+    assert sheet["A2"].value == "Indicador"
+    assert sheet["A5"].value == "Em R$mm"
+    assert all(
+        cell.fill.patternType != "darkDown"
+        for row in sheet.iter_rows()
+        for cell in row
+    )
 
-    labels = [sheet.cell(row=row, column=2).value for row in range(1, sheet.max_row + 1)]
+    labels = [sheet.cell(row=row, column=1).value for row in range(1, sheet.max_row + 1)]
     rendered_rows = [label for label in labels if label in {spec.label for spec in ROW_SPECS}]
     assert rendered_rows == [spec.label for spec in ROW_SPECS]
 
     carteira_row = labels.index("Carteira total") + 1
     provision_row = labels.index("PDD (Perda Esperada)") + 1
     provision_ratio_row = labels.index("PDD / Carteira Total (%)") + 1
-    assert sheet.cell(carteira_row, 7).value == pytest.approx(270)
-    assert sheet.cell(carteira_row, 8).value == pytest.approx(1.0)
-    assert sheet.cell(carteira_row, 8).number_format == "0.00%"
-    assert sheet.cell(provision_row, 7).value == pytest.approx(40)
-    assert sheet.cell(provision_row, 7).number_format == "#,##0"
-    assert sheet.cell(provision_ratio_row, 7).value == pytest.approx(40 / 270)
-    assert sheet.cell(provision_ratio_row, 7).number_format == "0.00%"
+    assert sheet.cell(carteira_row, 6).value == pytest.approx(270)
+    assert sheet.cell(carteira_row, 7).value == pytest.approx(1.0)
+    assert sheet.cell(carteira_row, 7).number_format == "0.00%"
+    assert sheet.cell(provision_row, 6).value == pytest.approx(40)
+    assert sheet.cell(provision_row, 6).number_format == "#,##0"
+    assert sheet.cell(provision_ratio_row, 6).value == pytest.approx(40 / 270)
+    assert sheet.cell(provision_ratio_row, 6).number_format == "0.00%"
+    assert sheet.cell(provision_ratio_row, 1).border.left.style is not None
     assert sheet.cell(provision_ratio_row, 2).border.left.style is not None
-    assert sheet.cell(provision_ratio_row, 3).border.left.style is not None
-    assert sheet.cell(provision_ratio_row, 4).border.right.style is not None
+    assert sheet.cell(provision_ratio_row, 3).border.right.style is not None
 
 
 def _model_with_pdd_ratio(pdd: float, total: float = 100.0):
@@ -546,13 +620,13 @@ def test_visual_and_raw_excel_keep_native_percentage_scale_and_two_decimals():
         data_only=True,
     )["Modelo 4966"]
     visual_labels = {
-        visual.cell(row=row, column=2).value: row
+        visual.cell(row=row, column=1).value: row
         for row in range(1, visual.max_row + 1)
     }
-    c1_cell = visual.cell(row=visual_labels["C1"], column=4)
+    c1_cell = visual.cell(row=visual_labels["C1"], column=3)
     pdd_ratio_cell = visual.cell(
         row=visual_labels["PDD / Carteira Total (%)"],
-        column=3,
+        column=2,
     )
     assert c1_cell.value == pytest.approx(0.0049)
     assert c1_cell.number_format == "0.00%"
