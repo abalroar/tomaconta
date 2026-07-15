@@ -124,6 +124,8 @@ from tabs.carteira_4966 import (
     build_carteira_4966_excel,
     build_carteira_4966_model,
     model_to_audit_dataframe as carteira_4966_audit_dataframe,
+    quality_issue_message as carteira_4966_quality_issue_message,
+    quality_issues_dataframe as carteira_4966_quality_dataframe,
     render_carteira_4966_html,
 )
 
@@ -23541,6 +23543,43 @@ elif menu == "Carteira 4.966":
                     f"Base comum do empilhamento: carteira total de {base_label} = 100%. "
                     "QoQ compara a carteira total com o trimestre imediatamente anterior."
                 )
+                st.caption(
+                    "Cross-check automático do PDD: atenção acima de 55% da Carteira Total; "
+                    "dado sinalizado como não confiável quando supera a carteira além da tolerância "
+                    "equivalente ao maior entre R$ 1 e 0,1% da Carteira Total, quando a carteira "
+                    "é negativa ou quando está zerada com PDD positiva."
+                )
+
+                critical_quality_issues = [
+                    issue
+                    for issue in modelo_4966.quality_issues
+                    if issue.severity == "critical"
+                ]
+                warning_quality_issues = [
+                    issue
+                    for issue in modelo_4966.quality_issues
+                    if issue.severity == "warning"
+                ]
+                if critical_quality_issues:
+                    st.error(
+                        "**Alerta de confiabilidade em PDD / Carteira Total**\n\n"
+                        + "\n".join(
+                            "- "
+                            + carteira_4966_quality_issue_message(issue).replace("$", r"\$")
+                            for issue in critical_quality_issues
+                        )
+                        + "\n\nOs valores permanecem visíveis para auditoria, mas não devem ser usados "
+                        "sem validação no IFData."
+                    )
+                if warning_quality_issues:
+                    st.warning(
+                        "**PDD / Carteira Total acima do limiar de atenção**\n\n"
+                        + "\n".join(
+                            "- "
+                            + carteira_4966_quality_issue_message(issue).replace("$", r"\$")
+                            for issue in warning_quality_issues
+                        )
+                    )
 
                 st.markdown(
                     render_carteira_4966_html(modelo_4966),
@@ -23587,6 +23626,14 @@ elif menu == "Carteira 4.966":
                         )
 
                 with st.expander("Dados para auditoria"):
+                    quality_dataframe = carteira_4966_quality_dataframe(modelo_4966)
+                    if not quality_dataframe.empty:
+                        st.markdown("**Alertas do cross-check PDD / Carteira Total**")
+                        st.dataframe(
+                            quality_dataframe,
+                            hide_index=True,
+                            width="stretch",
+                        )
                     st.dataframe(
                         carteira_4966_audit_dataframe(modelo_4966),
                         hide_index=True,
@@ -23621,6 +23668,13 @@ elif menu == "Carteira 4.966":
                 with col_btn2:
                     buffer_raw = BytesIO()
                     with pd.ExcelWriter(buffer_raw, engine="openpyxl") as writer:
+                        quality_dataframe = carteira_4966_quality_dataframe(modelo_4966)
+                        if not quality_dataframe.empty:
+                            quality_dataframe.to_excel(
+                                writer,
+                                index=False,
+                                sheet_name="Alertas qualidade",
+                            )
                         carteira_4966_audit_dataframe(modelo_4966).to_excel(
                             writer,
                             index=False,
