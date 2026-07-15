@@ -10,6 +10,7 @@ from typing import Any, Iterable, Mapping, Sequence
 
 import requests
 
+from .carteira_4966_quality import validate_carteira_4966_quality
 from .critical_screens import CRITICAL_SOURCE_TYPES, materialize_critical_screens_cache
 from .derived_metrics import materialize_derived_metrics_cache
 from .diagnostics import build_runtime_manifest, count_placeholder_names
@@ -62,6 +63,10 @@ INDIVIDUAL_CACHE_QUALITY_SPECS = {
     "dre_individual": {"min_periods": INDIVIDUAL_CACHE_MIN_PERIODS},
 }
 
+CACHE_FRAME_QUALITY_VALIDATORS = {
+    "carteira_instrumentos": validate_carteira_4966_quality,
+}
+
 
 def _unique_cache_names(cache_names: Iterable[str]) -> list[str]:
     seen: set[str] = set()
@@ -108,11 +113,12 @@ def _sources_for_target(target_name: str) -> list[str]:
 
 
 def validate_cache_quality(manager, cache_names: Iterable[str]) -> dict[str, dict[str, Any]]:
-    """Valida identidade e cobertura antes de publicar caches individuais."""
+    """Valida identidade, cobertura e estrutura antes de publicar caches."""
     checks: dict[str, dict[str, Any]] = {}
     for cache_name in _sorted_cache_names(cache_names):
         spec = INDIVIDUAL_CACHE_QUALITY_SPECS.get(cache_name)
-        if spec is None:
+        frame_validator = CACHE_FRAME_QUALITY_VALIDATORS.get(cache_name)
+        if spec is None and frame_validator is None:
             continue
 
         cache = manager.get_cache(cache_name) if manager else None
@@ -126,7 +132,7 @@ def validate_cache_quality(manager, cache_names: Iterable[str]) -> dict[str, dic
             continue
 
         result = cache.carregar_local()
-        if not result.sucesso or result.dados is None or result.dados.empty:
+        if not result.sucesso or result.dados is None:
             checks[cache_name] = {
                 "success": False,
                 "message": result.mensagem or "cache local indisponível",
@@ -136,6 +142,19 @@ def validate_cache_quality(manager, cache_names: Iterable[str]) -> dict[str, dic
             continue
 
         df = result.dados
+        if frame_validator is not None:
+            checks[cache_name] = frame_validator(df)
+            continue
+
+        if df.empty:
+            checks[cache_name] = {
+                "success": False,
+                "message": result.mensagem or "cache local indisponível",
+                "period_count": 0,
+                "placeholder_count": 0,
+            }
+            continue
+
         required = {"CodInst", "Instituição", "Período"}
         missing = sorted(required - set(df.columns))
         period_count = int(df["Período"].dropna().astype(str).nunique()) if "Período" in df.columns else 0
@@ -298,9 +317,12 @@ def write_release_manifest(
     )
     selected = _sorted_cache_names(selected_caches)
     postprocess_targets = get_postprocess_targets(selected)
+    quality_scope = [*selected, *postprocess_targets]
+    for target_name in postprocess_targets:
+        quality_scope.extend(_sources_for_target(target_name))
     quality_checks = validate_cache_quality(
         manager,
-        [*selected, *postprocess_targets],
+        quality_scope,
     )
     payload = {
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),

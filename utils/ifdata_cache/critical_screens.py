@@ -1104,8 +1104,42 @@ def _normalize_bloprud_frame(
         periodos_api = out[col_data_base].astype(str).str.replace(r"\D", "", regex=True).str[:6]
         out["Período"] = periodos_api.map(_api_to_display_period)
 
-    out["Período"] = out["Período"].astype(str).str.strip()
-    periodos_validos = {str(periodo) for periodo in periodos_display if str(periodo).strip()}
+    def normalize_period_value(value: Any) -> str:
+        if value is None or pd.isna(value):
+            return ""
+
+        text = str(value).strip()
+        if not text:
+            return ""
+
+        numeric_period = re.fullmatch(r"(\d{6})(?:\.0+)?", text)
+        if numeric_period:
+            return _api_to_display_period(numeric_period.group(1))
+
+        api_period = display_period_to_api(text)
+        if api_period:
+            return _api_to_display_period(api_period)
+
+        try:
+            parsed = pd.Timestamp(value)
+        except (TypeError, ValueError, OverflowError):
+            parsed = pd.NaT
+        if pd.notna(parsed):
+            return _api_to_display_period(f"{parsed.year:04d}{parsed.month:02d}")
+
+        period_reference = normalize_period_reference(text)
+        if re.fullmatch(r"\d{6}", period_reference):
+            month = int(period_reference[4:6])
+            if 1 <= month <= 12:
+                return _api_to_display_period(period_reference)
+        return text
+
+    out["Período"] = out["Período"].map(normalize_period_value)
+    periodos_validos = {
+        normalized
+        for periodo in periodos_display
+        if (normalized := normalize_period_value(periodo))
+    }
     if periodos_validos:
         out = out[out["Período"].isin(periodos_validos)].copy()
     return out

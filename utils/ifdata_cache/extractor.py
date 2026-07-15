@@ -124,6 +124,51 @@ def _normalizar_nome_coluna(nome: str) -> str:
     return nome
 
 
+def _preparar_valores_relatorio_16(df_val: pd.DataFrame) -> pd.DataFrame:
+    """Remove repeticoes exatas e exige uma observacao por instituicao/variavel.
+
+    O endpoint do Relatorio 16 pode repetir o mesmo registro mais de uma vez.
+    Somar essas repeticoes no pivot superestima toda a carteira. Depois de
+    remover copias integralmente identicas, qualquer chave ainda repetida e
+    ambigua e deve interromper a extracao para revisao da fonte.
+    """
+    key_columns = ["CodInst", "NomeColuna"]
+    missing_columns = [column for column in key_columns if column not in df_val.columns]
+    if missing_columns:
+        raise ValueError(
+            "Relatorio 16 sem coluna(s) obrigatoria(s): " + ", ".join(missing_columns)
+        )
+
+    prepared = df_val.drop_duplicates().copy()
+    removed_exact_duplicates = int(len(df_val) - len(prepared))
+    if removed_exact_duplicates:
+        logger.warning(
+            "Relatorio 16: removidas %s duplicata(s) exata(s) retornada(s) pela API",
+            removed_exact_duplicates,
+        )
+
+    duplicated_keys = prepared.duplicated(subset=key_columns, keep=False)
+    if duplicated_keys.any():
+        conflict_keys = (
+            prepared.loc[duplicated_keys, key_columns]
+            .drop_duplicates()
+            .sort_values(key_columns, kind="stable")
+        )
+        sample = ", ".join(
+            f"{row.CodInst}/{row.NomeColuna}"
+            for row in conflict_keys.head(10).itertuples(index=False)
+        )
+        extra = int(len(conflict_keys) - min(len(conflict_keys), 10))
+        if extra:
+            sample = f"{sample} (+{extra} chave(s))"
+        raise ValueError(
+            "Relatorio 16 retornou duplicatas conflitantes por CodInst/NomeColuna apos "
+            f"remover copias exatas: {sample}"
+        )
+
+    return prepared
+
+
 def _periodo_api_anterior(periodo: str) -> Optional[str]:
     """Retorna o trimestre anterior no formato YYYYMM."""
     texto = str(periodo or "").strip()
@@ -655,13 +700,24 @@ def extrair_relatorio_completo(
     if "NomeColuna" in df_val.columns:
         df_val["NomeColuna"] = df_val["NomeColuna"].apply(_normalizar_nome_coluna)
 
-    # Pivotar TODAS as variáveis
-    df_pivot = df_val.pivot_table(
-        index="CodInst",
-        columns="NomeColuna",
-        values="Saldo" if "Saldo" in df_val.columns else "Valor",
-        aggfunc="sum"
-    ).reset_index()
+    # Pivotar TODAS as variáveis. O Relatório 16 exige chave única e nunca
+    # soma repetições da API; nos demais relatórios preservamos a semântica
+    # histórica, em que mais de uma conta pode compor a mesma variável.
+    value_column = "Saldo" if "Saldo" in df_val.columns else "Valor"
+    if relatorio == 16:
+        df_val = _preparar_valores_relatorio_16(df_val)
+        df_pivot = df_val.pivot(
+            index="CodInst",
+            columns="NomeColuna",
+            values=value_column,
+        ).reset_index()
+    else:
+        df_pivot = df_val.pivot_table(
+            index="CodInst",
+            columns="NomeColuna",
+            values=value_column,
+            aggfunc="sum"
+        ).reset_index()
     df_pivot.columns.name = None
 
     # Adicionar nomes

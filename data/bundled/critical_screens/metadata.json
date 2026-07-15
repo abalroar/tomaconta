@@ -1,5 +1,5 @@
 {
-  "timestamp_salvamento": "2026-06-22T15:22:11.980681",
+  "timestamp_salvamento": "2026-07-15T18:41:00.325947",
   "fonte": "materialized",
   "total_registros": 61981,
   "colunas": [
@@ -30,8 +30,10 @@
     "Carteira de Créd. Class. C4+C5 / Carteira Classificada",
     "Carteira Total 4.966",
     "Inadimplência 4.966",
+    "Inadimplência",
     "Ativos Problemáticos 4.966",
     "Inadimplência / Carteira Total",
+    "Inadimplência / Carteira de Crédito",
     "Ativos Problemáticos / Carteira Total",
     "Perda Esperada / (Carteira C4 + C5)",
     "Saldo PDD Crédito",
@@ -41,6 +43,7 @@
     "Ativos Estágio 2",
     "Ativos Estágio 3",
     "PDD / Estágio 3",
+    "Ativos Estágio 3 / Carteira de Crédito",
     "Perda Esperada / Estágio 3",
     "Perda Esperada / Est2+3",
     "Índice de Capital Principal (CET1)",
@@ -229,8 +232,10 @@
       "Carteira de Créd. Class. C4+C5 / Carteira Classificada",
       "Carteira Total 4.966",
       "Inadimplência 4.966",
+      "Inadimplência",
       "Ativos Problemáticos 4.966",
       "Inadimplência / Carteira Total",
+      "Inadimplência / Carteira de Crédito",
       "Ativos Problemáticos / Carteira Total",
       "Perda Esperada / (Carteira C4 + C5)",
       "Saldo PDD Crédito",
@@ -240,6 +245,7 @@
       "Ativos Estágio 2",
       "Ativos Estágio 3",
       "PDD / Estágio 3",
+      "Ativos Estágio 3 / Carteira de Crédito",
       "Perda Esperada / Estágio 3",
       "Perda Esperada / Est2+3",
       "Índice de Capital Principal (CET1)",
@@ -316,7 +322,7 @@
       "Trace::Desp Captação::Despesa Anualizada",
       "Trace::Desp Captação::Captações Média YTD"
     ],
-    "schema_version": 3,
+    "schema_version": 4,
     "source_fingerprints": {
       "principal": {
         "timestamp_salvamento": "2026-06-22T15:10:21.643393",
@@ -361,8 +367,8 @@
         "fonte": "api"
       },
       "carteira_instrumentos": {
-        "timestamp_salvamento": "2026-06-22T15:14:03.992957",
-        "total_registros": 6954,
+        "timestamp_salvamento": "2026-07-15T18:13:44.858023",
+        "total_registros": 6917,
         "total_periodos": 5,
         "fonte": "api"
       },
@@ -373,37 +379,8 @@
         "fonte": "api"
       },
       "_bloprud_local_periods": [
-        "202303",
-        "202306",
-        "202309",
-        "202312",
-        "202401",
-        "202402",
-        "202403",
-        "202404",
-        "202405",
-        "202406",
-        "202407",
-        "202408",
-        "202409",
-        "202410",
-        "202411",
         "202412",
-        "202501",
-        "202502",
-        "202503",
-        "202504",
-        "202505",
-        "202506",
-        "202507",
-        "202508",
-        "202509",
-        "202510",
-        "202511",
-        "202512",
-        "202601",
-        "202602",
-        "202603"
+        "202509"
       ]
     },
     "canonical_variants": {
@@ -741,6 +718,9 @@
       ],
       "BANCO LETSBANK - PRUDENCIAL": [
         "BANCO LETSBANK - PRUDENCIAL"
+      ],
+      "BANCO MASTER - PRUDENCIAL": [
+        "BANCO MASTER - PRUDENCIAL"
       ],
       "BANCO MASTER INVESTIMENTO - PRUDENCIAL": [
         "BANCO MASTER INVESTIMENTO - PRUDENCIAL"
@@ -1322,6 +1302,9 @@
       "CATÁLISE DTVM PRUDENCIAL": [
         "CATÁLISE DTVM PRUDENCIAL",
         "[IF C0086952]"
+      ],
+      "CBSF DTVM - PRUDENCIAL": [
+        "CBSF DTVM - PRUDENCIAL"
       ],
       "CC AÇORIANA LTDA. - PRUDENCIAL": [
         "CC AÇORIANA LTDA. - PRUDENCIAL",
@@ -8900,6 +8883,9 @@
         "Credit Agricole",
         "[IF C0080491]"
       ],
+      "CREDITAS SCD - PRUDENCIAL": [
+        "CREDITAS SCD - PRUDENCIAL"
+      ],
       "CREDITÁ S.A. CFI - PRUDENCIAL": [
         "CREDITÁ S.A. CFI - PRUDENCIAL",
         "[IF C0083687]"
@@ -10689,6 +10675,9 @@
         "SETHI SCD - PRUDENCIAL",
         "[IF C0087016]"
       ],
+      "SF3 CFI - PRUDENCIAL": [
+        "SF3 CFI - PRUDENCIAL"
+      ],
       "SHPP BRASIL IP - PRUDENCIAL": [
         "SHPP BRASIL IP - PRUDENCIAL",
         "[IF C0086275]"
@@ -11538,6 +11527,7 @@
       "BANCO IBM S.A. - PRUDENCIAL": "BANCO IBM S.A. - PRUDENCIAL",
       "BANCO KOMATSU DO BRASIL - PRUDENCIAL": "BANCO KOMATSU DO BRASIL - PRUDENCIAL",
       "BANCO LETSBANK - PRUDENCIAL": "BANCO LETSBANK - PRUDENCIAL",
+      "BANCO MASTER - PRUDENCIAL": "BANCO MASTER - PRUDENCIAL",
       "BANCO MASTER INVESTIMENTO - PRUDENCIAL": "BANCO MASTER INVESTIMENTO - PRUDENCIAL",
       "BANCO MONEO S.A. - PRUDENCIAL": "BANCO MONEO S.A. - PRUDENCIAL",
       "BANCO NEON S.A. - PRUDENCIAL": "NEON PAGAMENTOS IP - PRUDENCIAL",
@@ -11704,6 +11694,7 @@
       "CASA CREDITO S.A. SCM - PRUDENCIAL": "CASA CREDITO S.A. SCM - PRUDENCIAL",
       "CATEDRAL CCTM - PRUDENCIAL": "CATEDRAL CCTM - PRUDENCIAL",
       "CATÁLISE DTVM PRUDENCIAL": "CATÁLISE DTVM PRUDENCIAL",
+      "CBSF DTVM - PRUDENCIAL": "CBSF DTVM - PRUDENCIAL",
       "CC AÇORIANA LTDA. - PRUDENCIAL": "CC AÇORIANA LTDA. - PRUDENCIAL",
       "CDC SCD - PRUDENCIAL": "CDC SCD - PRUDENCIAL",
       "CECM COMERCIANTES DE AUTOMOTORES, PEÇAS E SERVIÇOS DE CUIABÁ E VÁRZEA GRANDE E EMPREGADOS EM SANEAMENTO DO MATO GROSSO E FUNCIONÁRIOS DO SISTEMA FIEMT, FECOMÉRCIO, FAMATO E FETRAMAR - SICOOB MULTIPLO": "CECM COMERCIANTES DE AUTOMOTORES, PEÇAS E SERVIÇOS DE CUIABÁ E VÁRZEA GRANDE E EMPREGADOS EM SANEAMENTO DO MATO GROSSO E FUNCIONÁRIOS DO SISTEMA FIEMT, FECOMÉRCIO, FAMATO E FETRAMAR - SICOOB MULTIPLO",
@@ -13970,6 +13961,7 @@
       "CREDISIS SUDOESTE/RO - COOPERATIVA DE CRÉDITO E INVESTIMENTO DO SUDOESTE DE RONDÔNIA LTDA.": "CREDISIS SUDOESTE/RO - COOPERATIVA DE CRÉDITO E INVESTIMENTO DO SUDOESTE DE RONDÔNIA LTDA.",
       "CREDISIS/CREDISUL COOPERATIVA DE CRÉDITO": "CREDISIS/CREDISUL COOPERATIVA DE CRÉDITO",
       "CREDIT AGRICOLE - PRUDENCIAL": "CREDIT AGRICOLE - PRUDENCIAL",
+      "CREDITAS SCD - PRUDENCIAL": "CREDITAS SCD - PRUDENCIAL",
       "CREDITÁ S.A. CFI - PRUDENCIAL": "CREDITÁ S.A. CFI - PRUDENCIAL",
       "CREDIX FINANCIAL S.A SCMEPP - PRUDENCIAL": "CREDIX FINANCIAL S.A SCMEPP - PRUDENCIAL",
       "CREDJUST - COOPERATIVA DE CRÉDITO MÚTUO DOS INTEGRANTES DA JUSTIÇA DO TRABALHO DA 13- REGIÃO LTDA.": "CREDJUST - COOPERATIVA DE CRÉDITO MÚTUO DOS INTEGRANTES DA JUSTIÇA DO TRABALHO DA 13- REGIÃO LTDA.",
@@ -14471,6 +14463,7 @@
       "SERVICOOP - COOPERATIVA DE ECONOMIA E CRÉDITO MÚTUO DOS SERVIDORES PÚBLICOS ESTADUAIS DO RIO GRANDE DO SUL EM PORTO ALEGRE E GRANDE PORTO ALEGRE.": "SERVICOOP - COOPERATIVA DE ECONOMIA E CRÉDITO MÚTUO DOS SERVIDORES PÚBLICOS ESTADUAIS DO RIO GRANDE DO SUL EM PORTO ALEGRE E GRANDE PORTO ALEGRE.",
       "SERVNET IP - PRUDENCIAL": "SERVNET IP - PRUDENCIAL",
       "SETHI SCD - PRUDENCIAL": "SETHI SCD - PRUDENCIAL",
+      "SF3 CFI - PRUDENCIAL": "SF3 CFI - PRUDENCIAL",
       "SHPP BRASIL IP - PRUDENCIAL": "SHPP BRASIL IP - PRUDENCIAL",
       "SICOOB AC CREDI - COOPERATIVA DE CRÉDITO DE LIVRE ADMISSÃO DO LESTE E NORDESTE MINEIRO LTDA.": "SICOOB AC CREDI - COOPERATIVA DE CRÉDITO DE LIVRE ADMISSÃO DO LESTE E NORDESTE MINEIRO LTDA.",
       "SICOOB COCRED COOPERATIVA DE CRÉDITO": "SICOOB COCRED COOPERATIVA DE CRÉDITO",

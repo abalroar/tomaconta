@@ -100,16 +100,15 @@ _CARTEIRA_4966_RELEASE_BASE_URL = (
     f"https://github.com/abalroar/tomaconta/releases/download/{_EXPECTED_CACHE_RELEASE_TAG}"
 )
 _CARTEIRA_4966_RELEASE_MANIFEST_URL = f"{_CARTEIRA_4966_RELEASE_BASE_URL}/manifest.json"
-_CARTEIRA_4966_REQUIRED_PERIOD_REFS = (
-    "202503",
-    "202506",
-    "202509",
-    "202512",
-    "202603",
-)
 if str(os.getenv("TOMACONTA_RELEASE_TAG") or "").strip() in {"", "v1.0-cache"}:
     os.environ["TOMACONTA_RELEASE_TAG"] = _EXPECTED_CACHE_RELEASE_TAG
 
+from utils.ifdata_cache.carteira_4966_quality import (
+    CARTEIRA_4966_METRIC_COLUMNS,
+    CARTEIRA_4966_MINIMUM_COVERAGE,
+    CARTEIRA_4966_REQUIRED_PERIODS,
+    validate_carteira_4966_quality,
+)
 from utils.formatting import (
     formatar_monetario_br_auto_reais,
     formatar_numero_br,
@@ -4636,32 +4635,45 @@ def _arquivo_sha256_cache(path: Path) -> str:
 def _carteira_4966_result_status(result, manifest: dict | None) -> dict:
     status = _cache_period_status_from_result("carteira_instrumentos", result, manifest)
     dados = getattr(result, "dados", None)
-    missing_columns = []
-    if dados is None or not isinstance(dados, pd.DataFrame) or dados.empty:
-        missing_columns = ["Instituição", "Período"]
-    else:
-        if "Instituição" not in dados.columns:
-            missing_columns.append("Instituição")
-        if not any(column in dados.columns for column in ("Período", "Periodo")):
-            missing_columns.append("Período")
-    available_period_refs = {
-        ref
-        for periodo in _periodos_from_df_cache(dados)
-        if (ref := _periodo_ref_cache(periodo))
-    }
-    missing_required_periods = [
-        ref
-        for ref in _CARTEIRA_4966_REQUIRED_PERIOD_REFS
-        if ref not in available_period_refs
-    ]
-    status["missing_columns"] = missing_columns
-    status["missing_required_periods"] = missing_required_periods
+    quality_check = validate_carteira_4966_quality(
+        dados if isinstance(dados, pd.DataFrame) else None
+    )
+    metric_coverage: dict[str, dict[str, dict[str, float | int]]] = {}
+    incomplete_metric_periods: dict[str, list[str]] = {}
+    for metric_name in CARTEIRA_4966_METRIC_COLUMNS:
+        coverage_by_period = {}
+        incomplete_periods = []
+        for period_ref in CARTEIRA_4966_REQUIRED_PERIODS:
+            period_quality = quality_check.get("coverage_by_period", {}).get(period_ref)
+            if not isinstance(period_quality, dict):
+                continue
+            coverage_ratio = float(
+                period_quality.get("coverage", {}).get(metric_name, 0.0)
+            )
+            coverage_by_period[period_ref] = {
+                "valid_rows": int(
+                    period_quality.get("valid_counts", {}).get(metric_name, 0)
+                ),
+                "total_rows": int(period_quality.get("record_count", 0)),
+                "eligible_rows": int(period_quality.get("eligible_total_count", 0)),
+                "coverage_ratio": coverage_ratio,
+            }
+            if coverage_ratio < CARTEIRA_4966_MINIMUM_COVERAGE:
+                incomplete_periods.append(period_ref)
+        metric_coverage[metric_name] = coverage_by_period
+        if incomplete_periods:
+            incomplete_metric_periods[metric_name] = incomplete_periods
+    status["missing_columns"] = quality_check.get("missing_columns", [])
+    status["missing_required_periods"] = quality_check.get("missing_periods", [])
+    status["metric_coverage"] = metric_coverage
+    status["incomplete_metric_periods"] = incomplete_metric_periods
+    status["quality_check"] = quality_check
+    status["quality_warnings"] = quality_check.get("warnings", [])
     status["valid"] = bool(
         getattr(result, "sucesso", False)
-        and dados is not None
+        and isinstance(dados, pd.DataFrame)
         and not dados.empty
-        and not missing_columns
-        and not missing_required_periods
+        and quality_check.get("success", False)
         and not status["stale"]
     )
     return status
@@ -4753,7 +4765,8 @@ def _load_carteira_4966_data_impl(manifest: dict | None):
         error_message = getattr(remote_result, "mensagem", "falha ao carregar release curado")
         local_status["error"] = (
             f"{error_message}. O cache local também foi rejeitado porque não contém "
-            "todos os períodos obrigatórios de mar/25 a mar/26."
+            "todos os períodos obrigatórios de mar/25 a mar/26 com cobertura e integridade "
+            "mínimas no Total Geral, na classificação, na Inadimplência e nos Ativos problemáticos."
         )
         local_status["remote_error"] = error_message
         return None, local_status
@@ -23559,7 +23572,9 @@ elif menu == "Carteira 4.966":
                     "equivalente ao maior entre R$ 1 e 0,1% da Carteira Total, quando a carteira "
                     "é negativa ou quando está zerada com PDD positiva. Células com * exigem "
                     "validação por fonte incompleta, sinal atípico, denominador inválido ou regra "
-                    "de sanidade acionada; o valor permanece visível sempre que puder ser calculado."
+                    "de sanidade acionada; o valor permanece visível sempre que puder ser calculado. "
+                    "A Inadimplência também é sinalizada quando ausente, negativa ou superior à "
+                    "Carteira Total do mesmo período."
                 )
 
                 critical_quality_issues = [
@@ -23574,7 +23589,7 @@ elif menu == "Carteira 4.966":
                 ]
                 if critical_quality_issues:
                     st.error(
-                        "**Alerta de confiabilidade nos cálculos de PDD (*)**\n\n"
+                        "**Alertas de confiabilidade do modelo 4966 (*)**\n\n"
                         + "\n".join(
                             "- "
                             + carteira_4966_quality_issue_message(issue).replace("$", r"\$")
@@ -23585,7 +23600,7 @@ elif menu == "Carteira 4.966":
                     )
                 if warning_quality_issues:
                     st.warning(
-                        "**Cálculos de PDD sinalizados para validação (*)**\n\n"
+                        "**Dados sinalizados para validação (*)**\n\n"
                         + "\n".join(
                             "- "
                             + carteira_4966_quality_issue_message(issue).replace("$", r"\$")
@@ -23607,7 +23622,8 @@ elif menu == "Carteira 4.966":
                     missing_labels = ", ".join(modelo_4966.period_labels[period] for period in missing_delinquency)
                     st.caption(
                         f"N/D em vencidos acima de 90 dias para {missing_labels}: "
-                        "a coluna Inadimplência não foi publicada no cache curado desses períodos."
+                        "a coluna Inadimplência não possui valor publicado na base do Relatório 16 "
+                        "para a instituição nesses períodos."
                     )
 
                 if modelo_4966.missing_provision_periods:
@@ -23640,7 +23656,7 @@ elif menu == "Carteira 4.966":
                 with st.expander("Dados para auditoria"):
                     quality_dataframe = carteira_4966_quality_dataframe(modelo_4966)
                     if not quality_dataframe.empty:
-                        st.markdown("**Alertas do cross-check PDD / Carteira Total**")
+                        st.markdown("**Alertas de qualidade do modelo 4966**")
                         st.dataframe(
                             quality_dataframe,
                             hide_index=True,
