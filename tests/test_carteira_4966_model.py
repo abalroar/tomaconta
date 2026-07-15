@@ -1,3 +1,5 @@
+import html
+import re
 from io import BytesIO
 
 import openpyxl
@@ -83,6 +85,29 @@ def _model():
     )
 
 
+def _html_row(rendered: str, label: str) -> str:
+    match = re.search(
+        rf"<tr[^>]*>.*?<th[^>]*>{re.escape(label)}</th>(.*?)</tr>",
+        rendered,
+        flags=re.DOTALL,
+    )
+    assert match is not None, f"Linha {label!r} não encontrada no HTML"
+    return match.group(1)
+
+
+def _visible_text(fragment: str) -> str:
+    return re.sub(r"<[^>]+>", "", html.unescape(fragment)).replace("\n", "").strip()
+
+
+def _excel_value_cell(sheet, label: str):
+    labels = {
+        sheet.cell(row=row, column=2).value: row
+        for row in range(1, sheet.max_row + 1)
+    }
+    assert label in labels, f"Linha {label!r} não encontrada no Excel"
+    return sheet.cell(row=labels[label], column=3)
+
+
 def test_model_uses_latest_q4_as_common_base_and_period_specific_ratios():
     model = _model()
 
@@ -106,7 +131,8 @@ def test_provision_is_literal_expected_loss_and_excludes_hedge_and_fair_value():
     assert model.cells["provision_over_portfolio"]["4/2025"].primary == pytest.approx(40 / 270)
     assert model.cells["provision_over_c5"]["4/2025"].primary == pytest.approx(40 / 100)
     assert model.cells["provision_over_delinquency"]["4/2025"].primary == pytest.approx(40 / 30)
-    assert model.quality_issues == ()
+    assert model.cell_quality_issues("provision", "4/2025") == ()
+    assert model.cell_quality_issues("provision_over_portfolio", "4/2025") == ()
 
 
 def test_missing_source_and_zero_denominator_stay_distinct_from_published_zero():
@@ -178,7 +204,7 @@ def test_percentage_format_preserves_rates_below_half_percent():
 def test_excel_matches_row_spec_order_units_and_hatched_marker():
     workbook = openpyxl.load_workbook(BytesIO(build_carteira_4966_excel(_model())), data_only=True)
 
-    assert workbook.sheetnames == ["Modelo 4966", "Glossário"]
+    assert workbook.sheetnames == ["Modelo 4966", "Alertas qualidade", "Glossário"]
     sheet = workbook["Modelo 4966"]
     assert sheet["B1"].value == TITLE
     assert sheet["A5"].fill.patternType is not None
@@ -212,6 +238,295 @@ def _model_with_pdd_ratio(pdd: float, total: float = 100.0):
     return build_carteira_4966_model(carteira, ativo, ["4/2025"])
 
 
+def test_pdd_over_total_is_visible_and_uses_the_calculated_value():
+    model = _model_with_pdd_ratio(40.0)
+    rendered = render_carteira_4966_html(model)
+
+    assert "PDD / Carteira Total (%)" in rendered
+    assert "40,00%" in _visible_text(
+        _html_row(rendered, "PDD / Carteira Total (%)")
+    )
+
+    workbook = openpyxl.load_workbook(
+        BytesIO(build_carteira_4966_excel(model)),
+        data_only=True,
+    )
+    cell = _excel_value_cell(workbook["Modelo 4966"], "PDD / Carteira Total (%)")
+    assert cell.value == pytest.approx(0.4)
+    assert cell.number_format == "0.00%"
+
+
+@pytest.mark.parametrize("ativo_case", ["absent", "incomplete"])
+def test_missing_or_incomplete_expected_loss_is_nd_star_with_diagnostic(ativo_case):
+    carteira = _carteira_frame().query("`Período` == '4/2025'").copy()
+    if ativo_case == "absent":
+        ativo = pd.DataFrame()
+    else:
+        ativo = _ativo_frame().query("`Período` == '4/2025'").copy()
+        ativo.loc[:, EXPECTED_LOSS_COLUMNS[-1]] = float("nan")
+
+    model = build_carteira_4966_model(carteira, ativo, ["4/2025"])
+    rendered = render_carteira_4966_html(model)
+
+    assert model.cells["provision"]["4/2025"].primary is None
+    assert model.cells["provision_over_portfolio"]["4/2025"].primary is None
+    assert "N/D*" in _visible_text(_html_row(rendered, "PDD (Perda Esperada)"))
+    ratio_row = _html_row(rendered, "PDD / Carteira Total (%)")
+    assert "N/D*" in _visible_text(ratio_row)
+
+    issue = model.pdd_quality_issue("4/2025")
+    assert issue is not None
+    assert issue.severity == "warning"
+    diagnostic = quality_issue_message(issue)
+    assert diagnostic.strip()
+    assert any(
+        token in diagnostic.lower()
+        for token in ("relatório 2", "perda esperada", "incomplet", "indisponível")
+    )
+    assert html.escape(diagnostic, quote=True) in ratio_row
+
+    workbook = openpyxl.load_workbook(
+        BytesIO(build_carteira_4966_excel(model)),
+        data_only=True,
+    )
+    sheet = workbook["Modelo 4966"]
+    pdd_cell = _excel_value_cell(sheet, "PDD (Perda Esperada)")
+    ratio_cell = _excel_value_cell(sheet, "PDD / Carteira Total (%)")
+    assert pdd_cell.value == "N/D*"
+    assert ratio_cell.value == "N/D*"
+    assert pdd_cell.comment is not None
+    assert ratio_cell.comment is not None
+    assert "Alertas qualidade" in workbook.sheetnames
+    assert workbook["Alertas qualidade"]["G2"].value
+
+
+def test_pdd_ratio_above_attention_threshold_has_star_and_numeric_excel_value():
+    model = _model_with_pdd_ratio(60.0)
+    rendered = render_carteira_4966_html(model)
+    ratio_row = _html_row(rendered, "PDD / Carteira Total (%)")
+
+    assert "60,00%*" in _visible_text(ratio_row)
+    assert "Alerta de confiabilidade" in ratio_row
+
+    workbook = openpyxl.load_workbook(
+        BytesIO(build_carteira_4966_excel(model)),
+        data_only=True,
+    )
+    ratio_cell = _excel_value_cell(
+        workbook["Modelo 4966"],
+        "PDD / Carteira Total (%)",
+    )
+    assert ratio_cell.value == pytest.approx(0.6)
+    assert ratio_cell.data_type == "n"
+    assert "*" in ratio_cell.number_format
+    assert ratio_cell.comment is not None
+
+    alerts = workbook["Alertas qualidade"]
+    assert alerts["B2"].value == "Atenção"
+    assert alerts["F2"].value == pytest.approx(0.6)
+    assert alerts["G2"].value
+
+    raw_workbook = openpyxl.load_workbook(
+        BytesIO(
+            build_carteira_4966_raw_excel(
+                model,
+                _carteira_frame().query("`Período` == '4/2025'"),
+                _ativo_frame().query("`Período` == '4/2025'"),
+            )
+        ),
+        data_only=True,
+    )
+    raw_sheet = raw_workbook["Modelo calculado"]
+    raw_headers = {
+        raw_sheet.cell(row=1, column=column).value: column
+        for column in range(1, raw_sheet.max_column + 1)
+    }
+    raw_labels = {
+        raw_sheet.cell(row=row, column=1).value: row
+        for row in range(2, raw_sheet.max_row + 1)
+    }
+    raw_cell = raw_sheet.cell(
+        row=raw_labels["PDD / Carteira Total (%)"],
+        column=raw_headers["Dez/25 (%)"],
+    )
+    assert raw_cell.value == pytest.approx(0.6)
+    assert raw_cell.data_type == "n"
+    assert "*" in raw_cell.number_format
+    assert raw_cell.comment is not None
+    assert "Alertas qualidade" in raw_workbook.sheetnames
+
+
+@pytest.mark.parametrize(
+    ("denominator_column", "row_key", "row_label"),
+    [
+        ("Total Geral", "provision_over_portfolio", "PDD / Carteira Total (%)"),
+        ("C5", "provision_over_c5", "PDD / C5 (%)"),
+        (
+            "Inadimplência",
+            "provision_over_delinquency",
+            "PDD / Créditos vencidos acima de 90 dias (%)",
+        ),
+    ],
+)
+@pytest.mark.parametrize("denominator", [0.0, float("nan")], ids=["zero", "missing"])
+def test_unavailable_ratio_denominator_is_nd_star_with_warning(
+    denominator_column,
+    row_key,
+    row_label,
+    denominator,
+):
+    carteira = _carteira_frame().query("`Período` == '4/2025'").copy()
+    carteira.loc[:, denominator_column] = denominator
+    ativo = _ativo_frame().query("`Período` == '4/2025'").copy()
+    model = build_carteira_4966_model(carteira, ativo, ["4/2025"])
+
+    assert model.cells[row_key]["4/2025"].primary is None
+    row_html = _html_row(render_carteira_4966_html(model), row_label)
+    assert "N/D*" in _visible_text(row_html)
+    assert any(
+        token in html.unescape(row_html).lower()
+        for token in ("denominador", "zerad", "ausente", "indisponível")
+    )
+
+    workbook = openpyxl.load_workbook(
+        BytesIO(build_carteira_4966_excel(model)),
+        data_only=True,
+    )
+    ratio_cell = _excel_value_cell(workbook["Modelo 4966"], row_label)
+    assert ratio_cell.value == "N/D*"
+    assert ratio_cell.comment is not None
+    assert any(
+        token in ratio_cell.comment.text.lower()
+        for token in ("denominador", "zerad", "ausente", "indisponível")
+    )
+
+
+def test_reliable_pdd_ratio_has_no_uncertainty_marker():
+    model = _model_with_pdd_ratio(40.0)
+    rendered = render_carteira_4966_html(model)
+    ratio_row = _html_row(rendered, "PDD / Carteira Total (%)")
+
+    assert _visible_text(ratio_row) == "40,00%"
+    assert "Alerta de confiabilidade" not in ratio_row
+
+    workbook = openpyxl.load_workbook(
+        BytesIO(build_carteira_4966_excel(model)),
+        data_only=True,
+    )
+    ratio_cell = _excel_value_cell(
+        workbook["Modelo 4966"],
+        "PDD / Carteira Total (%)",
+    )
+    assert ratio_cell.value == pytest.approx(0.4)
+    assert ratio_cell.number_format == "0.00%"
+    assert ratio_cell.comment is None
+    assert "Alertas qualidade" not in workbook.sheetnames
+
+
+def test_mixed_expected_loss_signs_keep_value_but_propagate_warning():
+    carteira = _carteira_frame().query("`Período` == '4/2025'").copy()
+    ativo = _ativo_frame().query("`Período` == '4/2025'").copy()
+    ativo.loc[:, EXPECTED_LOSS_COLUMNS[0]] = 1 * MM
+    ativo.loc[:, EXPECTED_LOSS_COLUMNS[1]] = -20 * MM
+    ativo.loc[:, EXPECTED_LOSS_COLUMNS[2]] = -3 * MM
+    ativo.loc[:, EXPECTED_LOSS_COLUMNS[3]] = -5 * MM
+
+    model = build_carteira_4966_model(carteira, ativo, ["4/2025"])
+
+    assert model.cells["provision"]["4/2025"].primary == pytest.approx(27 * MM)
+    issue = model.cell_quality_issue("provision", "4/2025")
+    assert issue is not None
+    assert issue.code == "pdd_unexpected_sign"
+    assert model.cell_quality_issue("provision_over_portfolio", "4/2025") == issue
+    rendered = render_carteira_4966_html(model)
+    assert "27*" in _visible_text(_html_row(rendered, "PDD (Perda Esperada)"))
+    assert "27,00%*" in _visible_text(
+        _html_row(rendered, "PDD / C5 (%)")
+    )
+
+
+def test_conflicting_expected_loss_rows_are_visible_but_flagged():
+    carteira = _carteira_frame().query("`Período` == '4/2025'").copy()
+    first = _ativo_frame().query("`Período` == '4/2025'").copy()
+    second = first.copy()
+    for column in EXPECTED_LOSS_COLUMNS[1:]:
+        first.loc[:, column] = 0.0
+        second.loc[:, column] = 0.0
+    first.loc[:, EXPECTED_LOSS_COLUMNS[0]] = -10 * MM
+    second.loc[:, EXPECTED_LOSS_COLUMNS[0]] = -40 * MM
+    ativo = pd.concat([first, second], ignore_index=True)
+
+    model = build_carteira_4966_model(carteira, ativo, ["4/2025"])
+
+    assert model.cells["provision"]["4/2025"].primary == pytest.approx(40 * MM)
+    issue = model.cell_quality_issue("provision", "4/2025")
+    assert issue is not None
+    assert issue.code == "pdd_conflicting_rows"
+    pdd_row = _html_row(render_carteira_4966_html(model), "PDD (Perda Esperada)")
+    assert "40*" in _visible_text(pdd_row)
+    assert "valores conflitantes" in html.unescape(pdd_row)
+
+
+def test_multiple_cell_issues_share_the_same_diagnostics_in_all_outputs():
+    carteira = _carteira_frame().query("`Período` == '4/2025'").copy()
+    carteira.loc[:, "Inadimplência"] = float("nan")
+    ativo = _ativo_frame().query("`Período` == '4/2025'").copy()
+    ativo.loc[:, EXPECTED_LOSS_COLUMNS[0]] = 1 * MM
+    ativo.loc[:, EXPECTED_LOSS_COLUMNS[1]] = -20 * MM
+    ativo.loc[:, EXPECTED_LOSS_COLUMNS[2]] = -3 * MM
+    ativo.loc[:, EXPECTED_LOSS_COLUMNS[3]] = -5 * MM
+    model = build_carteira_4966_model(carteira, ativo, ["4/2025"])
+
+    issues = model.cell_quality_issues("provision_over_delinquency", "4/2025")
+    assert {issue.code for issue in issues} == {
+        "pdd_unexpected_sign",
+        "missing_denominator",
+    }
+    rendered = render_carteira_4966_html(model)
+    row_html = _html_row(
+        rendered,
+        "PDD / Créditos vencidos acima de 90 dias (%)",
+    )
+    assert 'aria-describedby="tc-4966-quality-provision_over_delinquency-4-2025"' in row_html
+    assert "sinal positivo" in html.unescape(row_html)
+    assert "denominador" in html.unescape(row_html)
+
+    visual = openpyxl.load_workbook(
+        BytesIO(build_carteira_4966_excel(model)),
+        data_only=True,
+    )["Modelo 4966"]
+    visual_comment = _excel_value_cell(
+        visual,
+        "PDD / Créditos vencidos acima de 90 dias (%)",
+    ).comment.text
+
+    raw = openpyxl.load_workbook(
+        BytesIO(build_carteira_4966_raw_excel(model, carteira, ativo)),
+        data_only=True,
+    )["Modelo calculado"]
+    raw_headers = {
+        raw.cell(row=1, column=column).value: column
+        for column in range(1, raw.max_column + 1)
+    }
+    raw_labels = {
+        raw.cell(row=row, column=1).value: row
+        for row in range(2, raw.max_row + 1)
+    }
+    raw_comment = raw.cell(
+        row=raw_labels["PDD / Créditos vencidos acima de 90 dias (%)"],
+        column=raw_headers["Dez/25 (%)"],
+    ).comment.text
+    assert visual_comment == raw_comment
+    assert "sinal positivo" in raw_comment
+    assert "denominador" in raw_comment
+
+    source_alert = quality_issues_dataframe(model).query(
+        "Checagem == 'pdd_unexpected_sign'"
+    ).iloc[0]
+    assert source_alert["Resultado (%)"] == pytest.approx(10.0)
+    assert source_alert["PDD / Carteira Total (%)"] == pytest.approx(10.0)
+
+
 def test_visual_and_raw_excel_keep_native_percentage_scale_and_two_decimals():
     carteira = _carteira_frame().query("`Período` == '4/2025'").copy()
     carteira.loc[:, "Total Geral"] = 100 * MM
@@ -242,7 +557,7 @@ def test_visual_and_raw_excel_keep_native_percentage_scale_and_two_decimals():
     assert c1_cell.value == pytest.approx(0.0049)
     assert c1_cell.number_format == "0.00%"
     assert pdd_ratio_cell.value == pytest.approx(1.2)
-    assert pdd_ratio_cell.number_format == "0.00%"
+    assert pdd_ratio_cell.number_format == '0.00%"*"'
 
     raw = openpyxl.load_workbook(
         BytesIO(build_carteira_4966_raw_excel(model, carteira, ativo)),
@@ -266,7 +581,7 @@ def test_visual_and_raw_excel_keep_native_percentage_scale_and_two_decimals():
     assert raw_c1.value == pytest.approx(0.0049)
     assert raw_c1.number_format == "0.00%"
     assert raw_pdd_ratio.value == pytest.approx(1.2)
-    assert raw_pdd_ratio.number_format == "0.00%"
+    assert raw_pdd_ratio.number_format == '0.00%"*"'
     assert {"Alertas qualidade", "Rel16 Carteira", "Rel2 Ativo"}.issubset(
         raw.sheetnames
     )

@@ -23557,7 +23557,9 @@ elif menu == "Carteira 4.966":
                     "Cross-check automático do PDD: atenção acima de 55% da Carteira Total; "
                     "dado sinalizado como não confiável quando supera a carteira além da tolerância "
                     "equivalente ao maior entre R$ 1 e 0,1% da Carteira Total, quando a carteira "
-                    "é negativa ou quando está zerada com PDD positiva."
+                    "é negativa ou quando está zerada com PDD positiva. Células com * exigem "
+                    "validação por fonte incompleta, sinal atípico, denominador inválido ou regra "
+                    "de sanidade acionada; o valor permanece visível sempre que puder ser calculado."
                 )
 
                 critical_quality_issues = [
@@ -23572,7 +23574,7 @@ elif menu == "Carteira 4.966":
                 ]
                 if critical_quality_issues:
                     st.error(
-                        "**Alerta de confiabilidade em PDD / Carteira Total**\n\n"
+                        "**Alerta de confiabilidade nos cálculos de PDD (*)**\n\n"
                         + "\n".join(
                             "- "
                             + carteira_4966_quality_issue_message(issue).replace("$", r"\$")
@@ -23583,7 +23585,7 @@ elif menu == "Carteira 4.966":
                     )
                 if warning_quality_issues:
                     st.warning(
-                        "**PDD / Carteira Total acima do limiar de atenção**\n\n"
+                        "**Cálculos de PDD sinalizados para validação (*)**\n\n"
                         + "\n".join(
                             "- "
                             + carteira_4966_quality_issue_message(issue).replace("$", r"\$")
