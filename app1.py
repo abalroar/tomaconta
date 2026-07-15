@@ -118,6 +118,17 @@ from utils.formatting import (
 from utils.snapshot_delta import compute_delta
 from utils.device_detection import detect_device_from_headers
 from utils.institution_search import search_institutions
+from tabs.carteira_4966 import (
+    TITLE as CARTEIRA_4966_TITLE,
+    GLOSSARY_ROWS as CARTEIRA_4966_GLOSSARY_ROWS,
+    build_carteira_4966_excel,
+    build_carteira_4966_model,
+    build_carteira_4966_raw_excel,
+    model_to_audit_dataframe as carteira_4966_audit_dataframe,
+    quality_issue_message as carteira_4966_quality_issue_message,
+    quality_issues_dataframe as carteira_4966_quality_dataframe,
+    render_carteira_4966_html,
+)
 
 from utils.cosif_pdf_mapping import (
     get_cosif_description_map_cached,
@@ -10178,6 +10189,11 @@ def _montar_tabela_peers(
     return valores, colunas_usadas, faltas, delta_flags, delta_context, tooltips
 
 
+def _ordenar_periodos_peers_saida(periodos: Sequence[str]) -> list[str]:
+    unicos = list(dict.fromkeys(str(periodo) for periodo in (periodos or []) if periodo))
+    return ordenar_periodos(unicos, reverso=False)
+
+
 def _render_peers_table_html(
     bancos: list,
     periodos: list,
@@ -10188,6 +10204,7 @@ def _render_peers_table_html(
     tooltips: Optional[dict] = None,
     status_markers: Optional[dict] = None,
 ):
+    periodos = _ordenar_periodos_peers_saida(periodos)
     colunas_total = 1 + len(bancos) * len(periodos)
     html = """
     <style>
@@ -12335,6 +12352,7 @@ def _gerar_imagem_peers_tabela(
     scale: float = 1.0,
 ):
     """Gera imagem PNG da tabela peers para exportação."""
+    periodos = _ordenar_periodos_peers_saida(periodos)
     status_markers, marker_presence = _build_peers_visual_status_artifacts(
         df_base=df_base,
         bancos=list(bancos),
@@ -12471,6 +12489,7 @@ def _gerar_excel_peers_tabela(
     delta_flags: dict,
     df_base: Optional[pd.DataFrame] = None,
 ) -> BytesIO:
+    periodos = _ordenar_periodos_peers_saida(periodos)
     output = BytesIO()
     workbook = xlsxwriter.Workbook(output, {"in_memory": True})
     worksheet = workbook.add_worksheet("peers_tabela")
@@ -12608,6 +12627,7 @@ def _gerar_excel_peers_dados_puros(
     df_base: Optional[pd.DataFrame] = None,
 ) -> BytesIO:
     """Exporta tabela Peers com valores numéricos, sem layout visual."""
+    periodos = _ordenar_periodos_peers_saida(periodos)
     output = BytesIO()
     workbook = xlsxwriter.Workbook(output, {"in_memory": True})
     worksheet = workbook.add_worksheet("dados_numericos")
@@ -15720,7 +15740,7 @@ CACHE_DEPENDENCIAS_POR_ABA = {
     "Evolução": ["principal", "passivo", "ativo", "capital"],
     "Scatter Plot": ["principal", "capital", "derived_metrics"],
     "DRE (Ind. e Congl.)": ["dre", "principal", "dre_individual", "principal_individual"],
-    "Carteira 4.966": ["carteira_instrumentos"],
+    "Carteira 4.966": ["carteira_instrumentos", "ativo"],
     "Taxas de Juros por Produto": ["taxas_juros_historico"],
     "Meios de Pagamento (SPB)": ["spb_meios_pagamento"],
     "Contas COSIF": ["bloprudencial"],
@@ -23388,68 +23408,8 @@ elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolid
 
 elif menu == "Carteira 4.966":
     # =========================================================================
-    # ABA CARTEIRA 4.966 - Classificação de Instrumentos Financeiros (Res. 4.966)
+    # ABA CARTEIRA 4.966 - Classificação da Carteira de Crédito Modelo 4966
     # =========================================================================
-
-    def periodo_para_exibicao_mes(periodo_trimestre: str) -> str:
-        """Wrapper local para manter padrão global de período (Mar/XX, Jun/XX, Set/XX, Dez/XX)."""
-        return periodo_para_exibicao(periodo_trimestre)
-
-    def formatar_valor_br(valor, decimais=0):
-        """Formata valor numérico no padrão brasileiro (pontos como separador de milhar)."""
-        if pd.isna(valor) or valor is None:
-            return "-"
-        try:
-            if decimais == 0:
-                return f"{valor:,.0f}".replace(",", "X").replace(".", ",").replace("X", ".")
-            else:
-                return f"{valor:,.{decimais}f}".replace(",", "X").replace(".", ",").replace("X", ".")
-        except:
-            return str(valor)
-
-    def formatar_percentual(valor, decimais=1):
-        """Formata percentual com casas decimais."""
-        if pd.isna(valor) or valor is None:
-            return "-"
-        try:
-            return f"{valor * 100:.{decimais}f}%".replace(".", ",")
-        except:
-            return "-"
-
-    # Mapeamento das linhas da tabela para colunas da API
-    LINHAS_CARTEIRA_4966 = [
-        ("C1", "C1"),
-        ("C2", "C2"),
-        ("C3", "C3"),
-        ("C4", "C4"),
-        ("C5", "C5"),
-        ("Inadimplência", "Inadimplência"),
-        ("Ativos Problemáticos", "Ativos problemáticos"),
-        ("Carteira Não Informada", "Carteira não Informada ou não se Aplica"),
-        ("Carteira no Exterior", "Total Exterior"),
-        ("Total não Individualizado", "Total não Individualizado"),
-        ("Carteira Total", "Total Geral"),
-    ]
-
-    GLOSSARIO_CARTEIRA_4966 = [
-        {
-            "Variável": "Inadimplência",
-            "Definição": "Somatório das operações de crédito a vencer e vencidas que possuam alguma parcela vencida há mais de 90 dias.",
-        },
-        {
-            "Variável": "Ativos Problemáticos",
-            "Definição": "Somatório das operações de crédito classificadas pelas instituições financeiras como ativos problemáticos.",
-        },
-        {
-            "Variável": "% Carteira Total",
-            "Definição": "Participação de cada linha em relação ao Total Geral do mesmo período.",
-        },
-        {
-            "Variável": "Δ (▲/▼)",
-            "Definição": "Sinal visual de variação do valor contra o mesmo período do ano anterior, quando essa base existir para a instituição.",
-        },
-    ]
-
     carteira_4966_manifest = _carregar_manifest_release_cache(
         _CARTEIRA_4966_RELEASE_MANIFEST_URL,
         _EXPECTED_CACHE_RELEASE_TAG,
@@ -23461,10 +23421,12 @@ elif menu == "Carteira 4.966":
         separators=(",", ":"),
         sort_keys=True,
     )
-    df_carteira, carteira_4966_cache_status = load_carteira_4966_data(
-        carteira_4966_release_token,
-        carteira_4966_manifest_payload,
-    )
+
+    with st.spinner("Carregando carteira de crédito e provisão..."):
+        df_carteira, carteira_4966_cache_status = load_carteira_4966_data(
+            carteira_4966_release_token,
+            carteira_4966_manifest_payload,
+        )
 
     if df_carteira is not None and not df_carteira.empty:
         if carteira_4966_cache_status.get("warning"):
@@ -23475,370 +23437,293 @@ elif menu == "Carteira 4.966":
                 "A linha oficial mais completa foi priorizada e o nome original permanece nos dados de auditoria."
             )
 
-        # Verificar colunas disponíveis
-        colunas_disponiveis = df_carteira.columns.tolist()
-
-        # Obter lista de instituições e períodos
-        if 'Instituição' in df_carteira.columns:
-            instituicoes = sorted(
-                {str(inst).strip() for inst in df_carteira['Instituição'].dropna().tolist() if str(inst).strip()},
-                key=lambda nome: (str(nome)[0].isdigit(), str(nome).casefold()),
+        col_periodo = "Período" if "Período" in df_carteira.columns else "Periodo"
+        instituicoes = (
+            sorted(
+                {
+                    str(instituicao).strip()
+                    for instituicao in df_carteira.get("Instituição", pd.Series(dtype="object")).dropna()
+                    if str(instituicao).strip()
+                },
+                key=lambda nome: (nome[0].isdigit(), nome.casefold()),
             )
-        else:
-            instituicoes = []
-
-        col_periodo = 'Período' if 'Período' in df_carteira.columns else 'Periodo'
-        if col_periodo in df_carteira.columns:
-            periodos_disponiveis = ordenar_periodos(df_carteira[col_periodo].dropna().unique(), reverso=True)
-        else:
-            periodos_disponiveis = []
+            if "Instituição" in df_carteira.columns
+            else []
+        )
+        periodos_disponiveis = (
+            ordenar_periodos(df_carteira[col_periodo].dropna().unique(), reverso=True)
+            if col_periodo in df_carteira.columns
+            else []
+        )
 
         if instituicoes and periodos_disponiveis:
-            st.markdown("### Carteira de Crédito por Instrumentos Financeiros (Res. 4.966)")
+            st.markdown(f"### {CARTEIRA_4966_TITLE}")
             periodo_mais_antigo = ordenar_periodos(periodos_disponiveis, reverso=False)[0]
             periodo_mais_recente = ordenar_periodos(periodos_disponiveis, reverso=True)[0]
             st.caption(
-                "Classificação conforme estágios de risco de crédito - C1 a C5 · "
-                f"cobertura disponível: {periodo_para_exibicao_mes(periodo_mais_antigo)} a "
-                f"{periodo_para_exibicao_mes(periodo_mais_recente)}"
+                "Classificação por risco de crédito conforme a Resolução 4.966. "
+                f"Cobertura disponível: {periodo_para_exibicao(periodo_mais_antigo)} a "
+                f"{periodo_para_exibicao(periodo_mais_recente)}."
             )
 
-            # Seletores
             col_inst, col_periodos = st.columns([1, 2])
-
             with col_inst:
-                _idx_carteira_default = _indice_default_itau_unibanco(instituicoes)
                 instituicao_selecionada = st.selectbox(
                     "Instituição",
                     instituicoes,
-                    index=_idx_carteira_default,
-                    key="carteira_4966_instituicao_v2"
+                    index=_indice_default_itau_unibanco(instituicoes),
+                    key="carteira_4966_instituicao_v3",
                 )
 
-            # Filtrar períodos disponíveis para a instituição selecionada
-            df_inst = df_carteira[df_carteira['Instituição'].astype(str).str.strip() == str(instituicao_selecionada).strip()]
+            df_inst = df_carteira[
+                df_carteira["Instituição"].astype(str).str.strip().eq(str(instituicao_selecionada).strip())
+            ].copy()
             periodos_inst = ordenar_periodos(df_inst[col_periodo].dropna().unique(), reverso=True)
-
-            periodos_contexto = (str(instituicao_selecionada), tuple(str(p) for p in periodos_inst))
-            if st.session_state.get("carteira_4966_periodos_context_v2") != periodos_contexto:
-                st.session_state["carteira_4966_periodos_v2"] = list(periodos_inst)
-                st.session_state["carteira_4966_periodos_context_v2"] = periodos_contexto
+            periodos_contexto = (str(instituicao_selecionada), tuple(str(periodo) for periodo in periodos_inst))
+            if st.session_state.get("carteira_4966_periodos_context_v3") != periodos_contexto:
+                st.session_state["carteira_4966_periodos_v3"] = list(periodos_inst[:5])
+                st.session_state["carteira_4966_periodos_context_v3"] = periodos_contexto
 
             with col_periodos:
                 periodos_selecionados = st.multiselect(
-                    "Períodos (selecione 2 ou mais para comparação)",
+                    "Períodos",
                     periodos_inst,
-                    key="carteira_4966_periodos_v2",
+                    key="carteira_4966_periodos_v3",
                     help=(
-                        "Todos os períodos disponíveis para a instituição são selecionados inicialmente. "
-                        "O delta visual é calculado em relação ao mesmo período do ano anterior."
-                    )
+                        "Os cinco períodos mais recentes são selecionados inicialmente. "
+                        "A tabela ordena a leitura do período mais antigo para o mais recente."
+                    ),
                 )
 
-            if periodos_selecionados and len(periodos_selecionados) >= 1:
-                # Ordenar períodos do mais antigo para o mais recente (para cálculo de deltas)
+            if periodos_selecionados:
                 periodos_ordenados = ordenar_periodos(periodos_selecionados, reverso=False)
+                df_ativo_inst = pd.DataFrame()
+                ativo_load_error = ""
 
-                # Construir dados da tabela
-                dados_tabela = []
+                with st.spinner("Compondo o modelo 4966..."):
+                    try:
+                        # O recorte inicial usa somente períodos. A canonicalização vem antes
+                        # do filtro institucional para preservar aliases históricos sem CodInst.
+                        df_ativo_periodos = _carregar_cache_relatorio_slice(
+                            "ativo",
+                            _cache_version_token("ativo"),
+                            tuple(periodos_ordenados),
+                        )
+                        if df_ativo_periodos is not None and not df_ativo_periodos.empty:
+                            df_ativo_canonico = canonicalize_institution_history(
+                                df_ativo_periodos,
+                                base_dir=APP_DIR,
+                            )
+                            selected_codes = set()
+                            if "CodInst" in df_inst.columns:
+                                selected_codes = {
+                                    normalized
+                                    for value in df_inst["CodInst"].dropna().tolist()
+                                    if (normalized := normalize_institution_code(value))
+                                }
 
-                linha_colunas = {}
-                for nome_linha, coluna_api in LINHAS_CARTEIRA_4966:
-                    linha_dados = {"Tipo de Carteira": nome_linha}
+                            mask_nome = df_ativo_canonico["Instituição"].astype(str).str.strip().eq(
+                                str(instituicao_selecionada).strip()
+                            )
+                            mask_codigo = pd.Series(False, index=df_ativo_canonico.index)
+                            if selected_codes and "CodInst" in df_ativo_canonico.columns:
+                                mask_codigo = (
+                                    df_ativo_canonico["CodInst"]
+                                    .map(normalize_institution_code)
+                                    .isin(selected_codes)
+                                )
+                            df_ativo_inst = df_ativo_canonico[mask_nome | mask_codigo].copy()
+                    except Exception as exc:
+                        ativo_load_error = str(exc)
+                        df_ativo_inst = pd.DataFrame()
 
-                    # Verificar se a coluna existe nos dados
-                    coluna_encontrada = None
-                    for col in colunas_disponiveis:
-                        if col.lower().strip() == coluna_api.lower().strip():
-                            coluna_encontrada = col
-                            break
+                    modelo_4966 = build_carteira_4966_model(
+                        df_inst,
+                        df_ativo_inst,
+                        periodos_ordenados,
+                    )
 
-                    if coluna_encontrada is None:
-                        # Tentar busca parcial
-                        for col in colunas_disponiveis:
-                            if coluna_api.lower() in col.lower():
-                                coluna_encontrada = col
-                                break
-                    linha_colunas[nome_linha] = coluna_encontrada
+                base_label = (
+                    modelo_4966.period_labels.get(modelo_4966.base_period, "N/D")
+                    if modelo_4966.base_period
+                    else "N/D"
+                )
+                st.caption(
+                    "Valores em R$ milhões. "
+                    f"Base comum do empilhamento: carteira total de {base_label} = 100%. "
+                    "QoQ compara a carteira total com o trimestre imediatamente anterior."
+                )
+                st.caption(
+                    "Cross-check automático do PDD: atenção acima de 55% da Carteira Total; "
+                    "dado sinalizado como não confiável quando supera a carteira além da tolerância "
+                    "equivalente ao maior entre R$ 1 e 0,1% da Carteira Total, quando a carteira "
+                    "é negativa ou quando está zerada com PDD positiva. Células com * exigem "
+                    "validação por fonte incompleta, sinal atípico, denominador inválido ou regra "
+                    "de sanidade acionada; o valor permanece visível sempre que puder ser calculado."
+                )
 
-                    for periodo in periodos_ordenados:
-                        df_periodo = df_inst[df_inst[col_periodo] == periodo]
+                critical_quality_issues = [
+                    issue
+                    for issue in modelo_4966.quality_issues
+                    if issue.severity == "critical"
+                ]
+                warning_quality_issues = [
+                    issue
+                    for issue in modelo_4966.quality_issues
+                    if issue.severity == "warning"
+                ]
+                if critical_quality_issues:
+                    st.error(
+                        "**Alerta de confiabilidade nos cálculos de PDD (*)**\n\n"
+                        + "\n".join(
+                            "- "
+                            + carteira_4966_quality_issue_message(issue).replace("$", r"\$")
+                            for issue in critical_quality_issues
+                        )
+                        + "\n\nOs valores permanecem visíveis para auditoria, mas não devem ser usados "
+                        "sem validação no IFData."
+                    )
+                if warning_quality_issues:
+                    st.warning(
+                        "**Cálculos de PDD sinalizados para validação (*)**\n\n"
+                        + "\n".join(
+                            "- "
+                            + carteira_4966_quality_issue_message(issue).replace("$", r"\$")
+                            for issue in warning_quality_issues
+                        )
+                    )
 
-                        if not df_periodo.empty and coluna_encontrada and coluna_encontrada in df_periodo.columns:
-                            valor = df_periodo[coluna_encontrada].iloc[0]
-                        else:
-                            valor = None
+                st.markdown(
+                    render_carteira_4966_html(modelo_4966),
+                    unsafe_allow_html=True,
+                )
 
-                        # Obter Total Geral para calcular percentual
-                        total_geral = None
-                        for col in colunas_disponiveis:
-                            if 'total geral' in col.lower():
-                                if not df_periodo.empty and col in df_periodo.columns:
-                                    total_geral = df_periodo[col].iloc[0]
-                                break
+                missing_delinquency = [
+                    period
+                    for period in modelo_4966.periods
+                    if modelo_4966.cells["delinquency"][period].primary is None
+                ]
+                if missing_delinquency:
+                    missing_labels = ", ".join(modelo_4966.period_labels[period] for period in missing_delinquency)
+                    st.caption(
+                        f"N/D em vencidos acima de 90 dias para {missing_labels}: "
+                        "a coluna Inadimplência não foi publicada no cache curado desses períodos."
+                    )
 
-                        periodo_exib = periodo_para_exibicao_mes(periodo)
-                        linha_dados[f"{periodo_exib}"] = valor
+                if modelo_4966.missing_provision_periods:
+                    missing_labels = ", ".join(
+                        modelo_4966.period_labels[period]
+                        for period in modelo_4966.missing_provision_periods
+                    )
+                    st.caption(
+                        f"N/D em provisão para {missing_labels}: não houve correspondência segura "
+                        "com a tabela Ativo ou a Perda Esperada não foi publicada."
+                    )
+                if ativo_load_error:
+                    st.warning(
+                        "A carteira foi carregada, mas a fonte de provisão está temporariamente indisponível. "
+                        "As linhas correspondentes permanecem como N/D."
+                    )
 
-                        # Calcular percentual
-                        if valor is not None and total_geral is not None and total_geral != 0:
-                            pct = valor / total_geral
-                        else:
-                            pct = None
-                        linha_dados[f"{periodo_exib} %"] = pct
+                exterior_col = _resolver_coluna_peers(df_inst, ["Total Exterior"])
+                if exterior_col:
+                    exterior_visivel = pd.to_numeric(
+                        df_inst[df_inst[col_periodo].isin(periodos_ordenados)][exterior_col],
+                        errors="coerce",
+                    ).abs().fillna(0).gt(0.005).any()
+                    if exterior_visivel:
+                        st.caption(
+                            "A carteira total inclui Total Exterior. Essa abertura não aparece como linha "
+                            "porque não integra o escopo desta visão; os dados brutos permanecem disponíveis no download."
+                        )
 
-                    dados_tabela.append(linha_dados)
-
-                df_resultado = pd.DataFrame(dados_tabela)
-
-                # Criar tabela estilizada com HTML
-                st.markdown("---")
-
-                # Construir HTML da tabela
-                html_tabela = """
-                <style>
-                .carteira-table {
-                    width: max-content;
-                    max-width: 100%;
-                    border-collapse: collapse;
-                    font-size: 14px;
-                    margin-top: 10px;
-                }
-                .carteira-table th, .carteira-table td {
-                    border: 1px solid #ddd;
-                    padding: 8px 12px;
-                    text-align: right;
-                }
-                .carteira-table th {
-                    background-color: #f5f5f5;
-                    font-weight: 600;
-                }
-                .carteira-table td:first-child {
-                    text-align: left;
-                    font-weight: 500;
-                }
-                .carteira-table tr.total-row {
-                    background-color: #e8f4e8;
-                    font-weight: bold;
-                }
-                .carteira-table tr.total-row td {
-                    font-weight: bold;
-                }
-                .carteira-table thead tr:first-child th {
-                    background-color: #111111;
-                    color: white;
-                    text-align: center;
-                }
-                .carteira-table thead tr:nth-child(2) th {
-                    background-color: #6E6E6E;
-                    color: white;
-                }
-                .delta-pos { color: #28a745; }
-                .delta-neg { color: #dc3545; }
-                </style>
-                <div style="width:100%;overflow-x:auto;"><table class="carteira-table">
-                <thead>
-                <tr>
-                <th rowspan="2">Tipo de Carteira</th>
-                """
-
-                # Cabeçalhos agrupados por período
-                for periodo in periodos_ordenados:
-                    periodo_exib = periodo_para_exibicao_mes(periodo)
-                    html_tabela += f'<th colspan="2">{periodo_exib}</th>'
-
-                html_tabela += "</tr><tr>"
-
-                for _ in periodos_ordenados:
-                    html_tabela += '<th>Valor</th><th>% Carteira Total</th>'
-
-                html_tabela += "</tr></thead><tbody>"
-
-                # Linhas de dados
-                for idx, row in df_resultado.iterrows():
-                    tipo = row["Tipo de Carteira"]
-                    is_total = tipo == "Carteira Total"
-                    row_class = 'class="total-row"' if is_total else ''
-
-                    html_tabela += f"<tr {row_class}><td>{tipo}</td>"
-
-                    for i, periodo in enumerate(periodos_ordenados):
-                        periodo_exib = periodo_para_exibicao_mes(periodo)
-                        valor = row.get(f"{periodo_exib}")
-                        pct = row.get(f"{periodo_exib} %")
-
-                        valor_fmt = formatar_valor_br(valor)
-                        pct_fmt = formatar_percentual(pct) if pct is not None else "-"
-
-                        # Adicionar delta visual se houver período anterior
-                        delta_html = ""
-                        periodo_base = _periodo_ano_anterior(periodo)
-                        coluna_base = linha_colunas.get(tipo)
-                        valor_base = None
-                        if periodo_base and coluna_base:
-                            df_base = df_inst[df_inst[col_periodo] == periodo_base]
-                            if not df_base.empty and coluna_base in df_base.columns:
-                                valor_base = df_base[coluna_base].iloc[0]
-                        if valor_base is not None and valor is not None:
-                            delta = valor - valor_base
-                            if delta > 0:
-                                delta_html = f' <span class="delta-pos">▲</span>'
-                            elif delta < 0:
-                                delta_html = f' <span class="delta-neg">▼</span>'
-
-                        html_tabela += f"<td>{valor_fmt}{delta_html}</td><td>{pct_fmt}</td>"
-                    html_tabela += "</tr>"
-
-                html_tabela += "</tbody></table></div>"
-
-                st.markdown(html_tabela, unsafe_allow_html=True)
-
-                # Tabela de auditoria (dataframe simples)
                 with st.expander("Dados para auditoria"):
-                    st.dataframe(df_resultado, width='stretch')
+                    quality_dataframe = carteira_4966_quality_dataframe(modelo_4966)
+                    if not quality_dataframe.empty:
+                        st.markdown("**Alertas do cross-check PDD / Carteira Total**")
+                        st.dataframe(
+                            quality_dataframe,
+                            hide_index=True,
+                            width="stretch",
+                        )
+                    st.dataframe(
+                        carteira_4966_audit_dataframe(modelo_4966),
+                        hide_index=True,
+                        width="stretch",
+                    )
 
-                # Exportação Excel
                 st.markdown("---")
-
-                def criar_excel_carteira_4966(df, periodos):
-                    """Cria arquivo Excel com layout similar ao visual da tabela."""
-                    import io
-                    buffer = io.BytesIO()
-                    workbook = xlsxwriter.Workbook(buffer, {"in_memory": True})
-                    worksheet = workbook.add_worksheet("Carteira 4.966")
-
-                    n_cols = 1 + len(periodos) * 2
-                    border = {"border": 1, "border_color": "#dddddd"}
-                    header_fmt = workbook.add_format(
-                        {"bold": True, "align": "center", "valign": "vcenter", "bg_color": "#111111", "font_color": "white", **border}
-                    )
-                    subheader_fmt = workbook.add_format(
-                        {"bold": True, "align": "center", "valign": "vcenter", "bg_color": "#6E6E6E", "font_color": "white", **border}
-                    )
-                    row_even_num = workbook.add_format({"align": "right", "valign": "vcenter", "bg_color": "#f8f9fa", "num_format": "#,##0", **border})
-                    row_odd_num = workbook.add_format({"align": "right", "valign": "vcenter", "bg_color": "#ffffff", "num_format": "#,##0", **border})
-                    row_even_pct = workbook.add_format({"align": "right", "valign": "vcenter", "bg_color": "#f8f9fa", "num_format": "0.00%", **border})
-                    row_odd_pct = workbook.add_format({"align": "right", "valign": "vcenter", "bg_color": "#ffffff", "num_format": "0.00%", **border})
-                    row_even_label = workbook.add_format({"align": "left", "valign": "vcenter", "bg_color": "#f8f9fa", **border})
-                    row_odd_label = workbook.add_format({"align": "left", "valign": "vcenter", "bg_color": "#ffffff", **border})
-                    total_row_num = workbook.add_format(
-                        {"align": "right", "valign": "vcenter", "bg_color": "#e8f4e8", "bold": True, "num_format": "#,##0", **border}
-                    )
-                    total_row_pct = workbook.add_format(
-                        {"align": "right", "valign": "vcenter", "bg_color": "#e8f4e8", "bold": True, "num_format": "0.00%", **border}
-                    )
-                    total_row_label = workbook.add_format(
-                        {"align": "left", "valign": "vcenter", "bg_color": "#e8f4e8", "bold": True, **border}
-                    )
-
-                    worksheet.set_column(0, 0, 30)
-                    worksheet.set_column(1, max(1, n_cols - 1), 16)
-
-                    row_idx = 0
-                    worksheet.write(row_idx, 0, "Tipo de Carteira", header_fmt)
-                    col_idx = 1
-                    for periodo in periodos:
-                        periodo_exib = periodo_para_exibicao_mes(periodo)
-                        worksheet.merge_range(row_idx, col_idx, row_idx, col_idx + 1, periodo_exib, header_fmt)
-                        col_idx += 2
-                    row_idx += 1
-
-                    worksheet.write(row_idx, 0, "", subheader_fmt)
-                    col_idx = 1
-                    for _ in periodos:
-                        worksheet.write(row_idx, col_idx, "Valor", subheader_fmt)
-                        worksheet.write(row_idx, col_idx + 1, "% Carteira Total", subheader_fmt)
-                        col_idx += 2
-                    row_idx += 1
-
-                    zebra_idx = 0
-                    for _, row in df.iterrows():
-                        tipo = row["Tipo de Carteira"]
-                        is_total = tipo == "Carteira Total"
-                        is_even = zebra_idx % 2 == 0
-                        label_fmt = total_row_label if is_total else (row_even_label if is_even else row_odd_label)
-                        valor_cell_fmt = total_row_num if is_total else (row_even_num if is_even else row_odd_num)
-                        pct_cell_fmt = total_row_pct if is_total else (row_even_pct if is_even else row_odd_pct)
-
-                        worksheet.write(row_idx, 0, tipo, label_fmt)
-                        col_idx = 1
-                        for periodo in periodos:
-                            periodo_exib = periodo_para_exibicao_mes(periodo)
-                            valor = row.get(f"{periodo_exib}")
-                            pct = row.get(f"{periodo_exib} %")
-                            _write_excel_number_or_blank(worksheet, row_idx, col_idx, valor, valor_cell_fmt)
-                            _write_excel_number_or_blank(worksheet, row_idx, col_idx + 1, pct, pct_cell_fmt)
-                            col_idx += 2
-                        row_idx += 1
-                        zebra_idx += 1
-
-                    workbook.close()
-                    buffer.seek(0)
-                    return buffer.getvalue()
-
                 col_btn1, col_btn2 = st.columns(2)
+                periodo_nome = "_".join(
+                    modelo_4966.period_labels[period].replace("/", "-")
+                    for period in modelo_4966.periods
+                )
+                instituicao_nome = re.sub(
+                    r"[^A-Za-z0-9_\-]+",
+                    "_",
+                    str(instituicao_selecionada),
+                )[:45]
 
                 with col_btn1:
-                    excel_data = criar_excel_carteira_4966(df_resultado, periodos_ordenados)
-                    periodos_str = "_".join([periodo_para_exibicao_mes(p).replace("/", "-") for p in periodos_ordenados])
                     st.download_button(
                         label="Download Excel",
-                        data=excel_data,
-                        file_name=f"Carteira_4966_{instituicao_selecionada.replace(' ', '_')[:30]}_{periodos_str}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                        data=build_carteira_4966_excel(modelo_4966),
+                        file_name=(
+                            f"Classificacao_Carteira_4966_{instituicao_nome}_{periodo_nome}_"
+                            f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+                        ),
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        key="download_excel_carteira_4966"
+                        key="download_excel_carteira_4966_v3",
+                        width="stretch",
                     )
 
                 with col_btn2:
-                    # Exportar dados brutos da instituição
-                    df_inst_export = df_inst.copy()
-                    buffer_raw = io.BytesIO()
-                    with pd.ExcelWriter(buffer_raw, engine='openpyxl') as writer:
-                        df_inst_export.to_excel(writer, index=False, sheet_name='Dados Brutos')
-                    buffer_raw.seek(0)
-
                     st.download_button(
                         label="Download Dados Puros",
-                        data=buffer_raw.getvalue(),
-                        file_name=f"Carteira_4966_{instituicao_selecionada.replace(' ', '_')[:30]}_dados_brutos_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                        data=build_carteira_4966_raw_excel(
+                            modelo_4966,
+                            df_inst[df_inst[col_periodo].isin(periodos_ordenados)],
+                            df_ativo_inst,
+                        ),
+                        file_name=(
+                            f"Carteira_4966_Dados_Puros_{instituicao_nome}_"
+                            f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+                        ),
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        key="download_excel_carteira_4966_raw"
+                        key="download_excel_carteira_4966_raw_v3",
+                        width="stretch",
                     )
 
                 with st.expander("Mini-glossário", expanded=False):
                     st.dataframe(
-                        pd.DataFrame(GLOSSARIO_CARTEIRA_4966),
+                        pd.DataFrame(CARTEIRA_4966_GLOSSARY_ROWS),
                         hide_index=True,
                         width="stretch",
                     )
                     st.caption(
-                        "Fonte: Banco Central do Brasil, IFData/Olinda, relatório 16 (classificação da carteira conforme Resolução 4.966), no período selecionado."
+                        "Fontes: BCB IFData, Relatório 16 para carteira e inadimplência; "
+                        "Relatório 2 Ativo, visão Conglomerado Prudencial, para Perda Esperada."
                     )
-
             else:
                 st.info("Selecione ao menos um período para visualizar os dados.")
-
         else:
-            st.warning("Dados de Carteira 4.966 não contêm instituições ou períodos válidos.")
-            st.caption(f"Colunas disponíveis: {colunas_disponiveis[:10]}...")
-
+            st.warning("Os dados de Carteira 4.966 não contêm instituições ou períodos válidos.")
+            st.caption(f"Colunas disponíveis: {df_carteira.columns.tolist()[:10]}.")
     else:
         st.warning("Dados da Carteira 4.966 (Relatório 16) não disponíveis.")
         if carteira_4966_cache_status.get("error"):
             st.error(carteira_4966_cache_status["error"])
         st.info(
             "O app não encontrou uma base completa e validada no release curado. "
-            "Tente novamente ou atualize o Relatório 16 em 'Atualização Base'."
+            "Atualize os Relatórios 16 e 2 antes de tentar novamente."
         )
-
-        # Mostrar informações sobre o cache
-        from utils.ifdata_cache import get_manager
-        manager = get_manager()
-        info = manager.info("carteira_instrumentos")
-        if info and not info.get("erro"):
-            st.caption(f"Status do cache: {info}")
-
-
+        st.button(
+            "Ir para Atualizar Base",
+            width="stretch",
+            key="carteira_4966_ir_atualizar_base",
+            on_click=_nav_para_menu,
+            args=("Atualizar Base",),
+        )
 elif menu == "Taxas de Juros por Produto":
     # =========================================================================
     # ABA TAXAS DE JUROS (BETA LEVE)
