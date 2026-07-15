@@ -210,6 +210,116 @@ def test_carteira_release_token_changes_with_manifest_digest():
     assert app1._carteira_4966_release_token(manifest_a) != app1._carteira_4966_release_token(manifest_b)
 
 
+def test_carteira_release_token_changes_with_ativo_digest():
+    manifest_a = {
+        "generated_at_utc": "2026-07-14T00:00:00Z",
+        "caches": {
+            "carteira_instrumentos": {"sha256": "carteira-sha"},
+            "ativo": {
+                "sha256": "ativo-sha-a",
+                "max_period_ref": "202603",
+                "period_count": 45,
+            },
+        },
+    }
+    manifest_b = {
+        **manifest_a,
+        "caches": {
+            **manifest_a["caches"],
+            "ativo": {
+                **manifest_a["caches"]["ativo"],
+                "sha256": "ativo-sha-b",
+            },
+        },
+    }
+
+    assert app1._carteira_4966_release_token(manifest_a) != app1._carteira_4966_release_token(manifest_b)
+
+
+def test_carteira_ativo_loader_replaces_stale_local_asset(monkeypatch, tmp_path):
+    stale_path = tmp_path / "dados.parquet"
+    stale_path.write_bytes(b"ativo-local-sem-mar-26")
+    stale_data = pd.DataFrame(
+        {
+            "Instituição": ["ITAU - PRUDENCIAL"],
+            "Período": ["4/2025"],
+            "CodInst": ["C0080099"],
+        }
+    )
+    current_data = pd.DataFrame(
+        {
+            "Instituição": ["ITAU - PRUDENCIAL", "ITAU - PRUDENCIAL"],
+            "Período": ["4/2025", "1/2026"],
+            "CodInst": ["C0080099", "C0080099"],
+        }
+    )
+    saved = []
+
+    class FakeCache:
+        arquivo_dados = stale_path
+
+        def existe(self):
+            return True
+
+        def carregar_local(self):
+            return CacheResult(True, "stale", stale_data, fonte="cache_local")
+
+        def salvar_local(self, dados, fonte="desconhecida", info_extra=None):
+            saved.append((dados.copy(), fonte))
+            return CacheResult(True, "saved", dados, fonte=fonte)
+
+    class FakeManager:
+        cache = FakeCache()
+
+        def get_cache(self, cache_name):
+            assert cache_name == "ativo"
+            return self.cache
+
+    calls = []
+
+    def fake_download(cache_name, release_base_url, *, expected_sha256=""):
+        calls.append((cache_name, release_base_url, expected_sha256))
+        return CacheResult(
+            True,
+            "release atual",
+            current_data,
+            metadata={"sha256": expected_sha256},
+            fonte="github_releases_fallback",
+        )
+
+    monkeypatch.setattr(app1, "get_cache_manager", lambda: FakeManager())
+    monkeypatch.setattr(app1, "_baixar_cache_release_base_cache", fake_download)
+    manifest = {
+        "caches": {
+            "ativo": {
+                "sha256": "digest-ativo-atual",
+                "max_period_ref": "202603",
+                "period_count": 45,
+            }
+        }
+    }
+
+    out, status = app1._load_carteira_4966_ativo_periods_impl(
+        manifest,
+        ("1/2026",),
+    )
+
+    assert calls == [
+        (
+            "ativo",
+            app1._CARTEIRA_4966_RELEASE_BASE_URL,
+            "digest-ativo-atual",
+        )
+    ]
+    assert len(saved) == 1
+    assert out["Período"].tolist() == ["1/2026"]
+    assert status == {
+        "valid": True,
+        "integrity_verified": True,
+        "source": "github_releases_fallback",
+    }
+
+
 def test_cached_loader_uses_the_manifest_that_created_its_release_token(monkeypatch):
     manifest = {
         "generated_at_utc": "2026-07-14T00:00:00Z",
@@ -567,6 +677,7 @@ def test_carteira_route_uses_new_pdd_model_and_ativo_dependency():
         "ativo",
     ]
     assert "build_carteira_4966_model" in route_source
+    assert "load_carteira_4966_ativo_periods" in route_source
     assert "render_carteira_4966_html" in route_source
     assert "carteira_4966_quality_issue_message" in route_source
     assert "Ativos Problemáticos" not in route_source
