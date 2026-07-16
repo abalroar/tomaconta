@@ -372,6 +372,53 @@ def test_peers_base_dre_options_always_include_individual():
     assert app1._normalizar_base_dre_peers("Individual") == "Individual"
 
 
+def test_peers_static_configuration_preserves_sections_rows_and_ratio_contracts():
+    assert [section["section"] for section in app1.PEERS_TABELA_LAYOUT] == [
+        "Balanço",
+        "Qualidade Carteira 4060",
+        "Alavancagem",
+        "Desempenho",
+    ]
+    assert [
+        row["label"]
+        for section in app1.PEERS_TABELA_LAYOUT
+        for row in section["rows"]
+    ] == [
+        "Ativo Total",
+        "Ativos Líquidos",
+        "Carteira de Crédito*",
+        "Perda Esperada",
+        "Depósitos Totais",
+        "Core Funding*",
+        "Patrimônio Líquido (PL)",
+        "Ativos Estágio 2",
+        "Ativos Estágio 3",
+        "Ativos Estágio 3 / Carteira de Crédito",
+        "Inadimplência",
+        "Inadimplência / Carteira de Crédito",
+        "Perda Esperada / Estágio 3",
+        "Perda Esperada / Est2+3",
+        "Perda Esperada / Carteira de Crédito*",
+        "Ativo Total / PL",
+        "Carteira de Crédito* / PL",
+        "Índice de Capital Principal (CET1)",
+        "Índice de Basileia Total (%)",
+        "Lucro Líquido Acumulado",
+        "ROE Acumulado YTD (%)",
+    ]
+    assert app1.PEERS_PERCENT_DECIMALS == {"Perda Esperada / Est2+3": 1}
+    assert app1.PEERS_RATIO_COMPONENTS["Perda Esperada / Estágio 3"] == (
+        "Perda Esperada",
+        "Ativos Estágio 3",
+    )
+    assert app1.PEERS_RATIO_COMPONENTS["Ativos Estágio 3 / Carteira de Crédito"] == (
+        "Ativos Estágio 3",
+        "Carteira de Crédito Bruta",
+    )
+    assert "Perda Esperada / Estágio 3" in app1.PEERS_ALLOWANCE_RATIO_METRICS
+    assert "Inadimplência" in app1.PEERS_GLOSSARIO_RESUMIDO
+
+
 def test_individual_caches_use_official_ifdata_type_three():
     manager = CacheManager()
 

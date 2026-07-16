@@ -114,6 +114,9 @@ from utils.formatting import (
     formatar_numero_br,
     formatar_percentual_br,
 )
+from utils.analytical_status_excel import (
+    write_analytical_status_sheet as _write_analytical_status_sheet_impl,
+)
 from utils.snapshot_delta import compute_delta
 from utils.device_detection import detect_device_from_headers
 from utils.institution_search import search_institutions
@@ -127,6 +130,16 @@ from tabs.carteira_4966 import (
     quality_issue_message as carteira_4966_quality_issue_message,
     quality_issues_dataframe as carteira_4966_quality_dataframe,
     render_carteira_4966_html,
+)
+from tabs.peers_config import (
+    PEERS_ALLOWANCE_RATIO_METRICS,
+    PEERS_BASE_CONSOLIDADA_LABEL,
+    PEERS_BASE_DRE_OPTIONS,
+    PEERS_BASE_INDIVIDUAL_LABEL,
+    PEERS_GLOSSARIO_RESUMIDO,
+    PEERS_PERCENT_DECIMALS,
+    PEERS_RATIO_COMPONENTS,
+    PEERS_TABELA_LAYOUT,
 )
 
 from utils.cosif_pdf_mapping import (
@@ -1360,187 +1373,6 @@ VARS_MOEDAS = [
     'Inadimplência 4.966',
 ]
 VARS_CONTAGEM = ['Número de Agências', 'Número de Postos de Atendimento']
-
-PEERS_TABELA_LAYOUT = [
-    {
-        "section": "Balanço",
-        "rows": [
-            {
-                "label": "Ativo Total",
-                "data_keys": ["Ativo Total"],
-                "format_key": "Ativo Total",
-            },
-            {
-                "label": "Ativos Líquidos",
-                "data_keys": [],
-                "format_key": "Ativos Líquidos",
-            },
-            {
-                "label": "Carteira de Crédito*",
-                "data_keys": [],
-                "format_key": "Carteira de Crédito Bruta",
-            },
-            {
-                "label": "Perda Esperada",
-                "data_keys": [],
-                "format_key": "Perda Esperada",
-            },
-            {
-                "label": "Depósitos Totais",
-                "data_keys": [],
-                "format_key": "Depósitos Totais",
-            },
-            {
-                "label": "Core Funding*",
-                "data_keys": [],
-                "format_key": "Core Funding",
-            },
-            {
-                "label": "Patrimônio Líquido (PL)",
-                "data_keys": ["Patrimônio Líquido"],
-                "format_key": "Patrimônio Líquido",
-            },
-        ],
-    },
-    {
-        "section": "Qualidade Carteira 4060",
-        "rows": [
-            {
-                "label": "Ativos Estágio 2",
-                "data_keys": [],
-                "format_key": "Ativos Estágio 2",
-            },
-            {
-                "label": "Ativos Estágio 3",
-                "data_keys": [],
-                "format_key": "Ativos Estágio 3",
-            },
-            {
-                "label": "Ativos Estágio 3 / Carteira de Crédito",
-                "data_keys": [],
-                "format_key": "Ativos Estágio 3 / Carteira de Crédito",
-            },
-            {
-                "label": "Inadimplência",
-                "data_keys": [],
-                "format_key": "Inadimplência",
-            },
-            {
-                "label": "Inadimplência / Carteira de Crédito",
-                "data_keys": [],
-                "format_key": "Inadimplência / Carteira de Crédito",
-            },
-            {
-                "label": "Perda Esperada / Estágio 3",
-                "data_keys": [],
-                "format_key": "Perda Esperada / Estágio 3",
-            },
-            {
-                "label": "Perda Esperada / Est2+3",
-                "data_keys": [],
-                "format_key": "Perda Esperada / Est2+3",
-            },
-            {
-                "label": "Perda Esperada / Carteira de Crédito*",
-                "data_keys": [],
-                "format_key": "Perda Esperada / Carteira de Crédito Bruta",
-            },
-        ],
-    },
-    {
-        "section": "Alavancagem",
-        "rows": [
-            {
-                "label": "Ativo Total / PL",
-                "data_keys": ["Ativo/PL", "Ativo / PL"],
-                "format_key": "Ativo/PL",
-            },
-            {
-                "label": "Carteira de Crédito* / PL",
-                "data_keys": ["Carteira de Crédito Bruta / PL", "Crédito/PL (%)", "Crédito/PL"],
-                "format_key": "Carteira de Crédito Bruta / PL",
-            },
-            {
-                "label": "Índice de Capital Principal (CET1)",
-                "data_keys": [],
-                "format_key": "Índice de Capital Principal",
-            },
-            {
-                "label": "Índice de Basileia Total (%)",
-                "data_keys": [],
-                "format_key": "Índice de Basileia",
-            },
-        ],
-    },
-    {
-        "section": "Desempenho",
-        "rows": [
-            {
-                "label": "Lucro Líquido Acumulado",
-                "data_keys": ["Lucro Líquido Acumulado YTD"],
-                "format_key": "Lucro Líquido Acumulado YTD",
-            },
-            {
-                "label": "ROE Acumulado YTD (%)",
-                "data_keys": ["ROE Ac. Anualizado (%)", "ROE Ac. YTD an. (%)"],
-                "format_key": "ROE Ac. Anualizado (%)",
-            },
-        ],
-    },
-]
-
-PEERS_GLOSSARIO_RESUMIDO = {
-    "Ativo Total": "Ativo Total do balanço principal (Rel. 1).",
-    "Ativos Líquidos": "Disponibilidades (a) + Aplicações Interfinanceiras de Liquidez (b) + TVM (c) no Rel. 2.",
-    "Carteira de Crédito*": "Até 2024: Crédito Bruta + Arrendamento Bruta + Outros Créditos Líquidos de Provisão. 2025+: Valor Contábil Bruto (e1+f1+g1+h1) no Rel. 2; se a regra canônica do período ficar incompleta, o fallback líquido e+f+g+h é marcado explicitamente.",
-    "Perda Esperada": "Soma de perdas esperadas e ajustes de valor justo das bases e/f/g/h no Rel. 2.",
-    "Depósitos Totais": "Prioriza a linha agregada oficial disponível no Rel. 3; só usa soma a1..a6 quando nenhum agregado oficial estiver preenchido na linha.",
-    "Core Funding*": "Até 2024: Captações (e). 2025+: Captações (e) + Instrumentos de Dívida Elegíveis a Capital (h) no Rel. 3, sem tratar componente ausente como zero.",
-    "Patrimônio Líquido (PL)": "Patrimônio Líquido do balanço principal (Rel. 1).",
-    "Ativos Estágio 2": "Saldo da conta 3312000001 (Cadoc 4060) no período, quando a fonte mensal publicar o estágio e houver match prudencial confiável.",
-    "Ativos Estágio 3": "Saldo da conta 3313000000 (Cadoc 4060) no período, quando a fonte mensal publicar o estágio e houver match prudencial confiável.",
-    "Ativos Estágio 3 / Carteira de Crédito": "Ativos Estágio 3 (Cadoc 4060) ÷ Carteira de Crédito*.",
-    "Inadimplência": "Inadimplência publicada no IFData Rel. 16 (Carteira de crédito ativa por carteiras de instrumentos financeiros).",
-    "Inadimplência / Carteira de Crédito": "Inadimplência do Rel. 16 ÷ Carteira de Crédito*.",
-    "Perda Esperada / Estágio 3": "Magnitude da Perda Esperada (Rel. 2) ÷ Ativos Estágio 3 (Cadoc 4060), somente quando numerador e denominador estiverem disponíveis.",
-    "Perda Esperada / Est2+3": "Magnitude da Perda Esperada (Rel. 2) ÷ (Ativos Estágio 2 + Ativos Estágio 3) do Cadoc 4060, somente com cobertura prudencial válida.",
-    "Perda Esperada / Carteira de Crédito*": "Magnitude da Perda Esperada ÷ Carteira de Crédito*.",
-    "Ativo Total / PL": "Ativo Total ÷ Patrimônio Líquido.",
-    "Carteira de Crédito* / PL": "Carteira de Crédito* ÷ Patrimônio Líquido.",
-    "Índice de Capital Principal (CET1)": "Capital Principal ÷ RWA Total (Rel. 5).",
-    "Índice de Basileia Total (%)": "(CET1 + AT1 + T2) ÷ RWA Total (Rel. 5).",
-    "Lucro Líquido Acumulado": "Lucro Líquido acumulado no ano (YTD) até o fim do período (Rel. 1).",
-    "ROE Acumulado YTD (%)": "(LL YTD × fator de anualização) ÷ PL Médio.",
-}
-
-PEERS_PERCENT_DECIMALS = {
-    "Perda Esperada / Est2+3": 1,
-}
-
-PEERS_RATIO_COMPONENTS = {
-    "Ativos Estágio 3 / Carteira de Crédito": ("Ativos Estágio 3", "Carteira de Crédito Bruta"),
-    "Inadimplência / Carteira de Crédito": ("Inadimplência", "Carteira de Crédito Bruta"),
-    "Perda Esperada / Carteira de Crédito Bruta": ("Perda Esperada", "Carteira de Crédito Bruta"),
-    "Perda Esperada / Carteira de Crédito*": ("Perda Esperada", "Carteira de Crédito Bruta"),
-    "Carteira de Créd. Class. C4+C5 / Carteira Classificada": ("Carteira de Créd. Class. C4+C5", "Carteira de Crédito Classificada"),
-    "Perda Esperada / (Carteira C4 + C5)": ("Perda Esperada", "Carteira de Créd. Class. C4+C5"),
-    "PDD / Estágio 3": ("PDD Total 4060", "Ativos Estágio 3"),
-    "Perda Esperada / Estágio 3": ("Perda Esperada", "Ativos Estágio 3"),
-}
-
-PEERS_ALLOWANCE_RATIO_METRICS = {
-    "PDD / Estágio 3",
-    "Perda Esperada / Carteira",
-    "Perda Esperada / Carteira de Crédito Bruta",
-    "Perda Esperada / Carteira de Crédito*",
-    "Perda Esperada / (Carteira C4 + C5)",
-    "Perda Esperada / Estágio 3",
-    "Perda Esperada / Est2+3",
-}
-
-PEERS_BASE_CONSOLIDADA_LABEL = "Consolidada / Prudencial"
-PEERS_BASE_INDIVIDUAL_LABEL = "Individual"
-PEERS_BASE_DRE_OPTIONS = [PEERS_BASE_CONSOLIDADA_LABEL, PEERS_BASE_INDIVIDUAL_LABEL]
 
 
 def _normalizar_base_dre_peers(base: Optional[str]) -> str:
@@ -11148,68 +10980,14 @@ def _write_analytical_status_sheet(
     rows: list[dict],
     sheet_name: str = "status_analitico",
 ) -> None:
-    if not rows:
-        return
-
-    border = {"border": 1, "border_color": "#dddddd"}
-    header = workbook.add_format(
-        {"bold": True, "align": "center", "valign": "vcenter", "bg_color": "#111111", "font_color": "white", **border}
+    _write_analytical_status_sheet_impl(
+        workbook,
+        rows=rows,
+        sheet_name=sheet_name,
+        coerce_numeric=_coerce_numeric_value,
+        is_percentage=_is_variavel_percentual,
+        percent_decimals=PEERS_PERCENT_DECIMALS,
     )
-    text_fmt = workbook.add_format({"align": "left", "valign": "top", "text_wrap": True, **border})
-    num_fmt = workbook.add_format({"align": "right", "valign": "top", "num_format": "#,##0.00", **border})
-    pct1_fmt = workbook.add_format({"align": "right", "valign": "top", "num_format": "0.0%", **border})
-    pct2_fmt = workbook.add_format({"align": "right", "valign": "top", "num_format": "0.00%", **border})
-    mult_fmt = workbook.add_format({"align": "right", "valign": "top", "num_format": "0.00x", **border})
-
-    status_ws = workbook.add_worksheet(sheet_name)
-    headers = [
-        "Instituição",
-        "Período",
-        "Indicador",
-        "Valor",
-        "Status analítico",
-        "Fonte analítica",
-        "Observação",
-    ]
-    for col_idx, label in enumerate(headers):
-        status_ws.write(0, col_idx, label, header)
-
-    status_ws.set_column(0, 0, 28)
-    status_ws.set_column(1, 1, 14)
-    status_ws.set_column(2, 2, 32)
-    status_ws.set_column(3, 3, 16)
-    status_ws.set_column(4, 4, 24)
-    status_ws.set_column(5, 5, 42)
-    status_ws.set_column(6, 6, 72)
-
-    for row_idx, row in enumerate(rows, start=1):
-        status_ws.write(row_idx, 0, row.get("Instituição"), text_fmt)
-        status_ws.write(row_idx, 1, row.get("Período"), text_fmt)
-        status_ws.write(row_idx, 2, row.get("Indicador"), text_fmt)
-
-        valor_num = _coerce_numeric_value(row.get("Valor"))
-        format_key = str(row.get("Format key") or "")
-        if valor_num is None or pd.isna(valor_num):
-            status_ws.write_blank(row_idx, 3, None, text_fmt)
-        elif format_key in PEERS_PERCENT_DECIMALS:
-            dec = PEERS_PERCENT_DECIMALS[format_key]
-            status_ws.write_number(row_idx, 3, float(valor_num), pct1_fmt if dec == 1 else pct2_fmt)
-        elif _is_variavel_percentual(format_key):
-            status_ws.write_number(row_idx, 3, float(valor_num), pct2_fmt)
-        elif format_key in {"percent", "percent_1"}:
-            status_ws.write_number(row_idx, 3, float(valor_num), pct1_fmt)
-        elif format_key == "percent_2":
-            status_ws.write_number(row_idx, 3, float(valor_num), pct2_fmt)
-        elif format_key in {"Ativo/PL", "Crédito/PL (%)", "Carteira de Crédito Bruta / PL", "multiple"}:
-            status_ws.write_number(row_idx, 3, float(valor_num), mult_fmt)
-        else:
-            status_ws.write_number(row_idx, 3, float(valor_num), num_fmt)
-
-        status_ws.write(row_idx, 4, row.get("Status analítico"), text_fmt)
-        status_ws.write(row_idx, 5, row.get("Fonte analítica"), text_fmt)
-        status_ws.write(row_idx, 6, row.get("Observação"), text_fmt)
-
-    status_ws.freeze_panes(1, 0)
 
 
 def _periodo_trimestre_anterior(periodo: Optional[str], periodos_disponiveis: list[str]) -> Optional[str]:
