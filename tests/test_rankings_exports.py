@@ -1,6 +1,7 @@
 from io import BytesIO
 
 import pandas as pd
+import pytest
 from openpyxl import load_workbook
 
 import app1
@@ -117,3 +118,45 @@ def test_rankings_capital_raw_export_includes_missing_rel5_status():
 
     assert ws.cell(row=absent_row, column=5).value == "institution_period_missing"
     assert "rel. 5" in str(ws.cell(row=absent_row, column=7).value).lower()
+
+
+def test_rankings_export_custo_credito_usa_percentual_e_celula_vazia():
+    """Custo de Crédito exporta valor bruto decimal com formato %, e N/D como célula vazia."""
+    indicador = app1.METRIC_CUSTO_CREDITO
+    df_export = pd.DataFrame(
+        [
+            {
+                "Período": "1/2026",
+                "Instituição": "BANK A - PRUDENCIAL",
+                "Indicador": indicador,
+                "Valor": 0.0306,
+                "Ranking": 1,
+            }
+        ]
+    )
+    df_source = pd.DataFrame(
+        [
+            {"Instituição": "BANK A - PRUDENCIAL", "Período": "1/2026", indicador: 0.0306},
+            {"Instituição": "BANK B - PRUDENCIAL", "Período": "1/2026", indicador: None},
+        ]
+    )
+
+    output = app1._gerar_excel_rankings_dados_puros(
+        df_export=df_export,
+        periodo_ref="1/2026",
+        indicador_label=indicador,
+        indicador_col=indicador,
+        bancos_referencia=["BANK A - PRUDENCIAL", "BANK B - PRUDENCIAL"],
+        df_source=df_source,
+    )
+
+    ws = load_workbook(BytesIO(output.getvalue()), data_only=True)["status_analitico"]
+    incluida = _find_status_row(ws, "BANK A - PRUDENCIAL", "Mar/26", indicador)
+    omitida = _find_status_row(ws, "BANK B - PRUDENCIAL", "Mar/26", indicador)
+
+    celula_incluida = ws.cell(row=incluida, column=4)
+    assert celula_incluida.value == pytest.approx(0.0306)
+    assert "%" in str(celula_incluida.number_format)
+
+    assert ws.cell(row=omitida, column=5).value == "indicator_missing"
+    assert ws.cell(row=omitida, column=4).value is None

@@ -163,6 +163,7 @@ from utils.ifdata_cache import (
     get_manager as get_cache_manager,
     DERIVED_METRICS,
     DERIVED_METRICS_FORMULAS,
+    METRIC_CUSTO_CREDITO,
     build_derived_metrics,
     load_derived_metrics_slice,
     CRITICAL_EXTRA_METRICS,
@@ -5399,7 +5400,12 @@ def _classificar_par_periodos(p1: str, p2: str) -> str:
 
 # Indicadores que variam conforme modo tri/acumulado
 _INDICADORES_SOMENTE_TRI = {'Lucro Líquido Trimestral', 'ROE Trim. Anualizado (%)'}
-_INDICADORES_SOMENTE_ACUM = {'Lucro Líquido Acumulado YTD', 'ROE Ac. Anualizado (%)'}
+_INDICADORES_SOMENTE_ACUM = {
+    'Lucro Líquido Acumulado YTD',
+    'ROE Ac. Anualizado (%)',
+    # Custo de Crédito é YTD anualizado, mesma natureza do ROE acumulado.
+    METRIC_CUSTO_CREDITO,
+}
 
 
 def _is_indice_capital_display(variavel: Optional[str]) -> bool:
@@ -14056,6 +14062,8 @@ RANKINGS_FAMILY_PRINCIPAL_LIGHT = frozenset(
         "Patrimônio Líquido",
     }
 )
+# Indicadores que exigem enriquecimento com o cache `derived_metrics` (DRE Rel. 4).
+RANKINGS_FAMILY_DERIVED = frozenset({METRIC_CUSTO_CREDITO})
 
 
 def _rankings_periodos_selecionados(periodos_selecionados: Sequence[str]) -> tuple[str, ...]:
@@ -14165,6 +14173,10 @@ def _rankings_expandir_periodos_ytd_acumulado(
 
 
 def _resolve_rankings_source_family(indicador_label: str) -> str:
+    if indicador_label in RANKINGS_FAMILY_DERIVED:
+        # Base do principal preparado (traz Carteira de Crédito*/Ativo Total para
+        # pool e ponderação) + coluna derivada anexada depois do carregamento.
+        return "principal_prepared"
     if indicador_label in RANKINGS_FAMILY_PRINCIPAL_PREPARED:
         return "principal_prepared"
     if indicador_label in RANKINGS_FAMILY_CAPITAL_PREPARED:
@@ -14195,6 +14207,7 @@ def _resolve_rankings_source_request(
                     incluir_contexto_trimestral=True,
                 ),
                 "needs_capital": True,
+                "needs_derived": False,
                 "perf_label": "rankings_df_source_table_trimestral",
             }
         return {
@@ -14204,6 +14217,7 @@ def _resolve_rankings_source_request(
                 incluir_prev_dez=True,
             ),
             "needs_capital": True,
+            "needs_derived": False,
             "perf_label": "rankings_df_source_table_acumulado",
         }
 
@@ -14244,6 +14258,7 @@ def _resolve_rankings_source_request(
         "source_kind": source_family,
         "periodos_filter": periodos_filter,
         "needs_capital": source_family == "capital_prepared",
+        "needs_derived": indicador_label in RANKINGS_FAMILY_DERIVED,
         "perf_label": perf_label,
     }
 
@@ -14328,10 +14343,25 @@ def _load_cache_metadata(cache_obj) -> dict:
         return {}
 
 
+def _derived_cache_cobre_metricas_atuais(cache_derivado) -> bool:
+    """Checa se o cache derivado já contém todas as métricas do registro atual.
+
+    Usa o metadata (`denominador_zero_ou_nan` traz uma chave por métrica) para não
+    pagar leitura de parquet. Metadata ausente/ilegível é tratado como suficiente:
+    o gate de frescor por mtime continua sendo a regra principal.
+    """
+    metadata = _load_cache_metadata(cache_derivado)
+    contadores = (metadata.get("extra") or {}).get("denominador_zero_ou_nan")
+    if not isinstance(contadores, dict) or not contadores:
+        return True
+    return all(metrica in contadores for metrica in DERIVED_METRICS)
+
+
 def ensure_derived_metrics_cache(
     derived_cache_name: str = "derived_metrics",
     dre_cache_name: str = "dre",
     principal_cache_name: str = "principal",
+    ativo_cache_name: Optional[str] = "ativo",
 ) -> Tuple[Optional[object], Optional[str], dict]:
     manager = get_cache_manager()
     cache_derivado = manager.get_cache(derived_cache_name) if manager else None
@@ -14343,12 +14373,24 @@ def ensure_derived_metrics_cache(
     principal_cache = manager.get_cache(principal_cache_name)
     mtime_dre = _get_cache_data_mtime(dre_cache)
     mtime_principal = _get_cache_data_mtime(principal_cache)
+    # Rel. 2 entra na referência de frescor porque alimenta o denominador de
+    # Custo de Crédito (%); sem isso a métrica ficaria presa a um cache antigo.
+    ativo_cache = manager.get_cache(ativo_cache_name) if (manager and ativo_cache_name) else None
+    mtime_ativo = _get_cache_data_mtime(ativo_cache) if ativo_cache is not None else None
 
     precisa_recalcular = True
     if mtime_derivado is not None:
-        referencia = max([t for t in [mtime_dre, mtime_principal] if t is not None], default=None)
+        referencia = max(
+            [t for t in [mtime_dre, mtime_principal, mtime_ativo] if t is not None],
+            default=None,
+        )
         if referencia is None or mtime_derivado >= referencia:
             precisa_recalcular = False
+
+    if not precisa_recalcular and not _derived_cache_cobre_metricas_atuais(cache_derivado):
+        # Cache mais novo que as fontes, porém gerado antes de alguma métrica existir
+        # (ex.: asset de release anterior). Recalcula para não exibir N/D silencioso.
+        precisa_recalcular = True
 
     if not precisa_recalcular:
         return cache_derivado, None, _load_cache_metadata(cache_derivado)
@@ -14369,6 +14411,7 @@ def ensure_derived_metrics_cache(
         derived_cache_name=derived_cache_name,
         dre_cache_name=dre_cache_name,
         principal_cache_name=principal_cache_name,
+        ativo_cache_name=ativo_cache_name,
         force=True,
     )
     elapsed = _perf_end("derived_metrics_build")
@@ -14408,6 +14451,9 @@ def carregar_metricas_derivadas_individual_slice(periodos=None, instituicoes=Non
         derived_cache_name="derived_metrics_individual",
         dre_cache_name="dre_individual",
         principal_cache_name="principal_individual",
+        # Não existe Relatório 2 individual: o denominador de Custo de Crédito (%)
+        # cai para a carteira do cache principal individual.
+        ativo_cache_name=None,
     )
     if cache_derivado is None or erro:
         st.session_state["derived_metrics_individual_last_error"] = erro or "cache derivado individual indisponível"
@@ -15267,6 +15313,78 @@ def _get_rankings_source_df(
         periodos_filter=periodos_filter,
     )
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def _get_rankings_custo_credito_pivot(derived_token: str, periodos_filter: tuple) -> pd.DataFrame:
+    """Recorte de Custo de Crédito (%) do cache derivado, pronto para merge em Rankings.
+
+    Lê direto do parquet derivado (sem tocar em session_state) para poder ser
+    memoizado. A garantia de que o cache existe/está atualizado fica com
+    `ensure_derived_metrics_cache`, chamada antes por `_anexar_custo_credito_rankings`.
+    """
+    _ = derived_token
+    manager = get_cache_manager()
+    cache_derivado = manager.get_cache("derived_metrics") if manager else None
+    if cache_derivado is None:
+        return pd.DataFrame()
+
+    df_long = load_derived_metrics_slice(
+        cache_derivado,
+        periodos=list(periodos_filter) if periodos_filter else None,
+        metricas=[METRIC_CUSTO_CREDITO],
+    )
+    if df_long is None or df_long.empty:
+        return pd.DataFrame()
+
+    df_out = pd.DataFrame(
+        {
+            "Instituição": df_long["Instituição"].astype(str),
+            "Período": df_long["Período"].astype(str),
+            METRIC_CUSTO_CREDITO: pd.to_numeric(df_long["Valor"], errors="coerce"),
+        }
+    )
+    # Alinha a grafia das instituições com a base de Rankings antes do merge.
+    df_out = _normalizar_instituicoes_rankings_leve(df_out)
+    df_out = (
+        df_out.dropna(subset=["Instituição", "Período"])
+        .groupby(["Instituição", "Período"], as_index=False)[METRIC_CUSTO_CREDITO]
+        .first()
+    )
+    return df_out
+
+
+def _anexar_custo_credito_rankings(
+    df_base: pd.DataFrame,
+    periodos_filter: Optional[tuple] = None,
+) -> pd.DataFrame:
+    """Anexa a coluna Custo de Crédito (%) à base de Rankings.
+
+    Ausência do cache derivado não derruba a aba: a coluna entra vazia e o
+    indicador é exibido como N/D, sem substituir por zero.
+    """
+    if df_base is None or df_base.empty:
+        return df_base
+
+    df_out = df_base.copy()
+    cache_derivado, erro, _ = ensure_derived_metrics_cache()
+    if cache_derivado is None or erro:
+        df_out[METRIC_CUSTO_CREDITO] = pd.NA
+        return df_out
+
+    df_pivot = _get_rankings_custo_credito_pivot(
+        _cache_version_token("derived_metrics"),
+        tuple(str(p) for p in (periodos_filter or ()) if p),
+    )
+    if df_pivot.empty:
+        df_out[METRIC_CUSTO_CREDITO] = pd.NA
+        return df_out
+
+    if METRIC_CUSTO_CREDITO in df_out.columns:
+        df_out = df_out.drop(columns=[METRIC_CUSTO_CREDITO])
+    df_out["Período"] = df_out["Período"].astype(str)
+    df_out = df_out.merge(df_pivot, on=["Instituição", "Período"], how="left")
+    return df_out
+
+
 def carregar_dados_capital():
     if 'dados_capital' in st.session_state and st.session_state['dados_capital']:
         return
@@ -15645,7 +15763,7 @@ st.markdown("---")
 
 CACHE_DEPENDENCIAS_POR_ABA = {
     "Snapshot": ["critical_screens"],
-    "Rankings": ["principal", "capital"],
+    "Rankings": ["principal", "capital", "derived_metrics"],
     "Peers (Tabela)": ["critical_screens"],
     "Evolução": ["principal", "passivo", "ativo", "capital"],
     "Scatter Plot": ["principal", "capital", "derived_metrics"],
@@ -18724,6 +18842,7 @@ elif menu == "Rankings":
         indicadores_config = {
             'Ativo Total': ['Ativo Total'],
             'Carteira de Crédito*': ['Carteira de Crédito*', 'Carteira de Crédito Bruta', 'Carteira de Crédito'],
+            METRIC_CUSTO_CREDITO: [METRIC_CUSTO_CREDITO],
             'Core Funding*': ['Core Funding*', 'Core Funding', 'Captações'],
             'Patrimônio Líquido': ['Patrimônio Líquido'],
             'Índice de Capital Principal (CET1)': ['Índice de Capital Principal (CET1)', 'Índice de Capital Principal'],
@@ -18746,6 +18865,7 @@ elif menu == "Rankings":
             ordem_prioritaria = [
                 'Ativo Total',
                 'Carteira de Crédito*',
+                METRIC_CUSTO_CREDITO,
                 'Core Funding*',
                 'Patrimônio Líquido',
                 'Índice de Capital Principal (CET1)',
@@ -18764,6 +18884,17 @@ elif menu == "Rankings":
             _RANKINGS_GLOSSARIO = {
                 'Ativo Total': 'Padrão COSIF. Soma de todos os ativos do conglomerado prudencial.',
                 'Carteira de Crédito*': 'Até 2024: Crédito Bruta + Arrendamento Bruta + Outros Créditos Líquidos de Provisão. 2025+: Valor Contábil Bruto (e1+f1+g1+h1) no Rel. 2; fallback líquido e+f+g+h é marcado explicitamente quando necessário.',
+                METRIC_CUSTO_CREDITO: (
+                    'Custo de risco de crédito: |Resultado com Perda Esperada de Operações de Crédito (f3)| '
+                    '÷ Carteira de Crédito*.\n'
+                    'Numerador: Rel. 4 (DRE), apenas a perda esperada de operações de crédito — não inclui '
+                    'TVM, aplicações interfinanceiras nem demais ativos.\n'
+                    'Denominador: Carteira de Crédito* do mesmo período (Rel. 2, Valor Contábil Bruto e1+f1+g1+h1).\n'
+                    'Anualização sobre o YTD reconstruído do Rel. 4 (Set = Jul–Set + Jun; Dez = Jul–Dez + Jun): '
+                    'Mar ×4, Jun ×2, Set ×12/9, Dez ×1.\n'
+                    'Série disponível a partir de Mar/25 (1/2025): o layout anterior do Rel. 4 não abre PDD por '
+                    'tipo de ativo, então períodos até 4/2024 aparecem como N/D.'
+                ),
                 'Core Funding*': 'Até 2024: Captações (e). 2025+: Captações (e) + Instrumentos de Dívida Elegíveis a Capital (h) no Rel. 3, sem imputar zero para componente ausente.',
                 'Patrimônio Líquido': 'Padrão COSIF.',
                 'Índice de Capital Principal (CET1)': 'Capital Principal ÷ RWA Total. Indicador de solidez patrimonial regulatório (mínimo exigido: 4,5% + ACPs).',
@@ -18933,6 +19064,10 @@ elif menu == "Rankings":
                 periodos_filter=_periodos_rankings_filter,
             )
             print(_perf_log(rankings_source_request["perf_label"]))
+            if rankings_source_request.get("needs_derived"):
+                _perf_start("rankings_derived_merge")
+                df = _anexar_custo_credito_rankings(df, _periodos_rankings_filter)
+                print(_perf_log("rankings_derived_merge"))
             print(_perf_log("rankings_base_df"))
 
             # Re-resolve indicator column after enrichment (handles column name variants)
@@ -27112,6 +27247,7 @@ elif menu == "Glossário":
         {"Indicador": "ROE Trim. Anualizado (%)", "Aba(s)": "Rankings, Glossário", "Fonte": "IFData Rel.1", "Fórmula": "(Lucro trimestral × 4) ÷ PL médio", "Unidade": "%", "Interpretação": "Proxy anualizada do trimestre corrente.", "Limitação": "Mais volátil que o ROE acumulado.", "Periodicidade": "Trimestral"},
         {"Indicador": "Lucro Líquido Acumulado YTD", "Aba(s)": "Snapshot, Peers (Tabela), Evolução, Glossário", "Fonte": "IFData Rel.1/4", "Fórmula": "Resultado líquido acumulado no ano", "Unidade": "R$", "Interpretação": "Contribuição de resultado até a data-base.", "Limitação": "Não é lucro run-rate do trimestre isolado.", "Periodicidade": "Trimestral (acumulado)"},
         {"Indicador": "Desp PDD / Resultado Intermediação Fin. Bruto (%)", "Aba(s)": "DRE (Ind. e Congl.), Glossário", "Fonte": "IFData Rel.4", "Fórmula": "Desp. PDD ÷ Resultado Interm. Fin. Bruto", "Unidade": "%", "Interpretação": "Pressão de provisões sobre resultado de intermediação.", "Limitação": "Pode distorcer com denominador muito baixo.", "Periodicidade": "Trimestral/YTD"},
+        {"Indicador": "Custo de Crédito (%)", "Aba(s)": "Rankings, Glossário", "Fonte": "IFData Rel.4 + Rel.2", "Fórmula": "|Resultado com Perda Esperada de Operações de Crédito (f3)| YTD anualizado ÷ Carteira de Crédito*", "Unidade": "%", "Interpretação": "Custo de risco da carteira: quanto da carteira é consumido por provisão de crédito em base anual.", "Limitação": "Série inicia em Mar/25 — o layout anterior do Rel. 4 não abre PDD por tipo de ativo. Sem junho publicado, Set/Dez ficam N/D. Carteira zero/ausente resulta em N/D.", "Periodicidade": "Trimestral/YTD anualizado"},
         {"Indicador": "Desp Captação / Captação (%)", "Aba(s)": "DRE (Ind. e Congl.), Glossário", "Fonte": "IFData Rel.4 + Rel.1", "Fórmula": "(Desp. Captação × (12/meses)) ÷ Captações", "Unidade": "%", "Interpretação": "Custo anualizado de funding sobre captação.", "Limitação": "Depende da compatibilidade entre bases.", "Periodicidade": "Trimestral/YTD"},
     ])
 

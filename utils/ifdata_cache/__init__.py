@@ -129,6 +129,7 @@ from .metric_registry import (
 from .derived_metrics import (
     DerivedMetricsCache,
     DerivedMetricsIndividualCache,
+    METRIC_CUSTO_CREDITO,
     DERIVED_METRICS,
     DERIVED_METRICS_FORMAT,
     DERIVED_METRICS_FORMULAS,
@@ -363,6 +364,7 @@ __all__ = [
     "get_derived_metric_formula_map",
     "DerivedMetricsCache",
     "DerivedMetricsIndividualCache",
+    "METRIC_CUSTO_CREDITO",
     "DERIVED_METRICS",
     "DERIVED_METRICS_FORMAT",
     "DERIVED_METRICS_FORMULAS",

@@ -17,6 +17,7 @@ import io
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
+import numpy as np
 import pandas as pd
 import requests
 
@@ -33,6 +34,7 @@ logger = logging.getLogger("ifdata_cache")
 
 METRIC_PDD_INTERMED = "Desp PDD / Resultado Intermediação Fin. Bruto"
 METRIC_DESP_CAPT = "Desp Captação / Captação"
+METRIC_CUSTO_CREDITO = "Custo de Crédito (%)"
 
 # Fonte canônica: metric_registry (mantemos labels locais para compatibilidade)
 DERIVED_METRICS = get_derived_metric_labels()
@@ -40,6 +42,7 @@ if not DERIVED_METRICS:
     DERIVED_METRICS = [
         METRIC_PDD_INTERMED,
         METRIC_DESP_CAPT,
+        METRIC_CUSTO_CREDITO,
     ]
 
 DERIVED_METRICS_FORMAT = get_derived_metric_format_map()
@@ -47,6 +50,7 @@ if not DERIVED_METRICS_FORMAT:
     DERIVED_METRICS_FORMAT = {
         METRIC_PDD_INTERMED: "pct",
         METRIC_DESP_CAPT: "pct",
+        METRIC_CUSTO_CREDITO: "pct",
     }
 
 DERIVED_METRICS_FORMULAS = get_derived_metric_formula_map()
@@ -54,11 +58,13 @@ if not DERIVED_METRICS_FORMULAS:
     DERIVED_METRICS_FORMULAS = {
         METRIC_PDD_INTERMED: "Desp. PDD / Resultado de Intermediação Financeira Bruto",
         METRIC_DESP_CAPT: "Desp. Captação anualizada / Captações",
+        METRIC_CUSTO_CREDITO: "|Desp. PDD de crédito (f3)| anualizada / Carteira de Crédito*",
     }
 
 
 DRE_REQUIRED_COLUMNS = {
     "desp_pdd": "Resultado com Perda Esperada (f)",
+    "desp_pdd_credito": "Resultado com Perda Esperada de Operações de Crédito (f3)",
     "rec_credito": "Rendas de Operações de Crédito (c)",
     "rec_arrendamento": "Rendas de Arrendamento Financeiro (d)",
     "rec_outras": "Rendas de Outras Operações com Características de Concessão de Crédito (e)",
@@ -66,6 +72,33 @@ DRE_REQUIRED_COLUMNS = {
     "rec_tvm": "Rendas de Títulos e Valores Mobiliários (b)",
     "desp_captacao": "Despesas de Captações (g)",
 }
+
+# Componentes do Relatório 2 usados para reconstruir Carteira de Crédito* com a mesma
+# semântica de `critical_screens.resolve_carteira_credito_bruta_value` (ver
+# `_resolve_carteira_credito_bruta_series`).
+CARTEIRA_LEGACY_COLUMNS = (
+    "Operações de Crédito (d1)",
+    "Arrendamento Mercantil a Receber (e1)",
+    "Outros Créditos - Líquido de Provisão (f)",
+)
+CARTEIRA_VCB_COLUMNS = (
+    "Valor Contábil Bruto (e1)",
+    "Valor Contábil Bruto (f1)",
+    "Valor Contábil Bruto (g1)",
+    "Valor Contábil Bruto (h1)",
+)
+CARTEIRA_NET_COLUMNS = (
+    "Operações de Crédito (e)",
+    "Operações de Arrendamento Financeiro (f)",
+    "Outras Operações com Características de Concessão de Crédito (g)",
+    "Valores a Receber de Transações de Pagamentos - Usuários Finais (Pós-pago) (h)",
+)
+# Fallback no cache principal (Rel. 1) quando o Relatório 2 não estiver disponível.
+CARTEIRA_PRINCIPAL_FALLBACK_COLUMNS = (
+    "Carteira de Crédito*",
+    "Carteira de Crédito Bruta",
+    "Carteira de Crédito",
+)
 
 
 DERIVED_CACHE_CONFIG = CacheConfig(
@@ -148,6 +181,7 @@ class DerivedMetricsStats:
     periodos_detectados: List[str]
     period_type: str
     total_registros: int
+    carteira_fonte: str = "indisponivel"
 
 
 def materialize_derived_metrics_cache(
@@ -157,6 +191,7 @@ def materialize_derived_metrics_cache(
     derived_cache_name: str = "derived_metrics",
     dre_cache_name: str = "dre",
     principal_cache_name: str = "principal",
+    ativo_cache_name: Optional[str] = "ativo",
     force: bool = False,
 ) -> CacheResult:
     """Recalcula e salva o cache derivado a partir de DRE + principal."""
@@ -191,13 +226,33 @@ def materialize_derived_metrics_cache(
             fonte="nenhum",
         )
 
-    df_derived, stats = build_derived_metrics(resultado_dre.dados, resultado_principal.dados)
+    # Relatório 2 alimenta apenas o denominador de Custo de Crédito (%). A ausência
+    # dele não pode derrubar a materialização das demais métricas derivadas.
+    df_ativo = None
+    if ativo_cache_name:
+        try:
+            resultado_ativo = cache_manager.carregar(ativo_cache_name)
+            if resultado_ativo and resultado_ativo.sucesso:
+                df_ativo = resultado_ativo.dados
+        except Exception:
+            logger.warning(
+                "[DERIVED] cache '%s' indisponível; Custo de Crédito usará carteira do principal",
+                ativo_cache_name,
+            )
+
+    df_derived, stats = build_derived_metrics(
+        resultado_dre.dados,
+        resultado_principal.dados,
+        df_ativo=df_ativo,
+    )
     info_extra = {
         "denominador_zero_ou_nan": stats.denominador_zero_ou_nan,
         "period_type": stats.period_type,
         "periodos_detectados": stats.periodos_detectados,
         "cache_origem_dre": dre_cache_name,
         "cache_origem_principal": principal_cache_name,
+        "cache_origem_ativo": ativo_cache_name or "",
+        "carteira_fonte": stats.carteira_fonte,
     }
     return cache_derivado.salvar_local(df_derived, fonte="derivado", info_extra=info_extra)
 
@@ -417,6 +472,103 @@ def _prepare_base_dre(df_dre: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, str
     return df_base, colunas
 
 
+def _soma_obrigatoria(df: pd.DataFrame, colunas: Tuple[str, ...]) -> Optional[pd.Series]:
+    """Soma colunas exigindo todas presentes e não nulas na linha.
+
+    Equivale, de forma vetorizada, a `critical_screens._sum_required_values`:
+    qualquer componente ausente invalida a linha inteira (NaN), sem imputar zero.
+    Retorna ``None`` quando nenhuma das colunas existe no DataFrame.
+    """
+    cols_presentes = [_find_column(df, col) for col in colunas]
+    cols_presentes = [col for col in cols_presentes if col]
+    if not cols_presentes:
+        return None
+    if len(cols_presentes) < len(colunas):
+        # Componente estruturalmente ausente na base: a soma nunca seria válida.
+        return pd.Series(np.nan, index=df.index, dtype="float64")
+    bloco = pd.DataFrame({col: _coerce_numeric(df[col]) for col in cols_presentes})
+    return bloco.sum(axis=1, min_count=len(cols_presentes)).astype("float64")
+
+
+def _resolve_carteira_credito_bruta_series(df_ativo: pd.DataFrame) -> pd.Series:
+    """Reconstrói `Carteira de Crédito*` do Relatório 2 na mesma regra do app.
+
+    Espelha `critical_screens.resolve_carteira_credito_bruta_value` de forma
+    vetorizada (a versão escalar é a fonte canônica da regra e o teste
+    `test_custo_credito.py` trava a equivalência entre as duas):
+
+    - até 2024: componentes legados (d1 + e1 + f); fallback líquido (e + f + g + h);
+    - 2025+: Valor Contábil Bruto (e1 + f1 + g1 + h1); fallback líquido.
+
+    Em qualquer cenário, componente ausente invalida a soma (não imputa zero).
+    """
+    if df_ativo is None or df_ativo.empty:
+        return pd.Series(dtype="float64")
+
+    anos = df_ativo["Período"].astype(str).apply(lambda p: _parse_periodo(p)[0])
+    anos = pd.to_numeric(anos, errors="coerce")
+
+    legacy = _soma_obrigatoria(df_ativo, CARTEIRA_LEGACY_COLUMNS)
+    vcb = _soma_obrigatoria(df_ativo, CARTEIRA_VCB_COLUMNS)
+    net = _soma_obrigatoria(df_ativo, CARTEIRA_NET_COLUMNS)
+
+    vazio = pd.Series(np.nan, index=df_ativo.index, dtype="float64")
+    legacy = vazio if legacy is None else legacy
+    vcb = vazio if vcb is None else vcb
+    net = vazio if net is None else net
+
+    # Ano ausente cai no ramo 2025+ para acompanhar o `else` da versão escalar.
+    mask_legado = anos.notna() & (anos <= 2024)
+    principal_por_ano = vcb.where(~mask_legado, legacy)
+    return principal_por_ano.combine_first(net)
+
+
+def _carteira_credito_lookup(
+    df_principal: pd.DataFrame,
+    df_ativo: Optional[pd.DataFrame],
+) -> Tuple[pd.DataFrame, str]:
+    """Retorna (lookup Instituição+Período -> Carteira de Crédito*, fonte usada)."""
+    if df_ativo is not None and not df_ativo.empty:
+        col_inst = _find_column(df_ativo, "Instituição") or _find_column(df_ativo, "Instituicao")
+        col_periodo = _find_column(df_ativo, "Período") or _find_column(df_ativo, "Periodo")
+        if col_inst and col_periodo:
+            df_norm = df_ativo.rename(columns={col_inst: "Instituição", col_periodo: "Período"})
+            serie = _resolve_carteira_credito_bruta_series(df_norm)
+            if not serie.empty and serie.notna().any():
+                lookup = pd.DataFrame(
+                    {
+                        "Instituição": df_norm["Instituição"],
+                        "Período": df_norm["Período"].astype(str),
+                        "Carteira de Crédito*": serie.values,
+                    }
+                )
+                lookup = lookup.groupby(["Instituição", "Período"], as_index=False)[
+                    "Carteira de Crédito*"
+                ].sum(min_count=1)
+                return lookup, "relatorio_2_carteira_credito_bruta"
+
+    col_inst = _find_column(df_principal, "Instituição") or _find_column(df_principal, "Instituicao")
+    col_periodo = _find_column(df_principal, "Período") or _find_column(df_principal, "Periodo")
+    if col_inst and col_periodo:
+        for candidato in CARTEIRA_PRINCIPAL_FALLBACK_COLUMNS:
+            if candidato not in df_principal.columns:
+                continue
+            lookup = pd.DataFrame(
+                {
+                    "Instituição": df_principal[col_inst],
+                    "Período": df_principal[col_periodo].astype(str),
+                    "Carteira de Crédito*": _coerce_numeric(df_principal[candidato]),
+                }
+            )
+            lookup = lookup.groupby(["Instituição", "Período"], as_index=False)[
+                "Carteira de Crédito*"
+            ].sum(min_count=1)
+            return lookup, f"fallback_principal:{candidato}"
+
+    vazio = pd.DataFrame(columns=["Instituição", "Período", "Carteira de Crédito*"])
+    return vazio, "indisponivel"
+
+
 def _prepare_base_principal(df_principal: pd.DataFrame) -> pd.DataFrame:
     col_periodo = _find_column(df_principal, "Período") or _find_column(df_principal, "Periodo")
     col_inst = _find_column(df_principal, "Instituição") or _find_column(df_principal, "Instituicao")
@@ -440,8 +592,14 @@ def _prepare_base_principal(df_principal: pd.DataFrame) -> pd.DataFrame:
 def build_derived_metrics(
     df_dre: pd.DataFrame,
     df_principal: pd.DataFrame,
+    df_ativo: Optional[pd.DataFrame] = None,
 ) -> Tuple[pd.DataFrame, DerivedMetricsStats]:
-    """Calcula métricas derivadas no formato LONG/TIDY."""
+    """Calcula métricas derivadas no formato LONG/TIDY.
+
+    `df_ativo` (Relatório 2) é opcional e serve apenas ao denominador de
+    `Custo de Crédito (%)`. Sem ele, o denominador cai para a carteira do cache
+    principal e a fonte usada fica registrada em `DerivedMetricsStats.carteira_fonte`.
+    """
     df_base, colunas_dre = _prepare_base_dre(df_dre)
     df_principal_base = _prepare_base_principal(df_principal)
 
@@ -456,6 +614,7 @@ def build_derived_metrics(
         return df_base[col]
 
     desp_pdd = _col("desp_pdd")
+    desp_pdd_credito = _col("desp_pdd_credito")
     rec_credito = _col("rec_credito")
     rec_arrendamento = _col("rec_arrendamento")
     rec_outras = _col("rec_outras")
@@ -516,6 +675,35 @@ def build_derived_metrics(
     )
     dados_metricas.append((METRIC_DESP_CAPT, serie_metric_3))
 
+    # Custo de Crédito: |PDD de crédito (f3)| anualizada ÷ Carteira de Crédito*.
+    # f3 só existe no layout IFData 2025+; períodos anteriores permanecem NaN
+    # (o layout antigo tem apenas o PDD total b5, sem abertura por tipo de ativo).
+    carteira_lookup, carteira_fonte = _carteira_credito_lookup(df_principal, df_ativo)
+    if desp_pdd_credito is None:
+        serie_custo_credito = pd.Series(np.nan, index=df_base.index, dtype="float64")
+        denominador_counts[METRIC_CUSTO_CREDITO] = int(len(df_base))
+    else:
+        desp_pdd_credito_ytd = _acumular_dre_ytd_por_periodo(df_base, desp_pdd_credito)
+        desp_pdd_credito_anualizada = _anualizar_serie_por_periodo(desp_pdd_credito_ytd, periodos)
+        if carteira_lookup.empty:
+            carteira_serie = pd.Series(np.nan, index=df_base.index, dtype="float64")
+        else:
+            df_carteira = df_base[["Instituição", "Período"]].copy()
+            df_carteira["Período"] = df_carteira["Período"].astype(str)
+            carteira_serie = df_carteira.merge(
+                carteira_lookup,
+                on=["Instituição", "Período"],
+                how="left",
+            )["Carteira de Crédito*"]
+            carteira_serie.index = df_base.index
+        serie_custo_credito = _safe_ratio(
+            desp_pdd_credito_anualizada.abs(),
+            pd.to_numeric(carteira_serie, errors="coerce"),
+            METRIC_CUSTO_CREDITO,
+            denominador_counts,
+        )
+    dados_metricas.append((METRIC_CUSTO_CREDITO, serie_custo_credito))
+
     registros = []
     for label, serie in dados_metricas:
         df_metric = df_base[["Instituição", "Período"]].copy()
@@ -537,6 +725,7 @@ def build_derived_metrics(
         periodos_detectados=sorted(df_final["Período"].astype(str).unique().tolist()),
         period_type=periodo_type,
         total_registros=len(df_final),
+        carteira_fonte=carteira_fonte,
     )
 
     return df_final, stats

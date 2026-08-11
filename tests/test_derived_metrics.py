@@ -1,8 +1,9 @@
+import json
 import math
 
 import pandas as pd
 
-from utils.ifdata_cache.derived_metrics import build_derived_metrics
+from utils.ifdata_cache.derived_metrics import DERIVED_METRICS, build_derived_metrics
 
 
 def _assert_close(actual, expected, tol=1e-6):
@@ -36,7 +37,7 @@ def test_metricas_derivadas_basico():
     )
 
     df_resultado, stats = build_derived_metrics(df_dre, df_principal)
-    assert stats.total_registros == 4
+    assert stats.total_registros == 2 * len(DERIVED_METRICS)
 
     df_p1 = df_resultado[df_resultado["Período"] == "1/2025"]
     df_p2 = df_resultado[df_resultado["Período"] == "2/2025"]
@@ -204,3 +205,30 @@ def test_denominador_zero_nan():
     assert pd.isna(valor_capt)
     assert stats.denominador_zero_ou_nan["Desp PDD / Resultado Intermediação Fin. Bruto"] == 1
     assert stats.denominador_zero_ou_nan["Desp Captação / Captação"] == 1
+
+
+def test_derived_cache_desatualizado_por_metrica_forca_recalculo(tmp_path):
+    """Cache gerado antes de uma métrica existir deve ser detectado como incompleto."""
+    import app1
+
+    class _FakeCache:
+        def __init__(self, path):
+            self.arquivo_metadata = path
+
+    metadata_path = tmp_path / "metadata.json"
+
+    metadata_path.write_text(
+        json.dumps({"extra": {"denominador_zero_ou_nan": {m: 0 for m in DERIVED_METRICS}}}),
+        encoding="utf-8",
+    )
+    assert app1._derived_cache_cobre_metricas_atuais(_FakeCache(metadata_path)) is True
+
+    metadata_path.write_text(
+        json.dumps({"extra": {"denominador_zero_ou_nan": {DERIVED_METRICS[0]: 0}}}),
+        encoding="utf-8",
+    )
+    assert app1._derived_cache_cobre_metricas_atuais(_FakeCache(metadata_path)) is False
+
+    # Metadata sem contadores não deve forçar recálculo (gate de mtime prevalece).
+    metadata_path.write_text(json.dumps({"extra": {}}), encoding="utf-8")
+    assert app1._derived_cache_cobre_metricas_atuais(_FakeCache(metadata_path)) is True
