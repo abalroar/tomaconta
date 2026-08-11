@@ -405,7 +405,7 @@ class SPBMeiosPagamentoCache(BaseCache):
     def dataset_paths(self) -> Dict[str, Path]:
         paths: Dict[str, Path] = {}
         for spec in DATASETS:
-            paths[spec.key] = self.arquivo_dados if spec.key == _MAIN_KEY else self.cache_dir / f"{spec.key}.parquet"
+            paths[spec.key] = self.arquivo_dados_runtime if spec.key == _MAIN_KEY else self.cache_dir / f"{spec.key}.parquet"
         return paths
 
     def _release_url_for(self, key: str) -> str:

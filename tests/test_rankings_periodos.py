@@ -106,7 +106,7 @@ def test_camada_curada_cobre_os_periodos_oferecidos_pela_aba():
     são servidos por `critical_screens`. Se a cobertura divergir, a aba oferece um
     período que a fonte não serve.
     """
-    principal = pd.read_parquet("data/cache/principal/dados.parquet", columns=["Período"])
+    principal = pd.read_parquet("data/bundled/principal/dados.parquet", columns=["Período"])
     curado = pd.read_parquet("data/bundled/critical_screens/dados.parquet", columns=["Período"])
 
     periodos_principal = {str(p).strip() for p in principal["Período"].dropna()}
@@ -119,7 +119,7 @@ def test_camada_curada_cobre_os_periodos_oferecidos_pela_aba():
 def test_artefatos_publicados_chegam_ate_mar26():
     """Trava a regressão do Mar-26 nos artefatos versionados."""
     for caminho in (
-        "data/cache/principal/dados.parquet",
+        "data/bundled/principal/dados.parquet",
         "data/bundled/critical_screens/dados.parquet",
     ):
         periodos = {
@@ -128,3 +128,65 @@ def test_artefatos_publicados_chegam_ate_mar26():
         }
         assert "1/2026" in periodos, f"{caminho} não cobre 1/2026 (Mar-26)"
         assert app1._periodo_mais_recente(sorted(periodos)) == "1/2026"
+
+
+# ------------------------------------------------ artefato bundled imutável
+
+
+def test_runtime_nunca_escreve_no_artefato_bundled(tmp_path):
+    """Download/extração vão para data/cache/; data/bundled/ é somente-leitura."""
+    from utils.ifdata_cache.principal import PrincipalCache
+
+    cache = PrincipalCache(tmp_path)
+    bundled_dados = cache.bundled_dir / cache.config.arquivo_dados
+    bundled_dados.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame({"Instituição": ["Banco A"], "Período": ["1/2026"]}).to_parquet(
+        bundled_dados, index=False
+    )
+    assinatura_original = bundled_dados.stat().st_size
+
+    # Sem runtime, a leitura resolve para o bundled.
+    assert cache.arquivo_dados == bundled_dados
+    assert cache.existe_leitura() is True
+    assert cache.existe() is False
+
+    # Um salvamento cria o runtime e deixa o bundled intacto.
+    cache.salvar_local(
+        pd.DataFrame({"Instituição": ["Banco A", "Banco B"], "Período": ["1/2026", "4/2025"]}),
+        fonte="api",
+    )
+    assert cache.arquivo_dados == cache.arquivo_dados_runtime
+    assert cache.arquivo_dados_runtime.exists()
+    assert bundled_dados.stat().st_size == assinatura_original
+
+    # E a limpeza do runtime devolve a leitura ao bundled, sem apagá-lo.
+    cache.limpar_local()
+    assert bundled_dados.exists()
+    assert cache.arquivo_dados == bundled_dados
+
+
+def test_extracao_parcial_nao_reduz_cobertura_de_periodos(tmp_path):
+    """Modo substituição troca os períodos extraídos, nunca descarta o histórico."""
+    from utils.ifdata_cache.manager import CacheManager
+
+    manager = CacheManager(tmp_path)
+    cache = manager.get_cache("principal")
+    existentes = pd.DataFrame(
+        {"Instituição": ["A", "A", "A"], "Período": ["2/2025", "3/2025", "4/2025"], "Ativo Total": [1.0, 2.0, 3.0]}
+    )
+    novos = pd.DataFrame({"Instituição": ["A"], "Período": ["1/2026"], "Ativo Total": [4.0]})
+
+    resultado = manager._salvar_parcial(
+        cache, [novos], existentes, modo="overwrite", info="teste"
+    )
+    assert resultado.sucesso
+
+    salvo = pd.read_parquet(cache.arquivo_dados_runtime)
+    assert set(salvo["Período"]) == {"2/2025", "3/2025", "4/2025", "1/2026"}
+
+    # "rebuild" continua permitindo a reconstrução total, de forma explícita.
+    resultado = manager._salvar_parcial(
+        cache, [novos], existentes, modo="rebuild", info="teste"
+    )
+    assert resultado.sucesso
+    assert set(pd.read_parquet(cache.arquivo_dados_runtime)["Período"]) == {"1/2026"}

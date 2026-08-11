@@ -438,7 +438,8 @@ class CacheManager:
         Args:
             tipo: Nome do tipo de cache
             periodos: Lista de períodos "YYYYMM"
-            modo: "incremental" (merge com existente) ou "overwrite" (substituir)
+            modo: "incremental"/"overwrite" substituem apenas os períodos extraídos,
+                preservando o histórico; "rebuild" descarta o dataset existente
             intervalo_salvamento: Salvar a cada N períodos (default: 4)
             callback_progresso: Função(i, total, periodo) chamada a cada período
             callback_salvamento: Função(info) chamada a cada salvamento
@@ -610,7 +611,11 @@ class CacheManager:
 
         df_novos = pd.concat(dados_novos, ignore_index=True)
 
-        if modo == "incremental" and dados_existentes is not None:
+        # "overwrite" substitui os períodos extraídos, não o dataset inteiro. Antes,
+        # uma extração de intervalo curto nesse modo descartava todo o histórico e o
+        # metadata passava a listar só aqueles períodos — degradação silenciosa que
+        # sumia com períodos das abas. Rebuild total só via modo explícito "rebuild".
+        if modo != "rebuild" and dados_existentes is not None:
             # Encontrar coluna de período (verificar ambas as grafias)
             col_periodo_novos = "Período" if "Período" in df_novos.columns else "Periodo"
             col_periodo_exist = "Período" if "Período" in dados_existentes.columns else "Periodo"

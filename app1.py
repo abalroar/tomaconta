@@ -131,6 +131,7 @@ from tabs.carteira_4966 import (
     quality_issues_dataframe as carteira_4966_quality_dataframe,
     render_carteira_4966_html,
 )
+from tabs import rankings_data
 from tabs.peers_config import (
     PEERS_ALLOWANCE_RATIO_METRICS,
     PEERS_BASE_CONSOLIDADA_LABEL,
@@ -4828,8 +4829,10 @@ def _versao_local_cache(info_local: dict) -> str:
 def _inferir_periodo_api_padrao() -> str:
     """Infere um período YYYYMM padrão a partir do metadata do cache principal."""
     try:
-        meta_path = Path("data/cache/principal/metadata.json")
-        if not meta_path.exists():
+        manager = get_cache_manager()
+        cache_principal = manager.get_cache("principal") if manager else None
+        meta_path = getattr(cache_principal, "arquivo_metadata", None)
+        if meta_path is None or not meta_path.exists():
             return "202503"
         meta = json.loads(meta_path.read_text())
         periodos = meta.get("periodos") or []
@@ -13945,53 +13948,19 @@ def _get_peers_individual_filters_context(
 
 
 def _periodos_do_parquet_cache(cache_obj) -> tuple[str, ...]:
-    """Lê os períodos existentes no parquet de um cache, sem materializar o dataset.
+    """Períodos existentes no parquet de um cache (fonte de verdade).
 
-    O `metadata.json` é reescrito por `salvar_local()` a cada download remoto ou
-    extração parcial, e em modo substituição passa a listar apenas os períodos
-    daquela execução. Ler a coluna `Período` do próprio parquet evita que a UI
-    ofereça (ou esconda) períodos que divergem dos dados em disco.
+    Delega para `tabs.rankings_data`; ver lá a justificativa de não usar o
+    `metadata.json`, que é reescrito a cada download ou extração parcial.
     """
-    if cache_obj is None:
-        return ()
-    arquivo = getattr(cache_obj, "arquivo_dados", None)
-    if arquivo is None or not arquivo.exists():
-        return ()
-    for coluna in ("Período", "Periodo"):
-        try:
-            df_periodos = pd.read_parquet(arquivo, columns=[coluna])
-        except Exception:
-            continue
-        if df_periodos.empty or coluna not in df_periodos.columns:
-            continue
-        valores = df_periodos[coluna].dropna().astype(str).str.strip()
-        return tuple(sorted({valor for valor in valores if valor}))
-    return ()
+    return rankings_data.periodos_do_parquet(cache_obj)
 
 
 def _cobertura_cache(nome_cache: str) -> dict:
-    """Cobertura real de um cache em disco: períodos, registros e origem.
-
-    Lê do parquet (fonte de verdade) e complementa com o metadata, que é apenas
-    descritivo. Base da observabilidade exposta na UI.
-    """
+    """Cobertura real de um cache em disco: períodos, registros e origem."""
     manager = get_cache_manager()
     cache_obj = manager.get_cache(nome_cache) if manager else None
-    arquivo = getattr(cache_obj, "arquivo_dados", None) if cache_obj is not None else None
-    existe = bool(arquivo is not None and arquivo.exists())
-    periodos = _periodos_do_parquet_cache(cache_obj) if existe else ()
-    metadata = _load_cache_metadata(cache_obj) if cache_obj is not None else {}
-    mais_recente = _periodo_mais_recente(list(periodos)) if periodos else None
-    return {
-        "cache": nome_cache,
-        "existe": existe,
-        "periodos": periodos,
-        "total_periodos": len(periodos),
-        "periodo_mais_recente": mais_recente,
-        "total_registros": metadata.get("total_registros"),
-        "fonte": metadata.get("fonte") or "—",
-        "atualizado_em": str(metadata.get("timestamp_salvamento") or "")[:19] or "—",
-    }
+    return rankings_data.cobertura_do_cache(nome_cache, cache_obj)
 
 
 def _rankings_diagnostico_fontes(periodos_pedidos: Optional[tuple] = None) -> pd.DataFrame:

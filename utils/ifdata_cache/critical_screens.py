@@ -242,8 +242,8 @@ class CriticalScreensCache(BaseCache):
 
         try:
             self._garantir_diretorio()
-            shutil.copy2(self.bundled_data_file, self.arquivo_dados)
-            shutil.copy2(self.bundled_metadata_file, self.arquivo_metadata)
+            shutil.copy2(self.bundled_data_file, self.arquivo_dados_runtime)
+            shutil.copy2(self.bundled_metadata_file, self.arquivo_metadata_runtime)
         except Exception as exc:
             return CacheResult(
                 sucesso=False,
@@ -281,8 +281,9 @@ class CriticalScreensCache(BaseCache):
 
         try:
             self.bundled_dir.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(self.arquivo_dados, self.bundled_data_file)
-            shutil.copy2(self.arquivo_metadata, self.bundled_metadata_file)
+            # Promoção runtime -> bundled (operação offline do materializador).
+            shutil.copy2(self.arquivo_dados_runtime, self.bundled_data_file)
+            shutil.copy2(self.arquivo_metadata_runtime, self.bundled_metadata_file)
         except Exception as exc:
             return CacheResult(
                 sucesso=False,

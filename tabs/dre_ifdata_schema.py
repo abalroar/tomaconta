@@ -804,9 +804,11 @@ def _discover_local_parquet_options() -> list[Path]:
         Path("data/cache/principal_individual/dados.parquet"),
     ]
     options = [p for p in preferred if p.exists()]
-    for path in sorted(Path("data/cache").glob("*/dados.parquet")):
-        if path not in options:
-            options.append(path)
+    # Artefatos versionados moveram-se para data/bundled/; data/cache/ é runtime.
+    for raiz in ("data/cache", "data/bundled"):
+        for path in sorted(Path(raiz).glob("*/dados.parquet")):
+            if path not in options:
+                options.append(path)
     return options
 
 

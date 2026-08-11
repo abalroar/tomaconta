@@ -18,7 +18,7 @@ from typing import Any, Callable
 
 def _find_parquet_paths() -> dict[str, Path]:
     candidates = {
-        "principal": ["data/cache/principal/dados.parquet", "data/cache/principal/*cache.parquet"],
+        "principal": ["data/bundled/principal/dados.parquet", "data/cache/principal/dados.parquet", "data/cache/principal/*cache.parquet"],
         "passivo": ["data/cache/passivo/dados.parquet", "data/cache/passivo/*cache.parquet"],
         "dre": ["data/cache/dre/dados.parquet", "data/cache/dre/*cache.parquet"],
     }

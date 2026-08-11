@@ -14,7 +14,7 @@ Por isso, apagar apenas o cache local não derruba automaticamente a aplicação
 | Aba | Cache(s) principal(is) | Pasta/arquivo local | Observações |
 |---|---|---|---|
 | Snapshot | `principal` (+ `capital` mesclado quando disponível) | `data/cache/principal/` e `data/cache/capital/` | `principal` é obrigatório para a aba abrir. |
-| Rankings | `principal` (+ `capital`) | `data/cache/principal/` e `data/cache/capital/` | Mesma base macro de indicadores do Snapshot. |
+| Rankings | `critical_screens` (carteira/funding), `principal` (+ `capital`), `derived_metrics` (Custo de Crédito) | `data/bundled/*` com fallback em `data/cache/*` | Indicadores de carteira e funding leem a camada curada; o resto sai do principal/capital. |
 | Peers (Tabela) | `principal` (+ `capital`) | `data/cache/principal/` e `data/cache/capital/` | Usa os períodos preparados em memória. |
 | Evolução | `principal` (+ `capital`) | `data/cache/principal/` e `data/cache/capital/` | Séries históricas por período. |
 | Scatter Plot | `principal` (+ `capital`) | `data/cache/principal/` e `data/cache/capital/` | Seleção de eixos depende de colunas do cache principal. |
@@ -37,6 +37,26 @@ Se a publicação falhar, o app pode continuar “aparentemente normal” quando
 - ainda existe cache local válido; **ou**
 - o fallback remoto do release antigo continua disponível.
 
+## 3.1) Separação runtime × versionado (desde 2026-08-11)
+
+| Diretório | Papel | Git |
+|---|---|---|
+| `data/bundled/<cache>/` | artefato publicado, **somente-leitura** em runtime | versionado |
+| `data/cache/<cache>/` | downloads e extrações do processo em execução | ignorado |
+
+`BaseCache.arquivo_dados` resolve runtime primeiro e cai para o bundled quando
+não há cópia local; toda escrita (`salvar_local`, `limpar_local`) usa
+`arquivo_dados_runtime`. Assim uma execução do app não degrada mais o dado
+publicado no repositório.
+
+Hoje estão em `data/bundled/`: `principal`, `capital`, `bloprudencial`,
+`critical_screens` e `derived_metrics`.
+
+> Exceção: `taxas_juros_historico` continua em `data/cache/` porque suas
+> dimensões (`dim_*.parquet`), o manifesto e o diretório de staging são
+> resolvidos direto por `cache_dir` em pontos de leitura e escrita misturados.
+> Movê-lo exige separar esses caminhos antes.
+
 ## 4) Checklist objetivo para ficar “clean” no GitHub
 
 1. **Limpar artefatos locais não versionados**
@@ -46,8 +66,9 @@ Se a publicação falhar, o app pode continuar “aparentemente normal” quando
 3. **Confirmar branch e remote corretos antes de push**
    - `git remote -v`
    - `git branch --show-current`
-4. **Publicar caches apenas via release assets**
-   - não commitar `data/cache/*` no git.
+4. **Publicar caches via release assets ou via `data/bundled/`**
+   - nunca commitar `data/cache/*`; para versionar um artefato, promovê-lo a
+     `data/bundled/<cache>/`.
 5. **Validar release final**
    - checar se assets `*_dados.parquet` e `*_metadata.json` estão na tag `v1.1-cache`.
 

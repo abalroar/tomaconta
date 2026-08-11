@@ -83,8 +83,6 @@ class BaseCache(ABC):
         self.config = config
         self.base_dir = base_dir
         self.cache_dir = base_dir / "data" / "cache" / config.subdir
-        self.arquivo_dados = self.cache_dir / config.arquivo_dados
-        self.arquivo_metadata = self.cache_dir / config.arquivo_metadata
 
         # Prefixo para logs
         self._log_prefix = f"[CACHE:{config.nome.upper()}]"
@@ -102,14 +100,23 @@ class BaseCache(ABC):
     # =========================================================================
 
     def existe(self) -> bool:
-        """Verifica se cache local existe (parquet ou pickle)."""
-        tem_parquet = self.arquivo_dados.exists()
+        """Verifica se o cache de runtime existe (parquet ou pickle).
+
+        Não considera o artefato bundled de propósito: `limpar_local`, `cache_valido`
+        e os fluxos de extração raciocinam sobre o cache gravável. Para saber se há
+        dado legível de qualquer origem, use `existe_leitura`.
+        """
+        tem_parquet = self.arquivo_dados_runtime.exists()
         tem_pickle = self.arquivo_dados_pickle.exists()
         return tem_parquet or tem_pickle
 
+    def existe_leitura(self) -> bool:
+        """Indica se há dado legível, seja no runtime ou no artefato bundled."""
+        return self.existe() or self.arquivo_dados.exists()
+
     def carregar_local(self) -> CacheResult:
-        """Carrega dados do cache local (suporta parquet e pickle)."""
-        if not self.existe():
+        """Carrega dados do cache local (runtime ou bundled; parquet ou pickle)."""
+        if not self.existe_leitura():
             return CacheResult(
                 sucesso=False,
                 mensagem="Cache local nao existe",
@@ -174,12 +181,15 @@ class BaseCache(ABC):
                     metadata["total_periodos"] = len(periodos)
 
                 self._log("warning", "Metadata ausente; gerada automaticamente")
-                try:
-                    self._garantir_diretorio()
-                    with open(self.arquivo_metadata, "w") as f:
-                        json.dump(metadata, f, indent=2, ensure_ascii=False)
-                except Exception as e:
-                    self._log("warning", f"Falha ao gravar metadata gerada: {e}")
+                # Só persiste quando há parquet de runtime: o artefato bundled é
+                # somente-leitura e não deve ganhar metadata órfã ao lado.
+                if self.arquivo_dados_runtime.exists():
+                    try:
+                        self._garantir_diretorio()
+                        with open(self.arquivo_metadata_runtime, "w") as f:
+                            json.dump(metadata, f, indent=2, ensure_ascii=False)
+                    except Exception as e:
+                        self._log("warning", f"Falha ao gravar metadata gerada: {e}")
 
             # Validar dados
             valido, msg = self._validar_dados(df)
@@ -207,6 +217,47 @@ class BaseCache(ABC):
                 mensagem=f"Erro ao carregar: {e}",
                 fonte="nenhum"
             )
+
+    @property
+    def bundled_dir(self) -> Path:
+        """Artefato versionado somente-leitura.
+
+        O runtime nunca escreve aqui: downloads e extrações vão para `cache_dir`
+        (efêmero e ignorado no git), de modo que uma execução do app não possa
+        degradar o dado publicado no repositório.
+        """
+        return self.base_dir / "data" / "bundled" / self.config.subdir
+
+    @property
+    def arquivo_dados_runtime(self) -> Path:
+        """Caminho gravável do parquet (sempre em data/cache/)."""
+        return self.cache_dir / self.config.arquivo_dados
+
+    @property
+    def arquivo_metadata_runtime(self) -> Path:
+        """Caminho gravável do metadata (sempre em data/cache/)."""
+        return self.cache_dir / self.config.arquivo_metadata
+
+    @property
+    def arquivo_dados(self) -> Path:
+        """Parquet efetivo para leitura: runtime quando existir, senão o bundled."""
+        runtime = self.arquivo_dados_runtime
+        if runtime.exists():
+            return runtime
+        bundled = self.bundled_dir / self.config.arquivo_dados
+        if bundled.exists():
+            return bundled
+        return runtime
+
+    @property
+    def arquivo_metadata(self) -> Path:
+        """Metadata efetivo para leitura, pareado com `arquivo_dados`."""
+        if self.arquivo_dados_runtime.exists():
+            return self.arquivo_metadata_runtime
+        bundled = self.bundled_dir / self.config.arquivo_metadata
+        if bundled.exists():
+            return bundled
+        return self.arquivo_metadata_runtime
 
     @property
     def arquivo_dados_pickle(self) -> Path:
@@ -238,9 +289,9 @@ class BaseCache(ABC):
 
             # Tentar salvar em parquet primeiro
             formato_usado = "parquet"
-            arquivo_salvo = self.arquivo_dados
+            arquivo_salvo = self.arquivo_dados_runtime
             try:
-                dados.to_parquet(self.arquivo_dados, index=False)
+                dados.to_parquet(self.arquivo_dados_runtime, index=False)
             except ImportError as e:
                 # pyarrow/fastparquet não disponível - usar pickle como fallback
                 self._log("warning", f"Parquet não disponível ({e}), usando pickle como fallback")
@@ -275,8 +326,8 @@ class BaseCache(ABC):
             if info_extra:
                 metadata["extra"] = info_extra
 
-            # Salvar metadata
-            with open(self.arquivo_metadata, "w") as f:
+            # Salvar metadata (sempre no runtime, pareado com o parquet gravado)
+            with open(self.arquivo_metadata_runtime, "w") as f:
                 json.dump(metadata, f, indent=2, ensure_ascii=False)
 
             # Verificar que foi salvo corretamente
@@ -307,16 +358,17 @@ class BaseCache(ABC):
         removidos = []
 
         try:
-            if self.arquivo_dados.exists():
-                self.arquivo_dados.unlink()
+            # Limpeza atinge apenas o cache de runtime; o bundled é imutável.
+            if self.arquivo_dados_runtime.exists():
+                self.arquivo_dados_runtime.unlink()
                 removidos.append(self.config.arquivo_dados)
 
             if self.arquivo_dados_pickle.exists():
                 self.arquivo_dados_pickle.unlink()
                 removidos.append(str(self.arquivo_dados_pickle.name))
 
-            if self.arquivo_metadata.exists():
-                self.arquivo_metadata.unlink()
+            if self.arquivo_metadata_runtime.exists():
+                self.arquivo_metadata_runtime.unlink()
                 removidos.append(self.config.arquivo_metadata)
 
             if removidos:
@@ -471,7 +523,8 @@ class BaseCache(ABC):
             return resultado
 
         # Tentar cache local mesmo expirado como fallback
-        if self.existe():
+        # Inclui o artefato bundled: sem rede, ele é a última linha de defesa.
+        if self.existe_leitura():
             self._log("warning", "Usando cache local expirado como fallback")
             resultado = self.carregar_local()
             if resultado.sucesso:
