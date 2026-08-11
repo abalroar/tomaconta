@@ -13952,12 +13952,43 @@ def _get_peers_individual_filters_context(
     }
 
 
+def _periodos_do_parquet_cache(cache_obj) -> tuple[str, ...]:
+    """Lê os períodos existentes no parquet de um cache, sem materializar o dataset.
+
+    O `metadata.json` é reescrito por `salvar_local()` a cada download remoto ou
+    extração parcial, e em modo substituição passa a listar apenas os períodos
+    daquela execução. Ler a coluna `Período` do próprio parquet evita que a UI
+    ofereça (ou esconda) períodos que divergem dos dados em disco.
+    """
+    if cache_obj is None:
+        return ()
+    arquivo = getattr(cache_obj, "arquivo_dados", None)
+    if arquivo is None or not arquivo.exists():
+        return ()
+    for coluna in ("Período", "Periodo"):
+        try:
+            df_periodos = pd.read_parquet(arquivo, columns=[coluna])
+        except Exception:
+            continue
+        if df_periodos.empty or coluna not in df_periodos.columns:
+            continue
+        valores = df_periodos[coluna].dropna().astype(str).str.strip()
+        return tuple(sorted({valor for valor in valores if valor}))
+    return ()
+
+
 @st.cache_data(ttl=900, show_spinner=False)
 def _get_rankings_filters_context(principal_token: str, alias_sig: tuple) -> dict:
     """Retorna períodos para filtros da aba Rankings sem concatenar dataframe completo."""
     _ = alias_sig
     manager = get_cache_manager()
     cache_principal = manager.get_cache("principal") if manager else None
+
+    # Fonte de verdade é o parquet; o metadata entra apenas como fallback.
+    periodos_parquet = _periodos_do_parquet_cache(cache_principal)
+    if periodos_parquet:
+        return {"periodos_disponiveis": periodos_parquet}
+
     metadata = _load_cache_metadata(cache_principal)
     periodos_metadata = metadata.get("periodos") or []
     if periodos_metadata:
@@ -14595,9 +14626,17 @@ def _get_scatter_filters_context(principal_token: str, alias_sig: tuple) -> dict
                 colunas_meta = tuple(str(col) for col in df_periodo.columns if col)
         df_keys = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
-    periodos = periodos_meta
-    if not periodos and "Período" in df_keys.columns:
-        periodos = tuple(df_keys["Período"].dropna().astype(str).unique().tolist())
+    # Mesma regra da aba Rankings: o parquet manda, o metadata é só fallback —
+    # `salvar_local()` pode tê-lo reescrito com um subconjunto dos períodos.
+    periodos = tuple()
+    if "Período" in df_keys.columns:
+        periodos = tuple(sorted({
+            texto
+            for texto in df_keys["Período"].dropna().astype(str).str.strip()
+            if texto
+        }))
+    if not periodos:
+        periodos = periodos_meta
 
     bancos = tuple()
     if "Instituição" in df_keys.columns:
