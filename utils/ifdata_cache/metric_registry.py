@@ -129,6 +129,35 @@ METRIC_REGISTRY: Dict[str, MetricDefinition] = {
         display_format="pct",
         source_tables=["dre", "derived_metrics"],
     ),
+    "custo_credito": MetricDefinition(
+        key="custo_credito",
+        display_name="Custo de Crédito (%)",
+        domain="qualidade_carteira",
+        formula=(
+            "|Resultado com Perda Esperada de Operações de Crédito (f3)| YTD anualizado "
+            "/ Carteira de Crédito*"
+        ),
+        dependencies=[
+            "Resultado com Perda Esperada de Operações de Crédito (f3)",
+            "Carteira de Crédito*",
+        ],
+        unit="%",
+        internal_scale="decimal_0_1",
+        display_format="pct",
+        annualization=AnnualizationRule(
+            method="period_factor",
+            formula="Mar=4, Jun=2, Set=12/9, Dez=1",
+            notes=(
+                "Aplicado sobre o YTD reconstruído do Relatório 4, que publica Set como "
+                "Jul-Set e Dez como Jul-Dez (soma-se Jun). Sem Jun disponível o resultado é NaN."
+            ),
+        ),
+        null_policy=(
+            "NaN quando a carteira for zero/ausente, quando f3 não existir (layout anterior a "
+            "2025) ou quando o YTD não puder ser reconstruído por ausência de junho"
+        ),
+        source_tables=["dre", "ativo", "principal", "derived_metrics"],
+    ),
     "desp_captacao_captacao": MetricDefinition(
         key="desp_captacao_captacao",
         display_name="Desp Captação / Captação",
@@ -151,6 +180,7 @@ METRIC_REGISTRY: Dict[str, MetricDefinition] = {
 DERIVED_METRIC_KEYS: List[str] = [
     "desp_pdd_resultado_intermediacao_fin_bruto",
     "desp_captacao_captacao",
+    "custo_credito",
 ]
 
 
