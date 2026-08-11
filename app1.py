@@ -197,6 +197,7 @@ DERIVED_METRICS_FORMULAS = _ifdata_derived_metrics.DERIVED_METRICS_FORMULAS
 build_derived_metrics = _ifdata_derived_metrics.build_derived_metrics
 materialize_derived_metrics_cache = _ifdata_derived_metrics.materialize_derived_metrics_cache
 load_derived_metrics_slice = _ifdata_derived_metrics.load_derived_metrics_slice
+_resolve_carteira_credito_bruta_series = _ifdata_derived_metrics._resolve_carteira_credito_bruta_series
 from utils.ifdata_cache.diagnostics import build_runtime_manifest, max_period_from_values, normalize_period_reference
 import utils.ifdata_cache.institutions as _ifdata_institutions
 
@@ -8046,23 +8047,14 @@ def _anexar_carteira_credito_bruta(dados_periodos: dict) -> dict:
     for col in valor_cols:
         df_bruta[col] = pd.to_numeric(df_bruta[col], errors="coerce")
 
-    def _resolve_row(row: pd.Series) -> object:
-        return resolve_carteira_credito_bruta_value(
-            year_ref=_periodo_ano_int(row.get("Período")),
-            legacy_credito_value=row.get(col_d1) if col_d1 else None,
-            legacy_arrendamento_value=row.get(col_e1_alt) if col_e1_alt else None,
-            legacy_outros_value=row.get(col_f_old) if col_f_old else None,
-            vcb_credito_value=row.get(col_e1) if col_e1 else None,
-            vcb_arrendamento_value=row.get(col_f1) if col_f1 else None,
-            vcb_outras_ops_value=row.get(col_g1) if col_g1 else None,
-            vcb_pagamentos_value=row.get(col_h1) if col_h1 else None,
-            net_credito_value=row.get(col_e) if col_e else None,
-            net_arrendamento_value=row.get(col_f) if col_f else None,
-            net_outras_ops_value=row.get(col_g) if col_g else None,
-            net_pagamentos_value=row.get(col_h) if col_h else None,
-        ).get("value")
-
-    df_bruta["Carteira de Crédito Bruta"] = df_bruta.apply(_resolve_row, axis=1)
+    # [CHANGE] Data: 2026-08-11 | Aba: Rankings/Evolução | Prioridade: P0
+    # Motivo: o apply linha a linha custava 29,5s sobre as 62k linhas do Rel. 2 e
+    # dominava o caminho frio da aba Rankings (50-110s em produção).
+    # Solução: usar a série vetorizada de derived_metrics, que aplica exatamente a
+    # mesma regra de resolve_carteira_credito_bruta_value (equivalência travada em
+    # tests/test_custo_credito.py) em 0,086s.
+    # Impacto: apenas performance; nenhuma fórmula financeira muda.
+    df_bruta["Carteira de Crédito Bruta"] = _resolve_carteira_credito_bruta_series(df_bruta).values
     df_bruta = df_bruta[["Instituição", "Período", "Carteira de Crédito Bruta"]]
     # Garante unicidade por período/instituição para evitar InvalidIndexError no map
     df_bruta = (
@@ -13977,6 +13969,50 @@ def _periodos_do_parquet_cache(cache_obj) -> tuple[str, ...]:
     return ()
 
 
+def _cobertura_cache(nome_cache: str) -> dict:
+    """Cobertura real de um cache em disco: períodos, registros e origem.
+
+    Lê do parquet (fonte de verdade) e complementa com o metadata, que é apenas
+    descritivo. Base da observabilidade exposta na UI.
+    """
+    manager = get_cache_manager()
+    cache_obj = manager.get_cache(nome_cache) if manager else None
+    arquivo = getattr(cache_obj, "arquivo_dados", None) if cache_obj is not None else None
+    existe = bool(arquivo is not None and arquivo.exists())
+    periodos = _periodos_do_parquet_cache(cache_obj) if existe else ()
+    metadata = _load_cache_metadata(cache_obj) if cache_obj is not None else {}
+    mais_recente = _periodo_mais_recente(list(periodos)) if periodos else None
+    return {
+        "cache": nome_cache,
+        "existe": existe,
+        "periodos": periodos,
+        "total_periodos": len(periodos),
+        "periodo_mais_recente": mais_recente,
+        "total_registros": metadata.get("total_registros"),
+        "fonte": metadata.get("fonte") or "—",
+        "atualizado_em": str(metadata.get("timestamp_salvamento") or "")[:19] or "—",
+    }
+
+
+def _rankings_diagnostico_fontes(periodos_pedidos: Optional[tuple] = None) -> pd.DataFrame:
+    """Tabela de diagnóstico das fontes que alimentam a aba Rankings."""
+    pedidos = tuple(str(p) for p in (periodos_pedidos or ()) if p)
+    linhas = []
+    for nome in ("principal", "capital", "derived_metrics"):
+        info = _cobertura_cache(nome)
+        ausentes = [p for p in pedidos if p not in info["periodos"]]
+        linhas.append({
+            "Cache": nome,
+            "Arquivo": "presente" if info["existe"] else "ausente",
+            "Registros": info["total_registros"] if info["total_registros"] is not None else "—",
+            "Períodos": info["total_periodos"],
+            "Mais recente": periodo_para_exibicao(info["periodo_mais_recente"]) if info["periodo_mais_recente"] else "—",
+            "Pedidos ausentes": ", ".join(periodo_para_exibicao(p) for p in ausentes) or "—",
+            "Atualizado em": info["atualizado_em"],
+        })
+    return pd.DataFrame(linhas)
+
+
 @st.cache_data(ttl=900, show_spinner=False)
 def _get_rankings_filters_context(principal_token: str, alias_sig: tuple) -> dict:
     """Retorna períodos para filtros da aba Rankings sem concatenar dataframe completo."""
@@ -14089,6 +14125,23 @@ RANKINGS_FAMILY_PRINCIPAL_PREPARED = frozenset(
         "Patrimônio Líquido",
     }
 )
+# Indicadores servidos pela camada curada (critical_screens), já materializada
+# offline com Carteira de Crédito*/Core Funding* resolvidos. Evita reexecutar o
+# enriquecimento Rel. 2/Rel. 3 dentro do request — mesmo padrão de Snapshot/Peers.
+RANKINGS_FAMILY_CURATED = frozenset(
+    {
+        "Carteira de Crédito*",
+        "Core Funding*",
+    }
+)
+RANKINGS_CURATED_COLUNAS = (
+    "Ativo Total",
+    "Patrimônio Líquido",
+    "Carteira de Crédito*",
+    "Carteira de Crédito Bruta",
+    "Core Funding*",
+    "Core Funding",
+)
 RANKINGS_FAMILY_CAPITAL_PREPARED = frozenset(
     {
         "Índice de Capital Principal (CET1)",
@@ -14106,6 +14159,9 @@ RANKINGS_FAMILY_PRINCIPAL_LIGHT = frozenset(
     {
         "Ativo Total",
         "Patrimônio Líquido",
+        # Custo de Crédito vem pronto do cache derivado: do principal só precisa de
+        # Instituição/Período/Ativo Total (pool). Não passa pelo enriquecimento Rel. 2.
+        METRIC_CUSTO_CREDITO,
     }
 )
 # Indicadores que exigem enriquecimento com o cache `derived_metrics` (DRE Rel. 4).
@@ -14219,9 +14275,11 @@ def _rankings_expandir_periodos_ytd_acumulado(
 
 
 def _resolve_rankings_source_family(indicador_label: str) -> str:
+    if indicador_label in RANKINGS_FAMILY_CURATED:
+        return "curated"
     if indicador_label in RANKINGS_FAMILY_DERIVED:
-        # Base do principal preparado (traz Carteira de Crédito*/Ativo Total para
-        # pool e ponderação) + coluna derivada anexada depois do carregamento.
+        # A métrica vem pronta do cache derivado; do principal só é preciso o
+        # recorte leve (Instituição/Período/Ativo Total) usado pelo pool.
         return "principal_prepared"
     if indicador_label in RANKINGS_FAMILY_PRINCIPAL_PREPARED:
         return "principal_prepared"
@@ -14289,6 +14347,9 @@ def _resolve_rankings_source_request(
         else:
             perf_label = "rankings_df_source_principal_prepared"
         periodos_filter = _rankings_periodos_selecionados(periodos_resumo)
+    elif source_family == "curated":
+        periodos_filter = _rankings_periodos_selecionados(periodos_resumo)
+        perf_label = "rankings_df_source_curated"
     elif source_family == "capital_prepared":
         periodos_filter = _rankings_periodos_selecionados(periodos_resumo)
         perf_label = "rankings_df_source_capital_prepared"
@@ -15315,13 +15376,55 @@ def _get_rankings_capital_slice(
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
+def _get_rankings_curated_df(
+    curated_token: str,
+    alias_sig: tuple,
+    periodos_filter: Optional[tuple] = None,
+) -> pd.DataFrame:
+    """Recorte da camada curada (critical_screens) para indicadores de carteira/funding.
+
+    O parquet curado já traz Carteira de Crédito* e Core Funding* resolvidos pela
+    regra canônica, materializados offline. Ler daqui remove do request o
+    enriquecimento Rel. 2/Rel. 3 que custava 50-110s na aba.
+    """
+    _ = (curated_token, alias_sig)
+    try:
+        df = load_critical_screens_slice(
+            base_dir=APP_DIR,
+            periodos=[str(p) for p in (periodos_filter or ())] or None,
+            colunas=list(RANKINGS_CURATED_COLUNAS),
+        )
+    except Exception:
+        return pd.DataFrame()
+    if df is None or df.empty:
+        return pd.DataFrame()
+    return _normalizar_indicadores_rankings(df)
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
 def _get_rankings_source_df(
     principal_token: str,
     capital_token: str,
     alias_sig: tuple,
     source_kind: str,
     periodos_filter: Optional[tuple] = None,
+    curated_token: str = "",
 ) -> pd.DataFrame:
+    if source_kind == "curated":
+        df_curado = _get_rankings_curated_df(
+            curated_token,
+            alias_sig,
+            periodos_filter=periodos_filter,
+        )
+        if not df_curado.empty:
+            return df_curado
+        # Degradação explícita: sem a camada curada, cai no caminho antigo em vez
+        # de devolver vazio e derrubar a aba.
+        return _get_rankings_direct_df(
+            principal_token,
+            alias_sig,
+            periodos_filter=periodos_filter,
+        )
     if source_kind == "lucro_ytd_fast":
         return _get_rankings_lucro_ytd_df(
             principal_token,
@@ -15854,10 +15957,38 @@ def _render_cache_status_por_aba(menu_nome: str) -> None:
     caches = CACHE_DEPENDENCIAS_POR_ABA.get(menu_nome)
     if not caches:
         return
-    with st.expander("Cachês necessários para esta aba", expanded=False):
+    # Observabilidade: sem a cobertura real em disco é impossível distinguir
+    # "o dado não existe" de "o cache está degradado" sem acesso ao servidor.
+    linhas_cobertura = []
+    for cache_nome in caches:
+        try:
+            info = _cobertura_cache(cache_nome)
+        except Exception:
+            continue
+        if not info["existe"]:
+            linhas_cobertura.append({"Cache": cache_nome, "Cobertura": "ausente", "Mais recente": "—", "Atualizado em": "—"})
+            continue
+        linhas_cobertura.append({
+            "Cache": cache_nome,
+            "Cobertura": f"{info['total_periodos']} períodos",
+            "Mais recente": periodo_para_exibicao(info["periodo_mais_recente"]) if info["periodo_mais_recente"] else "—",
+            "Atualizado em": info["atualizado_em"],
+        })
+
+    rotulo = "Cachês necessários para esta aba"
+    referencia = next(
+        (linha["Mais recente"] for linha in linhas_cobertura if linha["Mais recente"] != "—"),
+        None,
+    )
+    if referencia:
+        rotulo = f"{rotulo} — base até {referencia}"
+
+    with st.expander(rotulo, expanded=False):
         st.markdown(
             "\n".join([f"- `{cache_nome}` — {_nota_cache_dependencia(cache_nome)}" for cache_nome in caches])
         )
+        if linhas_cobertura:
+            st.dataframe(pd.DataFrame(linhas_cobertura), width="stretch", hide_index=True)
         if any(c in {"derived_metrics", "derived_metrics_individual"} for c in caches):
             st.caption("Métricas derivadas não possuem extração direta no BCB.")
 
@@ -19116,6 +19247,7 @@ elif menu == "Rankings":
                 _alias_signature_cache_key(),
                 rankings_source_request["source_kind"],
                 periodos_filter=_periodos_rankings_filter,
+                curated_token=_cache_version_token("critical_screens"),
             )
             print(_perf_log(rankings_source_request["perf_label"]))
             if rankings_source_request.get("needs_derived"):
@@ -19123,6 +19255,27 @@ elif menu == "Rankings":
                 df = _anexar_custo_credito_rankings(df, _periodos_rankings_filter)
                 print(_perf_log("rankings_derived_merge"))
             print(_perf_log("rankings_base_df"))
+
+            # Contrato de vazio: a fonte pode devolver DataFrame sem schema quando o
+            # cache não carrega ou quando o período pedido não existe no dataset. Sem
+            # esta guarda a aba quebrava com KeyError: 'Período'.
+            if df is None or df.empty or "Período" not in getattr(df, "columns", []):
+                _periodos_pedidos = ", ".join(
+                    periodo_para_exibicao(p) for p in (_periodos_rankings_filter or ())
+                ) or "—"
+                st.error(
+                    f"não foi possível montar a base de **{indicador_label}** para {_periodos_pedidos}."
+                )
+                st.caption(
+                    "O cache `principal` não retornou dados para esse recorte. "
+                    "Verifique em **Atualizar Base** se o cache está íntegro "
+                    "(≈62 mil registros e 45 períodos) e reprocesse se necessário."
+                )
+                _rankings_diag = _rankings_diagnostico_fontes(_periodos_rankings_filter)
+                if _rankings_diag:
+                    with st.expander("Diagnóstico das fontes", expanded=False):
+                        st.dataframe(_rankings_diag, width="stretch", hide_index=True)
+                st.stop()
 
             # Re-resolve indicator column after enrichment (handles column name variants)
             for label, colunas in indicadores_config.items():

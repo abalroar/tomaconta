@@ -93,3 +93,38 @@ def test_contexto_do_scatter_tambem_prefere_parquet(tmp_path, monkeypatch):
     contexto = app1._get_scatter_filters_context("token-scatter", ())
 
     assert "1/2026" in contexto["periodos"]
+
+
+# ------------------------------------------------ invariantes entre fontes
+
+
+def test_camada_curada_cobre_os_periodos_oferecidos_pela_aba():
+    """Invariante: todo período oferecido no seletor existe na camada curada.
+
+    O seletor é montado a partir do parquet `principal` (base universal — o pool
+    por Ativo Total sempre sai dele), enquanto Carteira de Crédito*/Core Funding*
+    são servidos por `critical_screens`. Se a cobertura divergir, a aba oferece um
+    período que a fonte não serve.
+    """
+    principal = pd.read_parquet("data/cache/principal/dados.parquet", columns=["Período"])
+    curado = pd.read_parquet("data/bundled/critical_screens/dados.parquet", columns=["Período"])
+
+    periodos_principal = {str(p).strip() for p in principal["Período"].dropna()}
+    periodos_curado = {str(p).strip() for p in curado["Período"].dropna()}
+
+    ausentes = sorted(periodos_principal - periodos_curado)
+    assert not ausentes, f"períodos sem cobertura na camada curada: {ausentes}"
+
+
+def test_artefatos_publicados_chegam_ate_mar26():
+    """Trava a regressão do Mar-26 nos artefatos versionados."""
+    for caminho in (
+        "data/cache/principal/dados.parquet",
+        "data/bundled/critical_screens/dados.parquet",
+    ):
+        periodos = {
+            str(p).strip()
+            for p in pd.read_parquet(caminho, columns=["Período"])["Período"].dropna()
+        }
+        assert "1/2026" in periodos, f"{caminho} não cobre 1/2026 (Mar-26)"
+        assert app1._periodo_mais_recente(sorted(periodos)) == "1/2026"
