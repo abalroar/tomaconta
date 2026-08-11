@@ -163,7 +163,6 @@ from utils.ifdata_cache import (
     get_manager as get_cache_manager,
     DERIVED_METRICS,
     DERIVED_METRICS_FORMULAS,
-    METRIC_CUSTO_CREDITO,
     build_derived_metrics,
     load_derived_metrics_slice,
     CRITICAL_EXTRA_METRICS,
@@ -182,6 +181,22 @@ from utils.ifdata_cache import (
     describe_support_window,
 )
 from utils.ifdata_cache.derived_metrics import materialize_derived_metrics_cache
+import utils.ifdata_cache.metric_registry as _ifdata_metric_registry
+import utils.ifdata_cache.derived_metrics as _ifdata_derived_metrics
+
+# O hot reload do Streamlit pode manter este modulo em sys.modules enquanto
+# app1.py ja aponta para uma revisao mais nova do mesmo deploy. Recarregar aqui
+# (registro primeiro, depois o modulo que o consome) evita ImportError no boot e
+# mantem labels, formulas e assinaturas alinhados com a revisao em execucao.
+if not hasattr(_ifdata_derived_metrics, "METRIC_CUSTO_CREDITO"):
+    _ifdata_metric_registry = importlib.reload(_ifdata_metric_registry)
+    _ifdata_derived_metrics = importlib.reload(_ifdata_derived_metrics)
+METRIC_CUSTO_CREDITO = _ifdata_derived_metrics.METRIC_CUSTO_CREDITO
+DERIVED_METRICS = _ifdata_derived_metrics.DERIVED_METRICS
+DERIVED_METRICS_FORMULAS = _ifdata_derived_metrics.DERIVED_METRICS_FORMULAS
+build_derived_metrics = _ifdata_derived_metrics.build_derived_metrics
+materialize_derived_metrics_cache = _ifdata_derived_metrics.materialize_derived_metrics_cache
+load_derived_metrics_slice = _ifdata_derived_metrics.load_derived_metrics_slice
 from utils.ifdata_cache.diagnostics import build_runtime_manifest, max_period_from_values, normalize_period_reference
 import utils.ifdata_cache.institutions as _ifdata_institutions
 

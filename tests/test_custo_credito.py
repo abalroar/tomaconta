@@ -310,3 +310,42 @@ def test_carteira_vetorizada_equivale_a_regra_canonica():
             assert pd.isna(obtido), f"cenário {pos} ({periodo}) deveria ser N/D"
         else:
             assert math.isclose(float(obtido), float(esperado), rel_tol=1e-9), f"cenário {pos}"
+
+
+# ------------------------------------------- resiliência a deploy defasado
+
+
+def test_app1_usa_metricas_da_revisao_carregada():
+    """app1 precisa expor label e assinaturas da revisão realmente em memória."""
+    import inspect
+
+    import app1
+    from utils.ifdata_cache import derived_metrics
+
+    assert app1.METRIC_CUSTO_CREDITO == derived_metrics.METRIC_CUSTO_CREDITO
+    assert app1.METRIC_CUSTO_CREDITO in app1.DERIVED_METRICS
+    assert app1.METRIC_CUSTO_CREDITO in app1.VARS_PERCENTUAL
+    # Sem o parâmetro novo, DRE/Scatter/Rankings quebrariam com TypeError.
+    assinatura = inspect.signature(app1.materialize_derived_metrics_cache)
+    assert "ativo_cache_name" in assinatura.parameters
+
+
+def test_boot_nao_depende_de_simbolo_novo_no_pacote():
+    """Regressão: o boot não pode importar METRIC_CUSTO_CREDITO de utils.ifdata_cache.
+
+    O Streamlit reexecuta apenas o script principal; `utils.ifdata_cache` pode
+    permanecer em sys.modules na revisão anterior ao deploy, e um símbolo novo
+    nesse import derruba o app inteiro com ImportError. A leitura do símbolo é
+    feita via módulo + reload defensivo logo depois.
+    """
+    import ast
+    import pathlib
+
+    arvore = ast.parse(pathlib.Path("app1.py").read_text(encoding="utf-8"))
+    importados_do_pacote = {
+        alias.name
+        for node in ast.walk(arvore)
+        if isinstance(node, ast.ImportFrom) and node.module == "utils.ifdata_cache"
+        for alias in node.names
+    }
+    assert "METRIC_CUSTO_CREDITO" not in importados_do_pacote
