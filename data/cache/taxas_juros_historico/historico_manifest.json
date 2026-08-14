@@ -1,6 +1,6 @@
 {
-  "finalized_at": "2026-07-15T17:33:21.683441",
-  "total_rows": 2747005,
+  "finalized_at": "2026-08-14T11:02:36.276724",
+  "total_rows": 2764031,
   "annual_rows": {
     "2012": 191254,
     "2013": 179801,
@@ -16,11 +16,11 @@
     "2023": 199395,
     "2024": 204153,
     "2025": 190469,
-    "2026": 90309
+    "2026": 107335
   },
-  "target_windows": 3634,
-  "processed_windows": 3634,
-  "discarded_other_periodicity_rows": 3369,
+  "target_windows": 3656,
+  "processed_windows": 3656,
+  "discarded_other_periodicity_rows": 3408,
   "reconciled_windows": [
     "2012-02-01",
     "2012-03-01",
@@ -120,6 +120,7 @@
     "2025-10-01",
     "2025-12-01",
     "2026-04-01",
-    "2026-06-01"
+    "2026-06-01",
+    "2026-07-01"
   ]
 }
