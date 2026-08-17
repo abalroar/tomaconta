@@ -422,3 +422,46 @@ def test_trace_components_derivam_de_ratio_components():
     }
     assert set(PEERS_TRACE_COMPONENTS) == esperado
     assert esperado, "as razões de custo de crédito dependem de traces do Rel. 4"
+
+
+def test_memoria_de_calculo_renderiza_as_quatro_linhas_como_percentual():
+    """Regressão: Inadimplência / Carteira Total saía como "0,03" em vez de "3,00%".
+
+    A métrica era calculada no cache curado mas nunca exibida, então a ausência dela
+    em VARS_PERCENTUAL passava despercebida. Expor a linha tornou o defeito visível.
+    """
+    import app1
+
+    curado = pd.DataFrame(
+        [
+            {
+                "Instituição": "TESTE - PRUDENCIAL",
+                "Período": "1/2026",
+                "Carteira de Crédito Bruta": 400.0,
+                "Trace::Custo de Crédito::PDD Crédito YTD": -8.0,
+                "Trace::Custo de Crédito::PDD Crédito Anualizada": -32.0,
+                "Trace::Custo de Crédito::Receita de Crédito YTD": 200.0,
+                "Ativos Problemáticos 4.966": 24.0,
+                "Carteira Total 4.966": 400.0,
+                "Inadimplência 4.966": 12.0,
+                "Custo de Crédito (%)": 0.08,
+                "Custo de Crédito / Receita de Crédito (%)": 0.04,
+                "Ativos Problemáticos / Carteira Total": 0.06,
+                "Inadimplência / Carteira Total": 0.03,
+            }
+        ]
+    )
+    esperado = {
+        "Custo de Crédito (%)": "8,00%",
+        "Custo de Crédito / Receita de Crédito (%)": "4,00%",
+        "Ativos Problemáticos / Carteira Total": "6,00%",
+        "Inadimplência / Carteira Total": "3,00%",
+    }
+    for metrica, texto in esperado.items():
+        memoria = app1._build_memoria_calculo_curado_metrica(
+            curado, "TESTE - PRUDENCIAL", ["1/2026"], metrica
+        )
+        renderizado = memoria[memoria["Etapa"] == "Resultado renderizado"]["Valor"].iloc[0]
+        assert renderizado == texto, f"{metrica}: {renderizado!r} != {texto!r}"
+        # Numerador e denominador precisam aparecer para a razão ser auditável na tela.
+        assert set(memoria["Etapa"]) >= {"Numerador", "Denominador"}

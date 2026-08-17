@@ -1339,6 +1339,7 @@ VARS_PERCENTUAL = [
     'Perda Esperada / Estágio 3',
     'Perda Esperada / Est2+3',
     'Inadimplência / Carteira de Crédito',
+    'Inadimplência / Carteira Total',
     # Variáveis de Capital (Relatório 5)
     'Índice de Capital Principal',
     'Índice de Capital Principal (CET1)',
