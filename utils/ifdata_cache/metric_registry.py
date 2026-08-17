@@ -158,6 +158,52 @@ METRIC_REGISTRY: Dict[str, MetricDefinition] = {
         ),
         source_tables=["dre", "ativo", "principal", "derived_metrics"],
     ),
+    "custo_credito_receita": MetricDefinition(
+        key="custo_credito_receita",
+        display_name="Custo de Crédito / Receita de Crédito (%)",
+        domain="qualidade_carteira",
+        formula=(
+            "|Resultado com Perda Esperada de Operações de Crédito (f3)| YTD "
+            "/ Rendas de Operações de Crédito (c) YTD"
+        ),
+        dependencies=[
+            "Resultado com Perda Esperada de Operações de Crédito (f3)",
+            "Rendas de Operações de Crédito (c)",
+        ],
+        unit="%",
+        internal_scale="decimal_0_1",
+        display_format="pct",
+        annualization=AnnualizationRule(
+            method="nao_aplicavel",
+            formula="sem fator",
+            notes=(
+                "Numerador e denominador são fluxos do mesmo período, então qualquer fator de "
+                "anualização se cancela na razão. O YTD reconstruído do Relatório 4 continua "
+                "obrigatório por comparabilidade (Set = Jul-Set + Jun; Dez = Jul-Dez + Jun); "
+                "sem junho publicado o resultado é NaN."
+            ),
+        ),
+        null_policy=(
+            "NaN quando a receita de crédito for zero, negativa ou ausente, quando f3 não existir "
+            "(layout anterior a 2025) ou quando o YTD não puder ser reconstruído por ausência de junho"
+        ),
+        source_tables=["dre", "derived_metrics"],
+    ),
+    "ativos_problematicos_carteira_total": MetricDefinition(
+        key="ativos_problematicos_carteira_total",
+        display_name="Ativos Problemáticos / Carteira Total",
+        domain="qualidade_carteira",
+        formula="Ativos problemáticos / Total Geral (IFData Relatório 16)",
+        dependencies=["Ativos problemáticos", "Total Geral"],
+        unit="%",
+        internal_scale="decimal_0_1",
+        display_format="pct",
+        null_policy=(
+            "NaN quando a carteira total do Relatório 16 for zero/ausente ou quando a instituição "
+            "não publicar o relatório no período"
+        ),
+        source_tables=["carteira_instrumentos", "derived_metrics", "critical_screens"],
+    ),
     "desp_captacao_captacao": MetricDefinition(
         key="desp_captacao_captacao",
         display_name="Desp Captação / Captação",
@@ -181,6 +227,8 @@ DERIVED_METRIC_KEYS: List[str] = [
     "desp_pdd_resultado_intermediacao_fin_bruto",
     "desp_captacao_captacao",
     "custo_credito",
+    "custo_credito_receita",
+    "ativos_problematicos_carteira_total",
 ]
 
 

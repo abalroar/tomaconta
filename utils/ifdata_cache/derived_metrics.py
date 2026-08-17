@@ -35,6 +35,8 @@ logger = logging.getLogger("ifdata_cache")
 METRIC_PDD_INTERMED = "Desp PDD / Resultado Intermediação Fin. Bruto"
 METRIC_DESP_CAPT = "Desp Captação / Captação"
 METRIC_CUSTO_CREDITO = "Custo de Crédito (%)"
+METRIC_CUSTO_CREDITO_RECEITA = "Custo de Crédito / Receita de Crédito (%)"
+METRIC_ATIVOS_PROBLEMATICOS_CARTEIRA = "Ativos Problemáticos / Carteira Total"
 
 # Fonte canônica: metric_registry (mantemos labels locais para compatibilidade)
 DERIVED_METRICS = get_derived_metric_labels()
@@ -43,6 +45,8 @@ if not DERIVED_METRICS:
         METRIC_PDD_INTERMED,
         METRIC_DESP_CAPT,
         METRIC_CUSTO_CREDITO,
+        METRIC_CUSTO_CREDITO_RECEITA,
+        METRIC_ATIVOS_PROBLEMATICOS_CARTEIRA,
     ]
 
 DERIVED_METRICS_FORMAT = get_derived_metric_format_map()
@@ -51,6 +55,8 @@ if not DERIVED_METRICS_FORMAT:
         METRIC_PDD_INTERMED: "pct",
         METRIC_DESP_CAPT: "pct",
         METRIC_CUSTO_CREDITO: "pct",
+        METRIC_CUSTO_CREDITO_RECEITA: "pct",
+        METRIC_ATIVOS_PROBLEMATICOS_CARTEIRA: "pct",
     }
 
 DERIVED_METRICS_FORMULAS = get_derived_metric_formula_map()
@@ -59,6 +65,8 @@ if not DERIVED_METRICS_FORMULAS:
         METRIC_PDD_INTERMED: "Desp. PDD / Resultado de Intermediação Financeira Bruto",
         METRIC_DESP_CAPT: "Desp. Captação anualizada / Captações",
         METRIC_CUSTO_CREDITO: "|Desp. PDD de crédito (f3)| anualizada / Carteira de Crédito*",
+        METRIC_CUSTO_CREDITO_RECEITA: "|Desp. PDD de crédito (f3)| YTD / Rendas de Op. de Crédito (c) YTD",
+        METRIC_ATIVOS_PROBLEMATICOS_CARTEIRA: "Ativos problemáticos / Total Geral (Rel. 16)",
     }
 
 
@@ -192,6 +200,7 @@ def materialize_derived_metrics_cache(
     dre_cache_name: str = "dre",
     principal_cache_name: str = "principal",
     ativo_cache_name: Optional[str] = "ativo",
+    carteira_instrumentos_cache_name: Optional[str] = "carteira_instrumentos",
     force: bool = False,
 ) -> CacheResult:
     """Recalcula e salva o cache derivado a partir de DRE + principal."""
@@ -240,10 +249,25 @@ def materialize_derived_metrics_cache(
                 ativo_cache_name,
             )
 
+    # Relatório 16 alimenta apenas Ativos Problemáticos / Carteira Total. Como o Rel. 2,
+    # a ausência dele não pode derrubar a materialização das demais métricas.
+    df_carteira_instrumentos = None
+    if carteira_instrumentos_cache_name:
+        try:
+            resultado_instr = cache_manager.carregar(carteira_instrumentos_cache_name)
+            if resultado_instr and resultado_instr.sucesso:
+                df_carteira_instrumentos = resultado_instr.dados
+        except Exception:
+            logger.warning(
+                "[DERIVED] cache '%s' indisponível; Ativos Problemáticos / Carteira Total ficará N/D",
+                carteira_instrumentos_cache_name,
+            )
+
     df_derived, stats = build_derived_metrics(
         resultado_dre.dados,
         resultado_principal.dados,
         df_ativo=df_ativo,
+        df_carteira_instrumentos=df_carteira_instrumentos,
     )
     info_extra = {
         "denominador_zero_ou_nan": stats.denominador_zero_ou_nan,
@@ -569,6 +593,50 @@ def _carteira_credito_lookup(
     return vazio, "indisponivel"
 
 
+def _carteira_instrumentos_lookup(
+    df_carteira_instrumentos: Optional[pd.DataFrame],
+) -> pd.DataFrame:
+    """Lookup Instituição+Período -> ativos problemáticos e carteira total do Rel. 16.
+
+    O Relatório 16 do IFData publica os dois campos já no escopo de carteira de crédito
+    ativa (Res. 4.966), então a razão não exige nenhuma reconciliação de perímetro.
+    Ausência da instituição no relatório permanece ausente — nunca vira zero.
+    """
+    vazio = pd.DataFrame(
+        columns=["Instituição", "Período", "Ativos Problemáticos 4.966", "Carteira Total 4.966"]
+    )
+    if df_carteira_instrumentos is None or df_carteira_instrumentos.empty:
+        return vazio
+
+    col_inst = _find_column(df_carteira_instrumentos, "Instituição") or _find_column(
+        df_carteira_instrumentos, "Instituicao"
+    )
+    col_periodo = _find_column(df_carteira_instrumentos, "Período") or _find_column(
+        df_carteira_instrumentos, "Periodo"
+    )
+    if not col_inst or not col_periodo:
+        return vazio
+
+    col_prob = _find_column(df_carteira_instrumentos, "Ativos problemáticos") or _find_column(
+        df_carteira_instrumentos, "Ativos problematicos"
+    )
+    col_total = _find_column(df_carteira_instrumentos, "Total Geral")
+    if not col_prob or not col_total:
+        return vazio
+
+    lookup = pd.DataFrame(
+        {
+            "Instituição": df_carteira_instrumentos[col_inst],
+            "Período": df_carteira_instrumentos[col_periodo].astype(str),
+            "Ativos Problemáticos 4.966": _coerce_numeric(df_carteira_instrumentos[col_prob]),
+            "Carteira Total 4.966": _coerce_numeric(df_carteira_instrumentos[col_total]),
+        }
+    )
+    return lookup.groupby(["Instituição", "Período"], as_index=False)[
+        ["Ativos Problemáticos 4.966", "Carteira Total 4.966"]
+    ].sum(min_count=1)
+
+
 def _prepare_base_principal(df_principal: pd.DataFrame) -> pd.DataFrame:
     col_periodo = _find_column(df_principal, "Período") or _find_column(df_principal, "Periodo")
     col_inst = _find_column(df_principal, "Instituição") or _find_column(df_principal, "Instituicao")
@@ -593,12 +661,18 @@ def build_derived_metrics(
     df_dre: pd.DataFrame,
     df_principal: pd.DataFrame,
     df_ativo: Optional[pd.DataFrame] = None,
+    df_carteira_instrumentos: Optional[pd.DataFrame] = None,
 ) -> Tuple[pd.DataFrame, DerivedMetricsStats]:
     """Calcula métricas derivadas no formato LONG/TIDY.
 
     `df_ativo` (Relatório 2) é opcional e serve apenas ao denominador de
     `Custo de Crédito (%)`. Sem ele, o denominador cai para a carteira do cache
     principal e a fonte usada fica registrada em `DerivedMetricsStats.carteira_fonte`.
+
+    `df_carteira_instrumentos` (Relatório 16) é opcional e alimenta apenas
+    `Ativos Problemáticos / Carteira Total`. Sem ele a métrica fica NaN em toda a
+    série — nunca zero, para não confundir ausência de relatório com ausência de
+    ativo problemático.
     """
     df_base, colunas_dre = _prepare_base_dre(df_dre)
     df_principal_base = _prepare_base_principal(df_principal)
@@ -703,6 +777,47 @@ def build_derived_metrics(
             denominador_counts,
         )
     dados_metricas.append((METRIC_CUSTO_CREDITO, serie_custo_credito))
+
+    # Custo de Crédito / Receita de Crédito: |f3| YTD ÷ (c) YTD.
+    # Numerador e denominador são fluxos do mesmo período, então nenhum fator de
+    # anualização é aplicado — ele se cancelaria na razão. Receita nula, negativa ou
+    # ausente devolve NaN: é o caso das instituições que não operam crédito.
+    if desp_pdd_credito is None:
+        serie_custo_credito_receita = pd.Series(np.nan, index=df_base.index, dtype="float64")
+        denominador_counts[METRIC_CUSTO_CREDITO_RECEITA] = int(len(df_base))
+    else:
+        rec_credito_ytd = _acumular_dre_ytd_por_periodo(df_base, rec_credito)
+        rec_credito_ytd_positiva = pd.to_numeric(rec_credito_ytd, errors="coerce")
+        rec_credito_ytd_positiva = rec_credito_ytd_positiva.where(rec_credito_ytd_positiva > 0)
+        serie_custo_credito_receita = _safe_ratio(
+            desp_pdd_credito_ytd.abs(),
+            rec_credito_ytd_positiva,
+            METRIC_CUSTO_CREDITO_RECEITA,
+            denominador_counts,
+        )
+    dados_metricas.append((METRIC_CUSTO_CREDITO_RECEITA, serie_custo_credito_receita))
+
+    # Ativos Problemáticos / Carteira Total: os dois campos vêm publicados no
+    # Relatório 16, já no escopo de carteira de crédito ativa da Res. 4.966.
+    carteira_instr_lookup = _carteira_instrumentos_lookup(df_carteira_instrumentos)
+    if carteira_instr_lookup.empty:
+        serie_ativos_problematicos = pd.Series(np.nan, index=df_base.index, dtype="float64")
+        denominador_counts[METRIC_ATIVOS_PROBLEMATICOS_CARTEIRA] = int(len(df_base))
+    else:
+        df_instr = df_base[["Instituição", "Período"]].copy()
+        df_instr["Período"] = df_instr["Período"].astype(str)
+        df_instr = df_instr.merge(carteira_instr_lookup, on=["Instituição", "Período"], how="left")
+        problematicos = pd.to_numeric(df_instr["Ativos Problemáticos 4.966"], errors="coerce")
+        carteira_total = pd.to_numeric(df_instr["Carteira Total 4.966"], errors="coerce")
+        problematicos.index = df_base.index
+        carteira_total.index = df_base.index
+        serie_ativos_problematicos = _safe_ratio(
+            problematicos,
+            carteira_total,
+            METRIC_ATIVOS_PROBLEMATICOS_CARTEIRA,
+            denominador_counts,
+        )
+    dados_metricas.append((METRIC_ATIVOS_PROBLEMATICOS_CARTEIRA, serie_ativos_problematicos))
 
     registros = []
     for label, serie in dados_metricas:

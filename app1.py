@@ -141,6 +141,7 @@ from tabs.peers_config import (
     PEERS_PERCENT_DECIMALS,
     PEERS_RATIO_COMPONENTS,
     PEERS_TABELA_LAYOUT,
+    PEERS_TRACE_COMPONENTS,
 )
 
 from utils.cosif_pdf_mapping import (
@@ -189,10 +190,12 @@ import utils.ifdata_cache.derived_metrics as _ifdata_derived_metrics
 # app1.py ja aponta para uma revisao mais nova do mesmo deploy. Recarregar aqui
 # (registro primeiro, depois o modulo que o consome) evita ImportError no boot e
 # mantem labels, formulas e assinaturas alinhados com a revisao em execucao.
-if not hasattr(_ifdata_derived_metrics, "METRIC_CUSTO_CREDITO"):
+if not hasattr(_ifdata_derived_metrics, "METRIC_CUSTO_CREDITO_RECEITA"):
     _ifdata_metric_registry = importlib.reload(_ifdata_metric_registry)
     _ifdata_derived_metrics = importlib.reload(_ifdata_derived_metrics)
 METRIC_CUSTO_CREDITO = _ifdata_derived_metrics.METRIC_CUSTO_CREDITO
+METRIC_CUSTO_CREDITO_RECEITA = _ifdata_derived_metrics.METRIC_CUSTO_CREDITO_RECEITA
+METRIC_ATIVOS_PROBLEMATICOS_CARTEIRA = _ifdata_derived_metrics.METRIC_ATIVOS_PROBLEMATICOS_CARTEIRA
 DERIVED_METRICS = _ifdata_derived_metrics.DERIVED_METRICS
 DERIVED_METRICS_FORMULAS = _ifdata_derived_metrics.DERIVED_METRICS_FORMULAS
 build_derived_metrics = _ifdata_derived_metrics.build_derived_metrics
@@ -5424,6 +5427,10 @@ _INDICADORES_SOMENTE_ACUM = {
     'ROE Ac. Anualizado (%)',
     # Custo de Crédito é YTD anualizado, mesma natureza do ROE acumulado.
     METRIC_CUSTO_CREDITO,
+    # A razão PDD/Receita também é construída sobre o YTD reconstruído do Rel. 4.
+    # (Ativos Problemáticos / Carteira Total fica de fora: é razão de estoque,
+    # medida no fim do período e válida nos dois modos.)
+    METRIC_CUSTO_CREDITO_RECEITA,
 }
 
 
@@ -5728,6 +5735,10 @@ def _tooltip_ratio_peers(label, valor_num, valor_den, valor_ratio):
         "Perda Esperada / Est2+3": ("Perda Esperada", "Estágio 2 + Estágio 3"),
         "Carteira de Créd. Class. C4+C5 / Carteira Classificada": ("C4+C5", "Carteira de Crédito Classificada"),
         "Perda Esperada / (Carteira C4 + C5)": ("Perda Esperada", "C4+C5"),
+        "Custo de Crédito (%)": ("PDD de crédito (f3) anualizada", "Carteira de Crédito*"),
+        "Custo de Crédito / Receita de Crédito (%)": ("PDD de crédito (f3) YTD", "Receita de crédito (c) YTD"),
+        "Ativos Problemáticos / Carteira Total": ("Ativos problemáticos (Rel. 16)", "Carteira Total (Rel. 16)"),
+        "Inadimplência / Carteira Total": ("Inadimplência (Rel. 16)", "Carteira Total (Rel. 16)"),
     }
     lines = []
     if label in _NOMES_COMPONENTES:
@@ -9891,6 +9902,28 @@ def _calcular_metrica_extra_curada_peers(metric: str, row: Mapping[str, Any]) ->
         recomputed = _calcular_ratio_peers(row.get("Ativos Problemáticos 4.966"), row.get("Carteira Total 4.966"))
         return recomputed if recomputed is not None else valor
 
+    if metric == "Custo de Crédito (%)":
+        recomputed = _calcular_ratio_peers(
+            row.get("Trace::Custo de Crédito::PDD Crédito Anualizada"),
+            row.get("Carteira de Crédito Bruta"),
+            abs_num=True,
+        )
+        return recomputed if recomputed is not None else (abs(valor) if valor is not None and not pd.isna(valor) else valor)
+
+    if metric == "Custo de Crédito / Receita de Crédito (%)":
+        receita = _coerce_numeric_value(row.get("Trace::Custo de Crédito::Receita de Crédito YTD"))
+        # Receita nula ou negativa não é denominador válido: preserva o valor curado
+        # (que já é N/D nesse caso) em vez de inventar uma razão sem interpretação.
+        if receita is not None and not pd.isna(receita) and receita > 0:
+            recomputed = _calcular_ratio_peers(
+                row.get("Trace::Custo de Crédito::PDD Crédito YTD"),
+                receita,
+                abs_num=True,
+            )
+            if recomputed is not None:
+                return recomputed
+        return abs(valor) if valor is not None and not pd.isna(valor) else valor
+
     if metric in {"Perda Esperada / Carteira de Crédito Bruta", "Perda Esperada / Carteira de Crédito*"}:
         recomputed = _calcular_ratio_peers(
             row.get("Perda Esperada"),
@@ -9934,11 +9967,18 @@ def _preparar_metricas_extra_peers_from_slice(
     """Extrai métricas extras diretamente do slice já carregado do cache curado."""
     lookup = _critical_metric_lookup(df_slice)
     result = {metric: {} for metric in CRITICAL_EXTRA_METRICS}
+    # Os traces entram como pseudo-métricas para que os tooltips de razão e a memória
+    # de cálculo mostrem numerador e denominador reais em vez de "N/A".
+    for coluna in PEERS_TRACE_COMPONENTS:
+        result.setdefault(coluna, {})
     for banco in bancos:
         for periodo in periodos:
             row = lookup.get((banco, periodo), {})
+            chave = (banco, periodo)
             for metric in CRITICAL_EXTRA_METRICS:
-                result[metric][(banco, periodo)] = _calcular_metrica_extra_curada_peers(metric, row)
+                result[metric][chave] = _calcular_metrica_extra_curada_peers(metric, row)
+            for coluna in PEERS_TRACE_COMPONENTS:
+                result[coluna][chave] = _coerce_numeric_value(row.get(coluna))
     return result
 
 
@@ -10621,6 +10661,10 @@ def _build_memoria_calculo_curado_metrica(
         if metrica in {
             "Ativos Estágio 3 / Carteira de Crédito",
             "Inadimplência / Carteira de Crédito",
+            "Inadimplência / Carteira Total",
+            "Ativos Problemáticos / Carteira Total",
+            "Custo de Crédito (%)",
+            "Custo de Crédito / Receita de Crédito (%)",
             "Perda Esperada / Estágio 3",
             "Perda Esperada / Carteira de Crédito*",
             "Perda Esperada / Carteira",
@@ -10630,6 +10674,10 @@ def _build_memoria_calculo_curado_metrica(
         }:
             ratio_map = {
                 "Ativos Estágio 3 / Carteira de Crédito": ("Ativos Estágio 3", "Carteira de Crédito Bruta", "Ativos Estágio 3 ÷ Carteira de Crédito Bruta"),
+                "Inadimplência / Carteira Total": ("Inadimplência 4.966", "Carteira Total 4.966", "Inadimplência ÷ Carteira Total (IFData Rel. 16)"),
+                "Ativos Problemáticos / Carteira Total": ("Ativos Problemáticos 4.966", "Carteira Total 4.966", "Ativos problemáticos ÷ Total Geral (IFData Rel. 16)"),
+                "Custo de Crédito (%)": ("Trace::Custo de Crédito::PDD Crédito Anualizada", "Carteira de Crédito Bruta", "|PDD de crédito (f3) YTD anualizada| ÷ Carteira de Crédito*"),
+                "Custo de Crédito / Receita de Crédito (%)": ("Trace::Custo de Crédito::PDD Crédito YTD", "Trace::Custo de Crédito::Receita de Crédito YTD", "|PDD de crédito (f3) YTD| ÷ Rendas de Op. de Crédito (c) YTD"),
                 "Inadimplência / Carteira de Crédito": ("Inadimplência", "Carteira de Crédito Bruta", "Inadimplência ÷ Carteira de Crédito Bruta"),
                 "Perda Esperada / Estágio 3": ("Perda Esperada", "Ativos Estágio 3", "|Perda Esperada| ÷ Estágio 3"),
                 "Perda Esperada / Carteira de Crédito*": ("Perda Esperada", "Carteira de Crédito*", "|Perda Esperada| ÷ Carteira de Crédito*"),
@@ -14128,13 +14176,22 @@ RANKINGS_FAMILY_PRINCIPAL_LIGHT = frozenset(
     {
         "Ativo Total",
         "Patrimônio Líquido",
-        # Custo de Crédito vem pronto do cache derivado: do principal só precisa de
-        # Instituição/Período/Ativo Total (pool). Não passa pelo enriquecimento Rel. 2.
+        # As métricas derivadas vêm prontas do cache derivado: do principal só precisam
+        # de Instituição/Período/Ativo Total (pool). Não passam pelo enriquecimento Rel. 2.
         METRIC_CUSTO_CREDITO,
+        METRIC_CUSTO_CREDITO_RECEITA,
+        METRIC_ATIVOS_PROBLEMATICOS_CARTEIRA,
     }
 )
-# Indicadores que exigem enriquecimento com o cache `derived_metrics` (DRE Rel. 4).
-RANKINGS_FAMILY_DERIVED = frozenset({METRIC_CUSTO_CREDITO})
+# Indicadores que exigem enriquecimento com o cache `derived_metrics`
+# (DRE Rel. 4 para as razões de custo; Rel. 16 para ativos problemáticos).
+RANKINGS_FAMILY_DERIVED = frozenset(
+    {
+        METRIC_CUSTO_CREDITO,
+        METRIC_CUSTO_CREDITO_RECEITA,
+        METRIC_ATIVOS_PROBLEMATICOS_CARTEIRA,
+    }
+)
 
 
 def _rankings_periodos_selecionados(periodos_selecionados: Sequence[str]) -> tuple[str, ...]:
@@ -14335,6 +14392,11 @@ def _resolve_rankings_source_request(
         "periodos_filter": periodos_filter,
         "needs_capital": source_family == "capital_prepared",
         "needs_derived": indicador_label in RANKINGS_FAMILY_DERIVED,
+        # Só a métrica selecionada é lida do cache derivado: carregar as três
+        # obrigaria a varrer o parquet long inteiro a cada troca de indicador.
+        "metricas_derivadas": (
+            (indicador_label,) if indicador_label in RANKINGS_FAMILY_DERIVED else ()
+        ),
         "perf_label": perf_label,
     }
 
@@ -14438,6 +14500,7 @@ def ensure_derived_metrics_cache(
     dre_cache_name: str = "dre",
     principal_cache_name: str = "principal",
     ativo_cache_name: Optional[str] = "ativo",
+    carteira_instrumentos_cache_name: Optional[str] = "carteira_instrumentos",
 ) -> Tuple[Optional[object], Optional[str], dict]:
     manager = get_cache_manager()
     cache_derivado = manager.get_cache(derived_cache_name) if manager else None
@@ -14453,11 +14516,18 @@ def ensure_derived_metrics_cache(
     # Custo de Crédito (%); sem isso a métrica ficaria presa a um cache antigo.
     ativo_cache = manager.get_cache(ativo_cache_name) if (manager and ativo_cache_name) else None
     mtime_ativo = _get_cache_data_mtime(ativo_cache) if ativo_cache is not None else None
+    # Rel. 16 entra pelo mesmo motivo: alimenta Ativos Problemáticos / Carteira Total.
+    instr_cache = (
+        manager.get_cache(carteira_instrumentos_cache_name)
+        if (manager and carteira_instrumentos_cache_name)
+        else None
+    )
+    mtime_instr = _get_cache_data_mtime(instr_cache) if instr_cache is not None else None
 
     precisa_recalcular = True
     if mtime_derivado is not None:
         referencia = max(
-            [t for t in [mtime_dre, mtime_principal, mtime_ativo] if t is not None],
+            [t for t in [mtime_dre, mtime_principal, mtime_ativo, mtime_instr] if t is not None],
             default=None,
         )
         if referencia is None or mtime_derivado >= referencia:
@@ -14488,6 +14558,7 @@ def ensure_derived_metrics_cache(
         dre_cache_name=dre_cache_name,
         principal_cache_name=principal_cache_name,
         ativo_cache_name=ativo_cache_name,
+        carteira_instrumentos_cache_name=carteira_instrumentos_cache_name,
         force=True,
     )
     elapsed = _perf_end("derived_metrics_build")
@@ -14530,6 +14601,9 @@ def carregar_metricas_derivadas_individual_slice(periodos=None, instituicoes=Non
         # Não existe Relatório 2 individual: o denominador de Custo de Crédito (%)
         # cai para a carteira do cache principal individual.
         ativo_cache_name=None,
+        # Nem Relatório 16 individual: Ativos Problemáticos / Carteira Total fica N/D
+        # na base individual em vez de herdar o consolidado.
+        carteira_instrumentos_cache_name=None,
     )
     if cache_derivado is None or erro:
         st.session_state["derived_metrics_individual_last_error"] = erro or "cache derivado individual indisponível"
@@ -15440,14 +15514,22 @@ def _get_rankings_source_df(
     )
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def _get_rankings_custo_credito_pivot(derived_token: str, periodos_filter: tuple) -> pd.DataFrame:
-    """Recorte de Custo de Crédito (%) do cache derivado, pronto para merge em Rankings.
+def _get_rankings_derivadas_pivot(
+    derived_token: str,
+    periodos_filter: tuple,
+    metricas: tuple,
+) -> pd.DataFrame:
+    """Recorte largo do cache derivado, pronto para merge em Rankings.
 
     Lê direto do parquet derivado (sem tocar em session_state) para poder ser
     memoizado. A garantia de que o cache existe/está atualizado fica com
-    `ensure_derived_metrics_cache`, chamada antes por `_anexar_custo_credito_rankings`.
+    `ensure_derived_metrics_cache`, chamada antes por `_anexar_metricas_derivadas_rankings`.
     """
     _ = derived_token
+    metricas_lista = [str(m) for m in metricas if m]
+    if not metricas_lista:
+        return pd.DataFrame()
+
     manager = get_cache_manager()
     cache_derivado = manager.get_cache("derived_metrics") if manager else None
     if cache_derivado is None:
@@ -15456,7 +15538,7 @@ def _get_rankings_custo_credito_pivot(derived_token: str, periodos_filter: tuple
     df_long = load_derived_metrics_slice(
         cache_derivado,
         periodos=list(periodos_filter) if periodos_filter else None,
-        metricas=[METRIC_CUSTO_CREDITO],
+        metricas=metricas_lista,
     )
     if df_long is None or df_long.empty:
         return pd.DataFrame()
@@ -15465,47 +15547,66 @@ def _get_rankings_custo_credito_pivot(derived_token: str, periodos_filter: tuple
         {
             "Instituição": df_long["Instituição"].astype(str),
             "Período": df_long["Período"].astype(str),
-            METRIC_CUSTO_CREDITO: pd.to_numeric(df_long["Valor"], errors="coerce"),
+            "Métrica": df_long["Métrica"].astype(str),
+            "Valor": pd.to_numeric(df_long["Valor"], errors="coerce"),
         }
     )
     # Alinha a grafia das instituições com a base de Rankings antes do merge.
     df_out = _normalizar_instituicoes_rankings_leve(df_out)
-    df_out = (
-        df_out.dropna(subset=["Instituição", "Período"])
-        .groupby(["Instituição", "Período"], as_index=False)[METRIC_CUSTO_CREDITO]
-        .first()
-    )
-    return df_out
+    df_out = df_out.dropna(subset=["Instituição", "Período"])
+    if df_out.empty:
+        return pd.DataFrame()
+
+    df_pivot = df_out.pivot_table(
+        index=["Instituição", "Período"],
+        columns="Métrica",
+        values="Valor",
+        aggfunc="first",
+        observed=True,
+    ).reset_index()
+    df_pivot.columns.name = None
+    for metrica in metricas_lista:
+        if metrica not in df_pivot.columns:
+            df_pivot[metrica] = pd.NA
+    return df_pivot[["Instituição", "Período", *metricas_lista]]
 
 
-def _anexar_custo_credito_rankings(
+def _anexar_metricas_derivadas_rankings(
     df_base: pd.DataFrame,
     periodos_filter: Optional[tuple] = None,
+    metricas: Optional[Sequence[str]] = None,
 ) -> pd.DataFrame:
-    """Anexa a coluna Custo de Crédito (%) à base de Rankings.
+    """Anexa as colunas de métricas derivadas à base de Rankings.
 
-    Ausência do cache derivado não derruba a aba: a coluna entra vazia e o
-    indicador é exibido como N/D, sem substituir por zero.
+    Ausência do cache derivado não derruba a aba: as colunas entram vazias e os
+    indicadores são exibidos como N/D, sem substituir por zero.
     """
     if df_base is None or df_base.empty:
         return df_base
 
+    metricas_lista = [str(m) for m in (metricas or sorted(RANKINGS_FAMILY_DERIVED)) if m]
     df_out = df_base.copy()
+
+    def _vazias() -> pd.DataFrame:
+        for metrica in metricas_lista:
+            df_out[metrica] = pd.NA
+        return df_out
+
     cache_derivado, erro, _ = ensure_derived_metrics_cache()
     if cache_derivado is None or erro:
-        df_out[METRIC_CUSTO_CREDITO] = pd.NA
-        return df_out
+        return _vazias()
 
-    df_pivot = _get_rankings_custo_credito_pivot(
+    df_pivot = _get_rankings_derivadas_pivot(
         _cache_version_token("derived_metrics"),
         tuple(str(p) for p in (periodos_filter or ()) if p),
+        tuple(metricas_lista),
     )
     if df_pivot.empty:
-        df_out[METRIC_CUSTO_CREDITO] = pd.NA
-        return df_out
+        return _vazias()
 
-    if METRIC_CUSTO_CREDITO in df_out.columns:
-        df_out = df_out.drop(columns=[METRIC_CUSTO_CREDITO])
+    colisoes = [m for m in metricas_lista if m in df_out.columns]
+    if colisoes:
+        df_out = df_out.drop(columns=colisoes)
     df_out["Período"] = df_out["Período"].astype(str)
     df_out = df_out.merge(df_pivot, on=["Instituição", "Período"], how="left")
     return df_out
@@ -17046,6 +17147,10 @@ elif menu == "Peers (Tabela)":
                             <strong>Perda Esperada</strong> = Soma das linhas Perda Esperada (e2), Hedge de Valor Justo (e3), Ajuste a Valor Justo (e4), Perda Esperada (f2), Hedge de Valor Justo (f3), Perda Esperada (g2), Hedge de Valor Justo (g3), Ajuste a Valor Justo (g4) e Perda Esperada (h2), no relatório de Ativo (Rel. 2).<br>
                             Base (e,f,g,h) refere-se a Operações de Crédito, Operações de Arrendamento Financeiro, Outras Operações com Características de Concessão de Crédito e Valores a Receber de Transações de Pagamentos - Usuários Finais (Pós-pago).<br>
                             <strong>Perda Esperada / Carteira de Crédito*</strong> = |Perda Esperada| ÷ Carteira de Crédito*.<br>
+                            <strong>Custo de Crédito (%)</strong> = |Resultado com Perda Esperada de Operações de Crédito (f3)| do Rel. 4 (DRE), YTD reconstruído e anualizado (Mar ×4, Jun ×2, Set ×12/9, Dez ×1), ÷ Carteira de Crédito*. Numerador restrito a operações de crédito — não inclui TVM nem aplicações interfinanceiras. Série a partir de Mar/25.<br>
+                            <strong>Custo de Crédito / Receita de Crédito (%)</strong> = |PDD de crédito (f3)| YTD ÷ Rendas de Operações de Crédito (c) YTD, ambos do Rel. 4. Sem anualização: os dois são fluxos do mesmo período e o fator se cancela na razão. Receita zero, negativa ou ausente resulta em N/D.<br>
+                            <strong>Ativos Problemáticos / Carteira Total</strong> = Ativos problemáticos ÷ Total Geral, ambos publicados no Rel. 16 (carteira de crédito ativa por carteiras de instrumentos financeiros, Res. 4.966). Escopo estritamente de crédito, sem reconciliação de perímetro. "Ativo problemático" segue o art. 24 da Res. CMN 4.557: atraso relevante acima de 90 dias ou liquidação integral improvável sem garantia. <em>Não confundir com o Estágio 3 do Cadoc 4060</em>, que classifica ativos financeiros em escopo mais amplo.<br>
+                            <strong>Inadimplência / Carteira Total</strong> = Inadimplência ÷ Total Geral, ambos do Rel. 16 — mesmo perímetro do indicador acima, porém restrito ao atraso relevante.<br>
                             <strong>Ativos Estágio 2</strong> = Saldo da conta 3312000001 (Cadoc 4060) no mês/período selecionado, quando a fonte mensal publicar o estágio e houver match prudencial confiável.<br>
                             <strong>Ativos Estágio 3</strong> = Saldo da conta 3313000000 (Cadoc 4060) no mês/período selecionado, quando a fonte mensal publicar o estágio e houver match prudencial confiável.<br>
                             <strong>Ativos Estágio 3 / Carteira de Crédito</strong> = Ativos Estágio 3 (Cadoc 4060) ÷ Carteira de Crédito*.<br>
@@ -18997,6 +19102,8 @@ elif menu == "Rankings":
             'Ativo Total': ['Ativo Total'],
             'Carteira de Crédito*': ['Carteira de Crédito*', 'Carteira de Crédito Bruta', 'Carteira de Crédito'],
             METRIC_CUSTO_CREDITO: [METRIC_CUSTO_CREDITO],
+            METRIC_CUSTO_CREDITO_RECEITA: [METRIC_CUSTO_CREDITO_RECEITA],
+            METRIC_ATIVOS_PROBLEMATICOS_CARTEIRA: [METRIC_ATIVOS_PROBLEMATICOS_CARTEIRA],
             'Core Funding*': ['Core Funding*', 'Core Funding', 'Captações'],
             'Patrimônio Líquido': ['Patrimônio Líquido'],
             'Índice de Capital Principal (CET1)': ['Índice de Capital Principal (CET1)', 'Índice de Capital Principal'],
@@ -19020,6 +19127,8 @@ elif menu == "Rankings":
                 'Ativo Total',
                 'Carteira de Crédito*',
                 METRIC_CUSTO_CREDITO,
+                METRIC_CUSTO_CREDITO_RECEITA,
+                METRIC_ATIVOS_PROBLEMATICOS_CARTEIRA,
                 'Core Funding*',
                 'Patrimônio Líquido',
                 'Índice de Capital Principal (CET1)',
@@ -19048,6 +19157,32 @@ elif menu == "Rankings":
                     'Mar ×4, Jun ×2, Set ×12/9, Dez ×1.\n'
                     'Série disponível a partir de Mar/25 (1/2025): o layout anterior do Rel. 4 não abre PDD por '
                     'tipo de ativo, então períodos até 4/2024 aparecem como N/D.'
+                ),
+                METRIC_CUSTO_CREDITO_RECEITA: (
+                    'Fração da receita de crédito consumida por provisão: '
+                    '|Resultado com Perda Esperada de Operações de Crédito (f3)| ÷ '
+                    'Rendas de Operações de Crédito (c).\n'
+                    'Numerador e denominador vêm do Rel. 4 (DRE), ambos restritos a operações de '
+                    'crédito — não incluem TVM, aplicações interfinanceiras nem tesouraria.\n'
+                    'Sem anualização: como os dois são fluxos do mesmo período, qualquer fator se '
+                    'cancela na razão. O YTD reconstruído do Rel. 4 continua valendo '
+                    '(Set = Jul–Set + Jun; Dez = Jul–Dez + Jun); sem junho o valor é N/D.\n'
+                    'Receita de crédito zero, negativa ou ausente resulta em N/D — é o caso das '
+                    'instituições que não operam crédito.\n'
+                    'Série disponível a partir de Mar/25 (1/2025).'
+                ),
+                METRIC_ATIVOS_PROBLEMATICOS_CARTEIRA: (
+                    'Ativos problemáticos ÷ Total Geral, ambos publicados pelo BCB no '
+                    'IFData Relatório 16 (Carteira de crédito ativa por carteiras de '
+                    'instrumentos financeiros, Res. 4.966).\n'
+                    'Escopo estritamente de carteira de crédito ativa: numerador e denominador '
+                    'saem do mesmo relatório e do mesmo perímetro, sem reconciliação.\n'
+                    '"Ativo problemático" segue a definição prudencial do art. 24 da Res. '
+                    'CMN 4.557 — inclui operações em atraso relevante acima de 90 dias e '
+                    'aquelas cuja liquidação integral é improvável sem garantia.\n'
+                    'Não confundir com Estágio 3 do Cadoc 4060, que classifica ativos '
+                    'financeiros em escopo mais largo.\n'
+                    'Instituição que não publica o Rel. 16 no período aparece como N/D.'
                 ),
                 'Core Funding*': 'Até 2024: Captações (e). 2025+: Captações (e) + Instrumentos de Dívida Elegíveis a Capital (h) no Rel. 3, sem imputar zero para componente ausente.',
                 'Patrimônio Líquido': 'Padrão COSIF.',
@@ -19221,7 +19356,11 @@ elif menu == "Rankings":
             print(_perf_log(rankings_source_request["perf_label"]))
             if rankings_source_request.get("needs_derived"):
                 _perf_start("rankings_derived_merge")
-                df = _anexar_custo_credito_rankings(df, _periodos_rankings_filter)
+                df = _anexar_metricas_derivadas_rankings(
+                    df,
+                    _periodos_rankings_filter,
+                    rankings_source_request.get("metricas_derivadas"),
+                )
                 print(_perf_log("rankings_derived_merge"))
             print(_perf_log("rankings_base_df"))
 
@@ -27423,7 +27562,9 @@ elif menu == "Glossário":
         {"Indicador": "ROE Trim. Anualizado (%)", "Aba(s)": "Rankings, Glossário", "Fonte": "IFData Rel.1", "Fórmula": "(Lucro trimestral × 4) ÷ PL médio", "Unidade": "%", "Interpretação": "Proxy anualizada do trimestre corrente.", "Limitação": "Mais volátil que o ROE acumulado.", "Periodicidade": "Trimestral"},
         {"Indicador": "Lucro Líquido Acumulado YTD", "Aba(s)": "Snapshot, Peers (Tabela), Evolução, Glossário", "Fonte": "IFData Rel.1/4", "Fórmula": "Resultado líquido acumulado no ano", "Unidade": "R$", "Interpretação": "Contribuição de resultado até a data-base.", "Limitação": "Não é lucro run-rate do trimestre isolado.", "Periodicidade": "Trimestral (acumulado)"},
         {"Indicador": "Desp PDD / Resultado Intermediação Fin. Bruto (%)", "Aba(s)": "DRE (Ind. e Congl.), Glossário", "Fonte": "IFData Rel.4", "Fórmula": "Desp. PDD ÷ Resultado Interm. Fin. Bruto", "Unidade": "%", "Interpretação": "Pressão de provisões sobre resultado de intermediação.", "Limitação": "Pode distorcer com denominador muito baixo.", "Periodicidade": "Trimestral/YTD"},
-        {"Indicador": "Custo de Crédito (%)", "Aba(s)": "Rankings, Glossário", "Fonte": "IFData Rel.4 + Rel.2", "Fórmula": "|Resultado com Perda Esperada de Operações de Crédito (f3)| YTD anualizado ÷ Carteira de Crédito*", "Unidade": "%", "Interpretação": "Custo de risco da carteira: quanto da carteira é consumido por provisão de crédito em base anual.", "Limitação": "Série inicia em Mar/25 — o layout anterior do Rel. 4 não abre PDD por tipo de ativo. Sem junho publicado, Set/Dez ficam N/D. Carteira zero/ausente resulta em N/D.", "Periodicidade": "Trimestral/YTD anualizado"},
+        {"Indicador": "Custo de Crédito (%)", "Aba(s)": "Rankings, Peers (Tabela), Scatter Plot, Glossário", "Fonte": "IFData Rel.4 + Rel.2", "Fórmula": "|Resultado com Perda Esperada de Operações de Crédito (f3)| YTD anualizado ÷ Carteira de Crédito*", "Unidade": "%", "Interpretação": "Custo de risco da carteira: quanto da carteira é consumido por provisão de crédito em base anual.", "Limitação": "Série inicia em Mar/25 — o layout anterior do Rel. 4 não abre PDD por tipo de ativo. Sem junho publicado, Set/Dez ficam N/D. Carteira zero/ausente resulta em N/D.", "Periodicidade": "Trimestral/YTD anualizado"},
+        {"Indicador": "Custo de Crédito / Receita de Crédito (%)", "Aba(s)": "Rankings, Peers (Tabela), Scatter Plot, Glossário", "Fonte": "IFData Rel.4 (DRE)", "Fórmula": "|Resultado com Perda Esperada de Operações de Crédito (f3)| YTD ÷ Rendas de Operações de Crédito (c) YTD", "Unidade": "%", "Interpretação": "Fração da receita de crédito consumida por provisão. Complementa o Custo de Crédito: mede pressão sobre a margem, não sobre a exposição.", "Limitação": "Sem anualização — numerador e denominador são fluxos do mesmo período e o fator se cancela. Série inicia em Mar/25. Receita de crédito zero, negativa ou ausente resulta em N/D. Sem junho publicado, Set/Dez ficam N/D.", "Periodicidade": "Trimestral/YTD"},
+        {"Indicador": "Ativos Problemáticos / Carteira Total", "Aba(s)": "Rankings, Peers (Tabela), Scatter Plot, Glossário", "Fonte": "IFData Rel.16 (Carteira de crédito ativa por carteiras de instrumentos financeiros, Res. 4.966)", "Fórmula": "Ativos problemáticos ÷ Total Geral", "Unidade": "%", "Interpretação": "Parcela problemática da carteira de crédito ativa. 'Ativo problemático' segue o art. 24 da Res. CMN 4.557: atraso relevante acima de 90 dias ou liquidação integral improvável sem garantia.", "Limitação": "Numerador e denominador saem do mesmo relatório e do mesmo perímetro, sem reconciliação. Não é equivalente ao Estágio 3 do Cadoc 4060, que classifica ativos financeiros em escopo mais amplo. Instituição que não publica o Rel. 16 no período fica N/D.", "Periodicidade": "Trimestral"},
         {"Indicador": "Desp Captação / Captação (%)", "Aba(s)": "DRE (Ind. e Congl.), Glossário", "Fonte": "IFData Rel.4 + Rel.1", "Fórmula": "(Desp. Captação × (12/meses)) ÷ Captações", "Unidade": "%", "Interpretação": "Custo anualizado de funding sobre captação.", "Limitação": "Depende da compatibilidade entre bases.", "Periodicidade": "Trimestral/YTD"},
     ])
 

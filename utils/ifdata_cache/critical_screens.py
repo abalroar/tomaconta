@@ -36,8 +36,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("ifdata_cache")
 
-CRITICAL_SCREENS_SCHEMA_VERSION = 4
-CRITICAL_SCREENS_RUNTIME_COMPATIBLE_SCHEMA_VERSIONS = {3}
+CRITICAL_SCREENS_SCHEMA_VERSION = 5
+CRITICAL_SCREENS_RUNTIME_COMPATIBLE_SCHEMA_VERSIONS = {3, 4}
 BUNDLED_CRITICAL_SCREENS_DIR = Path("data") / "bundled" / "critical_screens"
 
 
@@ -73,6 +73,8 @@ CRITICAL_EXTRA_METRICS = [
     "Inadimplência / Carteira Total",
     "Inadimplência / Carteira de Crédito",
     "Ativos Problemáticos / Carteira Total",
+    "Custo de Crédito (%)",
+    "Custo de Crédito / Receita de Crédito (%)",
     "Perda Esperada / (Carteira C4 + C5)",
     "Saldo PDD Crédito",
     "Saldo PDD Outros Créditos",
@@ -194,6 +196,9 @@ CRITICAL_TRACE_COLUMNS = [
     "Trace::Desp Captação::Despesa YTD",
     "Trace::Desp Captação::Despesa Anualizada",
     "Trace::Desp Captação::Captações Média YTD",
+    "Trace::Custo de Crédito::PDD Crédito YTD",
+    "Trace::Custo de Crédito::PDD Crédito Anualizada",
+    "Trace::Custo de Crédito::Receita de Crédito YTD",
 ]
 
 
@@ -564,6 +569,10 @@ def _derive_runtime_compatible_metrics(df: pd.DataFrame) -> pd.DataFrame:
     inadimplencia = _numeric_runtime_series(out, "Inadimplência")
     inadimplencia_4966 = _numeric_runtime_series(out, "Inadimplência 4.966")
     carteira_total_4966 = _numeric_runtime_series(out, "Carteira Total 4.966")
+    ativos_problematicos_4966 = _numeric_runtime_series(out, "Ativos Problemáticos 4.966")
+    pdd_credito_anual = _numeric_runtime_series(out, "Trace::Custo de Crédito::PDD Crédito Anualizada")
+    pdd_credito_ytd = _numeric_runtime_series(out, "Trace::Custo de Crédito::PDD Crédito YTD")
+    rec_credito_ytd = _numeric_runtime_series(out, "Trace::Custo de Crédito::Receita de Crédito YTD")
 
     inadimplencia = inadimplencia.combine_first(inadimplencia_4966)
     out["Inadimplência"] = inadimplencia
@@ -580,6 +589,16 @@ def _derive_runtime_compatible_metrics(df: pd.DataFrame) -> pd.DataFrame:
 
     assign_ratio("Inadimplência / Carteira de Crédito", inadimplencia, carteira_bruta)
     assign_ratio("Inadimplência / Carteira Total", inadimplencia_4966, carteira_total_4966)
+    assign_ratio("Ativos Problemáticos / Carteira Total", ativos_problematicos_4966, carteira_total_4966)
+    # As duas razões de custo de crédito só são recomponíveis se o bundle legado já
+    # trouxer os traces do Rel. 4. Sem eles a coluna permanece N/D — nunca zero.
+    assign_ratio("Custo de Crédito (%)", pdd_credito_anual, carteira_bruta, abs_num=True)
+    assign_ratio(
+        "Custo de Crédito / Receita de Crédito (%)",
+        pdd_credito_ytd,
+        rec_credito_ytd.mask(rec_credito_ytd <= 0),
+        abs_num=True,
+    )
     assign_ratio("Ativos Estágio 3 / Carteira de Crédito", estagio3, carteira_bruta)
     assign_ratio("Perda Esperada / Carteira de Crédito Bruta", perda_esperada, carteira_bruta, abs_num=True)
     assign_ratio("Perda Esperada / Carteira de Crédito*", perda_esperada, carteira_bruta, abs_num=True)
@@ -1364,11 +1383,35 @@ def _build_bloprud_lookup(df_bloprudencial: Optional[pd.DataFrame], catalog_map:
     return out
 
 
-def _build_desp_capt_lookup(
+DRE_RATIO_LOOKUP_COLUMNS = [
+    "Desp Captação / Captação",
+    "Trace::Desp Captação::Despesa YTD",
+    "Trace::Desp Captação::Despesa Anualizada",
+    "Trace::Desp Captação::Captações Média YTD",
+    "Custo de Crédito / Receita de Crédito (%)",
+    "Trace::Custo de Crédito::PDD Crédito YTD",
+    "Trace::Custo de Crédito::PDD Crédito Anualizada",
+    "Trace::Custo de Crédito::Receita de Crédito YTD",
+]
+
+
+def _build_dre_ratios_lookup(
     df_dre: Optional[pd.DataFrame],
     df_principal: Optional[pd.DataFrame],
     catalog_map: Dict[str, str],
 ) -> Dict[tuple[str, str], dict]:
+    """Razões de DRE (Rel. 4) prontas por (instituição, período).
+
+    Reúne as métricas cujo numerador é um fluxo do Relatório 4 e que precisam da
+    reconstrução de YTD irregular (Set = Jul-Set + Jun; Dez = Jul-Dez + Jun):
+
+    - `Desp Captação / Captação`, já existente;
+    - `Custo de Crédito / Receita de Crédito (%)`, razão fechada dentro do próprio
+      Rel. 4 — por isso sai daqui pronta;
+    - o numerador anualizado de `Custo de Crédito (%)`, que é dividido no
+      construtor de linhas pela mesma `Carteira de Crédito*` exibida na tabela,
+      para que a memória de cálculo feche com o que o usuário vê.
+    """
     if df_dre is None or df_dre.empty or df_principal is None or df_principal.empty:
         return {}
 
@@ -1378,48 +1421,71 @@ def _build_desp_capt_lookup(
     except Exception:
         return {}
 
-    col_desp_captacao = colunas_dre.get("desp_captacao")
-    if not col_desp_captacao or col_desp_captacao not in df_dre_base.columns:
-        return {}
-
-    desp_ytd = _acumular_dre_ytd_por_periodo(df_dre_base, pd.to_numeric(df_dre_base[col_desp_captacao], errors="coerce"))
     periodos = df_dre_base["Período"].astype(str)
-    desp_anualizada = _anualizar_serie_por_periodo(desp_ytd, periodos)
+    vazio = pd.Series(np.nan, index=df_dre_base.index, dtype="float64")
 
-    df_merge = df_dre_base[["Instituição", "Período"]].copy().merge(
-        df_principal_base,
-        on=["Instituição", "Período"],
-        how="left",
-        suffixes=("", "_principal"),
-    )
-    capt_media_ytd = _media_captacoes_ytd(
-        df_merge["Instituição"],
-        df_merge["Período"],
-        df_merge["Captações"],
-    )
-    denominador_valido = capt_media_ytd.notna() & (capt_media_ytd != 0)
-    ratio = desp_anualizada.where(denominador_valido) / capt_media_ytd.where(denominador_valido)
+    col_desp_captacao = colunas_dre.get("desp_captacao")
+    if col_desp_captacao and col_desp_captacao in df_dre_base.columns:
+        desp_ytd = _acumular_dre_ytd_por_periodo(
+            df_dre_base, pd.to_numeric(df_dre_base[col_desp_captacao], errors="coerce")
+        )
+        desp_anualizada = _anualizar_serie_por_periodo(desp_ytd, periodos)
+        df_merge = df_dre_base[["Instituição", "Período"]].copy().merge(
+            df_principal_base,
+            on=["Instituição", "Período"],
+            how="left",
+            suffixes=("", "_principal"),
+        )
+        capt_media_ytd = _media_captacoes_ytd(
+            df_merge["Instituição"],
+            df_merge["Período"],
+            df_merge["Captações"],
+        )
+        denominador_valido = capt_media_ytd.notna() & (capt_media_ytd != 0)
+        ratio_capt = desp_anualizada.where(denominador_valido) / capt_media_ytd.where(denominador_valido)
+    else:
+        desp_ytd = desp_anualizada = capt_media_ytd = ratio_capt = vazio
+
+    # `f3` só existe no layout IFData 2025+; antes disso não há abertura de PDD por
+    # tipo de ativo e as duas métricas de custo de crédito permanecem N/D.
+    col_pdd_credito = colunas_dre.get("desp_pdd_credito")
+    col_rec_credito = colunas_dre.get("rec_credito")
+    if (
+        col_pdd_credito
+        and col_pdd_credito in df_dre_base.columns
+        and col_rec_credito
+        and col_rec_credito in df_dre_base.columns
+    ):
+        pdd_credito_ytd = _acumular_dre_ytd_por_periodo(
+            df_dre_base, pd.to_numeric(df_dre_base[col_pdd_credito], errors="coerce")
+        )
+        pdd_credito_anualizada = _anualizar_serie_por_periodo(pdd_credito_ytd, periodos)
+        rec_credito_ytd = _acumular_dre_ytd_por_periodo(
+            df_dre_base, pd.to_numeric(df_dre_base[col_rec_credito], errors="coerce")
+        )
+        # Receita nula ou negativa não é denominador válido: quem não opera crédito
+        # fica N/D em vez de produzir uma razão sem interpretação.
+        rec_credito_positiva = rec_credito_ytd.where(rec_credito_ytd > 0)
+        ratio_pdd_receita = pdd_credito_ytd.abs() / rec_credito_positiva
+    else:
+        pdd_credito_ytd = pdd_credito_anualizada = rec_credito_ytd = ratio_pdd_receita = vazio
 
     df_lookup = pd.DataFrame(
         {
             "Instituição": df_dre_base["Instituição"].astype(str),
-            "Período": df_dre_base["Período"].astype(str),
-            "Desp Captação / Captação": ratio,
+            "Período": periodos,
+            "Desp Captação / Captação": ratio_capt,
             "Trace::Desp Captação::Despesa YTD": desp_ytd,
             "Trace::Desp Captação::Despesa Anualizada": desp_anualizada,
             "Trace::Desp Captação::Captações Média YTD": capt_media_ytd,
+            "Custo de Crédito / Receita de Crédito (%)": ratio_pdd_receita,
+            "Trace::Custo de Crédito::PDD Crédito YTD": pdd_credito_ytd,
+            "Trace::Custo de Crédito::PDD Crédito Anualizada": pdd_credito_anualizada,
+            "Trace::Custo de Crédito::Receita de Crédito YTD": rec_credito_ytd,
         }
     )
     prepared = _prepare_frame(df_lookup, catalog_map)
-    return _prepare_lookup(
-        prepared,
-        [
-            "Desp Captação / Captação",
-            "Trace::Desp Captação::Despesa YTD",
-            "Trace::Desp Captação::Despesa Anualizada",
-            "Trace::Desp Captação::Captações Média YTD",
-        ],
-    )
+    return _prepare_lookup(prepared, DRE_RATIO_LOOKUP_COLUMNS)
 
 
 def _collect_variant_audit(*frames: Optional[pd.DataFrame]) -> dict:
@@ -1511,7 +1577,7 @@ def build_critical_screens_dataframe(
     carteira_pj = _prepare_frame(df_carteira_pj, catalog_map, base_dir=root, extra_frames=auxiliary_reference_frames)
     carteira_instr = _prepare_frame(df_carteira_instrumentos, catalog_map, base_dir=root, extra_frames=auxiliary_reference_frames)
     blop_lookup = _build_bloprud_lookup(df_bloprudencial, catalog_map)
-    desp_capt_lookup = _build_desp_capt_lookup(df_dre, df_principal, catalog_map)
+    desp_capt_lookup = _build_dre_ratios_lookup(df_dre, df_principal, catalog_map)
 
     col_disp_ativo = _pick_col(ativo, ["Disponibilidades (a)", "Disponibilidades", "Disponibilidades (a) ="])
     col_aplic_ativo = _pick_col(
@@ -1886,6 +1952,19 @@ def build_critical_screens_dataframe(
         desp_capt_ytd = _coerce_numeric_value(desp_capt_row.get("Trace::Desp Captação::Despesa YTD"))
         desp_capt_anual = _coerce_numeric_value(desp_capt_row.get("Trace::Desp Captação::Despesa Anualizada"))
         capt_media_ytd = _coerce_numeric_value(desp_capt_row.get("Trace::Desp Captação::Captações Média YTD"))
+        custo_credito_receita = _coerce_numeric_value(
+            desp_capt_row.get("Custo de Crédito / Receita de Crédito (%)")
+        )
+        pdd_credito_ytd = _coerce_numeric_value(desp_capt_row.get("Trace::Custo de Crédito::PDD Crédito YTD"))
+        pdd_credito_anual = _coerce_numeric_value(
+            desp_capt_row.get("Trace::Custo de Crédito::PDD Crédito Anualizada")
+        )
+        rec_credito_ytd = _coerce_numeric_value(
+            desp_capt_row.get("Trace::Custo de Crédito::Receita de Crédito YTD")
+        )
+        # Divide pela mesma Carteira de Crédito* renderizada na linha acima, para que a
+        # memória de cálculo feche com o valor exibido em vez de com um denominador paralelo.
+        custo_credito = _calc_ratio(pdd_credito_anual, carteira_bruta, abs_num=True)
         credito_capt = _calc_ratio(carteira_bruta, core_funding)
         if perda_esperada is None:
             qualidade_status = "loss_source_unavailable"
@@ -1930,6 +2009,8 @@ def build_critical_screens_dataframe(
                 "Inadimplência / Carteira Total": _calc_ratio(inadimplencia_4966, carteira_4966_total),
                 "Inadimplência / Carteira de Crédito": _calc_ratio(inadimplencia_4966, carteira_bruta),
                 "Ativos Problemáticos / Carteira Total": _calc_ratio(ativos_problematicos_4966, carteira_4966_total),
+                "Custo de Crédito (%)": custo_credito,
+                "Custo de Crédito / Receita de Crédito (%)": custo_credito_receita,
                 "Perda Esperada / (Carteira C4 + C5)": _calc_ratio(perda_esperada, carteira_c4_c5, abs_num=True),
                 "Saldo PDD Crédito": pdd_credito,
                 "Saldo PDD Outros Créditos": pdd_outros,
@@ -2004,6 +2085,9 @@ def build_critical_screens_dataframe(
                 "Trace::Desp Captação::Despesa YTD": desp_capt_ytd,
                 "Trace::Desp Captação::Despesa Anualizada": desp_capt_anual,
                 "Trace::Desp Captação::Captações Média YTD": capt_media_ytd,
+                "Trace::Custo de Crédito::PDD Crédito YTD": pdd_credito_ytd,
+                "Trace::Custo de Crédito::PDD Crédito Anualizada": pdd_credito_anual,
+                "Trace::Custo de Crédito::Receita de Crédito YTD": rec_credito_ytd,
             }
         )
 

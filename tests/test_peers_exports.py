@@ -375,6 +375,8 @@ def test_peers_base_dre_options_always_include_individual():
 def test_peers_static_configuration_preserves_sections_rows_and_ratio_contracts():
     assert [section["section"] for section in app1.PEERS_TABELA_LAYOUT] == [
         "Balanço",
+        "Custo de Crédito",
+        "Qualidade Carteira 4.966",
         "Qualidade Carteira 4060",
         "Alavancagem",
         "Desempenho",
@@ -391,6 +393,10 @@ def test_peers_static_configuration_preserves_sections_rows_and_ratio_contracts(
         "Depósitos Totais",
         "Core Funding*",
         "Patrimônio Líquido (PL)",
+        "Custo de Crédito (%)",
+        "Custo de Crédito / Receita de Crédito (%)",
+        "Ativos Problemáticos / Carteira Total",
+        "Inadimplência / Carteira Total",
         "Ativos Estágio 2",
         "Ativos Estágio 3",
         "Ativos Estágio 3 / Carteira de Crédito",

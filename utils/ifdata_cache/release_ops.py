@@ -19,12 +19,13 @@ from .release_config import ReleaseConfig, get_release_config
 
 DERIVED_TARGET_SPECS = {
     "derived_metrics": {
-        "sources": ("dre", "principal"),
+        "sources": ("dre", "principal", "carteira_instrumentos"),
         "gate": "dre_consolidado",
         "kwargs": {
             "derived_cache_name": "derived_metrics",
             "dre_cache_name": "dre",
             "principal_cache_name": "principal",
+            "carteira_instrumentos_cache_name": "carteira_instrumentos",
         },
     },
     "derived_metrics_individual": {
@@ -34,6 +35,9 @@ DERIVED_TARGET_SPECS = {
             "derived_cache_name": "derived_metrics_individual",
             "dre_cache_name": "dre_individual",
             "principal_cache_name": "principal_individual",
+            # Não existe Relatório 16 individual: a métrica de ativos problemáticos
+            # fica N/D na base individual em vez de herdar o consolidado.
+            "carteira_instrumentos_cache_name": None,
         },
     },
 }
