@@ -1,5 +1,5 @@
 {
-  "timestamp_salvamento": "2026-07-15T18:41:00.325947",
+  "timestamp_salvamento": "2026-08-17T18:55:48.655313",
   "fonte": "materialized",
   "total_registros": 61981,
   "colunas": [
@@ -35,6 +35,8 @@
     "Inadimplência / Carteira Total",
     "Inadimplência / Carteira de Crédito",
     "Ativos Problemáticos / Carteira Total",
+    "Custo de Crédito (%)",
+    "Custo de Crédito / Receita de Crédito (%)",
     "Perda Esperada / (Carteira C4 + C5)",
     "Saldo PDD Crédito",
     "Saldo PDD Outros Créditos",
@@ -105,6 +107,9 @@
     "Trace::Desp Captação::Despesa YTD",
     "Trace::Desp Captação::Despesa Anualizada",
     "Trace::Desp Captação::Captações Média YTD",
+    "Trace::Custo de Crédito::PDD Crédito YTD",
+    "Trace::Custo de Crédito::PDD Crédito Anualizada",
+    "Trace::Custo de Crédito::Receita de Crédito YTD",
     "CapitalDisponivel",
     "BloprudencialDisponivel",
     "QualidadeCarteiraDisponivel"
@@ -237,6 +242,8 @@
       "Inadimplência / Carteira Total",
       "Inadimplência / Carteira de Crédito",
       "Ativos Problemáticos / Carteira Total",
+      "Custo de Crédito (%)",
+      "Custo de Crédito / Receita de Crédito (%)",
       "Perda Esperada / (Carteira C4 + C5)",
       "Saldo PDD Crédito",
       "Saldo PDD Outros Créditos",
@@ -320,15 +327,18 @@
       "Trace::Capital::Índice Basileia Publicado",
       "Trace::Desp Captação::Despesa YTD",
       "Trace::Desp Captação::Despesa Anualizada",
-      "Trace::Desp Captação::Captações Média YTD"
+      "Trace::Desp Captação::Captações Média YTD",
+      "Trace::Custo de Crédito::PDD Crédito YTD",
+      "Trace::Custo de Crédito::PDD Crédito Anualizada",
+      "Trace::Custo de Crédito::Receita de Crédito YTD"
     ],
-    "schema_version": 4,
+    "schema_version": 5,
     "source_fingerprints": {
       "principal": {
-        "timestamp_salvamento": "2026-06-22T15:10:21.643393",
+        "timestamp_salvamento": "2026-08-17T18:26:04.647492",
         "total_registros": 62061,
         "total_periodos": 45,
-        "fonte": "api"
+        "fonte": "github_releases"
       },
       "capital": {
         "timestamp_salvamento": "2026-06-22T15:11:09.209568",
@@ -337,10 +347,10 @@
         "fonte": "api"
       },
       "ativo": {
-        "timestamp_salvamento": "2026-06-22T15:11:28.181175",
+        "timestamp_salvamento": "2026-08-17T18:26:05.401529",
         "total_registros": 62061,
         "total_periodos": 45,
-        "fonte": "api"
+        "fonte": "github_releases"
       },
       "passivo": {
         "timestamp_salvamento": "2026-06-22T15:11:47.327954",
@@ -349,10 +359,10 @@
         "fonte": "api"
       },
       "dre": {
-        "timestamp_salvamento": "2026-06-22T15:12:10.594609",
+        "timestamp_salvamento": "2026-08-17T18:26:03.999160",
         "total_registros": 62061,
         "total_periodos": 45,
-        "fonte": "api"
+        "fonte": "github_releases"
       },
       "carteira_pf": {
         "timestamp_salvamento": "2026-06-22T15:13:22.656278",
@@ -367,10 +377,10 @@
         "fonte": "api"
       },
       "carteira_instrumentos": {
-        "timestamp_salvamento": "2026-07-15T18:13:44.858023",
+        "timestamp_salvamento": "2026-08-17T18:26:05.939626",
         "total_registros": 6917,
         "total_periodos": 5,
-        "fonte": "api"
+        "fonte": "github_releases"
       },
       "bloprudencial": {
         "timestamp_salvamento": "2026-06-22T15:14:08.289926",

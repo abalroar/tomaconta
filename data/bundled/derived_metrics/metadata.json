@@ -1,7 +1,7 @@
 {
-  "timestamp_salvamento": "2026-08-11T21:21:23.495042",
+  "timestamp_salvamento": "2026-08-17T18:26:21.843626",
   "fonte": "derivado",
-  "total_registros": 186183,
+  "total_registros": 310305,
   "colunas": [
     "Instituição",
     "Período",
@@ -62,7 +62,9 @@
     "denominador_zero_ou_nan": {
       "Desp PDD / Resultado Intermediação Fin. Bruto": 55500,
       "Desp Captação / Captação": 16850,
-      "Custo de Crédito (%)": 2192
+      "Custo de Crédito (%)": 2192,
+      "Custo de Crédito / Receita de Crédito (%)": 56855,
+      "Ativos Problemáticos / Carteira Total": 56743
     },
     "period_type": "trimestral",
     "periodos_detectados": [
