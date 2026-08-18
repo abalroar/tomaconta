@@ -14223,7 +14223,8 @@ def _rankings_principal_cache_disponivel() -> bool:
     cache_principal = manager.get_cache("principal") if manager else None
     if cache_principal is None:
         return False
-    return bool(cache_principal.arquivo_dados.exists() or cache_principal.arquivo_dados_pickle.exists())
+    arquivo_leitura = getattr(cache_principal, "read_data_file", cache_principal.arquivo_dados)
+    return bool(arquivo_leitura.exists() or cache_principal.arquivo_dados_pickle.exists())
 
 
 def _rankings_periodo_mesma_representacao(periodo: str, tri_idx: int) -> Optional[str]:
@@ -14484,18 +14485,22 @@ def get_analise_base_df(
 def _get_cache_data_mtime(cache_obj) -> Optional[float]:
     if cache_obj is None:
         return None
-    if cache_obj.arquivo_dados.exists():
-        return cache_obj.arquivo_dados.stat().st_mtime
+    arquivo_leitura = getattr(cache_obj, "read_data_file", cache_obj.arquivo_dados)
+    if arquivo_leitura.exists():
+        return arquivo_leitura.stat().st_mtime
     if cache_obj.arquivo_dados_pickle.exists():
         return cache_obj.arquivo_dados_pickle.stat().st_mtime
     return None
 
 
 def _load_cache_metadata(cache_obj) -> dict:
-    if cache_obj is None or not cache_obj.arquivo_metadata.exists():
+    if cache_obj is None:
+        return {}
+    arquivo_metadata = getattr(cache_obj, "read_metadata_file", cache_obj.arquivo_metadata)
+    if not arquivo_metadata.exists():
         return {}
     try:
-        return json.loads(cache_obj.arquivo_metadata.read_text())
+        return json.loads(arquivo_metadata.read_text())
     except Exception:
         return {}
 
@@ -15234,7 +15239,12 @@ def _get_rankings_principal_slice_df(
     periodos_set = {str(p) for p in (periodos_filter or ()) if p is not None}
     columns_req = tuple(dict.fromkeys(str(col) for col in columns_key if col))
 
-    if cache_principal is not None and cache_principal.arquivo_dados.exists():
+    arquivo_principal = (
+        getattr(cache_principal, "read_data_file", cache_principal.arquivo_dados)
+        if cache_principal is not None
+        else None
+    )
+    if arquivo_principal is not None and arquivo_principal.exists():
         metadata = _load_cache_metadata(cache_principal)
         available_cols = set(metadata.get("colunas") or [])
         if available_cols:
@@ -15250,7 +15260,7 @@ def _get_rankings_principal_slice_df(
                 kwargs = {"columns": columns}
                 if periodos_set:
                     kwargs["filters"] = [("Período", "in", sorted(periodos_set))]
-                df = pd.read_parquet(cache_principal.arquivo_dados, **kwargs)
+                df = pd.read_parquet(arquivo_principal, **kwargs)
                 if periodos_set and "Período" in df.columns:
                     df = df[df["Período"].astype(str).isin(periodos_set)].copy()
                 return df

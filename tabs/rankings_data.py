@@ -27,6 +27,18 @@ class CacheLike(Protocol):
     arquivo_metadata: Path
 
 
+def _data_file(cache_obj: Optional[CacheLike]) -> Optional[Path]:
+    if cache_obj is None:
+        return None
+    return getattr(cache_obj, "read_data_file", getattr(cache_obj, "arquivo_dados", None))
+
+
+def _metadata_file(cache_obj: Optional[CacheLike]) -> Optional[Path]:
+    if cache_obj is None:
+        return None
+    return getattr(cache_obj, "read_metadata_file", getattr(cache_obj, "arquivo_metadata", None))
+
+
 def periodos_do_parquet(cache_obj: Optional[CacheLike]) -> tuple[str, ...]:
     """Períodos presentes no parquet de um cache, sem materializar o dataset.
 
@@ -36,7 +48,7 @@ def periodos_do_parquet(cache_obj: Optional[CacheLike]) -> tuple[str, ...]:
     """
     if cache_obj is None:
         return ()
-    arquivo = getattr(cache_obj, "arquivo_dados", None)
+    arquivo = _data_file(cache_obj)
     if arquivo is None or not arquivo.exists():
         return ()
     for coluna in ("Período", "Periodo"):
@@ -77,7 +89,7 @@ def ler_metadata(cache_obj: Optional[CacheLike]) -> dict:
     """Metadata do cache como dicionário; vazio quando ausente ou ilegível."""
     if cache_obj is None:
         return {}
-    arquivo = getattr(cache_obj, "arquivo_metadata", None)
+    arquivo = _metadata_file(cache_obj)
     if arquivo is None or not arquivo.exists():
         return {}
     try:
@@ -90,7 +102,7 @@ def origem_do_cache(cache_obj: Optional[CacheLike]) -> str:
     """Indica se a leitura vem do artefato versionado ou do cache de runtime."""
     if cache_obj is None:
         return "indisponivel"
-    arquivo = getattr(cache_obj, "arquivo_dados", None)
+    arquivo = _data_file(cache_obj)
     if arquivo is None or not arquivo.exists():
         return "indisponivel"
     return "bundled" if "bundled" in arquivo.parts else "runtime"
@@ -104,7 +116,7 @@ def cobertura_do_cache(nome_cache: str, cache_obj: Optional[CacheLike]) -> dict[
     """
     periodos = periodos_do_parquet(cache_obj)
     metadata = ler_metadata(cache_obj)
-    arquivo = getattr(cache_obj, "arquivo_dados", None) if cache_obj is not None else None
+    arquivo = _data_file(cache_obj)
     return {
         "cache": nome_cache,
         "existe": bool(arquivo is not None and arquivo.exists()),

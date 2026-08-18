@@ -30,6 +30,17 @@ def test_periodos_aceitam_grafia_sem_acento(tmp_path):
     assert rankings_data.periodos_do_parquet(cache) == ("1/2026",)
 
 
+def test_periodos_preferem_arquivo_canonico_de_leitura(tmp_path):
+    runtime = _cache(tmp_path, ["4/2025"], nome="runtime.parquet")
+    bundled = tmp_path / "data" / "bundled" / "principal" / "dados.parquet"
+    bundled.parent.mkdir(parents=True)
+    pd.DataFrame({"Período": ["1/2026"]}).to_parquet(bundled, index=False)
+    runtime.read_data_file = bundled
+
+    assert rankings_data.periodos_do_parquet(runtime) == ("1/2026",)
+    assert rankings_data.origem_do_cache(runtime) == "bundled"
+
+
 def test_periodos_sem_arquivo_ou_sem_cache(tmp_path):
     assert rankings_data.periodos_do_parquet(None) == ()
     assert rankings_data.periodos_do_parquet(_cache(tmp_path)) == ()

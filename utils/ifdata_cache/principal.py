@@ -84,6 +84,31 @@ class PrincipalCache(BaseCache):
         # Apenas o cache principal consolidado é versionado no checkout do repositório.
         self.repo_raw_enabled = repo_prefix == "principal"
 
+    @property
+    def bundled_data_file(self) -> Path:
+        return self.bundled_dir / self.config.arquivo_dados
+
+    @property
+    def bundled_metadata_file(self) -> Path:
+        return self.bundled_dir / self.config.arquivo_metadata
+
+    @property
+    def read_data_file(self) -> Path:
+        """Artefato canônico de leitura do consolidado publicado.
+
+        O cache individual continua usando o runtime porque não possui bundle
+        versionado. Escritas permanecem em ``arquivo_dados_runtime``.
+        """
+        if self.repo_prefix == "principal" and self.bundled_data_file.exists():
+            return self.bundled_data_file
+        return self.arquivo_dados
+
+    @property
+    def read_metadata_file(self) -> Path:
+        if self.repo_prefix == "principal" and self.bundled_metadata_file.exists():
+            return self.bundled_metadata_file
+        return self.arquivo_metadata
+
     def baixar_remoto(self) -> CacheResult:
         """Baixa dados do GitHub (tenta múltiplas fontes em ordem de prioridade)."""
         self._log("info", f"Tentando baixar do GitHub (repo={self.release_repo}, tag={self.release_tag})...")
