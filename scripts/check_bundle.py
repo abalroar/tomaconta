@@ -130,6 +130,30 @@ def run_checks(*, check_release: bool = True, check_git: bool = True) -> tuple[l
 
         critical_columns = ["Instituição", "Período", *EXPECTED_METRICS]
         critical = pd.read_parquet(ARTIFACTS["critical_screens"]["path"], columns=critical_columns)
+        critical_keys = set(
+            critical[["Instituição", "Período"]]
+            .dropna()
+            .astype(str)
+            .itertuples(index=False, name=None)
+        )
+        derived_valid = derived[
+            derived["Métrica"].astype(str).isin(EXPECTED_METRICS)
+            & pd.to_numeric(derived["Valor"], errors="coerce").notna()
+        ].copy()
+        derived_valid_keys = set(
+            derived_valid[["Instituição", "Período"]]
+            .dropna()
+            .astype(str)
+            .itertuples(index=False, name=None)
+        )
+        orphan_keys = sorted(derived_valid_keys - critical_keys)
+        if orphan_keys:
+            sample = ", ".join(f"{inst}/{period}" for inst, period in orphan_keys[:3])
+            failures.append(
+                f"derived_metrics: {len(orphan_keys)} chaves válidas sem match em critical_screens: {sample}"
+            )
+        else:
+            passes.append("derived_metrics: todas as chaves válidas casam com critical_screens")
         pivot = (
             derived[derived["Métrica"].astype(str).isin(EXPECTED_METRICS)]
             .pivot_table(

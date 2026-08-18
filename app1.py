@@ -15617,8 +15617,11 @@ def _get_rankings_derivadas_pivot(
             "Valor": pd.to_numeric(df_long["Valor"], errors="coerce"),
         }
     )
-    # Alinha a grafia das instituições com a base de Rankings antes do merge.
-    df_out = _normalizar_instituicoes_rankings_leve(df_out)
+    # O bundle derivado é materializado com as mesmas chaves Instituição+Período
+    # da camada curada. O smoke check bloqueia publicação quando uma observação
+    # válida deixa de casar com critical_screens; repetir o fuzzy matching aqui
+    # custava segundos em toda invalidação do cache sem ampliar a cobertura.
+    df_out["Instituição"] = df_out["Instituição"].str.strip()
     df_out = df_out.dropna(subset=["Instituição", "Período"])
     if df_out.empty:
         return pd.DataFrame()
