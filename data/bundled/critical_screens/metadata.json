@@ -1,5 +1,5 @@
 {
-  "timestamp_salvamento": "2026-08-17T18:55:48.655313",
+  "timestamp_salvamento": "2026-08-18T10:19:09.141963",
   "fonte": "materialized",
   "total_registros": 61981,
   "colunas": [
@@ -335,19 +335,19 @@
     "schema_version": 5,
     "source_fingerprints": {
       "principal": {
-        "timestamp_salvamento": "2026-08-17T18:26:04.647492",
+        "timestamp_salvamento": "2026-08-18T09:48:14.850535",
         "total_registros": 62061,
         "total_periodos": 45,
         "fonte": "github_releases"
       },
       "capital": {
-        "timestamp_salvamento": "2026-06-22T15:11:09.209568",
+        "timestamp_salvamento": "2026-08-18T09:59:35.299394",
         "total_registros": 60328,
         "total_periodos": 45,
-        "fonte": "api"
+        "fonte": "github_releases"
       },
       "ativo": {
-        "timestamp_salvamento": "2026-08-17T18:26:05.401529",
+        "timestamp_salvamento": "2026-08-18T09:48:15.957906",
         "total_registros": 62061,
         "total_periodos": 45,
         "fonte": "github_releases"
@@ -359,7 +359,7 @@
         "fonte": "api"
       },
       "dre": {
-        "timestamp_salvamento": "2026-08-17T18:26:03.999160",
+        "timestamp_salvamento": "2026-08-18T09:48:14.021988",
         "total_registros": 62061,
         "total_periodos": 45,
         "fonte": "github_releases"
@@ -377,7 +377,7 @@
         "fonte": "api"
       },
       "carteira_instrumentos": {
-        "timestamp_salvamento": "2026-08-17T18:26:05.939626",
+        "timestamp_salvamento": "2026-08-18T09:48:16.462141",
         "total_registros": 6917,
         "total_periodos": 5,
         "fonte": "github_releases"

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Refresh completo dos caches IFData com versionamento e rollback.
+"""Refresh ou republicação dos caches IFData com versionamento e rollback.
 
 Fluxo padrão:
 1) Cria snapshot versionado de data/cache em data/cache_versions/<versao>
@@ -67,6 +67,8 @@ DERIVED_SPECS = [
         "principal_cache_name": "principal_individual",
     },
 ]
+
+PUBLISH_CACHE_NAMES = DEFAULT_TIPOS + [spec["tipo"] for spec in DERIVED_SPECS] + ["critical_screens"]
 
 
 def _print(msg: str) -> None:
@@ -230,15 +232,20 @@ def _release_assets_for_cache(manager: CacheManager, cache_name: str) -> list[tu
     cache = manager.get_cache(cache_name)
     if cache is None:
         raise ValueError(f"cache não configurado: {cache_name}")
-    data_path = cache.arquivo_dados if cache.arquivo_dados.exists() else cache.arquivo_dados_pickle
+    data_path = (
+        cache.arquivo_dados_runtime
+        if cache.arquivo_dados_runtime.exists()
+        else cache.arquivo_dados_pickle
+    )
     if not data_path.exists():
-        raise FileNotFoundError(f"arquivo de dados ausente para {cache_name}: {data_path}")
-    if not cache.arquivo_metadata.exists():
-        raise FileNotFoundError(f"metadata ausente para {cache_name}: {cache.arquivo_metadata}")
+        raise FileNotFoundError(f"arquivo de dados runtime ausente para {cache_name}: {data_path}")
+    metadata_path = cache.arquivo_metadata_runtime
+    if not metadata_path.exists():
+        raise FileNotFoundError(f"metadata runtime ausente para {cache_name}: {metadata_path}")
     data_asset = f"{cache_name}_dados.parquet" if data_path.suffix == ".parquet" else f"{cache_name}_cache.pkl"
     return [
         (data_path, data_asset),
-        (cache.arquivo_metadata, f"{cache_name}_metadata.json"),
+        (metadata_path, f"{cache_name}_metadata.json"),
     ]
 
 
@@ -311,6 +318,22 @@ def _placeholder_validations(manager: CacheManager) -> dict[str, dict]:
     return validations
 
 
+def _build_publish_runtime_manifest(
+    manager: CacheManager,
+    *,
+    release_config,
+    expected_periods: dict[str, str],
+) -> dict:
+    """Descreve somente caches cujos assets esta CLI publica."""
+    return build_runtime_manifest(
+        manager,
+        cache_names=PUBLISH_CACHE_NAMES,
+        release_config=release_config,
+        expected_periods=expected_periods,
+        include_hashes=True,
+    )
+
+
 def _run_refresh(args: argparse.Namespace, base_dir: Path) -> int:
     pre_snapshot = _create_snapshot(
         base_dir=base_dir,
@@ -333,8 +356,9 @@ def _run_refresh(args: argparse.Namespace, base_dir: Path) -> int:
 
     for tipo in DEFAULT_TIPOS:
         periodos = periodos_mensais if tipo == "bloprudencial" else periodos_tri
+        action = "REUSE" if args.publish_only else "REFRESH"
         _print(
-            f"[REFRESH] {tipo}: {len(periodos)} períodos "
+            f"[{action}] {tipo}: {len(periodos)} períodos "
             f"(lotes={args.batch_size if args.batch_size > 0 else 'auto'} retries={args.retry_max})"
         )
 
@@ -347,6 +371,35 @@ def _run_refresh(args: argparse.Namespace, base_dir: Path) -> int:
                     "lotes": len(list(_chunked(periodos, args.batch_size))),
                 }
             )
+            continue
+
+        if args.publish_only:
+            try:
+                assets = _release_assets_for_cache(manager, tipo)
+                detalhes.append(
+                    {
+                        "tipo": tipo,
+                        "periodos": len(periodos),
+                        "status": "reuse",
+                        "mensagem": "cache runtime existente reutilizado",
+                        "lotes": 0,
+                        "lotes_ok": 0,
+                        "assets_runtime": [str(path.relative_to(base_dir)) for path, _ in assets],
+                    }
+                )
+            except Exception as exc:
+                detalhes.append(
+                    {
+                        "tipo": tipo,
+                        "periodos": len(periodos),
+                        "status": "erro",
+                        "mensagem": str(exc),
+                        "lotes": 0,
+                        "lotes_ok": 0,
+                    }
+                )
+                _print(f"[ERRO] {tipo}: {exc}")
+                break
             continue
 
         periodos, periodos_ignorados = filter_supported_periods(tipo, periodos)
@@ -471,10 +524,11 @@ def _run_refresh(args: argparse.Namespace, base_dir: Path) -> int:
         "run_id": run_id,
         "executed_at_utc": datetime.now(timezone.utc).isoformat(),
         "git_head": _git_head(base_dir),
-        "modo": "overwrite",
+        "modo": "publish-only" if args.publish_only else "overwrite",
         "snapshot_pre": pre_snapshot.name,
         "snapshot_post": None,
-        "tipos_extraidos": DEFAULT_TIPOS,
+        "tipos_extraidos": [] if args.publish_only else DEFAULT_TIPOS,
+        "tipos_reutilizados": DEFAULT_TIPOS if args.publish_only else [],
         "tipos_materializados": [spec["tipo"] for spec in DERIVED_SPECS] + ["critical_screens"],
         "release": release_config.to_dict(),
         "expected_periods": expected_periods,
@@ -490,7 +544,7 @@ def _run_refresh(args: argparse.Namespace, base_dir: Path) -> int:
         "runtime_manifest": {},
         "placeholder_validations": {},
         "publication": publication,
-        "status": "ok" if all(d["status"] in {"ok", "dry-run", "skip"} for d in detalhes) else "erro",
+        "status": "ok" if all(d["status"] in {"ok", "reuse", "dry-run", "skip"} for d in detalhes) else "erro",
     }
 
     manifest_path = base_dir / "data" / "cache_versions" / "last_refresh_manifest.json"
@@ -504,11 +558,10 @@ def _run_refresh(args: argparse.Namespace, base_dir: Path) -> int:
             summary["status"] = "erro"
 
     if not args.dry_run and summary["status"] == "ok":
-        summary["runtime_manifest"] = build_runtime_manifest(
+        summary["runtime_manifest"] = _build_publish_runtime_manifest(
             manager,
             release_config=release_config,
             expected_periods={"quarterly": expected_periods["quarterly"]},
-            include_hashes=True,
         )
         summary["placeholder_validations"] = _placeholder_validations(manager)
 
@@ -543,7 +596,7 @@ def _run_refresh(args: argparse.Namespace, base_dir: Path) -> int:
             else:
                 try:
                     assets: list[tuple[Path, str]] = []
-                    for cache_name in DEFAULT_TIPOS + [spec["tipo"] for spec in DERIVED_SPECS] + ["critical_screens"]:
+                    for cache_name in PUBLISH_CACHE_NAMES:
                         assets.extend(_release_assets_for_cache(manager, cache_name))
                     assets.append((global_manifest_path, "manifest.json"))
                     upload_result = upload_release_assets(
@@ -564,7 +617,7 @@ def _run_refresh(args: argparse.Namespace, base_dir: Path) -> int:
         post_snapshot = _create_snapshot(
             base_dir=base_dir,
             label=f"post-{args.snapshot_label}",
-            reason=f"snapshot após refresh completo (run={run_id})",
+            reason=f"snapshot após {'republicação' if args.publish_only else 'refresh completo'} (run={run_id})",
             dry_run=args.dry_run,
         )
         summary["snapshot_post"] = post_snapshot.name
@@ -574,7 +627,8 @@ def _run_refresh(args: argparse.Namespace, base_dir: Path) -> int:
         _save_manifest(run_manifest_path, summary)
 
     if summary["status"] == "ok":
-        _print(f"[OK] refresh completo finalizado. Manifest: {manifest_path}")
+        operation = "republicação" if args.publish_only else "refresh completo"
+        _print(f"[OK] {operation} finalizada. Manifest: {manifest_path}")
         _print(f"[OK] snapshot anterior: {summary['snapshot_pre']} | snapshot novo: {summary['snapshot_post']}")
         return 0
 
@@ -584,7 +638,7 @@ def _run_refresh(args: argparse.Namespace, base_dir: Path) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Refresh completo de cache com snapshot versionado")
+    parser = argparse.ArgumentParser(description="Refresh ou republicação de cache com snapshot versionado")
     parser.add_argument("--restore-snapshot", help="restaura versão específica de data/cache_versions")
     parser.add_argument("--list-snapshots", action="store_true", help="lista snapshots disponíveis")
 
@@ -609,6 +663,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--retry-max", type=int, default=2, help="repetições por lote em caso de erro")
     parser.add_argument("--retry-delay", type=int, default=3, help="segundos entre tentativas")
     parser.add_argument("--publish", action="store_true", help="publica os artefatos válidos no GitHub Release configurado")
+    parser.add_argument(
+        "--publish-only",
+        action="store_true",
+        help=(
+            "reutiliza caches runtime existentes, rematerializa derivados, executa gates e publica; "
+            "não consulta as fontes"
+        ),
+    )
     parser.add_argument("--dry-run", action="store_true", help="simula sem alterar arquivos")
     return parser
 
@@ -640,6 +702,9 @@ def main() -> int:
     if args.restore_snapshot:
         _restore_snapshot(base_dir, args.restore_snapshot, dry_run=args.dry_run)
         return 0
+
+    if args.publish_only and not (args.publish or args.dry_run):
+        raise SystemExit("--publish-only exige --publish, exceto quando combinado com --dry-run")
 
     required = [
         args.ano_inicial,
