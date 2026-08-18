@@ -203,6 +203,7 @@ materialize_derived_metrics_cache = _ifdata_derived_metrics.materialize_derived_
 load_derived_metrics_slice = _ifdata_derived_metrics.load_derived_metrics_slice
 _resolve_carteira_credito_bruta_series = _ifdata_derived_metrics._resolve_carteira_credito_bruta_series
 from utils.ifdata_cache.diagnostics import build_runtime_manifest, max_period_from_values, normalize_period_reference
+from utils.ifdata_cache.artifact_identity import build_bundle_id, inspect_parquet_artifact
 import utils.ifdata_cache.institutions as _ifdata_institutions
 
 # O hot reload do Streamlit pode manter este modulo em sys.modules enquanto
@@ -14936,6 +14937,50 @@ def _cache_version_token(tipo_cache: str) -> str:
     return token
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def _published_artifact_identity_for_ui(
+    cache_name: str,
+    data_path: str,
+    metadata_path: str,
+    cache_token: str,
+) -> dict:
+    """Identidade observável do parquet efetivamente selecionado pelo runtime."""
+    _ = (cache_name, cache_token)
+    return inspect_parquet_artifact(
+        Path(data_path),
+        metadata_path=Path(metadata_path) if metadata_path else None,
+    )
+
+
+def _published_bundle_status_for_ui() -> tuple[str, list[dict]]:
+    manager = get_cache_manager()
+    identities = {}
+    rows = []
+    for cache_name in ("critical_screens", "derived_metrics"):
+        cache = manager.get_cache(cache_name) if manager else None
+        if cache is None:
+            continue
+        data_path = cache.arquivo_dados if cache.arquivo_dados.exists() else cache.arquivo_dados_pickle
+        identity = _published_artifact_identity_for_ui(
+            cache_name,
+            str(data_path),
+            str(cache.arquivo_metadata),
+            _cache_file_token(cache_name),
+        )
+        identities[cache_name] = identity
+        rows.append(
+            {
+                "Artefato": cache_name,
+                "SHA256": str(identity.get("sha256") or "")[:12] or "N/D",
+                "Linhas": int(identity.get("rows") or 0),
+                "Competência máxima": identity.get("max_period") or "N/D",
+                "Schema": identity.get("schema_version") or "N/D",
+                "Caminho": identity.get("path") or "N/D",
+            }
+        )
+    return (build_bundle_id(identities) if identities else "bundle-indisponivel", rows)
+
+
 def _alias_signature() -> tuple:
     return ()
 
@@ -16081,6 +16126,12 @@ with st.sidebar:
             st.success("critical_screens materializado")
         else:
             st.warning("critical_screens ainda não materializado")
+
+        bundle_id_runtime, bundle_rows_runtime = _published_bundle_status_for_ui()
+        st.caption(f"**bundle carregado:** `{bundle_id_runtime}`")
+        if bundle_rows_runtime:
+            with st.expander("identidade dos artefatos", expanded=False):
+                st.dataframe(pd.DataFrame(bundle_rows_runtime), width="stretch", hide_index=True)
 
         # Informações detalhadas do cache
         st.markdown("**status do cache**")
