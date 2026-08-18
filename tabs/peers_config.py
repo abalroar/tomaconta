@@ -1,5 +1,7 @@
 """Configuração estática da tabela de Peers."""
 
+from utils.ifdata_cache.metric_registry import get_metric_short_definition
+
 PEERS_TABELA_LAYOUT = [
     {
         "section": "Balanço",
@@ -161,34 +163,25 @@ PEERS_TABELA_LAYOUT = [
 PEERS_GLOSSARIO_RESUMIDO = {
     "Ativo Total": "Ativo Total do balanço principal (Rel. 1).",
     "Ativos Líquidos": "Disponibilidades (a) + Aplicações Interfinanceiras de Liquidez (b) + TVM (c) no Rel. 2.",
-    "Carteira de Crédito*": "Até 2024: Crédito Bruta + Arrendamento Bruta + Outros Créditos Líquidos de Provisão. 2025+: Valor Contábil Bruto (e1+f1+g1+h1) no Rel. 2; se a regra canônica do período ficar incompleta, o fallback líquido e+f+g+h é marcado explicitamente.",
+    "Carteira de Crédito*": get_metric_short_definition("Carteira de Crédito*"),
     "Perda Esperada": "Soma de perdas esperadas e ajustes de valor justo das bases e/f/g/h no Rel. 2.",
     "Depósitos Totais": "Prioriza a linha agregada oficial disponível no Rel. 3; só usa soma a1..a6 quando nenhum agregado oficial estiver preenchido na linha.",
     "Core Funding*": "Até 2024: Captações (e). 2025+: Captações (e) + Instrumentos de Dívida Elegíveis a Capital (h) no Rel. 3, sem tratar componente ausente como zero.",
     "Patrimônio Líquido (PL)": "Patrimônio Líquido do balanço principal (Rel. 1).",
-    "Custo de Crédito (%)": (
-        "|Resultado com Perda Esperada de Operações de Crédito (f3)| do Rel. 4 (DRE), YTD reconstruído e "
-        "anualizado (Mar ×4, Jun ×2, Set ×12/9, Dez ×1), ÷ Carteira de Crédito*. Numerador restrito a "
-        "operações de crédito — não inclui TVM nem aplicações interfinanceiras. Série a partir de Mar/25."
+    "Custo de Crédito (%)": get_metric_short_definition("Custo de Crédito (%)"),
+    "Custo de Crédito / Receita de Crédito (%)": get_metric_short_definition(
+        "Custo de Crédito / Receita de Crédito (%)"
     ),
-    "Custo de Crédito / Receita de Crédito (%)": (
-        "|Resultado com Perda Esperada de Operações de Crédito (f3)| YTD ÷ Rendas de Operações de Crédito (c) YTD, "
-        "ambos do Rel. 4 (DRE). Sem anualização: os dois são fluxos do mesmo período e o fator se cancela. "
-        "Mede quanto da receita de crédito é consumido por provisão. Receita zero, negativa ou ausente resulta em N/D."
+    "Ativos Problemáticos / Carteira Total": get_metric_short_definition(
+        "Ativos Problemáticos / Carteira Total"
     ),
-    "Ativos Problemáticos / Carteira Total": (
-        "Ativos problemáticos ÷ Total Geral, ambos publicados no IFData Rel. 16 (carteira de crédito ativa por "
-        "carteiras de instrumentos financeiros, Res. 4.966). Escopo estritamente de crédito, sem reconciliação de "
-        "perímetro. 'Ativo problemático' segue o art. 24 da Res. CMN 4.557. Não confundir com Estágio 3 do Cadoc 4060."
-    ),
-    "Inadimplência / Carteira Total": (
-        "Inadimplência ÷ Total Geral, ambos do IFData Rel. 16 — mesmo perímetro do indicador de ativos problemáticos, "
-        "porém restrito ao atraso relevante, sem os casos de liquidação improvável."
+    "Inadimplência / Carteira Total": get_metric_short_definition(
+        "Inadimplência / Carteira Total"
     ),
     "Ativos Estágio 2": "Saldo da conta 3312000001 (Cadoc 4060) no período, quando a fonte mensal publicar o estágio e houver match prudencial confiável.",
     "Ativos Estágio 3": "Saldo da conta 3313000000 (Cadoc 4060) no período, quando a fonte mensal publicar o estágio e houver match prudencial confiável.",
     "Ativos Estágio 3 / Carteira de Crédito": "Ativos Estágio 3 (Cadoc 4060) ÷ Carteira de Crédito*.",
-    "Inadimplência": "Inadimplência publicada no IFData Rel. 16 (Carteira de crédito ativa por carteiras de instrumentos financeiros).",
+    "Inadimplência": get_metric_short_definition("Inadimplência"),
     "Inadimplência / Carteira de Crédito": "Inadimplência do Rel. 16 ÷ Carteira de Crédito*.",
     "Perda Esperada / Estágio 3": "Magnitude da Perda Esperada (Rel. 2) ÷ Ativos Estágio 3 (Cadoc 4060), somente quando numerador e denominador estiverem disponíveis.",
     "Perda Esperada / Est2+3": "Magnitude da Perda Esperada (Rel. 2) ÷ (Ativos Estágio 2 + Ativos Estágio 3) do Cadoc 4060, somente com cobertura prudencial válida.",
@@ -196,9 +189,9 @@ PEERS_GLOSSARIO_RESUMIDO = {
     "Ativo Total / PL": "Ativo Total ÷ Patrimônio Líquido.",
     "Carteira de Crédito* / PL": "Carteira de Crédito* ÷ Patrimônio Líquido.",
     "Índice de Capital Principal (CET1)": "Capital Principal ÷ RWA Total (Rel. 5).",
-    "Índice de Basileia Total (%)": "(CET1 + AT1 + T2) ÷ RWA Total (Rel. 5).",
+    "Índice de Basileia Total (%)": get_metric_short_definition("Índice de Basileia Total (%)"),
     "Lucro Líquido Acumulado": "Lucro Líquido acumulado no ano (YTD) até o fim do período (Rel. 1).",
-    "ROE Acumulado YTD (%)": "(LL YTD × fator de anualização) ÷ PL Médio.",
+    "ROE Acumulado YTD (%)": get_metric_short_definition("ROE Acumulado YTD (%)"),
 }
 
 PEERS_PERCENT_DECIMALS = {

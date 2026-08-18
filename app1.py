@@ -7976,6 +7976,13 @@ def _scatter_compor_texto_label(
 
 
 def _scatter_metric_criteria(label_exibicao: str) -> str:
+    central = _ifdata_metric_registry.get_metric_ui_text(
+        label_exibicao,
+        long=True,
+        include_source=True,
+    )
+    if central:
+        return central
     criterios = {
         "Core Funding": "Captações (e) no Relatório de Passivo; a partir de 2025, exige-se Captações (e) + Instrumentos de Dívida Elegíveis a Capital (h).",
         "Carteira de Crédito Classificada": "Prioriza Carteira de Crédito Classificada/Carteira de Crédito*; fallback para Carteira de Crédito Bruta/Carteira de Crédito, conforme disponibilidade da base.",
@@ -7986,6 +7993,16 @@ def _scatter_metric_criteria(label_exibicao: str) -> str:
         "Lucro Líquido Trimestral": "Lucro líquido do trimestre de referência (não acumulado YTD).",
     }
     return criterios.get(label_exibicao, "Definição específica não cadastrada; usa série da base principal conforme nome da variável.")
+
+
+def _metric_definition_html(label: str, *, long: bool = False) -> str:
+    """Renderiza com escape o texto canônico para blocos HTML legados."""
+    text = _ifdata_metric_registry.get_metric_ui_text(
+        label,
+        long=long,
+        include_source=True,
+    )
+    return _html_mod.escape(text).replace("\n", "<br>")
 
 
 
@@ -17023,6 +17040,10 @@ elif menu == "Peers (Tabela)":
 
                     t_render = time.perf_counter()
                     st.markdown(html_tabela, unsafe_allow_html=True)
+                    st.caption(
+                        "Definições e fontes — use o ícone de informação de cada métrica. "
+                        "Os textos vêm do Glossário Central e preservam N/D quando a fonte ou o denominador não sustentam o cálculo."
+                    )
                     _elapsed = time.perf_counter() - t_render
                     _log_timing("7_dispatch_html_streamlit", _elapsed)
                     print(f"[PEERS_TIMING] 7_dispatch_html_streamlit: {_elapsed:.3f}s")
@@ -17184,12 +17205,12 @@ elif menu == "Peers (Tabela)":
 
                     with st.expander("Mini-glossário", expanded=False):
                         st.markdown(
-                            """
+                            f"""
                         <div style="font-size: 12px; color: #666; margin-top: 8px;">
                             <em>Balanço</em><br>
                             <strong>Ativo Total</strong> = Ativo Total do balanço principal (Rel. 1, IFData).<br>
                             <strong>Ativos Líquidos</strong> = Disponibilidades (a) + Aplicações Interfinanceiras de Liquidez (b) + Títulos e Valores Mobiliários (c), no relatório de Ativo (Rel. 2).<br>
-                            <strong>Carteira de Crédito*</strong> = Até 2024, Crédito Bruta + Arrendamento Bruta + Outros Créditos Líquidos de Provisão; em 2025+, soma do Valor Contábil Bruto (e1+f1+g1+h1) no Relatório de Ativo (Rel. 2). Se a regra canônica do período ficar incompleta, o fallback líquido e+f+g+h é explicitamente sinalizado.<br>
+                            <strong>Carteira de Crédito*</strong> = {_metric_definition_html("Carteira de Crédito*", long=True)}<br>
                             e = Operações de Crédito; f = Operações de Arrendamento Financeiro; g = Outras Operações com Características de Concessão de Crédito; h = Valores a Receber de Transações de Pagamentos - Usuários Finais (Pós-pago).<br>
                             <em>Nota:</em> Para 2000–2024, usamos Carteira de Crédito Bruta + Carteira de Arrendamento Bruta + Outros Créditos Líquidos de Provisão (Rel. 2). A partir de 2025, usamos Valor Contábil Bruto (e1+f1+g1+h1).<br>
                             <strong>Carteira de Crédito Classificada</strong> = Total da Carteira de Pessoa Física (Rel. 11) + Total da Carteira de Pessoa Jurídica (Rel. 13).<br>
@@ -17202,14 +17223,14 @@ elif menu == "Peers (Tabela)":
                             <strong>Perda Esperada</strong> = Soma das linhas Perda Esperada (e2), Hedge de Valor Justo (e3), Ajuste a Valor Justo (e4), Perda Esperada (f2), Hedge de Valor Justo (f3), Perda Esperada (g2), Hedge de Valor Justo (g3), Ajuste a Valor Justo (g4) e Perda Esperada (h2), no relatório de Ativo (Rel. 2).<br>
                             Base (e,f,g,h) refere-se a Operações de Crédito, Operações de Arrendamento Financeiro, Outras Operações com Características de Concessão de Crédito e Valores a Receber de Transações de Pagamentos - Usuários Finais (Pós-pago).<br>
                             <strong>Perda Esperada / Carteira de Crédito*</strong> = |Perda Esperada| ÷ Carteira de Crédito*.<br>
-                            <strong>Custo de Crédito (%)</strong> = |Resultado com Perda Esperada de Operações de Crédito (f3)| do Rel. 4 (DRE), YTD reconstruído e anualizado (Mar ×4, Jun ×2, Set ×12/9, Dez ×1), ÷ Carteira de Crédito*. Numerador restrito a operações de crédito — não inclui TVM nem aplicações interfinanceiras. Série a partir de Mar/25.<br>
-                            <strong>Custo de Crédito / Receita de Crédito (%)</strong> = |PDD de crédito (f3)| YTD ÷ Rendas de Operações de Crédito (c) YTD, ambos do Rel. 4. Sem anualização: os dois são fluxos do mesmo período e o fator se cancela na razão. Receita zero, negativa ou ausente resulta em N/D.<br>
-                            <strong>Ativos Problemáticos / Carteira Total</strong> = Ativos problemáticos ÷ Total Geral, ambos publicados no Rel. 16 (carteira de crédito ativa por carteiras de instrumentos financeiros, Res. 4.966). Escopo estritamente de crédito, sem reconciliação de perímetro. "Ativo problemático" segue o art. 24 da Res. CMN 4.557: atraso relevante acima de 90 dias ou liquidação integral improvável sem garantia. <em>Não confundir com o Estágio 3 do Cadoc 4060</em>, que classifica ativos financeiros em escopo mais amplo.<br>
-                            <strong>Inadimplência / Carteira Total</strong> = Inadimplência ÷ Total Geral, ambos do Rel. 16 — mesmo perímetro do indicador acima, porém restrito ao atraso relevante.<br>
+                            <strong>Custo de Crédito (%)</strong> = {_metric_definition_html("Custo de Crédito (%)", long=True)}<br>
+                            <strong>Custo de Crédito / Receita de Crédito (%)</strong> = {_metric_definition_html("Custo de Crédito / Receita de Crédito (%)", long=True)}<br>
+                            <strong>Ativos Problemáticos / Carteira Total</strong> = {_metric_definition_html("Ativos Problemáticos / Carteira Total", long=True)}<br>
+                            <strong>Inadimplência / Carteira Total</strong> = {_metric_definition_html("Inadimplência / Carteira Total", long=True)}<br>
                             <strong>Ativos Estágio 2</strong> = Saldo da conta 3312000001 (Cadoc 4060) no mês/período selecionado, quando a fonte mensal publicar o estágio e houver match prudencial confiável.<br>
                             <strong>Ativos Estágio 3</strong> = Saldo da conta 3313000000 (Cadoc 4060) no mês/período selecionado, quando a fonte mensal publicar o estágio e houver match prudencial confiável.<br>
                             <strong>Ativos Estágio 3 / Carteira de Crédito</strong> = Ativos Estágio 3 (Cadoc 4060) ÷ Carteira de Crédito*.<br>
-                            <strong>Inadimplência</strong> = Inadimplência publicada no Rel. 16 (Carteira 4.966).<br>
+                            <strong>Inadimplência</strong> = {_metric_definition_html("Inadimplência", long=True)}<br>
                             <strong>Inadimplência / Carteira de Crédito</strong> = Inadimplência (Rel. 16) ÷ Carteira de Crédito*.<br>
                             <strong>Perda Esperada / Estágio 3</strong> = |Perda Esperada| (Rel. 2) ÷ Ativos Estágio 3 (Cadoc 4060) do mesmo período, apenas quando numerador e denominador estiverem disponíveis.<br>
                             <strong>Perda Esperada / Est2+3</strong> = |Perda Esperada| (Rel. 2) ÷ (Ativos Estágio 2 + Ativos Estágio 3) do mesmo período, apenas com cobertura prudencial válida.<br>
@@ -17218,11 +17239,11 @@ elif menu == "Peers (Tabela)":
                             <strong>Ativo Total / PL</strong> = Ativo Total ÷ Patrimônio Líquido.<br>
                             <strong>Carteira de Crédito* / PL</strong> = Carteira de Crédito* (Rel. 2) ÷ Patrimônio Líquido (Rel. 1).<br>
                             <strong>Índice de Capital Principal (CET1)</strong> = Capital Principal ÷ RWA Total, extraído do relatório de Informações de Capital (Rel. 5).<br>
-                            <strong>Índice de Basileia Total</strong> = (Capital Principal + Capital Complementar + Capital Nível II) ÷ RWA Total (Rel. 5). Equivale à soma CET1 + AT1 + T2.<br>
+                            <strong>Índice de Basileia Total</strong> = {_metric_definition_html("Índice de Basileia Total (%)", long=True)}<br>
                             <br>
                             <em>Desempenho</em><br>
                             <strong>Lucro Líquido Acumulado</strong> = Lucro Líquido acumulado no ano (YTD) até o fim do período (Rel. 1).<br>
-                            <strong>ROE Ac. Anualizado (%)</strong> = (LL YTD × fator de anualização) ÷ PL Médio, onde PL Médio = (PL no período + PL em Dez do ano anterior) / 2. O LL YTD de Set é obtido somando Jun (Jan-Jun) ao Set (Jul-Sep). Fator: Mar=4, Jun=2, Set=12/9, Dez=1. Se PL médio ≤ 0 ou dado faltante: N/A.<br>
+                            <strong>ROE Ac. Anualizado (%)</strong> = {_metric_definition_html("ROE Ac. Anualizado (%)", long=True)}<br>
                             <br>
                             <strong>Δ (▲/▼)</strong> = Variação vs. mesmo período do ano anterior.
                         </div>
@@ -18750,6 +18771,14 @@ elif menu == "Scatter Plot":
         )
 
         st.plotly_chart(fig_scatter, width='stretch')
+        _scatter_footers = [
+            _ifdata_metric_registry.get_metric_footer(label)
+            for label in (var_x_ui, var_y_ui, var_size_ui)
+            if label != "Tamanho Fixo"
+        ]
+        _scatter_footers = [footer for footer in _scatter_footers if footer]
+        if _scatter_footers:
+            st.caption("Definições e fontes — " + " | ".join(_scatter_footers))
         scatter_diag_tempos["total_ate_t1_s"] = time.perf_counter() - t0_scatter_total
 
         if st.session_state.get("modo_diagnostico"):
@@ -19102,6 +19131,17 @@ elif menu == "Scatter Plot":
 
                 st.plotly_chart(fig_scatter_n2, width='stretch')
 
+                _scatter_n2_footers = [
+                    _ifdata_metric_registry.get_metric_footer(label)
+                    for label in (
+                        scatter_internal_to_display.get(var_x_n2, var_x_n2),
+                        scatter_internal_to_display.get(var_y_n2, var_y_n2),
+                    )
+                ]
+                _scatter_n2_footers = [footer for footer in _scatter_n2_footers if footer]
+                if _scatter_n2_footers:
+                    st.caption("Definições e fontes — " + " | ".join(_scatter_n2_footers))
+
                 # Legenda explicativa
                 st.caption("○ Círculo vazio = período inicial | ● Círculo cheio = período subsequente | → Seta indica direção da movimentação")
 
@@ -19201,53 +19241,33 @@ elif menu == "Rankings":
             # Mini-glossário para popovers inline nos Rankings
             _RANKINGS_GLOSSARIO = {
                 'Ativo Total': 'Padrão COSIF. Soma de todos os ativos do conglomerado prudencial.',
-                'Carteira de Crédito*': 'Até 2024: Crédito Bruta + Arrendamento Bruta + Outros Créditos Líquidos de Provisão. 2025+: Valor Contábil Bruto (e1+f1+g1+h1) no Rel. 2; fallback líquido e+f+g+h é marcado explicitamente quando necessário.',
-                METRIC_CUSTO_CREDITO: (
-                    'Custo de risco de crédito: |Resultado com Perda Esperada de Operações de Crédito (f3)| '
-                    '÷ Carteira de Crédito*.\n'
-                    'Numerador: Rel. 4 (DRE), apenas a perda esperada de operações de crédito — não inclui '
-                    'TVM, aplicações interfinanceiras nem demais ativos.\n'
-                    'Denominador: Carteira de Crédito* do mesmo período (Rel. 2, Valor Contábil Bruto e1+f1+g1+h1).\n'
-                    'Anualização sobre o YTD reconstruído do Rel. 4 (Set = Jul–Set + Jun; Dez = Jul–Dez + Jun): '
-                    'Mar ×4, Jun ×2, Set ×12/9, Dez ×1.\n'
-                    'Série disponível a partir de Mar/25 (1/2025): o layout anterior do Rel. 4 não abre PDD por '
-                    'tipo de ativo, então períodos até 4/2024 aparecem como N/D.'
+                'Carteira de Crédito*': _ifdata_metric_registry.get_metric_ui_text(
+                    'Carteira de Crédito*', long=True, include_source=True
                 ),
-                METRIC_CUSTO_CREDITO_RECEITA: (
-                    'Fração da receita de crédito consumida por provisão: '
-                    '|Resultado com Perda Esperada de Operações de Crédito (f3)| ÷ '
-                    'Rendas de Operações de Crédito (c).\n'
-                    'Numerador e denominador vêm do Rel. 4 (DRE), ambos restritos a operações de '
-                    'crédito — não incluem TVM, aplicações interfinanceiras nem tesouraria.\n'
-                    'Sem anualização: como os dois são fluxos do mesmo período, qualquer fator se '
-                    'cancela na razão. O YTD reconstruído do Rel. 4 continua valendo '
-                    '(Set = Jul–Set + Jun; Dez = Jul–Dez + Jun); sem junho o valor é N/D.\n'
-                    'Receita de crédito zero, negativa ou ausente resulta em N/D — é o caso das '
-                    'instituições que não operam crédito.\n'
-                    'Série disponível a partir de Mar/25 (1/2025).'
+                METRIC_CUSTO_CREDITO: _ifdata_metric_registry.get_metric_ui_text(
+                    METRIC_CUSTO_CREDITO, long=True, include_source=True
                 ),
-                METRIC_ATIVOS_PROBLEMATICOS_CARTEIRA: (
-                    'Ativos problemáticos ÷ Total Geral, ambos publicados pelo BCB no '
-                    'IFData Relatório 16 (Carteira de crédito ativa por carteiras de '
-                    'instrumentos financeiros, Res. 4.966).\n'
-                    'Escopo estritamente de carteira de crédito ativa: numerador e denominador '
-                    'saem do mesmo relatório e do mesmo perímetro, sem reconciliação.\n'
-                    '"Ativo problemático" segue a definição prudencial do art. 24 da Res. '
-                    'CMN 4.557 — inclui operações em atraso relevante acima de 90 dias e '
-                    'aquelas cuja liquidação integral é improvável sem garantia.\n'
-                    'Não confundir com Estágio 3 do Cadoc 4060, que classifica ativos '
-                    'financeiros em escopo mais largo.\n'
-                    'Instituição que não publica o Rel. 16 no período aparece como N/D.'
+                METRIC_CUSTO_CREDITO_RECEITA: _ifdata_metric_registry.get_metric_ui_text(
+                    METRIC_CUSTO_CREDITO_RECEITA, long=True, include_source=True
+                ),
+                METRIC_ATIVOS_PROBLEMATICOS_CARTEIRA: _ifdata_metric_registry.get_metric_ui_text(
+                    METRIC_ATIVOS_PROBLEMATICOS_CARTEIRA, long=True, include_source=True
                 ),
                 'Core Funding*': 'Até 2024: Captações (e). 2025+: Captações (e) + Instrumentos de Dívida Elegíveis a Capital (h) no Rel. 3, sem imputar zero para componente ausente.',
                 'Patrimônio Líquido': 'Padrão COSIF.',
                 'Índice de Capital Principal (CET1)': 'Capital Principal ÷ RWA Total. Indicador de solidez patrimonial regulatório (mínimo exigido: 4,5% + ACPs).',
                 'Índice de Capital T1 (%)': 'Patrimônio de Referência Nível I ÷ RWA Total. Equivale a (CET1 + AT1) ÷ RWA Total.',
-                'Índice de Basileia Total (%)': 'Patrimônio de Referência ÷ RWA Total. Índice global de adequação de capital.',
+                'Índice de Basileia Total (%)': _ifdata_metric_registry.get_metric_ui_text(
+                    'Índice de Basileia Total (%)', long=True, include_source=True
+                ),
                 'Lucro Líquido Acumulado YTD': 'Lucro líquido acumulado no ano-calendário até o final do período (Jan–Set, Jan–Jun etc.).',
                 'Lucro Líquido Trimestral': 'Lucro líquido do trimestre de referência (isolado).',
-                'ROE Trim. Anualizado (%)': 'ROE trimestral anualizado: (LL Trimestral × 4) ÷ PL Médio × 100. PL Médio = (PL período + PL Dez anterior) / 2.',
-                'ROE Ac. Anualizado (%)': '(LL YTD × fator de anualização) ÷ PL Médio.\nPL Médio = (PL período + PL Dez anterior) / 2.\nFatores: Mar=4×, Jun=2×, Set≈1,33×, Dez=1×.',
+                'ROE Trim. Anualizado (%)': _ifdata_metric_registry.get_metric_ui_text(
+                    'ROE Trim. Anualizado (%)', long=True, include_source=True
+                ),
+                'ROE Ac. Anualizado (%)': _ifdata_metric_registry.get_metric_ui_text(
+                    'ROE Ac. Anualizado (%)', long=True, include_source=True
+                ),
             }
 
             col_periodo, col_indicador = st.columns([1.2, 1.9])
@@ -20551,6 +20571,9 @@ elif menu == "Rankings":
                                 _RANKINGS_GLOSSARIO,
                             )
                             _renderizar_memoria_roe_rankings(df, bancos_selecionados, periodo_resumo, indicador_label)
+                            _ranking_footer = _ifdata_metric_registry.get_metric_footer(indicador_label)
+                            if _ranking_footer:
+                                st.caption(f"Definição e fonte — {_ranking_footer}")
                         else:
                             df_selecionado = df_multiperiodo.copy()
                             media_display = calcular_media_ponderada(df_selecionado, 'valor_display', coluna_peso_resumo)
@@ -20787,6 +20810,9 @@ elif menu == "Rankings":
                                 _RANKINGS_GLOSSARIO,
                             )
                             _renderizar_memoria_roe_rankings(df, bancos_selecionados, periodo_resumo, indicador_label)
+                            _ranking_footer = _ifdata_metric_registry.get_metric_footer(indicador_label)
+                            if _ranking_footer:
+                                st.caption(f"Definição e fonte — {_ranking_footer}")
 
                             st.markdown(
                                 "**Nota metodológica:**\n\n"
@@ -27546,7 +27572,7 @@ elif menu == "Glossário":
     st.dataframe(pd.DataFrame(_map_rows), width="stretch", hide_index=True)
     st.caption("Obs.: `derived_metrics` e `derived_metrics_individual` são recalculados a partir de DRE + Principal.")
 
-    st.markdown("## Glossário Central — versão atualizada (abril/2026)")
+    st.markdown("## Glossário Central — fonte única de definições")
     with st.expander("**Contexto de leitura dos dados (visão prudencial)**", expanded=True):
         st.markdown("""
         Os dados do app vêm principalmente do **IFData/Olinda do Banco Central**, na visão de
@@ -27587,16 +27613,31 @@ elif menu == "Glossário":
         - **Meios de Pagamento (SPB):** lê o cache `spb_meios_pagamento` (serviço Olinda `MPV_DadosAbertos`), atualizado manualmente pela aba "Atualizar Base" ou pelo CLI; cada um dos 12 datasets é baixado em uma única chamada (filtro de período cumulativo do BCB), sem backfill incremental por trimestre.
         """)
 
-    _cols_gloss = ["Indicador", "Aba(s)", "Fonte", "Fórmula", "Unidade", "Interpretação", "Limitação", "Periodicidade"]
+    _cols_gloss = [
+        "Indicador",
+        "Aba(s)",
+        "Fonte",
+        "Campos / contas",
+        "Fórmula",
+        "Unidade",
+        "Interpretação",
+        "Limitação",
+        "Periodicidade",
+    ]
 
     def _render_secao_glossario(titulo: str, linhas: list[dict]):
         with st.expander(f"**{titulo}**", expanded=False):
-            st.dataframe(pd.DataFrame(linhas, columns=_cols_gloss), width="stretch", hide_index=True)
+            frame = pd.DataFrame(linhas)
+            for col in _cols_gloss:
+                if col not in frame.columns:
+                    frame[col] = "N/D"
+            frame = frame[_cols_gloss].fillna("N/D")
+            st.dataframe(frame, width="stretch", hide_index=True)
 
     _render_secao_glossario("1) Capital e Regulação", [
         {"Indicador": "Índice de Capital Principal (CET1)", "Aba(s)": "Snapshot, Peers (Tabela), Evolução, Rankings, Glossário", "Fonte": "IFData Rel.5", "Fórmula": "Capital Principal ÷ RWA Total", "Unidade": "%", "Interpretação": "Folga de capital de maior qualidade frente ao risco ponderado.", "Limitação": "Pode variar por mudanças regulatórias/metodológicas.", "Periodicidade": "Trimestral"},
         {"Indicador": "Índice de Capital Nível I", "Aba(s)": "Glossário", "Fonte": "IFData Rel.5", "Fórmula": "PR Nível I ÷ RWA Total", "Unidade": "%", "Interpretação": "Cobertura de risco por capital Nível I.", "Limitação": "Não resume liquidez nem concentração de risco.", "Periodicidade": "Trimestral"},
-        {"Indicador": "Índice de Basileia", "Aba(s)": "Snapshot, Peers (Tabela), Evolução, Rankings, Glossário", "Fonte": "IFData Rel.5", "Fórmula": "Patrimônio de Referência ÷ RWA Total", "Unidade": "%", "Interpretação": "Nível total de capital regulatório sobre risco ponderado.", "Limitação": "Comparação histórica depende de contexto normativo.", "Periodicidade": "Trimestral"},
+        _ifdata_metric_registry.get_metric_glossary_row("Índice de Basileia"),
         {"Indicador": "Razão de Alavancagem", "Aba(s)": "Glossário", "Fonte": "IFData Rel.5", "Fórmula": "PR Nível I ÷ Exposição Total", "Unidade": "%", "Interpretação": "Capital Nível I sobre exposição não ponderada.", "Limitação": "Não pondera risco dos ativos.", "Periodicidade": "Trimestral"},
         {"Indicador": "Adicional de Capital Principal (ACP)", "Aba(s)": "Glossário", "Fonte": "IFData Rel.5", "Fórmula": "ACP Conservação + Contracíclico + Sistêmico", "Unidade": "%", "Interpretação": "Colchão regulatório adicional exigido.", "Limitação": "Níveis mudam conforme ciclo/regulação.", "Periodicidade": "Trimestral"},
         {"Indicador": "IRRBB", "Aba(s)": "Glossário", "Fonte": "IFData Rel.5", "Fórmula": "⚠️ Fórmula não identificada no app (campo reportado)", "Unidade": "Indicador", "Interpretação": "Risco de taxa de juros na carteira bancária.", "Limitação": "Sem memória de cálculo explícita na UI atual.", "Periodicidade": "Trimestral"},
@@ -27605,21 +27646,20 @@ elif menu == "Glossário":
     _render_secao_glossario("2) Balanço e Funding", [
         {"Indicador": "Ativo Total", "Aba(s)": "Snapshot, Peers (Tabela), Evolução, Glossário", "Fonte": "IFData Rel.1", "Fórmula": "Valor reportado", "Unidade": "R$", "Interpretação": "Tamanho total do balanço.", "Limitação": "Tamanho não implica qualidade dos ativos.", "Periodicidade": "Trimestral"},
         {"Indicador": "Ativos Líquidos", "Aba(s)": "Snapshot, Peers (Tabela), Glossário", "Fonte": "IFData Rel.2", "Fórmula": "Disponibilidades (a) + AIL (b) + TVM (c)", "Unidade": "R$", "Interpretação": "Aproximação de ativos de maior liquidez.", "Limitação": "Não substitui métricas regulatórias de liquidez.", "Periodicidade": "Trimestral"},
-        {"Indicador": "Carteira de Crédito Bruta", "Aba(s)": "Snapshot, Peers (Tabela), Evolução, Glossário", "Fonte": "IFData Rel.2", "Fórmula": "Até 2024: d1+e1+f; 2025+: e1+f1+g1+h1", "Unidade": "R$", "Interpretação": "Volume bruto de exposição em crédito.", "Limitação": "Quebra metodológica entre janelas históricas.", "Periodicidade": "Trimestral"},
-        {"Indicador": "Carteira de Crédito* (Peers)", "Aba(s)": "Peers (Tabela), Evolução", "Fonte": "IFData Rel.2", "Fórmula": "Alias visual da Carteira de Crédito Bruta", "Unidade": "R$", "Interpretação": "Nome contextual de UI para o mesmo conceito canônico.", "Limitação": "Asterisco é convenção local da aba; quando a regra canônica do período fica incompleta, a UI marca explicitamente o fallback líquido e+f+g+h.", "Periodicidade": "Trimestral"},
+        _ifdata_metric_registry.get_metric_glossary_row("Carteira de Crédito*"),
         {"Indicador": "Depósitos Totais", "Aba(s)": "Snapshot, Peers (Tabela), Glossário", "Fonte": "IFData Rel.3", "Fórmula": "Prioriza linha agregada oficial por linha; fallback para soma a1..a6 só sem agregado oficial", "Unidade": "R$", "Interpretação": "Principal bloco de funding bancário tradicional.", "Limitação": "Rótulo do agregado muda ao longo da série; fallback não equivale a dado oficial publicado.", "Periodicidade": "Trimestral"},
         {"Indicador": "Core Funding", "Aba(s)": "Snapshot, Peers (Tabela), Evolução, Glossário", "Fonte": "IFData Rel.3", "Fórmula": "Até 2024: Captações (e); 2025+: (e)+(h)", "Unidade": "R$", "Interpretação": "Base estrutural de captação para métricas de funding.", "Limitação": "Mudança de escopo em 2025; após essa data, o indicador só é exibido quando Captações (e) e Instrumentos (h) estiverem disponíveis.", "Periodicidade": "Trimestral"},
         {"Indicador": "Patrimônio Líquido (PL)", "Aba(s)": "Snapshot, Peers (Tabela), Evolução, DRE (Ind. e Congl.), Glossário", "Fonte": "IFData Rel.1", "Fórmula": "Valor reportado", "Unidade": "R$", "Interpretação": "Base patrimonial para rentabilidade e alavancagem.", "Limitação": "Pode refletir eventos contábeis pontuais.", "Periodicidade": "Trimestral"},
     ])
 
     _render_secao_glossario("3) Rentabilidade e Eficiência", [
-        {"Indicador": "ROE Ac. Anualizado (%)", "Aba(s)": "Snapshot, Peers (Tabela), Evolução, Glossário", "Fonte": "IFData Rel.1", "Fórmula": "(LL YTD × fator de anualização) ÷ PL médio", "Unidade": "%", "Interpretação": "Retorno sobre PL com base acumulada anualizada.", "Limitação": "Sensível a sazonalidade e mês de referência.", "Periodicidade": "Trimestral (YTD)"},
-        {"Indicador": "ROE Trim. Anualizado (%)", "Aba(s)": "Rankings, Glossário", "Fonte": "IFData Rel.1", "Fórmula": "(Lucro trimestral × 4) ÷ PL médio", "Unidade": "%", "Interpretação": "Proxy anualizada do trimestre corrente.", "Limitação": "Mais volátil que o ROE acumulado.", "Periodicidade": "Trimestral"},
+        _ifdata_metric_registry.get_metric_glossary_row("ROE Ac. Anualizado (%)"),
+        _ifdata_metric_registry.get_metric_glossary_row("ROE Trim. Anualizado (%)"),
         {"Indicador": "Lucro Líquido Acumulado YTD", "Aba(s)": "Snapshot, Peers (Tabela), Evolução, Glossário", "Fonte": "IFData Rel.1/4", "Fórmula": "Resultado líquido acumulado no ano", "Unidade": "R$", "Interpretação": "Contribuição de resultado até a data-base.", "Limitação": "Não é lucro run-rate do trimestre isolado.", "Periodicidade": "Trimestral (acumulado)"},
         {"Indicador": "Desp PDD / Resultado Intermediação Fin. Bruto (%)", "Aba(s)": "DRE (Ind. e Congl.), Glossário", "Fonte": "IFData Rel.4", "Fórmula": "Desp. PDD ÷ Resultado Interm. Fin. Bruto", "Unidade": "%", "Interpretação": "Pressão de provisões sobre resultado de intermediação.", "Limitação": "Pode distorcer com denominador muito baixo.", "Periodicidade": "Trimestral/YTD"},
-        {"Indicador": "Custo de Crédito (%)", "Aba(s)": "Rankings, Peers (Tabela), Scatter Plot, Glossário", "Fonte": "IFData Rel.4 + Rel.2", "Fórmula": "|Resultado com Perda Esperada de Operações de Crédito (f3)| YTD anualizado ÷ Carteira de Crédito*", "Unidade": "%", "Interpretação": "Custo de risco da carteira: quanto da carteira é consumido por provisão de crédito em base anual.", "Limitação": "Série inicia em Mar/25 — o layout anterior do Rel. 4 não abre PDD por tipo de ativo. Sem junho publicado, Set/Dez ficam N/D. Carteira zero/ausente resulta em N/D.", "Periodicidade": "Trimestral/YTD anualizado"},
-        {"Indicador": "Custo de Crédito / Receita de Crédito (%)", "Aba(s)": "Rankings, Peers (Tabela), Scatter Plot, Glossário", "Fonte": "IFData Rel.4 (DRE)", "Fórmula": "|Resultado com Perda Esperada de Operações de Crédito (f3)| YTD ÷ Rendas de Operações de Crédito (c) YTD", "Unidade": "%", "Interpretação": "Fração da receita de crédito consumida por provisão. Complementa o Custo de Crédito: mede pressão sobre a margem, não sobre a exposição.", "Limitação": "Sem anualização — numerador e denominador são fluxos do mesmo período e o fator se cancela. Série inicia em Mar/25. Receita de crédito zero, negativa ou ausente resulta em N/D. Sem junho publicado, Set/Dez ficam N/D.", "Periodicidade": "Trimestral/YTD"},
-        {"Indicador": "Ativos Problemáticos / Carteira Total", "Aba(s)": "Rankings, Peers (Tabela), Scatter Plot, Glossário", "Fonte": "IFData Rel.16 (Carteira de crédito ativa por carteiras de instrumentos financeiros, Res. 4.966)", "Fórmula": "Ativos problemáticos ÷ Total Geral", "Unidade": "%", "Interpretação": "Parcela problemática da carteira de crédito ativa. 'Ativo problemático' segue o art. 24 da Res. CMN 4.557: atraso relevante acima de 90 dias ou liquidação integral improvável sem garantia.", "Limitação": "Numerador e denominador saem do mesmo relatório e do mesmo perímetro, sem reconciliação. Não é equivalente ao Estágio 3 do Cadoc 4060, que classifica ativos financeiros em escopo mais amplo. Instituição que não publica o Rel. 16 no período fica N/D.", "Periodicidade": "Trimestral"},
+        _ifdata_metric_registry.get_metric_glossary_row("Receita de Crédito"),
+        _ifdata_metric_registry.get_metric_glossary_row("Custo de Crédito (%)"),
+        _ifdata_metric_registry.get_metric_glossary_row("Custo de Crédito / Receita de Crédito (%)"),
         {"Indicador": "Desp Captação / Captação (%)", "Aba(s)": "DRE (Ind. e Congl.), Glossário", "Fonte": "IFData Rel.4 + Rel.1", "Fórmula": "(Desp. Captação × (12/meses)) ÷ Captações", "Unidade": "%", "Interpretação": "Custo anualizado de funding sobre captação.", "Limitação": "Depende da compatibilidade entre bases.", "Periodicidade": "Trimestral/YTD"},
     ])
 
@@ -27628,7 +27668,9 @@ elif menu == "Glossário":
         {"Indicador": "Ativos Estágio 2", "Aba(s)": "Snapshot, Peers (Tabela), Glossário", "Fonte": "Cadoc 4060", "Fórmula": "Conta 3312000001", "Unidade": "R$", "Interpretação": "Estoque de ativos em estágio 2.", "Limitação": "Pode ficar estruturalmente indisponível em parte da série mensal ou sem match prudencial confiável.", "Periodicidade": "Mensal/Trimestral"},
         {"Indicador": "Ativos Estágio 3", "Aba(s)": "Snapshot, Peers (Tabela), Glossário", "Fonte": "Cadoc 4060", "Fórmula": "Conta 3313000000", "Unidade": "R$", "Interpretação": "Estoque de ativos em estágio 3.", "Limitação": "Pode ficar estruturalmente indisponível em parte da série mensal ou sem match prudencial confiável.", "Periodicidade": "Mensal/Trimestral"},
         {"Indicador": "Ativos Estágio 3 / Carteira de Crédito (%)", "Aba(s)": "Peers (Tabela), Glossário", "Fonte": "Cadoc 4060 + IFData Rel.2", "Fórmula": "Ativos Estágio 3 ÷ Carteira de Crédito Bruta", "Unidade": "%", "Interpretação": "Peso dos ativos em estágio 3 sobre a carteira.", "Limitação": "Exige estágio 3 publicado e match prudencial confiável.", "Periodicidade": "Mensal/Trimestral"},
-        {"Indicador": "Inadimplência", "Aba(s)": "Peers (Tabela), Glossário", "Fonte": "IFData Rel.16", "Fórmula": "Linha Inadimplência da Carteira 4.966", "Unidade": "R$", "Interpretação": "Estoque de inadimplência informado por carteira de instrumentos financeiros.", "Limitação": "Série depende da disponibilidade do Rel.16 por período/instituição.", "Periodicidade": "Trimestral"},
+        _ifdata_metric_registry.get_metric_glossary_row("Inadimplência"),
+        _ifdata_metric_registry.get_metric_glossary_row("Ativos Problemáticos / Carteira Total"),
+        _ifdata_metric_registry.get_metric_glossary_row("Inadimplência / Carteira Total"),
         {"Indicador": "Inadimplência / Carteira de Crédito (%)", "Aba(s)": "Peers (Tabela), Glossário", "Fonte": "IFData Rel.16 + Rel.2", "Fórmula": "Inadimplência ÷ Carteira de Crédito Bruta", "Unidade": "%", "Interpretação": "Inadimplência relativa ao estoque de crédito.", "Limitação": "Combina carteira do Rel.2 com inadimplência do Rel.16.", "Periodicidade": "Trimestral"},
         {"Indicador": "Perda Esperada / Estágio 3 (%)", "Aba(s)": "Peers (Tabela), Glossário", "Fonte": "IFData Rel.2 + Cadoc 4060", "Fórmula": "|Perda Esperada| ÷ Ativos Estágio 3", "Unidade": "%", "Interpretação": "Proxy de cobertura da perda esperada sobre estágio 3.", "Limitação": "Não deve ser exibido como comparável quando o 4060 estiver estruturalmente ausente ou sem match prudencial confiável.", "Periodicidade": "Mensal/Trimestral"},
         {"Indicador": "Perda Esperada / Est2+3 (%)", "Aba(s)": "Peers (Tabela), Glossário", "Fonte": "IFData Rel.2 + Cadoc 4060", "Fórmula": "|Perda Esperada| ÷ (Ativos Estágio 2 + Ativos Estágio 3)", "Unidade": "%", "Interpretação": "Proxy de cobertura da perda esperada sobre estágios 2 e 3 combinados.", "Limitação": "Exige Estágio 2 e Estágio 3 publicados no mesmo período e match prudencial confiável.", "Periodicidade": "Mensal/Trimestral"},
