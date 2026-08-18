@@ -1143,6 +1143,40 @@ def test_load_critical_screens_slice_replaces_stale_local_with_newer_bundle(tmp_
     assert local_result.dados["Período"].tolist() == ["4/2025"]
 
 
+def test_runtime_replaces_same_period_local_when_content_hash_differs(tmp_path: Path):
+    cache = CriticalScreensCache(tmp_path)
+    runtime_df = pd.DataFrame(
+        [{"Instituição": "A", "Período": "1/2026", "InstituiçãoKey": "A", "Ativo Total": 1.0}]
+    )
+    bundled_df = pd.DataFrame(
+        [{"Instituição": "A", "Período": "1/2026", "InstituiçãoKey": "A", "Ativo Total": 2.0}]
+    )
+    assert cache.salvar_local(
+        runtime_df,
+        fonte="materialized",
+        info_extra={"schema_version": CRITICAL_SCREENS_SCHEMA_VERSION},
+    ).sucesso
+    runtime_metadata = json.loads(cache.arquivo_metadata_runtime.read_text(encoding="utf-8"))
+
+    cache.bundled_dir.mkdir(parents=True, exist_ok=True)
+    bundled_df.to_parquet(cache.bundled_data_file, index=False)
+    cache.bundled_metadata_file.write_text(
+        json.dumps(runtime_metadata, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    status = get_critical_screens_runtime_status(
+        base_dir=tmp_path,
+        manager=_FakeManager(blop_df=None, blop_exists=False),
+    )
+    assert status["bundle_differs_from_local"]
+    assert status["mode"] == "bootstrap_bundle"
+
+    slice_df = load_critical_screens_slice(base_dir=tmp_path, periodos=["1/2026"])
+    assert slice_df.iloc[0]["Ativo Total"] == 2.0
+    assert cache.arquivo_dados_runtime.read_bytes() == cache.bundled_data_file.read_bytes()
+
+
 def test_materialize_critical_screens_fails_fast_without_local_sources(tmp_path: Path):
     manager = CacheManager(base_dir=tmp_path)
     result = materialize_critical_screens_cache(

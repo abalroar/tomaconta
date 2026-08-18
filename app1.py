@@ -203,7 +203,7 @@ materialize_derived_metrics_cache = _ifdata_derived_metrics.materialize_derived_
 load_derived_metrics_slice = _ifdata_derived_metrics.load_derived_metrics_slice
 _resolve_carteira_credito_bruta_series = _ifdata_derived_metrics._resolve_carteira_credito_bruta_series
 from utils.ifdata_cache.diagnostics import build_runtime_manifest, max_period_from_values, normalize_period_reference
-from utils.ifdata_cache.artifact_identity import build_bundle_id, inspect_parquet_artifact
+from utils.ifdata_cache.artifact_identity import artifact_content_token, build_bundle_id, inspect_parquet_artifact
 import utils.ifdata_cache.institutions as _ifdata_institutions
 
 # O hot reload do Streamlit pode manter este modulo em sys.modules enquanto
@@ -14912,17 +14912,17 @@ def _cache_file_token(tipo_cache: str) -> str:
     if cache_obj is None:
         return f"{tipo_cache}:missing"
 
+    arquivo_leitura = getattr(cache_obj, "read_data_file", cache_obj.arquivo_dados)
     arquivo = None
-    if cache_obj.arquivo_dados.exists():
-        arquivo = cache_obj.arquivo_dados
+    if arquivo_leitura.exists():
+        arquivo = arquivo_leitura
     elif cache_obj.arquivo_dados_pickle.exists():
         arquivo = cache_obj.arquivo_dados_pickle
 
     if arquivo is None:
         return f"{tipo_cache}:empty"
 
-    stat = arquivo.stat()
-    return f"{tipo_cache}:{int(stat.st_mtime)}:{stat.st_size}"
+    return f"{tipo_cache}:{artifact_content_token(arquivo)}"
 
 
 def _cache_version_token(tipo_cache: str) -> str:
@@ -14960,11 +14960,14 @@ def _published_bundle_status_for_ui() -> tuple[str, list[dict]]:
         cache = manager.get_cache(cache_name) if manager else None
         if cache is None:
             continue
-        data_path = cache.arquivo_dados if cache.arquivo_dados.exists() else cache.arquivo_dados_pickle
+        data_path = getattr(cache, "read_data_file", cache.arquivo_dados)
+        if not data_path.exists():
+            data_path = cache.arquivo_dados_pickle
+        metadata_path = getattr(cache, "read_metadata_file", cache.arquivo_metadata)
         identity = _published_artifact_identity_for_ui(
             cache_name,
             str(data_path),
-            str(cache.arquivo_metadata),
+            str(metadata_path),
             _cache_file_token(cache_name),
         )
         identities[cache_name] = identity

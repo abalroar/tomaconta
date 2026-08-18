@@ -71,3 +71,12 @@ def build_bundle_id(artifacts: Mapping[str, Mapping[str, Any]]) -> str:
         json.dumps(payload, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
     return f"bundle-{digest[:12]}"
+
+
+def artifact_content_token(path: Path) -> str:
+    """Token de cache derivado do conteúdo, sem depender de mtime."""
+    artifact_path = Path(path)
+    digest = sha256_file(artifact_path)
+    if not digest:
+        return "missing"
+    return f"sha256:{digest}:{artifact_path.stat().st_size}"

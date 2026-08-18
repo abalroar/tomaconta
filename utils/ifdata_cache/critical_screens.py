@@ -16,7 +16,7 @@ import pandas as pd
 from .availability import display_period_to_api, filter_supported_periods
 from .base import BaseCache, CacheConfig, CacheResult
 from .bloprudencial import load_bloprudencial_df_cached
-from .diagnostics import max_period_from_metadata, normalize_period_reference
+from .diagnostics import max_period_from_metadata, normalize_period_reference, sha256_file
 from .derived_metrics import (
     _acumular_dre_ytd_por_periodo,
     _anualizar_serie_por_periodo,
@@ -233,6 +233,15 @@ class CriticalScreensCache(BaseCache):
     def bundled_metadata_file(self) -> Path:
         return self.bundled_dir / self.config.arquivo_metadata
 
+    @property
+    def read_data_file(self) -> Path:
+        """Artefato canônico de runtime: bundle versionado quando disponível."""
+        return self.bundled_data_file if self.bundled_data_file.exists() else self.arquivo_dados
+
+    @property
+    def read_metadata_file(self) -> Path:
+        return self.bundled_metadata_file if self.bundled_metadata_file.exists() else self.arquivo_metadata
+
     def bundle_available(self) -> bool:
         return self.bundled_data_file.exists() and self.bundled_metadata_file.exists()
 
@@ -414,6 +423,11 @@ def get_critical_screens_runtime_status(
 
     local_ready = cache.existe() and _critical_screens_runtime_schema_valid(local_metadata)
     bundle_ready = cache.bundle_available() and _critical_screens_runtime_schema_valid(bundled_metadata)
+    local_sha256 = sha256_file(cache.arquivo_dados_runtime) if cache.arquivo_dados_runtime.exists() else None
+    bundled_sha256 = sha256_file(cache.bundled_data_file) if cache.bundled_data_file.exists() else None
+    bundle_differs_from_local = bool(
+        bundle_ready and local_ready and bundled_sha256 and bundled_sha256 != local_sha256
+    )
     bundle_newer_than_local = bundle_ready and _bundle_is_newer_than_local(
         local_metadata,
         bundled_metadata,
@@ -422,7 +436,10 @@ def get_critical_screens_runtime_status(
     missing_local_sources = _missing_local_source_caches(cache_manager)
     can_materialize_from_local_sources = not missing_local_sources
 
-    if bundle_newer_than_local:
+    if bundle_differs_from_local:
+        mode = "bootstrap_bundle"
+        message = "SHA do runtime diverge do bundle versionado e deve ser substituído"
+    elif bundle_newer_than_local:
         mode = "bootstrap_bundle"
         message = "artefato bundled de critical_screens está mais novo e deve substituir o cache local"
     elif local_ready:
@@ -446,6 +463,9 @@ def get_critical_screens_runtime_status(
         "local_ready": local_ready,
         "bundle_ready": bundle_ready,
         "bundle_newer_than_local": bundle_newer_than_local,
+        "bundle_differs_from_local": bundle_differs_from_local,
+        "local_sha256": local_sha256,
+        "bundled_sha256": bundled_sha256,
         "can_materialize_from_local_sources": can_materialize_from_local_sources,
         "missing_local_source_caches": missing_local_sources,
         "mode": mode,
@@ -2260,7 +2280,8 @@ def load_critical_screens_slice(
         cache.bootstrap_local_from_bundle()
     elif not cache.existe():
         cache.bootstrap_local_from_bundle()
-    if not cache.arquivo_dados.exists():
+    data_file = cache.read_data_file
+    if not data_file.exists():
         resultado = cache.carregar_local()
         if not resultado.sucesso or resultado.dados is None or resultado.dados.empty:
             return pd.DataFrame()
@@ -2272,7 +2293,7 @@ def load_critical_screens_slice(
         try:
             import pyarrow.dataset as ds
 
-            dataset = ds.dataset(cache.arquivo_dados, format="parquet")
+            dataset = ds.dataset(data_file, format="parquet")
             selected_columns = None
             if colunas:
                 schema_names = {str(name) for name in dataset.schema.names}
@@ -2338,11 +2359,12 @@ def load_critical_screens_filters_context(
         cache.bootstrap_local_from_bundle()
 
     df: pd.DataFrame | None = None
-    if cache.arquivo_dados.exists():
+    data_file = cache.read_data_file
+    if data_file.exists():
         try:
             import pyarrow.dataset as ds
 
-            dataset = ds.dataset(cache.arquivo_dados, format="parquet")
+            dataset = ds.dataset(data_file, format="parquet")
             schema_names = {str(name) for name in dataset.schema.names}
             cols = [col for col in ("Instituição", "Período") if col in schema_names]
             if cols:

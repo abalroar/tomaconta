@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from utils.ifdata_cache.artifact_identity import build_bundle_id, inspect_parquet_artifact
+from utils.ifdata_cache.artifact_identity import artifact_content_token, build_bundle_id, inspect_parquet_artifact
 
 
 def test_inspect_parquet_artifact_reports_hash_rows_period_and_schema(tmp_path: Path):
@@ -34,3 +34,21 @@ def test_build_bundle_id_is_stable_and_changes_with_content_hash():
     assert first == reordered
     assert first.startswith("bundle-")
     assert first != changed
+
+
+def test_content_token_changes_even_when_size_and_mtime_are_equal(tmp_path: Path):
+    first = tmp_path / "first.bin"
+    second = tmp_path / "second.bin"
+    first.write_bytes(b"abc")
+    second.write_bytes(b"xyz")
+    fixed_time = 1_700_000_000
+    first.touch()
+    second.touch()
+    import os
+
+    os.utime(first, (fixed_time, fixed_time))
+    os.utime(second, (fixed_time, fixed_time))
+
+    assert first.stat().st_size == second.stat().st_size
+    assert first.stat().st_mtime == second.stat().st_mtime
+    assert artifact_content_token(first) != artifact_content_token(second)

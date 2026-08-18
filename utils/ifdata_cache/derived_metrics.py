@@ -141,6 +141,26 @@ class DerivedMetricsCache(BaseCache):
         self.release_tag = release.tag
         self.github_release_parquet_url = f"{release.release_base_url}/{config.nome}_dados.parquet"
 
+    @property
+    def bundled_data_file(self) -> Path:
+        return self.bundled_dir / self.config.arquivo_dados
+
+    @property
+    def bundled_metadata_file(self) -> Path:
+        return self.bundled_dir / self.config.arquivo_metadata
+
+    @property
+    def read_data_file(self) -> Path:
+        if self.config.nome == "derived_metrics" and self.bundled_data_file.exists():
+            return self.bundled_data_file
+        return self.arquivo_dados
+
+    @property
+    def read_metadata_file(self) -> Path:
+        if self.config.nome == "derived_metrics" and self.bundled_metadata_file.exists():
+            return self.bundled_metadata_file
+        return self.arquivo_metadata
+
     def baixar_remoto(self):
         asset_url = add_release_cache_buster(
             self.github_release_parquet_url,
@@ -853,7 +873,8 @@ def load_derived_metrics_slice(
     metricas: Optional[Iterable[str]] = None,
 ) -> pd.DataFrame:
     """Carrega recortes do cache derivado sem carregar todo o parquet em RAM."""
-    if not cache.arquivo_dados.exists() and not cache.arquivo_dados_pickle.exists():
+    data_file = cache.read_data_file
+    if not data_file.exists() and not cache.arquivo_dados_pickle.exists():
         return pd.DataFrame()
 
     filtros = []
@@ -864,11 +885,11 @@ def load_derived_metrics_slice(
     if metricas:
         filtros.append(("Métrica", "in", list(metricas)))
 
-    if cache.arquivo_dados.exists():
+    if data_file.exists():
         try:
             import pyarrow.dataset as ds
 
-            dataset = ds.dataset(cache.arquivo_dados)
+            dataset = ds.dataset(data_file)
             if filtros:
                 tabela = dataset.to_table(filter=_build_arrow_filter(filtros))
             else:
@@ -876,7 +897,7 @@ def load_derived_metrics_slice(
             df = tabela.to_pandas()
         except Exception as e:
             logger.warning(f"Falha ao ler parquet com filtros ({e}); usando fallback completo")
-            df = pd.read_parquet(cache.arquivo_dados)
+            df = pd.read_parquet(data_file)
             df = _apply_filters(df, filtros)
     else:
         import pickle
