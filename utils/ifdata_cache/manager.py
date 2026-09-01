@@ -141,6 +141,13 @@ CACHES_INFO = {
         "todas_variaveis": True,
         "periodicidade": "trimestral/mensal",
     },
+    "scr_data": {
+        "nome_exibicao": "SCR.data (Inadimplência/BCB)",
+        "descricao": "Carteira, inadimplência e ativo problemático por UF, segmento, porte e produto",
+        "relatorio": None,  # ZIPs anuais do PDA, sem API
+        "todas_variaveis": True,
+        "periodicidade": "mensal",
+    },
 }
 
 
@@ -181,6 +188,7 @@ class CacheManager:
         from .balancetes import BalancetesCache
         from .bloprudencial_cache import BloprudencialCache
         from .spb_meios_pagamento import SPBMeiosPagamentoCache
+        from .scr_data import SCRDataCache
 
         # Caches principais (variáveis selecionadas)
         self.registrar(PrincipalCache(self.base_dir, manter_codinst=True))
@@ -209,6 +217,8 @@ class CacheManager:
         self.registrar(BloprudencialCache(self.base_dir))
         # Cache de Meios de Pagamento SPB (API Olinda MPV_DadosAbertos)
         self.registrar(SPBMeiosPagamentoCache(self.base_dir))
+        # Cache do SCR.data (ZIPs anuais do PDA/BCB, sem API)
+        self.registrar(SCRDataCache(self.base_dir))
 
     def registrar(self, cache: BaseCache):
         """Registra um novo tipo de cache.
