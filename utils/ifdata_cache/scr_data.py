@@ -26,6 +26,7 @@ import hashlib
 import io
 import json
 import logging
+import os
 import shutil
 import zipfile
 from datetime import datetime, timezone
@@ -36,7 +37,7 @@ import pandas as pd
 import requests
 
 from .base import BaseCache, CacheConfig, CacheResult
-from .release_config import get_release_config
+from .release_config import build_release_base_url, get_release_config
 
 logger = logging.getLogger("ifdata_cache")
 
@@ -49,6 +50,10 @@ SCR_ZIP_URL_TEMPLATE = "https://www.bcb.gov.br/pda/desig/scrdata_{ano}.zip"
 SCR_METODOLOGIA_URL = "https://www.bcb.gov.br/pda/desig/metodologia_versao2.pdf"
 SCR_PAGINA_URL = "https://www.bcb.gov.br/estabilidadefinanceira/scrdata"
 SCR_DOC3040_URL = "https://www.bcb.gov.br/estabilidadefinanceira/scrdoc3040"
+
+# Os assets do SCR.data têm ciclo próprio e estão publicados no v1.1-cache.
+# O release global do app pode avançar sem republicar os 22 arquivos anuais.
+SCR_RELEASE_TAG = "v1.1-cache"
 
 # A série do SCR.data v2 começa em jul/2012.
 PRIMEIRO_ANO = 2012
@@ -717,8 +722,14 @@ class SCRDataCache(BaseCache):
         super().__init__(SCR_DATA_CONFIG, base_dir)
         release_config = get_release_config()
         self.release_repo = release_config.repo
-        self.release_tag = release_config.tag
-        self.release_base_url = release_config.release_base_url
+        self.release_tag = (
+            str(os.getenv("TOMACONTA_SCR_RELEASE_TAG") or "").strip()
+            or SCR_RELEASE_TAG
+        )
+        self.release_base_url = build_release_base_url(
+            self.release_repo,
+            self.release_tag,
+        )
         self.github_release_parquet_url = (
             f"{self.release_base_url}/{self.config.nome}_dados.parquet"
         )
