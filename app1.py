@@ -100,22 +100,20 @@ _CARTEIRA_4966_RELEASE_BASE_URL = (
     f"https://github.com/abalroar/tomaconta/releases/download/{_EXPECTED_CACHE_RELEASE_TAG}"
 )
 _CARTEIRA_4966_RELEASE_MANIFEST_URL = f"{_CARTEIRA_4966_RELEASE_BASE_URL}/manifest.json"
+_CARTEIRA_4966_REQUIRED_PERIOD_REFS = (
+    "202503",
+    "202506",
+    "202509",
+    "202512",
+    "202603",
+)
 if str(os.getenv("TOMACONTA_RELEASE_TAG") or "").strip() in {"", "v1.0-cache"}:
     os.environ["TOMACONTA_RELEASE_TAG"] = _EXPECTED_CACHE_RELEASE_TAG
 
-from utils.ifdata_cache.carteira_4966_quality import (
-    CARTEIRA_4966_METRIC_COLUMNS,
-    CARTEIRA_4966_MINIMUM_COVERAGE,
-    CARTEIRA_4966_REQUIRED_PERIODS,
-    validate_carteira_4966_quality,
-)
 from utils.formatting import (
     formatar_monetario_br_auto_reais,
     formatar_numero_br,
     formatar_percentual_br,
-)
-from utils.analytical_status_excel import (
-    write_analytical_status_sheet as _write_analytical_status_sheet_impl,
 )
 from utils.snapshot_delta import compute_delta
 from utils.device_detection import detect_device_from_headers
@@ -125,23 +123,10 @@ from tabs.carteira_4966 import (
     GLOSSARY_ROWS as CARTEIRA_4966_GLOSSARY_ROWS,
     build_carteira_4966_excel,
     build_carteira_4966_model,
-    build_carteira_4966_raw_excel,
     model_to_audit_dataframe as carteira_4966_audit_dataframe,
     quality_issue_message as carteira_4966_quality_issue_message,
     quality_issues_dataframe as carteira_4966_quality_dataframe,
     render_carteira_4966_html,
-)
-from tabs import rankings_data
-from tabs.peers_config import (
-    PEERS_ALLOWANCE_RATIO_METRICS,
-    PEERS_BASE_CONSOLIDADA_LABEL,
-    PEERS_BASE_DRE_OPTIONS,
-    PEERS_BASE_INDIVIDUAL_LABEL,
-    PEERS_GLOSSARIO_RESUMIDO,
-    PEERS_PERCENT_DECIMALS,
-    PEERS_RATIO_COMPONENTS,
-    PEERS_TABELA_LAYOUT,
-    PEERS_TRACE_COMPONENTS,
 )
 
 from utils.cosif_pdf_mapping import (
@@ -183,27 +168,7 @@ from utils.ifdata_cache import (
     describe_support_window,
 )
 from utils.ifdata_cache.derived_metrics import materialize_derived_metrics_cache
-import utils.ifdata_cache.metric_registry as _ifdata_metric_registry
-import utils.ifdata_cache.derived_metrics as _ifdata_derived_metrics
-
-# O hot reload do Streamlit pode manter este modulo em sys.modules enquanto
-# app1.py ja aponta para uma revisao mais nova do mesmo deploy. Recarregar aqui
-# (registro primeiro, depois o modulo que o consome) evita ImportError no boot e
-# mantem labels, formulas e assinaturas alinhados com a revisao em execucao.
-if not hasattr(_ifdata_derived_metrics, "METRIC_CUSTO_CREDITO_RECEITA"):
-    _ifdata_metric_registry = importlib.reload(_ifdata_metric_registry)
-    _ifdata_derived_metrics = importlib.reload(_ifdata_derived_metrics)
-METRIC_CUSTO_CREDITO = _ifdata_derived_metrics.METRIC_CUSTO_CREDITO
-METRIC_CUSTO_CREDITO_RECEITA = _ifdata_derived_metrics.METRIC_CUSTO_CREDITO_RECEITA
-METRIC_ATIVOS_PROBLEMATICOS_CARTEIRA = _ifdata_derived_metrics.METRIC_ATIVOS_PROBLEMATICOS_CARTEIRA
-DERIVED_METRICS = _ifdata_derived_metrics.DERIVED_METRICS
-DERIVED_METRICS_FORMULAS = _ifdata_derived_metrics.DERIVED_METRICS_FORMULAS
-build_derived_metrics = _ifdata_derived_metrics.build_derived_metrics
-materialize_derived_metrics_cache = _ifdata_derived_metrics.materialize_derived_metrics_cache
-load_derived_metrics_slice = _ifdata_derived_metrics.load_derived_metrics_slice
-_resolve_carteira_credito_bruta_series = _ifdata_derived_metrics._resolve_carteira_credito_bruta_series
 from utils.ifdata_cache.diagnostics import build_runtime_manifest, max_period_from_values, normalize_period_reference
-from utils.ifdata_cache.artifact_identity import artifact_content_token, build_bundle_id, inspect_parquet_artifact
 import utils.ifdata_cache.institutions as _ifdata_institutions
 
 # O hot reload do Streamlit pode manter este modulo em sys.modules enquanto
@@ -738,9 +703,9 @@ st.markdown("""
         }, 180);
     }
 
-    /* Detecta cliques nos segmented controls de navegação */
+    /* Detecta cliques apenas nos segmented controls de navegação */
     document.addEventListener('click', function (e) {
-        if (!e.target.closest('[data-testid="stSegmentedControl"]')) return;
+        if (!e.target.closest('.st-key-header_navigation [data-testid="stSegmentedControl"]')) return;
         showBar();
 
         /* Observa mudanças no DOM da área principal para saber quando
@@ -1340,7 +1305,6 @@ VARS_PERCENTUAL = [
     'Perda Esperada / Estágio 3',
     'Perda Esperada / Est2+3',
     'Inadimplência / Carteira de Crédito',
-    'Inadimplência / Carteira Total',
     # Variáveis de Capital (Relatório 5)
     'Índice de Capital Principal',
     'Índice de Capital Principal (CET1)',
@@ -1396,6 +1360,187 @@ VARS_MOEDAS = [
     'Inadimplência 4.966',
 ]
 VARS_CONTAGEM = ['Número de Agências', 'Número de Postos de Atendimento']
+
+PEERS_TABELA_LAYOUT = [
+    {
+        "section": "Balanço",
+        "rows": [
+            {
+                "label": "Ativo Total",
+                "data_keys": ["Ativo Total"],
+                "format_key": "Ativo Total",
+            },
+            {
+                "label": "Ativos Líquidos",
+                "data_keys": [],
+                "format_key": "Ativos Líquidos",
+            },
+            {
+                "label": "Carteira de Crédito*",
+                "data_keys": [],
+                "format_key": "Carteira de Crédito Bruta",
+            },
+            {
+                "label": "Perda Esperada",
+                "data_keys": [],
+                "format_key": "Perda Esperada",
+            },
+            {
+                "label": "Depósitos Totais",
+                "data_keys": [],
+                "format_key": "Depósitos Totais",
+            },
+            {
+                "label": "Core Funding*",
+                "data_keys": [],
+                "format_key": "Core Funding",
+            },
+            {
+                "label": "Patrimônio Líquido (PL)",
+                "data_keys": ["Patrimônio Líquido"],
+                "format_key": "Patrimônio Líquido",
+            },
+        ],
+    },
+    {
+        "section": "Qualidade Carteira 4060",
+        "rows": [
+            {
+                "label": "Ativos Estágio 2",
+                "data_keys": [],
+                "format_key": "Ativos Estágio 2",
+            },
+            {
+                "label": "Ativos Estágio 3",
+                "data_keys": [],
+                "format_key": "Ativos Estágio 3",
+            },
+            {
+                "label": "Ativos Estágio 3 / Carteira de Crédito",
+                "data_keys": [],
+                "format_key": "Ativos Estágio 3 / Carteira de Crédito",
+            },
+            {
+                "label": "Inadimplência",
+                "data_keys": [],
+                "format_key": "Inadimplência",
+            },
+            {
+                "label": "Inadimplência / Carteira de Crédito",
+                "data_keys": [],
+                "format_key": "Inadimplência / Carteira de Crédito",
+            },
+            {
+                "label": "Perda Esperada / Estágio 3",
+                "data_keys": [],
+                "format_key": "Perda Esperada / Estágio 3",
+            },
+            {
+                "label": "Perda Esperada / Est2+3",
+                "data_keys": [],
+                "format_key": "Perda Esperada / Est2+3",
+            },
+            {
+                "label": "Perda Esperada / Carteira de Crédito*",
+                "data_keys": [],
+                "format_key": "Perda Esperada / Carteira de Crédito Bruta",
+            },
+        ],
+    },
+    {
+        "section": "Alavancagem",
+        "rows": [
+            {
+                "label": "Ativo Total / PL",
+                "data_keys": ["Ativo/PL", "Ativo / PL"],
+                "format_key": "Ativo/PL",
+            },
+            {
+                "label": "Carteira de Crédito* / PL",
+                "data_keys": ["Carteira de Crédito Bruta / PL", "Crédito/PL (%)", "Crédito/PL"],
+                "format_key": "Carteira de Crédito Bruta / PL",
+            },
+            {
+                "label": "Índice de Capital Principal (CET1)",
+                "data_keys": [],
+                "format_key": "Índice de Capital Principal",
+            },
+            {
+                "label": "Índice de Basileia Total (%)",
+                "data_keys": [],
+                "format_key": "Índice de Basileia",
+            },
+        ],
+    },
+    {
+        "section": "Desempenho",
+        "rows": [
+            {
+                "label": "Lucro Líquido Acumulado",
+                "data_keys": ["Lucro Líquido Acumulado YTD"],
+                "format_key": "Lucro Líquido Acumulado YTD",
+            },
+            {
+                "label": "ROE Acumulado YTD (%)",
+                "data_keys": ["ROE Ac. Anualizado (%)", "ROE Ac. YTD an. (%)"],
+                "format_key": "ROE Ac. Anualizado (%)",
+            },
+        ],
+    },
+]
+
+PEERS_GLOSSARIO_RESUMIDO = {
+    "Ativo Total": "Ativo Total do balanço principal (Rel. 1).",
+    "Ativos Líquidos": "Disponibilidades (a) + Aplicações Interfinanceiras de Liquidez (b) + TVM (c) no Rel. 2.",
+    "Carteira de Crédito*": "Até 2024: Crédito Bruta + Arrendamento Bruta + Outros Créditos Líquidos de Provisão. 2025+: Valor Contábil Bruto (e1+f1+g1+h1) no Rel. 2; se a regra canônica do período ficar incompleta, o fallback líquido e+f+g+h é marcado explicitamente.",
+    "Perda Esperada": "Soma de perdas esperadas e ajustes de valor justo das bases e/f/g/h no Rel. 2.",
+    "Depósitos Totais": "Prioriza a linha agregada oficial disponível no Rel. 3; só usa soma a1..a6 quando nenhum agregado oficial estiver preenchido na linha.",
+    "Core Funding*": "Até 2024: Captações (e). 2025+: Captações (e) + Instrumentos de Dívida Elegíveis a Capital (h) no Rel. 3, sem tratar componente ausente como zero.",
+    "Patrimônio Líquido (PL)": "Patrimônio Líquido do balanço principal (Rel. 1).",
+    "Ativos Estágio 2": "Saldo da conta 3312000001 (Cadoc 4060) no período, quando a fonte mensal publicar o estágio e houver match prudencial confiável.",
+    "Ativos Estágio 3": "Saldo da conta 3313000000 (Cadoc 4060) no período, quando a fonte mensal publicar o estágio e houver match prudencial confiável.",
+    "Ativos Estágio 3 / Carteira de Crédito": "Ativos Estágio 3 (Cadoc 4060) ÷ Carteira de Crédito*.",
+    "Inadimplência": "Inadimplência publicada no IFData Rel. 16 (Carteira de crédito ativa por carteiras de instrumentos financeiros).",
+    "Inadimplência / Carteira de Crédito": "Inadimplência do Rel. 16 ÷ Carteira de Crédito*.",
+    "Perda Esperada / Estágio 3": "Magnitude da Perda Esperada (Rel. 2) ÷ Ativos Estágio 3 (Cadoc 4060), somente quando numerador e denominador estiverem disponíveis.",
+    "Perda Esperada / Est2+3": "Magnitude da Perda Esperada (Rel. 2) ÷ (Ativos Estágio 2 + Ativos Estágio 3) do Cadoc 4060, somente com cobertura prudencial válida.",
+    "Perda Esperada / Carteira de Crédito*": "Magnitude da Perda Esperada ÷ Carteira de Crédito*.",
+    "Ativo Total / PL": "Ativo Total ÷ Patrimônio Líquido.",
+    "Carteira de Crédito* / PL": "Carteira de Crédito* ÷ Patrimônio Líquido.",
+    "Índice de Capital Principal (CET1)": "Capital Principal ÷ RWA Total (Rel. 5).",
+    "Índice de Basileia Total (%)": "(CET1 + AT1 + T2) ÷ RWA Total (Rel. 5).",
+    "Lucro Líquido Acumulado": "Lucro Líquido acumulado no ano (YTD) até o fim do período (Rel. 1).",
+    "ROE Acumulado YTD (%)": "(LL YTD × fator de anualização) ÷ PL Médio.",
+}
+
+PEERS_PERCENT_DECIMALS = {
+    "Perda Esperada / Est2+3": 1,
+}
+
+PEERS_RATIO_COMPONENTS = {
+    "Ativos Estágio 3 / Carteira de Crédito": ("Ativos Estágio 3", "Carteira de Crédito Bruta"),
+    "Inadimplência / Carteira de Crédito": ("Inadimplência", "Carteira de Crédito Bruta"),
+    "Perda Esperada / Carteira de Crédito Bruta": ("Perda Esperada", "Carteira de Crédito Bruta"),
+    "Perda Esperada / Carteira de Crédito*": ("Perda Esperada", "Carteira de Crédito Bruta"),
+    "Carteira de Créd. Class. C4+C5 / Carteira Classificada": ("Carteira de Créd. Class. C4+C5", "Carteira de Crédito Classificada"),
+    "Perda Esperada / (Carteira C4 + C5)": ("Perda Esperada", "Carteira de Créd. Class. C4+C5"),
+    "PDD / Estágio 3": ("PDD Total 4060", "Ativos Estágio 3"),
+    "Perda Esperada / Estágio 3": ("Perda Esperada", "Ativos Estágio 3"),
+}
+
+PEERS_ALLOWANCE_RATIO_METRICS = {
+    "PDD / Estágio 3",
+    "Perda Esperada / Carteira",
+    "Perda Esperada / Carteira de Crédito Bruta",
+    "Perda Esperada / Carteira de Crédito*",
+    "Perda Esperada / (Carteira C4 + C5)",
+    "Perda Esperada / Estágio 3",
+    "Perda Esperada / Est2+3",
+}
+
+PEERS_BASE_CONSOLIDADA_LABEL = "Consolidada / Prudencial"
+PEERS_BASE_INDIVIDUAL_LABEL = "Individual"
+PEERS_BASE_DRE_OPTIONS = [PEERS_BASE_CONSOLIDADA_LABEL, PEERS_BASE_INDIVIDUAL_LABEL]
 
 
 def _normalizar_base_dre_peers(base: Optional[str]) -> str:
@@ -4459,29 +4604,21 @@ def _carregar_cache_com_freshness(manager, cache_name: str, manifest: dict | Non
     return result, status
 
 
-def _manifest_cache_entry_cache(manifest: dict | None, cache_name: str) -> dict:
+def _carteira_4966_manifest_entry(manifest: dict | None) -> dict:
     if not isinstance(manifest, dict):
         return {}
     caches = manifest.get("caches") if isinstance(manifest.get("caches"), dict) else {}
-    entry = caches.get(cache_name)
+    entry = caches.get("carteira_instrumentos")
     return entry if isinstance(entry, dict) else {}
 
 
-def _carteira_4966_manifest_entry(manifest: dict | None) -> dict:
-    return _manifest_cache_entry_cache(manifest, "carteira_instrumentos")
-
-
 def _carteira_4966_release_token(manifest: dict | None) -> str:
-    carteira_entry = _carteira_4966_manifest_entry(manifest)
-    ativo_entry = _manifest_cache_entry_cache(manifest, "ativo")
+    entry = _carteira_4966_manifest_entry(manifest)
     parts = [
         _EXPECTED_CACHE_RELEASE_TAG,
-        str(carteira_entry.get("sha256") or ""),
-        str(carteira_entry.get("max_period_ref") or carteira_entry.get("max_period") or ""),
-        str(carteira_entry.get("period_count") or ""),
-        str(ativo_entry.get("sha256") or ""),
-        str(ativo_entry.get("max_period_ref") or ativo_entry.get("max_period") or ""),
-        str(ativo_entry.get("period_count") or ""),
+        str(entry.get("sha256") or ""),
+        str(entry.get("max_period_ref") or entry.get("max_period") or ""),
+        str(entry.get("period_count") or ""),
         _manifest_generated_token_cache(manifest),
     ]
     return "|".join(parts)
@@ -4495,142 +4632,35 @@ def _arquivo_sha256_cache(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _filtrar_periodos_carteira_4966(
-    dados: pd.DataFrame | None,
-    periodos: Sequence[str],
-) -> pd.DataFrame:
-    if dados is None or dados.empty:
-        return pd.DataFrame()
-    out = _normalizar_nomes_carteira(dados)
-    col_periodo = next(
-        (column for column in ("Período", "Periodo") if column in out.columns),
-        None,
-    )
-    periodos_normalizados = {str(periodo).strip() for periodo in periodos if str(periodo).strip()}
-    if col_periodo is None or not periodos_normalizados:
-        return out.copy()
-    return out[out[col_periodo].astype(str).str.strip().isin(periodos_normalizados)].copy()
-
-
-def _load_carteira_4966_ativo_periods_impl(
-    manifest: dict | None,
-    periodos: Sequence[str],
-) -> tuple[pd.DataFrame, dict]:
-    """Carrega o Rel. 2 fixado ao mesmo manifesto usado pela Carteira 4.966.
-
-    O recorte genérico de cache considera apenas o arquivo local. Como assets de
-    GitHub Release são substituídos no mesmo tag, esse arquivo pode permanecer
-    defasado mesmo após a atualização do manifesto. Aqui o SHA-256 publicado é a
-    fonte de verdade: um arquivo divergente é substituído pelo asset verificado
-    antes de calcular PDD.
-    """
-    manager = get_cache_manager()
-    cache = manager.get_cache("ativo") if manager is not None else None
-    if cache is None:
-        return pd.DataFrame(), {
-            "valid": False,
-            "integrity_verified": False,
-            "error": "cache Ativo (Relatório 2) não registrado",
-        }
-
-    entry = _manifest_cache_entry_cache(manifest, "ativo")
-    expected_sha256 = str(entry.get("sha256") or "").strip().lower()
-    local_integrity_verified = False
-    if cache.arquivo_dados.exists() and expected_sha256:
-        try:
-            local_integrity_verified = (
-                _arquivo_sha256_cache(cache.arquivo_dados).lower() == expected_sha256
-            )
-        except OSError:
-            local_integrity_verified = False
-
-    if local_integrity_verified or not expected_sha256:
-        local_result = cache.carregar_local() if cache.existe() else None
-        if local_result is not None and local_result.sucesso and local_result.dados is not None:
-            status = {
-                "valid": True,
-                "integrity_verified": local_integrity_verified,
-                "source": local_result.fonte,
-            }
-            if not expected_sha256:
-                status["warning"] = (
-                    "manifesto do release sem digest do Relatório 2; "
-                    "usando o cache local disponível"
-                )
-            return _filtrar_periodos_carteira_4966(local_result.dados, periodos), status
-
-    remote_result = _baixar_cache_release_base_cache(
-        "ativo",
-        _CARTEIRA_4966_RELEASE_BASE_URL,
-        expected_sha256=expected_sha256,
-    )
-    if remote_result.sucesso and remote_result.dados is not None:
-        _salvar_cache_fallback_local(manager, "ativo", remote_result)
-        status = {
-            "valid": True,
-            "integrity_verified": bool(expected_sha256),
-            "source": remote_result.fonte,
-        }
-        if not expected_sha256:
-            status["warning"] = (
-                "Relatório 2 baixado sem digest publicado no manifesto; "
-                "a origem foi validada, mas a integridade não pôde ser fixada"
-            )
-        return _filtrar_periodos_carteira_4966(remote_result.dados, periodos), status
-
-    return pd.DataFrame(), {
-        "valid": False,
-        "integrity_verified": False,
-        "error": getattr(
-            remote_result,
-            "mensagem",
-            "falha ao carregar o cache Ativo (Relatório 2)",
-        ),
-    }
-
-
 def _carteira_4966_result_status(result, manifest: dict | None) -> dict:
     status = _cache_period_status_from_result("carteira_instrumentos", result, manifest)
     dados = getattr(result, "dados", None)
-    quality_check = validate_carteira_4966_quality(
-        dados if isinstance(dados, pd.DataFrame) else None
-    )
-    metric_coverage: dict[str, dict[str, dict[str, float | int]]] = {}
-    incomplete_metric_periods: dict[str, list[str]] = {}
-    for metric_name in CARTEIRA_4966_METRIC_COLUMNS:
-        coverage_by_period = {}
-        incomplete_periods = []
-        for period_ref in CARTEIRA_4966_REQUIRED_PERIODS:
-            period_quality = quality_check.get("coverage_by_period", {}).get(period_ref)
-            if not isinstance(period_quality, dict):
-                continue
-            coverage_ratio = float(
-                period_quality.get("coverage", {}).get(metric_name, 0.0)
-            )
-            coverage_by_period[period_ref] = {
-                "valid_rows": int(
-                    period_quality.get("valid_counts", {}).get(metric_name, 0)
-                ),
-                "total_rows": int(period_quality.get("record_count", 0)),
-                "eligible_rows": int(period_quality.get("eligible_total_count", 0)),
-                "coverage_ratio": coverage_ratio,
-            }
-            if coverage_ratio < CARTEIRA_4966_MINIMUM_COVERAGE:
-                incomplete_periods.append(period_ref)
-        metric_coverage[metric_name] = coverage_by_period
-        if incomplete_periods:
-            incomplete_metric_periods[metric_name] = incomplete_periods
-    status["missing_columns"] = quality_check.get("missing_columns", [])
-    status["missing_required_periods"] = quality_check.get("missing_periods", [])
-    status["metric_coverage"] = metric_coverage
-    status["incomplete_metric_periods"] = incomplete_metric_periods
-    status["quality_check"] = quality_check
-    status["quality_warnings"] = quality_check.get("warnings", [])
+    missing_columns = []
+    if dados is None or not isinstance(dados, pd.DataFrame) or dados.empty:
+        missing_columns = ["Instituição", "Período"]
+    else:
+        if "Instituição" not in dados.columns:
+            missing_columns.append("Instituição")
+        if not any(column in dados.columns for column in ("Período", "Periodo")):
+            missing_columns.append("Período")
+    available_period_refs = {
+        ref
+        for periodo in _periodos_from_df_cache(dados)
+        if (ref := _periodo_ref_cache(periodo))
+    }
+    missing_required_periods = [
+        ref
+        for ref in _CARTEIRA_4966_REQUIRED_PERIOD_REFS
+        if ref not in available_period_refs
+    ]
+    status["missing_columns"] = missing_columns
+    status["missing_required_periods"] = missing_required_periods
     status["valid"] = bool(
         getattr(result, "sucesso", False)
-        and isinstance(dados, pd.DataFrame)
+        and dados is not None
         and not dados.empty
-        and quality_check.get("success", False)
+        and not missing_columns
+        and not missing_required_periods
         and not status["stale"]
     )
     return status
@@ -4722,8 +4752,7 @@ def _load_carteira_4966_data_impl(manifest: dict | None):
         error_message = getattr(remote_result, "mensagem", "falha ao carregar release curado")
         local_status["error"] = (
             f"{error_message}. O cache local também foi rejeitado porque não contém "
-            "todos os períodos obrigatórios de mar/25 a mar/26 com cobertura e integridade "
-            "mínimas no Total Geral, na classificação, na Inadimplência e nos Ativos problemáticos."
+            "todos os períodos obrigatórios de mar/25 a mar/26."
         )
         local_status["remote_error"] = error_message
         return None, local_status
@@ -4743,23 +4772,6 @@ def load_carteira_4966_data(release_token: str, manifest_payload: str):
     if not isinstance(manifest, dict):
         manifest = {"_erro": "manifesto serializado não é um objeto"}
     return _load_carteira_4966_data_impl(manifest)
-
-
-@st.cache_data(ttl=3600, show_spinner=False)
-def load_carteira_4966_ativo_periods(
-    release_token: str,
-    manifest_payload: str,
-    periodos: tuple[str, ...],
-):
-    """Carrega a Perda Esperada usando o digest que compõe ``release_token``."""
-    del release_token  # Faz parte da chave do cache Streamlit.
-    try:
-        manifest = json.loads(manifest_payload)
-    except (TypeError, ValueError, json.JSONDecodeError) as exc:
-        manifest = {"_erro": f"manifesto serializado inválido: {exc}"}
-    if not isinstance(manifest, dict):
-        manifest = {"_erro": "manifesto serializado não é um objeto"}
-    return _load_carteira_4966_ativo_periods_impl(manifest, periodos)
 
 
 def _periodos_catalogo_dre_individual(
@@ -4834,10 +4846,8 @@ def _versao_local_cache(info_local: dict) -> str:
 def _inferir_periodo_api_padrao() -> str:
     """Infere um período YYYYMM padrão a partir do metadata do cache principal."""
     try:
-        manager = get_cache_manager()
-        cache_principal = manager.get_cache("principal") if manager else None
-        meta_path = getattr(cache_principal, "arquivo_metadata", None)
-        if meta_path is None or not meta_path.exists():
+        meta_path = Path("data/cache/principal/metadata.json")
+        if not meta_path.exists():
             return "202503"
         meta = json.loads(meta_path.read_text())
         periodos = meta.get("periodos") or []
@@ -5424,16 +5434,7 @@ def _classificar_par_periodos(p1: str, p2: str) -> str:
 
 # Indicadores que variam conforme modo tri/acumulado
 _INDICADORES_SOMENTE_TRI = {'Lucro Líquido Trimestral', 'ROE Trim. Anualizado (%)'}
-_INDICADORES_SOMENTE_ACUM = {
-    'Lucro Líquido Acumulado YTD',
-    'ROE Ac. Anualizado (%)',
-    # Custo de Crédito é YTD anualizado, mesma natureza do ROE acumulado.
-    METRIC_CUSTO_CREDITO,
-    # A razão PDD/Receita também é construída sobre o YTD reconstruído do Rel. 4.
-    # (Ativos Problemáticos / Carteira Total fica de fora: é razão de estoque,
-    # medida no fim do período e válida nos dois modos.)
-    METRIC_CUSTO_CREDITO_RECEITA,
-}
+_INDICADORES_SOMENTE_ACUM = {'Lucro Líquido Acumulado YTD', 'ROE Ac. Anualizado (%)'}
 
 
 def _is_indice_capital_display(variavel: Optional[str]) -> bool:
@@ -5737,10 +5738,6 @@ def _tooltip_ratio_peers(label, valor_num, valor_den, valor_ratio):
         "Perda Esperada / Est2+3": ("Perda Esperada", "Estágio 2 + Estágio 3"),
         "Carteira de Créd. Class. C4+C5 / Carteira Classificada": ("C4+C5", "Carteira de Crédito Classificada"),
         "Perda Esperada / (Carteira C4 + C5)": ("Perda Esperada", "C4+C5"),
-        "Custo de Crédito (%)": ("PDD de crédito (f3) anualizada", "Carteira de Crédito*"),
-        "Custo de Crédito / Receita de Crédito (%)": ("PDD de crédito (f3) YTD", "Receita de crédito (c) YTD"),
-        "Ativos Problemáticos / Carteira Total": ("Ativos problemáticos (Rel. 16)", "Carteira Total (Rel. 16)"),
-        "Inadimplência / Carteira Total": ("Inadimplência (Rel. 16)", "Carteira Total (Rel. 16)"),
     }
     lines = []
     if label in _NOMES_COMPONENTES:
@@ -7976,13 +7973,6 @@ def _scatter_compor_texto_label(
 
 
 def _scatter_metric_criteria(label_exibicao: str) -> str:
-    central = _ifdata_metric_registry.get_metric_ui_text(
-        label_exibicao,
-        long=True,
-        include_source=True,
-    )
-    if central:
-        return central
     criterios = {
         "Core Funding": "Captações (e) no Relatório de Passivo; a partir de 2025, exige-se Captações (e) + Instrumentos de Dívida Elegíveis a Capital (h).",
         "Carteira de Crédito Classificada": "Prioriza Carteira de Crédito Classificada/Carteira de Crédito*; fallback para Carteira de Crédito Bruta/Carteira de Crédito, conforme disponibilidade da base.",
@@ -7993,16 +7983,6 @@ def _scatter_metric_criteria(label_exibicao: str) -> str:
         "Lucro Líquido Trimestral": "Lucro líquido do trimestre de referência (não acumulado YTD).",
     }
     return criterios.get(label_exibicao, "Definição específica não cadastrada; usa série da base principal conforme nome da variável.")
-
-
-def _metric_definition_html(label: str, *, long: bool = False) -> str:
-    """Renderiza com escape o texto canônico para blocos HTML legados."""
-    text = _ifdata_metric_registry.get_metric_ui_text(
-        label,
-        long=long,
-        include_source=True,
-    )
-    return _html_mod.escape(text).replace("\n", "<br>")
 
 
 
@@ -8080,14 +8060,23 @@ def _anexar_carteira_credito_bruta(dados_periodos: dict) -> dict:
     for col in valor_cols:
         df_bruta[col] = pd.to_numeric(df_bruta[col], errors="coerce")
 
-    # [CHANGE] Data: 2026-08-11 | Aba: Rankings/Evolução | Prioridade: P0
-    # Motivo: o apply linha a linha custava 29,5s sobre as 62k linhas do Rel. 2 e
-    # dominava o caminho frio da aba Rankings (50-110s em produção).
-    # Solução: usar a série vetorizada de derived_metrics, que aplica exatamente a
-    # mesma regra de resolve_carteira_credito_bruta_value (equivalência travada em
-    # tests/test_custo_credito.py) em 0,086s.
-    # Impacto: apenas performance; nenhuma fórmula financeira muda.
-    df_bruta["Carteira de Crédito Bruta"] = _resolve_carteira_credito_bruta_series(df_bruta).values
+    def _resolve_row(row: pd.Series) -> object:
+        return resolve_carteira_credito_bruta_value(
+            year_ref=_periodo_ano_int(row.get("Período")),
+            legacy_credito_value=row.get(col_d1) if col_d1 else None,
+            legacy_arrendamento_value=row.get(col_e1_alt) if col_e1_alt else None,
+            legacy_outros_value=row.get(col_f_old) if col_f_old else None,
+            vcb_credito_value=row.get(col_e1) if col_e1 else None,
+            vcb_arrendamento_value=row.get(col_f1) if col_f1 else None,
+            vcb_outras_ops_value=row.get(col_g1) if col_g1 else None,
+            vcb_pagamentos_value=row.get(col_h1) if col_h1 else None,
+            net_credito_value=row.get(col_e) if col_e else None,
+            net_arrendamento_value=row.get(col_f) if col_f else None,
+            net_outras_ops_value=row.get(col_g) if col_g else None,
+            net_pagamentos_value=row.get(col_h) if col_h else None,
+        ).get("value")
+
+    df_bruta["Carteira de Crédito Bruta"] = df_bruta.apply(_resolve_row, axis=1)
     df_bruta = df_bruta[["Instituição", "Período", "Carteira de Crédito Bruta"]]
     # Garante unicidade por período/instituição para evitar InvalidIndexError no map
     df_bruta = (
@@ -9921,28 +9910,6 @@ def _calcular_metrica_extra_curada_peers(metric: str, row: Mapping[str, Any]) ->
         recomputed = _calcular_ratio_peers(row.get("Ativos Problemáticos 4.966"), row.get("Carteira Total 4.966"))
         return recomputed if recomputed is not None else valor
 
-    if metric == "Custo de Crédito (%)":
-        recomputed = _calcular_ratio_peers(
-            row.get("Trace::Custo de Crédito::PDD Crédito Anualizada"),
-            row.get("Carteira de Crédito Bruta"),
-            abs_num=True,
-        )
-        return recomputed if recomputed is not None else (abs(valor) if valor is not None and not pd.isna(valor) else valor)
-
-    if metric == "Custo de Crédito / Receita de Crédito (%)":
-        receita = _coerce_numeric_value(row.get("Trace::Custo de Crédito::Receita de Crédito YTD"))
-        # Receita nula ou negativa não é denominador válido: preserva o valor curado
-        # (que já é N/D nesse caso) em vez de inventar uma razão sem interpretação.
-        if receita is not None and not pd.isna(receita) and receita > 0:
-            recomputed = _calcular_ratio_peers(
-                row.get("Trace::Custo de Crédito::PDD Crédito YTD"),
-                receita,
-                abs_num=True,
-            )
-            if recomputed is not None:
-                return recomputed
-        return abs(valor) if valor is not None and not pd.isna(valor) else valor
-
     if metric in {"Perda Esperada / Carteira de Crédito Bruta", "Perda Esperada / Carteira de Crédito*"}:
         recomputed = _calcular_ratio_peers(
             row.get("Perda Esperada"),
@@ -9986,18 +9953,11 @@ def _preparar_metricas_extra_peers_from_slice(
     """Extrai métricas extras diretamente do slice já carregado do cache curado."""
     lookup = _critical_metric_lookup(df_slice)
     result = {metric: {} for metric in CRITICAL_EXTRA_METRICS}
-    # Os traces entram como pseudo-métricas para que os tooltips de razão e a memória
-    # de cálculo mostrem numerador e denominador reais em vez de "N/A".
-    for coluna in PEERS_TRACE_COMPONENTS:
-        result.setdefault(coluna, {})
     for banco in bancos:
         for periodo in periodos:
             row = lookup.get((banco, periodo), {})
-            chave = (banco, periodo)
             for metric in CRITICAL_EXTRA_METRICS:
-                result[metric][chave] = _calcular_metrica_extra_curada_peers(metric, row)
-            for coluna in PEERS_TRACE_COMPONENTS:
-                result[coluna][chave] = _coerce_numeric_value(row.get(coluna))
+                result[metric][(banco, periodo)] = _calcular_metrica_extra_curada_peers(metric, row)
     return result
 
 
@@ -10228,11 +10188,6 @@ def _montar_tabela_peers(
     return valores, colunas_usadas, faltas, delta_flags, delta_context, tooltips
 
 
-def _ordenar_periodos_peers_saida(periodos: Sequence[str]) -> list[str]:
-    unicos = list(dict.fromkeys(str(periodo) for periodo in (periodos or []) if periodo))
-    return ordenar_periodos(unicos, reverso=False)
-
-
 def _render_peers_table_html(
     bancos: list,
     periodos: list,
@@ -10243,7 +10198,6 @@ def _render_peers_table_html(
     tooltips: Optional[dict] = None,
     status_markers: Optional[dict] = None,
 ):
-    periodos = _ordenar_periodos_peers_saida(periodos)
     colunas_total = 1 + len(bancos) * len(periodos)
     html = """
     <style>
@@ -10680,10 +10634,6 @@ def _build_memoria_calculo_curado_metrica(
         if metrica in {
             "Ativos Estágio 3 / Carteira de Crédito",
             "Inadimplência / Carteira de Crédito",
-            "Inadimplência / Carteira Total",
-            "Ativos Problemáticos / Carteira Total",
-            "Custo de Crédito (%)",
-            "Custo de Crédito / Receita de Crédito (%)",
             "Perda Esperada / Estágio 3",
             "Perda Esperada / Carteira de Crédito*",
             "Perda Esperada / Carteira",
@@ -10693,10 +10643,6 @@ def _build_memoria_calculo_curado_metrica(
         }:
             ratio_map = {
                 "Ativos Estágio 3 / Carteira de Crédito": ("Ativos Estágio 3", "Carteira de Crédito Bruta", "Ativos Estágio 3 ÷ Carteira de Crédito Bruta"),
-                "Inadimplência / Carteira Total": ("Inadimplência 4.966", "Carteira Total 4.966", "Inadimplência ÷ Carteira Total (IFData Rel. 16)"),
-                "Ativos Problemáticos / Carteira Total": ("Ativos Problemáticos 4.966", "Carteira Total 4.966", "Ativos problemáticos ÷ Total Geral (IFData Rel. 16)"),
-                "Custo de Crédito (%)": ("Trace::Custo de Crédito::PDD Crédito Anualizada", "Carteira de Crédito Bruta", "|PDD de crédito (f3) YTD anualizada| ÷ Carteira de Crédito*"),
-                "Custo de Crédito / Receita de Crédito (%)": ("Trace::Custo de Crédito::PDD Crédito YTD", "Trace::Custo de Crédito::Receita de Crédito YTD", "|PDD de crédito (f3) YTD| ÷ Rendas de Op. de Crédito (c) YTD"),
                 "Inadimplência / Carteira de Crédito": ("Inadimplência", "Carteira de Crédito Bruta", "Inadimplência ÷ Carteira de Crédito Bruta"),
                 "Perda Esperada / Estágio 3": ("Perda Esperada", "Ativos Estágio 3", "|Perda Esperada| ÷ Estágio 3"),
                 "Perda Esperada / Carteira de Crédito*": ("Perda Esperada", "Carteira de Crédito*", "|Perda Esperada| ÷ Carteira de Crédito*"),
@@ -11063,14 +11009,68 @@ def _write_analytical_status_sheet(
     rows: list[dict],
     sheet_name: str = "status_analitico",
 ) -> None:
-    _write_analytical_status_sheet_impl(
-        workbook,
-        rows=rows,
-        sheet_name=sheet_name,
-        coerce_numeric=_coerce_numeric_value,
-        is_percentage=_is_variavel_percentual,
-        percent_decimals=PEERS_PERCENT_DECIMALS,
+    if not rows:
+        return
+
+    border = {"border": 1, "border_color": "#dddddd"}
+    header = workbook.add_format(
+        {"bold": True, "align": "center", "valign": "vcenter", "bg_color": "#111111", "font_color": "white", **border}
     )
+    text_fmt = workbook.add_format({"align": "left", "valign": "top", "text_wrap": True, **border})
+    num_fmt = workbook.add_format({"align": "right", "valign": "top", "num_format": "#,##0.00", **border})
+    pct1_fmt = workbook.add_format({"align": "right", "valign": "top", "num_format": "0.0%", **border})
+    pct2_fmt = workbook.add_format({"align": "right", "valign": "top", "num_format": "0.00%", **border})
+    mult_fmt = workbook.add_format({"align": "right", "valign": "top", "num_format": "0.00x", **border})
+
+    status_ws = workbook.add_worksheet(sheet_name)
+    headers = [
+        "Instituição",
+        "Período",
+        "Indicador",
+        "Valor",
+        "Status analítico",
+        "Fonte analítica",
+        "Observação",
+    ]
+    for col_idx, label in enumerate(headers):
+        status_ws.write(0, col_idx, label, header)
+
+    status_ws.set_column(0, 0, 28)
+    status_ws.set_column(1, 1, 14)
+    status_ws.set_column(2, 2, 32)
+    status_ws.set_column(3, 3, 16)
+    status_ws.set_column(4, 4, 24)
+    status_ws.set_column(5, 5, 42)
+    status_ws.set_column(6, 6, 72)
+
+    for row_idx, row in enumerate(rows, start=1):
+        status_ws.write(row_idx, 0, row.get("Instituição"), text_fmt)
+        status_ws.write(row_idx, 1, row.get("Período"), text_fmt)
+        status_ws.write(row_idx, 2, row.get("Indicador"), text_fmt)
+
+        valor_num = _coerce_numeric_value(row.get("Valor"))
+        format_key = str(row.get("Format key") or "")
+        if valor_num is None or pd.isna(valor_num):
+            status_ws.write_blank(row_idx, 3, None, text_fmt)
+        elif format_key in PEERS_PERCENT_DECIMALS:
+            dec = PEERS_PERCENT_DECIMALS[format_key]
+            status_ws.write_number(row_idx, 3, float(valor_num), pct1_fmt if dec == 1 else pct2_fmt)
+        elif _is_variavel_percentual(format_key):
+            status_ws.write_number(row_idx, 3, float(valor_num), pct2_fmt)
+        elif format_key in {"percent", "percent_1"}:
+            status_ws.write_number(row_idx, 3, float(valor_num), pct1_fmt)
+        elif format_key == "percent_2":
+            status_ws.write_number(row_idx, 3, float(valor_num), pct2_fmt)
+        elif format_key in {"Ativo/PL", "Crédito/PL (%)", "Carteira de Crédito Bruta / PL", "multiple"}:
+            status_ws.write_number(row_idx, 3, float(valor_num), mult_fmt)
+        else:
+            status_ws.write_number(row_idx, 3, float(valor_num), num_fmt)
+
+        status_ws.write(row_idx, 4, row.get("Status analítico"), text_fmt)
+        status_ws.write(row_idx, 5, row.get("Fonte analítica"), text_fmt)
+        status_ws.write(row_idx, 6, row.get("Observação"), text_fmt)
+
+    status_ws.freeze_panes(1, 0)
 
 
 def _periodo_trimestre_anterior(periodo: Optional[str], periodos_disponiveis: list[str]) -> Optional[str]:
@@ -12345,7 +12345,6 @@ def _gerar_imagem_peers_tabela(
     scale: float = 1.0,
 ):
     """Gera imagem PNG da tabela peers para exportação."""
-    periodos = _ordenar_periodos_peers_saida(periodos)
     status_markers, marker_presence = _build_peers_visual_status_artifacts(
         df_base=df_base,
         bancos=list(bancos),
@@ -12482,7 +12481,6 @@ def _gerar_excel_peers_tabela(
     delta_flags: dict,
     df_base: Optional[pd.DataFrame] = None,
 ) -> BytesIO:
-    periodos = _ordenar_periodos_peers_saida(periodos)
     output = BytesIO()
     workbook = xlsxwriter.Workbook(output, {"in_memory": True})
     worksheet = workbook.add_worksheet("peers_tabela")
@@ -12620,7 +12618,6 @@ def _gerar_excel_peers_dados_puros(
     df_base: Optional[pd.DataFrame] = None,
 ) -> BytesIO:
     """Exporta tabela Peers com valores numéricos, sem layout visual."""
-    periodos = _ordenar_periodos_peers_saida(periodos)
     output = BytesIO()
     workbook = xlsxwriter.Workbook(output, {"in_memory": True})
     worksheet = workbook.add_worksheet("dados_numericos")
@@ -14014,53 +14011,12 @@ def _get_peers_individual_filters_context(
     }
 
 
-def _periodos_do_parquet_cache(cache_obj) -> tuple[str, ...]:
-    """Períodos existentes no parquet de um cache (fonte de verdade).
-
-    Delega para `tabs.rankings_data`; ver lá a justificativa de não usar o
-    `metadata.json`, que é reescrito a cada download ou extração parcial.
-    """
-    return rankings_data.periodos_do_parquet(cache_obj)
-
-
-def _cobertura_cache(nome_cache: str) -> dict:
-    """Cobertura real de um cache em disco: períodos, registros e origem."""
-    manager = get_cache_manager()
-    cache_obj = manager.get_cache(nome_cache) if manager else None
-    return rankings_data.cobertura_do_cache(nome_cache, cache_obj)
-
-
-def _rankings_diagnostico_fontes(periodos_pedidos: Optional[tuple] = None) -> pd.DataFrame:
-    """Tabela de diagnóstico das fontes que alimentam a aba Rankings."""
-    pedidos = tuple(str(p) for p in (periodos_pedidos or ()) if p)
-    linhas = []
-    for nome in ("principal", "capital", "derived_metrics"):
-        info = _cobertura_cache(nome)
-        ausentes = [p for p in pedidos if p not in info["periodos"]]
-        linhas.append({
-            "Cache": nome,
-            "Arquivo": "presente" if info["existe"] else "ausente",
-            "Registros": info["total_registros"] if info["total_registros"] is not None else "—",
-            "Períodos": info["total_periodos"],
-            "Mais recente": periodo_para_exibicao(info["periodo_mais_recente"]) if info["periodo_mais_recente"] else "—",
-            "Pedidos ausentes": ", ".join(periodo_para_exibicao(p) for p in ausentes) or "—",
-            "Atualizado em": info["atualizado_em"],
-        })
-    return pd.DataFrame(linhas)
-
-
 @st.cache_data(ttl=900, show_spinner=False)
 def _get_rankings_filters_context(principal_token: str, alias_sig: tuple) -> dict:
     """Retorna períodos para filtros da aba Rankings sem concatenar dataframe completo."""
     _ = alias_sig
     manager = get_cache_manager()
     cache_principal = manager.get_cache("principal") if manager else None
-
-    # Fonte de verdade é o parquet; o metadata entra apenas como fallback.
-    periodos_parquet = _periodos_do_parquet_cache(cache_principal)
-    if periodos_parquet:
-        return {"periodos_disponiveis": periodos_parquet}
-
     metadata = _load_cache_metadata(cache_principal)
     periodos_metadata = metadata.get("periodos") or []
     if periodos_metadata:
@@ -14161,23 +14117,6 @@ RANKINGS_FAMILY_PRINCIPAL_PREPARED = frozenset(
         "Patrimônio Líquido",
     }
 )
-# Indicadores servidos pela camada curada (critical_screens), já materializada
-# offline com Carteira de Crédito*/Core Funding* resolvidos. Evita reexecutar o
-# enriquecimento Rel. 2/Rel. 3 dentro do request — mesmo padrão de Snapshot/Peers.
-RANKINGS_FAMILY_CURATED = frozenset(
-    {
-        "Carteira de Crédito*",
-        "Core Funding*",
-    }
-)
-RANKINGS_CURATED_COLUNAS = (
-    "Ativo Total",
-    "Patrimônio Líquido",
-    "Carteira de Crédito*",
-    "Carteira de Crédito Bruta",
-    "Core Funding*",
-    "Core Funding",
-)
 RANKINGS_FAMILY_CAPITAL_PREPARED = frozenset(
     {
         "Índice de Capital Principal (CET1)",
@@ -14195,20 +14134,6 @@ RANKINGS_FAMILY_PRINCIPAL_LIGHT = frozenset(
     {
         "Ativo Total",
         "Patrimônio Líquido",
-        # As métricas derivadas vêm prontas do cache derivado: do principal só precisam
-        # de Instituição/Período/Ativo Total (pool). Não passam pelo enriquecimento Rel. 2.
-        METRIC_CUSTO_CREDITO,
-        METRIC_CUSTO_CREDITO_RECEITA,
-        METRIC_ATIVOS_PROBLEMATICOS_CARTEIRA,
-    }
-)
-# Indicadores que exigem enriquecimento com o cache `derived_metrics`
-# (DRE Rel. 4 para as razões de custo; Rel. 16 para ativos problemáticos).
-RANKINGS_FAMILY_DERIVED = frozenset(
-    {
-        METRIC_CUSTO_CREDITO,
-        METRIC_CUSTO_CREDITO_RECEITA,
-        METRIC_ATIVOS_PROBLEMATICOS_CARTEIRA,
     }
 )
 
@@ -14223,8 +14148,7 @@ def _rankings_principal_cache_disponivel() -> bool:
     cache_principal = manager.get_cache("principal") if manager else None
     if cache_principal is None:
         return False
-    arquivo_leitura = getattr(cache_principal, "read_data_file", cache_principal.arquivo_dados)
-    return bool(arquivo_leitura.exists() or cache_principal.arquivo_dados_pickle.exists())
+    return bool(cache_principal.arquivo_dados.exists() or cache_principal.arquivo_dados_pickle.exists())
 
 
 def _rankings_periodo_mesma_representacao(periodo: str, tri_idx: int) -> Optional[str]:
@@ -14321,12 +14245,6 @@ def _rankings_expandir_periodos_ytd_acumulado(
 
 
 def _resolve_rankings_source_family(indicador_label: str) -> str:
-    if indicador_label in RANKINGS_FAMILY_CURATED:
-        return "curated"
-    if indicador_label in RANKINGS_FAMILY_DERIVED:
-        # A métrica vem pronta do cache derivado; do principal só é preciso o
-        # recorte leve (Instituição/Período/Ativo Total) usado pelo pool.
-        return "principal_prepared"
     if indicador_label in RANKINGS_FAMILY_PRINCIPAL_PREPARED:
         return "principal_prepared"
     if indicador_label in RANKINGS_FAMILY_CAPITAL_PREPARED:
@@ -14357,7 +14275,6 @@ def _resolve_rankings_source_request(
                     incluir_contexto_trimestral=True,
                 ),
                 "needs_capital": True,
-                "needs_derived": False,
                 "perf_label": "rankings_df_source_table_trimestral",
             }
         return {
@@ -14367,7 +14284,6 @@ def _resolve_rankings_source_request(
                 incluir_prev_dez=True,
             ),
             "needs_capital": True,
-            "needs_derived": False,
             "perf_label": "rankings_df_source_table_acumulado",
         }
 
@@ -14393,9 +14309,6 @@ def _resolve_rankings_source_request(
         else:
             perf_label = "rankings_df_source_principal_prepared"
         periodos_filter = _rankings_periodos_selecionados(periodos_resumo)
-    elif source_family == "curated":
-        periodos_filter = _rankings_periodos_selecionados(periodos_resumo)
-        perf_label = "rankings_df_source_curated"
     elif source_family == "capital_prepared":
         periodos_filter = _rankings_periodos_selecionados(periodos_resumo)
         perf_label = "rankings_df_source_capital_prepared"
@@ -14411,12 +14324,6 @@ def _resolve_rankings_source_request(
         "source_kind": source_family,
         "periodos_filter": periodos_filter,
         "needs_capital": source_family == "capital_prepared",
-        "needs_derived": indicador_label in RANKINGS_FAMILY_DERIVED,
-        # Só a métrica selecionada é lida do cache derivado: carregar as três
-        # obrigaria a varrer o parquet long inteiro a cada troca de indicador.
-        "metricas_derivadas": (
-            (indicador_label,) if indicador_label in RANKINGS_FAMILY_DERIVED else ()
-        ),
         "perf_label": perf_label,
     }
 
@@ -14485,46 +14392,26 @@ def get_analise_base_df(
 def _get_cache_data_mtime(cache_obj) -> Optional[float]:
     if cache_obj is None:
         return None
-    arquivo_leitura = getattr(cache_obj, "read_data_file", cache_obj.arquivo_dados)
-    if arquivo_leitura.exists():
-        return arquivo_leitura.stat().st_mtime
+    if cache_obj.arquivo_dados.exists():
+        return cache_obj.arquivo_dados.stat().st_mtime
     if cache_obj.arquivo_dados_pickle.exists():
         return cache_obj.arquivo_dados_pickle.stat().st_mtime
     return None
 
 
 def _load_cache_metadata(cache_obj) -> dict:
-    if cache_obj is None:
-        return {}
-    arquivo_metadata = getattr(cache_obj, "read_metadata_file", cache_obj.arquivo_metadata)
-    if not arquivo_metadata.exists():
+    if cache_obj is None or not cache_obj.arquivo_metadata.exists():
         return {}
     try:
-        return json.loads(arquivo_metadata.read_text())
+        return json.loads(cache_obj.arquivo_metadata.read_text())
     except Exception:
         return {}
-
-
-def _derived_cache_cobre_metricas_atuais(cache_derivado) -> bool:
-    """Checa se o cache derivado já contém todas as métricas do registro atual.
-
-    Usa o metadata (`denominador_zero_ou_nan` traz uma chave por métrica) para não
-    pagar leitura de parquet. Metadata ausente/ilegível é tratado como suficiente:
-    o gate de frescor por mtime continua sendo a regra principal.
-    """
-    metadata = _load_cache_metadata(cache_derivado)
-    contadores = (metadata.get("extra") or {}).get("denominador_zero_ou_nan")
-    if not isinstance(contadores, dict) or not contadores:
-        return True
-    return all(metrica in contadores for metrica in DERIVED_METRICS)
 
 
 def ensure_derived_metrics_cache(
     derived_cache_name: str = "derived_metrics",
     dre_cache_name: str = "dre",
     principal_cache_name: str = "principal",
-    ativo_cache_name: Optional[str] = "ativo",
-    carteira_instrumentos_cache_name: Optional[str] = "carteira_instrumentos",
 ) -> Tuple[Optional[object], Optional[str], dict]:
     manager = get_cache_manager()
     cache_derivado = manager.get_cache(derived_cache_name) if manager else None
@@ -14536,31 +14423,12 @@ def ensure_derived_metrics_cache(
     principal_cache = manager.get_cache(principal_cache_name)
     mtime_dre = _get_cache_data_mtime(dre_cache)
     mtime_principal = _get_cache_data_mtime(principal_cache)
-    # Rel. 2 entra na referência de frescor porque alimenta o denominador de
-    # Custo de Crédito (%); sem isso a métrica ficaria presa a um cache antigo.
-    ativo_cache = manager.get_cache(ativo_cache_name) if (manager and ativo_cache_name) else None
-    mtime_ativo = _get_cache_data_mtime(ativo_cache) if ativo_cache is not None else None
-    # Rel. 16 entra pelo mesmo motivo: alimenta Ativos Problemáticos / Carteira Total.
-    instr_cache = (
-        manager.get_cache(carteira_instrumentos_cache_name)
-        if (manager and carteira_instrumentos_cache_name)
-        else None
-    )
-    mtime_instr = _get_cache_data_mtime(instr_cache) if instr_cache is not None else None
 
     precisa_recalcular = True
     if mtime_derivado is not None:
-        referencia = max(
-            [t for t in [mtime_dre, mtime_principal, mtime_ativo, mtime_instr] if t is not None],
-            default=None,
-        )
+        referencia = max([t for t in [mtime_dre, mtime_principal] if t is not None], default=None)
         if referencia is None or mtime_derivado >= referencia:
             precisa_recalcular = False
-
-    if not precisa_recalcular and not _derived_cache_cobre_metricas_atuais(cache_derivado):
-        # Cache mais novo que as fontes, porém gerado antes de alguma métrica existir
-        # (ex.: asset de release anterior). Recalcula para não exibir N/D silencioso.
-        precisa_recalcular = True
 
     if not precisa_recalcular:
         return cache_derivado, None, _load_cache_metadata(cache_derivado)
@@ -14581,8 +14449,6 @@ def ensure_derived_metrics_cache(
         derived_cache_name=derived_cache_name,
         dre_cache_name=dre_cache_name,
         principal_cache_name=principal_cache_name,
-        ativo_cache_name=ativo_cache_name,
-        carteira_instrumentos_cache_name=carteira_instrumentos_cache_name,
         force=True,
     )
     elapsed = _perf_end("derived_metrics_build")
@@ -14622,12 +14488,6 @@ def carregar_metricas_derivadas_individual_slice(periodos=None, instituicoes=Non
         derived_cache_name="derived_metrics_individual",
         dre_cache_name="dre_individual",
         principal_cache_name="principal_individual",
-        # Não existe Relatório 2 individual: o denominador de Custo de Crédito (%)
-        # cai para a carteira do cache principal individual.
-        ativo_cache_name=None,
-        # Nem Relatório 16 individual: Ativos Problemáticos / Carteira Total fica N/D
-        # na base individual em vez de herdar o consolidado.
-        carteira_instrumentos_cache_name=None,
     )
     if cache_derivado is None or erro:
         st.session_state["derived_metrics_individual_last_error"] = erro or "cache derivado individual indisponível"
@@ -14754,17 +14614,9 @@ def _get_scatter_filters_context(principal_token: str, alias_sig: tuple) -> dict
                 colunas_meta = tuple(str(col) for col in df_periodo.columns if col)
         df_keys = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
-    # Mesma regra da aba Rankings: o parquet manda, o metadata é só fallback —
-    # `salvar_local()` pode tê-lo reescrito com um subconjunto dos períodos.
-    periodos = tuple()
-    if "Período" in df_keys.columns:
-        periodos = tuple(sorted({
-            texto
-            for texto in df_keys["Período"].dropna().astype(str).str.strip()
-            if texto
-        }))
-    if not periodos:
-        periodos = periodos_meta
+    periodos = periodos_meta
+    if not periodos and "Período" in df_keys.columns:
+        periodos = tuple(df_keys["Período"].dropna().astype(str).unique().tolist())
 
     bancos = tuple()
     if "Instituição" in df_keys.columns:
@@ -14934,17 +14786,17 @@ def _cache_file_token(tipo_cache: str) -> str:
     if cache_obj is None:
         return f"{tipo_cache}:missing"
 
-    arquivo_leitura = getattr(cache_obj, "read_data_file", cache_obj.arquivo_dados)
     arquivo = None
-    if arquivo_leitura.exists():
-        arquivo = arquivo_leitura
+    if cache_obj.arquivo_dados.exists():
+        arquivo = cache_obj.arquivo_dados
     elif cache_obj.arquivo_dados_pickle.exists():
         arquivo = cache_obj.arquivo_dados_pickle
 
     if arquivo is None:
         return f"{tipo_cache}:empty"
 
-    return f"{tipo_cache}:{artifact_content_token(arquivo)}"
+    stat = arquivo.stat()
+    return f"{tipo_cache}:{int(stat.st_mtime)}:{stat.st_size}"
 
 
 def _cache_version_token(tipo_cache: str) -> str:
@@ -14957,53 +14809,6 @@ def _cache_version_token(tipo_cache: str) -> str:
         )
         return "|".join((token, *deps))
     return token
-
-
-@st.cache_data(ttl=300, show_spinner=False)
-def _published_artifact_identity_for_ui(
-    cache_name: str,
-    data_path: str,
-    metadata_path: str,
-    cache_token: str,
-) -> dict:
-    """Identidade observável do parquet efetivamente selecionado pelo runtime."""
-    _ = (cache_name, cache_token)
-    return inspect_parquet_artifact(
-        Path(data_path),
-        metadata_path=Path(metadata_path) if metadata_path else None,
-    )
-
-
-def _published_bundle_status_for_ui() -> tuple[str, list[dict]]:
-    manager = get_cache_manager()
-    identities = {}
-    rows = []
-    for cache_name in ("critical_screens", "derived_metrics"):
-        cache = manager.get_cache(cache_name) if manager else None
-        if cache is None:
-            continue
-        data_path = getattr(cache, "read_data_file", cache.arquivo_dados)
-        if not data_path.exists():
-            data_path = cache.arquivo_dados_pickle
-        metadata_path = getattr(cache, "read_metadata_file", cache.arquivo_metadata)
-        identity = _published_artifact_identity_for_ui(
-            cache_name,
-            str(data_path),
-            str(metadata_path),
-            _cache_file_token(cache_name),
-        )
-        identities[cache_name] = identity
-        rows.append(
-            {
-                "Artefato": cache_name,
-                "SHA256": str(identity.get("sha256") or "")[:12] or "N/D",
-                "Linhas": int(identity.get("rows") or 0),
-                "Competência máxima": identity.get("max_period") or "N/D",
-                "Schema": identity.get("schema_version") or "N/D",
-                "Caminho": identity.get("path") or "N/D",
-            }
-        )
-    return (build_bundle_id(identities) if identities else "bundle-indisponivel", rows)
 
 
 def _alias_signature() -> tuple:
@@ -15239,12 +15044,7 @@ def _get_rankings_principal_slice_df(
     periodos_set = {str(p) for p in (periodos_filter or ()) if p is not None}
     columns_req = tuple(dict.fromkeys(str(col) for col in columns_key if col))
 
-    arquivo_principal = (
-        getattr(cache_principal, "read_data_file", cache_principal.arquivo_dados)
-        if cache_principal is not None
-        else None
-    )
-    if arquivo_principal is not None and arquivo_principal.exists():
+    if cache_principal is not None and cache_principal.arquivo_dados.exists():
         metadata = _load_cache_metadata(cache_principal)
         available_cols = set(metadata.get("colunas") or [])
         if available_cols:
@@ -15260,7 +15060,7 @@ def _get_rankings_principal_slice_df(
                 kwargs = {"columns": columns}
                 if periodos_set:
                     kwargs["filters"] = [("Período", "in", sorted(periodos_set))]
-                df = pd.read_parquet(arquivo_principal, **kwargs)
+                df = pd.read_parquet(cache_principal.arquivo_dados, **kwargs)
                 if periodos_set and "Período" in df.columns:
                     df = df[df["Período"].astype(str).isin(periodos_set)].copy()
                 return df
@@ -15495,55 +15295,13 @@ def _get_rankings_capital_slice(
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def _get_rankings_curated_df(
-    curated_token: str,
-    alias_sig: tuple,
-    periodos_filter: Optional[tuple] = None,
-) -> pd.DataFrame:
-    """Recorte da camada curada (critical_screens) para indicadores de carteira/funding.
-
-    O parquet curado já traz Carteira de Crédito* e Core Funding* resolvidos pela
-    regra canônica, materializados offline. Ler daqui remove do request o
-    enriquecimento Rel. 2/Rel. 3 que custava 50-110s na aba.
-    """
-    _ = (curated_token, alias_sig)
-    try:
-        df = load_critical_screens_slice(
-            base_dir=APP_DIR,
-            periodos=[str(p) for p in (periodos_filter or ())] or None,
-            colunas=list(RANKINGS_CURATED_COLUNAS),
-        )
-    except Exception:
-        return pd.DataFrame()
-    if df is None or df.empty:
-        return pd.DataFrame()
-    return _normalizar_indicadores_rankings(df)
-
-
-@st.cache_data(ttl=3600, show_spinner=False)
 def _get_rankings_source_df(
     principal_token: str,
     capital_token: str,
     alias_sig: tuple,
     source_kind: str,
     periodos_filter: Optional[tuple] = None,
-    curated_token: str = "",
 ) -> pd.DataFrame:
-    if source_kind == "curated":
-        df_curado = _get_rankings_curated_df(
-            curated_token,
-            alias_sig,
-            periodos_filter=periodos_filter,
-        )
-        if not df_curado.empty:
-            return df_curado
-        # Degradação explícita: sem a camada curada, cai no caminho antigo em vez
-        # de devolver vazio e derrubar a aba.
-        return _get_rankings_direct_df(
-            principal_token,
-            alias_sig,
-            periodos_filter=periodos_filter,
-        )
     if source_kind == "lucro_ytd_fast":
         return _get_rankings_lucro_ytd_df(
             principal_token,
@@ -15588,108 +15346,6 @@ def _get_rankings_source_df(
         alias_sig,
         periodos_filter=periodos_filter,
     )
-
-@st.cache_data(ttl=3600, show_spinner=False)
-def _get_rankings_derivadas_pivot(
-    derived_token: str,
-    periodos_filter: tuple,
-    metricas: tuple,
-) -> pd.DataFrame:
-    """Recorte largo do cache derivado, pronto para merge em Rankings.
-
-    Lê direto do parquet derivado (sem tocar em session_state) para poder ser
-    memoizado. A garantia de que o cache existe/está atualizado fica com
-    `ensure_derived_metrics_cache`, chamada antes por `_anexar_metricas_derivadas_rankings`.
-    """
-    _ = derived_token
-    metricas_lista = [str(m) for m in metricas if m]
-    if not metricas_lista:
-        return pd.DataFrame()
-
-    manager = get_cache_manager()
-    cache_derivado = manager.get_cache("derived_metrics") if manager else None
-    if cache_derivado is None:
-        return pd.DataFrame()
-
-    df_long = load_derived_metrics_slice(
-        cache_derivado,
-        periodos=list(periodos_filter) if periodos_filter else None,
-        metricas=metricas_lista,
-    )
-    if df_long is None or df_long.empty:
-        return pd.DataFrame()
-
-    df_out = pd.DataFrame(
-        {
-            "Instituição": df_long["Instituição"].astype(str),
-            "Período": df_long["Período"].astype(str),
-            "Métrica": df_long["Métrica"].astype(str),
-            "Valor": pd.to_numeric(df_long["Valor"], errors="coerce"),
-        }
-    )
-    # O bundle derivado é materializado com as mesmas chaves Instituição+Período
-    # da camada curada. O smoke check bloqueia publicação quando uma observação
-    # válida deixa de casar com critical_screens; repetir o fuzzy matching aqui
-    # custava segundos em toda invalidação do cache sem ampliar a cobertura.
-    df_out["Instituição"] = df_out["Instituição"].str.strip()
-    df_out = df_out.dropna(subset=["Instituição", "Período"])
-    if df_out.empty:
-        return pd.DataFrame()
-
-    df_pivot = df_out.pivot_table(
-        index=["Instituição", "Período"],
-        columns="Métrica",
-        values="Valor",
-        aggfunc="first",
-        observed=True,
-    ).reset_index()
-    df_pivot.columns.name = None
-    for metrica in metricas_lista:
-        if metrica not in df_pivot.columns:
-            df_pivot[metrica] = pd.NA
-    return df_pivot[["Instituição", "Período", *metricas_lista]]
-
-
-def _anexar_metricas_derivadas_rankings(
-    df_base: pd.DataFrame,
-    periodos_filter: Optional[tuple] = None,
-    metricas: Optional[Sequence[str]] = None,
-) -> pd.DataFrame:
-    """Anexa as colunas de métricas derivadas à base de Rankings.
-
-    Ausência do cache derivado não derruba a aba: as colunas entram vazias e os
-    indicadores são exibidos como N/D, sem substituir por zero.
-    """
-    if df_base is None or df_base.empty:
-        return df_base
-
-    metricas_lista = [str(m) for m in (metricas or sorted(RANKINGS_FAMILY_DERIVED)) if m]
-    df_out = df_base.copy()
-
-    def _vazias() -> pd.DataFrame:
-        for metrica in metricas_lista:
-            df_out[metrica] = pd.NA
-        return df_out
-
-    cache_derivado, erro, _ = ensure_derived_metrics_cache()
-    if cache_derivado is None or erro:
-        return _vazias()
-
-    df_pivot = _get_rankings_derivadas_pivot(
-        _cache_version_token("derived_metrics"),
-        tuple(str(p) for p in (periodos_filter or ()) if p),
-        tuple(metricas_lista),
-    )
-    if df_pivot.empty:
-        return _vazias()
-
-    colisoes = [m for m in metricas_lista if m in df_out.columns]
-    if colisoes:
-        df_out = df_out.drop(columns=colisoes)
-    df_out["Período"] = df_out["Período"].astype(str)
-    df_out = df_out.merge(df_pivot, on=["Instituição", "Período"], how="left")
-    return df_out
-
 
 def carregar_dados_capital():
     if 'dados_capital' in st.session_state and st.session_state['dados_capital']:
@@ -15765,10 +15421,10 @@ with col_header:
 
     # Título e subtítulos centralizados via HTML
     st.markdown("""
-        <div style="text-align: center; margin-top: -0.5rem;">
-            <p style="font-size: 3.6rem; font-weight: 700; color: #1f77b4; margin-bottom: 0.2rem;">toma.conta</p>
-            <p style="font-size: 1.6rem; color: #666; margin-bottom: 0.1rem;">análise de instituições financeiras brasileiras</p>
-            <p style="font-size: 0.9rem; color: #888; margin-bottom: 0.5rem;">por matheus prates, cfa</p>
+        <div class="header-brand-copy" style="text-align: center; margin-top: -0.5rem;">
+            <p class="header-brand-title" style="font-size: 3.6rem; font-weight: 700; color: #1f77b4; margin-bottom: 0.2rem;">toma.conta</p>
+            <p class="header-brand-subtitle" style="font-size: 1.6rem; color: #666; margin-bottom: 0.1rem;">análise de instituições financeiras brasileiras</p>
+            <p class="header-brand-author" style="font-size: 0.9rem; color: #888; margin-bottom: 0.5rem;">por matheus prates, cfa</p>
         </div>
     """, unsafe_allow_html=True)
 
@@ -16038,27 +15694,28 @@ else:
     st.session_state['nav_main'] = None
     st.session_state['nav_sec'] = menu_atual
 
-# Menu principal (análise)
-st.markdown('<div class="header-nav">', unsafe_allow_html=True)
-st.segmented_control(
-    "menu principal",
-    MENU_PRINCIPAL,
-    label_visibility="collapsed",
-    key="nav_main",
-    on_change=_on_main_menu_change
-)
-st.markdown('</div>', unsafe_allow_html=True)
+# Menus em um container identificável para que o feedback de navegação
+# não seja acionado por segmented controls internos das abas.
+with st.container(key="header_navigation"):
+    st.markdown('<div class="header-nav">', unsafe_allow_html=True)
+    st.segmented_control(
+        "menu principal",
+        MENU_PRINCIPAL,
+        label_visibility="collapsed",
+        key="nav_main",
+        on_change=_on_main_menu_change
+    )
+    st.markdown('</div>', unsafe_allow_html=True)
 
-# Menu secundário (utilitários)
-st.markdown('<div class="header-nav">', unsafe_allow_html=True)
-st.segmented_control(
-    "menu secundário",
-    MENU_SECUNDARIO,
-    label_visibility="collapsed",
-    key="nav_sec",
-    on_change=_on_sec_menu_change
-)
-st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown('<div class="header-nav">', unsafe_allow_html=True)
+    st.segmented_control(
+        "menu secundário",
+        MENU_SECUNDARIO,
+        label_visibility="collapsed",
+        key="nav_sec",
+        on_change=_on_sec_menu_change
+    )
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # Usar menu_atual (já atualizado pelos callbacks)
 menu = st.session_state['menu_atual']
@@ -16069,7 +15726,7 @@ st.markdown("---")
 
 CACHE_DEPENDENCIAS_POR_ABA = {
     "Snapshot": ["critical_screens"],
-    "Rankings": ["principal", "capital", "derived_metrics"],
+    "Rankings": ["principal", "capital"],
     "Peers (Tabela)": ["critical_screens"],
     "Evolução": ["principal", "passivo", "ativo", "capital"],
     "Scatter Plot": ["principal", "capital", "derived_metrics"],
@@ -16103,41 +15760,18 @@ def _nota_cache_dependencia(cache_nome: str) -> str:
 
 
 def _render_cache_status_por_aba(menu_nome: str) -> None:
+    if (
+        menu_nome == "Taxas de Juros por Produto"
+        and not st.session_state.get("modo_diagnostico")
+    ):
+        return
     caches = CACHE_DEPENDENCIAS_POR_ABA.get(menu_nome)
     if not caches:
         return
-    # Observabilidade: sem a cobertura real em disco é impossível distinguir
-    # "o dado não existe" de "o cache está degradado" sem acesso ao servidor.
-    linhas_cobertura = []
-    for cache_nome in caches:
-        try:
-            info = _cobertura_cache(cache_nome)
-        except Exception:
-            continue
-        if not info["existe"]:
-            linhas_cobertura.append({"Cache": cache_nome, "Cobertura": "ausente", "Mais recente": "—", "Atualizado em": "—"})
-            continue
-        linhas_cobertura.append({
-            "Cache": cache_nome,
-            "Cobertura": f"{info['total_periodos']} períodos",
-            "Mais recente": periodo_para_exibicao(info["periodo_mais_recente"]) if info["periodo_mais_recente"] else "—",
-            "Atualizado em": info["atualizado_em"],
-        })
-
-    rotulo = "Cachês necessários para esta aba"
-    referencia = next(
-        (linha["Mais recente"] for linha in linhas_cobertura if linha["Mais recente"] != "—"),
-        None,
-    )
-    if referencia:
-        rotulo = f"{rotulo} — base até {referencia}"
-
-    with st.expander(rotulo, expanded=False):
+    with st.expander("Cachês necessários para esta aba", expanded=False):
         st.markdown(
             "\n".join([f"- `{cache_nome}` — {_nota_cache_dependencia(cache_nome)}" for cache_nome in caches])
         )
-        if linhas_cobertura:
-            st.dataframe(pd.DataFrame(linhas_cobertura), width="stretch", hide_index=True)
         if any(c in {"derived_metrics", "derived_metrics_individual"} for c in caches):
             st.caption("Métricas derivadas não possuem extração direta no BCB.")
 
@@ -16159,12 +15793,6 @@ with st.sidebar:
             st.success("critical_screens materializado")
         else:
             st.warning("critical_screens ainda não materializado")
-
-        bundle_id_runtime, bundle_rows_runtime = _published_bundle_status_for_ui()
-        st.caption(f"**bundle carregado:** `{bundle_id_runtime}`")
-        if bundle_rows_runtime:
-            with st.expander("identidade dos artefatos", expanded=False):
-                st.dataframe(pd.DataFrame(bundle_rows_runtime), width="stretch", hide_index=True)
 
         # Informações detalhadas do cache
         st.markdown("**status do cache**")
@@ -16265,7 +15893,14 @@ timer_box_menu = None
 menu_timer_state_key = None
 menu_timer_signature = None
 t0_menu_timer = None
-if menu in MENU_PRINCIPAL and menu not in {"Snapshot", "Peers (Tabela)", "DRE (Ind. e Congl.)", "Evolução", "Rankings"}:
+if (
+    menu in MENU_PRINCIPAL
+    and menu not in {"Snapshot", "Peers (Tabela)", "DRE (Ind. e Congl.)", "Evolução", "Rankings"}
+    and (
+        menu != "Taxas de Juros por Produto"
+        or st.session_state.get("modo_diagnostico")
+    )
+):
     timer_box_menu = st.empty()
     menu_timer_state_key = f"timer_state_{menu}"
     menu_timer_signature = ("menu", menu)
@@ -17053,10 +16688,6 @@ elif menu == "Peers (Tabela)":
 
                     t_render = time.perf_counter()
                     st.markdown(html_tabela, unsafe_allow_html=True)
-                    st.caption(
-                        "Definições e fontes — use o ícone de informação de cada métrica. "
-                        "Os textos vêm do Glossário Central e preservam N/D quando a fonte ou o denominador não sustentam o cálculo."
-                    )
                     _elapsed = time.perf_counter() - t_render
                     _log_timing("7_dispatch_html_streamlit", _elapsed)
                     print(f"[PEERS_TIMING] 7_dispatch_html_streamlit: {_elapsed:.3f}s")
@@ -17218,12 +16849,12 @@ elif menu == "Peers (Tabela)":
 
                     with st.expander("Mini-glossário", expanded=False):
                         st.markdown(
-                            f"""
+                            """
                         <div style="font-size: 12px; color: #666; margin-top: 8px;">
                             <em>Balanço</em><br>
                             <strong>Ativo Total</strong> = Ativo Total do balanço principal (Rel. 1, IFData).<br>
                             <strong>Ativos Líquidos</strong> = Disponibilidades (a) + Aplicações Interfinanceiras de Liquidez (b) + Títulos e Valores Mobiliários (c), no relatório de Ativo (Rel. 2).<br>
-                            <strong>Carteira de Crédito*</strong> = {_metric_definition_html("Carteira de Crédito*", long=True)}<br>
+                            <strong>Carteira de Crédito*</strong> = Até 2024, Crédito Bruta + Arrendamento Bruta + Outros Créditos Líquidos de Provisão; em 2025+, soma do Valor Contábil Bruto (e1+f1+g1+h1) no Relatório de Ativo (Rel. 2). Se a regra canônica do período ficar incompleta, o fallback líquido e+f+g+h é explicitamente sinalizado.<br>
                             e = Operações de Crédito; f = Operações de Arrendamento Financeiro; g = Outras Operações com Características de Concessão de Crédito; h = Valores a Receber de Transações de Pagamentos - Usuários Finais (Pós-pago).<br>
                             <em>Nota:</em> Para 2000–2024, usamos Carteira de Crédito Bruta + Carteira de Arrendamento Bruta + Outros Créditos Líquidos de Provisão (Rel. 2). A partir de 2025, usamos Valor Contábil Bruto (e1+f1+g1+h1).<br>
                             <strong>Carteira de Crédito Classificada</strong> = Total da Carteira de Pessoa Física (Rel. 11) + Total da Carteira de Pessoa Jurídica (Rel. 13).<br>
@@ -17236,14 +16867,10 @@ elif menu == "Peers (Tabela)":
                             <strong>Perda Esperada</strong> = Soma das linhas Perda Esperada (e2), Hedge de Valor Justo (e3), Ajuste a Valor Justo (e4), Perda Esperada (f2), Hedge de Valor Justo (f3), Perda Esperada (g2), Hedge de Valor Justo (g3), Ajuste a Valor Justo (g4) e Perda Esperada (h2), no relatório de Ativo (Rel. 2).<br>
                             Base (e,f,g,h) refere-se a Operações de Crédito, Operações de Arrendamento Financeiro, Outras Operações com Características de Concessão de Crédito e Valores a Receber de Transações de Pagamentos - Usuários Finais (Pós-pago).<br>
                             <strong>Perda Esperada / Carteira de Crédito*</strong> = |Perda Esperada| ÷ Carteira de Crédito*.<br>
-                            <strong>Custo de Crédito (%)</strong> = {_metric_definition_html("Custo de Crédito (%)", long=True)}<br>
-                            <strong>Custo de Crédito / Receita de Crédito (%)</strong> = {_metric_definition_html("Custo de Crédito / Receita de Crédito (%)", long=True)}<br>
-                            <strong>Ativos Problemáticos / Carteira Total</strong> = {_metric_definition_html("Ativos Problemáticos / Carteira Total", long=True)}<br>
-                            <strong>Inadimplência / Carteira Total</strong> = {_metric_definition_html("Inadimplência / Carteira Total", long=True)}<br>
                             <strong>Ativos Estágio 2</strong> = Saldo da conta 3312000001 (Cadoc 4060) no mês/período selecionado, quando a fonte mensal publicar o estágio e houver match prudencial confiável.<br>
                             <strong>Ativos Estágio 3</strong> = Saldo da conta 3313000000 (Cadoc 4060) no mês/período selecionado, quando a fonte mensal publicar o estágio e houver match prudencial confiável.<br>
                             <strong>Ativos Estágio 3 / Carteira de Crédito</strong> = Ativos Estágio 3 (Cadoc 4060) ÷ Carteira de Crédito*.<br>
-                            <strong>Inadimplência</strong> = {_metric_definition_html("Inadimplência", long=True)}<br>
+                            <strong>Inadimplência</strong> = Inadimplência publicada no Rel. 16 (Carteira 4.966).<br>
                             <strong>Inadimplência / Carteira de Crédito</strong> = Inadimplência (Rel. 16) ÷ Carteira de Crédito*.<br>
                             <strong>Perda Esperada / Estágio 3</strong> = |Perda Esperada| (Rel. 2) ÷ Ativos Estágio 3 (Cadoc 4060) do mesmo período, apenas quando numerador e denominador estiverem disponíveis.<br>
                             <strong>Perda Esperada / Est2+3</strong> = |Perda Esperada| (Rel. 2) ÷ (Ativos Estágio 2 + Ativos Estágio 3) do mesmo período, apenas com cobertura prudencial válida.<br>
@@ -17252,11 +16879,11 @@ elif menu == "Peers (Tabela)":
                             <strong>Ativo Total / PL</strong> = Ativo Total ÷ Patrimônio Líquido.<br>
                             <strong>Carteira de Crédito* / PL</strong> = Carteira de Crédito* (Rel. 2) ÷ Patrimônio Líquido (Rel. 1).<br>
                             <strong>Índice de Capital Principal (CET1)</strong> = Capital Principal ÷ RWA Total, extraído do relatório de Informações de Capital (Rel. 5).<br>
-                            <strong>Índice de Basileia Total</strong> = {_metric_definition_html("Índice de Basileia Total (%)", long=True)}<br>
+                            <strong>Índice de Basileia Total</strong> = (Capital Principal + Capital Complementar + Capital Nível II) ÷ RWA Total (Rel. 5). Equivale à soma CET1 + AT1 + T2.<br>
                             <br>
                             <em>Desempenho</em><br>
                             <strong>Lucro Líquido Acumulado</strong> = Lucro Líquido acumulado no ano (YTD) até o fim do período (Rel. 1).<br>
-                            <strong>ROE Ac. Anualizado (%)</strong> = {_metric_definition_html("ROE Ac. Anualizado (%)", long=True)}<br>
+                            <strong>ROE Ac. Anualizado (%)</strong> = (LL YTD × fator de anualização) ÷ PL Médio, onde PL Médio = (PL no período + PL em Dez do ano anterior) / 2. O LL YTD de Set é obtido somando Jun (Jan-Jun) ao Set (Jul-Sep). Fator: Mar=4, Jun=2, Set=12/9, Dez=1. Se PL médio ≤ 0 ou dado faltante: N/A.<br>
                             <br>
                             <strong>Δ (▲/▼)</strong> = Variação vs. mesmo período do ano anterior.
                         </div>
@@ -18784,14 +18411,6 @@ elif menu == "Scatter Plot":
         )
 
         st.plotly_chart(fig_scatter, width='stretch')
-        _scatter_footers = [
-            _ifdata_metric_registry.get_metric_footer(label)
-            for label in (var_x_ui, var_y_ui, var_size_ui)
-            if label != "Tamanho Fixo"
-        ]
-        _scatter_footers = [footer for footer in _scatter_footers if footer]
-        if _scatter_footers:
-            st.caption("Definições e fontes — " + " | ".join(_scatter_footers))
         scatter_diag_tempos["total_ate_t1_s"] = time.perf_counter() - t0_scatter_total
 
         if st.session_state.get("modo_diagnostico"):
@@ -19144,17 +18763,6 @@ elif menu == "Scatter Plot":
 
                 st.plotly_chart(fig_scatter_n2, width='stretch')
 
-                _scatter_n2_footers = [
-                    _ifdata_metric_registry.get_metric_footer(label)
-                    for label in (
-                        scatter_internal_to_display.get(var_x_n2, var_x_n2),
-                        scatter_internal_to_display.get(var_y_n2, var_y_n2),
-                    )
-                ]
-                _scatter_n2_footers = [footer for footer in _scatter_n2_footers if footer]
-                if _scatter_n2_footers:
-                    st.caption("Definições e fontes — " + " | ".join(_scatter_n2_footers))
-
                 # Legenda explicativa
                 st.caption("○ Círculo vazio = período inicial | ● Círculo cheio = período subsequente | → Seta indica direção da movimentação")
 
@@ -19209,9 +18817,6 @@ elif menu == "Rankings":
         indicadores_config = {
             'Ativo Total': ['Ativo Total'],
             'Carteira de Crédito*': ['Carteira de Crédito*', 'Carteira de Crédito Bruta', 'Carteira de Crédito'],
-            METRIC_CUSTO_CREDITO: [METRIC_CUSTO_CREDITO],
-            METRIC_CUSTO_CREDITO_RECEITA: [METRIC_CUSTO_CREDITO_RECEITA],
-            METRIC_ATIVOS_PROBLEMATICOS_CARTEIRA: [METRIC_ATIVOS_PROBLEMATICOS_CARTEIRA],
             'Core Funding*': ['Core Funding*', 'Core Funding', 'Captações'],
             'Patrimônio Líquido': ['Patrimônio Líquido'],
             'Índice de Capital Principal (CET1)': ['Índice de Capital Principal (CET1)', 'Índice de Capital Principal'],
@@ -19234,9 +18839,6 @@ elif menu == "Rankings":
             ordem_prioritaria = [
                 'Ativo Total',
                 'Carteira de Crédito*',
-                METRIC_CUSTO_CREDITO,
-                METRIC_CUSTO_CREDITO_RECEITA,
-                METRIC_ATIVOS_PROBLEMATICOS_CARTEIRA,
                 'Core Funding*',
                 'Patrimônio Líquido',
                 'Índice de Capital Principal (CET1)',
@@ -19254,33 +18856,16 @@ elif menu == "Rankings":
             # Mini-glossário para popovers inline nos Rankings
             _RANKINGS_GLOSSARIO = {
                 'Ativo Total': 'Padrão COSIF. Soma de todos os ativos do conglomerado prudencial.',
-                'Carteira de Crédito*': _ifdata_metric_registry.get_metric_ui_text(
-                    'Carteira de Crédito*', long=True, include_source=True
-                ),
-                METRIC_CUSTO_CREDITO: _ifdata_metric_registry.get_metric_ui_text(
-                    METRIC_CUSTO_CREDITO, long=True, include_source=True
-                ),
-                METRIC_CUSTO_CREDITO_RECEITA: _ifdata_metric_registry.get_metric_ui_text(
-                    METRIC_CUSTO_CREDITO_RECEITA, long=True, include_source=True
-                ),
-                METRIC_ATIVOS_PROBLEMATICOS_CARTEIRA: _ifdata_metric_registry.get_metric_ui_text(
-                    METRIC_ATIVOS_PROBLEMATICOS_CARTEIRA, long=True, include_source=True
-                ),
+                'Carteira de Crédito*': 'Até 2024: Crédito Bruta + Arrendamento Bruta + Outros Créditos Líquidos de Provisão. 2025+: Valor Contábil Bruto (e1+f1+g1+h1) no Rel. 2; fallback líquido e+f+g+h é marcado explicitamente quando necessário.',
                 'Core Funding*': 'Até 2024: Captações (e). 2025+: Captações (e) + Instrumentos de Dívida Elegíveis a Capital (h) no Rel. 3, sem imputar zero para componente ausente.',
                 'Patrimônio Líquido': 'Padrão COSIF.',
                 'Índice de Capital Principal (CET1)': 'Capital Principal ÷ RWA Total. Indicador de solidez patrimonial regulatório (mínimo exigido: 4,5% + ACPs).',
                 'Índice de Capital T1 (%)': 'Patrimônio de Referência Nível I ÷ RWA Total. Equivale a (CET1 + AT1) ÷ RWA Total.',
-                'Índice de Basileia Total (%)': _ifdata_metric_registry.get_metric_ui_text(
-                    'Índice de Basileia Total (%)', long=True, include_source=True
-                ),
+                'Índice de Basileia Total (%)': 'Patrimônio de Referência ÷ RWA Total. Índice global de adequação de capital.',
                 'Lucro Líquido Acumulado YTD': 'Lucro líquido acumulado no ano-calendário até o final do período (Jan–Set, Jan–Jun etc.).',
                 'Lucro Líquido Trimestral': 'Lucro líquido do trimestre de referência (isolado).',
-                'ROE Trim. Anualizado (%)': _ifdata_metric_registry.get_metric_ui_text(
-                    'ROE Trim. Anualizado (%)', long=True, include_source=True
-                ),
-                'ROE Ac. Anualizado (%)': _ifdata_metric_registry.get_metric_ui_text(
-                    'ROE Ac. Anualizado (%)', long=True, include_source=True
-                ),
+                'ROE Trim. Anualizado (%)': 'ROE trimestral anualizado: (LL Trimestral × 4) ÷ PL Médio × 100. PL Médio = (PL período + PL Dez anterior) / 2.',
+                'ROE Ac. Anualizado (%)': '(LL YTD × fator de anualização) ÷ PL Médio.\nPL Médio = (PL período + PL Dez anterior) / 2.\nFatores: Mar=4×, Jun=2×, Set≈1,33×, Dez=1×.',
             }
 
             col_periodo, col_indicador = st.columns([1.2, 1.9])
@@ -19439,39 +19024,9 @@ elif menu == "Rankings":
                 _alias_signature_cache_key(),
                 rankings_source_request["source_kind"],
                 periodos_filter=_periodos_rankings_filter,
-                curated_token=_cache_version_token("critical_screens"),
             )
             print(_perf_log(rankings_source_request["perf_label"]))
-            if rankings_source_request.get("needs_derived"):
-                _perf_start("rankings_derived_merge")
-                df = _anexar_metricas_derivadas_rankings(
-                    df,
-                    _periodos_rankings_filter,
-                    rankings_source_request.get("metricas_derivadas"),
-                )
-                print(_perf_log("rankings_derived_merge"))
             print(_perf_log("rankings_base_df"))
-
-            # Contrato de vazio: a fonte pode devolver DataFrame sem schema quando o
-            # cache não carrega ou quando o período pedido não existe no dataset. Sem
-            # esta guarda a aba quebrava com KeyError: 'Período'.
-            if df is None or df.empty or "Período" not in getattr(df, "columns", []):
-                _periodos_pedidos = ", ".join(
-                    periodo_para_exibicao(p) for p in (_periodos_rankings_filter or ())
-                ) or "—"
-                st.error(
-                    f"não foi possível montar a base de **{indicador_label}** para {_periodos_pedidos}."
-                )
-                st.caption(
-                    "O cache `principal` não retornou dados para esse recorte. "
-                    "Verifique em **Atualizar Base** se o cache está íntegro "
-                    "(≈62 mil registros e 45 períodos) e reprocesse se necessário."
-                )
-                _rankings_diag = _rankings_diagnostico_fontes(_periodos_rankings_filter)
-                if _rankings_diag:
-                    with st.expander("Diagnóstico das fontes", expanded=False):
-                        st.dataframe(_rankings_diag, width="stretch", hide_index=True)
-                st.stop()
 
             # Re-resolve indicator column after enrichment (handles column name variants)
             for label, colunas in indicadores_config.items():
@@ -20584,9 +20139,6 @@ elif menu == "Rankings":
                                 _RANKINGS_GLOSSARIO,
                             )
                             _renderizar_memoria_roe_rankings(df, bancos_selecionados, periodo_resumo, indicador_label)
-                            _ranking_footer = _ifdata_metric_registry.get_metric_footer(indicador_label)
-                            if _ranking_footer:
-                                st.caption(f"Definição e fonte — {_ranking_footer}")
                         else:
                             df_selecionado = df_multiperiodo.copy()
                             media_display = calcular_media_ponderada(df_selecionado, 'valor_display', coluna_peso_resumo)
@@ -20823,9 +20375,6 @@ elif menu == "Rankings":
                                 _RANKINGS_GLOSSARIO,
                             )
                             _renderizar_memoria_roe_rankings(df, bancos_selecionados, periodo_resumo, indicador_label)
-                            _ranking_footer = _ifdata_metric_registry.get_metric_footer(indicador_label)
-                            if _ranking_footer:
-                                st.caption(f"Definição e fonte — {_ranking_footer}")
 
                             st.markdown(
                                 "**Nota metodológica:**\n\n"
@@ -23953,24 +23502,16 @@ elif menu == "Carteira 4.966":
                 periodos_ordenados = ordenar_periodos(periodos_selecionados, reverso=False)
                 df_ativo_inst = pd.DataFrame()
                 ativo_load_error = ""
-                ativo_load_warning = ""
 
                 with st.spinner("Compondo o modelo 4966..."):
                     try:
-                        # O Rel. 2 é fixado ao digest do mesmo manifesto da Carteira 4.966.
-                        # A canonicalização vem antes do filtro institucional para preservar
-                        # aliases históricos sem CodInst.
-                        df_ativo_periodos, ativo_cache_status = load_carteira_4966_ativo_periods(
-                            carteira_4966_release_token,
-                            carteira_4966_manifest_payload,
+                        # O recorte inicial usa somente períodos. A canonicalização vem antes
+                        # do filtro institucional para preservar aliases históricos sem CodInst.
+                        df_ativo_periodos = _carregar_cache_relatorio_slice(
+                            "ativo",
+                            _cache_version_token("ativo"),
                             tuple(periodos_ordenados),
                         )
-                        if not ativo_cache_status.get("valid"):
-                            ativo_load_error = str(
-                                ativo_cache_status.get("error")
-                                or "fonte de provisão indisponível"
-                            )
-                        ativo_load_warning = str(ativo_cache_status.get("warning") or "")
                         if df_ativo_periodos is not None and not df_ativo_periodos.empty:
                             df_ativo_canonico = canonicalize_institution_history(
                                 df_ativo_periodos,
@@ -24019,11 +23560,7 @@ elif menu == "Carteira 4.966":
                     "Cross-check automático do PDD: atenção acima de 55% da Carteira Total; "
                     "dado sinalizado como não confiável quando supera a carteira além da tolerância "
                     "equivalente ao maior entre R$ 1 e 0,1% da Carteira Total, quando a carteira "
-                    "é negativa ou quando está zerada com PDD positiva. Células com * exigem "
-                    "validação por fonte incompleta, sinal atípico, denominador inválido ou regra "
-                    "de sanidade acionada; o valor permanece visível sempre que puder ser calculado. "
-                    "A Inadimplência também é sinalizada quando ausente, negativa ou superior à "
-                    "Carteira Total do mesmo período."
+                    "é negativa ou quando está zerada com PDD positiva."
                 )
 
                 critical_quality_issues = [
@@ -24038,7 +23575,7 @@ elif menu == "Carteira 4.966":
                 ]
                 if critical_quality_issues:
                     st.error(
-                        "**Alertas de confiabilidade do modelo 4966 (*)**\n\n"
+                        "**Alerta de confiabilidade em PDD / Carteira Total**\n\n"
                         + "\n".join(
                             "- "
                             + carteira_4966_quality_issue_message(issue).replace("$", r"\$")
@@ -24049,7 +23586,7 @@ elif menu == "Carteira 4.966":
                     )
                 if warning_quality_issues:
                     st.warning(
-                        "**Dados sinalizados para validação (*)**\n\n"
+                        "**PDD / Carteira Total acima do limiar de atenção**\n\n"
                         + "\n".join(
                             "- "
                             + carteira_4966_quality_issue_message(issue).replace("$", r"\$")
@@ -24071,8 +23608,7 @@ elif menu == "Carteira 4.966":
                     missing_labels = ", ".join(modelo_4966.period_labels[period] for period in missing_delinquency)
                     st.caption(
                         f"N/D em vencidos acima de 90 dias para {missing_labels}: "
-                        "a coluna Inadimplência não possui valor publicado na base do Relatório 16 "
-                        "para a instituição nesses períodos."
+                        "a coluna Inadimplência não foi publicada no cache curado desses períodos."
                     )
 
                 if modelo_4966.missing_provision_periods:
@@ -24088,11 +23624,6 @@ elif menu == "Carteira 4.966":
                     st.warning(
                         "A carteira foi carregada, mas a fonte de provisão está temporariamente indisponível. "
                         "As linhas correspondentes permanecem como N/D."
-                    )
-                elif ativo_load_warning:
-                    st.warning(
-                        "A Perda Esperada foi carregada sem confirmação de integridade pelo manifesto do "
-                        "release. Os valores permanecem visíveis, mas devem ser validados na fonte."
                     )
 
                 exterior_col = _resolver_coluna_peers(df_inst, ["Total Exterior"])
@@ -24110,7 +23641,7 @@ elif menu == "Carteira 4.966":
                 with st.expander("Dados para auditoria"):
                     quality_dataframe = carteira_4966_quality_dataframe(modelo_4966)
                     if not quality_dataframe.empty:
-                        st.markdown("**Alertas de qualidade do modelo 4966**")
+                        st.markdown("**Alertas do cross-check PDD / Carteira Total**")
                         st.dataframe(
                             quality_dataframe,
                             hide_index=True,
@@ -24148,13 +23679,43 @@ elif menu == "Carteira 4.966":
                     )
 
                 with col_btn2:
+                    buffer_raw = BytesIO()
+                    with pd.ExcelWriter(buffer_raw, engine="openpyxl") as writer:
+                        quality_dataframe = carteira_4966_quality_dataframe(modelo_4966)
+                        if not quality_dataframe.empty:
+                            quality_dataframe.to_excel(
+                                writer,
+                                index=False,
+                                sheet_name="Alertas qualidade",
+                            )
+                        carteira_4966_audit_dataframe(modelo_4966).to_excel(
+                            writer,
+                            index=False,
+                            sheet_name="Modelo calculado",
+                        )
+                        df_inst[df_inst[col_periodo].isin(periodos_ordenados)].to_excel(
+                            writer,
+                            index=False,
+                            sheet_name="Rel16 Carteira",
+                        )
+                        if df_ativo_inst is not None and not df_ativo_inst.empty:
+                            df_ativo_inst.to_excel(
+                                writer,
+                                index=False,
+                                sheet_name="Rel2 Ativo",
+                            )
+                        else:
+                            pd.DataFrame(
+                                {
+                                    "Status": [
+                                        "Dados de provisão indisponíveis para a instituição e os períodos selecionados."
+                                    ]
+                                }
+                            ).to_excel(writer, index=False, sheet_name="Rel2 Ativo")
+                    buffer_raw.seek(0)
                     st.download_button(
                         label="Download Dados Puros",
-                        data=build_carteira_4966_raw_excel(
-                            modelo_4966,
-                            df_inst[df_inst[col_periodo].isin(periodos_ordenados)],
-                            df_ativo_inst,
-                        ),
+                        data=buffer_raw.getvalue(),
                         file_name=(
                             f"Carteira_4966_Dados_Puros_{instituicao_nome}_"
                             f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
@@ -24201,16 +23762,159 @@ elif menu == "Taxas de Juros por Produto":
     # Evita baixar o universo inteiro antes da escolha de segmento/produto.
     # =========================================================================
     SEGMENTOS_TAXAS_BETA = ["PESSOA FÍSICA", "PESSOA JURÍDICA"]
+    TIPOS_TAXA_BETA = ["Taxa Mensal (%)", "Taxa Anual (%)"]
+    VISUALIZACOES_TAXAS_BETA = ["Linha comparativa", "Painéis por banco", "Ranking atual"]
+    # Equivalente hexadecimal da paleta qualitativa Safe do Plotly.
+    # O formato hex também é aceito pelo color picker do Streamlit.
     TAXAS_BETA_PALETTE = [
-        "#0B3954", "#D1495B", "#2A9D8F", "#F4A261", "#5C4D7D",
-        "#0077B6", "#6D597A", "#1D3557", "#3A7D44", "#C97A00",
-        "#A4243B", "#0081A7",
+        "#88CCEE", "#CC6677", "#DDCC77", "#117733", "#332288", "#AA4499",
+        "#44AA99", "#999933", "#882255", "#661100", "#888888", "#1F77B4",
     ]
+    TAXAS_BETA_PLOTLY_CONFIG = {
+        "displayModeBar": "hover",
+        "displaylogo": False,
+        "responsive": True,
+    }
+
+    st.markdown(
+        """
+        <style>
+            /* Shell compacto somente nesta aba. A marca completa permanece na sidebar. */
+            .header-logo { display: none !important; }
+            .header-brand-copy { margin-top: 0 !important; }
+            .header-brand-title {
+                margin: 0 0 0.35rem !important;
+                font-size: 1.65rem !important;
+                font-weight: 600 !important;
+                line-height: 1.1 !important;
+            }
+            .header-brand-subtitle,
+            .header-brand-author { display: none !important; }
+
+            .tj-page-header { margin: 0.15rem 0 0.95rem; }
+            .tj-page-title {
+                margin: 0 0 0.25rem !important;
+                color: #1f2937 !important;
+                font-size: 1.7rem !important;
+                font-weight: 600 !important;
+                line-height: 1.2 !important;
+            }
+            .tj-page-subtitle {
+                margin: 0 !important;
+                color: #526071 !important;
+                font-size: 0.95rem !important;
+                font-weight: 400 !important;
+            }
+
+            .st-key-tj_product_rates_filters {
+                margin-bottom: 0.85rem;
+                border-color: #e2e8f0 !important;
+                border-radius: 12px !important;
+                background: #f8fafc;
+            }
+            .st-key-tj_product_rates_filters [data-testid="stVerticalBlock"] {
+                gap: 0.7rem !important;
+            }
+            .st-key-tj_product_rates_controls [data-testid="stVerticalBlock"] {
+                gap: 0.7rem !important;
+            }
+
+            .tj-base-row {
+                display: flex;
+                align-items: center;
+                flex-wrap: wrap;
+                gap: 0.35rem 1.1rem;
+                padding: 0.7rem 0;
+                border-top: 1px solid #e2e8f0;
+                border-bottom: 1px solid #e2e8f0;
+                color: #526071;
+                font-size: 0.84rem;
+            }
+            .tj-base-row,
+            .tj-base-row span,
+            .tj-base-row strong { font-weight: 400 !important; }
+            .tj-base-row strong {
+                color: #253142;
+                font-weight: 600 !important;
+            }
+
+            .tj-kpi-strip {
+                display: grid;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                margin: 0.8rem 0 1rem;
+                border-top: 1px solid #dbe3ec;
+                border-bottom: 1px solid #dbe3ec;
+            }
+            .tj-kpi-cell { padding: 0.8rem 0.9rem 0.85rem; }
+            .tj-kpi-cell + .tj-kpi-cell { border-left: 1px solid #dbe3ec; }
+            .tj-kpi-label {
+                margin-bottom: 0.15rem;
+                color: #64748b !important;
+                font-size: 0.76rem !important;
+                font-weight: 500 !important;
+            }
+            .tj-kpi-value {
+                color: #1f2937 !important;
+                font-size: 1.7rem !important;
+                font-variant-numeric: tabular-nums;
+                font-weight: 600 !important;
+                line-height: 1.1 !important;
+            }
+            .tj-kpi-value--low { color: #147d64 !important; }
+            .tj-kpi-value--high { color: #a63d40 !important; }
+            .tj-kpi-bank {
+                margin-top: 0.28rem;
+                overflow: hidden;
+                color: #334155 !important;
+                font-size: 0.86rem !important;
+                font-weight: 500 !important;
+                line-height: 1.25 !important;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+
+            .tj-chart-header { margin: 1rem 0 0.25rem; }
+            .tj-chart-title {
+                margin: 0 !important;
+                color: #1f2937 !important;
+                font-size: 1.08rem !important;
+                font-weight: 600 !important;
+                line-height: 1.3 !important;
+            }
+            .tj-chart-meta {
+                margin: 0.18rem 0 0 !important;
+                color: #64748b !important;
+                font-size: 0.82rem !important;
+                font-weight: 400 !important;
+            }
+
+            @media (max-width: 767px) {
+                .tj-page-title { font-size: 1.45rem !important; }
+                .tj-base-row { align-items: flex-start; flex-direction: column; }
+                .tj-kpi-strip { grid-template-columns: 1fr; }
+                .tj-kpi-cell + .tj-kpi-cell {
+                    border-top: 1px solid #dbe3ec;
+                    border-left: 0;
+                }
+                .tj-kpi-bank { white-space: normal; }
+            }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
     def _formatar_modalidade_beta(nome: str) -> str:
         if not nome:
             return nome
         return formatar_nome_modalidade(nome)
+
+    def _normalizar_escolha_taxas_beta(key: str, options: List[str]) -> None:
+        if st.session_state.get(key) not in options:
+            st.session_state[key] = options[0]
+
+    def _formatar_data_taxas_beta(valor) -> str:
+        data = pd.to_datetime(valor, errors="coerce")
+        return data.strftime("%d/%m/%Y") if pd.notna(data) else "-"
 
     def _reduzir_taxas_beta_semanal(df: pd.DataFrame) -> pd.DataFrame:
         if df.empty or 'Fim Período' not in df.columns:
@@ -24252,7 +23956,7 @@ elif menu == "Taxas de Juros por Produto":
             st.session_state[taxas_beta_color_state_key] = {}
         taxas_beta_color_map = st.session_state[taxas_beta_color_state_key]
 
-        with st.expander("🎨 Personalizar cores", expanded=False):
+        with st.container(key="tj_product_rates_colors", gap="small"):
             colunas_por_linha_beta = 4
             bancos_beta_enumerados = list(enumerate(bancos))
             for inicio_linha in range(0, len(bancos_beta_enumerados), colunas_por_linha_beta):
@@ -24273,41 +23977,114 @@ elif menu == "Taxas de Juros por Produto":
 
         return taxas_beta_color_map
 
-    def _render_taxas_beta_kpi_card(title: str, banco: str, valor: str, *, accent_color: str) -> None:
+    def _render_taxas_beta_kpi_strip(
+        *,
+        menor_banco: str,
+        menor_valor: str,
+        maior_banco: str,
+        maior_valor: str,
+    ) -> None:
         st.markdown(
             f"""
-            <div style="
-                padding: 0.70rem 0.85rem;
-                border: 1px solid rgba(15, 23, 42, 0.10);
-                border-radius: 14px;
-                background: #ffffff;
-                min-height: 92px;
-            ">
-                <div style="
-                    font-size: 0.72rem;
-                    font-weight: 600;
-                    text-transform: uppercase;
-                    letter-spacing: 0.04em;
-                    color: #64748b;
-                    margin-bottom: 0.20rem;
-                ">{_html_mod.escape(title)}</div>
-                <div style="
-                    font-size: 0.90rem;
-                    font-weight: 600;
-                    color: #0f172a;
-                    line-height: 1.25;
-                    margin-bottom: 0.35rem;
-                ">{_html_mod.escape(banco)}</div>
-                <div style="
-                    font-size: 1.20rem;
-                    font-weight: 700;
-                    color: {accent_color};
-                    line-height: 1.0;
-                ">{_html_mod.escape(valor)}</div>
+            <div class="tj-kpi-strip">
+                <div class="tj-kpi-cell">
+                    <div class="tj-kpi-label">Menor taxa entre as selecionadas</div>
+                    <div class="tj-kpi-value tj-kpi-value--low">{_html_mod.escape(menor_valor)}</div>
+                    <div class="tj-kpi-bank" title="{_html_mod.escape(menor_banco)}">{_html_mod.escape(menor_banco)}</div>
+                </div>
+                <div class="tj-kpi-cell">
+                    <div class="tj-kpi-label">Maior taxa entre as selecionadas</div>
+                    <div class="tj-kpi-value tj-kpi-value--high">{_html_mod.escape(maior_valor)}</div>
+                    <div class="tj-kpi-bank" title="{_html_mod.escape(maior_banco)}">{_html_mod.escape(maior_banco)}</div>
+                </div>
             </div>
             """,
             unsafe_allow_html=True,
         )
+
+    def _render_taxas_beta_chart_header(title: str, meta: str = "") -> None:
+        meta_html = (
+            f'<p class="tj-chart-meta">{_html_mod.escape(meta)}</p>'
+            if meta
+            else ""
+        )
+        st.markdown(
+            f"""
+            <div class="tj-chart-header">
+                <h2 class="tj-chart-title">{_html_mod.escape(title)}</h2>
+                {meta_html}
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    def _estilizar_grafico_taxas_beta(
+        fig,
+        *,
+        height: int,
+        xaxis_title: str = "",
+        yaxis_title: str = "",
+        showlegend: bool = True,
+        legend_y: float = -0.28,
+        margin: Optional[dict] = None,
+        grid_axis: str = "y",
+    ):
+        margin = margin or {"b": 92, "r": 68, "t": 18, "l": 58}
+        legend = {
+            "orientation": "h",
+            "yanchor": "top",
+            "y": legend_y,
+            "xanchor": "center",
+            "x": 0.5,
+            "maxheight": 96,
+            "font": {"size": 10, "family": "IBM Plex Sans, sans-serif"},
+            "title": {"text": ""},
+        }
+        fig.update_layout(
+            height=height,
+            title=None,
+            xaxis_title=xaxis_title,
+            yaxis_title=yaxis_title,
+            showlegend=showlegend,
+            legend=legend if showlegend else None,
+            margin=margin,
+            hovermode="x unified" if grid_axis == "y" else "closest",
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            font={
+                "family": "IBM Plex Sans, sans-serif",
+                "size": 12,
+                "color": "#334155",
+            },
+            hoverlabel={
+                "bgcolor": "#f8fafc",
+                "bordercolor": "#cbd5e1",
+                "font": {
+                    "family": "IBM Plex Sans, sans-serif",
+                    "size": 12,
+                    "color": "#1f2937",
+                },
+            },
+        )
+        fig.update_xaxes(
+            showgrid=grid_axis == "x",
+            gridcolor="#e2e8f0",
+            gridwidth=1,
+            showline=False,
+            zeroline=False,
+            tickfont={"size": 11, "color": "#64748b"},
+            title_font={"size": 12, "color": "#475569"},
+        )
+        fig.update_yaxes(
+            showgrid=grid_axis == "y",
+            gridcolor="#e2e8f0",
+            gridwidth=1,
+            showline=False,
+            zeroline=False,
+            tickfont={"size": 11, "color": "#64748b"},
+            title_font={"size": 12, "color": "#475569"},
+        )
+        return fig
 
     def _sanitizar_nome_aba_excel_taxas_beta(nome: str, fallback: str = "dados") -> str:
         nome_limpo = re.sub(r"[\[\]:*?/\\]", "", str(nome or "").strip())
@@ -24600,6 +24377,10 @@ elif menu == "Taxas de Juros por Produto":
         if latest.empty:
             return
 
+        if len(latest) > 6:
+            latest = pd.concat([latest.head(1), latest.tail(1)], ignore_index=True)
+            latest = latest.sort_values('_y_num', ascending=False).reset_index(drop=True)
+
         y_range = latest['_y_num'].max() - latest['_y_num'].min() if len(latest) > 1 else 1.0
         min_gap = max(y_range * 0.05, 0.04)
         target_y = []
@@ -24627,9 +24408,9 @@ elif menu == "Taxas de Juros por Produto":
                 ayref='y',
                 arrowcolor=color,
                 arrowwidth=1,
-                bgcolor="rgba(255,255,255,0.82)",
+                bgcolor="rgba(248,250,252,0.92)",
                 borderpad=2,
-                font=dict(size=10, color=color, family="Arial, sans-serif"),
+                font=dict(size=10, color=color, family="IBM Plex Sans, sans-serif"),
             )
 
     @st.cache_data(ttl=1800, show_spinner="Consultando catálogo recente no BCB...")
@@ -24929,67 +24710,39 @@ elif menu == "Taxas de Juros por Produto":
             "source": "live_slice",
         }
 
-    st.markdown("### Taxas de Juros por Produto")
-    st.caption(
-        "Usa o cache histórico consolidado quando disponível; caso contrário, cai para consultas progressivas no servidor do BCB."
+    st.markdown(
+        """
+        <div class="tj-page-header">
+            <h1 class="tj-page-title">Taxas de juros por produto</h1>
+            <p class="tj-page-subtitle">Compare taxas mensais e anuais publicadas pelo Banco Central.</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
 
-    with st.expander("Mini-glossário", expanded=False):
-        st.dataframe(
-            pd.DataFrame(
-                [
-                    {
-                        "Campo": "Fonte preferida",
-                        "Descrição": "Cache histórico consolidado de taxas de juros; na ausência dele, a aba usa fallback leve com consultas progressivas ao BCB.",
-                    },
-                    {
-                        "Campo": "Taxa Mensal (%) / Taxa Anual (%)",
-                        "Descrição": "Valores publicados pelo BCB para cada instituição, produto e janela oficial de divulgação.",
-                    },
-                    {
-                        "Campo": "Visão mensal",
-                        "Descrição": "Mantém a última observação disponível de cada mês por banco e produto para reduzir ruído e volume.",
-                    },
-                    {
-                        "Campo": "Série diária · últimos 3 meses",
-                        "Descrição": "Recorte diário ancorado na última data disponível da base, preservando lacunas reais do calendário oficial.",
-                    },
-                    {
-                        "Campo": "Posição",
-                        "Descrição": "Ordem publicada pelo BCB na data mais recente do produto selecionado; usada apenas como ranking de referência.",
-                    },
-                    {
-                        "Campo": "Exportações",
-                        "Descrição": "O ranking e a série diária saem em Excel estruturado para reprodução externa do gráfico e da tabela.",
-                    },
-                ]
-            ),
-            hide_index=True,
-            use_container_width=True,
-        )
-        st.caption("O desenho da aba prioriza cache histórico e filtros locais para manter o consumo de memória controlado.")
-
-    col_cfg1, col_cfg2, col_cfg3 = st.columns([1.1, 1.2, 1.1])
-    with col_cfg1:
-        segmento_beta = st.selectbox(
-            "Segmento",
-            options=SEGMENTOS_TAXAS_BETA,
-            key="tj_beta_segmento",
-        )
-    with col_cfg2:
-        tipo_taxa_beta = st.radio(
-            "Taxa",
-            ["Taxa Mensal (%)", "Taxa Anual (%)"],
-            horizontal=True,
-            key="tj_beta_tipo_taxa",
-        )
-    with col_cfg3:
-        carregar_detalhe_beta = st.toggle(
-            "Detalhe recente (60 dias)",
-            value=False,
-            key="tj_beta_toggle_recente",
-            help="Busca um recorte mais granular apenas do produto já selecionado.",
-        )
+    filtros_taxas_beta = st.container(
+        key="tj_product_rates_filters",
+        border=True,
+        gap="small",
+    )
+    with filtros_taxas_beta:
+        col_cfg1, col_cfg2 = st.columns([1.0, 1.7], gap="medium")
+        with col_cfg1:
+            segmento_beta = st.selectbox(
+                "Segmento",
+                options=SEGMENTOS_TAXAS_BETA,
+                key="tj_beta_segmento",
+            )
+        with col_cfg2:
+            _normalizar_escolha_taxas_beta("tj_beta_tipo_taxa", TIPOS_TAXA_BETA)
+            tipo_taxa_beta = st.segmented_control(
+                "Taxa",
+                TIPOS_TAXA_BETA,
+                key="tj_beta_tipo_taxa",
+                on_change=_normalizar_escolha_taxas_beta,
+                args=("tj_beta_tipo_taxa", TIPOS_TAXA_BETA),
+                width="stretch",
+            )
 
     df_param_hist_beta, df_datas_hist_beta, meta_catalogo_hist_beta = _carregar_taxas_beta_catalogo_historico()
     usa_cache_historico_beta = bool(meta_catalogo_hist_beta.get("available"))
@@ -25040,30 +24793,23 @@ elif menu == "Taxas de Juros por Produto":
             if 'meta_catalogo_beta' in locals() and meta_catalogo_beta.get("error"):
                 st.caption(f"Erro retornado: {meta_catalogo_beta['error']}")
     else:
-        if usa_cache_historico_beta:
-            st.success(
-                f"Catálogo histórico: {len(produtos_beta)} produtos | "
-                f"última janela conhecida em {data_catalogo_beta.strftime('%d/%m/%Y') if pd.notna(data_catalogo_beta) else '-'}."
+        if (
+            not usa_cache_historico_beta
+            and meta_catalogo_beta.get("hit_page_limit")
+        ):
+            st.warning(
+                "A consulta atingiu o limite de paginação. Alguns produtos podem não estar disponíveis."
             )
-            st.caption("Fonte atual: cache histórico consolidado.")
-        else:
-            st.success(
-                f"Catálogo leve: {len(produtos_beta)} produtos | "
-                f"amostra mais recente em {data_catalogo_beta.strftime('%d/%m/%Y')} | "
-                f"{meta_catalogo_beta.get('rows_returned', len(df_catalogo_beta)):,} linhas recebidas."
-            )
-            if meta_catalogo_beta.get("hit_page_limit"):
-                st.warning(
-                    "A consulta de catálogo atingiu o limite seguro de paginação da beta. "
-                    "Alguns produtos podem não ter aparecido; se isso acontecer, reduzo ainda mais o fluxo."
-                )
 
-        produto_beta_valor = st.selectbox(
-            "Produto",
-            options=produtos_beta,
-            format_func=lambda codigo: _formatar_modalidade_beta(produto_lookup_beta.get(str(codigo), str(codigo))),
-            key="tj_beta_produto",
-        )
+        if st.session_state.get("tj_beta_produto") not in produtos_beta:
+            st.session_state["tj_beta_produto"] = produtos_beta[0]
+        with filtros_taxas_beta:
+            produto_beta_valor = st.selectbox(
+                "Produto",
+                options=produtos_beta,
+                format_func=lambda codigo: _formatar_modalidade_beta(produto_lookup_beta.get(str(codigo), str(codigo))),
+                key="tj_beta_produto",
+            )
         produto_beta = produto_lookup_beta.get(str(produto_beta_valor), str(produto_beta_valor))
 
         if produto_beta_valor:
@@ -25116,60 +24862,140 @@ elif menu == "Taxas de Juros por Produto":
                 if not top_bancos_beta:
                     top_bancos_beta = bancos_ordenados_beta[:8]
 
-                st.markdown(f"#### {_formatar_modalidade_beta(produto_beta)}")
-                col_stat1, col_stat2, col_stat3, col_stat4 = st.columns(4)
-                with col_stat1:
-                    st.metric("Linhas carregadas", f"{len(df_hist_beta_raw):,}")
-                with col_stat2:
-                    st.metric("Pontos mensais", f"{len(df_hist_beta_mensal):,}")
-                with col_stat3:
-                    st.metric("Instituições", df_hist_beta_raw['Instituição Financeira'].nunique())
-                with col_stat4:
-                    st.metric("Última data", data_mais_recente_beta.strftime('%d/%m/%Y'))
-                st.caption(
-                    "Fonte em uso: cache histórico consolidado."
-                    if usa_cache_historico_beta
-                    else "Fonte em uso: consulta leve ao vivo no BCB."
-                )
+                cobertura_beta = int(df_hist_beta_raw['Instituição Financeira'].nunique())
+                col_base_beta, col_sobre_base_beta = st.columns([4.2, 1.0], gap="medium")
+                with col_base_beta:
+                    st.markdown(
+                        f"""
+                        <div class="tj-base-row">
+                            <span><strong>Fonte:</strong> BCB</span>
+                            <span><strong>Base até:</strong> {_formatar_data_taxas_beta(data_mais_recente_beta)}</span>
+                            <span><strong>Cobertura:</strong> {cobertura_beta} instituições</span>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+                with col_sobre_base_beta:
+                    with st.popover(
+                        "Sobre a base",
+                        icon=":material/info:",
+                        type="tertiary",
+                        width="stretch",
+                    ):
+                        st.markdown(
+                            "Fonte: Banco Central do Brasil (BCB). "
+                            "A visão mensal usa a última observação disponível de cada mês. "
+                            "A série diária cobre os 3 meses anteriores à data mais recente e preserva lacunas oficiais."
+                        )
+                        st.caption(f"Produtos disponíveis neste segmento: {len(produtos_beta)}.")
+
+                if st.session_state.get("modo_diagnostico"):
+                    meio_carregamento_beta = (
+                        "cache histórico consolidado"
+                        if usa_cache_historico_beta
+                        else "consulta direta ao BCB"
+                    )
+                    st.caption(
+                        f"Diagnóstico: {meio_carregamento_beta} | "
+                        f"{len(df_hist_beta_raw):,} linhas | "
+                        f"{len(df_hist_beta_mensal):,} pontos mensais."
+                    )
 
                 if meta_hist_beta.get("hit_page_limit"):
                     st.warning(
-                        "O histórico deste produto atingiu o limite seguro da beta. "
-                        "A visualização continua útil, mas pode não representar 100% das linhas disponíveis."
+                        "O histórico pode estar incompleto porque a consulta atingiu o limite de paginação."
                     )
 
-                bancos_sel_beta = st.multiselect(
-                    "Bancos exibidos (máx 12)",
-                    options=bancos_ordenados_beta,
-                    default=[b for b in top_bancos_beta if b in bancos_ordenados_beta],
-                    max_selections=12,
-                    key="tj_beta_bancos",
-                    help="Pré-seleção com os bancos mais bem posicionados na data mais recente.",
+                bancos_default_beta = [
+                    banco
+                    for banco in top_bancos_beta
+                    if banco in bancos_ordenados_beta
+                ]
+                contexto_bancos_beta = (segmento_beta, str(produto_beta_valor))
+                contexto_bancos_anterior_beta = st.session_state.get("tj_beta_bancos_contexto")
+                bancos_estado_original_beta = st.session_state.get("tj_beta_bancos")
+                if contexto_bancos_anterior_beta != contexto_bancos_beta:
+                    bancos_estado_beta = bancos_default_beta
+                    st.session_state["tj_beta_bancos_contexto"] = contexto_bancos_beta
+                elif isinstance(bancos_estado_original_beta, list):
+                    bancos_estado_beta = bancos_estado_original_beta
+                else:
+                    bancos_estado_beta = bancos_default_beta
+                bancos_estado_beta = [
+                    banco
+                    for banco in bancos_estado_beta
+                    if banco in bancos_ordenados_beta
+                ][:12]
+                if (
+                    not bancos_estado_beta
+                    and isinstance(bancos_estado_original_beta, list)
+                    and bancos_estado_original_beta
+                ):
+                    bancos_estado_beta = bancos_default_beta
+                st.session_state["tj_beta_bancos"] = bancos_estado_beta
+
+                controles_taxas_beta = st.container(
+                    key="tj_product_rates_controls",
+                    gap="small",
                 )
+                with controles_taxas_beta:
+                    col_bancos_beta, col_cores_beta = st.columns([4.2, 1.0], gap="medium")
+                    with col_bancos_beta:
+                        with st.popover(
+                            f"Instituições ({len(bancos_estado_beta)}/12)",
+                            icon=":material/account_balance:",
+                            width="stretch",
+                        ):
+                            bancos_sel_beta = st.multiselect(
+                                "Instituições exibidas",
+                                options=bancos_ordenados_beta,
+                                max_selections=12,
+                                key="tj_beta_bancos",
+                                help="A seleção inicial reúne as instituições mais bem posicionadas na data mais recente.",
+                            )
+                    with col_cores_beta:
+                        if bancos_sel_beta:
+                            with st.popover(
+                                "Cores",
+                                icon=":material/palette:",
+                                width="stretch",
+                            ):
+                                taxas_beta_custom_colors = _configurar_cores_taxas_beta(bancos_sel_beta)
+                        else:
+                            taxas_beta_custom_colors = {}
 
                 if not bancos_sel_beta:
-                    st.warning("Selecione ao menos um banco para visualizar o histórico.")
+                    st.warning("Selecione ao menos uma instituição para visualizar o histórico.")
                 else:
-                    taxas_beta_custom_colors = _configurar_cores_taxas_beta(bancos_sel_beta)
                     meses_disponiveis_beta = sorted(df_hist_beta_mensal['AnoMes'].dropna().unique().tolist())
                     limite_meses_beta = 60 if usa_cache_historico_beta else 12
                     max_meses_beta = max(1, min(limite_meses_beta, len(meses_disponiveis_beta)))
-                    col_view1, col_view2 = st.columns([1.4, 1.0])
-                    with col_view1:
-                        modo_visual_beta = st.radio(
-                            "Visualização",
-                            ["Linha comparativa", "Painéis por banco", "Ranking atual"],
-                            horizontal=True,
-                            key="tj_beta_modo_visual",
-                        )
-                    with col_view2:
-                        janela_meses_beta = st.slider(
-                            "Janela mensal",
-                            min_value=1,
-                            max_value=max_meses_beta,
-                            value=min(6, max_meses_beta),
-                            key="tj_beta_janela_meses",
-                        )
+                    with controles_taxas_beta:
+                        col_view1, col_view2 = st.columns([1.8, 1.0], gap="large")
+                        with col_view1:
+                            _normalizar_escolha_taxas_beta(
+                                "tj_beta_modo_visual",
+                                VISUALIZACOES_TAXAS_BETA,
+                            )
+                            modo_visual_beta = st.segmented_control(
+                                "Visualização",
+                                VISUALIZACOES_TAXAS_BETA,
+                                key="tj_beta_modo_visual",
+                                on_change=_normalizar_escolha_taxas_beta,
+                                args=("tj_beta_modo_visual", VISUALIZACOES_TAXAS_BETA),
+                                width="stretch",
+                            )
+                        with col_view2:
+                            janela_estado_beta = st.session_state.get("tj_beta_janela_meses")
+                            if not isinstance(janela_estado_beta, int) or not 1 <= janela_estado_beta <= max_meses_beta:
+                                st.session_state["tj_beta_janela_meses"] = min(6, max_meses_beta)
+                            janela_meses_beta = st.slider(
+                                "Janela mensal",
+                                min_value=1,
+                                max_value=max_meses_beta,
+                                key="tj_beta_janela_meses",
+                                format="%d meses",
+                            )
 
                     df_chart_beta = (
                         df_hist_beta_mensal[
@@ -25193,30 +25019,35 @@ elif menu == "Taxas de Juros por Produto":
                     selected_keys_beta, label_by_key_beta = _resolver_bancos_beta_por_chave(df_hist_beta_raw, bancos_sel_beta)
                     df_daily_beta = pd.DataFrame()
                     meta_daily_beta: dict[str, object] = {}
+                    monthly_excel_beta = None
+                    ranking_excel_beta = None
+                    daily_excel_beta = None
+                    daily_has_values_beta = False
 
                     valor_rank = pd.to_numeric(df_rank_beta_display[tipo_taxa_beta], errors='coerce') if tipo_taxa_beta in df_rank_beta_display.columns else pd.Series(dtype='float64')
                     if not df_rank_beta_display.empty and not valor_rank.dropna().empty:
                         idx_min = valor_rank.idxmin()
                         idx_max = valor_rank.idxmax()
-                        melhor_banco = str(df_rank_beta_display.loc[idx_min, 'Instituição Financeira'])
-                        pior_banco = str(df_rank_beta_display.loc[idx_max, 'Instituição Financeira'])
-                        melhor_valor = float(valor_rank.loc[idx_min])
-                        pior_valor = float(valor_rank.loc[idx_max])
-                        col_kpi1, col_kpi2 = st.columns(2)
-                        with col_kpi1:
-                            _render_taxas_beta_kpi_card(
-                                "Melhor taxa atual",
-                                melhor_banco,
-                                f"{melhor_valor:.2f}%".replace(".", ","),
-                                accent_color="#0B6E4F",
-                            )
-                        with col_kpi2:
-                            _render_taxas_beta_kpi_card(
-                                "Pior taxa atual",
-                                pior_banco,
-                                f"{pior_valor:.2f}%".replace(".", ","),
-                                accent_color="#8A1C1C",
-                            )
+                        menor_banco = str(df_rank_beta_display.loc[idx_min, 'Instituição Financeira'])
+                        maior_banco = str(df_rank_beta_display.loc[idx_max, 'Instituição Financeira'])
+                        menor_valor = float(valor_rank.loc[idx_min])
+                        maior_valor = float(valor_rank.loc[idx_max])
+                        _render_taxas_beta_kpi_strip(
+                            menor_banco=menor_banco,
+                            menor_valor=f"{menor_valor:.2f}%".replace(".", ","),
+                            maior_banco=maior_banco,
+                            maior_valor=f"{maior_valor:.2f}%".replace(".", ","),
+                        )
+
+                    titulo_mensal_beta = {
+                        "Linha comparativa": "Evolução mensal",
+                        "Painéis por banco": "Painéis por instituição",
+                        "Ranking atual": "Ranking atual",
+                    }[modo_visual_beta]
+                    _render_taxas_beta_chart_header(
+                        titulo_mensal_beta,
+                        f"{_formatar_modalidade_beta(produto_beta)} | {janela_meses_beta} meses",
+                    )
 
                     if modo_visual_beta == "Linha comparativa":
                         fig_beta = px.line(
@@ -25232,27 +25063,31 @@ elif menu == "Taxas de Juros por Produto":
                                 tipo_taxa_beta: tipo_taxa_beta,
                                 'Instituição Financeira': 'Instituição',
                             },
-                            title=f"{_formatar_modalidade_beta(produto_beta)} · visão mensal comparativa",
                         )
-                        fig_beta.update_layout(
+                        _estilizar_grafico_taxas_beta(
+                            fig_beta,
                             height=520,
-                            xaxis_title="",
                             yaxis_title=tipo_taxa_beta,
-                            hovermode='x unified',
-                            legend=dict(
-                                orientation="h",
-                                yanchor="bottom",
-                                y=-0.35,
-                                xanchor="center",
-                                x=0.5,
-                                font=dict(size=10),
-                            ),
-                            margin=dict(b=105, r=70, t=60, l=60),
+                            legend_y=-0.18,
+                            margin={"b": 150, "r": 70, "t": 14, "l": 58},
                         )
-                        fig_beta.update_xaxes(dtick="M1", tickformat="%b/%y")
-                        fig_beta.update_traces(line=dict(width=2.2), marker=dict(size=6))
+                        fig_beta.update_xaxes(
+                            tickformat="%m/%Y",
+                            nticks=min(5, janela_meses_beta),
+                            automargin=True,
+                        )
+                        fig_beta.update_traces(
+                            line={"width": 2.1},
+                            marker={"size": 5, "opacity": 0.78},
+                        )
                         _adicionar_rotulos_finais_taxas_beta(fig_beta, df_chart_beta, tipo_taxa_beta, color_map_beta)
-                        st.plotly_chart(fig_beta, width='stretch')
+                        st.plotly_chart(
+                            fig_beta,
+                            width="stretch",
+                            theme=None,
+                            config=TAXAS_BETA_PLOTLY_CONFIG,
+                            key="tj_beta_chart_monthly_line",
+                        )
                     elif modo_visual_beta == "Painéis por banco":
                         facet_wrap_beta = 2 if len(bancos_sel_beta) <= 4 else 3
                         fig_beta = px.line(
@@ -25270,19 +25105,36 @@ elif menu == "Taxas de Juros por Produto":
                                 tipo_taxa_beta: tipo_taxa_beta,
                                 'Instituição Financeira': 'Instituição',
                             },
-                            title=f"{_formatar_modalidade_beta(produto_beta)} · painéis por banco",
                         )
-                        fig_beta.update_layout(
+                        _estilizar_grafico_taxas_beta(
+                            fig_beta,
                             height=max(460, 240 * math.ceil(len(bancos_sel_beta) / facet_wrap_beta)),
-                            xaxis_title="",
                             yaxis_title=tipo_taxa_beta,
                             showlegend=False,
-                            margin=dict(b=70, r=20, t=60, l=50),
+                            margin={"b": 54, "r": 20, "t": 28, "l": 50},
                         )
-                        fig_beta.update_xaxes(dtick="M1", tickformat="%b/%y")
-                        fig_beta.update_traces(line=dict(width=2.0), marker=dict(size=5))
-                        fig_beta.for_each_annotation(lambda ann: ann.update(text=ann.text.split("=")[-1]))
-                        st.plotly_chart(fig_beta, width='stretch')
+                        fig_beta.update_xaxes(
+                            tickformat="%m/%Y",
+                            nticks=min(4, janela_meses_beta),
+                            automargin=True,
+                        )
+                        fig_beta.update_traces(
+                            line={"width": 2.0},
+                            marker={"size": 4, "opacity": 0.75},
+                        )
+                        fig_beta.for_each_annotation(
+                            lambda ann: ann.update(
+                                text=ann.text.split("=")[-1],
+                                font={"family": "IBM Plex Sans, sans-serif", "size": 11, "color": "#334155"},
+                            )
+                        )
+                        st.plotly_chart(
+                            fig_beta,
+                            width="stretch",
+                            theme=None,
+                            config=TAXAS_BETA_PLOTLY_CONFIG,
+                            key="tj_beta_chart_monthly_facets",
+                        )
                     else:
                         df_rank_chart = df_rank_beta_display.copy()
                         df_rank_chart['_valor_plot'] = pd.to_numeric(df_rank_chart[tipo_taxa_beta], errors='coerce')
@@ -25309,7 +25161,6 @@ elif menu == "Taxas de Juros por Produto":
                             text='_valor_plot',
                             template='plotly_white',
                             color_discrete_map=color_map_beta,
-                            title=f"{_formatar_modalidade_beta(produto_beta)} · ranking atual das selecionadas",
                             labels={'_valor_plot': tipo_taxa_beta, 'Instituição Financeira': 'Instituição'},
                         )
                         fig_beta.update_traces(
@@ -25317,14 +25168,21 @@ elif menu == "Taxas de Juros por Produto":
                             textposition='outside',
                             cliponaxis=False,
                         )
-                        fig_beta.update_layout(
+                        _estilizar_grafico_taxas_beta(
+                            fig_beta,
                             height=max(360, 36 * len(df_rank_chart) + 120),
                             xaxis_title=tipo_taxa_beta,
-                            yaxis_title="",
                             showlegend=False,
-                            margin=dict(b=40, r=40, t=60, l=40),
+                            margin={"b": 42, "r": 48, "t": 14, "l": 42},
+                            grid_axis="x",
                         )
-                        st.plotly_chart(fig_beta, width='stretch')
+                        st.plotly_chart(
+                            fig_beta,
+                            width="stretch",
+                            theme=None,
+                            config=TAXAS_BETA_PLOTLY_CONFIG,
+                            key="tj_beta_chart_monthly_ranking",
+                        )
 
                     df_chart_beta_valid = pd.DataFrame()
                     if not df_chart_beta.empty and tipo_taxa_beta in df_chart_beta.columns:
@@ -25338,13 +25196,6 @@ elif menu == "Taxas de Juros por Produto":
                             bancos_ordem=bancos_sel_beta,
                             df_mensal=df_chart_beta,
                         )
-                        st.download_button(
-                            label="Exportar Excel da visão mensal",
-                            data=monthly_excel_beta,
-                            file_name=f"taxas_beta_mensal_{segmento_beta}_{produto_beta[:20]}.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            key="tj_beta_download_mensal_excel",
-                        )
 
                     ranking_excel_beta = _build_taxas_beta_ranking_excel(
                         segmento=segmento_beta,
@@ -25352,28 +25203,7 @@ elif menu == "Taxas de Juros por Produto":
                         data_referencia=data_mais_recente_beta,
                         df_rank=df_rank_beta_display,
                     )
-                    with st.expander("Ranking atual", expanded=False):
-                        st.download_button(
-                            label="Exportar Excel do ranking",
-                            data=ranking_excel_beta,
-                            file_name=f"taxas_beta_ranking_{segmento_beta}_{produto_beta[:20]}.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            key="tj_beta_download_ranking_excel",
-                        )
-                        st.dataframe(
-                            df_rank_beta_display,
-                            width='stretch',
-                            hide_index=True,
-                            height=min(420, 42 + 35 * max(len(df_rank_beta_display), 1)),
-                            column_config={
-                                "Posição": st.column_config.NumberColumn("Posição", format="%d"),
-                                "Instituição Financeira": st.column_config.TextColumn("Instituição Financeira"),
-                                "Taxa Mensal (%)": st.column_config.NumberColumn("Taxa Mensal (%)", format="%.2f"),
-                                "Taxa Anual (%)": st.column_config.NumberColumn("Taxa Anual (%)", format="%.2f"),
-                            },
-                        )
 
-                    st.markdown("#### Série diária · últimos 3 meses")
                     if usa_cache_historico_beta and selected_keys_beta:
                         try:
                             df_daily_beta, meta_daily_beta = _buscar_taxas_beta_diario_3m_cache(
@@ -25397,10 +25227,21 @@ elif menu == "Taxas de Juros por Produto":
                         df_daily_beta_valid = df_daily_beta.dropna(subset=[tipo_taxa_beta]).copy()
                     daily_has_values_beta = not df_daily_beta_valid.empty
                     if not daily_has_values_beta:
+                        _render_taxas_beta_chart_header("Série diária", "Últimos 3 meses")
                         st.info("Sem série diária disponível para os bancos selecionados nos últimos 3 meses.")
                         if meta_daily_beta.get("error"):
                             st.caption(f"Erro retornado: {meta_daily_beta['error']}")
                     else:
+                        anchor_daily_label = meta_daily_beta.get("anchor_date") or data_mais_recente_beta.strftime('%Y-%m-%d')
+                        window_daily_label = meta_daily_beta.get("window_start") or "-"
+                        _render_taxas_beta_chart_header(
+                            "Série diária",
+                            (
+                                f"{_formatar_data_taxas_beta(window_daily_label)} a "
+                                f"{_formatar_data_taxas_beta(anchor_daily_label)} | "
+                                f"{meta_daily_beta.get('calendar_points', 0):,} datas oficiais"
+                            ),
+                        )
                         fig_daily_beta = px.line(
                             df_daily_beta,
                             x='Fim Período',
@@ -25414,39 +25255,31 @@ elif menu == "Taxas de Juros por Produto":
                                 tipo_taxa_beta: tipo_taxa_beta,
                                 'Instituição Financeira': 'Instituição',
                             },
-                            title=f"{_formatar_modalidade_beta(produto_beta)} · últimos 3 meses ancorados na última data disponível",
                         )
-                        fig_daily_beta.update_layout(
+                        _estilizar_grafico_taxas_beta(
+                            fig_daily_beta,
                             height=460,
-                            xaxis_title="",
                             yaxis_title=tipo_taxa_beta,
-                            hovermode='x unified',
-                            legend=dict(
-                                orientation="h",
-                                yanchor="bottom",
-                                y=-0.30,
-                                xanchor="center",
-                                x=0.5,
-                                font=dict(size=10),
-                            ),
-                            margin=dict(b=90, r=70, t=60, l=60),
+                            legend_y=-0.18,
+                            margin={"b": 150, "r": 70, "t": 14, "l": 58},
                         )
-                        fig_daily_beta.update_xaxes(tickformat="%d/%m/%y")
-                        fig_daily_beta.update_traces(line=dict(width=2.0), marker=dict(size=4))
+                        fig_daily_beta.update_xaxes(
+                            tickformat="%d/%m/%y",
+                            nticks=5,
+                            tickangle=-25,
+                            automargin=True,
+                        )
+                        fig_daily_beta.update_traces(
+                            line={"width": 1.9},
+                            marker={"size": 2.5, "opacity": 0.45},
+                        )
                         _adicionar_rotulos_finais_taxas_beta(fig_daily_beta, df_daily_beta, tipo_taxa_beta, color_map_beta)
-                        st.plotly_chart(fig_daily_beta, width='stretch')
-                        anchor_daily_label = meta_daily_beta.get("anchor_date") or data_mais_recente_beta.strftime('%Y-%m-%d')
-                        window_daily_label = meta_daily_beta.get("window_start") or "-"
-                        anchor_source_label = (
-                            "base histórica"
-                            if meta_daily_beta.get("source") == "historico_cache"
-                            else "recorte carregado"
-                        )
-                        st.caption(
-                            f"Janela diária ancorada na última data disponível da {anchor_source_label}: {anchor_daily_label}. "
-                            f"Período exibido desde {window_daily_label} | "
-                            f"{meta_daily_beta.get('calendar_points', 0):,} datas oficiais | "
-                            f"{len(df_daily_beta):,} linhas no gráfico."
+                        st.plotly_chart(
+                            fig_daily_beta,
+                            width="stretch",
+                            theme=None,
+                            config=TAXAS_BETA_PLOTLY_CONFIG,
+                            key="tj_beta_chart_daily",
                         )
                         daily_excel_beta = _build_taxas_beta_daily_excel(
                             segmento=segmento_beta,
@@ -25457,37 +25290,44 @@ elif menu == "Taxas de Juros por Produto":
                             bancos_ordem=bancos_sel_beta,
                             df_daily=df_daily_beta,
                         )
-                        st.download_button(
-                            label="Exportar Excel da série diária",
-                            data=daily_excel_beta,
-                            file_name=f"taxas_beta_diario_3m_{segmento_beta}_{produto_beta[:20]}.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            key="tj_beta_download_diario_excel",
+                        if st.session_state.get("modo_diagnostico"):
+                            st.caption(
+                                f"Fonte técnica: {meta_daily_beta.get('source', '-')} | "
+                                f"{len(df_daily_beta):,} linhas no gráfico."
+                            )
+
+                    with st.popover(
+                        "Opções da série diária",
+                        icon=":material/tune:",
+                        width="content",
+                    ):
+                        carregar_detalhe_beta = st.toggle(
+                            "Exibir detalhe recente (60 dias)",
+                            key="tj_beta_carregar_detalhe",
+                            help="Carrega uma consulta adicional com maior granularidade.",
                         )
-                        with st.expander("Tabela diária dos últimos 3 meses", expanded=False):
-                            st.dataframe(
-                                df_daily_beta[
-                                    [
-                                        col
-                                        for col in [
-                                            'Fim Período',
-                                            'Instituição Financeira',
-                                            'Taxa Mensal (%)',
-                                            'Taxa Anual (%)',
-                                        ]
-                                        if col in df_daily_beta.columns
-                                    ]
-                                ],
-                                width='stretch',
-                                hide_index=True,
+                        if carregar_detalhe_beta:
+                            granularidades_taxas_beta = [
+                                "Último ponto da semana",
+                                "Todos os pontos disponíveis",
+                            ]
+                            _normalizar_escolha_taxas_beta(
+                                "tj_beta_granularidade_recente",
+                                granularidades_taxas_beta,
+                            )
+                            granularidade_beta = st.segmented_control(
+                                "Granularidade",
+                                granularidades_taxas_beta,
+                                key="tj_beta_granularidade_recente",
+                                on_change=_normalizar_escolha_taxas_beta,
+                                args=("tj_beta_granularidade_recente", granularidades_taxas_beta),
+                                width="stretch",
                             )
 
                     if carregar_detalhe_beta:
-                        granularidade_beta = st.radio(
+                        _render_taxas_beta_chart_header(
                             "Detalhe recente",
-                            ["Último ponto da semana", "Todos os pontos disponíveis"],
-                            horizontal=True,
-                            key="tj_beta_granularidade_recente",
+                            f"60 dias | {granularidade_beta.lower()}",
                         )
                         if usa_cache_historico_beta:
                             try:
@@ -25505,7 +25345,18 @@ elif menu == "Taxas de Juros por Produto":
                                 produto_beta,
                                 tuple(sorted(bancos_sel_beta)),
                             )
-                        df_recent_beta = df_recent_beta_raw.sort_values('Fim Período').copy()
+                        colunas_detalhe_beta = {
+                            'Fim Período',
+                            'Instituição Financeira',
+                            tipo_taxa_beta,
+                        }
+                        if (
+                            df_recent_beta_raw.empty
+                            or not colunas_detalhe_beta.issubset(df_recent_beta_raw.columns)
+                        ):
+                            df_recent_beta = pd.DataFrame()
+                        else:
+                            df_recent_beta = df_recent_beta_raw.sort_values('Fim Período').copy()
                         if granularidade_beta == "Último ponto da semana":
                             df_recent_beta = _reduzir_taxas_beta_semanal(df_recent_beta)
 
@@ -25528,44 +25379,127 @@ elif menu == "Taxas de Juros por Produto":
                                     tipo_taxa_beta: tipo_taxa_beta,
                                     'Instituição Financeira': 'Instituição',
                                 },
-                                title=f"{_formatar_modalidade_beta(produto_beta)} · detalhe recente (60 dias)",
                             )
-                            fig_recent_beta.update_layout(
+                            _estilizar_grafico_taxas_beta(
+                                fig_recent_beta,
                                 height=440,
-                                xaxis_title="",
                                 yaxis_title=tipo_taxa_beta,
-                                hovermode='x unified',
-                                legend=dict(
-                                    orientation="h",
-                                    yanchor="bottom",
-                                    y=-0.30,
-                                    xanchor="center",
-                                    x=0.5,
-                                    font=dict(size=10),
-                                ),
-                                margin=dict(b=90, r=30, t=60, l=60),
+                                legend_y=-0.18,
+                                margin={"b": 150, "r": 42, "t": 14, "l": 58},
                             )
-                            fig_recent_beta.update_traces(line=dict(width=2.0), marker=dict(size=5))
-                            st.plotly_chart(fig_recent_beta, width='stretch')
-                            if usa_cache_historico_beta:
-                                st.caption(
-                                    f"Detalhe recente: {len(df_recent_beta):,} linhas plotadas "
-                                    f"para {len(bancos_sel_beta)} banco(s) a partir do cache histórico."
-                                )
-                            else:
-                                st.caption(
-                                    f"Detalhe recente: {len(df_recent_beta):,} linhas plotadas "
-                                    f"para {len(bancos_sel_beta)} banco(s) | "
-                                    f"{meta_recent_beta.get('pages_loaded', 0)} página(s) consultadas no total."
-                                )
+                            fig_recent_beta.update_xaxes(
+                                tickformat="%d/%m/%y",
+                                nticks=5,
+                                tickangle=-25,
+                                automargin=True,
+                            )
+                            fig_recent_beta.update_traces(
+                                line={"width": 1.9},
+                                marker={"size": 3.5, "opacity": 0.62},
+                            )
+                            st.plotly_chart(
+                                fig_recent_beta,
+                                width="stretch",
+                                theme=None,
+                                config=TAXAS_BETA_PLOTLY_CONFIG,
+                                key="tj_beta_chart_recent",
+                            )
+                            if st.session_state.get("modo_diagnostico"):
+                                if usa_cache_historico_beta:
+                                    st.caption(
+                                        f"{len(df_recent_beta):,} linhas plotadas para "
+                                        f"{len(bancos_sel_beta)} instituição(ões) a partir do cache histórico."
+                                    )
+                                else:
+                                    st.caption(
+                                        f"{len(df_recent_beta):,} linhas plotadas para "
+                                        f"{len(bancos_sel_beta)} instituição(ões) | "
+                                        f"{meta_recent_beta.get('pages_loaded', 0)} página(s) consultada(s)."
+                                    )
                             if meta_recent_beta.get("hit_page_limit"):
                                 st.warning(
-                                    "O detalhe recente atingiu o limite seguro da beta. "
-                                    "Se isso acontecer com frequência, o próximo passo é refinar ainda mais o escopo por banco."
+                                    "O detalhe recente pode estar incompleto porque a consulta atingiu o limite de paginação."
                                 )
                             errors_beta = meta_recent_beta.get("errors") or {}
                             if errors_beta:
                                 st.caption(f"Algumas instituições retornaram erro: {errors_beta}")
+
+                    ranking_column_config_beta = {
+                        "Posição": st.column_config.NumberColumn("Posição", format="%d"),
+                        "Instituição Financeira": st.column_config.TextColumn("Instituição Financeira"),
+                        "Taxa Mensal (%)": st.column_config.NumberColumn("Taxa Mensal (%)", format="%.2f"),
+                        "Taxa Anual (%)": st.column_config.NumberColumn("Taxa Anual (%)", format="%.2f"),
+                    }
+                    with st.expander("Dados e exportações", expanded=False):
+                        col_export_mensal, col_export_rank, col_export_daily = st.columns(3)
+                        with col_export_mensal:
+                            if monthly_excel_beta is not None:
+                                st.download_button(
+                                    label="Série mensal (Excel)",
+                                    data=monthly_excel_beta,
+                                    file_name=f"taxas_beta_mensal_{segmento_beta}_{produto_beta[:20]}.xlsx",
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                    key="tj_beta_download_mensal_excel",
+                                    width="stretch",
+                                    on_click="ignore",
+                                )
+                        with col_export_rank:
+                            if ranking_excel_beta is not None:
+                                st.download_button(
+                                    label="Ranking atual (Excel)",
+                                    data=ranking_excel_beta,
+                                    file_name=f"taxas_beta_ranking_{segmento_beta}_{produto_beta[:20]}.xlsx",
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                    key="tj_beta_download_ranking_excel",
+                                    width="stretch",
+                                    on_click="ignore",
+                                )
+                        with col_export_daily:
+                            if daily_excel_beta is not None:
+                                st.download_button(
+                                    label="Série diária (Excel)",
+                                    data=daily_excel_beta,
+                                    file_name=f"taxas_beta_diario_3m_{segmento_beta}_{produto_beta[:20]}.xlsx",
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                    key="tj_beta_download_diario_excel",
+                                    width="stretch",
+                                    on_click="ignore",
+                                )
+
+                        if daily_has_values_beta:
+                            tab_rank_beta, tab_daily_beta = st.tabs(["Ranking atual", "Série diária (3 meses)"])
+                            with tab_rank_beta:
+                                st.dataframe(
+                                    df_rank_beta_display,
+                                    width="stretch",
+                                    hide_index=True,
+                                    column_config=ranking_column_config_beta,
+                                )
+                            with tab_daily_beta:
+                                st.dataframe(
+                                    df_daily_beta[
+                                        [
+                                            col
+                                            for col in [
+                                                'Fim Período',
+                                                'Instituição Financeira',
+                                                'Taxa Mensal (%)',
+                                                'Taxa Anual (%)',
+                                            ]
+                                            if col in df_daily_beta.columns
+                                        ]
+                                    ],
+                                    width="stretch",
+                                    hide_index=True,
+                                )
+                        else:
+                            st.markdown("##### Ranking atual")
+                            st.dataframe(
+                                df_rank_beta_display,
+                                width="stretch",
+                                hide_index=True,
+                                column_config=ranking_column_config_beta,
+                            )
 
 elif menu == "Meios de Pagamento (SPB)":
     # =========================================================================
@@ -27585,7 +27519,7 @@ elif menu == "Glossário":
     st.dataframe(pd.DataFrame(_map_rows), width="stretch", hide_index=True)
     st.caption("Obs.: `derived_metrics` e `derived_metrics_individual` são recalculados a partir de DRE + Principal.")
 
-    st.markdown("## Glossário Central — fonte única de definições")
+    st.markdown("## Glossário Central — versão atualizada (abril/2026)")
     with st.expander("**Contexto de leitura dos dados (visão prudencial)**", expanded=True):
         st.markdown("""
         Os dados do app vêm principalmente do **IFData/Olinda do Banco Central**, na visão de
@@ -27626,31 +27560,16 @@ elif menu == "Glossário":
         - **Meios de Pagamento (SPB):** lê o cache `spb_meios_pagamento` (serviço Olinda `MPV_DadosAbertos`), atualizado manualmente pela aba "Atualizar Base" ou pelo CLI; cada um dos 12 datasets é baixado em uma única chamada (filtro de período cumulativo do BCB), sem backfill incremental por trimestre.
         """)
 
-    _cols_gloss = [
-        "Indicador",
-        "Aba(s)",
-        "Fonte",
-        "Campos / contas",
-        "Fórmula",
-        "Unidade",
-        "Interpretação",
-        "Limitação",
-        "Periodicidade",
-    ]
+    _cols_gloss = ["Indicador", "Aba(s)", "Fonte", "Fórmula", "Unidade", "Interpretação", "Limitação", "Periodicidade"]
 
     def _render_secao_glossario(titulo: str, linhas: list[dict]):
         with st.expander(f"**{titulo}**", expanded=False):
-            frame = pd.DataFrame(linhas)
-            for col in _cols_gloss:
-                if col not in frame.columns:
-                    frame[col] = "N/D"
-            frame = frame[_cols_gloss].fillna("N/D")
-            st.dataframe(frame, width="stretch", hide_index=True)
+            st.dataframe(pd.DataFrame(linhas, columns=_cols_gloss), width="stretch", hide_index=True)
 
     _render_secao_glossario("1) Capital e Regulação", [
         {"Indicador": "Índice de Capital Principal (CET1)", "Aba(s)": "Snapshot, Peers (Tabela), Evolução, Rankings, Glossário", "Fonte": "IFData Rel.5", "Fórmula": "Capital Principal ÷ RWA Total", "Unidade": "%", "Interpretação": "Folga de capital de maior qualidade frente ao risco ponderado.", "Limitação": "Pode variar por mudanças regulatórias/metodológicas.", "Periodicidade": "Trimestral"},
         {"Indicador": "Índice de Capital Nível I", "Aba(s)": "Glossário", "Fonte": "IFData Rel.5", "Fórmula": "PR Nível I ÷ RWA Total", "Unidade": "%", "Interpretação": "Cobertura de risco por capital Nível I.", "Limitação": "Não resume liquidez nem concentração de risco.", "Periodicidade": "Trimestral"},
-        _ifdata_metric_registry.get_metric_glossary_row("Índice de Basileia"),
+        {"Indicador": "Índice de Basileia", "Aba(s)": "Snapshot, Peers (Tabela), Evolução, Rankings, Glossário", "Fonte": "IFData Rel.5", "Fórmula": "Patrimônio de Referência ÷ RWA Total", "Unidade": "%", "Interpretação": "Nível total de capital regulatório sobre risco ponderado.", "Limitação": "Comparação histórica depende de contexto normativo.", "Periodicidade": "Trimestral"},
         {"Indicador": "Razão de Alavancagem", "Aba(s)": "Glossário", "Fonte": "IFData Rel.5", "Fórmula": "PR Nível I ÷ Exposição Total", "Unidade": "%", "Interpretação": "Capital Nível I sobre exposição não ponderada.", "Limitação": "Não pondera risco dos ativos.", "Periodicidade": "Trimestral"},
         {"Indicador": "Adicional de Capital Principal (ACP)", "Aba(s)": "Glossário", "Fonte": "IFData Rel.5", "Fórmula": "ACP Conservação + Contracíclico + Sistêmico", "Unidade": "%", "Interpretação": "Colchão regulatório adicional exigido.", "Limitação": "Níveis mudam conforme ciclo/regulação.", "Periodicidade": "Trimestral"},
         {"Indicador": "IRRBB", "Aba(s)": "Glossário", "Fonte": "IFData Rel.5", "Fórmula": "⚠️ Fórmula não identificada no app (campo reportado)", "Unidade": "Indicador", "Interpretação": "Risco de taxa de juros na carteira bancária.", "Limitação": "Sem memória de cálculo explícita na UI atual.", "Periodicidade": "Trimestral"},
@@ -27659,20 +27578,18 @@ elif menu == "Glossário":
     _render_secao_glossario("2) Balanço e Funding", [
         {"Indicador": "Ativo Total", "Aba(s)": "Snapshot, Peers (Tabela), Evolução, Glossário", "Fonte": "IFData Rel.1", "Fórmula": "Valor reportado", "Unidade": "R$", "Interpretação": "Tamanho total do balanço.", "Limitação": "Tamanho não implica qualidade dos ativos.", "Periodicidade": "Trimestral"},
         {"Indicador": "Ativos Líquidos", "Aba(s)": "Snapshot, Peers (Tabela), Glossário", "Fonte": "IFData Rel.2", "Fórmula": "Disponibilidades (a) + AIL (b) + TVM (c)", "Unidade": "R$", "Interpretação": "Aproximação de ativos de maior liquidez.", "Limitação": "Não substitui métricas regulatórias de liquidez.", "Periodicidade": "Trimestral"},
-        _ifdata_metric_registry.get_metric_glossary_row("Carteira de Crédito*"),
+        {"Indicador": "Carteira de Crédito Bruta", "Aba(s)": "Snapshot, Peers (Tabela), Evolução, Glossário", "Fonte": "IFData Rel.2", "Fórmula": "Até 2024: d1+e1+f; 2025+: e1+f1+g1+h1", "Unidade": "R$", "Interpretação": "Volume bruto de exposição em crédito.", "Limitação": "Quebra metodológica entre janelas históricas.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Carteira de Crédito* (Peers)", "Aba(s)": "Peers (Tabela), Evolução", "Fonte": "IFData Rel.2", "Fórmula": "Alias visual da Carteira de Crédito Bruta", "Unidade": "R$", "Interpretação": "Nome contextual de UI para o mesmo conceito canônico.", "Limitação": "Asterisco é convenção local da aba; quando a regra canônica do período fica incompleta, a UI marca explicitamente o fallback líquido e+f+g+h.", "Periodicidade": "Trimestral"},
         {"Indicador": "Depósitos Totais", "Aba(s)": "Snapshot, Peers (Tabela), Glossário", "Fonte": "IFData Rel.3", "Fórmula": "Prioriza linha agregada oficial por linha; fallback para soma a1..a6 só sem agregado oficial", "Unidade": "R$", "Interpretação": "Principal bloco de funding bancário tradicional.", "Limitação": "Rótulo do agregado muda ao longo da série; fallback não equivale a dado oficial publicado.", "Periodicidade": "Trimestral"},
         {"Indicador": "Core Funding", "Aba(s)": "Snapshot, Peers (Tabela), Evolução, Glossário", "Fonte": "IFData Rel.3", "Fórmula": "Até 2024: Captações (e); 2025+: (e)+(h)", "Unidade": "R$", "Interpretação": "Base estrutural de captação para métricas de funding.", "Limitação": "Mudança de escopo em 2025; após essa data, o indicador só é exibido quando Captações (e) e Instrumentos (h) estiverem disponíveis.", "Periodicidade": "Trimestral"},
         {"Indicador": "Patrimônio Líquido (PL)", "Aba(s)": "Snapshot, Peers (Tabela), Evolução, DRE (Ind. e Congl.), Glossário", "Fonte": "IFData Rel.1", "Fórmula": "Valor reportado", "Unidade": "R$", "Interpretação": "Base patrimonial para rentabilidade e alavancagem.", "Limitação": "Pode refletir eventos contábeis pontuais.", "Periodicidade": "Trimestral"},
     ])
 
     _render_secao_glossario("3) Rentabilidade e Eficiência", [
-        _ifdata_metric_registry.get_metric_glossary_row("ROE Ac. Anualizado (%)"),
-        _ifdata_metric_registry.get_metric_glossary_row("ROE Trim. Anualizado (%)"),
+        {"Indicador": "ROE Ac. Anualizado (%)", "Aba(s)": "Snapshot, Peers (Tabela), Evolução, Glossário", "Fonte": "IFData Rel.1", "Fórmula": "(LL YTD × fator de anualização) ÷ PL médio", "Unidade": "%", "Interpretação": "Retorno sobre PL com base acumulada anualizada.", "Limitação": "Sensível a sazonalidade e mês de referência.", "Periodicidade": "Trimestral (YTD)"},
+        {"Indicador": "ROE Trim. Anualizado (%)", "Aba(s)": "Rankings, Glossário", "Fonte": "IFData Rel.1", "Fórmula": "(Lucro trimestral × 4) ÷ PL médio", "Unidade": "%", "Interpretação": "Proxy anualizada do trimestre corrente.", "Limitação": "Mais volátil que o ROE acumulado.", "Periodicidade": "Trimestral"},
         {"Indicador": "Lucro Líquido Acumulado YTD", "Aba(s)": "Snapshot, Peers (Tabela), Evolução, Glossário", "Fonte": "IFData Rel.1/4", "Fórmula": "Resultado líquido acumulado no ano", "Unidade": "R$", "Interpretação": "Contribuição de resultado até a data-base.", "Limitação": "Não é lucro run-rate do trimestre isolado.", "Periodicidade": "Trimestral (acumulado)"},
         {"Indicador": "Desp PDD / Resultado Intermediação Fin. Bruto (%)", "Aba(s)": "DRE (Ind. e Congl.), Glossário", "Fonte": "IFData Rel.4", "Fórmula": "Desp. PDD ÷ Resultado Interm. Fin. Bruto", "Unidade": "%", "Interpretação": "Pressão de provisões sobre resultado de intermediação.", "Limitação": "Pode distorcer com denominador muito baixo.", "Periodicidade": "Trimestral/YTD"},
-        _ifdata_metric_registry.get_metric_glossary_row("Receita de Crédito"),
-        _ifdata_metric_registry.get_metric_glossary_row("Custo de Crédito (%)"),
-        _ifdata_metric_registry.get_metric_glossary_row("Custo de Crédito / Receita de Crédito (%)"),
         {"Indicador": "Desp Captação / Captação (%)", "Aba(s)": "DRE (Ind. e Congl.), Glossário", "Fonte": "IFData Rel.4 + Rel.1", "Fórmula": "(Desp. Captação × (12/meses)) ÷ Captações", "Unidade": "%", "Interpretação": "Custo anualizado de funding sobre captação.", "Limitação": "Depende da compatibilidade entre bases.", "Periodicidade": "Trimestral/YTD"},
     ])
 
@@ -27681,9 +27598,7 @@ elif menu == "Glossário":
         {"Indicador": "Ativos Estágio 2", "Aba(s)": "Snapshot, Peers (Tabela), Glossário", "Fonte": "Cadoc 4060", "Fórmula": "Conta 3312000001", "Unidade": "R$", "Interpretação": "Estoque de ativos em estágio 2.", "Limitação": "Pode ficar estruturalmente indisponível em parte da série mensal ou sem match prudencial confiável.", "Periodicidade": "Mensal/Trimestral"},
         {"Indicador": "Ativos Estágio 3", "Aba(s)": "Snapshot, Peers (Tabela), Glossário", "Fonte": "Cadoc 4060", "Fórmula": "Conta 3313000000", "Unidade": "R$", "Interpretação": "Estoque de ativos em estágio 3.", "Limitação": "Pode ficar estruturalmente indisponível em parte da série mensal ou sem match prudencial confiável.", "Periodicidade": "Mensal/Trimestral"},
         {"Indicador": "Ativos Estágio 3 / Carteira de Crédito (%)", "Aba(s)": "Peers (Tabela), Glossário", "Fonte": "Cadoc 4060 + IFData Rel.2", "Fórmula": "Ativos Estágio 3 ÷ Carteira de Crédito Bruta", "Unidade": "%", "Interpretação": "Peso dos ativos em estágio 3 sobre a carteira.", "Limitação": "Exige estágio 3 publicado e match prudencial confiável.", "Periodicidade": "Mensal/Trimestral"},
-        _ifdata_metric_registry.get_metric_glossary_row("Inadimplência"),
-        _ifdata_metric_registry.get_metric_glossary_row("Ativos Problemáticos / Carteira Total"),
-        _ifdata_metric_registry.get_metric_glossary_row("Inadimplência / Carteira Total"),
+        {"Indicador": "Inadimplência", "Aba(s)": "Peers (Tabela), Glossário", "Fonte": "IFData Rel.16", "Fórmula": "Linha Inadimplência da Carteira 4.966", "Unidade": "R$", "Interpretação": "Estoque de inadimplência informado por carteira de instrumentos financeiros.", "Limitação": "Série depende da disponibilidade do Rel.16 por período/instituição.", "Periodicidade": "Trimestral"},
         {"Indicador": "Inadimplência / Carteira de Crédito (%)", "Aba(s)": "Peers (Tabela), Glossário", "Fonte": "IFData Rel.16 + Rel.2", "Fórmula": "Inadimplência ÷ Carteira de Crédito Bruta", "Unidade": "%", "Interpretação": "Inadimplência relativa ao estoque de crédito.", "Limitação": "Combina carteira do Rel.2 com inadimplência do Rel.16.", "Periodicidade": "Trimestral"},
         {"Indicador": "Perda Esperada / Estágio 3 (%)", "Aba(s)": "Peers (Tabela), Glossário", "Fonte": "IFData Rel.2 + Cadoc 4060", "Fórmula": "|Perda Esperada| ÷ Ativos Estágio 3", "Unidade": "%", "Interpretação": "Proxy de cobertura da perda esperada sobre estágio 3.", "Limitação": "Não deve ser exibido como comparável quando o 4060 estiver estruturalmente ausente ou sem match prudencial confiável.", "Periodicidade": "Mensal/Trimestral"},
         {"Indicador": "Perda Esperada / Est2+3 (%)", "Aba(s)": "Peers (Tabela), Glossário", "Fonte": "IFData Rel.2 + Cadoc 4060", "Fórmula": "|Perda Esperada| ÷ (Ativos Estágio 2 + Ativos Estágio 3)", "Unidade": "%", "Interpretação": "Proxy de cobertura da perda esperada sobre estágios 2 e 3 combinados.", "Limitação": "Exige Estágio 2 e Estágio 3 publicados no mesmo período e match prudencial confiável.", "Periodicidade": "Mensal/Trimestral"},
