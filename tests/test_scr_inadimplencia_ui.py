@@ -382,6 +382,14 @@ def test_aba_declarada_em_atualizar_base():
     assert f'"{T.CACHE_NAME}"' in fonte[inicio:fim]
 
 
+def test_app_recarrega_modulo_scr_antigo_no_hot_reload():
+    fonte = _app_source()
+    assert '_EXPECTED_SCR_RELEASE_TAG = "v1.1-cache"' in fonte
+    assert 'getattr(_ifdata_scr_data, "SCR_RELEASE_TAG", None)' in fonte
+    assert "importlib.reload(_ifdata_scr_data)" in fonte
+    assert "_ifdata_cache_package._manager = None" in fonte
+
+
 def test_rota_usa_a_camada_de_consulta_e_a_spec():
     fonte = _scr_route_source()
     assert "from tabs import scr_inadimplencia as scr_spec" in fonte

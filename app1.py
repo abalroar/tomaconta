@@ -93,6 +93,7 @@ def _timer_render_caption(timer_key: str, container, label: str) -> None:
 importlib.invalidate_caches()
 
 _EXPECTED_CACHE_RELEASE_TAG = "v1.1-cache"
+_EXPECTED_SCR_RELEASE_TAG = "v1.1-cache"
 _PEERS_INDIVIDUAL_RELEASE_BASE_URL = (
     f"https://github.com/abalroar/tomaconta/releases/download/{_EXPECTED_CACHE_RELEASE_TAG}"
 )
@@ -243,6 +244,15 @@ if (
     _ifdata_cache_package._manager = None
     _ifdata_cache_package._manager_release_tag = None
 import utils.ifdata_cache as _ifdata_cache_package
+import utils.ifdata_cache.scr_data as _ifdata_scr_data
+
+# O Streamlit Cloud pode reaproveitar módulos de uma revisão anterior durante
+# o hot reload. Recarrega o SCR quando o contrato do release dedicado ainda não
+# existe na classe mantida em memória e descarta o manager que a instanciou.
+if getattr(_ifdata_scr_data, "SCR_RELEASE_TAG", None) != _EXPECTED_SCR_RELEASE_TAG:
+    _ifdata_scr_data = importlib.reload(_ifdata_scr_data)
+    _ifdata_cache_package._manager = None
+    _ifdata_cache_package._manager_release_tag = None
 
 if getattr(_ifdata_cache_package, "_manager_release_tag", None) != _EXPECTED_CACHE_RELEASE_TAG:
     _ifdata_cache_package._manager = None
