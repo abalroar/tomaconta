@@ -345,6 +345,29 @@ def test_cache_expoe_caminhos_e_assets(tmp_path):
     assert set(cache.dimension_paths()) == {"produto", "porte", "geo", "segmento"}
 
 
+def test_cache_scr_usa_release_proprio_quando_release_global_avanca(tmp_path, monkeypatch):
+    monkeypatch.setenv("TOMACONTA_RELEASE_TAG", "v2.0-cache")
+    monkeypatch.delenv("TOMACONTA_SCR_RELEASE_TAG", raising=False)
+
+    cache = S.SCRDataCache(tmp_path)
+
+    assert cache.release_tag == "v1.1-cache"
+    assert cache.github_release_parquet_url == (
+        "https://github.com/abalroar/tomaconta/releases/download/"
+        "v1.1-cache/scr_data_dados.parquet"
+    )
+
+
+def test_cache_scr_permite_override_do_release_proprio(tmp_path, monkeypatch):
+    monkeypatch.setenv("TOMACONTA_RELEASE_TAG", "v2.0-cache")
+    monkeypatch.setenv("TOMACONTA_SCR_RELEASE_TAG", "v3-scr-cache")
+
+    cache = S.SCRDataCache(tmp_path)
+
+    assert cache.release_tag == "v3-scr-cache"
+    assert "/releases/download/v3-scr-cache/" in cache.github_release_parquet_url
+
+
 def test_extra_release_assets_inclui_slices_anuais(tmp_path):
     cache = S.SCRDataCache(tmp_path)
     cache._garantir_estrutura()
