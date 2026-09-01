@@ -1,0 +1,477 @@
+"""Testes da aba "Inadimplência (SCR)".
+
+Duas camadas: a especificação em ``tabs/scr_inadimplencia.py`` (que é testável
+diretamente, por não depender de Streamlit) e o contrato da rota em ``app1.py``
+(verificado por AST, sem executar o app).
+"""
+
+from __future__ import annotations
+
+import ast
+import json
+import textwrap
+from functools import lru_cache
+from pathlib import Path
+
+import pandas as pd
+import pytest
+
+from tabs import scr_inadimplencia as T
+from utils import scr_data_query as Q
+from utils.ifdata_cache import scr_data as S
+
+
+APP_PATH = Path(__file__).resolve().parents[1] / "app1.py"
+SCR_ROUTE_MARKER = 'elif menu == "Inadimplência (SCR)":'
+NEXT_ROUTE_MARKER = 'elif menu == "Taxas de Juros por Produto":'
+
+
+# =============================================================================
+# FIXTURES
+# =============================================================================
+
+def _fato(linhas):
+    df = pd.DataFrame(linhas, columns=S.FACT_COLUMNS)
+    for coluna in S.FACT_DIM_COLUMNS:
+        df[coluna] = df[coluna].fillna("n/a")
+    for coluna in S.METRIC_COLUMNS:
+        df[coluna] = pd.to_numeric(df[coluna], errors="coerce").fillna(0.0)
+    return df
+
+
+def _linha(**kwargs):
+    base = {
+        "data_base": "2026-06",
+        "uf": "SP",
+        "segmento": "Banco",
+        "cliente": "PF",
+        "porte": "Até 1 salário mínimo",
+        "modalidade": "Empréstimos",
+        "submodalidade": "Cheque especial",
+        "numero_de_operacoes": 10,
+        "ops_suprimidas": 0,
+        "carteira_ativa": 1000.0,
+        "vencido_de_15_ate_90_dias": 20.0,
+        "vencido_acima_de_90_dias": 50.0,
+        "carteira_inadimplencia": 100.0,
+        "ativo_problematico": 150.0,
+        "carteira_suprimida": 0.0,
+    }
+    base.update(kwargs)
+    return base
+
+
+@pytest.fixture
+def fato_multiperiodo():
+    linhas = []
+    for periodo in ("2026-04", "2026-05", "2026-06"):
+        linhas += [
+            _linha(data_base=periodo, cliente="PF", porte="Até 1 salário mínimo",
+                   uf="SP", segmento="Banco", submodalidade="Cheque especial",
+                   carteira_ativa=1000.0, carteira_inadimplencia=90.0),
+            _linha(data_base=periodo, cliente="PF", porte="Acima de 20 salários mínimos",
+                   uf="BA", segmento="Fintech", submodalidade="Crédito pessoal - sem consignação em folha de pagam.",
+                   modalidade="Empréstimos", carteira_ativa=4000.0, carteira_inadimplencia=80.0),
+            _linha(data_base=periodo, cliente="PJ", porte="Grande",
+                   uf="RS", segmento="Banco", submodalidade="Capital de giro com teto rotativo",
+                   modalidade="Empréstimos", carteira_ativa=8000.0, carteira_inadimplencia=40.0),
+            _linha(data_base=periodo, cliente="PJ", porte="Micro",
+                   uf="AM", segmento="Financeira", submodalidade="Cartão de crédito - não migrado",
+                   modalidade="Outros créditos", carteira_ativa=2000.0, carteira_inadimplencia=1500.0),
+        ]
+    return _fato(linhas)
+
+
+# =============================================================================
+# ESPECIFICAÇÃO
+# =============================================================================
+
+def test_secoes_cobrem_os_recortes_pedidos():
+    chaves = [secao.key for secao in T.SECOES]
+    assert chaves == ["panorama", "produto", "renda", "regiao", "segmento"]
+
+
+def test_secoes_tem_chave_unica_e_rotulo():
+    chaves = [secao.key for secao in T.SECOES]
+    assert len(chaves) == len(set(chaves))
+    assert all(secao.label and secao.resumo for secao in T.SECOES)
+
+
+def test_apenas_regiao_e_segmento_exigem_o_grao_completo():
+    # O resumo por região não guarda UF nem segmento; as demais seções têm que
+    # funcionar no modo "série completa".
+    exigem = {secao.key for secao in T.SECOES if secao.exige_detalhe}
+    assert exigem == {"regiao", "segmento"}
+
+
+def test_descrever_secoes_expoe_a_tabela():
+    tabela = T.descrever_secoes()
+    assert len(tabela) == len(T.SECOES)
+    assert set(tabela.columns) >= {"key", "label", "resumo", "exige_detalhe"}
+
+
+def test_janela_padrao_esta_entre_as_disponiveis():
+    assert T.JANELA_PADRAO_MESES in T.JANELAS_DISPONIVEIS
+
+
+def test_tabela_criterios_pj_cobre_os_quatro_portes():
+    tabela = T.tabela_criterios_pj()
+    assert tabela["porte"].tolist() == S.PORTE_PJ_ORDEM
+    assert all(tabela["criterio"].str.len() > 20)
+    # Os limites da lei precisam estar visíveis na aba, não só no código.
+    texto = " ".join(tabela["criterio"])
+    for limite in ("360 mil", "4,8 mi", "300 mi", "240 mi"):
+        assert limite in texto
+
+
+# =============================================================================
+# PANORAMA
+# =============================================================================
+
+def test_panorama_traz_kpis_serie_e_composicao(fato_multiperiodo):
+    resultado = T.construir_panorama(fato_multiperiodo)
+    assert set(resultado) == {"kpis", "serie", "composicao", "quebras"}
+    assert not resultado["kpis"].empty
+    assert set(resultado["serie"]["recorte"].astype(str)) == {"Total", "PF", "PJ"}
+    assert list(resultado["composicao"].columns) == [
+        "data_base", "A vencer", "Vencido 15–90d", "Vencido > 90d"
+    ]
+
+
+def test_panorama_composicao_fecha_com_a_carteira(fato_multiperiodo):
+    comp = T.construir_panorama(fato_multiperiodo)["composicao"]
+    soma = comp[["A vencer", "Vencido 15–90d", "Vencido > 90d"]].sum(axis=1)
+    carteira = (
+        fato_multiperiodo.groupby("data_base", observed=True)["carteira_ativa"].sum().values
+    )
+    assert soma.values == pytest.approx(carteira)
+
+
+# =============================================================================
+# PRODUTO
+# =============================================================================
+
+def test_produto_esconde_legado_do_ranking_mas_avisa(fato_multiperiodo):
+    resultado = T.construir_por_produto(fato_multiperiodo, carteira_minima_rs_mil=0)
+    produtos = resultado["ranking"]["submodalidade"].astype(str).tolist()
+    assert "Cartão de crédito - não migrado" not in produtos
+    assert resultado["legado_ocultado"] == ["Cartão de crédito - não migrado"]
+
+
+def test_produto_alterna_entre_modalidade_e_submodalidade(fato_multiperiodo):
+    submod = T.construir_por_produto(fato_multiperiodo, nivel="submodalidade", carteira_minima_rs_mil=0)
+    mod = T.construir_por_produto(fato_multiperiodo, nivel="modalidade", carteira_minima_rs_mil=0)
+    assert "submodalidade" in submod["ranking"].columns
+    assert "modalidade" in mod["ranking"].columns
+    assert len(mod["ranking"]) < len(submod["ranking"])
+
+
+def test_produto_rejeita_nivel_invalido(fato_multiperiodo):
+    with pytest.raises(ValueError):
+        T.construir_por_produto(fato_multiperiodo, nivel="cnae")
+
+
+def test_produto_series_seguem_os_destaques(fato_multiperiodo):
+    resultado = T.construir_por_produto(
+        fato_multiperiodo, carteira_minima_rs_mil=0, destaques=["Cheque especial"]
+    )
+    assert set(resultado["series"]["submodalidade"].astype(str)) == {"Cheque especial"}
+
+
+# =============================================================================
+# RENDA / PORTE
+# =============================================================================
+
+def test_porte_pf_ordena_pela_renda_nao_pelo_valor(fato_multiperiodo):
+    resultado = T.construir_por_porte(fato_multiperiodo, cliente="PF")
+    ordem_saida = resultado["barras"]["porte"].astype(str).tolist()
+    esperada = [p for p in Q.ordem_portes("PF") if p in ordem_saida]
+    assert ordem_saida == esperada
+
+
+def test_porte_pf_rotula_faixas_em_reais_quando_ha_salario_minimo(fato_multiperiodo):
+    com_sm = T.construir_por_porte(fato_multiperiodo, cliente="PF", salario_minimo=1518.0)
+    rotulos = dict(zip(
+        com_sm["barras"]["porte"].astype(str), com_sm["barras"]["rotulo_faixa"]
+    ))
+    assert rotulos["Até 1 salário mínimo"] == "até R$ 1.518"
+
+
+def test_porte_pf_cai_para_salarios_minimos_sem_a_serie(fato_multiperiodo):
+    sem_sm = T.construir_por_porte(fato_multiperiodo, cliente="PF", salario_minimo=None)
+    rotulos = dict(zip(
+        sem_sm["barras"]["porte"].astype(str), sem_sm["barras"]["rotulo_faixa"]
+    ))
+    assert rotulos["Até 1 salário mínimo"] == "até 1 SM"
+
+
+def test_porte_pj_traz_o_card_de_criterios(fato_multiperiodo):
+    pj = T.construir_por_porte(fato_multiperiodo, cliente="PJ")
+    assert pj["criterios_pj"] is not None
+    assert T.construir_por_porte(fato_multiperiodo, cliente="PF")["criterios_pj"] is None
+
+
+def test_porte_nunca_mistura_pf_e_pj(fato_multiperiodo):
+    pf = T.construir_por_porte(fato_multiperiodo, cliente="PF")["barras"]
+    pj = T.construir_por_porte(fato_multiperiodo, cliente="PJ")["barras"]
+    assert set(pf["porte"].astype(str)).isdisjoint(set(pj["porte"].astype(str)))
+
+
+def test_porte_indexado_normaliza_cada_serie_em_100(fato_multiperiodo):
+    resultado = T.construir_por_porte(fato_multiperiodo, cliente="PF", indexar_series=True)
+    series = resultado["series"]
+    assert "valor_indexado" in series.columns
+    primeiros = series.dropna(subset=["valor_indexado"]).groupby(
+        "porte", observed=True
+    )["valor_indexado"].first()
+    assert all(valor == pytest.approx(100.0) for valor in primeiros)
+
+
+# =============================================================================
+# REGIÃO
+# =============================================================================
+
+def test_regiao_monta_mapa_com_codigo_ibge(fato_multiperiodo):
+    resultado = T.construir_por_regiao(fato_multiperiodo)
+    mapa = resultado["mapa"]
+    assert {"uf", "uf_nome", "regiao", "codigo_ibge"} <= set(mapa.columns)
+    sp = mapa[mapa["uf"] == "SP"].iloc[0]
+    assert sp["codigo_ibge"] == "35"
+    assert sp["regiao"] == "Sudeste"
+
+
+def test_regiao_ancora_escala_na_media_brasil(fato_multiperiodo):
+    resultado = T.construir_por_regiao(fato_multiperiodo)
+    jun = Q.filtrar(fato_multiperiodo, data_base_inicial="2026-06", data_base_final="2026-06")
+    esperado = float(Q.agregar(jun, "inadimplencia")["valor"].iloc[0])
+    assert resultado["media_brasil"] == pytest.approx(esperado)
+
+
+def test_regiao_series_seguem_ordem_norte_sul(fato_multiperiodo):
+    series = T.construir_por_regiao(fato_multiperiodo)["series"]
+    ordem = series["regiao"].astype(str).drop_duplicates().tolist()
+    esperada = [r for r in S.ORDEM_REGIOES if r in ordem]
+    assert ordem == esperada
+
+
+def test_regiao_rejeita_nivel_invalido(fato_multiperiodo):
+    with pytest.raises(ValueError):
+        T.construir_por_regiao(fato_multiperiodo, nivel="municipio")
+
+
+# =============================================================================
+# GEOJSON
+# =============================================================================
+
+def test_geojson_das_ufs_esta_versionado():
+    assert T.GEOJSON_UF_PATH.exists(), (
+        "malha de UFs ausente; rebaixe de "
+        "https://servicodados.ibge.gov.br/api/v3/malhas/paises/BR"
+        "?formato=application/vnd.geo+json&qualidade=minima&intrarregiao=UF"
+    )
+
+
+def test_geojson_casa_com_os_codigos_ibge_da_dimensao():
+    geojson = T.carregar_geojson_uf()
+    assert geojson is not None
+    codigos_malha = {
+        feature["properties"]["codarea"] for feature in geojson["features"]
+    }
+    codigos_dim = {f"{codigo}" for codigo in S.UF_IBGE.values()}
+    assert codigos_malha == codigos_dim
+
+
+def test_geojson_ausente_nao_quebra(monkeypatch, tmp_path):
+    monkeypatch.setattr(T, "GEOJSON_UF_PATH", tmp_path / "nao_existe.geojson")
+    assert T.carregar_geojson_uf() is None
+
+
+# =============================================================================
+# SEGMENTO
+# =============================================================================
+
+def test_segmento_usa_a_vigencia_da_dimensao(fato_multiperiodo):
+    dim = pd.DataFrame([
+        {"segmento": "Fintech", "primeira_data_base": "2019-05"},
+        {"segmento": "Banco", "primeira_data_base": "2012-07"},
+    ])
+    resultado = T.construir_por_segmento(fato_multiperiodo, dim_segmento=dim)
+    vigencia = dict(zip(
+        resultado["vigencia"]["segmento"], resultado["vigencia"]["primeira_data_base"]
+    ))
+    assert vigencia["Fintech"] == "2019-05"
+
+
+def test_segmento_deriva_vigencia_do_fato_sem_dimensao(fato_multiperiodo):
+    resultado = T.construir_por_segmento(fato_multiperiodo, dim_segmento=None)
+    assert set(resultado["vigencia"]["segmento"]) == set(
+        fato_multiperiodo["segmento"].astype(str).unique()
+    )
+
+
+def test_segmento_ordena_bancos_antes_de_outros(fato_multiperiodo):
+    barras = T.construir_por_segmento(fato_multiperiodo)["barras"]
+    ordem = barras["segmento"].astype(str).tolist()
+    esperada = [s for s in S.ORDEM_SEGMENTOS if s in ordem]
+    assert ordem == esperada
+
+
+# =============================================================================
+# RODAPÉ
+# =============================================================================
+
+def test_rodape_reporta_supressao_e_notas(fato_multiperiodo):
+    rodape = T.rodape(fato_multiperiodo)
+    assert rodape["primeira_data_base_disponivel"] == S.PRIMEIRA_DATA_BASE
+    assert "supressao" in rodape
+    assert any("CEP" in nota for nota in rodape["notas"])
+    assert any("IF.data" in nota for nota in rodape["notas"])
+    assert all(fonte["url"].startswith("https://") for fonte in rodape["fontes"])
+
+
+def test_construtores_aceitam_frame_vazio():
+    vazio = _fato([]).iloc[0:0]
+    assert T.construir_panorama(vazio)["kpis"].empty
+    assert T.construir_por_produto(vazio, carteira_minima_rs_mil=0)["ranking"].empty
+    assert T.construir_por_porte(vazio, cliente="PF")["barras"].empty
+    assert T.construir_por_regiao(vazio)["mapa"].empty
+    assert T.construir_por_segmento(vazio)["barras"].empty
+
+
+# =============================================================================
+# ROTA EM app1.py
+# =============================================================================
+
+@lru_cache(maxsize=1)
+def _app_source() -> str:
+    return APP_PATH.read_text(encoding="utf-8")
+
+
+@lru_cache(maxsize=1)
+def _scr_route_source() -> str:
+    source = _app_source()
+    start = source.index(SCR_ROUTE_MARKER)
+    end = source.index(NEXT_ROUTE_MARKER, start)
+    return source[start:end]
+
+
+@lru_cache(maxsize=1)
+def _scr_route_tree() -> ast.Module:
+    # A rota começa com um ``elif``; o corpo é um módulo válido depois de tirar
+    # a primeira linha e a indentação.
+    body = _scr_route_source().split("\n", 1)[1]
+    return ast.parse(textwrap.dedent(body))
+
+
+def test_rota_existe_e_e_unica():
+    assert _app_source().count(SCR_ROUTE_MARKER) == 1
+
+
+def test_menu_registra_a_aba():
+    fonte = _app_source()
+    assert f'"{T.MENU_LABEL}",' in fonte
+    assert f'"{T.MENU_LABEL}": ["{T.CACHE_NAME}"],' in fonte
+
+
+def test_aba_declarada_em_atualizar_base():
+    # A aba "Atualizar Base" tem que oferecer o cache novo, senão ele nunca é
+    # atualizado pela UI.
+    fonte = _app_source()
+    inicio = fonte.index('"Atualizar Base": [')
+    fim = fonte.index("]", inicio)
+    assert f'"{T.CACHE_NAME}"' in fonte[inicio:fim]
+
+
+def test_rota_usa_a_camada_de_consulta_e_a_spec():
+    fonte = _scr_route_source()
+    assert "from tabs import scr_inadimplencia as scr_spec" in fonte
+    assert "from utils import scr_data_query as scr_q" in fonte
+
+
+def test_rota_nunca_tira_media_de_percentual():
+    # A regra da aba é razão de somas. Qualquer `.mean()` aqui é suspeito.
+    for node in ast.walk(_scr_route_tree()):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            assert node.func.attr not in {"mean", "median"}, (
+                "a rota não pode tirar média de taxas: use scr_data_query.agregar"
+            )
+
+
+def test_rota_cacheia_o_carregamento_pesado():
+    fonte = _scr_route_source()
+    assert "@st.cache_data" in fonte
+    # As duas fontes de dados (slices anuais e resumo) precisam ser cacheadas.
+    assert "def _scr_detalhe(" in fonte
+    assert "def _scr_resumo(" in fonte
+
+
+def test_rota_renderiza_todas_as_secoes():
+    fonte = _scr_route_source()
+    for secao in T.SECOES:
+        assert f'"{secao.key}"' in fonte, f"seção {secao.key} não é renderizada"
+
+
+def test_rota_protege_secoes_que_exigem_grao_completo():
+    fonte = _scr_route_source()
+    # As seções de UF/segmento só entram quando há detalhe carregado.
+    assert "exige_detalhe" in fonte
+    assert 'if "regiao" in _scr_por_key:' in fonte
+    assert 'if "segmento" in _scr_por_key:' in fonte
+
+
+def test_rota_exibe_rodape_de_qualidade():
+    fonte = _scr_route_source()
+    assert "scr_spec.rodape(" in fonte
+    assert "share_carteira" in fonte
+    assert "download_button" in fonte
+
+
+def test_rota_marca_quebras_de_serie():
+    fonte = _scr_route_source()
+    assert "_scr_marcar_quebras" in fonte
+    assert "_scr_avisar_quebras" in fonte
+
+
+# =============================================================================
+# APOIO À RENDERIZAÇÃO
+# =============================================================================
+
+@pytest.mark.parametrize(
+    "delta,formato,esperado",
+    [
+        (-0.0021, "percentual", "-0,21 p.p. m/m"),
+        (0.0089, "percentual", "+0,89 p.p. m/m"),
+        (0.10308, "monetario", "+10,3% m/m"),
+        (None, "percentual", None),
+    ],
+)
+def test_formatar_delta_kpi(delta, formato, esperado):
+    # A vírgula decimal não pode comer o ponto de "p.p.".
+    assert T.formatar_delta_kpi(delta, formato) == esperado
+
+
+def test_marcar_quebras_funciona_em_eixo_categorico():
+    # As data-bases são strings ("2025-01"), então o eixo é categórico. O
+    # `add_vline` do Plotly com `annotation_text` estoura nesse caso ao tentar
+    # tirar a média de x0 e x1 — a anotação tem que ir separada.
+    px = pytest.importorskip("plotly.express")
+    fig = px.line(
+        pd.DataFrame({"data_base": ["2024-12", "2025-01", "2025-02"], "valor": [1, 2, 3]}),
+        x="data_base",
+        y="valor",
+    )
+    quebras = Q.quebras_no_intervalo("2024-12", "2025-02", "ativo_problematico")
+    assert quebras, "a quebra de jan/2025 deveria estar no intervalo"
+
+    T.marcar_quebras(fig, quebras)
+
+    assert len(fig.layout.shapes) == len(quebras)
+    assert len(fig.layout.annotations) == len(quebras)
+    assert fig.layout.annotations[0].text == "2025-01"
+
+
+def test_marcar_quebras_sem_quebras_nao_altera_figura():
+    px = pytest.importorskip("plotly.express")
+    fig = px.line(pd.DataFrame({"data_base": ["2026-06"], "valor": [1]}), x="data_base", y="valor")
+    T.marcar_quebras(fig, [])
+    assert not fig.layout.shapes

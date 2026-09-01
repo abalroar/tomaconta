@@ -24,6 +24,7 @@ from utils.ifdata_cache import (
     materialize_critical_screens_cache,
 )
 from utils.ifdata_cache.derived_metrics import materialize_derived_metrics_cache
+from utils.ifdata_cache.scr_data import PRIMEIRO_ANO as SCR_PRIMEIRO_ANO
 
 
 DEFAULT_TIPOS = [
@@ -101,6 +102,16 @@ def main() -> int:
     parser.add_argument("--force-refresh", action="store_true", help="forçar download (bloprudencial)")
 
     parser.add_argument(
+        "--scr-ano-inicial",
+        type=int,
+        help="ano inicial da ingestão do scr_data (default: 2012, início da série)",
+    )
+    parser.add_argument(
+        "--scr-ano-final",
+        type=int,
+        help="ano final da ingestão do scr_data (default: ano corrente)",
+    )
+    parser.add_argument(
         "--spb-datasets",
         help=(
             "lista de datasets SPB separados por vírgula (para spb_meios_pagamento); "
@@ -143,6 +154,28 @@ def main() -> int:
                 datasets=datasets,
                 overwrite=(args.modo == "overwrite"),
                 progress_callback=lambda p, m: _print(f"[{p:.0%}] {m}"),
+                log_callback=_print,
+            )
+            if result.sucesso:
+                _print(f"OK: {result.mensagem}")
+                tipos_atualizados.add(tipo)
+            else:
+                _print(f"ERRO: {result.mensagem}")
+                return 1
+            continue
+
+        if tipo == "scr_data":
+            cache = manager.get_cache("scr_data")
+            ano_inicial = args.scr_ano_inicial or SCR_PRIMEIRO_ANO
+            ano_final = args.scr_ano_final
+            _print(
+                f"==> Atualizando cache 'scr_data' (anos {ano_inicial}-{ano_final or 'corrente'}), "
+                f"modo={args.modo}"
+            )
+            result = cache.materialize_history(
+                ano_inicial=ano_inicial,
+                ano_final=ano_final,
+                overwrite=(args.modo == "overwrite"),
                 log_callback=_print,
             )
             if result.sucesso:
