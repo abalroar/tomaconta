@@ -24231,6 +24231,7 @@ elif menu == "Inadimplência (SCR)":
     # =========================================================================
     from tabs import scr_inadimplencia as scr_spec
     from utils import scr_data_query as scr_q
+    from utils import scr_pptx_export as scr_pptx
 
     SCR_PLOTLY_CONFIG = {
         "displayModeBar": "hover",
@@ -24453,6 +24454,243 @@ elif menu == "Inadimplência (SCR)":
     ]
     _scr_abas = st.tabs([secao.label for secao in _scr_abas_visiveis])
     _scr_por_key = dict(zip([s.key for s in _scr_abas_visiveis], _scr_abas))
+
+    # --- Painéis ------------------------------------------------------
+    with _scr_por_key["paineis"]:
+        st.caption(scr_spec.SECOES_POR_KEY["paineis"].resumo)
+
+        _pn_c1, _pn_c2, _pn_c3 = st.columns([1.5, 1.1, 1.0])
+        with _pn_c1:
+            _pn_quebras = [
+                q for q in scr_spec.QUEBRAS
+                if (_scr_tem_detalhe or not q.exige_detalhe)
+            ]
+            _pn_quebra_key = st.selectbox(
+                "quebra das linhas",
+                [q.key for q in _pn_quebras],
+                index=0,
+                format_func=lambda k: scr_spec.QUEBRAS_POR_KEY[k].label,
+                key="scr_pn_quebra",
+            )
+        with _pn_c2:
+            _pn_nivel = st.radio(
+                "nível de produto",
+                ["submodalidade", "modalidade"],
+                horizontal=True,
+                key="scr_pn_nivel",
+            )
+        with _pn_c3:
+            _pn_total = st.toggle(
+                "linha `Todos`",
+                value=True,
+                key="scr_pn_total",
+                help="O agregado do produto sem recorte, como referência.",
+            )
+            _pn_zero = st.toggle(
+                "eixo a partir de zero",
+                value=True,
+                key="scr_pn_zero",
+                help=(
+                    "Ligado, os painéis ficam comparáveis entre si e a magnitude "
+                    "é honesta. Desligado, cada painel amplia a própria variação."
+                ),
+            )
+
+        _pn_spec = scr_spec.QUEBRAS_POR_KEY[_pn_quebra_key]
+        _pn_cliente = _pn_spec.exige_cliente or _scr_cliente_filtro
+
+        # Produtos candidatos, ordenados por carteira no último período.
+        _pn_base_prod = scr_q.filtrar(
+            _scr_df, cliente=_pn_cliente,
+            data_base_inicial=_scr_data_base, data_base_final=_scr_data_base,
+        )
+        _pn_ranking_prod = scr_q.ranking(
+            _pn_base_prod, _pn_nivel, "carteira_ativa", carteira_minima_rs_mil=0
+        )
+        _pn_opcoes = _pn_ranking_prod[_pn_nivel].astype(str).tolist()
+        _pn_default = _pn_opcoes[:scr_spec.PAINEIS_POR_SLIDE]
+
+        _pn_produtos = st.multiselect(
+            "produtos (um painel por produto, 4 por slide no PPTX)",
+            _pn_opcoes,
+            default=_pn_default,
+            key="scr_pn_produtos",
+            help="Ordenados por tamanho de carteira no período final.",
+        )
+
+        _pn_faixas_disp = scr_spec.faixas_padrao(_pn_quebra_key)
+        _pn_faixas = None
+        if _pn_faixas_disp is not None:
+            _pn_todas = (
+                scr_q.ordem_portes(_pn_cliente or "PF")
+                if _pn_spec.coluna == "porte"
+                else list(_pn_faixas_disp)
+            )
+            _pn_faixas = st.multiselect(
+                _pn_spec.label.lower(),
+                _pn_todas,
+                default=_pn_faixas_disp,
+                key=f"scr_pn_faixas_{_pn_quebra_key}",
+                format_func=lambda v: scr_spec.rotulo_serie(v, _pn_spec),
+            )
+
+        if not _pn_produtos:
+            st.info("Escolha ao menos um produto para montar os painéis.")
+        else:
+            _pn_paineis = scr_spec.construir_paineis(
+                _scr_df,
+                produtos=_pn_produtos,
+                nivel_produto=_pn_nivel,
+                quebra=_pn_quebra_key,
+                metrica=_scr_metrica,
+                cliente=_pn_cliente,
+                faixas=_pn_faixas,
+                incluir_total=_pn_total,
+            )
+
+            if not _pn_paineis:
+                st.warning("Nenhum painel com dados no recorte selecionado.")
+            else:
+                for _pn_aviso in scr_spec.avaliar_legibilidade(_pn_paineis):
+                    _pn_texto = f"**{_pn_aviso['painel']}** — {_pn_aviso['mensagem']}"
+                    if _pn_aviso["nivel"] == "alerta":
+                        st.warning(_pn_texto, icon="⚠️")
+                    else:
+                        st.caption(f"ℹ️ {_pn_texto}")
+
+                def _pn_figura(painel):
+                    """Um quadrante em Plotly, no mesmo desenho do PPTX."""
+                    fig = go.Figure()
+                    _tab = painel.series.copy()
+                    _tab["data_base"] = _tab["data_base"].astype(str)
+                    _tab["serie"] = _tab["serie"].astype(str)
+                    _tab = _tab.pivot_table(
+                        index="data_base", columns="serie", values="valor",
+                        aggfunc="first", observed=True,
+                    ).sort_index()
+                    _cats = [scr_pptx.rotulo_mes(i) for i in _tab.index]
+
+                    for _nome in painel.ordem_series:
+                        if _nome not in _tab.columns:
+                            continue
+                        _serie = _tab[_nome]
+                        _validos = _serie.dropna()
+                        _texto = [
+                            scr_spec.formatar_percentual_2casas(v)
+                            if (_validos.size and i == _serie.index.get_loc(_validos.index[-1]))
+                            else ""
+                            for i, v in enumerate(_serie)
+                        ]
+                        _eh_total = _nome in painel.tracejadas
+                        fig.add_trace(go.Scatter(
+                            x=_cats,
+                            y=_serie.values,
+                            name=scr_spec.rotulo_serie(_nome, _pn_spec),
+                            mode="lines+text",
+                            text=_texto,
+                            textposition="middle right",
+                            textfont=dict(
+                                size=10, color=painel.cores.get(_nome),
+                                family="Inter, Helvetica, Arial, sans-serif",
+                            ),
+                            line=dict(
+                                color=painel.cores.get(_nome),
+                                width=2.6 if _eh_total else 2.0,
+                                dash="dash" if _eh_total else "solid",
+                                shape="linear",
+                            ),
+                            hovertemplate="%{x}<br>%{y:.2%}<extra>%{fullData.name}</extra>",
+                            connectgaps=False,
+                        ))
+
+                    fig.update_layout(
+                        height=340,
+                        margin=dict(l=8, r=64, t=6, b=4),
+                        plot_bgcolor="#FFFFFF",
+                        paper_bgcolor="#FFFFFF",
+                        font=dict(
+                            family="Inter, Helvetica, Arial, sans-serif",
+                            size=11, color=scr_spec.COR_TEXTO,
+                        ),
+                        legend=dict(
+                            orientation="h", yanchor="top", y=-0.16, x=0,
+                            font=dict(size=10), title_text="",
+                        ),
+                        hovermode="x unified",
+                        # Vírgula decimal, ponto de milhar: sem isso o eixo sai
+                        # "3.50%" num material que é lido em português.
+                        separators=",.",
+                    )
+                    fig.update_yaxes(
+                        tickformat=".2%", showgrid=True,
+                        rangemode="tozero" if _pn_zero else "normal",
+                        gridcolor=scr_spec.COR_GRADE, gridwidth=1,
+                        zeroline=False, linecolor=scr_spec.COR_GRADE,
+                        ticks="", title_text="",
+                    )
+                    fig.update_xaxes(
+                        showgrid=False, linecolor=scr_spec.COR_GRADE,
+                        ticks="", title_text="", tickangle=-90,
+                        nticks=10, automargin=True,
+                    )
+                    return fig
+
+                for _pn_inicio in range(0, len(_pn_paineis), 2):
+                    _pn_cols = st.columns(2)
+                    for _pn_col, _pn_p in zip(_pn_cols, _pn_paineis[_pn_inicio:_pn_inicio + 2]):
+                        with _pn_col:
+                            st.markdown(
+                                f"<div style='font-size:1.02rem;font-weight:600;"
+                                f"color:{scr_spec.COR_PRETO};margin-bottom:.1rem'>"
+                                f"{_pn_p.titulo}</div>"
+                                f"<div style='font-size:.85rem;color:{scr_spec.COR_TEXTO}'>"
+                                f"{_pn_p.subtitulo}</div>"
+                                f"<div style='font-size:.72rem;color:#8F8F8F;"
+                                f"margin-bottom:.25rem'>{_pn_p.fonte}</div>",
+                                unsafe_allow_html=True,
+                            )
+                            st.plotly_chart(
+                                _pn_figura(_pn_p),
+                                use_container_width=True,
+                                config=SCR_PLOTLY_CONFIG,
+                            )
+
+                st.markdown("---")
+                _pn_ec1, _pn_ec2 = st.columns([1, 2])
+                with _pn_ec1:
+                    try:
+                        _pn_blob, _pn_meta = scr_pptx.exportar_paineis_pptx(
+                            _pn_paineis,
+                            rotulo_serie_fn=lambda n: scr_spec.rotulo_serie(n, _pn_spec),
+                            titulo_deck=(
+                                f"{scr_q.METRICAS[_scr_metrica].rotulo} · "
+                                f"{_pn_spec.subtitulo} · data-base {_scr_data_base}"
+                            ),
+                        )
+                    except Exception as _pn_exc:  # noqa: BLE001
+                        _pn_blob, _pn_meta = None, None
+                        st.error(f"Falha ao montar o PPTX: {_pn_exc}")
+                    if _pn_blob:
+                        st.download_button(
+                            "baixar PPTX (4 painéis por slide)",
+                            data=_pn_blob,
+                            file_name=f"scr_paineis_{_scr_data_base}.pptx",
+                            mime=(
+                                "application/vnd.openxmlformats-officedocument"
+                                ".presentationml.presentation"
+                            ),
+                            key="scr_pn_pptx",
+                            type="primary",
+                        )
+                with _pn_ec2:
+                    if _pn_meta:
+                        st.caption(
+                            f"{_pn_meta['paineis']} painéis em {_pn_meta['slides']} slide(s), "
+                            f"{_pn_meta['paineis_por_slide']} por slide em quadrantes iguais. "
+                            "Gráficos nativos do Office (editáveis, com os dados embutidos), "
+                            f"eixo e rótulos em `{_pn_meta['formato_percentual']}` e rótulo "
+                            "apenas no último período de cada série."
+                        )
 
     # --- Panorama -----------------------------------------------------
     with _scr_por_key["panorama"]:

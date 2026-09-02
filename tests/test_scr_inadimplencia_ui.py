@@ -88,7 +88,9 @@ def fato_multiperiodo():
 
 def test_secoes_cobrem_os_recortes_pedidos():
     chaves = [secao.key for secao in T.SECOES]
-    assert chaves == ["panorama", "produto", "renda", "regiao", "segmento"]
+    assert chaves == ["paineis", "panorama", "produto", "renda", "regiao", "segmento"]
+    # "Painéis" vem primeiro: é a visão de trabalho da aba.
+    assert chaves[0] == "paineis"
 
 
 def test_secoes_tem_chave_unica_e_rotulo():
@@ -483,3 +485,151 @@ def test_marcar_quebras_sem_quebras_nao_altera_figura():
     fig = px.line(pd.DataFrame({"data_base": ["2026-06"], "valor": [1]}), x="data_base", y="valor")
     T.marcar_quebras(fig, [])
     assert not fig.layout.shapes
+
+
+# =============================================================================
+# PAINÉIS
+# =============================================================================
+
+def _fato_paineis():
+    """Dois produtos, três faixas de renda PF, quatro data-bases."""
+    linhas = []
+    for i, periodo in enumerate(("2026-03", "2026-04", "2026-05", "2026-06")):
+        for produto, base in (("Cheque especial", 0.10), ("Custeio", 0.04)):
+            for faixa, mult in (
+                ("Até 1 salário mínimo", 1.6),
+                ("Mais de 1 a 2 salários mínimos", 1.2),
+                ("Acima de 20 salários mínimos", 0.5),
+            ):
+                linhas.append(_linha(
+                    data_base=periodo, cliente="PF", porte=faixa, uf="SP",
+                    submodalidade=produto, modalidade="Empréstimos",
+                    carteira_ativa=1000.0,
+                    carteira_inadimplencia=1000.0 * base * mult * (1 + i * 0.05),
+                ))
+    return _fato(linhas)
+
+
+def test_paineis_um_por_produto():
+    paineis = T.construir_paineis(
+        _fato_paineis(), produtos=["Cheque especial", "Custeio"], quebra="renda"
+    )
+    assert [p.produto for p in paineis] == ["Cheque especial", "Custeio"]
+    assert all("Inad (> 90 d)" in p.titulo for p in paineis)
+    assert all(p.subtitulo == "Por Faixa Salário Mínimo - % carteira" for p in paineis)
+
+
+def test_paineis_incluem_linha_todos_como_referencia():
+    painel = T.construir_paineis(
+        _fato_paineis(), produtos=["Cheque especial"], quebra="renda", incluir_total=True
+    )[0]
+    assert T.SERIE_TOTAL in painel.ordem_series
+    assert painel.ordem_series[-1] == T.SERIE_TOTAL   # sempre por último
+    assert painel.cores[T.SERIE_TOTAL] == T.COR_PRETO
+    assert T.SERIE_TOTAL in painel.tracejadas
+
+    sem_total = T.construir_paineis(
+        _fato_paineis(), produtos=["Cheque especial"], quebra="renda", incluir_total=False
+    )[0]
+    assert T.SERIE_TOTAL not in sem_total.ordem_series
+
+
+def test_paineis_ordenam_faixas_pela_renda_nao_pelo_valor():
+    painel = T.construir_paineis(
+        _fato_paineis(), produtos=["Cheque especial"], quebra="renda", incluir_total=False
+    )[0]
+    esperada = [p for p in Q.ordem_portes("PF") if p in painel.ordem_series]
+    assert list(painel.ordem_series) == esperada
+
+
+def test_paineis_usam_rampa_ordenada_na_renda():
+    painel = T.construir_paineis(
+        _fato_paineis(), produtos=["Cheque especial"], quebra="renda", incluir_total=False
+    )[0]
+    cores = [painel.cores[s] for s in painel.ordem_series]
+    # Dimensão ordenada usa a rampa, e a faixa mais baixa recebe o laranja Itaú.
+    assert cores[0] == T.COR_LARANJA
+    assert len(set(cores)) == len(cores), "cores repetidas tornam as faixas indistinguíveis"
+    assert all(c in T.RAMPA_ORDENADA for c in cores)
+
+
+def test_paleta_e_so_laranja_preto_e_cinza():
+    # Itaú BBA: nada de azul, verde ou vermelho na paleta institucional.
+    for cor in [*T.RAMPA_ORDENADA, *T.PALETA_CATEGORICA, T.COR_TOTAL]:
+        r, g, b = (int(cor[i:i + 2], 16) for i in (1, 3, 5))
+        cinza = abs(r - g) < 12 and abs(g - b) < 12
+        laranja = r > g > b and r > 120
+        assert cinza or laranja, f"{cor} não é cinza nem laranja"
+
+
+def test_paineis_rejeitam_quebra_desconhecida():
+    with pytest.raises(ValueError):
+        T.construir_paineis(_fato_paineis(), produtos=["Cheque especial"], quebra="cnae")
+
+
+def test_faixas_padrao_da_renda_sao_as_sete_principais():
+    faixas = T.faixas_padrao("renda")
+    assert len(faixas) == 7
+    assert "Sem rendimento" not in faixas          # pouca carteira, rouba cor
+    assert S.PORTE_INDISPONIVEL not in faixas
+
+
+def test_rotulo_serie_encurta_faixa_de_renda():
+    quebra = T.QUEBRAS_POR_KEY["renda"]
+    assert T.rotulo_serie("Mais de 1 a 2 salários mínimos", quebra) == "1 a 2"
+    assert T.rotulo_serie("Acima de 20 salários mínimos", quebra) == "Acima 20"
+    # Dimensão sem dicionário de apelidos passa direto.
+    assert T.rotulo_serie("Nordeste", T.QUEBRAS_POR_KEY["regiao"]) == "Nordeste"
+
+
+@pytest.mark.parametrize("valor,esperado", [
+    (0.0463, "4,63%"), (0.1642, "16,42%"), (0.0, "0,00%"), (None, "—"),
+])
+def test_formatar_percentual_2casas(valor, esperado):
+    assert T.formatar_percentual_2casas(valor) == esperado
+
+
+# =============================================================================
+# LEGIBILIDADE
+# =============================================================================
+
+def test_legibilidade_alerta_com_series_demais():
+    linhas = []
+    for faixa in [*Q.ordem_portes("PF")]:
+        linhas.append(_linha(porte=faixa, submodalidade="Cheque especial", cliente="PF"))
+    paineis = T.construir_paineis(
+        _fato(linhas), produtos=["Cheque especial"], quebra="renda",
+        faixas=Q.ordem_portes("PF"), incluir_total=True,
+    )
+    avisos = T.avaliar_legibilidade(paineis)
+    assert any("linhas no mesmo painel" in a["mensagem"] for a in avisos)
+    assert any(a["nivel"] == "alerta" for a in avisos)
+
+
+def test_legibilidade_detecta_rotulos_colados():
+    # Duas faixas terminando a 0,01 p.p. uma da outra.
+    linhas = [
+        _linha(porte="Até 1 salário mínimo", cliente="PF", submodalidade="X",
+               carteira_ativa=1000.0, carteira_inadimplencia=50.0),
+        _linha(porte="Acima de 20 salários mínimos", cliente="PF", submodalidade="X",
+               carteira_ativa=1000.0, carteira_inadimplencia=50.1),
+    ]
+    painel = T.construir_paineis(
+        _fato(linhas), produtos=["X"], quebra="renda", incluir_total=False
+    )[0]
+    assert T.rotulos_sobrepostos(painel)
+
+
+def test_legibilidade_avisa_carteira_pequena():
+    linhas = [_linha(porte="Até 1 salário mínimo", cliente="PF", submodalidade="Nicho",
+                     carteira_ativa=100.0, carteira_inadimplencia=10.0)]
+    paineis = T.construir_paineis(_fato(linhas), produtos=["Nicho"], quebra="renda")
+    assert any("base pequena" in a["mensagem"] for a in T.avaliar_legibilidade(paineis))
+
+
+def test_legibilidade_nao_reclama_de_painel_saudavel():
+    paineis = T.construir_paineis(
+        _fato_paineis(), produtos=["Cheque especial"], quebra="renda", incluir_total=False
+    )
+    alertas = [a for a in T.avaliar_legibilidade(paineis) if a["nivel"] == "alerta"]
+    assert not alertas
