@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 from datetime import date
+from io import BytesIO
 from pathlib import Path
 
 import pandas as pd
@@ -184,6 +185,36 @@ def test_cache_materializes_long_parquet_with_injected_provider(tmp_path):
     stored = pd.read_parquet(cache.arquivo_dados)
     assert set(stored["serie"]) == {"saldo_livre_total", "saldo_direcionado_total"}
     assert set(stored["provedor"]) == {"bcb_sgs"}
+
+
+def test_remote_cache_download_uses_cache_buster(monkeypatch, tmp_path):
+    frame = _long_frame({"ipca_mensal": [0.5]})
+    payload = BytesIO()
+    frame.to_parquet(payload, index=False)
+    calls = []
+
+    class _ReleaseResponse:
+        status_code = 200
+
+        def __init__(self, content=b""):
+            self.content = content
+
+        def json(self):
+            return {"series": 1, "total_periodos": 1}
+
+    def _fake_get(url, timeout, headers):
+        calls.append((url, timeout, headers))
+        if "_dados.parquet" in url:
+            return _ReleaseResponse(payload.getvalue())
+        return _ReleaseResponse()
+
+    monkeypatch.setattr("utils.ifdata_cache.sgs_credit.requests.get", _fake_get)
+    result = SGSCreditCache(tmp_path).baixar_remoto()
+    assert result.sucesso is True
+    assert len(result.dados) == 1
+    assert len(calls) == 2
+    assert all("cache_bust=" in url for url, _, _ in calls)
+    assert all(headers["Cache-Control"] == "no-cache" for _, _, headers in calls)
 
 
 def test_app_registers_single_sgs_menu_and_dispatch_route():
