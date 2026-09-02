@@ -191,7 +191,9 @@ def test_app_registers_single_sgs_menu_and_dispatch_route():
     ast.parse(source)
     assert source.count('"Estatísticas Crédito BC"') >= 2
     assert source.count('elif menu == "Estatísticas Crédito BC":') == 1
-    assert 'get_cache("mercado_credito_sgs")' in source
+    assert 'def _get_sgs_credit_cache(' in source
+    assert 'render_mercado_credito(_get_sgs_credit_cache())' in source
+    assert 'manager.registrar(cache)' in source
     assert '"mercado_credito_sgs": "Estatísticas Crédito BC (BCData/SGS)' in source
     assert "cache_sgs_update.materialize_history(" in source
 
