@@ -1851,6 +1851,20 @@ def forcar_recarregar_cache():
         return True
     return False
 
+
+def _get_sgs_credit_cache(cache_manager=None):
+    """Registra o cache SGS também em processos Streamlit mantidos após hot reload."""
+    manager = cache_manager or get_cache_manager()
+    cache = manager.get_cache("mercado_credito_sgs") if manager else None
+    if cache is None:
+        from utils.ifdata_cache.sgs_credit import SGSCreditCache
+
+        cache = SGSCreditCache(Path.cwd())
+        if manager is not None:
+            manager.registrar(cache)
+    return cache
+
+
 def _expected_periods_publicacao(
     cache_manager: CacheManager,
     tipo_cache: str,
@@ -27408,9 +27422,7 @@ elif menu == "Meios de Pagamento (SPB)":
 elif menu == "Estatísticas Crédito BC":
     from tabs.mercado_credito import render_mercado_credito
 
-    manager_sgs = get_cache_manager()
-    cache_sgs = manager_sgs.get_cache("mercado_credito_sgs") if manager_sgs else None
-    render_mercado_credito(cache_sgs)
+    render_mercado_credito(_get_sgs_credit_cache())
 
 elif menu == "Atualizar Base":
     st.markdown("## Atualização Base")
@@ -27424,6 +27436,7 @@ elif menu == "Atualizar Base":
     if 'cache_manager' not in st.session_state:
         st.session_state['cache_manager'] = CacheManager()
     cache_manager = st.session_state['cache_manager']
+    _get_sgs_credit_cache(cache_manager)
     release_cfg = _release_config_app()
     runtime_manifest = build_runtime_manifest(cache_manager, release_config=release_cfg)
     runtime_caches = runtime_manifest.get("caches", {})
