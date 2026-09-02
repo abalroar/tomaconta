@@ -17,7 +17,7 @@ import requests
 from ..sgs_credit_providers import SeriesProvider, default_providers
 from ..sgs_credit_registry import SGS_SERIES, SeriesSpec, bcb_series, get_series
 from .base import BaseCache, CacheConfig, CacheResult
-from .release_config import build_release_asset_url, get_release_config
+from .release_config import add_release_cache_buster, build_release_asset_url, get_release_config
 
 
 SGS_CREDIT_CONFIG = CacheConfig(
@@ -176,15 +176,24 @@ class SGSCreditCache(BaseCache):
         return saved
 
     def baixar_remoto(self) -> CacheResult:
-        data_url = build_release_asset_url(f"{self.config.nome}_dados.parquet")
-        metadata_url = build_release_asset_url(f"{self.config.nome}_metadata.json")
+        data_url = add_release_cache_buster(
+            build_release_asset_url(f"{self.config.nome}_dados.parquet"),
+            self.config.nome,
+            "parquet",
+        )
+        metadata_url = add_release_cache_buster(
+            build_release_asset_url(f"{self.config.nome}_metadata.json"),
+            self.config.nome,
+            "metadata",
+        )
+        no_cache_headers = {"Cache-Control": "no-cache", "Pragma": "no-cache"}
         try:
-            data_response = requests.get(data_url, timeout=120)
+            data_response = requests.get(data_url, timeout=120, headers=no_cache_headers)
             if data_response.status_code != 200:
                 return CacheResult(False, f"Asset SGS remoto indisponível ({data_response.status_code})", fonte="nenhum")
             frame = pd.read_parquet(BytesIO(data_response.content))
             metadata = None
-            metadata_response = requests.get(metadata_url, timeout=30)
+            metadata_response = requests.get(metadata_url, timeout=30, headers=no_cache_headers)
             if metadata_response.status_code == 200:
                 metadata = metadata_response.json()
             return CacheResult(
