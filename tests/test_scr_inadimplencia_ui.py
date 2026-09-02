@@ -1,15 +1,14 @@
-"""Testes da aba "Inadimplência (SCR)".
+"""Testes da visão "Inadimplência SCR".
 
 Duas camadas: a especificação em ``tabs/scr_inadimplencia.py`` (que é testável
-diretamente, por não depender de Streamlit) e o contrato da rota em ``app1.py``
-(verificado por AST, sem executar o app).
+diretamente, por não depender de Streamlit) e o renderer integrado ao módulo
+de Estatísticas Crédito BC (verificado por AST, sem executar o app).
 """
 
 from __future__ import annotations
 
 import ast
 import json
-import textwrap
 from functools import lru_cache
 from pathlib import Path
 
@@ -22,8 +21,7 @@ from utils.ifdata_cache import scr_data as S
 
 
 APP_PATH = Path(__file__).resolve().parents[1] / "app1.py"
-SCR_ROUTE_MARKER = 'elif menu == "Inadimplência (SCR)":'
-NEXT_ROUTE_MARKER = 'elif menu == "Taxas de Juros por Produto":'
+SCR_VIEW_PATH = Path(__file__).resolve().parents[1] / "tabs" / "scr_inadimplencia_view.py"
 
 
 # =============================================================================
@@ -351,28 +349,25 @@ def _app_source() -> str:
 
 @lru_cache(maxsize=1)
 def _scr_route_source() -> str:
-    source = _app_source()
-    start = source.index(SCR_ROUTE_MARKER)
-    end = source.index(NEXT_ROUTE_MARKER, start)
-    return source[start:end]
+    return SCR_VIEW_PATH.read_text(encoding="utf-8")
 
 
 @lru_cache(maxsize=1)
 def _scr_route_tree() -> ast.Module:
-    # A rota começa com um ``elif``; o corpo é um módulo válido depois de tirar
-    # a primeira linha e a indentação.
-    body = _scr_route_source().split("\n", 1)[1]
-    return ast.parse(textwrap.dedent(body))
+    return ast.parse(_scr_route_source())
 
 
 def test_rota_existe_e_e_unica():
-    assert _app_source().count(SCR_ROUTE_MARKER) == 1
+    assert _scr_route_source().count("def render_scr_inadimplencia(") == 1
+    assert 'elif menu == "Inadimplência (SCR)":' not in _app_source()
 
 
 def test_menu_registra_a_aba():
     fonte = _app_source()
-    assert f'"{T.MENU_LABEL}",' in fonte
-    assert f'"{T.MENU_LABEL}": ["{T.CACHE_NAME}"],' in fonte
+    assert '"Estatísticas Crédito BC": ["mercado_credito_sgs", "scr_data"]' in fonte
+    mercado = (APP_PATH.parent / "tabs" / "mercado_credito.py").read_text(encoding="utf-8")
+    assert '"Inadimplência SCR"' in mercado
+    assert "render_scr_inadimplencia(get_cache_manager)" in mercado
 
 
 def test_aba_declarada_em_atualizar_base():

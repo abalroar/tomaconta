@@ -32,7 +32,6 @@ MAIN_SECTIONS = (
     "Situação dos Agentes",
     "Inadimplência e Provisionamento",
     "Taxas de Juros e Spread",
-    "Expectativas do Mercado de Crédito",
     "Glossário",
 )
 CREDIT_SUBSECTIONS = (
@@ -42,7 +41,7 @@ CREDIT_SUBSECTIONS = (
     "Por Tipo de Empresa",
     "Por Controle",
 )
-NPL_SUBSECTIONS = ("Pré Inad e Inad", "Cobertura e Provisionamento")
+NPL_SUBSECTIONS = ("Pré Inad e Inad", "Cobertura e Provisionamento", "Inadimplência SCR")
 
 PLOTLY_CONFIG = {"displayModeBar": "hover", "displaylogo": False, "responsive": True}
 
@@ -52,36 +51,111 @@ def _available(wide: pd.DataFrame, aliases: Sequence[str]) -> bool:
 
 
 def _chart(fig: go.Figure, key: str) -> None:
+    title = fig.layout.title.text or "Gráfico"
+    meta = fig.layout.meta if isinstance(fig.layout.meta, dict) else {}
+    source_aliases = meta.get("source_aliases", [])
+    title_column, info_column = st.columns([0.92, 0.08], vertical_alignment="center")
+    with title_column:
+        st.markdown(f"##### {title}")
+    with info_column:
+        with st.popover("i", help="Séries do BCB usadas neste gráfico"):
+            st.markdown("**Séries BCB/SGS**")
+            if source_aliases:
+                for alias in source_aliases:
+                    spec = SGS_SERIES[alias]
+                    name = spec.official_name
+                    if spec.metadata_url:
+                        st.markdown(f"- **SGS {spec.code}**: [{name}]({spec.metadata_url})")
+                    else:
+                        st.markdown(f"- **{spec.label}**: {name}")
+            else:
+                st.caption("Indicador derivado das séries exibidas no card.")
     if not fig.data:
         st.info("Séries deste card ainda não estão disponíveis no cache.")
         return
+    fig.update_layout(title=None, margin={**fig.layout.margin.to_plotly_json(), "t": 42})
     st.plotly_chart(fig, width="stretch", config=PLOTLY_CONFIG, key=key)
 
 
 def _period_filter(wide: pd.DataFrame) -> pd.DataFrame:
     if wide.empty:
         return wide
-    options = {"5 anos": 60, "10 anos": 120, "Todo o histórico": None}
-    label = st.radio(
-        "Janela histórica",
-        list(options),
-        horizontal=True,
-        index=1,
-        key="sgs_credit_period_window",
+    periods = pd.DatetimeIndex(wide.index).dropna().sort_values().unique()
+    latest = pd.Timestamp(periods[-1])
+    target_start = latest - pd.DateOffset(years=10)
+    default_start = int(periods.searchsorted(target_start, side="left"))
+    start_column, end_column = st.columns(2)
+    with start_column:
+        start = st.selectbox(
+            "Período inicial",
+            list(periods),
+            index=min(default_start, len(periods) - 1),
+            format_func=lambda value: pd.Timestamp(value).strftime("%m/%Y"),
+            key="sgs_credit_period_start",
+        )
+    end_options: list[str | pd.Timestamp] = ["Mais recente", *[pd.Timestamp(p) for p in periods if p >= start]]
+    stored_end = st.session_state.get("sgs_credit_period_end")
+    if stored_end != "Mais recente" and stored_end not in end_options:
+        st.session_state["sgs_credit_period_end"] = "Mais recente"
+    with end_column:
+        end = st.selectbox(
+            "Período final",
+            end_options,
+            index=0,
+            format_func=lambda value: value if isinstance(value, str) else value.strftime("%m/%Y"),
+            key="sgs_credit_period_end",
+            help="Mais recente preserva a última observação disponível de cada série, mesmo quando as defasagens diferem.",
+        )
+    filtered = _filter_period_range(
+        wide,
+        pd.Timestamp(start),
+        None if end == "Mais recente" else pd.Timestamp(end),
     )
-    months = options[label]
-    return wide.iloc[-months:] if months else wide
+    if end == "Mais recente":
+        st.caption("Período final: última observação disponível de cada série.")
+    return filtered
+
+
+def _filter_period_range(
+    wide: pd.DataFrame,
+    start: pd.Timestamp,
+    end: pd.Timestamp | None,
+) -> pd.DataFrame:
+    """Recorta a exibição e mantém a história completa para cálculos defasados."""
+    mask = wide.index >= start
+    if end is not None:
+        mask &= wide.index <= end
+    filtered = wide.loc[mask].copy()
+    filtered.attrs["full_history"] = wide.attrs.get("full_history", wide)
+    return filtered
 
 
 def _real_growth_frame(wide: pd.DataFrame, aliases: Sequence[str]) -> pd.DataFrame:
-    if "ipca_mensal" not in wide.columns:
+    history = wide.attrs.get("full_history", wide)
+    if "ipca_mensal" not in history.columns:
         return pd.DataFrame(index=wide.index)
-    ipca_index = build_ipca_index(wide["ipca_mensal"])
-    result = pd.DataFrame(index=wide.index)
+    ipca_index = build_ipca_index(history["ipca_mensal"])
+    result = pd.DataFrame(index=history.index)
     for alias in aliases:
-        if alias in wide.columns:
-            result[alias] = real_yoy(wide[alias], ipca_index)
-    return result
+        if alias in history.columns:
+            result[alias] = real_yoy(history[alias], ipca_index)
+        elif alias in wide.columns:
+            result.loc[wide.index, alias] = real_yoy(wide[alias], ipca_index.reindex(wide.index))
+    result.attrs["source_aliases"] = [
+        *[alias for alias in aliases if alias in SGS_SERIES],
+        "ipca_mensal",
+    ]
+    return result.reindex(wide.index)
+
+
+def _yoy_pp_frame(wide: pd.DataFrame, aliases: Sequence[str]) -> pd.DataFrame:
+    history = wide.attrs.get("full_history", wide)
+    result = pd.DataFrame(index=history.index)
+    for alias in aliases:
+        if alias in history.columns:
+            result[alias] = yoy_pp(history[alias])
+    result.attrs["source_aliases"] = [alias for alias in aliases if alias in SGS_SERIES]
+    return result.reindex(wide.index)
 
 
 def _render_concessoes(wide: pd.DataFrame) -> None:
@@ -157,16 +231,18 @@ def _render_credit_stock(wide: pd.DataFrame) -> None:
             "sgs_credito_sfn",
         )
     growth = _real_growth_frame(wide, expanded + ["credito_ampliado_total"])
-    _chart(
-        line_figure(
-            growth,
-            expanded + ["credito_ampliado_total"],
-            title="Ritmo de evolução do estoque de crédito",
-            y_title="Δ YoY real (%)",
-            suffix="%",
-        ),
-        "sgs_credito_ampliado_real",
-    )
+    growth_column, _ = st.columns(2)
+    with growth_column:
+        _chart(
+            line_figure(
+                growth,
+                expanded + ["credito_ampliado_total"],
+                title="Ritmo de evolução do estoque de crédito",
+                y_title="Δ YoY real (%)",
+                suffix="%",
+            ),
+            "sgs_credito_ampliado_real",
+        )
 
 
 def _render_credit_borrower(wide: pd.DataFrame) -> None:
@@ -233,7 +309,9 @@ def _mix_with_residual(
     if total_alias in result.columns:
         named = sum_columns(result, aliases)
         result[residual_alias] = (result[total_alias] - named).where(lambda value: value >= 0)
-    return shares(result, [*aliases, residual_alias], result.get(total_alias))
+    mixed = shares(result, [*aliases, residual_alias], result.get(total_alias))
+    mixed.attrs["source_aliases"] = [*aliases, total_alias]
+    return mixed
 
 
 def _render_credit_product(wide: pd.DataFrame) -> None:
@@ -337,16 +415,22 @@ def _render_credit_product(wide: pd.DataFrame) -> None:
         "sgs_cartao_growth",
     )
 
-    directed = pd.DataFrame(index=wide.index)
+    history = wide.attrs.get("full_history", wide)
+    directed = pd.DataFrame(index=history.index)
     for product, aliases in {
         "rural_total_derivado": ["saldo_direcionado_pf_rural", "saldo_direcionado_pj_rural"],
         "imobiliario_total_derivado": ["saldo_direcionado_pf_imobiliario", "saldo_direcionado_pj_imobiliario"],
         "bndes_total_derivado": ["saldo_direcionado_pf_bndes", "saldo_direcionado_pj_bndes"],
     }.items():
-        directed[product] = sum_columns(wide, aliases)
-    if "ipca_mensal" in wide:
-        ipca_index = build_ipca_index(wide["ipca_mensal"])
-        directed_growth = directed.apply(lambda values: real_yoy(values, ipca_index))
+        directed[product] = sum_columns(history, aliases)
+    if "ipca_mensal" in history:
+        ipca_index = build_ipca_index(history["ipca_mensal"])
+        directed_growth = directed.apply(lambda values: real_yoy(values, ipca_index)).reindex(wide.index)
+        directed_growth.attrs["source_aliases"] = [
+            "saldo_direcionado_pf_rural", "saldo_direcionado_pj_rural",
+            "saldo_direcionado_pf_imobiliario", "saldo_direcionado_pj_imobiliario",
+            "saldo_direcionado_pf_bndes", "saldo_direcionado_pj_bndes", "ipca_mensal",
+        ]
     else:
         directed_growth = pd.DataFrame(index=wide.index)
     _chart(
@@ -395,11 +479,11 @@ def _render_credit_company(wide: pd.DataFrame) -> None:
             ),
             "sgs_empresa_share",
         )
-    growth_source = wide.copy()
-    growth_source["saldo_pj_porte_total_derivado"] = total
+    growth_source = wide.attrs.get("full_history", wide).copy()
+    growth_source["saldo_pj_porte_total_derivado"] = sum_columns(growth_source, aliases)
     growth = _real_growth_frame(
         growth_source, ["saldo_pj_mpme", "saldo_pj_grande", "saldo_pj_porte_total_derivado"]
-    )
+    ).reindex(wide.index)
     _chart(
         line_figure(
             growth,
@@ -432,9 +516,11 @@ def _render_credit_control(wide: pd.DataFrame) -> None:
             "sgs_controle_share",
         )
     with col2:
-        source = wide.copy()
-        source["saldo_controle_total_derivado"] = total
-        growth = _real_growth_frame(source, [*aliases, "saldo_controle_total_derivado"])
+        source = wide.attrs.get("full_history", wide).copy()
+        source["saldo_controle_total_derivado"] = sum_columns(source, aliases)
+        growth = _real_growth_frame(
+            source, [*aliases, "saldo_controle_total_derivado"]
+        ).reindex(wide.index)
         _chart(
             line_figure(
                 growth,
@@ -473,57 +559,73 @@ def _render_situation(wide: pd.DataFrame) -> None:
         commitment["comprometimento_total_derivado"] = sum_columns(
             commitment, ["comprometimento_juros", "comprometimento_amortizacao"]
         )
-    _chart(
-        line_figure(
-            commitment,
-            [
-                "comprometimento_amortizacao",
-                "comprometimento_juros",
-                "comprometimento_total_derivado",
-                "comprometimento_servico_ex_habitacional",
-                "endividamento_renda",
-            ],
-            title="Comprometimento de renda das famílias",
-            y_title="% da renda",
-            labels={"comprometimento_total_derivado": "Comprometimento total"},
-            suffix="%",
-        ),
-        "sgs_comprometimento",
-    )
+    commitment_column, employment_column = st.columns(2)
+    with commitment_column:
+        _chart(
+            line_figure(
+                commitment,
+                [
+                    "comprometimento_amortizacao",
+                    "comprometimento_juros",
+                    "comprometimento_total_derivado",
+                    "comprometimento_servico_ex_habitacional",
+                    "endividamento_renda",
+                ],
+                title="Comprometimento de renda das famílias",
+                y_title="% da renda",
+                labels={"comprometimento_total_derivado": "Comprometimento total"},
+                suffix="%",
+            ),
+            "sgs_comprometimento",
+        )
     employment = wide[[column for column in ["desocupacao"] if column in wide.columns]].copy()
-    if "desocupacao" in employment:
-        employment["retomada_emprego_derivada"] = yoy_pp(employment["desocupacao"])
-    _chart(
-        line_figure(
-            employment,
-            ["desocupacao", "retomada_emprego_derivada"],
-            title="Taxa de desocupação e velocidade de retomada do emprego",
-            y_title="% / variação YoY em p.p.",
-            labels={"retomada_emprego_derivada": "Variação YoY da desocupação"},
-        ),
-        "sgs_emprego",
-    )
+    employment_change = _yoy_pp_frame(wide, ["desocupacao"])
+    if "desocupacao" in employment_change:
+        employment["retomada_emprego_derivada"] = employment_change["desocupacao"]
+    employment.attrs["source_aliases"] = ["desocupacao"]
+    with employment_column:
+        _chart(
+            line_figure(
+                employment,
+                ["desocupacao", "retomada_emprego_derivada"],
+                title="Taxa de desocupação e velocidade de retomada do emprego",
+                y_title="% / variação YoY em p.p.",
+                labels={"retomada_emprego_derivada": "Variação YoY da desocupação"},
+            ),
+            "sgs_emprego",
+        )
 
 
-def _render_npl(wide: pd.DataFrame) -> None:
+def _render_npl(wide: pd.DataFrame, get_cache_manager=None) -> None:
     selected = st.segmented_control(
         "Visão de inadimplência",
         NPL_SUBSECTIONS,
         default=NPL_SUBSECTIONS[0],
         key="sgs_npl_subsection",
     )
+    if selected == "Inadimplência SCR":
+        if get_cache_manager is None:
+            st.error("Gerenciador do cache SCR.data indisponível.")
+            return
+        from tabs.scr_inadimplencia_view import render_scr_inadimplencia
+
+        render_scr_inadimplencia(get_cache_manager)
+        return
+    wide = _period_filter(wide)
     if selected == "Cobertura e Provisionamento":
         provision = ["provisao_sfn", "provisao_publico", "provisao_privado_nacional", "provisao_estrangeiro"]
-        _chart(
-            line_figure(
-                wide,
-                provision,
-                title="Nível de provisão",
-                y_title="% da carteira total",
-                suffix="%",
-            ),
-            "sgs_provisao",
-        )
+        provision_column, coverage_column = st.columns(2)
+        with provision_column:
+            _chart(
+                line_figure(
+                    wide,
+                    provision,
+                    title="Nível de provisão",
+                    y_title="% da carteira total",
+                    suffix="%",
+                ),
+                "sgs_provisao",
+            )
         coverage = pd.DataFrame(index=wide.index)
         pairs = {
             "cobertura_sfn_derivada": ("provisao_sfn", "inad_total"),
@@ -534,35 +636,39 @@ def _render_npl(wide: pd.DataFrame) -> None:
         for alias, (provision_alias, npl_alias) in pairs.items():
             if {provision_alias, npl_alias}.issubset(wide.columns):
                 coverage[alias] = coverage_ratio(wide[provision_alias], wide[npl_alias])
-        _chart(
-            line_figure(
-                coverage,
-                list(pairs),
-                title="Nível de cobertura (>90 dias)",
-                y_title="% da carteira inadimplente",
-                labels={
-                    "cobertura_sfn_derivada": "SFN",
-                    "cobertura_publico_derivada": "Público",
-                    "cobertura_privado_nacional_derivada": "Privado nacional",
-                    "cobertura_estrangeiro_derivada": "Estrangeiro",
-                },
-                suffix="%",
-            ),
-            "sgs_cobertura",
-        )
+        coverage.attrs["source_aliases"] = [item for pair in pairs.values() for item in pair]
+        with coverage_column:
+            _chart(
+                line_figure(
+                    coverage,
+                    list(pairs),
+                    title="Nível de cobertura (>90 dias)",
+                    y_title="% da carteira inadimplente",
+                    labels={
+                        "cobertura_sfn_derivada": "SFN",
+                        "cobertura_publico_derivada": "Público",
+                        "cobertura_privado_nacional_derivada": "Privado nacional",
+                        "cobertura_estrangeiro_derivada": "Estrangeiro",
+                    },
+                    suffix="%",
+                ),
+                "sgs_cobertura",
+            )
         return
 
     aggregate = ["pre_inad_livre_pf", "inad_livre_pf", "pre_inad_livre_pj", "inad_livre_pj", "pre_inad_livre_total", "inad_livre_total"]
-    _chart(
-        line_figure(
-            wide,
-            aggregate,
-            title="Pré-inadimplência (15–90d) e inadimplência (>90d) — recursos livres",
-            y_title="% da carteira",
-            suffix="%",
-        ),
-        "sgs_npl_aggregate",
-    )
+    aggregate_column, _ = st.columns(2)
+    with aggregate_column:
+        _chart(
+            line_figure(
+                wide,
+                aggregate,
+                title="Pré-inadimplência (15–90d) e inadimplência (>90d) — recursos livres",
+                y_title="% da carteira",
+                suffix="%",
+            ),
+            "sgs_npl_aggregate",
+        )
     pf_pre = [
         "pre_inad_livre_pf_nao_consignado", "pre_inad_livre_pf_cheque",
         "pre_inad_livre_pf_cartao_total", "pre_inad_livre_pf_cartao_rotativo",
@@ -587,9 +693,6 @@ def _render_npl(wide: pd.DataFrame) -> None:
             _chart(line_figure(wide, left, title=title_left, y_title="% da carteira", suffix="%"), f"sgs_npl_left_{row_start}")
         with col2:
             _chart(line_figure(wide, right, title=title_right, y_title="% da carteira", suffix="%"), f"sgs_npl_right_{row_start}")
-    st.info(
-        "Os cards por faixa de renda e os recortes Longtail/Small/Medium/Corporate aguardam a fonte e os códigos do workbook original."
-    )
 
 
 def _render_rates(wide: pd.DataFrame) -> None:
@@ -610,11 +713,8 @@ def _render_rates(wide: pd.DataFrame) -> None:
                     line_figure(wide, aliases, title=title, y_title="% a.a. / p.p.", suffix="%"),
                     f"sgs_rates_{row_start}_{title}",
                 )
-    changes = pd.DataFrame(index=wide.index)
     aliases = ["taxa_pf_livre", "spread_pf_livre", "taxa_pj_livre", "spread_pj_livre"]
-    for alias in aliases:
-        if alias in wide.columns:
-            changes[alias] = yoy_pp(wide[alias])
+    changes = _yoy_pp_frame(wide, aliases)
     _chart(
         line_figure(
             changes,
@@ -624,14 +724,6 @@ def _render_rates(wide: pd.DataFrame) -> None:
         ),
         "sgs_rates_yoy_pp",
     )
-
-
-def _render_expectations() -> None:
-    st.markdown("#### Expectativas do Mercado de Crédito")
-    st.info(
-        "A página foi preservada. Os cards dependem da aba `PesquisaTrimestralCrédito`, que não apareceu com definição legível nas fotografias e não está disponível no repositório."
-    )
-    st.caption("Fonte prevista: BCB. Frequência trimestral, com divulgação defasada.")
 
 
 def _render_glossary() -> None:
@@ -651,20 +743,6 @@ def _render_glossary() -> None:
         hide_index=True,
         width="stretch",
     )
-    with st.expander("Registry de séries SGS"):
-        registry = pd.DataFrame(
-            [
-                {
-                    "Alias": spec.alias,
-                    "Código": spec.code,
-                    "Nome oficial": spec.official_name,
-                    "Unidade": spec.unit,
-                    "Validação": spec.validation,
-                }
-                for spec in SGS_SERIES.values()
-            ]
-        )
-        st.dataframe(registry, hide_index=True, width="stretch", height=360)
 
 
 def _render_source_footer(frame: pd.DataFrame, metadata: Mapping | None) -> None:
@@ -676,7 +754,7 @@ def _render_source_footer(frame: pd.DataFrame, metadata: Mapping | None) -> None
     )
 
 
-def render_mercado_credito(cache) -> None:
+def render_mercado_credito(cache, *, get_cache_manager=None) -> None:
     st.markdown(f"### {TITLE}")
     st.caption(SUBTITLE)
     if cache is None:
@@ -694,7 +772,6 @@ def render_mercado_credito(cache) -> None:
         return
 
     full_wide = derive_credit_totals(to_wide(result.dados))
-    wide = _period_filter(full_wide)
     selected = st.segmented_control(
         "Área",
         MAIN_SECTIONS,
@@ -702,18 +779,16 @@ def render_mercado_credito(cache) -> None:
         key="sgs_credit_main_section",
     )
     if selected == "Crédito SFN":
-        _render_credit(wide)
+        _render_credit(_period_filter(full_wide))
     elif selected == "Situação dos Agentes":
-        _render_situation(wide)
+        _render_situation(_period_filter(full_wide))
     elif selected == "Inadimplência e Provisionamento":
-        _render_npl(wide)
+        _render_npl(full_wide, get_cache_manager)
     elif selected == "Taxas de Juros e Spread":
-        _render_rates(wide)
-    elif selected == "Expectativas do Mercado de Crédito":
-        _render_expectations()
+        _render_rates(_period_filter(full_wide))
     elif selected == "Glossário":
         _render_glossary()
     else:
-        _render_concessoes(wide)
+        _render_concessoes(_period_filter(full_wide))
 
     _render_source_footer(result.dados, result.metadata)

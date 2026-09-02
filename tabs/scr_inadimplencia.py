@@ -1,4 +1,4 @@
-"""Especificação da aba "Inadimplência (SCR)".
+"""Especificação da visão "Inadimplência SCR".
 
 O módulo é intencionalmente independente de Streamlit: a mesma especificação de
 seções alimenta o render da aba, os testes e eventuais exportações, evitando que
@@ -40,7 +40,7 @@ SUBTITLE = (
     "região e segmento de instituição — SCR.data do Banco Central"
 )
 
-MENU_LABEL = "Inadimplência (SCR)"
+MENU_LABEL = "Inadimplência SCR"
 CACHE_NAME = "scr_data"
 
 # Janela default da aba. O grão completo é carregado por ano; 36 meses cobrem
