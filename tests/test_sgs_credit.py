@@ -6,6 +6,7 @@ from io import BytesIO
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 from utils.ifdata_cache.sgs_credit import SGSCreditCache
 from utils.ifdata_cache.manager import CacheManager
@@ -20,6 +21,7 @@ from utils.sgs_credit_analytics import (
 )
 from utils.sgs_credit_providers import BCBSGSProvider
 from utils.sgs_credit_registry import SGS_SERIES, SGS_SERIES_BY_CODE, get_series
+from tabs.mercado_credito import _filter_period_range, _real_growth_frame
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -111,9 +113,66 @@ def test_figures_label_only_last_valid_point_and_combo_has_secondary_axis():
         title="Veículos",
     )
 
-    assert list(line.data[0].text) == [None, None, "22,0"]
+    assert [annotation.text for annotation in line.layout.annotations] == ["22,0"]
+    assert line.layout.annotations[0].font.color == line.data[0].line.color
     assert len(combo.data) == 2
     assert combo.data[1].yaxis == "y2"
+    assert combo.layout.annotations[0].font.color == combo.data[1].line.color
+
+
+def test_line_labels_are_staggered_and_keep_series_order():
+    index = pd.date_range("2025-01-31", periods=3, freq="ME")
+    wide = pd.DataFrame(
+        {
+            "taxa_pf_livre": [20.0, 20.9, 21.00],
+            "taxa_pj_livre": [19.0, 20.8, 20.99],
+            "spread_pf_livre": [18.0, 20.7, 20.98],
+        },
+        index=index,
+    )
+    fig = line_figure(
+        wide,
+        ["taxa_pf_livre", "taxa_pj_livre", "spread_pf_livre"],
+        title="Linhas próximas",
+        y_title="%",
+    )
+
+    assert len(fig.layout.annotations) == 3
+    offsets = [annotation.ay for annotation in fig.layout.annotations]
+    assert len(set(offsets)) == 3
+    assert [annotation.font.color for annotation in fig.layout.annotations] == [
+        trace.line.color for trace in fig.data
+    ]
+
+
+def test_latest_period_keeps_each_series_own_last_observation():
+    index = pd.date_range("2026-05-31", periods=3, freq="ME")
+    wide = pd.DataFrame(
+        {"serie_julho": [1.0, 2.0, 3.0], "serie_junho": [4.0, 5.0, pd.NA]},
+        index=index,
+    )
+
+    filtered = _filter_period_range(wide, pd.Timestamp("2026-05-31"), None)
+
+    assert filtered["serie_julho"].last_valid_index() == pd.Timestamp("2026-07-31")
+    assert filtered["serie_junho"].last_valid_index() == pd.Timestamp("2026-06-30")
+    assert filtered.attrs["full_history"] is wide
+
+
+def test_selected_start_keeps_prior_history_for_yoy_calculation():
+    index = pd.date_range("2025-01-31", periods=13, freq="ME")
+    wide = pd.DataFrame(
+        {
+            "ipca_mensal": [0.0] * 13,
+            "credito_ampliado_total": [100.0] * 12 + [110.0],
+        },
+        index=index,
+    )
+    selected = _filter_period_range(wide, index[-1], None)
+
+    growth = _real_growth_frame(selected, ["credito_ampliado_total"])
+
+    assert growth.iloc[0, 0] == pytest.approx(10.0)
 
 
 class _FakeResponse:
@@ -223,10 +282,36 @@ def test_app_registers_single_sgs_menu_and_dispatch_route():
     assert source.count('"Estatísticas Crédito BC"') >= 2
     assert source.count('elif menu == "Estatísticas Crédito BC":') == 1
     assert 'def _get_sgs_credit_cache(' in source
-    assert 'render_mercado_credito(_get_sgs_credit_cache())' in source
+    assert 'render_mercado_credito(_get_sgs_credit_cache(), get_cache_manager=get_cache_manager)' in source
     assert 'manager.registrar(cache)' in source
     assert '"mercado_credito_sgs": "Estatísticas Crédito BC (BCData/SGS)' in source
     assert "cache_sgs_update.materialize_history(" in source
+
+
+def test_credit_module_has_period_range_info_popovers_and_no_expectations_registry():
+    source = (PROJECT_ROOT / "tabs" / "mercado_credito.py").read_text(encoding="utf-8")
+    assert '"Período inicial"' in source
+    assert '"Período final"' in source
+    assert '"Mais recente"' in source
+    assert 'st.popover("i"' in source
+    assert "Expectativas do Mercado de Crédito" not in source
+    assert "Registry de séries SGS" not in source
+
+
+def test_navigation_has_dedicated_bcb_group_and_no_top_level_scr():
+    source = (PROJECT_ROOT / "app1.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    assignments = {
+        target.id: ast.literal_eval(node.value)
+        for node in tree.body
+        if isinstance(node, ast.Assign)
+        for target in node.targets
+        if isinstance(target, ast.Name) and target.id in {"MENU_PRINCIPAL", "MENU_BCB"}
+    }
+    assert assignments["MENU_BCB"] == ["Estatísticas Crédito BC", "Taxas de Juros por Produto"]
+    assert "Inadimplência (SCR)" not in assignments["MENU_PRINCIPAL"]
+    assert "Estatísticas Crédito BC" not in assignments["MENU_PRINCIPAL"]
+    assert "Taxas de Juros por Produto" not in assignments["MENU_PRINCIPAL"]
 
 
 def test_cache_manager_registers_sgs_cache(tmp_path):

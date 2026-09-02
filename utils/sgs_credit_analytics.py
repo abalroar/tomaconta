@@ -17,7 +17,18 @@ ITAU_BLACK = "#231F20"
 ITAU_DARK_GRAY = "#56504C"
 ITAU_MID_GRAY = "#8C8279"
 ITAU_LIGHT_GRAY = "#C9C3BE"
-ITAU_PALETTE = (ITAU_ORANGE, ITAU_BLACK, ITAU_DARK_GRAY, ITAU_MID_GRAY, ITAU_LIGHT_GRAY)
+ITAU_PALETTE = (
+    ITAU_ORANGE,
+    ITAU_BLACK,
+    "#423E3B",
+    ITAU_DARK_GRAY,
+    "#69615C",
+    "#7B726C",
+    ITAU_MID_GRAY,
+    "#9D938B",
+    "#AEA59F",
+    ITAU_LIGHT_GRAY,
+)
 
 
 def normalized_long(frame: pd.DataFrame) -> pd.DataFrame:
@@ -122,11 +133,93 @@ def _last_text(values: pd.Series, decimals: int = 1, suffix: str = "") -> list[s
     return text
 
 
+def _source_aliases(wide: pd.DataFrame, aliases: Sequence[str]) -> list[str]:
+    """Resolve as séries SGS de origem para a ficha de informação do gráfico."""
+    candidates = [*wide.attrs.get("source_aliases", []), *aliases]
+    return list(dict.fromkeys(alias for alias in candidates if alias in SGS_SERIES))
+
+
+def _staggered_positions(raw_values: Sequence[float], data_span: float) -> list[float]:
+    """Distribui rótulos finais mantendo a ordem vertical das séries."""
+    if not raw_values:
+        return []
+    values = np.asarray(raw_values, dtype="float64")
+    reference = max(float(np.nanmax(np.abs(values))), 1.0)
+    gap = max(data_span * 0.065, reference * 0.006)
+
+    ordered = sorted(range(len(values)), key=lambda index: values[index])
+    positions = values.copy()
+    for previous, current in zip(ordered, ordered[1:]):
+        positions[current] = max(values[current], positions[previous] + gap)
+
+    raw_midpoint = float(np.nanmean(values))
+    positioned_midpoint = float(np.nanmean(positions))
+    positions -= positioned_midpoint - raw_midpoint
+    return positions.tolist()
+
+
+def _add_last_line_labels(
+    fig: go.Figure,
+    endpoints: Sequence[tuple[pd.Timestamp, float, str, str]],
+    *,
+    yref: str = "y",
+    plot_height: int = 285,
+) -> None:
+    """Adiciona rótulos coloridos e escalonados junto ao fim de cada linha."""
+    if not endpoints:
+        return
+    raw_values = [point[1] for point in endpoints]
+    trace_values: list[float] = []
+    for trace in fig.data:
+        trace_yref = getattr(trace, "yaxis", None) or "y"
+        if trace_yref != yref or getattr(trace, "y", None) is None:
+            continue
+        numeric = pd.to_numeric(pd.Series(trace.y), errors="coerce").dropna()
+        trace_values.extend(float(value) for value in numeric)
+    if trace_values:
+        span = float(np.nanmax(trace_values) - np.nanmin(trace_values))
+    else:
+        span = float(np.nanmax(raw_values) - np.nanmin(raw_values))
+    reference = max(float(np.nanmax(np.abs(raw_values))), 1.0)
+    span = max(span, reference * 0.1, 1e-9)
+    positioned = _staggered_positions(raw_values, span)
+
+    for (last_x, raw_y, text, color), label_y in zip(endpoints, positioned):
+        pixel_offset = int(round(-(label_y - raw_y) / span * plot_height))
+        fig.add_annotation(
+            x=last_x,
+            y=raw_y,
+            xref="x",
+            yref=yref,
+            text=text,
+            showarrow=True,
+            arrowhead=0,
+            arrowwidth=1,
+            arrowcolor=color,
+            ax=42,
+            ay=pixel_offset,
+            xanchor="left",
+            align="left",
+            font={"color": color, "size": 11},
+            bgcolor="rgba(255,255,255,0.82)",
+            borderpad=1,
+        )
+    x_values: list[pd.Timestamp] = []
+    for trace in fig.data:
+        trace_x = getattr(trace, "x", None)
+        if trace_x is not None:
+            x_values.extend(pd.Timestamp(value) for value in trace_x if pd.notna(value))
+    if x_values:
+        fig.update_xaxes(
+            range=[min(x_values), max(x_values) + pd.DateOffset(months=1)]
+        )
+
+
 def _base_layout(fig: go.Figure, *, title: str, y_title: str, height: int = 390) -> go.Figure:
     fig.update_layout(
         title={"text": title, "x": 0.01, "xanchor": "left"},
         height=height,
-        margin={"l": 12, "r": 42, "t": 72, "b": 25},
+        margin={"l": 12, "r": 96, "t": 72, "b": 25},
         paper_bgcolor="white",
         plot_bgcolor="white",
         hovermode="x unified",
@@ -150,23 +243,31 @@ def line_figure(
     suffix: str = "",
 ) -> go.Figure:
     fig = go.Figure()
+    endpoints: list[tuple[pd.Timestamp, float, str, str]] = []
     for index, alias in enumerate(aliases):
         if alias not in wide.columns:
             continue
         values = pd.to_numeric(wide[alias], errors="coerce")
         label = (labels or {}).get(alias) or (get_series(alias).label if alias in SGS_SERIES else alias)
+        color = ITAU_PALETTE[index % len(ITAU_PALETTE)]
         fig.add_trace(
             go.Scatter(
                 x=wide.index,
                 y=values,
                 name=label,
-                mode="lines+text",
-                text=_last_text(values, decimals, suffix),
-                textposition="middle right",
+                mode="lines",
                 cliponaxis=False,
-                line={"color": ITAU_PALETTE[index % len(ITAU_PALETTE)], "width": 2.3},
+                line={"color": color, "width": 2.3},
+                meta={"series_alias": alias},
             )
         )
+        valid = values.dropna()
+        if not valid.empty:
+            value = float(valid.iloc[-1])
+            text = f"{value:.{decimals}f}{suffix}".replace(".", ",")
+            endpoints.append((pd.Timestamp(valid.index[-1]), value, text, color))
+    _add_last_line_labels(fig, endpoints)
+    fig.update_layout(meta={"source_aliases": _source_aliases(wide, aliases)})
     return _base_layout(fig, title=title, y_title=y_title)
 
 
@@ -195,6 +296,7 @@ def stacked_figure(
                 marker_color=ITAU_PALETTE[index % len(ITAU_PALETTE)],
                 text=_last_text(values, 1, "%" if percent else ""),
                 textposition="inside",
+                meta={"series_alias": alias},
             )
         )
     if total is not None:
@@ -212,6 +314,9 @@ def stacked_figure(
             )
         )
     fig.update_layout(barmode="stack")
+    total_alias = getattr(total, "name", None) if total is not None else None
+    source_candidates = [*aliases, *([total_alias] if total_alias else [])]
+    fig.update_layout(meta={"source_aliases": _source_aliases(wide, source_candidates)})
     return _base_layout(fig, title=title, y_title=y_title)
 
 
@@ -235,24 +340,34 @@ def bar_line_figure(
                 marker_color=ITAU_LIGHT_GRAY,
                 text=_last_text(bar, 1),
                 textposition="outside",
+                meta={"series_alias": bar_alias},
             ),
             secondary_y=False,
         )
     if line_alias in wide.columns:
         line = pd.to_numeric(wide[line_alias], errors="coerce")
+        line_color = ITAU_ORANGE
         fig.add_trace(
             go.Scatter(
                 x=wide.index,
                 y=line,
                 name=get_series(line_alias).label,
-                mode="lines+text",
-                line={"color": ITAU_ORANGE, "width": 2.5},
-                text=_last_text(line, 1),
-                textposition="middle right",
+                mode="lines",
+                line={"color": line_color, "width": 2.5},
                 cliponaxis=False,
+                meta={"series_alias": line_alias},
             ),
             secondary_y=True,
         )
+        valid = line.dropna()
+        if not valid.empty:
+            value = float(valid.iloc[-1])
+            _add_last_line_labels(
+                fig,
+                [(pd.Timestamp(valid.index[-1]), value, f"{value:.1f}".replace(".", ","), line_color)],
+                yref="y2",
+            )
+    fig.update_layout(meta={"source_aliases": _source_aliases(wide, [bar_alias, line_alias])})
     _base_layout(fig, title=title, y_title=bar_title)
     fig.update_yaxes(title_text=bar_title, secondary_y=False)
     fig.update_yaxes(title_text=line_title, secondary_y=True, showgrid=False)
