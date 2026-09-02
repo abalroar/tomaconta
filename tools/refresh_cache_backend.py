@@ -21,7 +21,10 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Dict, Iterable, List
+
+import pandas as pd
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -53,6 +56,7 @@ DEFAULT_TIPOS = [
     "carteira_pj",
     "carteira_instrumentos",
     "bloprudencial",
+    "mercado_credito_sgs",
 ]
 
 DERIVED_SPECS = [
@@ -355,7 +359,7 @@ def _run_refresh(args: argparse.Namespace, base_dir: Path) -> int:
     detalhes = []
 
     for tipo in DEFAULT_TIPOS:
-        periodos = periodos_mensais if tipo == "bloprudencial" else periodos_tri
+        periodos = periodos_mensais if tipo in {"bloprudencial", "mercado_credito_sgs"} else periodos_tri
         action = "REUSE" if args.publish_only else "REFRESH"
         _print(
             f"[{action}] {tipo}: {len(periodos)} períodos "
@@ -399,6 +403,34 @@ def _run_refresh(args: argparse.Namespace, base_dir: Path) -> int:
                     }
                 )
                 _print(f"[ERRO] {tipo}: {exc}")
+                break
+            continue
+
+        if tipo == "mercado_credito_sgs":
+            cache_sgs = manager.get_cache(tipo)
+            try:
+                resultado_sgs = cache_sgs.materialize_history(
+                    start=f"{args.mensal_inicio[:4]}-{args.mensal_inicio[4:6]}-01",
+                    end=pd.Period(args.mensal_fim, freq="M").end_time.date(),
+                    overwrite=True,
+                    progress_callback=lambda progress, message: _print(
+                        f"[SGS {progress:.0%}] {message}"
+                    ),
+                )
+            except Exception as exc:
+                resultado_sgs = SimpleNamespace(sucesso=False, mensagem=str(exc), dados=None)
+            detalhes.append(
+                {
+                    "tipo": tipo,
+                    "periodos": len(periodos),
+                    "status": "ok" if resultado_sgs.sucesso else "erro",
+                    "mensagem": resultado_sgs.mensagem,
+                    "lotes": 1,
+                    "lotes_ok": int(resultado_sgs.sucesso),
+                }
+            )
+            if not resultado_sgs.sucesso:
+                _print(f"[ERRO] {tipo}: {resultado_sgs.mensagem}")
                 break
             continue
 

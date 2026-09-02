@@ -148,6 +148,13 @@ CACHES_INFO = {
         "todas_variaveis": True,
         "periodicidade": "mensal",
     },
+    "mercado_credito_sgs": {
+        "nome_exibicao": "Estatísticas Crédito BC (SGS/BCB)",
+        "descricao": "Séries agregadas de concessões, estoques, inadimplência, taxas e famílias",
+        "relatorio": None,
+        "todas_variaveis": False,
+        "periodicidade": "mensal",
+    },
 }
 
 
@@ -189,6 +196,7 @@ class CacheManager:
         from .bloprudencial_cache import BloprudencialCache
         from .spb_meios_pagamento import SPBMeiosPagamentoCache
         from .scr_data import SCRDataCache
+        from .sgs_credit import SGSCreditCache
 
         # Caches principais (variáveis selecionadas)
         self.registrar(PrincipalCache(self.base_dir, manter_codinst=True))
@@ -219,6 +227,8 @@ class CacheManager:
         self.registrar(SPBMeiosPagamentoCache(self.base_dir))
         # Cache do SCR.data (ZIPs anuais do PDA/BCB, sem API)
         self.registrar(SCRDataCache(self.base_dir))
+        # Cache de estatísticas agregadas de crédito (API BCData/SGS)
+        self.registrar(SGSCreditCache(self.base_dir))
 
     def registrar(self, cache: BaseCache):
         """Registra um novo tipo de cache.

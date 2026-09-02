@@ -39,6 +39,7 @@ DEFAULT_TIPOS = [
     "carteira_pj",
     "carteira_instrumentos",
     "bloprudencial",
+    "mercado_credito_sgs",
 ]
 
 
@@ -96,8 +97,8 @@ def main() -> int:
     parser.add_argument("--ano-final", type=int, help="ano final (trimestral)")
     parser.add_argument("--mes-final", choices=["03", "06", "09", "12"], help="mês final (trimestral)")
 
-    parser.add_argument("--mensal-inicio", help="início mensal YYYYMM (para bloprudencial)")
-    parser.add_argument("--mensal-fim", help="fim mensal YYYYMM (para bloprudencial)")
+    parser.add_argument("--mensal-inicio", help="início mensal YYYYMM (BLOPRUDENCIAL ou mercado_credito_sgs)")
+    parser.add_argument("--mensal-fim", help="fim mensal YYYYMM (BLOPRUDENCIAL ou mercado_credito_sgs)")
 
     parser.add_argument("--force-refresh", action="store_true", help="forçar download (bloprudencial)")
 
@@ -144,6 +145,33 @@ def main() -> int:
 
     tipos_atualizados = set()
     for tipo in tipos:
+        if tipo == "mercado_credito_sgs":
+            cache = manager.get_cache("mercado_credito_sgs")
+            inicio = args.mensal_inicio or "201101"
+            fim = args.mensal_fim
+            inicio_data = f"{inicio[:4]}-{inicio[4:6]}-01"
+            fim_data = None
+            if fim:
+                from calendar import monthrange
+
+                fim_data = f"{fim[:4]}-{fim[4:6]}-{monthrange(int(fim[:4]), int(fim[4:6]))[1]:02d}"
+            _print(
+                f"==> Atualizando cache 'mercado_credito_sgs' ({inicio}–{fim or 'atual'}), modo={args.modo}"
+            )
+            result = cache.materialize_history(
+                start=inicio_data,
+                end=fim_data,
+                overwrite=(args.modo == "overwrite"),
+                progress_callback=lambda p, m: _print(f"[{p:.0%}] {m}"),
+            )
+            if result.sucesso:
+                _print(f"OK: {result.mensagem}")
+                tipos_atualizados.add(tipo)
+            else:
+                _print(f"ERRO: {result.mensagem}")
+                return 1
+            continue
+
         if tipo == "spb_meios_pagamento":
             cache = manager.get_cache("spb_meios_pagamento")
             datasets = _parse_periodos_list(args.spb_datasets) or None

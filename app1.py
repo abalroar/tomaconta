@@ -1865,11 +1865,11 @@ def _expected_periods_publicacao(
     if not periodo_final:
         return {}
 
+    if tipo_cache in {"bloprudencial", "mercado_credito_sgs"}:
+        return {"monthly": str(periodo_final)}
     periodo_ref = str(periodo_final).replace("/", "")
     if len(periodo_ref) >= 6 and periodo_ref[-2:] in {"03", "06", "09", "12"}:
         return {"quarterly": str(periodo_final)}
-    if tipo_cache == "bloprudencial":
-        return {"monthly": str(periodo_final)}
     return {}
 
 
@@ -15792,6 +15792,7 @@ def _normalizar_rotulo_menu(valor):
         "Taxas de Juros (Beta Leve)": "Taxas de Juros por Produto",
         "Taxas de Juros por Produto": "Taxas de Juros por Produto",
         "Taxas de Juros por Produto (Legado)": "Taxas de Juros por Produto",
+        "Mercado de Crédito (SGS)": "Estatísticas Crédito BC",
         "Atualização Base": "Atualizar Base",
         "Painel": "Rankings",
         "Contribuições FGC": "Contas COSIF",
@@ -15817,6 +15818,7 @@ MENU_PRINCIPAL = [
     "Contas COSIF",
     "Carteira 4.966",
     "Inadimplência (SCR)",
+    "Estatísticas Crédito BC",
     "Taxas de Juros por Produto",
     "Meios de Pagamento (SPB)",
 ]
@@ -16088,13 +16090,15 @@ CACHE_DEPENDENCIAS_POR_ABA = {
     "DRE (Ind. e Congl.)": ["dre", "principal", "dre_individual", "principal_individual"],
     "Carteira 4.966": ["carteira_instrumentos", "ativo"],
     "Inadimplência (SCR)": ["scr_data"],
+    "Estatísticas Crédito BC": ["mercado_credito_sgs"],
     "Taxas de Juros por Produto": ["taxas_juros_historico"],
     "Meios de Pagamento (SPB)": ["spb_meios_pagamento"],
     "Contas COSIF": ["bloprudencial"],
     "Atualizar Base": [
         "principal", "capital", "ativo", "passivo", "dre", "carteira_pf",
         "carteira_pj", "carteira_instrumentos", "bloprudencial", "taxas_juros_historico",
-        "spb_meios_pagamento", "scr_data", "derived_metrics", "derived_metrics_individual",
+        "spb_meios_pagamento", "scr_data", "mercado_credito_sgs",
+        "derived_metrics", "derived_metrics_individual",
     ],
 }
 
@@ -16110,6 +16114,8 @@ def _nota_cache_dependencia(cache_nome: str) -> str:
         return "histórico batch consolidado de taxas de juros (BCB)"
     if cache_nome == "scr_data":
         return "SCR.data — ZIPs anuais do PDA/BCB agregados por UF, segmento, porte e produto"
+    if cache_nome == "mercado_credito_sgs":
+        return "séries mensais agregadas do Sistema Gerenciador de Séries Temporais do BCB"
     if cache_nome == "spb_meios_pagamento":
         return "Meios de Pagamento (SPB) - 12 datasets Olinda (MPV_DadosAbertos, BCB)"
     if cache_nome == "critical_screens":
@@ -27399,6 +27405,13 @@ elif menu == "Meios de Pagamento (SPB)":
                     )
 
 
+elif menu == "Estatísticas Crédito BC":
+    from tabs.mercado_credito import render_mercado_credito
+
+    manager_sgs = get_cache_manager()
+    cache_sgs = manager_sgs.get_cache("mercado_credito_sgs") if manager_sgs else None
+    render_mercado_credito(cache_sgs)
+
 elif menu == "Atualizar Base":
     st.markdown("## Atualização Base")
     st.markdown("painel unificado para extração e publicação dos dados do IFData/BCB")
@@ -27608,6 +27621,7 @@ elif menu == "Atualizar Base":
             "taxas_juros_historico": "Taxas de Juros Histórico (Batch) - ConsultaUnificada + cache publicado",
             "bloprudencial": "Conglomerados Prudenciais (BLOPRUDENCIAL) - CSV mensal",
             "spb_meios_pagamento": "Meios de Pagamento (SPB/Olinda BCB) - 12 datasets",
+            "mercado_credito_sgs": "Estatísticas Crédito BC (BCData/SGS) - séries mensais agregadas",
         }
         caches_dropdown = [cache for cache in caches_disponiveis if cache in opcoes_cache]
 
@@ -27623,6 +27637,7 @@ elif menu == "Atualizar Base":
         is_taxas_juros_historico = (cache_selecionado == "taxas_juros_historico")
         is_bloprudencial = (cache_selecionado == "bloprudencial")
         is_spb_meios_pagamento = (cache_selecionado == "spb_meios_pagamento")
+        is_mercado_credito_sgs = (cache_selecionado == "mercado_credito_sgs")
 
         # Mostrar status do cache selecionado
         if is_spb_meios_pagamento:
@@ -27688,6 +27703,32 @@ elif menu == "Atualizar Base":
             st.caption(
                 f"Serão processados {len(datasets_spb_selecionados) or len(datasets_spb_disponiveis)} dataset(s)."
             )
+            periodos_extrair = None
+
+        elif is_mercado_credito_sgs:
+            st.caption("Estatísticas Crédito BC: séries mensais via BCData/SGS, materializadas em formato longo.")
+            col_data1, col_data2 = st.columns(2)
+            hoje_sgs = datetime.now().date()
+            with col_data1:
+                data_inicio_sgs = st.date_input(
+                    "Data inicial",
+                    value=datetime(2011, 1, 1).date(),
+                    min_value=datetime(1990, 1, 1).date(),
+                    max_value=hoje_sgs,
+                    key="sgs_credit_data_inicio_extracao",
+                    format="DD/MM/YYYY",
+                )
+            with col_data2:
+                data_fim_sgs = st.date_input(
+                    "Data final",
+                    value=hoje_sgs,
+                    min_value=datetime(1990, 1, 1).date(),
+                    max_value=hoje_sgs,
+                    key="sgs_credit_data_fim_extracao",
+                    format="DD/MM/YYYY",
+                )
+            if data_inicio_sgs > data_fim_sgs:
+                st.error("Data inicial deve ser menor ou igual à data final.")
             periodos_extrair = None
 
         elif is_taxas_juros_historico:
@@ -27924,7 +27965,7 @@ elif menu == "Atualizar Base":
         # =============================================================
         # CONFIGURAÇÕES AVANÇADAS
         # =============================================================
-        if not is_taxas_juros and not is_taxas_juros_historico and not is_spb_meios_pagamento:
+        if not is_taxas_juros and not is_taxas_juros_historico and not is_spb_meios_pagamento and not is_mercado_credito_sgs:
             with st.expander("configurações avançadas"):
                 intervalo_save = st.slider(
                     "salvar a cada N períodos",
@@ -28007,7 +28048,7 @@ elif menu == "Atualizar Base":
 
         # A extração não depende mais de alias local.
         pode_extrair = True
-        if not is_taxas_juros and not is_taxas_juros_historico and not is_bloprudencial and not is_spb_meios_pagamento and not periodos_extrair:
+        if not is_taxas_juros and not is_taxas_juros_historico and not is_bloprudencial and not is_spb_meios_pagamento and not is_mercado_credito_sgs and not periodos_extrair:
             st.error("nenhum período válido selecionado para extração.")
             pode_extrair = False
 
@@ -28103,7 +28144,7 @@ elif menu == "Atualizar Base":
                 erros_encontrados = []
                 logs_extracao = []
 
-                if not is_taxas_juros and not is_taxas_juros_historico and not is_bloprudencial and not is_spb_meios_pagamento:
+                if not is_taxas_juros and not is_taxas_juros_historico and not is_bloprudencial and not is_spb_meios_pagamento and not is_mercado_credito_sgs:
                     periodos_totais = periodos_extrair
                     concluidos = set(checkpoint.get("concluidos") or [])
                     if retomar and checkpoint_pendentes:
@@ -28249,6 +28290,57 @@ elif menu == "Atualizar Base":
                         status_text.empty()
                         save_status.empty()
                         st.error(f"Erro na extração BLOPRUDENCIAL: {e}")
+
+                elif is_mercado_credito_sgs:
+                    def callback_progresso_sgs(progress, message):
+                        progress_bar.progress(min(progress, 1.0))
+                        status_text.text(message)
+
+                    try:
+                        cache_sgs_update = cache_manager.get_cache("mercado_credito_sgs")
+                        if cache_sgs_update is None:
+                            raise RuntimeError("Cache mercado_credito_sgs não registrado")
+                        resultado = cache_sgs_update.materialize_history(
+                            start=data_inicio_sgs,
+                            end=data_fim_sgs,
+                            overwrite=(modo_atualizacao == "overwrite"),
+                            progress_callback=callback_progresso_sgs,
+                        )
+                        progress_bar.empty()
+                        status_text.empty()
+                        save_status.empty()
+                        if resultado.sucesso:
+                            st.success(f"Extração SGS concluída: {resultado.mensagem}")
+                            meta_sgs = resultado.metadata or {}
+                            c1, c2, c3 = st.columns(3)
+                            with c1:
+                                st.metric("Séries", meta_sgs.get("series", 0))
+                            with c2:
+                                st.metric("Períodos", meta_sgs.get("total_periodos", 0))
+                            with c3:
+                                st.metric("Observações", meta_sgs.get("total_registros", 0))
+
+                            if publicar_auto and gh_token_final and token_validado:
+                                with st.spinner("publicando cache SGS no GitHub Releases..."):
+                                    sucesso_pub, msg_pub, _ = _publicar_bundle_release(
+                                        cache_manager,
+                                        caches_selecionados=[cache_selecionado],
+                                        gh_token=gh_token_final,
+                                        expected_periods=_expected_periods_publicacao(
+                                            cache_manager, cache_selecionado
+                                        ),
+                                    )
+                                if sucesso_pub:
+                                    st.success(msg_pub)
+                                else:
+                                    st.warning(f"Falha ao publicar: {msg_pub}")
+                        else:
+                            st.error(f"Erro na extração SGS: {resultado.mensagem}")
+                    except Exception as exc:
+                        progress_bar.empty()
+                        status_text.empty()
+                        save_status.empty()
+                        st.error(f"Erro na extração SGS: {exc}")
 
                 elif is_taxas_juros_historico:
                     from utils.ifdata_cache import TaxasJurosHistoricoCache
