@@ -81,6 +81,20 @@ class SecaoSpec:
 
 SECOES: tuple[SecaoSpec, ...] = (
     SecaoSpec(
+        key="paineis",
+        label="Painéis",
+        resumo=(
+            "Um painel por produto, uma linha por faixa do recorte escolhido "
+            "(renda, região, segmento), no tempo. É a visão de trabalho da aba "
+            "e a que vai para o PPTX, quatro por slide."
+        ),
+        dimensoes=("modalidade", "submodalidade", "porte", "regiao", "segmento"),
+        nota=(
+            "A linha `Todos` é o agregado do produto sem recorte — a referência "
+            "contra a qual as faixas se leem."
+        ),
+    ),
+    SecaoSpec(
         key="panorama",
         label="Panorama",
         resumo=(
@@ -642,3 +656,409 @@ def descrever_secoes() -> pd.DataFrame:
             for secao in SECOES
         ]
     )
+
+
+# =============================================================================
+# PAINÉIS COMPARATIVOS (produto × recorte × tempo)
+# =============================================================================
+#
+# Esta é a visão de trabalho da aba: um painel por produto, uma linha por faixa
+# de recorte (renda, região, segmento), a série no tempo. É o formato dos
+# quadrantes usados nos decks — e o mesmo que o export para PPTX reproduz.
+
+# Paleta Itaú BBA. Laranja institucional, preto e cinzas; nada fora disso.
+COR_LARANJA = "#EC7000"
+COR_PRETO = "#111111"
+COR_CINZA_ESCURO = "#4B4B4B"
+COR_CINZA_MEDIO = "#8F8F8F"
+COR_CINZA_CLARO = "#C9C9C9"
+COR_GRADE = "#E6E6E6"
+COR_TEXTO = "#3C3C3C"
+
+# Rampa para dimensões ORDENADAS (faixas de renda, porte). Vai do laranja, que
+# sinaliza o grupo sob estresse, aos cinzas escuros. É monotônica em luminosidade
+# para que a ordem da renda seja lida no próprio gradiente.
+RAMPA_ORDENADA = [
+    "#EC7000", "#F0913A", "#F5B478", "#CFCFCF", "#A6A6A6", "#7D7D7D", "#545454",
+]
+
+# Paleta para dimensões SEM ordem natural (região, segmento, produto).
+PALETA_CATEGORICA = [
+    "#EC7000", "#111111", "#8F8F8F", "#F5B478",
+    "#4B4B4B", "#C25C00", "#C9C9C9", "#6F6F6F",
+]
+
+# O agregado ganha preto tracejado: distingue-se do fim da rampa sem sair da paleta.
+SERIE_TOTAL = "Todos"
+COR_TOTAL = COR_PRETO
+DASH_TOTAL = "dash"
+
+# As sete faixas que entram por padrão. "Sem rendimento" e "Indisponível" ficam
+# de fora: somam pouca carteira e roubam duas cores de um gráfico que já tem
+# sete linhas. Continuam disponíveis por opção explícita.
+PORTE_PF_FAIXAS_PRINCIPAIS = [
+    "Até 1 salário mínimo",
+    "Mais de 1 a 2 salários mínimos",
+    "Mais de 2 a 3 salários mínimos",
+    "Mais de 3 a 5 salários mínimos",
+    "Mais de 5 a 10 salários mínimos",
+    "Mais de 10 a 20 salários mínimos",
+    "Acima de 20 salários mínimos",
+]
+
+# Rótulo curto para a legenda, no padrão do deck ("Até 1", "1 a 2", ...).
+ROTULO_FAIXA_CURTO = {
+    "Sem rendimento": "Sem renda",
+    "Até 1 salário mínimo": "Até 1",
+    "Mais de 1 a 2 salários mínimos": "1 a 2",
+    "Mais de 2 a 3 salários mínimos": "2 a 3",
+    "Mais de 3 a 5 salários mínimos": "3 a 5",
+    "Mais de 5 a 10 salários mínimos": "5 a 10",
+    "Mais de 10 a 20 salários mínimos": "10 a 20",
+    "Acima de 20 salários mínimos": "Acima 20",
+    PORTE_INDISPONIVEL: "Indisp.",
+}
+
+
+@dataclass(frozen=True)
+class QuebraSpec:
+    """Uma dimensão pela qual as linhas de um painel podem ser quebradas."""
+
+    key: str
+    coluna: str
+    label: str
+    subtitulo: str
+    ordenada: bool
+    exige_cliente: Optional[str] = None
+    exige_detalhe: bool = False
+
+
+QUEBRAS: tuple[QuebraSpec, ...] = (
+    QuebraSpec(
+        key="renda",
+        coluna="porte",
+        label="Faixa de renda (salários mínimos)",
+        subtitulo="Por Faixa Salário Mínimo",
+        ordenada=True,
+        exige_cliente="PF",
+    ),
+    QuebraSpec(
+        key="porte_pj",
+        coluna="porte",
+        label="Porte da empresa (faturamento)",
+        subtitulo="Por Porte de Faturamento",
+        ordenada=True,
+        exige_cliente="PJ",
+    ),
+    QuebraSpec(
+        key="regiao",
+        coluna="regiao",
+        label="Região",
+        subtitulo="Por Região",
+        ordenada=True,
+    ),
+    QuebraSpec(
+        key="uf",
+        coluna="uf",
+        label="Unidade da federação",
+        subtitulo="Por UF",
+        ordenada=False,
+        exige_detalhe=True,
+    ),
+    QuebraSpec(
+        key="segmento",
+        coluna="segmento",
+        label="Segmento da instituição",
+        subtitulo="Por Segmento de IF",
+        ordenada=False,
+        exige_detalhe=True,
+    ),
+    QuebraSpec(
+        key="cliente",
+        coluna="cliente",
+        label="Tipo de cliente (PF/PJ)",
+        subtitulo="Por Tipo de Cliente",
+        ordenada=False,
+    ),
+    QuebraSpec(
+        key="nenhuma",
+        coluna="",
+        label="Sem quebra (só o total)",
+        subtitulo="Total",
+        ordenada=False,
+    ),
+)
+
+QUEBRAS_POR_KEY: Dict[str, QuebraSpec] = {q.key: q for q in QUEBRAS}
+
+# Título curto de cada métrica, no padrão do deck.
+TITULO_CURTO_METRICA = {
+    "inadimplencia": "Inad (> 90 d)",
+    "ativo_problematico": "Ativo problemático",
+    "atraso_15_90": "Atraso 15–90 d",
+    "vencido_90": "Vencido > 90 d",
+}
+
+# Quantos painéis cabem num slide, em quadrantes.
+PAINEIS_POR_SLIDE = 4
+
+
+@dataclass(frozen=True)
+class PainelSpec:
+    """Um quadrante: título, subtítulo, séries no tempo e cores."""
+
+    titulo: str
+    subtitulo: str
+    fonte: str
+    produto: str
+    series: pd.DataFrame          # colunas: data_base, serie, valor, denominador
+    ordem_series: Sequence[str]
+    cores: Dict[str, str]
+    tracejadas: Sequence[str]
+    metrica: str
+    carteira_final_rs_mil: float
+
+
+def rotulo_serie(valor: str, quebra: QuebraSpec) -> str:
+    """Rótulo curto para a legenda, sem perder o sentido."""
+    if quebra.coluna == "porte":
+        return ROTULO_FAIXA_CURTO.get(valor, valor)
+    return valor
+
+
+def cores_das_series(
+    ordem: Sequence[str], quebra: QuebraSpec
+) -> Dict[str, str]:
+    """Atribui cores respeitando a natureza da dimensão.
+
+    Dimensão ordenada recebe a rampa (a ordem vira gradiente); dimensão
+    categórica recebe a paleta qualitativa. O agregado ``Todos`` é sempre preto.
+    """
+    cores: Dict[str, str] = {}
+    categorias = [item for item in ordem if item != SERIE_TOTAL]
+    base = RAMPA_ORDENADA if quebra.ordenada else PALETA_CATEGORICA
+
+    if quebra.ordenada and len(categorias) > len(base):
+        # Mais faixas que degraus: reamostra a rampa para não repetir cor.
+        passo = (len(base) - 1) / max(len(categorias) - 1, 1)
+        escolhidas = [base[min(int(round(i * passo)), len(base) - 1)] for i in range(len(categorias))]
+    else:
+        escolhidas = [base[i % len(base)] for i in range(len(categorias))]
+
+    for nome, cor in zip(categorias, escolhidas):
+        cores[nome] = cor
+    if SERIE_TOTAL in ordem:
+        cores[SERIE_TOTAL] = COR_TOTAL
+    return cores
+
+
+def _ordem_da_quebra(
+    quebra: QuebraSpec, valores_presentes: Sequence[str], cliente: Optional[str]
+) -> List[str]:
+    """Ordem de exibição das séries, pela natureza da dimensão."""
+    presentes = list(dict.fromkeys(str(v) for v in valores_presentes))
+    if quebra.coluna == "porte":
+        alvo = Q.ordem_portes(cliente or quebra.exige_cliente or "PF")
+    elif quebra.coluna == "regiao":
+        alvo = list(ORDEM_REGIOES)
+    elif quebra.coluna == "segmento":
+        alvo = list(ORDEM_SEGMENTOS)
+    elif quebra.coluna == "cliente":
+        alvo = ["PF", "PJ"]
+    else:
+        return sorted(presentes)
+    ordenados = [v for v in alvo if v in presentes]
+    return ordenados + sorted(v for v in presentes if v not in alvo)
+
+
+def construir_paineis(
+    df: pd.DataFrame,
+    *,
+    produtos: Sequence[str],
+    nivel_produto: str = "submodalidade",
+    quebra: str = "renda",
+    metrica: str = Q.METRICA_PADRAO,
+    cliente: Optional[str] = None,
+    faixas: Optional[Sequence[str]] = None,
+    incluir_total: bool = True,
+) -> List[PainelSpec]:
+    """Um painel por produto, uma linha por faixa do recorte escolhido.
+
+    ``incluir_total`` acrescenta a linha ``Todos`` — o agregado do produto sem
+    recorte, que é a referência contra a qual as faixas se leem.
+    """
+    if nivel_produto not in ("modalidade", "submodalidade"):
+        raise ValueError("nivel_produto deve ser 'modalidade' ou 'submodalidade'")
+    spec = QUEBRAS_POR_KEY.get(quebra)
+    if spec is None:
+        raise ValueError(f"quebra desconhecida: {quebra!r}")
+
+    definicao = Q.obter_metrica(metrica)
+    cliente_efetivo = cliente or spec.exige_cliente
+    base = Q.filtrar(df, cliente=cliente_efetivo)
+    if spec.coluna == "regiao":
+        base = Q.adicionar_regiao(base)
+
+    paineis: List[PainelSpec] = []
+    for produto in produtos:
+        recorte = Q.filtrar(base, **{nivel_produto: produto})
+        if recorte.empty:
+            continue
+
+        partes: List[pd.DataFrame] = []
+        if spec.coluna:
+            quebrado = Q.serie_temporal(recorte, definicao, by=[spec.coluna])
+            quebrado = quebrado.rename(columns={spec.coluna: "serie"})
+            quebrado["serie"] = quebrado["serie"].astype(str)
+            if faixas:
+                quebrado = quebrado[quebrado["serie"].isin([str(f) for f in faixas])]
+            partes.append(quebrado)
+
+        if incluir_total or not spec.coluna:
+            total = Q.serie_temporal(recorte, definicao)
+            total["serie"] = SERIE_TOTAL
+            partes.append(total)
+
+        if not partes:
+            continue
+        series = pd.concat(partes, ignore_index=True)
+        series = series[["data_base", "serie", "valor", "denominador"]]
+
+        presentes = [s for s in series["serie"].unique() if s != SERIE_TOTAL]
+        ordem = _ordem_da_quebra(spec, presentes, cliente_efetivo)
+        if SERIE_TOTAL in set(series["serie"]):
+            ordem = [*ordem, SERIE_TOTAL]
+
+        ultima = series["data_base"].astype(str).max()
+        carteira = float(
+            series[(series["data_base"].astype(str) == ultima) & (series["serie"] == SERIE_TOTAL)]
+            ["denominador"].sum()
+        ) if SERIE_TOTAL in set(series["serie"]) else float(
+            series[series["data_base"].astype(str) == ultima]["denominador"].sum()
+        )
+
+        paineis.append(PainelSpec(
+            titulo=f"{TITULO_CURTO_METRICA.get(definicao.chave, definicao.rotulo)} - {produto}",
+            subtitulo=f"{spec.subtitulo} - % carteira",
+            fonte="fonte: Banco Central do Brasil",
+            produto=produto,
+            series=series.reset_index(drop=True),
+            ordem_series=ordem,
+            cores=cores_das_series(ordem, spec),
+            tracejadas=[SERIE_TOTAL] if SERIE_TOTAL in ordem else [],
+            metrica=definicao.chave,
+            carteira_final_rs_mil=carteira,
+        ))
+    return paineis
+
+
+def faixas_padrao(quebra: str) -> Optional[List[str]]:
+    """Faixas exibidas por padrão em cada quebra."""
+    if quebra == "renda":
+        return list(PORTE_PF_FAIXAS_PRINCIPAIS)
+    if quebra == "porte_pj":
+        return list(PORTE_PJ_ORDEM)
+    if quebra == "regiao":
+        return list(ORDEM_REGIOES)
+    return None
+
+
+# =============================================================================
+# LEGIBILIDADE
+# =============================================================================
+
+# Abaixo desta distância, dois rótulos do último ponto se sobrepõem na tela.
+DISTANCIA_MINIMA_ROTULOS_PP = 0.0015   # 0,15 p.p.
+# Abaixo desta amplitude, as linhas ficam achatadas e o painel não informa.
+AMPLITUDE_MINIMA_PP = 0.005            # 0,5 p.p.
+MAXIMO_SERIES_LEGIVEL = 8
+CARTEIRA_MINIMA_CONFIAVEL_RS_MIL = 500_000.0   # R$ 500 mi
+
+
+def avaliar_legibilidade(paineis: Sequence[PainelSpec]) -> List[Dict[str, str]]:
+    """Aponta o que vai atrapalhar a leitura antes do usuário descobrir sozinho.
+
+    Não bloqueia nada: devolve avisos com o painel afetado e o que fazer.
+    """
+    avisos: List[Dict[str, str]] = []
+
+    for painel in paineis:
+        series = painel.series
+        n = len(painel.ordem_series)
+        if n > MAXIMO_SERIES_LEGIVEL:
+            avisos.append({
+                "painel": painel.titulo,
+                "nivel": "alerta",
+                "mensagem": (
+                    f"{n} linhas no mesmo painel. Acima de {MAXIMO_SERIES_LEGIVEL} as cores "
+                    "deixam de ser distinguíveis; remova faixas ou separe em dois painéis."
+                ),
+            })
+
+        validos = series["valor"].dropna()
+        if validos.empty:
+            avisos.append({
+                "painel": painel.titulo,
+                "nivel": "alerta",
+                "mensagem": "Sem dados no recorte — o painel sai vazio.",
+            })
+            continue
+
+        amplitude = float(validos.max() - validos.min())
+        if amplitude < AMPLITUDE_MINIMA_PP:
+            avisos.append({
+                "painel": painel.titulo,
+                "nivel": "info",
+                "mensagem": (
+                    f"As séries variam só {amplitude * 100:.2f} p.p. entre si. "
+                    "As linhas vão aparecer coladas; considere outro recorte."
+                ),
+            })
+
+        if painel.carteira_final_rs_mil < CARTEIRA_MINIMA_CONFIAVEL_RS_MIL:
+            avisos.append({
+                "painel": painel.titulo,
+                "nivel": "info",
+                "mensagem": (
+                    f"Carteira de {Q.formatar_reais_de_mil(painel.carteira_final_rs_mil)} "
+                    "no último período. Taxas sobre base pequena oscilam muito."
+                ),
+            })
+
+        colisoes = rotulos_sobrepostos(painel)
+        if colisoes:
+            avisos.append({
+                "painel": painel.titulo,
+                "nivel": "info",
+                "mensagem": (
+                    "Rótulos do último ponto quase colados em "
+                    + "; ".join(f"{a} e {b}" for a, b in colisoes[:3])
+                    + ". No PPTX eles podem se sobrepor — ajuste manualmente se for para o deck."
+                ),
+            })
+
+    return avisos
+
+
+def rotulos_sobrepostos(painel: PainelSpec) -> List[tuple[str, str]]:
+    """Pares de séries cujo rótulo final fica perto demais para caber."""
+    ultima = painel.series["data_base"].astype(str).max()
+    fim = painel.series[painel.series["data_base"].astype(str) == ultima]
+    pontos = [
+        (str(linha["serie"]), float(linha["valor"]))
+        for _, linha in fim.iterrows()
+        if pd.notna(linha["valor"])
+    ]
+    pontos.sort(key=lambda item: item[1])
+    return [
+        (pontos[i][0], pontos[i + 1][0])
+        for i in range(len(pontos) - 1)
+        if abs(pontos[i + 1][1] - pontos[i][1]) < DISTANCIA_MINIMA_ROTULOS_PP
+    ]
+
+
+def formatar_percentual_2casas(valor: Optional[float]) -> str:
+    """Percentual com duas decimais e vírgula, para rótulos e eixos."""
+    if valor is None or pd.isna(valor):
+        return "—"
+    return f"{valor * 100:.2f}%".replace(".", ",")
