@@ -23,6 +23,7 @@ registry central
   -> provedor BCData/SGS ou provedor externo registrado
   -> SGSCreditCache.materialize_history()
   -> data/cache/mercado_credito_sgs/dados.parquet
+  -> GitHub Release + data/bundled/mercado_credito_sgs/dados.parquet
   -> transformações auditáveis
   -> tabs/mercado_credito.py
 ```
@@ -53,7 +54,7 @@ Histórico completo:
   --tipo mercado_credito_sgs \
   --modo overwrite \
   --mensal-inicio 201101 \
-  --mensal-fim 202608
+  --mensal-fim 202609
 ```
 
 Atualização incremental:
@@ -68,6 +69,8 @@ Atualização incremental:
 O mesmo fluxo está disponível em `Atualizar Base`, com publicação opcional dos
 assets `mercado_credito_sgs_dados.parquet` e
 `mercado_credito_sgs_metadata.json` no GitHub Releases configurado para o app.
+Uma cópia compacta fica em `data/bundled/mercado_credito_sgs` para garantir a
+leitura durante indisponibilidade ou cache intermediário do serviço de release.
 
 ## Fórmulas
 
