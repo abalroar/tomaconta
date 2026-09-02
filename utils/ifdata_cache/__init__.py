@@ -59,6 +59,7 @@ from .manager import (
 from .principal import PrincipalCache, PrincipalIndividualCache
 from .capital import CapitalCache, CAMPOS_CAPITAL
 from .bloprudencial_cache import BloprudencialCache, load_bloprudencial_parquet_slice
+from .sgs_credit import SGSCreditCache, SGS_CREDIT_CONFIG
 from .diagnostics import load_institution_pairs_for_diagnostic
 
 # Novos caches de relatórios completos
@@ -315,6 +316,8 @@ __all__ = [
     "CapitalCache",
     "CAMPOS_CAPITAL",
     "BloprudencialCache",
+    "SGSCreditCache",
+    "SGS_CREDIT_CONFIG",
     "load_bloprudencial_parquet_slice",
     "load_institution_pairs_for_diagnostic",
     # Implementacoes - relatórios completos
