@@ -24233,6 +24233,15 @@ elif menu == "Inadimplência (SCR)":
     from utils import scr_data_query as scr_q
     from utils import scr_pptx_export as scr_pptx
 
+    # O hot reload do Streamlit Cloud pode manter estes módulos em sys.modules
+    # numa revisão anterior enquanto app1.py já é a nova. Quando isso acontece,
+    # `SECOES` chega sem a seção "Painéis" e a rota estoura com KeyError ao
+    # distribuir as abas. Recarrega a dependência primeiro, depois quem a
+    # consome — mesma ordem usada nas outras guardas deste arquivo.
+    if "paineis" not in getattr(scr_spec, "SECOES_POR_KEY", {}):
+        scr_q = importlib.reload(scr_q)
+        scr_spec = importlib.reload(scr_spec)
+
     SCR_PLOTLY_CONFIG = {
         "displayModeBar": "hover",
         "displaylogo": False,
@@ -24454,6 +24463,24 @@ elif menu == "Inadimplência (SCR)":
     ]
     _scr_abas = st.tabs([secao.label for secao in _scr_abas_visiveis])
     _scr_por_key = dict(zip([s.key for s in _scr_abas_visiveis], _scr_abas))
+
+    # Rede de segurança: as seções que não dependem do grão completo têm que
+    # existir sempre. Se faltar alguma, o módulo em memória está defasado — vale
+    # mais dizer isso do que deixar um KeyError cru chegar na tela.
+    # A lista é literal de propósito: derivá-la de `scr_spec.SECOES` usaria o
+    # mesmo módulo defasado que se quer detectar, e a checagem nunca dispararia.
+    _scr_secoes_ausentes = [
+        chave for chave in ("paineis", "panorama", "produto", "renda")
+        if chave not in _scr_por_key
+    ]
+    if _scr_secoes_ausentes:
+        st.error(
+            "A aba está rodando com uma revisão defasada de "
+            "`tabs/scr_inadimplencia.py` — faltam as seções "
+            f"`{'`, `'.join(_scr_secoes_ausentes)}`. Recarregue a página; "
+            "se persistir, reinicie o app no Streamlit Cloud."
+        )
+        st.stop()
 
     # --- Painéis ------------------------------------------------------
     with _scr_por_key["paineis"]:

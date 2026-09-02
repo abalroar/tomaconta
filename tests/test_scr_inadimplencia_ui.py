@@ -633,3 +633,60 @@ def test_legibilidade_nao_reclama_de_painel_saudavel():
     )
     alertas = [a for a in T.avaliar_legibilidade(paineis) if a["nivel"] == "alerta"]
     assert not alertas
+
+
+# =============================================================================
+# HOT RELOAD (Streamlit Cloud)
+# =============================================================================
+
+def test_rota_recarrega_modulo_defasado():
+    # O Streamlit Cloud reaproveita módulos entre revisões do mesmo deploy.
+    # Sem esta guarda, `SECOES` chega sem a seção "Painéis" e a rota estoura
+    # com KeyError ao distribuir as abas.
+    fonte = _scr_route_source()
+    assert 'if "paineis" not in getattr(scr_spec, "SECOES_POR_KEY", {}):' in fonte
+    assert "importlib.reload(scr_spec)" in fonte
+    # A dependência é recarregada antes de quem a consome.
+    assert fonte.index("importlib.reload(scr_q)") < fonte.index("importlib.reload(scr_spec)")
+
+
+def test_rota_avisa_em_vez_de_estourar_com_secao_ausente():
+    fonte = _scr_route_source()
+    assert "_scr_secoes_ausentes" in fonte
+    assert "revisão defasada" in fonte
+    # O aviso precisa vir ANTES do primeiro acesso por chave.
+    assert fonte.index("_scr_secoes_ausentes") < fonte.index('_scr_por_key["paineis"]')
+
+
+def test_checagem_de_secoes_usa_lista_literal():
+    # Derivar a lista de `scr_spec.SECOES` usaria o mesmo módulo defasado que se
+    # quer detectar — a checagem nunca dispararia.
+    fonte = _scr_route_source()
+    trecho = fonte[fonte.index("_scr_secoes_ausentes = ["):]
+    trecho = trecho[:trecho.index("]")]
+    assert '"paineis"' in trecho
+    assert "scr_spec.SECOES" not in trecho
+
+
+def test_reload_restaura_a_secao_paineis(monkeypatch):
+    """Simula o módulo defasado e confirma que o reload traz a seção de volta."""
+    import importlib
+    import sys
+    import types
+
+    import tabs
+
+    real = sys.modules["tabs.scr_inadimplencia"]
+    velho = types.ModuleType("tabs.scr_inadimplencia")
+    velho.SECOES = tuple(s for s in real.SECOES if s.key != "paineis")
+    velho.SECOES_POR_KEY = {s.key: s for s in velho.SECOES}
+
+    monkeypatch.setitem(sys.modules, "tabs.scr_inadimplencia", velho)
+    monkeypatch.setattr(tabs, "scr_inadimplencia", velho, raising=False)
+
+    from tabs import scr_inadimplencia as spec
+    assert "paineis" not in spec.SECOES_POR_KEY      # o estado que quebrava
+
+    if "paineis" not in getattr(spec, "SECOES_POR_KEY", {}):
+        spec = importlib.reload(spec)
+    assert "paineis" in spec.SECOES_POR_KEY
