@@ -860,29 +860,6 @@ def render_mercado_credito(cache, *, get_cache_manager=None) -> None:
         <style>
         div[data-testid="stMarkdownContainer"] h4 { font-size: 1.42rem; }
         div[data-testid="stMarkdownContainer"] h5 { font-size: 1.18rem; }
-        div[data-testid="stPopover"] button {
-            width: 2rem;
-            min-width: 2rem;
-            height: 2rem;
-            min-height: 2rem;
-            padding: 0;
-            border-radius: 50%;
-            border-color: #8C8279;
-            color: #231F20;
-            font-weight: 700;
-            line-height: 1;
-        }
-        div[data-testid="stPopover"] button:hover {
-            border-color: #EC7000;
-            color: #EC7000;
-        }
-        div[data-testid="stPopover"] button [data-testid="stIconMaterial"] {
-            display: none;
-        }
-        div[data-testid="stPopover"] button > div {
-            justify-content: center;
-            gap: 0;
-        }
         </style>
         """,
         unsafe_allow_html=True,

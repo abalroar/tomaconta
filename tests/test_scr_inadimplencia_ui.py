@@ -444,7 +444,9 @@ def test_rota_renderiza_todas_as_secoes():
     fonte = _scr_route_source()
     assert 'st.tabs(["Painéis", "Brasil e regiões"])' in fonte
     assert [secao.key for secao in T.SECOES] == ["paineis", "regiao"]
-    assert "_figura_heatmap_ufs" in fonte
+    assert "px.choropleth" in fonte
+    assert "_figura_heatmap_ufs" not in fonte
+    assert '"Recorte", ["uf", "regiao"]' in fonte
     assert '"Baixar PPTX desta aba"' in fonte
 
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import defaultdict
 
 import pandas as pd
+import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
@@ -174,63 +175,6 @@ def render_scr_inadimplencia(get_cache_manager) -> None:
                         st.markdown(f"- {aviso['mensagem']}")
                 else:
                     st.caption("Sem alertas de legibilidade neste recorte.")
-
-    def _figura_heatmap_ufs(tabela: pd.DataFrame) -> go.Figure:
-        if tabela.empty:
-            return go.Figure()
-        regioes = [
-            regiao for regiao in scr_spec.ORDEM_REGIOES
-            if regiao in set(tabela["regiao"].astype(str))
-        ]
-        total_linhas = int(tabela["ordem_na_regiao"].max()) + 1 if not tabela.empty else 0
-        z = [[None for _ in regioes] for _ in range(total_linhas)]
-        textos = [["" for _ in regioes] for _ in range(total_linhas)]
-        detalhes = [[None for _ in regioes] for _ in range(total_linhas)]
-        posicoes = {regiao: indice for indice, regiao in enumerate(regioes)}
-        for linha in tabela.itertuples(index=False):
-            coluna = posicoes[str(linha.regiao)]
-            posicao = int(linha.ordem_na_regiao)
-            participacao = float(linha.participacao_carteira)
-            z[posicao][coluna] = participacao
-            textos[posicao][coluna] = (
-                f"<b>{linha.uf}</b><br>{participacao * 100:.1f}%".replace(".", ",")
-            )
-            detalhes[posicao][coluna] = [
-                linha.uf_nome,
-                scr_q.formatar_reais_de_mil(linha.carteira_rs_mil),
-                _fmt(linha.valor),
-            ]
-        figura = go.Figure(go.Heatmap(
-            z=z,
-            x=regioes,
-            y=list(range(1, total_linhas + 1)),
-            text=textos,
-            texttemplate="%{text}",
-            customdata=detalhes,
-            colorscale=[
-                [0.0, "#F2EFEC"],
-                [0.35, "#F5B478"],
-                [1.0, "#EC7000"],
-            ],
-            xgap=5,
-            ygap=5,
-            colorbar=dict(title="% Brasil", tickformat=".1%", thickness=12),
-            hovertemplate=(
-                "<b>%{customdata[0]}</b><br>Participação no Brasil: %{z:.2%}"
-                "<br>Carteira ativa: %{customdata[1]}"
-                f"<br>{scr_q.METRICAS[_metrica].rotulo}: %{{customdata[2]}}<extra></extra>"
-            ),
-        ))
-        figura.update_layout(
-            height=520,
-            margin=dict(l=4, r=18, t=18, b=4),
-            paper_bgcolor="#FFFFFF",
-            plot_bgcolor="#FFFFFF",
-            font=dict(family="Arial", size=13, color=scr_spec.COR_TEXTO),
-            xaxis=dict(side="top", tickfont=dict(size=12), showgrid=False),
-            yaxis=dict(visible=False, autorange="reversed"),
-        )
-        return figura
 
     def _figura_export_ufs(tabela: pd.DataFrame) -> go.Figure:
         if tabela.empty:
@@ -406,13 +350,21 @@ def render_scr_inadimplencia(get_cache_manager) -> None:
         opcoes_regiao = scr_spec.modalidades_bcb_disponiveis(
             cliente, presentes=dados["modalidade_bcb"].astype(str).unique().tolist()
         )
-        modalidade_regiao = st.selectbox(
-            "Modalidade", opcoes_regiao, key="scr_regiao_modalidade"
-        )
+        filtro_modalidade, filtro_geo = st.columns([2.1, 1])
+        with filtro_modalidade:
+            modalidade_regiao = st.selectbox(
+                "Modalidade", opcoes_regiao, key="scr_regiao_modalidade"
+            )
+        with filtro_geo:
+            nivel_geo = st.radio(
+                "Recorte", ["uf", "regiao"], horizontal=True,
+                format_func=lambda valor: "UF" if valor == "uf" else "Região",
+                key="scr_nivel_geo",
+            )
 
         dados_regiao = scr_q.filtrar(dados, modalidade_bcb=modalidade_regiao)
         geo = scr_spec.construir_por_regiao(
-            dados_regiao, metrica=_metrica, data_base=data_base, nivel="uf"
+            dados_regiao, metrica=_metrica, data_base=data_base, nivel=nivel_geo
         )
 
         resumo_brasil, resumo_metrica, resumo_data = st.columns(3)
@@ -426,26 +378,48 @@ def render_scr_inadimplencia(get_cache_manager) -> None:
         )
         resumo_data.metric("Data-base", formatar_competencia(f"{data_base}-01"))
 
-        titulo_heatmap, info_heatmap = st.columns([0.94, 0.06])
-        with titulo_heatmap:
-            st.markdown("##### Participação de cada UF na carteira Brasil")
-            st.caption(
-                "Estados agrupados por região e ordenados pela participação dentro de cada região."
-            )
-        with info_heatmap:
-            with st.popover("i", help="Definições do heatmap"):
-                st.markdown("**Carteira Brasil e Carteira (R$ bi)**")
-                st.markdown(
-                    "Carteira ativa total da modalidade selecionada, incluindo operações "
-                    "adimplentes e inadimplentes. É o denominador das taxas."
+        mapa_col, ranking_col = st.columns([1.35, 1])
+        with mapa_col:
+            geojson = scr_spec.carregar_geojson_uf()
+            if geojson is not None and not geo["mapa"].empty:
+                figura_mapa = px.choropleth(
+                    geo["mapa"], geojson=geojson, locations="codigo_ibge",
+                    featureidkey=geo["featureidkey"], color="valor",
+                    color_continuous_scale="Oranges", hover_name="uf_nome",
+                    hover_data={"codigo_ibge": False, "valor": ":.2%", "regiao": True},
                 )
-                st.markdown("**Participação da UF**")
-                st.markdown(
-                    "Carteira ativa da UF dividida pela carteira ativa do Brasil, com os "
-                    "mesmos filtros. A UF corresponde ao CEP do tomador."
+                figura_mapa.update_geos(
+                    visible=False, projection_type=scr_spec.MAPA_PROJECAO,
+                    lonaxis_range=list(scr_spec.MAPA_LON_RANGE),
+                    lataxis_range=list(scr_spec.MAPA_LAT_RANGE),
+                    bgcolor="rgba(0,0,0,0)",
                 )
-        figura_heatmap = _figura_heatmap_ufs(geo["mapa"])
-        st.plotly_chart(figura_heatmap, width="stretch", config=plotly_config)
+                figura_mapa.update_layout(
+                    height=430, margin=dict(l=0, r=0, t=10, b=0),
+                    coloraxis_colorbar=dict(tickformat=".1%", title=""),
+                    font=dict(size=13),
+                )
+                st.plotly_chart(figura_mapa, width="stretch", config=plotly_config)
+        with ranking_col:
+            ranking = geo["ranking"].copy()
+            if not ranking.empty:
+                ranking["taxa"] = ranking["valor"].map(_fmt)
+                ranking["carteira"] = ranking["denominador"].map(
+                    scr_q.formatar_reais_de_mil
+                )
+                st.dataframe(
+                    ranking[[nivel_geo, "taxa", "carteira"]], hide_index=True,
+                    width="stretch", height=430,
+                    column_config={
+                        nivel_geo: st.column_config.TextColumn(
+                            "UF" if nivel_geo == "uf" else "Região"
+                        ),
+                        "taxa": st.column_config.TextColumn(
+                            scr_q.METRICAS[_metrica].rotulo
+                        ),
+                        "carteira": st.column_config.TextColumn("Carteira"),
+                    },
+                )
 
         figura_regiao = go.Figure()
         endpoints_regiao: list[tuple[pd.Timestamp, float, str, str]] = []

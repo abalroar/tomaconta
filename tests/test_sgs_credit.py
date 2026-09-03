@@ -378,7 +378,7 @@ def test_credit_module_has_period_range_info_popovers_and_no_expectations_regist
     assert '"Baixar PPTX desta aba"' in source
     assert "reversed(periods)" in source
     assert "formatar_competencia" in source
-    assert "border-radius: 50%" in source
+    assert 'div[data-testid="stPopover"] button' not in source
     assert '"SCR.data"' in source
     assert "_render_source_footer" not in source
     assert 'fig.update_layout(title_text=""' in source
