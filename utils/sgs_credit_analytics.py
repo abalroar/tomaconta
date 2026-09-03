@@ -22,6 +22,7 @@ Três regras de leitura que o módulo garante:
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Mapping, Sequence
 
 import numpy as np
@@ -103,6 +104,9 @@ MAXIMO_CORES_LINHA = len(PALETA_LINHA)
 TAMANHO_FONTE_BASE = 13
 TAMANHO_FONTE_EIXO = 12
 TAMANHO_ROTULO_PX = 12
+# Barra larga comporta um rótulo maior: nos cards de Concessões, com barra de
+# largura total, 13 px continua cabendo e lê melhor de longe.
+TAMANHO_ROTULO_BARRA_PX = 13
 TAMANHO_LEGENDA = 12
 
 # Espessura como segundo canal de hierarquia: grossa é a série em foco.
@@ -112,9 +116,14 @@ LARGURA_LINHA_CONTEXTO = 1.8
 
 # Cards de largura total, um por linha.
 ALTURA_PADRAO = 470
+# Card de meia largura: dois por linha. A leitura de séries próximas melhora
+# quando o gráfico não se estica pela tela inteira e a sensibilidade vertical
+# se perde.
+ALTURA_COMPACTA = 430
 MARGEM_ESQUERDA = 64
 MARGEM_DIREITA_LEGENDA = 108
 MARGEM_DIREITA_ROTULO_DIRETO = 210
+MARGEM_DIREITA_ROTULO_DIRETO_COMPACTA = 168
 MARGEM_TOPO = 48
 MARGEM_BASE_COM_LEGENDA = 92
 MARGEM_BASE_SEM_LEGENDA = 56
@@ -127,6 +136,29 @@ MESES_ABREV_PT = (
     "Jan", "Fev", "Mar", "Abr", "Mai", "Jun",
     "Jul", "Ago", "Set", "Out", "Nov", "Dez",
 )
+
+
+# Orçamento de caracteres para o nome da série no rótulo de meia largura.
+LIMITE_NOME_COMPACTO = 22
+
+
+def encurtar_rotulo(nome: str, limite: int = LIMITE_NOME_COMPACTO) -> str:
+    """Corta o nome no limite de palavras que cabe no card de meia largura.
+
+    O nome completo continua no tooltip; o rótulo só precisa ser suficiente
+    para dizer qual linha é qual entre as do próprio card.
+    """
+    texto = str(nome).strip()
+    if len(texto) <= limite:
+        return texto
+    palavras = texto.split()
+    curto = ""
+    for palavra in palavras:
+        candidato = f"{curto} {palavra}".strip()
+        if len(candidato) > limite:
+            break
+        curto = candidato
+    return curto or texto[:limite].rstrip()
 
 
 def cor_de_linha(posicao: int) -> str:
@@ -259,6 +291,30 @@ def _last_text(values: pd.Series, decimals: int = 1, suffix: str = "") -> list[s
     return text
 
 
+def _all_text(values: pd.Series, decimals: int = 1, suffix: str = "") -> list[str | None]:
+    """Rótulo em todo período com dado.
+
+    Só vale a pena onde a barra é larga: a trava de tamanho uniforme continua
+    valendo, então o período que não comportar o rótulo fica sem ele em vez de
+    receber um texto encolhido.
+    """
+    return [
+        None if pd.isna(valor)
+        else f"{float(valor):.{decimals}f}{suffix}".replace(".", ",")
+        for valor in values
+    ]
+
+
+def _meia_categoria(datas: Sequence[pd.Timestamp]) -> pd.Timedelta:
+    """Metade do intervalo típico entre observações — meia largura de barra."""
+    if len(datas) < 2:
+        return pd.Timedelta(days=15)
+    ordenadas = pd.DatetimeIndex(sorted(set(datas)))
+    if len(ordenadas) < 2:
+        return pd.Timedelta(days=15)
+    return pd.to_timedelta(pd.Series(ordenadas).diff().dropna().median()) / 2
+
+
 def _source_aliases(wide: pd.DataFrame, aliases: Sequence[str]) -> list[str]:
     """Resolve as séries SGS de origem para a ficha de informação do gráfico."""
     candidates = [*wide.attrs.get("source_aliases", []), *aliases]
@@ -384,9 +440,16 @@ def _add_last_line_labels(
     def tela(valor: float) -> float:
         return (maior - float(valor)) * pixels_por_unidade
 
+    # Rótulo de duas linhas ocupa o dobro da altura; o espaçamento mínimo
+    # acompanha, senão o nome de uma série encosta no valor da vizinha.
+    linhas_por_rotulo = max(
+        (str(ponto[2]).count("<br>") + 1 for ponto in endpoints), default=1
+    )
     alvos = [tela(ponto[1]) for ponto in endpoints]
     finais = _espalhar_em_pixels(
-        alvos, ALTURA_ROTULO_PX + FOLGA_ROTULO_PX, altura_area
+        alvos,
+        ALTURA_ROTULO_PX * linhas_por_rotulo + FOLGA_ROTULO_PX,
+        altura_area,
     )
 
     for (ultimo_x, bruto_y, texto, cor), tela_final in zip(endpoints, finais):
@@ -411,7 +474,17 @@ def _add_last_line_labels(
 
     datas = _valid_trace_dates(fig)
     if datas:
-        fig.update_xaxes(range=[min(datas), max(datas) + pd.DateOffset(months=1)])
+        # Meia categoria de folga de cada lado. Sem ela, a faixa começava
+        # exatamente no centro da primeira barra e o Plotly desenhava só a
+        # metade direita dela — o gráfico "consertava" sozinho ao dar duplo
+        # clique porque isso restaura o autorange.
+        folga = _meia_categoria(datas) if _tem_barra(fig) else pd.Timedelta(0)
+        fig.update_xaxes(
+            range=[
+                min(datas) - folga,
+                max(datas) + max(folga, pd.Timedelta(days=30)),
+            ]
+        )
 
 
 def formatar_competencia(value: object) -> str:
@@ -459,18 +532,32 @@ def eixo_datas_semestral(index: Sequence[object]) -> tuple[list[pd.Timestamp], l
     return eixo_datas_adaptativo(index)
 
 
+def _tem_barra(fig: go.Figure) -> bool:
+    return any(str(getattr(trace, "type", "")) == "bar" for trace in fig.data)
+
+
 def _valid_trace_dates(fig: go.Figure) -> list[pd.Timestamp]:
-    """Datas que têm valor efetivamente desenhado em ao menos um trace."""
+    """Datas que têm valor efetivamente desenhado em ao menos um trace.
+
+    Nem todo gráfico da seção tem tempo no eixo X: o de participação por UF
+    tem siglas. O que não converte para data é ignorado, e a figura recebe a
+    régua automática do eixo.
+    """
     datas: list[pd.Timestamp] = []
     for trace in fig.data:
         trace_x = getattr(trace, "x", None)
         trace_y = getattr(trace, "y", None)
         if trace_x is None or trace_y is None:
             continue
-        for value_x, value_y in zip(trace_x, trace_y):
+        with warnings.catch_warnings():
+            # Eixo de siglas cai inteiro em NaT; o aviso de formato não
+            # acrescenta nada e polui o log a cada render.
+            warnings.simplefilter("ignore", UserWarning)
+            convertidas = pd.to_datetime(pd.Series(list(trace_x)), errors="coerce")
+        for data, value_y in zip(convertidas, trace_y):
             numero = pd.to_numeric(value_y, errors="coerce")
-            if pd.notna(value_x) and pd.notna(numero):
-                datas.append(pd.Timestamp(value_x))
+            if pd.notna(data) and pd.notna(numero):
+                datas.append(pd.Timestamp(data))
     return datas
 
 
@@ -482,6 +569,8 @@ def aplicar_estilo(
     height: int = ALTURA_PADRAO,
     legenda: bool = True,
     rotulo_direto: bool = False,
+    compacto: bool = False,
+    tamanho_rotulo: int = TAMANHO_ROTULO_PX,
 ) -> go.Figure:
     """Estilo único de toda a seção: tipografia, grade, margens e régua do eixo.
 
@@ -492,9 +581,13 @@ def aplicar_estilo(
     meta = dict(fig.layout.meta) if isinstance(fig.layout.meta, dict) else {}
     meta["chart_title"] = str(title)
 
-    margem_direita = (
-        MARGEM_DIREITA_ROTULO_DIRETO if rotulo_direto else MARGEM_DIREITA_LEGENDA
-    )
+    if rotulo_direto:
+        margem_direita = (
+            MARGEM_DIREITA_ROTULO_DIRETO_COMPACTA if compacto
+            else MARGEM_DIREITA_ROTULO_DIRETO
+        )
+    else:
+        margem_direita = MARGEM_DIREITA_LEGENDA
     margem_base = MARGEM_BASE_COM_LEGENDA if legenda else MARGEM_BASE_SEM_LEGENDA
 
     fig.update_layout(
@@ -526,7 +619,7 @@ def aplicar_estilo(
         # Trava de tamanho de texto: rótulo que não couber em 12 px é escondido
         # em vez de encolhido. Sem isto a biblioteca desenhava o mesmo rótulo
         # entre 0,2 px e 14 px na mesma barra.
-        uniformtext={"mode": "hide", "minsize": TAMANHO_ROTULO_PX},
+        uniformtext={"mode": "hide", "minsize": tamanho_rotulo},
         separators=",.",
         meta=meta,
     )
@@ -571,7 +664,8 @@ def line_figure(
     decimals: int = 1,
     suffix: str = "",
     destaques: Sequence[str] | None = None,
-    height: int = ALTURA_PADRAO,
+    height: int | None = None,
+    compacto: bool = False,
 ) -> go.Figure:
     """Gráfico de linhas com hierarquia de espessura e rótulo no fim da linha.
 
@@ -581,8 +675,13 @@ def line_figure(
     """
     presentes = [alias for alias in aliases if alias in wide.columns]
     # Acima de cinco séries a legenda separada obriga o olho a ir e voltar
-    # comparando cores parecidas; o nome vai para a ponta da linha.
-    rotulo_direto = len(presentes) > MAXIMO_CORES_LINHA
+    # comparando cores parecidas; o nome vai para a ponta da linha. Em card de
+    # meia largura vale a partir da terceira, porque a legenda horizontal já
+    # quebra em duas linhas.
+    limite_rotulo_direto = 2 if compacto else MAXIMO_CORES_LINHA
+    rotulo_direto = len(presentes) > limite_rotulo_direto
+    if height is None:
+        height = ALTURA_COMPACTA if compacto else ALTURA_PADRAO
     marcados = set(destaques or ())
 
     fig = go.Figure()
@@ -621,7 +720,14 @@ def line_figure(
         if not valid.empty:
             value = float(valid.iloc[-1])
             numero = f"{value:.{decimals}f}{suffix}".replace(".", ",")
-            texto = f"{label}  {numero}" if rotulo_direto else numero
+            if not rotulo_direto:
+                texto = numero
+            elif compacto:
+                # Meia largura não comporta nome e valor na mesma linha sem
+                # cortar o nome no meio: eles empilham.
+                texto = f"{encurtar_rotulo(label)}<br>{numero}"
+            else:
+                texto = f"{label}  {numero}"
             endpoints.append((pd.Timestamp(valid.index[-1]), value, texto, color))
 
     fig.update_layout(meta={"source_aliases": _source_aliases(wide, aliases)})
@@ -632,6 +738,7 @@ def line_figure(
         height=height,
         legenda=not rotulo_direto,
         rotulo_direto=rotulo_direto,
+        compacto=compacto,
     )
     # Depois do estilo: a conta dos rótulos precisa da geometria já definida.
     _add_last_line_labels(fig, endpoints)
@@ -649,8 +756,11 @@ def stacked_figure(
     total: pd.Series | None = None,
     percent: bool = False,
     height: int = ALTURA_PADRAO,
+    rotular_todos: bool = False,
+    tamanho_rotulo: int = TAMANHO_ROTULO_PX,
 ) -> go.Figure:
     """Barras empilhadas com rótulo de tamanho único e contraste garantido."""
+    rotulos = _all_text if rotular_todos else _last_text
     fig = go.Figure()
     presentes = [alias for alias in aliases if alias in wide.columns]
     for index, alias in enumerate(presentes):
@@ -665,18 +775,18 @@ def stacked_figure(
                 y=values,
                 name=label,
                 marker_color=preenchimento,
-                text=_last_text(values, 1, "%" if percent else ""),
+                text=rotulos(values, 1, "%" if percent else ""),
                 textposition="inside",
                 # Horizontal sempre. Girar o texto para caber é o que produzia
                 # um rótulo deitado ao lado de nove em pé na mesma barra.
                 textangle=0,
                 insidetextanchor="middle",
                 insidetextfont={
-                    "size": TAMANHO_ROTULO_PX,
+                    "size": tamanho_rotulo,
                     "color": cor_do_rotulo(preenchimento),
                     "family": "Arial",
                 },
-                textfont={"size": TAMANHO_ROTULO_PX, "family": "Arial"},
+                textfont={"size": tamanho_rotulo, "family": "Arial"},
                 constraintext="inside",
                 meta={"series_alias": alias},
                 hovertemplate="%{y:.1f}" + ("%" if percent else "")
@@ -688,7 +798,10 @@ def stacked_figure(
     total_alias = getattr(total, "name", None) if total is not None else None
     source_candidates = [*aliases, *([total_alias] if total_alias else [])]
     fig.update_layout(meta={"source_aliases": _source_aliases(wide, source_candidates)})
-    aplicar_estilo(fig, title=title, y_title=y_title, height=height, legenda=True)
+    aplicar_estilo(
+        fig, title=title, y_title=y_title, height=height, legenda=True,
+        tamanho_rotulo=tamanho_rotulo,
+    )
 
     if total is not None:
         # Anotação, não série. Como série invisível de texto, o total fazia o
@@ -705,7 +818,7 @@ def stacked_figure(
                 yshift=11,
                 xanchor="center",
                 font={
-                    "size": TAMANHO_ROTULO_PX,
+                    "size": tamanho_rotulo,
                     "color": ITAU_BLACK,
                     "family": "Arial",
                 },
@@ -726,22 +839,29 @@ def bar_line_figure(
     bar_title: str = "R$ bi",
     line_title: str = "meses",
     height: int = ALTURA_PADRAO,
+    rotular_todos: bool = True,
+    tamanho_rotulo: int = TAMANHO_ROTULO_BARRA_PX,
 ) -> go.Figure:
+    """Volume em coluna no eixo esquerdo, prazo em linha no eixo direito.
+
+    O eixo direito, a linha e o nome dela na legenda saem em laranja: é o que
+    diz ao leitor, sem precisar de nota, que "meses" se lê à direita.
+    """
     fig = make_subplots(specs=[[{"secondary_y": True}]])
+    rotulos = _all_text if rotular_todos else _last_text
     if bar_alias in wide.columns:
         bar = pd.to_numeric(wide[bar_alias], errors="coerce") / 1000.0
-        preenchimento = ITAU_LIGHT_GRAY
         fig.add_trace(
             go.Bar(
                 x=wide.index,
                 y=bar,
                 name=get_series(bar_alias).label,
-                marker_color=preenchimento,
-                text=_last_text(bar, 1),
+                marker_color=ITAU_LIGHT_GRAY,
+                text=rotulos(bar, 1),
                 textposition="outside",
                 textangle=0,
                 textfont={
-                    "size": TAMANHO_ROTULO_PX,
+                    "size": tamanho_rotulo,
                     "color": ITAU_BLACK,
                     "family": "Arial",
                 },
@@ -753,18 +873,26 @@ def bar_line_figure(
         )
     if line_alias in wide.columns:
         line = pd.to_numeric(wide[line_alias], errors="coerce")
-        line_color = ITAU_ORANGE
+        rotulo_linha = get_series(line_alias).label
         fig.add_trace(
             go.Scatter(
                 x=wide.index,
                 y=line,
-                name=get_series(line_alias).label,
+                # O Plotly aceita HTML no nome da série: é assim que o item da
+                # legenda sai na cor da linha, junto do eixo que ele mede.
+                name=f"<span style='color:{ITAU_ORANGE}'>{rotulo_linha}</span>",
                 mode="lines",
-                line={"color": line_color, "width": LARGURA_LINHA_FOCO},
+                line={"color": ITAU_ORANGE, "width": LARGURA_LINHA_FOCO},
                 cliponaxis=False,
                 connectgaps=False,
-                meta={"series_alias": line_alias, "eixo": "secundario"},
-                hovertemplate="%{y:.1f}<extra>%{fullData.name}</extra>",
+                meta={
+                    "series_alias": line_alias,
+                    "eixo": "secundario",
+                    # O exportador usa este nome limpo: a marcação HTML só faz
+                    # sentido no navegador.
+                    "rotulo_limpo": rotulo_linha,
+                },
+                hovertemplate="%{y:.1f}<extra>" + rotulo_linha + "</extra>",
             ),
             secondary_y=True,
         )
@@ -782,11 +910,22 @@ def bar_line_figure(
             "formato_primario": "0.0",
             "formato_secundario": "0.0",
             "tipo_grafico": "column_line",
+            "cor_eixo_secundario": ITAU_ORANGE,
         }
     )
-    aplicar_estilo(fig, title=title, y_title=bar_title, height=height, legenda=True)
+    aplicar_estilo(
+        fig, title=title, y_title=bar_title, height=height, legenda=True,
+        tamanho_rotulo=tamanho_rotulo,
+    )
     fig.update_yaxes(title_text=bar_title, secondary_y=False, rangemode="tozero")
-    fig.update_yaxes(title_text=line_title, secondary_y=True, showgrid=False)
+    fig.update_yaxes(
+        title_text=line_title,
+        secondary_y=True,
+        showgrid=False,
+        color=ITAU_ORANGE,
+        tickfont={"color": ITAU_ORANGE, "size": TAMANHO_FONTE_EIXO},
+        title_font={"color": ITAU_ORANGE},
+    )
 
     if line_alias in wide.columns:
         valid = pd.to_numeric(wide[line_alias], errors="coerce").dropna()

@@ -1042,17 +1042,10 @@ def avaliar_legibilidade(paineis: Sequence[PainelSpec]) -> List[Dict[str, str]]:
                 ),
             })
 
-        colisoes = rotulos_sobrepostos(painel)
-        if colisoes:
-            avisos.append({
-                "painel": painel.titulo,
-                "nivel": "info",
-                "mensagem": (
-                    "Rótulos do último ponto quase colados em "
-                    + "; ".join(f"{a} e {b}" for a, b in colisoes[:3])
-                    + ". No PPTX eles podem se sobrepor — ajuste manualmente se for para o deck."
-                ),
-            })
+        # O aviso de "rótulos quase colados" saiu daqui: a rotina que posiciona
+        # os rótulos do último ponto passou a garantir separação mínima em
+        # pixels, então o alerta descrevia um problema que não existe mais.
+        # ``rotulos_sobrepostos`` continua disponível para inspeção.
 
     return avisos
 

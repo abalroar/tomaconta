@@ -75,7 +75,7 @@ def render_scr_inadimplencia(get_cache_manager) -> None:
     from utils import scr_data_query as scr_q
     from utils import scr_pptx_export as scr_pptx
     from utils.sgs_credit_analytics import (
-        ALTURA_PADRAO,
+        ALTURA_COMPACTA,
         ITAU_BLACK,
         ITAU_ORANGE,
         LARGURA_LINHA_AGREGADO,
@@ -84,6 +84,7 @@ def render_scr_inadimplencia(get_cache_manager) -> None:
         TAMANHO_ROTULO_PX,
         _add_last_line_labels,
         aplicar_estilo,
+        encurtar_rotulo,
         formatar_competencia,
     )
     from utils.sgs_credit_pptx_export import exportar_figuras_pptx
@@ -155,7 +156,9 @@ def render_scr_inadimplencia(get_cache_manager) -> None:
         ).sort_index()
 
         desenhadas = [n for n in painel.ordem_series if n in tabela.columns]
-        rotulo_direto = len(desenhadas) > 5
+        # Em meia largura o nome vai para a ponta da linha já a partir da
+        # terceira série: a legenda horizontal quebraria em duas fileiras.
+        rotulo_direto = len(desenhadas) > 2
         for nome in desenhadas:
             serie = tabela[nome]
             validos = serie.dropna()
@@ -189,7 +192,8 @@ def render_scr_inadimplencia(get_cache_manager) -> None:
                 endpoints.append((
                     pd.Timestamp(validos.index[-1]),
                     y_final,
-                    f"{rotulo}  {numero}" if rotulo_direto else numero,
+                    f"{encurtar_rotulo(rotulo)}<br>{numero}" if rotulo_direto
+                    else numero,
                     cor,
                 ))
 
@@ -197,9 +201,10 @@ def render_scr_inadimplencia(get_cache_manager) -> None:
             fig,
             title=painel.titulo,
             y_title=scr_q.METRICAS[_metrica].rotulo,
-            height=ALTURA_PADRAO,
+            height=ALTURA_COMPACTA,
             legenda=not rotulo_direto,
             rotulo_direto=rotulo_direto,
+            compacto=True,
         )
         fig.update_yaxes(tickformat=".2%")
         _add_last_line_labels(fig, endpoints, base_zero=eixo_zero)
@@ -381,8 +386,8 @@ def render_scr_inadimplencia(get_cache_manager) -> None:
             ),
         )
     with filtro_cliente:
-        cliente_opcao = st.radio(
-            "Cliente", ["PF + PJ", "PF", "PJ"], horizontal=True, key="scr_cliente"
+        cliente_opcao = st.selectbox(
+            "Cliente", ["Total", "PF", "PJ"], index=0, key="scr_cliente"
         )
     with filtro_metrica:
         _metrica = st.selectbox(
@@ -399,7 +404,7 @@ def render_scr_inadimplencia(get_cache_manager) -> None:
     inicio = inicio_selecionado.strftime("%Y-%m")
     fim = fim_timestamp.strftime("%Y-%m")
     base = scr_q.filtrar(base, data_base_inicial=inicio, data_base_final=fim)
-    cliente = None if cliente_opcao == "PF + PJ" else cliente_opcao
+    cliente = None if cliente_opcao == "Total" else cliente_opcao
     dados = scr_q.filtrar(base, cliente=cliente)
     if dados.empty:
         st.warning("Sem dados para os filtros selecionados.")
@@ -416,7 +421,7 @@ def render_scr_inadimplencia(get_cache_manager) -> None:
     aba_paineis, aba_regiao = st.tabs(["Painéis", "Brasil e regiões"])
 
     with aba_paineis:
-        controle_quebra, controle_total, controle_zero = st.columns([1.6, 0.8, 0.9])
+        controle_quebra, controle_opcoes = st.columns([3, 1])
         quebras = [q for q in scr_spec.QUEBRAS if q.key != "segmento"]
         with controle_quebra:
             quebra_key = st.selectbox(
@@ -424,10 +429,12 @@ def render_scr_inadimplencia(get_cache_manager) -> None:
                 format_func=lambda chave: scr_spec.QUEBRAS_POR_KEY[chave].label,
                 key="scr_pn_quebra",
             )
-        with controle_total:
-            incluir_total = st.toggle("Linha total", value=True, key="scr_pn_total")
-        with controle_zero:
-            eixo_zero = st.toggle("Eixo em zero", value=True, key="scr_pn_zero")
+        with controle_opcoes:
+            # Dois interruptores que quase nunca mudam não precisam ocupar a
+            # barra de filtros junto dos quatro que mudam sempre.
+            with st.popover("Exibição", help="Opções de exibição dos painéis"):
+                incluir_total = st.toggle("Linha total", value=True, key="scr_pn_total")
+                eixo_zero = st.toggle("Eixo em zero", value=True, key="scr_pn_zero")
 
         quebra_spec = scr_spec.QUEBRAS_POR_KEY[quebra_key]
         cliente_painel = quebra_spec.exige_cliente or cliente
@@ -453,15 +460,16 @@ def render_scr_inadimplencia(get_cache_manager) -> None:
         for aviso in scr_spec.avaliar_legibilidade(paineis):
             avisos_por_painel[aviso["painel"]].append(aviso)
 
-        # Os avisos saem do popover "i" e vêm para junto do controle que os
-        # causou: escondidos, nunca eram lidos a tempo de mudar a seleção.
+        # Os avisos ficam visíveis, junto do controle que os causou, mas em uma
+        # linha só: uma pilha de faixas amarelas para quatro painéis empurrava
+        # os gráficos para fora da tela.
         mensagens = sorted({
             aviso["mensagem"]
             for avisos in avisos_por_painel.values()
             for aviso in avisos
         })
-        for mensagem in mensagens:
-            st.warning(mensagem, icon=":material/visibility_off:")
+        if mensagens:
+            st.caption("⚠︎ " + " · ".join(mensagens))
 
         painel_quebras = scr_spec._quebras(dados, _metrica) if not dados.empty else []
 
@@ -493,13 +501,19 @@ def render_scr_inadimplencia(get_cache_manager) -> None:
             except Exception as exc:
                 st.error(f"Falha ao montar o PPTX: {exc}")
 
-            # Um card por linha: com até nove séries, meia largura não basta.
-            for painel in paineis:
-                _card_header(painel)
-                st.plotly_chart(
-                    _figura_painel(painel, quebra_spec, eixo_zero, painel_quebras),
-                    width="stretch", config=plotly_config,
-                )
+            # Dois por linha. Esticado pela tela inteira o painel perde
+            # sensibilidade vertical; o nome de cada série continua na ponta da
+            # linha, que é o que mantém legível uma faixa de renda colada na
+            # outra.
+            for inicio_linha in range(0, len(paineis), 2):
+                colunas = st.columns(2)
+                for coluna, painel in zip(colunas, paineis[inicio_linha:inicio_linha + 2]):
+                    with coluna:
+                        _card_header(painel)
+                        st.plotly_chart(
+                            _figura_painel(painel, quebra_spec, eixo_zero, painel_quebras),
+                            width="stretch", config=plotly_config,
+                        )
 
     with aba_regiao:
         opcoes_regiao = scr_spec.modalidades_bcb_disponiveis(

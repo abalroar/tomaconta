@@ -120,6 +120,9 @@ def _caixa_texto(
     corrida.font.color.rgb = cor
 
 
+
+
+
 def _definir_intervalo_rotulos(category_axis, total_categorias: int) -> int:
     """Mantém todas as categorias; os meses intermediários têm rótulo vazio."""
     intervalo = 1
@@ -129,6 +132,7 @@ def _definir_intervalo_rotulos(category_axis, total_categorias: int) -> int:
         if no is None:
             no = etree.SubElement(elemento, qn(tag))
         no.set("val", str(intervalo))
+    _ordenar_filhos(elemento, ORDEM_CAT_AX)
     return intervalo
 
 
@@ -255,8 +259,82 @@ def _proximo_ax_id(chart, deslocamento: int) -> int:
     return candidato
 
 
+def _proximo_ax_id(chart, deslocamento: int) -> int:
+    """Id de eixo inédito dentro do gráfico."""
+    existentes = {
+        int(no.get("val"))
+        for no in chart._chartSpace.iter(qn("c:axId"))
+        if no.get("val")
+    }
+    candidato = (max(existentes) if existentes else 100_000_000) + deslocamento
+    while candidato in existentes:
+        candidato += 1
+    return candidato
+
+
+# Ordem exigida pelo schema para os filhos de <c:ser> num gráfico de linhas
+# (CT_LineSer). O PowerPoint recusa o arquivo inteiro se a sequência não bater.
+ORDEM_LINE_SER = (
+    "c:idx", "c:order", "c:tx", "c:spPr", "c:marker", "c:dPt", "c:dLbls",
+    "c:trendline", "c:errBars", "c:cat", "c:val", "c:smooth", "c:extLst",
+)
+
+# Elementos que só existem em série de barra (CT_BarSer) e não podem viajar
+# junto quando a série vira linha.
+FILHOS_SO_DE_BARRA = ("c:invertIfNegative", "c:pictureOptions", "c:shape")
+
+# Grupos de gráfico reconhecidos dentro de <c:plotArea>. O schema manda que
+# TODOS venham antes de qualquer eixo.
+GRUPOS_DE_GRAFICO = (
+    "c:areaChart", "c:area3DChart", "c:lineChart", "c:line3DChart",
+    "c:stockChart", "c:radarChart", "c:scatterChart", "c:pieChart",
+    "c:pie3DChart", "c:doughnutChart", "c:barChart", "c:bar3DChart",
+    "c:ofPieChart", "c:surfaceChart", "c:surface3DChart", "c:bubbleChart",
+)
+
+
+# Ordem exigida para os filhos de <c:catAx> (CT_CatAx). O python-pptx emite
+# noMultiLvlLbl antes de tickLblSkip/tickMarkSkip, que só entram depois.
+ORDEM_CAT_AX = (
+    "c:axId", "c:scaling", "c:delete", "c:axPos", "c:majorGridlines",
+    "c:minorGridlines", "c:title", "c:numFmt", "c:majorTickMark",
+    "c:minorTickMark", "c:tickLblPos", "c:spPr", "c:txPr", "c:crossAx",
+    "c:crosses", "c:crossesAt", "c:auto", "c:lblAlgn", "c:lblOffset",
+    "c:tickLblSkip", "c:tickMarkSkip", "c:noMultiLvlLbl", "c:extLst",
+)
+
+
+def _ordenar_filhos(elemento, sequencia: Sequence[str]) -> None:
+    """Reordena os filhos para a sequência que o schema exige.
+
+    Fora de ordem, o PowerPoint recusa o arquivo inteiro e oferece reparo em
+    vez de abrir o deck.
+    """
+    posicao = {qn(nome): indice for indice, nome in enumerate(sequencia)}
+    for filho in sorted(elemento, key=lambda e: posicao.get(e.tag, len(posicao))):
+        elemento.append(filho)
+
+
+def _ordenar_line_ser(ser) -> None:
+    """Reordena os filhos de uma série para a sequência de CT_LineSer."""
+    for nome in FILHOS_SO_DE_BARRA:
+        for filho in ser.findall(qn(nome)):
+            ser.remove(filho)
+    _ordenar_filhos(ser, ORDEM_LINE_SER)
+
+
+def _indice_apos_grupos(plot_area) -> int:
+    """Posição logo depois do último grupo de gráfico do plotArea."""
+    tags = {qn(nome) for nome in GRUPOS_DE_GRAFICO}
+    ultimo = 0
+    for indice, filho in enumerate(plot_area):
+        if filho.tag in tags:
+            ultimo = indice + 1
+    return ultimo
+
+
 def _mover_para_eixo_secundario(
-    chart, indices: Sequence[int], formato_numero: str
+    chart, indices: Sequence[int], formato_numero: str, cor: RGBColor | None = None
 ) -> bool:
     """Tira as séries de ``indices`` do gráfico de colunas e as põe em linha,
     num segundo eixo de valores à direita.
@@ -264,6 +342,10 @@ def _mover_para_eixo_secundario(
     Sem isto, um card de volume (R$ bi) mais prazo (meses) era achatado num
     eixo único: a linha de prazo, entre 23 e 34, virava uma reta no rodapé de
     um eixo que ia até 350.
+
+    A montagem respeita a sequência do schema em dois pontos que o PowerPoint
+    não perdoa: o ``<c:lineChart>`` entra antes de qualquer eixo, e os filhos
+    de cada ``<c:ser>`` movida são reordenados para CT_LineSer.
     """
     if not indices:
         return False
@@ -280,7 +362,8 @@ def _mover_para_eixo_secundario(
     id_categoria = _proximo_ax_id(chart, 1)
     id_valor = _proximo_ax_id(chart, 2)
 
-    line_chart = etree.SubElement(plot_area, qn("c:lineChart"))
+    line_chart = etree.Element(qn("c:lineChart"))
+    plot_area.insert(_indice_apos_grupos(plot_area), line_chart)
     agrupamento = etree.SubElement(line_chart, qn("c:grouping"))
     agrupamento.set("val", "standard")
     varia = etree.SubElement(line_chart, qn("c:varyColors"))
@@ -288,13 +371,10 @@ def _mover_para_eixo_secundario(
     for elemento in mover:
         bar_chart.remove(elemento)
         line_chart.append(elemento)
-        marcador = elemento.find(qn("c:marker"))
-        if marcador is None:
-            marcador = etree.SubElement(elemento, qn("c:marker"))
-        simbolo = marcador.find(qn("c:symbol"))
-        if simbolo is None:
-            simbolo = etree.SubElement(marcador, qn("c:symbol"))
+        marcador = etree.SubElement(elemento, qn("c:marker"))
+        simbolo = etree.SubElement(marcador, qn("c:symbol"))
         simbolo.set("val", "none")
+        _ordenar_line_ser(elemento)
     marcador_grupo = etree.SubElement(line_chart, qn("c:marker"))
     marcador_grupo.set("val", "1")
     for identificador in (id_categoria, id_valor):
@@ -323,9 +403,30 @@ def _mover_para_eixo_secundario(
     _definir(val_ax, "c:majorTickMark", "none")
     _definir(val_ax, "c:minorTickMark", "none")
     _definir(val_ax, "c:tickLblPos", "nextTo")
+    if cor is not None:
+        # Eixo da direita na cor da linha que ele mede: é o que diz ao leitor
+        # que "meses" se lê à direita.
+        val_ax.append(_texto_do_eixo(cor))
     _definir(val_ax, "c:crossAx", str(id_categoria))
     _definir(val_ax, "c:crosses", "max")
     return True
+
+
+def _texto_do_eixo(cor: RGBColor):
+    """<c:txPr> com a cor pedida, para tingir os rótulos de um eixo."""
+    tx_pr = etree.Element(qn("c:txPr"))
+    etree.SubElement(tx_pr, qn("a:bodyPr"))
+    etree.SubElement(tx_pr, qn("a:lstStyle"))
+    paragrafo = etree.SubElement(tx_pr, qn("a:p"))
+    propriedades = etree.SubElement(paragrafo, qn("a:pPr"))
+    fonte = etree.SubElement(propriedades, qn("a:defRPr"))
+    fonte.set("sz", str(int(FONTE_EIXO_PT * 100)))
+    fonte.set("b", "1")
+    preenchimento = etree.SubElement(fonte, qn("a:solidFill"))
+    valor = etree.SubElement(preenchimento, qn("a:srgbClr"))
+    valor.set("val", str(cor))
+    etree.SubElement(paragrafo, qn("a:endParaRPr"))
+    return tx_pr
 
 
 def _definir(pai, tag: str, valor: str):
@@ -483,10 +584,19 @@ def _adicionar_painel(
     secundario = False
     if tipo_grafico == "column_line" and series_secundarias:
         indices = [i for i, nome in enumerate(ordem) if nome in series_secundarias]
+        cor_secundaria = next(
+            (
+                _hex_para_rgb(painel.cores[nome])
+                for nome in ordem
+                if nome in series_secundarias and nome in painel.cores
+            ),
+            None,
+        )
         secundario = _mover_para_eixo_secundario(
             grafico,
             indices,
             getattr(painel, "formato_secundario", formato_numero),
+            cor_secundaria,
         )
 
     return {

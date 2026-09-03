@@ -15,6 +15,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from utils.sgs_credit_analytics import (
+    TAMANHO_ROTULO_BARRA_PX,
     _valid_trace_dates,
     bar_line_figure,
     build_ipca_index,
@@ -115,6 +116,22 @@ def _chart(fig: go.Figure, key: str) -> None:
     competencia = _competencia_do_card(fig)
     if competencia is not None:
         st.caption(f"dados até {formatar_competencia(competencia)}")
+
+
+def _cards_em_grade(cards: Sequence[tuple[go.Figure, str]], colunas: int = 2) -> None:
+    """Distribui cards em linhas de ``colunas``.
+
+    Largura total é boa para barra empilhada, onde a fatia precisa de altura,
+    e ruim para linhas próximas: esticado pela tela inteira, o gráfico perde
+    sensibilidade vertical e as séries se colam. Os cards de inadimplência
+    voltam a dois por linha, mantendo o nome de cada série na ponta da linha.
+    """
+    for inicio in range(0, len(cards), colunas):
+        faixa = cards[inicio:inicio + colunas]
+        grade = st.columns(colunas)
+        for coluna, (figura, chave) in zip(grade, faixa):
+            with coluna:
+                _chart(figura, chave)
 
 
 def _competencias_por_fonte(wide: pd.DataFrame) -> dict[str, pd.Timestamp]:
@@ -251,6 +268,10 @@ def _render_concessoes(wide: pd.DataFrame) -> None:
             y_title="R$ bi",
             scale=0.001,
             total=total,
+            # Barra de largura total comporta rótulo em todo mês e um corpo
+            # de fonte maior sem apertar nada.
+            rotular_todos=True,
+            tamanho_rotulo=TAMANHO_ROTULO_BARRA_PX,
         ),
         "sgs_concessoes_sa",
     )
@@ -662,16 +683,6 @@ def _render_npl(wide: pd.DataFrame, get_cache_manager=None) -> None:
     wide = _period_filter(wide)
     if selected == "Cobertura e Provisionamento":
         provision = ["provisao_sfn", "provisao_publico", "provisao_privado_nacional", "provisao_estrangeiro"]
-        _chart(
-            line_figure(
-                wide,
-                provision,
-                title="Nível de provisão",
-                y_title="% da carteira total",
-                suffix="%",
-            ),
-            "sgs_provisao",
-        )
         coverage = pd.DataFrame(index=wide.index)
         pairs = {
             "cobertura_sfn_derivada": ("provisao_sfn", "inad_total"),
@@ -683,59 +694,103 @@ def _render_npl(wide: pd.DataFrame, get_cache_manager=None) -> None:
             if {provision_alias, npl_alias}.issubset(wide.columns):
                 coverage[alias] = coverage_ratio(wide[provision_alias], wide[npl_alias])
         coverage.attrs["source_aliases"] = [item for pair in pairs.values() for item in pair]
-        _chart(
-            line_figure(
-                coverage,
-                list(pairs),
-                title="Nível de cobertura (>90 dias)",
-                y_title="% da carteira inadimplente",
-                labels={
-                    "cobertura_sfn_derivada": "SFN",
-                    "cobertura_publico_derivada": "Público",
-                    "cobertura_privado_nacional_derivada": "Privado nacional",
-                    "cobertura_estrangeiro_derivada": "Estrangeiro",
-                },
-                suffix="%",
+        _cards_em_grade([
+            (
+                line_figure(
+                    wide, provision,
+                    title="Nível de provisão",
+                    y_title="% da carteira total",
+                    suffix="%",
+                    compacto=True,
+                ),
+                "sgs_provisao",
             ),
-            "sgs_cobertura",
-        )
+            (
+                line_figure(
+                    coverage, list(pairs),
+                    title="Nível de cobertura (>90 dias)",
+                    y_title="% da carteira inadimplente",
+                    labels={
+                        "cobertura_sfn_derivada": "SFN",
+                        "cobertura_publico_derivada": "Público",
+                        "cobertura_privado_nacional_derivada": "Privado nacional",
+                        "cobertura_estrangeiro_derivada": "Estrangeiro",
+                    },
+                    suffix="%",
+                    compacto=True,
+                ),
+                "sgs_cobertura",
+            ),
+        ])
         return
 
-    aggregate = ["pre_inad_livre_pf", "inad_livre_pf", "pre_inad_livre_pj", "inad_livre_pj", "pre_inad_livre_total", "inad_livre_total"]
-    _chart(
-        line_figure(
-            wide,
-            aggregate,
-            title="Pré-inadimplência (15–90d) e inadimplência (>90d) — recursos livres",
-            y_title="% da carteira",
-            suffix="%",
-        ),
-        "sgs_npl_aggregate",
-    )
+    aggregate = [
+        "pre_inad_livre_pf", "inad_livre_pf", "pre_inad_livre_pj",
+        "inad_livre_pj", "pre_inad_livre_total", "inad_livre_total",
+    ]
     pf_pre = [
         "pre_inad_livre_pf_nao_consignado", "pre_inad_livre_pf_cheque",
         "pre_inad_livre_pf_cartao_total", "pre_inad_livre_pf_cartao_rotativo",
         "pre_inad_livre_pf_cartao_parcelado", "pre_inad_livre_pf_veiculos",
         "pre_inad_livre_pf_consignado", "pre_inad_direcionado_pf_imobiliario",
     ]
+    pj_pre = [
+        "pre_inad_livre_pj_conta_garantida", "pre_inad_livre_pj_capital_giro",
+        "pre_inad_livre_pj_duplicatas",
+    ]
     pf_npl = [
         "inad_livre_pf_nao_consignado", "inad_livre_pf_cheque", "inad_livre_pf_cartao_total",
         "inad_livre_pf_cartao_rotativo", "inad_livre_pf_cartao_parcelado", "inad_livre_pf_veiculos",
         "inad_livre_pf_consignado", "inad_direcionado_pf_imobiliario",
     ]
-    pj_pre = ["pre_inad_livre_pj_conta_garantida", "pre_inad_livre_pj_capital_giro", "pre_inad_livre_pj_duplicatas"]
-    pj_npl = ["inad_livre_pj_conta_garantida", "inad_livre_pj_capital_giro", "inad_livre_pj_duplicatas"]
-    cards = [
-        ("Produtos PF — pré-inadimplência", pf_pre),
-        ("Produtos PF — inadimplência", pf_npl),
-        ("Produtos PJ — pré-inadimplência", pj_pre),
-        ("Produtos PJ — inadimplência", pj_npl),
+    pj_npl = [
+        "inad_livre_pj_conta_garantida", "inad_livre_pj_capital_giro",
+        "inad_livre_pj_duplicatas",
     ]
-    for posicao, (titulo, aliases) in enumerate(cards):
-        _chart(
-            line_figure(wide, aliases, title=titulo, y_title="% da carteira", suffix="%"),
-            f"sgs_npl_card_{posicao}",
-        )
+    # Primeiro o panorama; depois as pré-inadimplências juntas (PF, PJ) e as
+    # inadimplências juntas (PF, PJ). O leitor compara pré com pré e inad com
+    # inad sem atravessar a página.
+    cards = [
+        (
+            line_figure(
+                wide, aggregate,
+                title="Pré-inadimplência (15–90d) e inadimplência (>90d) — recursos livres",
+                y_title="% da carteira", suffix="%", compacto=True,
+            ),
+            "sgs_npl_aggregate",
+        ),
+    ]
+    _cards_em_grade(cards)
+    _cards_em_grade([
+        (
+            line_figure(
+                wide, pf_pre, title="Produtos PF — pré-inadimplência",
+                y_title="% da carteira", suffix="%", compacto=True,
+            ),
+            "sgs_npl_pf_pre",
+        ),
+        (
+            line_figure(
+                wide, pj_pre, title="Produtos PJ — pré-inadimplência",
+                y_title="% da carteira", suffix="%", compacto=True,
+            ),
+            "sgs_npl_pj_pre",
+        ),
+        (
+            line_figure(
+                wide, pf_npl, title="Produtos PF — inadimplência",
+                y_title="% da carteira", suffix="%", compacto=True,
+            ),
+            "sgs_npl_pf_inad",
+        ),
+        (
+            line_figure(
+                wide, pj_npl, title="Produtos PJ — inadimplência",
+                y_title="% da carteira", suffix="%", compacto=True,
+            ),
+            "sgs_npl_pj_inad",
+        ),
+    ])
 
 
 def _render_rates(wide: pd.DataFrame) -> None:

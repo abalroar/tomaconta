@@ -470,7 +470,9 @@ def test_rota_mostra_alertas_de_legibilidade_na_superficie():
     fonte = _scr_route_source()
     assert 'st.popover("i"' in fonte
     assert "avaliar_legibilidade" in fonte
-    assert "st.warning(mensagem" in fonte
+    # Visível, mas em uma linha só: quatro painéis geravam uma pilha de faixas
+    # amarelas que empurrava os gráficos para fora da tela.
+    assert 'st.caption("⚠︎ "' in fonte
     assert "Alertas de legibilidade" not in fonte
     assert "scr_spec.rodape(" not in fonte
     assert "st.warning(_pn_texto" not in fonte
@@ -688,7 +690,11 @@ def test_legibilidade_detecta_rotulos_colados():
     painel = T.construir_paineis(
         _fato(linhas), produtos=["PF - Outros créditos"], quebra="renda", incluir_total=False
     )[0]
+    # O detector continua existindo para inspeção, mas não vira mais aviso na
+    # tela: a rotina de posicionamento garante separação mínima em pixels.
     assert T.rotulos_sobrepostos(painel)
+    avisos = T.avaliar_legibilidade([painel])
+    assert not any("colados" in aviso["mensagem"] for aviso in avisos)
 
 
 def test_legibilidade_avisa_carteira_pequena():
