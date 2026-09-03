@@ -15,10 +15,12 @@ from utils.sgs_credit_analytics import (
     build_ipca_index,
     coverage_ratio,
     derive_credit_totals,
+    eixo_datas_semestral,
     line_figure,
     real_yoy,
     shares,
 )
+from utils.sgs_credit_pptx_export import exportar_figuras_pptx
 from utils.sgs_credit_providers import BCBSGSProvider
 from utils.sgs_credit_registry import SGS_SERIES, SGS_SERIES_BY_CODE, get_series
 from tabs.mercado_credito import _filter_period_range, _real_growth_frame
@@ -118,6 +120,54 @@ def test_figures_label_only_last_valid_point_and_combo_has_secondary_axis():
     assert len(combo.data) == 2
     assert combo.data[1].yaxis == "y2"
     assert combo.layout.annotations[0].font.color == combo.data[1].line.color
+    assert line.layout.meta["chart_title"] == "Taxa"
+
+
+def test_eixo_marca_junho_dezembro_e_ultimo_mes_disponivel():
+    datas = pd.date_range("2025-01-31", "2026-07-31", freq="ME")
+    valores, rotulos = eixo_datas_semestral(datas)
+
+    assert [data.strftime("%Y-%m") for data in valores] == [
+        "2025-06", "2025-12", "2026-06", "2026-07"
+    ]
+    assert rotulos == ["jun.25", "dez.25", "jun.26", "jul.26"]
+
+    fig = line_figure(
+        pd.DataFrame({"taxa_pf_livre": range(len(datas))}, index=datas),
+        ["taxa_pf_livre"], title="Taxa", y_title="%",
+    )
+    assert fig.layout.xaxis.tickangle == -35
+
+
+def test_eixo_nao_repete_mes_quando_series_fecham_em_dias_distintos():
+    valores, rotulos = eixo_datas_semestral([
+        "2025-12-29", "2025-12-31", "2026-06-29", "2026-06-30", "2026-07-30"
+    ])
+
+    assert [data.strftime("%Y-%m-%d") for data in valores] == [
+        "2025-12-31", "2026-06-30", "2026-07-30"
+    ]
+    assert rotulos == ["dez.25", "jun.26", "jul.26"]
+
+
+def test_export_sgs_gera_grafico_office_nativo_com_titulo_e_ultimo_rotulo():
+    from pptx import Presentation
+
+    index = pd.date_range("2026-01-31", periods=6, freq="ME")
+    fig = line_figure(
+        pd.DataFrame({"taxa_pf_livre": range(20, 26)}, index=index),
+        ["taxa_pf_livre"], title="Taxa PF", y_title="% a.a.", suffix="%",
+    )
+    blob, meta = exportar_figuras_pptx([fig], titulo_deck="Teste")
+    deck = Presentation(BytesIO(blob))
+    charts = [shape.chart for shape in deck.slides[0].shapes if shape.has_chart]
+    textos = [shape.text for shape in deck.slides[0].shapes if shape.has_text_frame]
+
+    assert blob[:2] == b"PK"
+    assert meta["paineis"] == 1
+    assert len(charts) == 1
+    assert "Taxa PF" in textos
+    assert "undefined" not in blob.decode("latin-1", errors="ignore").lower()
 
 
 def test_line_labels_are_staggered_and_keep_series_order():
@@ -296,6 +346,11 @@ def test_credit_module_has_period_range_info_popovers_and_no_expectations_regist
     assert 'st.popover("i"' in source
     assert "Expectativas do Mercado de Crédito" not in source
     assert "Registry de séries SGS" not in source
+    assert "DateOffset(months=11)" in source
+    assert '"Baixar PPTX desta página"' in source
+    assert "_render_source_footer" not in source
+    assert 'fig.update_layout(title_text=""' in source
+    assert "fig.update_layout(title=None" not in source
 
 
 def test_navigation_has_dedicated_bcb_group_and_no_top_level_scr():
@@ -312,6 +367,13 @@ def test_navigation_has_dedicated_bcb_group_and_no_top_level_scr():
     assert "Inadimplência (SCR)" not in assignments["MENU_PRINCIPAL"]
     assert "Estatísticas Crédito BC" not in assignments["MENU_PRINCIPAL"]
     assert "Taxas de Juros por Produto" not in assignments["MENU_PRINCIPAL"]
+
+
+def test_taxas_por_produto_defaults_to_12_months_and_exports_pptx():
+    source = (PROJECT_ROOT / "app1.py").read_text(encoding="utf-8")
+    assert 'st.session_state["tj_beta_janela_meses"] = min(12, max_meses_beta)' in source
+    assert 'file_name="taxas_juros_por_produto.pptx"' in source
+    assert 'key="tj_beta_download_pptx"' in source
 
 
 def test_cache_manager_registers_sgs_cache(tmp_path):

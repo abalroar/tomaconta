@@ -114,9 +114,8 @@ def _caixa_texto(
 
 
 def _definir_intervalo_rotulos(category_axis, total_categorias: int) -> int:
-    """Evita rótulos de mês empilhados: mostra ~8 marcas por painel."""
-    alvo = 8
-    intervalo = max(1, round(total_categorias / alvo))
+    """Mantém todas as categorias; os meses intermediários têm rótulo vazio."""
+    intervalo = 1
     elemento = category_axis._element
     for tag in ("c:tickLblSkip", "c:tickMarkSkip"):
         no = elemento.find(qn(tag))
@@ -126,7 +125,9 @@ def _definir_intervalo_rotulos(category_axis, total_categorias: int) -> int:
     return intervalo
 
 
-def _rotular_apenas_ultimo_ponto(serie, indice_ultimo: int) -> None:
+def _rotular_apenas_ultimo_ponto(
+    serie, indice_ultimo: int, formato_numero: str = FORMATO_PERCENTUAL
+) -> None:
     """Liga o rótulo só no último ponto da série.
 
     Usa ``showVal`` em vez de texto literal: o rótulo continua ligado ao dado,
@@ -140,7 +141,7 @@ def _rotular_apenas_ultimo_ponto(serie, indice_ultimo: int) -> None:
     if formato is None:
         formato = etree.Element(qn("c:numFmt"))
         dLbl.insert(0, formato)
-    formato.set("formatCode", FORMATO_PERCENTUAL)
+    formato.set("formatCode", formato_numero)
     formato.set("sourceLinked", "0")
 
     mostrar = {
@@ -158,9 +159,11 @@ def _rotular_apenas_ultimo_ponto(serie, indice_ultimo: int) -> None:
         no.set("val", valor)
 
 
-def _estilizar_eixos(chart, total_categorias: int) -> None:
+def _estilizar_eixos(
+    chart, total_categorias: int, formato_numero: str = FORMATO_PERCENTUAL
+) -> None:
     eixo_valor = chart.value_axis
-    eixo_valor.tick_labels.number_format = FORMATO_PERCENTUAL
+    eixo_valor.tick_labels.number_format = formato_numero
     eixo_valor.tick_labels.number_format_is_linked = False
     eixo_valor.tick_labels.font.size = Pt(FONTE_EIXO_PT)
     eixo_valor.tick_labels.font.color.rgb = COR_EIXO
@@ -219,7 +222,14 @@ def _adicionar_painel(
         index="data_base", columns="serie", values="valor", aggfunc="first",
         observed=True,
     ).sort_index()
-    categorias = [rotulo_mes(str(idx)) for idx in tabela.index]
+    rotulos_completos = [rotulo_mes(str(idx)) for idx in tabela.index]
+    categorias = [
+        rotulo if (
+            posicao == len(rotulos_completos) - 1
+            or str(idx)[5:7] in {"06", "12"}
+        ) else "\u00a0"
+        for posicao, (idx, rotulo) in enumerate(zip(tabela.index, rotulos_completos))
+    ]
 
     dados = CategoryChartData()
     dados.categories = categorias
@@ -229,8 +239,15 @@ def _adicionar_painel(
         valores = [None if pd.isna(v) else float(v) for v in coluna]
         dados.add_series(rotulo_serie_fn(nome), valores)
 
+    tipo_grafico = getattr(painel, "tipo_grafico", "line")
+    chart_type = (
+        XL_CHART_TYPE.COLUMN_STACKED
+        if tipo_grafico == "column_stacked"
+        else XL_CHART_TYPE.LINE
+    )
+    formato_numero = getattr(painel, "formato_numero", FORMATO_PERCENTUAL)
     grafico = slide.shapes.add_chart(
-        XL_CHART_TYPE.LINE, left, topo_grafico, width, altura_grafico, dados
+        chart_type, left, topo_grafico, width, altura_grafico, dados
     ).chart
     grafico.has_title = False
 
@@ -247,25 +264,31 @@ def _adicionar_painel(
     for posicao, nome in enumerate(ordem):
         serie = plot.series[posicao]
         serie.smooth = False
-        linha = serie.format.line
-        linha.color.rgb = _hex_para_rgb(painel.cores.get(nome, "#8F8F8F"))
+        cor = _hex_para_rgb(painel.cores.get(nome, "#8F8F8F"))
         eh_total = nome in painel.tracejadas
-        linha.width = Pt(LARGURA_LINHA_TOTAL_PT if eh_total else LARGURA_LINHA_PT)
-        if eh_total:
-            linha.dash_style = MSO_LINE_DASH_STYLE.DASH
+        if tipo_grafico == "column_stacked":
+            serie.format.fill.solid()
+            serie.format.fill.fore_color.rgb = cor
+            serie.format.line.color.rgb = cor
+        else:
+            linha = serie.format.line
+            linha.color.rgb = cor
+            linha.width = Pt(LARGURA_LINHA_TOTAL_PT if eh_total else LARGURA_LINHA_PT)
+            if eh_total:
+                linha.dash_style = MSO_LINE_DASH_STYLE.DASH
 
         coluna = tabela[nome]
         ultimo_valido = indice_ultimo
         while ultimo_valido >= 0 and pd.isna(coluna.iloc[ultimo_valido]):
             ultimo_valido -= 1
-        _rotular_apenas_ultimo_ponto(serie, ultimo_valido)
+        _rotular_apenas_ultimo_ponto(serie, ultimo_valido, formato_numero)
         if ultimo_valido >= 0:
             rotulo = serie.points[ultimo_valido].data_label
             rotulo.font.size = Pt(FONTE_ROTULO_PT)
             rotulo.font.bold = True
             rotulo.font.color.rgb = _hex_para_rgb(painel.cores.get(nome, "#8F8F8F"))
 
-    _estilizar_eixos(grafico, len(categorias))
+    _estilizar_eixos(grafico, len(categorias), formato_numero)
 
     return {
         "titulo": painel.titulo,

@@ -10,8 +10,9 @@ Grão do fato anual (``staging/annual/{ano}.parquet``)::
     data_base x uf x segmento x cliente x porte x modalidade x submodalidade
 
 Descartados na agregação, por decisão de escopo: ``cnae_ocupacao`` (CNAE PJ /
-natureza da ocupação PF), ``origem`` (origem/destinação de recursos) e
-``indexador``. Também são descartados os seis baldes ``a_vencer_*`` e as duas
+natureza da ocupação PF), ``origem`` e ``indexador``. ``origem`` é lida antes
+do descarte para classificar cada linha nas modalidades agregadas do painel
+SCR.data. Também são descartados os seis baldes ``a_vencer_*`` e as duas
 colunas derivadas (``carteira_a_vencer`` e ``carteira_vencida``), reconstruíveis
 a partir de ``carteira_ativa`` e dos dois baldes de vencidos.
 
@@ -50,10 +51,15 @@ SCR_ZIP_URL_TEMPLATE = "https://www.bcb.gov.br/pda/desig/scrdata_{ano}.zip"
 SCR_METODOLOGIA_URL = "https://www.bcb.gov.br/pda/desig/metodologia_versao2.pdf"
 SCR_PAGINA_URL = "https://www.bcb.gov.br/estabilidadefinanceira/scrdata"
 SCR_DOC3040_URL = "https://www.bcb.gov.br/estabilidadefinanceira/scrdoc3040"
+SCR_EQUIVALENCIA_MODALIDADES_URL = (
+    "https://www.bcb.gov.br/content/estabilidadefinanceira/"
+    "Leiaute_de_documentos/scrdoc3040/Equivalencia_Modalidades.xlsx"
+)
 
-# Os assets do SCR.data têm ciclo próprio e estão publicados no v1.1-cache.
+# Os assets do SCR.data têm ciclo próprio. A v1.2 acrescenta a modalidade
+# agregada oficial e evita misturar slices antigos com o schema novo.
 # O release global do app pode avançar sem republicar os 22 arquivos anuais.
-SCR_RELEASE_TAG = "v1.1-cache"
+SCR_RELEASE_TAG = "v1.2-scr-cache"
 
 # A série do SCR.data v2 começa em jul/2012.
 PRIMEIRO_ANO = 2012
@@ -69,7 +75,8 @@ DOWNLOAD_CHUNK = 1 << 20
 # SCHEMA
 # =============================================================================
 
-# Colunas lidas do CSV bruto. `modalidade` entra só para alimentar dim_produto.
+# Colunas lidas do CSV bruto. `origem` é necessária para reproduzir o de-para
+# oficial das modalidades PJ; ela sai do grão depois da classificação.
 CSV_USECOLS = [
     "data_base",
     "uf",
@@ -78,6 +85,7 @@ CSV_USECOLS = [
     "porte",
     "modalidade",
     "submodalidade",
+    "origem",
     "numero_de_operacoes",
     "vencido_de_15_ate_90_dias",
     "vencido_acima_de_90_dias",
@@ -99,6 +107,7 @@ FACT_DIM_COLUMNS = [
     "porte",
     "modalidade",
     "submodalidade",
+    "modalidade_bcb",
 ]
 
 RESUMO_DIM_COLUMNS = [
@@ -108,6 +117,7 @@ RESUMO_DIM_COLUMNS = [
     "porte",
     "modalidade",
     "submodalidade",
+    "modalidade_bcb",
 ]
 
 # Somatórias monetárias, gravadas em R$ mil (float32).
@@ -295,6 +305,93 @@ ORDEM_SEGMENTOS = [
 # excluídas por padrão dos rankings de "produto mais inadimplente".
 SUBMODALIDADES_LEGADO = frozenset({"Cartão de crédito - não migrado"})
 
+# Modalidades agregadas exibidas no filtro do painel SCR.data. Os rótulos e a
+# ordem seguem a página do BCB e a planilha oficial de equivalência. Em 2022,
+# "PJ - Capital de giro rotativo" foi renomeada para a opção abaixo.
+MODALIDADES_BCB_PF = (
+    "PF - Cartão de crédito",
+    "PF - Empréstimo com consignação em folha",
+    "PF - Empréstimo sem consignação em folha",
+    "PF - Habitacional",
+    "PF - Outros créditos",
+    "PF - Rural e agroindustrial",
+    "PF - Veículos",
+)
+
+MODALIDADES_BCB_PJ = (
+    "PJ - Capital de giro",
+    "PJ - Cheque especial e conta garantida",
+    "PJ - Comércio exterior",
+    "PJ - Financiamento de infraestrutura/desenvolvimento/projeto e outros créditos",
+    "PJ - Habitacional",
+    "PJ - Investimento",
+    "PJ - Operações com recebíveis",
+    "PJ - Outros créditos",
+    "PJ - Rural e agroindustrial",
+)
+
+MODALIDADES_BCB = (*MODALIDADES_BCB_PF, *MODALIDADES_BCB_PJ)
+
+ORIGEM_LIVRE = "Sem destinação específica"
+ORIGEM_DIRECIONADA = "Com destinação específica"
+
+_PF_CARTAO = frozenset({
+    "Crédito rotativo vinculado a cartão de crédito",
+    "Cartão de crédito - compra, fatura parcelada ou saque financiado pela instituição financeira emitente do cartão",
+    "Cartão de crédito - não migrado",
+    "Cartão de crédito - compra ou fatura parcelada pela instituição financeira emitente do cartão",
+    "Cartão de crédito - compra à vista e parcelado lojista",
+})
+_PF_CREDITO_PESSOAL = {
+    "Crédito pessoal - com consignação em folha de pagam.": (
+        "PF - Empréstimo com consignação em folha"
+    ),
+    "Crédito pessoal - sem consignação em folha de pagam.": (
+        "PF - Empréstimo sem consignação em folha"
+    ),
+}
+_PF_VEICULOS = frozenset({
+    "Aquisição de bens - veículos automotores",
+    "Aquisição de bens - veículos automotores acima de 2 toneladas",
+    "Aquisição de bens com interveniência - veículos autom.",
+    "Arrendamento financeiro exceto veículos automotores e imóveis",
+    "Arrendamento financeiro de veículos automotores",
+    "Arrendamento financeiro de veículos automotores acima de 2 toneladas",
+})
+_PJ_CAPITAL_GIRO = frozenset({
+    "Capital de giro com prazo de vencimento inferior a 30 d",
+    "Capital de giro com prazo vencim. igual ou superior 30 d",
+    "Capital de giro com prazo de vencimento até 365 dias",
+    "Capital de giro com prazo de vencimento superior a 365 dias",
+    "Capital de giro com teto rotativo",
+})
+_PJ_CHEQUE_CONTA = frozenset({
+    "Cheque especial e conta garantida",
+    "Cheque especial",
+    "Conta Garantida",
+})
+_PJ_RECEBIVEIS = frozenset({"Vendor", "Compror", "Recebíveis adquiridos"})
+_MODALIDADES_DIREITOS_DESCONTADOS = frozenset({
+    "Títulos descontados",
+    "Direitos creditórios descontados",
+})
+_MODALIDADES_COMERCIO_EXTERIOR = frozenset({
+    "Financiamentos à exportação",
+    "Financiamentos à importação",
+})
+_MODALIDADES_INVESTIMENTO = frozenset({
+    "Financiamentos",
+    "Financiamentos com interveniência",
+    "Financiamentos imobiliários",
+    "Financiamentos de infraestrutura e desenvolvimento",
+    "Operações de arrendamento",
+})
+_SUBMODALIDADES_HABITACIONAIS = frozenset({
+    "Financiamento habitacional - SFH",
+    "Financiamento habitacional - carteira hipotecária",
+    "Financiamento habitacional - exceto SFH",
+})
+
 # Quebras metodológicas que precisam de marcador nos gráficos.
 QUEBRAS_DE_SERIE: List[Dict[str, str]] = [
     {
@@ -360,6 +457,103 @@ def data_base_para_periodo(valor: Any) -> Any:
     return valor.strip()[:7]
 
 
+def adicionar_modalidade_bcb(df: pd.DataFrame) -> pd.DataFrame:
+    """Classifica o fato nas modalidades agregadas publicadas pelo SCR.data.
+
+    A equivalência oficial depende de ``cliente``, ``origem``, ``modalidade`` e
+    ``submodalidade``. A origem distingue, em especial, os produtos PJ livres
+    dos direcionados. O resultado é calculado antes de ``origem`` sair do grão.
+
+    Fonte: ``SCR_EQUIVALENCIA_MODALIDADES_URL``.
+    """
+    obrigatorias = {"cliente", "origem", "modalidade", "submodalidade"}
+    faltantes = sorted(obrigatorias - set(df.columns))
+    if faltantes:
+        raise SCRQualityError(
+            "Colunas ausentes para classificar modalidade SCR.data: "
+            + ", ".join(faltantes)
+        )
+
+    out = df.copy()
+    cliente = out["cliente"].astype(str)
+    origem = out["origem"].astype(str)
+    modalidade = out["modalidade"].astype(str)
+    submodalidade = out["submodalidade"].astype(str)
+    rural = modalidade.str.startswith("Financiamentos rurais")
+    habitacional = submodalidade.isin(_SUBMODALIDADES_HABITACIONAIS)
+
+    destino = pd.Series(pd.NA, index=out.index, dtype="string")
+
+    pf = cliente.eq("PF")
+    destino.loc[pf] = "PF - Outros créditos"
+    destino.loc[pf & submodalidade.isin(_PF_CARTAO)] = "PF - Cartão de crédito"
+    for submodalidade_pf, modalidade_pf in _PF_CREDITO_PESSOAL.items():
+        destino.loc[pf & submodalidade.eq(submodalidade_pf)] = modalidade_pf
+    destino.loc[pf & habitacional] = "PF - Habitacional"
+    destino.loc[pf & rural] = "PF - Rural e agroindustrial"
+    destino.loc[pf & submodalidade.isin(_PF_VEICULOS)] = "PF - Veículos"
+
+    pj = cliente.eq("PJ")
+    pj_livre = pj & origem.eq(ORIGEM_LIVRE)
+    pj_direcionado = pj & origem.eq(ORIGEM_DIRECIONADA)
+
+    destino.loc[pj_livre] = "PJ - Outros créditos"
+    destino.loc[pj_livre & submodalidade.isin(_PJ_CAPITAL_GIRO)] = (
+        "PJ - Capital de giro"
+    )
+    destino.loc[pj_livre & submodalidade.isin(_PJ_CHEQUE_CONTA)] = (
+        "PJ - Cheque especial e conta garantida"
+    )
+    destino.loc[pj_livre & modalidade.isin(_MODALIDADES_COMERCIO_EXTERIOR)] = (
+        "PJ - Comércio exterior"
+    )
+    destino.loc[
+        pj_livre
+        & (
+            modalidade.isin(_MODALIDADES_DIREITOS_DESCONTADOS)
+            | submodalidade.isin(_PJ_RECEBIVEIS)
+        )
+    ] = "PJ - Operações com recebíveis"
+    destino.loc[
+        pj_livre
+        & modalidade.isin(_MODALIDADES_INVESTIMENTO)
+        & ~submodalidade.isin(_PF_CARTAO)
+        & ~submodalidade.isin(_PJ_RECEBIVEIS)
+    ] = "PJ - Investimento"
+
+    destino.loc[pj_direcionado] = (
+        "PJ - Financiamento de infraestrutura/desenvolvimento/projeto e outros créditos"
+    )
+    destino.loc[pj_direcionado & habitacional] = "PJ - Habitacional"
+    destino.loc[pj_direcionado & rural] = "PJ - Rural e agroindustrial"
+
+    # Nota 1 do de-para oficial: os subdomínios 0202/0203 pertencem às
+    # modalidades PF mesmo quando o CSV agregado informa cliente PJ.
+    for submodalidade_pf, modalidade_pf in _PF_CREDITO_PESSOAL.items():
+        destino.loc[submodalidade.eq(submodalidade_pf)] = modalidade_pf
+
+    desconhecidas = destino.isna()
+    if desconhecidas.any():
+        exemplos = (
+            out.loc[desconhecidas, ["cliente", "origem", "modalidade", "submodalidade"]]
+            .drop_duplicates()
+            .head(8)
+            .to_dict("records")
+        )
+        raise SCRQualityError(
+            "Combinações sem modalidade agregada do SCR.data: " + repr(exemplos)
+        )
+
+    fora_dominio = sorted(set(destino.astype(str)) - set(MODALIDADES_BCB))
+    if fora_dominio:
+        raise SCRQualityError(
+            "Modalidades agregadas fora do domínio oficial: " + ", ".join(fora_dominio)
+        )
+
+    out["modalidade_bcb"] = destino
+    return out
+
+
 def ler_csv_scr(fonte: Any) -> pd.DataFrame:
     """Lê um CSV mensal do SCR.data já com os tipos corretos.
 
@@ -385,11 +579,14 @@ def normalizar_csv_scr(df: pd.DataFrame) -> pd.DataFrame:
     """
     out = df.copy()
 
-    for coluna in ("uf", "segmento", "cliente", "porte", "modalidade", "submodalidade"):
+    for coluna in (
+        "uf", "segmento", "cliente", "porte", "modalidade", "submodalidade", "origem"
+    ):
         if coluna in out.columns:
             out[coluna] = out[coluna].map(normalizar_rotulo)
 
     out["data_base"] = out["data_base"].map(data_base_para_periodo)
+    out = adicionar_modalidade_bcb(out)
 
     for coluna in METRIC_MONETARIAS:
         if coluna in out.columns:
@@ -419,8 +616,8 @@ def _tipar_saida(df: pd.DataFrame, dimensoes: Sequence[str]) -> pd.DataFrame:
 def agregar_fato(df: pd.DataFrame) -> pd.DataFrame:
     """Agrega um CSV normalizado no grão do fato anual.
 
-    Descarta CNAE/ocupação, origem de recursos e indexador — o CSV já foi lido
-    sem essas colunas, então a agregação apenas colapsa as linhas restantes.
+    Descarta CNAE/ocupação, origem de recursos e indexador. ``origem`` já
+    cumpriu sua função no de-para de ``modalidade_bcb``.
     """
     agregado = (
         df.groupby(FACT_DIM_COLUMNS, as_index=False, observed=True)[METRIC_COLUMNS]
@@ -560,7 +757,7 @@ def construir_dim_porte() -> pd.DataFrame:
 
 
 def construir_dim_produto(pares: pd.DataFrame) -> pd.DataFrame:
-    """Pares modalidade/submodalidade observados, com vigência e flag de legado.
+    """De-para observado de produto bruto para modalidade agregada do painel.
 
     Não é um mapa de rollup: a mesma submodalidade aparece sob modalidades
     diferentes (ver nota em ``FACT_DIM_COLUMNS``), por isso ambas ficam no grão
@@ -575,6 +772,7 @@ def construir_dim_produto(pares: pd.DataFrame) -> pd.DataFrame:
             columns=[
                 "submodalidade",
                 "modalidade",
+                "modalidade_bcb",
                 "primeira_data_base",
                 "ultima_data_base",
                 "legado",
@@ -582,14 +780,20 @@ def construir_dim_produto(pares: pd.DataFrame) -> pd.DataFrame:
         )
 
     agrupado = (
-        pares.groupby(["submodalidade", "modalidade"], as_index=False, observed=True)
+        pares.groupby(
+            ["submodalidade", "modalidade", "modalidade_bcb"],
+            as_index=False,
+            observed=True,
+        )
         .agg(
             primeira_data_base=("data_base", "min"),
             ultima_data_base=("data_base", "max"),
         )
     )
     agrupado["legado"] = agrupado["submodalidade"].isin(SUBMODALIDADES_LEGADO)
-    agrupado = agrupado.sort_values(["modalidade", "submodalidade"], kind="stable")
+    agrupado = agrupado.sort_values(
+        ["modalidade_bcb", "modalidade", "submodalidade"], kind="stable"
+    )
     return agrupado.reset_index(drop=True)
 
 
@@ -803,6 +1007,19 @@ class SCRDataCache(BaseCache):
             extras.append((self.annual_path(ano), self.annual_asset_name(ano)))
         return extras
 
+    @staticmethod
+    def _parquet_tem_colunas(path: Path, colunas: Sequence[str]) -> bool:
+        """Valida o schema sem carregar o parquet inteiro em memória."""
+        if not path.exists():
+            return False
+        try:
+            import pyarrow.parquet as pq
+
+            nomes = set(pq.ParquetFile(path).schema.names)
+        except Exception:  # noqa: BLE001 - arquivo ausente/corrompido é cache inválido
+            return False
+        return set(colunas).issubset(nomes)
+
     # -- utilidades --------------------------------------------------------
 
     def _garantir_estrutura(self) -> None:
@@ -925,7 +1142,9 @@ class SCRDataCache(BaseCache):
                 normalizado = normalizar_csv_scr(bruto)
                 fatos.append(agregar_fato(normalizado))
                 pares.append(
-                    normalizado[["modalidade", "submodalidade", "data_base"]]
+                    normalizado[
+                        ["modalidade", "submodalidade", "modalidade_bcb", "data_base"]
+                    ]
                     .drop_duplicates()
                 )
                 self._log_local(
@@ -1115,7 +1334,9 @@ class SCRDataCache(BaseCache):
         dim_produto = construir_dim_produto(
             pd.concat(pares, ignore_index=True).drop_duplicates()
             if pares
-            else pd.DataFrame(columns=["modalidade", "submodalidade", "data_base"])
+            else pd.DataFrame(
+                columns=["modalidade", "submodalidade", "modalidade_bcb", "data_base"]
+            )
         )
         dim_segmento = construir_dim_segmento(
             pd.concat(segmentos_observados, ignore_index=True).drop_duplicates()
@@ -1144,7 +1365,7 @@ class SCRDataCache(BaseCache):
             "grao_resumo": RESUMO_DIM_COLUMNS,
             "grao_detalhe": FACT_DIM_COLUMNS,
             "unidade_monetaria": "R$ mil",
-            "schema_version": 1,
+            "schema_version": 2,
         }
         self._save_json(self.arquivo_metadata, metadata)
         self._save_json(
@@ -1188,6 +1409,11 @@ class SCRDataCache(BaseCache):
             and self.arquivo_dados.exists()
             and self.arquivo_metadata.exists()
             and all(path.exists() for path in caminhos.values())
+            and self._parquet_tem_colunas(self.arquivo_dados, RESUMO_REQUIRED_COLUMNS)
+            and self._parquet_tem_colunas(
+                caminhos["produto"],
+                ["modalidade", "submodalidade", "modalidade_bcb"],
+            )
         ):
             return CacheResult(
                 sucesso=True,
@@ -1239,11 +1465,17 @@ class SCRDataCache(BaseCache):
         frames: List[pd.DataFrame] = []
         for ano in alvo:
             caminho = self.annual_path(ano)
-            if not caminho.exists() and baixar_ausentes:
+            schema_atual = self._parquet_tem_colunas(caminho, FACT_REQUIRED_COLUMNS)
+            if not schema_atual and baixar_ausentes:
                 self.annual_dir.mkdir(parents=True, exist_ok=True)
                 self._baixar_asset(self.annual_release_url(ano), caminho)
-            if caminho.exists():
+                schema_atual = self._parquet_tem_colunas(caminho, FACT_REQUIRED_COLUMNS)
+            if schema_atual:
                 frames.append(pd.read_parquet(caminho))
+            elif caminho.exists():
+                raise SCRQualityError(
+                    f"{ano}: slice local usa schema antigo e o asset atualizado não foi obtido"
+                )
 
         return concatenar_fatos(frames)
 

@@ -93,7 +93,7 @@ def _timer_render_caption(timer_key: str, container, label: str) -> None:
 importlib.invalidate_caches()
 
 _EXPECTED_CACHE_RELEASE_TAG = "v1.1-cache"
-_EXPECTED_SCR_RELEASE_TAG = "v1.1-cache"
+_EXPECTED_SCR_RELEASE_TAG = "v1.2-scr-cache"
 _PEERS_INDIVIDUAL_RELEASE_BASE_URL = (
     f"https://github.com/abalroar/tomaconta/releases/download/{_EXPECTED_CACHE_RELEASE_TAG}"
 )
@@ -261,6 +261,7 @@ get_release_config = _ifdata_release_config.get_release_config
 from utils import cdsfn_live as cdsfn_live_module
 from utils.pessoas_juridicas_api import consultar_pessoas_juridicas
 from utils.ifdata_cache import taxas_juros as taxas_juros_module
+from utils.sgs_credit_analytics import eixo_datas_semestral
 try:
     from utils.ifdata_cache import taxas_juros_historico as taxas_juros_historico_module
 except Exception:  # pragma: no cover - fallback defensivo para deploys defasados
@@ -25510,7 +25511,7 @@ elif menu == "Taxas de Juros por Produto":
                         with col_view2:
                             janela_estado_beta = st.session_state.get("tj_beta_janela_meses")
                             if not isinstance(janela_estado_beta, int) or not 1 <= janela_estado_beta <= max_meses_beta:
-                                st.session_state["tj_beta_janela_meses"] = min(6, max_meses_beta)
+                                st.session_state["tj_beta_janela_meses"] = min(12, max_meses_beta)
                             janela_meses_beta = st.slider(
                                 "Janela mensal",
                                 min_value=1,
@@ -25527,6 +25528,19 @@ elif menu == "Taxas de Juros por Produto":
                         .copy()
                     )
                     df_chart_beta = _selecionar_janela_mensal_beta(df_chart_beta, janela_meses_beta)
+                    ticks_taxas_beta, labels_ticks_taxas_beta = eixo_datas_semestral(
+                        df_chart_beta["Fim Período"].dropna().tolist()
+                    )
+                    angulo_ticks_taxas_beta = (
+                        -35
+                        if any(
+                            (direita - esquerda).days <= 45
+                            for esquerda, direita in zip(
+                                ticks_taxas_beta, ticks_taxas_beta[1:]
+                            )
+                        )
+                        else 0
+                    )
                     color_map_beta = _color_map_taxas_beta(
                         bancos_sel_beta,
                         custom_colors=taxas_beta_custom_colors,
@@ -25566,6 +25580,7 @@ elif menu == "Taxas de Juros por Produto":
                         "Painéis por banco": "Painéis por instituição",
                         "Ranking atual": "Ranking atual",
                     }[modo_visual_beta]
+                    pptx_slot_taxas_beta = st.empty()
                     _render_taxas_beta_chart_header(
                         titulo_mensal_beta,
                         f"{_formatar_modalidade_beta(produto_beta)} | {janela_meses_beta} meses",
@@ -25594,8 +25609,10 @@ elif menu == "Taxas de Juros por Produto":
                             margin={"b": 150, "r": 70, "t": 14, "l": 58},
                         )
                         fig_beta.update_xaxes(
-                            tickformat="%m/%Y",
-                            nticks=min(5, janela_meses_beta),
+                            tickmode="array",
+                            tickvals=ticks_taxas_beta,
+                            ticktext=labels_ticks_taxas_beta,
+                            tickangle=angulo_ticks_taxas_beta,
                             automargin=True,
                         )
                         fig_beta.update_traces(
@@ -25636,8 +25653,10 @@ elif menu == "Taxas de Juros por Produto":
                             margin={"b": 54, "r": 20, "t": 28, "l": 50},
                         )
                         fig_beta.update_xaxes(
-                            tickformat="%m/%Y",
-                            nticks=min(4, janela_meses_beta),
+                            tickmode="array",
+                            tickvals=ticks_taxas_beta,
+                            ticktext=labels_ticks_taxas_beta,
+                            tickangle=angulo_ticks_taxas_beta,
                             automargin=True,
                         )
                         fig_beta.update_traces(
@@ -25705,6 +25724,49 @@ elif menu == "Taxas de Juros por Produto":
                             config=TAXAS_BETA_PLOTLY_CONFIG,
                             key="tj_beta_chart_monthly_ranking",
                         )
+
+                    try:
+                        from utils.sgs_credit_pptx_export import exportar_figuras_pptx
+
+                        fig_export_taxas_beta = px.line(
+                            df_chart_beta,
+                            x="Fim Período",
+                            y=tipo_taxa_beta,
+                            color="Instituição Financeira",
+                            color_discrete_map=color_map_beta,
+                        )
+                        fig_export_taxas_beta.update_layout(
+                            yaxis_title=tipo_taxa_beta,
+                            meta={
+                                "chart_title": (
+                                    f"{_formatar_modalidade_beta(produto_beta)} · "
+                                    f"{tipo_taxa_beta}"
+                                )
+                            },
+                        )
+                        pptx_taxas_beta, meta_pptx_taxas_beta = exportar_figuras_pptx(
+                            [fig_export_taxas_beta],
+                            titulo_deck="Taxas de juros por produto · Banco Central",
+                        )
+                        with pptx_slot_taxas_beta.container():
+                            st.download_button(
+                                "Baixar PPTX desta página",
+                                data=pptx_taxas_beta,
+                                file_name="taxas_juros_por_produto.pptx",
+                                mime=(
+                                    "application/vnd.openxmlformats-officedocument."
+                                    "presentationml.presentation"
+                                ),
+                                key="tj_beta_download_pptx",
+                                type="primary",
+                                help=(
+                                    f"{meta_pptx_taxas_beta['paineis']} gráfico Office "
+                                    "nativo com rótulo no último ponto."
+                                ),
+                            )
+                    except Exception as exc:
+                        if st.session_state.get("modo_diagnostico"):
+                            st.caption(f"PPTX indisponível: {exc}")
 
                     df_chart_beta_valid = pd.DataFrame()
                     if not df_chart_beta.empty and tipo_taxa_beta in df_chart_beta.columns:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from contextvars import ContextVar
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -44,6 +45,9 @@ CREDIT_SUBSECTIONS = (
 NPL_SUBSECTIONS = ("Pré Inad e Inad", "Cobertura e Provisionamento", "Inadimplência SCR")
 
 PLOTLY_CONFIG = {"displayModeBar": "hover", "displaylogo": False, "responsive": True}
+_EXPORT_FIGURES: ContextVar[list[go.Figure] | None] = ContextVar(
+    "sgs_credit_export_figures", default=None
+)
 
 
 def _available(wide: pd.DataFrame, aliases: Sequence[str]) -> bool:
@@ -51,8 +55,15 @@ def _available(wide: pd.DataFrame, aliases: Sequence[str]) -> bool:
 
 
 def _chart(fig: go.Figure, key: str) -> None:
-    title = fig.layout.title.text or "Gráfico"
     meta = fig.layout.meta if isinstance(fig.layout.meta, dict) else {}
+    raw_title = meta.get("chart_title") or getattr(fig.layout.title, "text", None)
+    title = (
+        raw_title.strip()
+        if isinstance(raw_title, str)
+        and raw_title.strip()
+        and raw_title.strip().lower() != "undefined"
+        else "Gráfico"
+    )
     source_aliases = meta.get("source_aliases", [])
     title_column, info_column = st.columns([0.92, 0.08], vertical_alignment="center")
     with title_column:
@@ -73,7 +84,13 @@ def _chart(fig: go.Figure, key: str) -> None:
     if not fig.data:
         st.info("Séries deste card ainda não estão disponíveis no cache.")
         return
-    fig.update_layout(title=None, margin={**fig.layout.margin.to_plotly_json(), "t": 42})
+    collector = _EXPORT_FIGURES.get()
+    if collector is not None:
+        collector.append(fig)
+    # O tema Plotly do app converte ``title=None`` no texto literal
+    # ``undefined``. Uma string vazia remove o título interno com segurança;
+    # o título visível do card permanece no cabeçalho acima do gráfico.
+    fig.update_layout(title_text="", margin={**fig.layout.margin.to_plotly_json(), "t": 42})
     st.plotly_chart(fig, width="stretch", config=PLOTLY_CONFIG, key=key)
 
 
@@ -82,7 +99,7 @@ def _period_filter(wide: pd.DataFrame) -> pd.DataFrame:
         return wide
     periods = pd.DatetimeIndex(wide.index).dropna().sort_values().unique()
     latest = pd.Timestamp(periods[-1])
-    target_start = latest - pd.DateOffset(years=10)
+    target_start = latest - pd.DateOffset(months=11)
     default_start = int(periods.searchsorted(target_start, side="left"))
     start_column, end_column = st.columns(2)
     with start_column:
@@ -111,8 +128,6 @@ def _period_filter(wide: pd.DataFrame) -> pd.DataFrame:
         pd.Timestamp(start),
         None if end == "Mais recente" else pd.Timestamp(end),
     )
-    if end == "Mais recente":
-        st.caption("Período final: última observação disponível de cada série.")
     return filtered
 
 
@@ -295,7 +310,6 @@ def _render_credit_borrower(wide: pd.DataFrame) -> None:
         ),
         "sgs_tomador_participacao",
     )
-    st.caption("A versão em % do PIB permanece pendente da validação da série mensal de PIB usada no workbook original.")
 
 
 def _mix_with_residual(
@@ -495,7 +509,6 @@ def _render_credit_company(wide: pd.DataFrame) -> None:
         ),
         "sgs_empresa_growth",
     )
-    st.caption("MPMe: receita bruta até R$ 300 milhões ou ativos totais até R$ 240 milhões, conforme o glossário histórico.")
 
 
 def _render_credit_control(wide: pd.DataFrame) -> None:
@@ -726,7 +739,7 @@ def _render_rates(wide: pd.DataFrame) -> None:
     )
 
 
-def _render_glossary() -> None:
+def _render_glossary(frame: pd.DataFrame, metadata: Mapping | None) -> None:
     st.markdown("#### Glossário e metodologia")
     rows = [
         ("Crescimento real em 12 meses", "(Xₜ / índice IPCAₜ) ÷ (Xₜ₋₁₂ / índice IPCAₜ₋₁₂) − 1", "%"),
@@ -737,6 +750,8 @@ def _render_glossary() -> None:
         ("Inadimplência", "Operações com atraso superior a 90 dias", "% da carteira"),
         ("Comprometimento total", "amortização do principal + juros", "% da renda"),
         ("Outros — mix PF/PJ", "resíduo entre o total e os produtos explicitamente classificados", "% da carteira"),
+        ("Crédito em % do PIB", "aguarda validação da série mensal de PIB usada no workbook histórico", "% do PIB"),
+        ("MPMe", "receita bruta até R$ 300 milhões ou ativos totais até R$ 240 milhões", "classificação"),
     ]
     st.dataframe(
         pd.DataFrame(rows, columns=["Indicador", "Definição / fórmula", "Unidade"]),
@@ -744,17 +759,33 @@ def _render_glossary() -> None:
         width="stretch",
     )
 
-
-def _render_source_footer(frame: pd.DataFrame, metadata: Mapping | None) -> None:
     latest = pd.to_datetime(frame["data"], errors="coerce").max()
     latest_label = latest.strftime("%m/%Y") if pd.notna(latest) else "N/D"
     source = (metadata or {}).get("fonte") or "BCData/SGS"
-    st.caption(
-        f"Fonte: Banco Central do Brasil — BCData/SGS · última observação disponível no cache: {latest_label} · origem do cache: {source}."
+    st.markdown("##### Fontes, cache e critérios de leitura")
+    st.markdown(
+        f"- **SGS:** Banco Central do Brasil · última observação no cache: "
+        f"**{latest_label}** · origem do cache: **{source}**.\n"
+        "- **SCR.data:** dados do documento 3040, operação a operação; "
+        "podem divergir do IF.data e dos balancetes COSIF.\n"
+        "- **Localização SCR:** a UF vem do CEP do tomador.\n"
+        "- **Porte SCR:** PF usa faixa de renda; PJ usa faturamento. Os critérios "
+        "não devem ser combinados no mesmo eixo.\n"
+        "- **Sigilo SCR:** contagens iguais ou inferiores ao limite de divulgação "
+        "podem ser suprimidas pelo BCB."
     )
 
 
 def render_mercado_credito(cache, *, get_cache_manager=None) -> None:
+    st.markdown(
+        """
+        <style>
+        div[data-testid="stMarkdownContainer"] h4 { font-size: 1.42rem; }
+        div[data-testid="stMarkdownContainer"] h5 { font-size: 1.18rem; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
     st.markdown(f"### {TITLE}")
     st.caption(SUBTITLE)
     if cache is None:
@@ -778,17 +809,51 @@ def render_mercado_credito(cache, *, get_cache_manager=None) -> None:
         default=MAIN_SECTIONS[0],
         key="sgs_credit_main_section",
     )
-    if selected == "Crédito SFN":
-        _render_credit(_period_filter(full_wide))
-    elif selected == "Situação dos Agentes":
-        _render_situation(_period_filter(full_wide))
-    elif selected == "Inadimplência e Provisionamento":
-        _render_npl(full_wide, get_cache_manager)
-    elif selected == "Taxas de Juros e Spread":
-        _render_rates(_period_filter(full_wide))
-    elif selected == "Glossário":
-        _render_glossary()
-    else:
-        _render_concessoes(_period_filter(full_wide))
+    export_slot = st.empty()
+    figuras: list[go.Figure] = []
+    token = _EXPORT_FIGURES.set(figuras)
+    try:
+        if selected == "Crédito SFN":
+            _render_credit(_period_filter(full_wide))
+        elif selected == "Situação dos Agentes":
+            _render_situation(_period_filter(full_wide))
+        elif selected == "Inadimplência e Provisionamento":
+            _render_npl(full_wide, get_cache_manager)
+        elif selected == "Taxas de Juros e Spread":
+            _render_rates(_period_filter(full_wide))
+        elif selected == "Glossário":
+            _render_glossary(result.dados, result.metadata)
+        else:
+            _render_concessoes(_period_filter(full_wide))
+    finally:
+        _EXPORT_FIGURES.reset(token)
 
-    _render_source_footer(result.dados, result.metadata)
+    if figuras:
+        from utils.sgs_credit_pptx_export import exportar_figuras_pptx
+
+        detalhe = ""
+        if selected == "Crédito SFN":
+            detalhe = str(st.session_state.get("sgs_credit_subsection") or "")
+        elif selected == "Inadimplência e Provisionamento":
+            detalhe = str(st.session_state.get("sgs_npl_subsection") or "")
+        pagina = " · ".join(item for item in (selected, detalhe) if item)
+        blob, meta_export = exportar_figuras_pptx(
+            figuras,
+            titulo_deck=f"{TITLE} · {pagina}",
+        )
+        with export_slot.container():
+            st.download_button(
+                "Baixar PPTX desta página",
+                data=blob,
+                file_name="estatisticas_credito_bc.pptx",
+                mime=(
+                    "application/vnd.openxmlformats-officedocument."
+                    "presentationml.presentation"
+                ),
+                key=f"sgs_pptx_{selected}_{detalhe}",
+                type="primary",
+                help=(
+                    f"{meta_export['paineis']} gráficos Office nativos, "
+                    f"até {meta_export['paineis_por_slide']} por slide."
+                ),
+            )

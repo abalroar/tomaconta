@@ -150,12 +150,10 @@ def test_series_preservam_nome_curto_e_valores():
     assert list(chart.plots[0].series[0].values)[-1] == pytest.approx(0.15)
 
 
-def test_categorias_sao_meses_abreviados():
+def test_eixo_exibe_junho_dezembro_e_ultimo_mes():
     blob, _ = X.exportar_paineis_pptx([_painel()])
     chart = [s for s in _abrir(blob).slides[0].shapes if s.has_chart][0].chart
-    assert list(chart.plots[0].categories) == [
-        "jan.26", "fev.26", "mar.26", "abr.26", "mai.26", "jun.26"
-    ]
+    assert list(chart.plots[0].categories) == ["\u00a0"] * 5 + ["jun.26"]
 
 
 @pytest.mark.parametrize("entrada,esperado", [
