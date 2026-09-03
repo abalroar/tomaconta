@@ -1,4 +1,24 @@
-"""Transformações e figuras do módulo Mercado de Crédito SGS."""
+"""Transformações e figuras do módulo Mercado de Crédito SGS.
+
+Este módulo é o único lugar que decide como um gráfico da seção
+"Estatísticas Crédito BC" se pinta: paleta, espessura de linha, tamanho e cor
+de rótulo, geometria da área de plotagem e régua do eixo temporal. As abas
+apenas montam os dados e pedem a figura.
+
+Três regras de leitura que o módulo garante:
+
+* **Cor identifica no máximo cinco séries.** Da sexta em diante a cor repete
+  com traço tracejado, que é um canal independente da cor. Toda cor de linha
+  tem no mínimo 3:1 de contraste sobre o papel branco e ΔE >= 27 das outras,
+  então nenhuma dupla é confundível.
+* **Rótulo de dado tem um tamanho só e nunca deita.** A biblioteca não recebe
+  permissão para encolher nem girar texto para caber: fatia que não couber com
+  o rótulo em ``TAMANHO_ROTULO_PX`` simplesmente não recebe rótulo, e o valor
+  continua no tooltip.
+* **Rótulo sempre legível.** Dentro da barra, a cor do texto é preto ou branco
+  declarado por cor de preenchimento, nunca a escolha automática da biblioteca
+  nem a cor da própria série.
+"""
 
 from __future__ import annotations
 
@@ -12,28 +32,121 @@ from plotly.subplots import make_subplots
 from .sgs_credit_registry import SGS_SERIES, get_series
 
 
+# ---------------------------------------------------------------------------
+# Paleta
+# ---------------------------------------------------------------------------
+# Família fechada: laranja-vivo, laranja claro, laranja escuro, cinzas, preto.
 ITAU_ORANGE = "#EC7000"
-ITAU_BLACK = "#231F20"
-ITAU_DARK_GRAY = "#56504C"
-ITAU_MID_GRAY = "#8C8279"
-ITAU_LIGHT_GRAY = "#C9C3BE"
-ITAU_PALETTE = (
+ITAU_ORANGE_LIGHT = "#F7B267"
+ITAU_ORANGE_DARK = "#A34700"
+ITAU_BLACK = "#141414"
+ITAU_DARK_GRAY = "#4F4F4F"
+# 4,61:1 com rótulo branco. #7A7A7A, o valor anterior, caía exatamente na
+# faixa em que nem preto nem branco alcançam 4,5:1 sobre ele (4,29:1 nos
+# dois) — só serve como preenchimento um cinza fora dessa faixa.
+ITAU_MID_GRAY = "#757575"
+ITAU_LIGHT_GRAY = "#CFCFCF"
+
+COR_GRADE = "#E6E6E6"
+COR_EIXO_ZERO = "#B8B1AB"
+COR_PAPEL = "#FFFFFF"
+COR_TEXTO_FRACO = "#6F6F6F"
+
+# Linhas sobre papel branco: contraste >= 3:1 no branco e ΔE >= 27,3 entre si,
+# medido em CIELAB. Cinco é o teto — acima disso nenhuma paleta de uma única
+# família cromática separa as cores, então a sexta série em diante repete a cor
+# com traço tracejado.
+PALETA_LINHA = (
+    ITAU_ORANGE,        # 3,05:1 no branco
+    ITAU_BLACK,         # 18,42:1
+    "#8F3E00",          # 7,35:1  laranja escuro
+    ITAU_DARK_GRAY,     # 8,19:1
+    "#949494",          # 3,03:1
+)
+
+# Preenchimentos de barra empilhada. Aqui o texto vai DENTRO da fatia, então o
+# requisito é outro: cada cor carrega a cor de rótulo que passa 4,5:1 sobre
+# ela. ΔE mínimo de 27,3 entre as seis, zero pares confundíveis.
+PALETA_PREENCHIMENTO = (
     ITAU_ORANGE,
     ITAU_BLACK,
-    "#423E3B",
-    ITAU_DARK_GRAY,
-    "#69615C",
-    "#7B726C",
+    ITAU_ORANGE_LIGHT,
     ITAU_MID_GRAY,
-    "#9D938B",
-    "#AEA59F",
+    ITAU_ORANGE_DARK,
     ITAU_LIGHT_GRAY,
 )
+
+# Preto ou branco, o que passa 4,5:1 sobre o preenchimento. Nunca deduzido.
+COR_ROTULO_SOBRE = {
+    ITAU_ORANGE: ITAU_BLACK,          # 6,04:1
+    ITAU_BLACK: "#FFFFFF",            # 18,42:1
+    ITAU_ORANGE_LIGHT: ITAU_BLACK,    # 10,11:1
+    ITAU_MID_GRAY: "#FFFFFF",         # 4,61:1
+    ITAU_ORANGE_DARK: "#FFFFFF",      # 6,07:1
+    ITAU_LIGHT_GRAY: ITAU_BLACK,      # 11,82:1
+    "#8F3E00": "#FFFFFF",             # 7,35:1
+    ITAU_DARK_GRAY: "#FFFFFF",        # 8,19:1
+    "#949494": ITAU_BLACK,            # 6,24:1 (branco daria 3,03:1)
+}
+
+# Mantido para compatibilidade com o exportador, que usa a paleta como fallback
+# quando um trace chega sem cor explícita.
+ITAU_PALETTE = PALETA_LINHA
+
+# Acima deste número de séries a cor repete e o tracejado entra.
+MAXIMO_CORES_LINHA = len(PALETA_LINHA)
+
+# ---------------------------------------------------------------------------
+# Tipografia e geometria
+# ---------------------------------------------------------------------------
+# Uma régua só para a seção inteira (era 13 px em uma aba e 14 px na outra).
+TAMANHO_FONTE_BASE = 13
+TAMANHO_FONTE_EIXO = 12
+TAMANHO_ROTULO_PX = 12
+TAMANHO_LEGENDA = 12
+
+# Espessura como segundo canal de hierarquia: grossa é a série em foco.
+LARGURA_LINHA_FOCO = 3.0
+LARGURA_LINHA_AGREGADO = 2.4
+LARGURA_LINHA_CONTEXTO = 1.8
+
+# Cards de largura total, um por linha.
+ALTURA_PADRAO = 470
+MARGEM_ESQUERDA = 64
+MARGEM_DIREITA_LEGENDA = 108
+MARGEM_DIREITA_ROTULO_DIRETO = 210
+MARGEM_TOPO = 48
+MARGEM_BASE_COM_LEGENDA = 92
+MARGEM_BASE_SEM_LEGENDA = 56
+
+# Altura ocupada por um rótulo de fim de linha, com folga.
+ALTURA_ROTULO_PX = 16.0
+FOLGA_ROTULO_PX = 3.0
 
 MESES_ABREV_PT = (
     "Jan", "Fev", "Mar", "Abr", "Mai", "Jun",
     "Jul", "Ago", "Set", "Out", "Nov", "Dez",
 )
+
+
+def cor_de_linha(posicao: int) -> str:
+    """Cor da série ``posicao`` (base zero) num gráfico de linhas."""
+    return PALETA_LINHA[posicao % len(PALETA_LINHA)]
+
+
+def tracejado_de_linha(posicao: int) -> str | None:
+    """``dash`` da série: a cor repete a partir da sexta, o traço distingue."""
+    return "dash" if posicao >= MAXIMO_CORES_LINHA else None
+
+
+def cor_de_preenchimento(posicao: int) -> str:
+    """Cor da fatia ``posicao`` (base zero) numa barra empilhada."""
+    return PALETA_PREENCHIMENTO[posicao % len(PALETA_PREENCHIMENTO)]
+
+
+def cor_do_rotulo(preenchimento: str) -> str:
+    """Preto ou branco sobre ``preenchimento``, declarado e não deduzido."""
+    return COR_ROTULO_SOBRE.get(preenchimento, ITAU_BLACK)
 
 
 def normalized_long(frame: pd.DataFrame) -> pd.DataFrame:
@@ -129,6 +242,14 @@ def coverage_ratio(provision_pct: pd.Series, delinquency_pct: pd.Series) -> pd.S
     return pd.to_numeric(provision_pct, errors="coerce") / delinquency * 100.0
 
 
+def ultima_competencia(values: pd.Series) -> pd.Timestamp | None:
+    """Última data com valor efetivo — a competência real daquela série."""
+    valid = pd.to_numeric(values, errors="coerce").dropna()
+    if valid.empty:
+        return None
+    return pd.Timestamp(valid.index[-1])
+
+
 def _last_text(values: pd.Series, decimals: int = 1, suffix: str = "") -> list[str | None]:
     text: list[str | None] = [None] * len(values)
     valid_positions = np.flatnonzero(values.notna().to_numpy())
@@ -144,23 +265,94 @@ def _source_aliases(wide: pd.DataFrame, aliases: Sequence[str]) -> list[str]:
     return list(dict.fromkeys(alias for alias in candidates if alias in SGS_SERIES))
 
 
-def _staggered_positions(raw_values: Sequence[float], data_span: float) -> list[float]:
-    """Distribui rótulos finais mantendo a ordem vertical das séries."""
-    if not raw_values:
+# ---------------------------------------------------------------------------
+# Geometria da área de plotagem
+# ---------------------------------------------------------------------------
+def _altura_area_plotagem(fig: go.Figure) -> float:
+    """Altura real, em pixels, da área onde os dados são desenhados.
+
+    As margens são explícitas e ``autoexpand`` fica desligado justamente para
+    que esta conta seja exata. A versão anterior assumia 285 px fixos enquanto
+    a área real era 323 px, e era essa diferença que empilhava dois rótulos no
+    mesmo pixel.
+    """
+    altura = float(fig.layout.height or ALTURA_PADRAO)
+    margem = fig.layout.margin
+    topo = float(margem.t) if margem.t is not None else MARGEM_TOPO
+    base = float(margem.b) if margem.b is not None else MARGEM_BASE_COM_LEGENDA
+    return max(altura - topo - base, 1.0)
+
+
+def _valores_do_eixo(fig: go.Figure, yref: str) -> list[float]:
+    valores: list[float] = []
+    for trace in fig.data:
+        if (getattr(trace, "yaxis", None) or "y") != yref:
+            continue
+        if getattr(trace, "y", None) is None:
+            continue
+        numeric = pd.to_numeric(pd.Series(trace.y), errors="coerce").dropna()
+        valores.extend(float(valor) for valor in numeric)
+    return valores
+
+
+def _faixa_do_eixo(
+    fig: go.Figure, yref: str, *, base_zero: bool = False
+) -> tuple[float, float]:
+    """Faixa explícita do eixo, para que pixel por unidade seja conhecido."""
+    valores = _valores_do_eixo(fig, yref)
+    if not valores:
+        return (0.0, 1.0)
+    menor, maior = float(np.nanmin(valores)), float(np.nanmax(valores))
+    if base_zero:
+        menor = min(menor, 0.0)
+    amplitude = maior - menor
+    if amplitude <= 0:
+        amplitude = max(abs(maior), 1.0)
+    folga = amplitude * 0.06
+    return (menor if base_zero else menor - folga, maior + folga)
+
+
+def _espalhar_em_pixels(
+    alvos: Sequence[float], intervalo: float, limite: float
+) -> list[float]:
+    """Separa posições verticais em pixels sem perder a ordem das séries.
+
+    Toda a conta acontece em pixels de tela — nunca misturando régua de dado
+    com régua de pixel, que era a origem da sobreposição.
+    """
+    total = len(alvos)
+    if total == 0:
         return []
-    values = np.asarray(raw_values, dtype="float64")
-    reference = max(float(np.nanmax(np.abs(values))), 1.0)
-    gap = max(data_span * 0.065, reference * 0.006)
+    if total == 1:
+        return [float(alvos[0])]
 
-    ordered = sorted(range(len(values)), key=lambda index: values[index])
-    positions = values.copy()
-    for previous, current in zip(ordered, ordered[1:]):
-        positions[current] = max(values[current], positions[previous] + gap)
+    ordem = sorted(range(total), key=lambda indice: alvos[indice])
+    posicoes = [float(valor) for valor in alvos]
+    for anterior, atual in zip(ordem, ordem[1:]):
+        posicoes[atual] = max(float(alvos[atual]), posicoes[anterior] + intervalo)
 
-    raw_midpoint = float(np.nanmean(values))
-    positioned_midpoint = float(np.nanmean(positions))
-    positions -= positioned_midpoint - raw_midpoint
-    return positions.tolist()
+    deslocamento = (sum(posicoes) / total) - (sum(alvos) / total)
+    posicoes = [posicao - deslocamento for posicao in posicoes]
+
+    espaco_util = limite - intervalo
+    altura_ocupada = posicoes[ordem[-1]] - posicoes[ordem[0]]
+    if altura_ocupada > espaco_util:
+        # Não cabe nem com o intervalo mínimo: distribui por igual, o que ainda
+        # preserva a ordem e mantém a maior distância possível entre rótulos.
+        passo = espaco_util / (total - 1)
+        for posicao_na_ordem, indice in enumerate(ordem):
+            posicoes[indice] = intervalo / 2 + posicao_na_ordem * passo
+        return posicoes
+
+    topo = posicoes[ordem[0]]
+    if topo < intervalo / 2:
+        ajuste = intervalo / 2 - topo
+        posicoes = [posicao + ajuste for posicao in posicoes]
+    fundo = posicoes[ordem[-1]]
+    if fundo > limite - intervalo / 2:
+        ajuste = fundo - (limite - intervalo / 2)
+        posicoes = [posicao - ajuste for posicao in posicoes]
+    return posicoes
 
 
 def _add_last_line_labels(
@@ -168,52 +360,58 @@ def _add_last_line_labels(
     endpoints: Sequence[tuple[pd.Timestamp, float, str, str]],
     *,
     yref: str = "y",
-    plot_height: int = 285,
+    base_zero: bool = False,
+    plot_height: float | None = None,
 ) -> None:
-    """Adiciona rótulos coloridos e escalonados junto ao fim de cada linha."""
+    """Rótulos coloridos no fim de cada linha, sem sobreposição.
+
+    ``plot_height`` existe apenas para chamadas antigas; quando não vem, a
+    altura é lida da própria figura, que é o comportamento correto.
+    """
     if not endpoints:
         return
-    raw_values = [point[1] for point in endpoints]
-    trace_values: list[float] = []
-    for trace in fig.data:
-        trace_yref = getattr(trace, "yaxis", None) or "y"
-        if trace_yref != yref or getattr(trace, "y", None) is None:
-            continue
-        numeric = pd.to_numeric(pd.Series(trace.y), errors="coerce").dropna()
-        trace_values.extend(float(value) for value in numeric)
-    if trace_values:
-        span = float(np.nanmax(trace_values) - np.nanmin(trace_values))
-    else:
-        span = float(np.nanmax(raw_values) - np.nanmin(raw_values))
-    reference = max(float(np.nanmax(np.abs(raw_values))), 1.0)
-    span = max(span, reference * 0.1, 1e-9)
-    positioned = _staggered_positions(raw_values, span)
 
-    for (last_x, raw_y, text, color), label_y in zip(endpoints, positioned):
-        pixel_offset = int(round(-(label_y - raw_y) / span * plot_height))
+    altura_area = float(plot_height) if plot_height else _altura_area_plotagem(fig)
+    menor, maior = _faixa_do_eixo(fig, yref, base_zero=base_zero)
+    eixo = "yaxis" if yref == "y" else f"yaxis{yref[1:]}"
+    fig.update_layout({eixo: {"range": [menor, maior], "autorange": False}})
+
+    amplitude = maior - menor
+    if amplitude <= 0:
+        return
+    pixels_por_unidade = altura_area / amplitude
+
+    def tela(valor: float) -> float:
+        return (maior - float(valor)) * pixels_por_unidade
+
+    alvos = [tela(ponto[1]) for ponto in endpoints]
+    finais = _espalhar_em_pixels(
+        alvos, ALTURA_ROTULO_PX + FOLGA_ROTULO_PX, altura_area
+    )
+
+    for (ultimo_x, bruto_y, texto, cor), tela_final in zip(endpoints, finais):
         fig.add_annotation(
-            x=last_x,
-            y=raw_y,
+            x=ultimo_x,
+            y=bruto_y,
             xref="x",
             yref=yref,
-            text=text,
+            text=texto,
             showarrow=True,
             arrowhead=0,
             arrowwidth=1,
-            arrowcolor=color,
-            ax=42,
-            ay=pixel_offset,
+            arrowcolor=cor,
+            ax=34,
+            ay=int(round(tela_final - tela(bruto_y))),
             xanchor="left",
             align="left",
-            font={"color": color, "size": 11},
-            bgcolor="rgba(255,255,255,0.82)",
+            font={"color": cor, "size": TAMANHO_ROTULO_PX},
+            bgcolor="rgba(255,255,255,0.86)",
             borderpad=1,
         )
-    x_values = _valid_trace_dates(fig)
-    if x_values:
-        fig.update_xaxes(
-            range=[min(x_values), max(x_values) + pd.DateOffset(months=1)]
-        )
+
+    datas = _valid_trace_dates(fig)
+    if datas:
+        fig.update_xaxes(range=[min(datas), max(datas) + pd.DateOffset(months=1)])
 
 
 def formatar_competencia(value: object) -> str:
@@ -276,21 +474,63 @@ def _valid_trace_dates(fig: go.Figure) -> list[pd.Timestamp]:
     return datas
 
 
-def _base_layout(fig: go.Figure, *, title: str, y_title: str, height: int = 390) -> go.Figure:
+def aplicar_estilo(
+    fig: go.Figure,
+    *,
+    title: str,
+    y_title: str,
+    height: int = ALTURA_PADRAO,
+    legenda: bool = True,
+    rotulo_direto: bool = False,
+) -> go.Figure:
+    """Estilo único de toda a seção: tipografia, grade, margens e régua do eixo.
+
+    Antes existiam duas funções concorrentes — uma para os cards do SGS e outra
+    para os do SCR — com fontes, margens e posição de legenda diferentes. Esta
+    é a única.
+    """
     meta = dict(fig.layout.meta) if isinstance(fig.layout.meta, dict) else {}
     meta["chart_title"] = str(title)
+
+    margem_direita = (
+        MARGEM_DIREITA_ROTULO_DIRETO if rotulo_direto else MARGEM_DIREITA_LEGENDA
+    )
+    margem_base = MARGEM_BASE_COM_LEGENDA if legenda else MARGEM_BASE_SEM_LEGENDA
+
     fig.update_layout(
         title={"text": title, "x": 0.01, "xanchor": "left"},
         height=height,
-        margin={"l": 12, "r": 96, "t": 72, "b": 25},
-        paper_bgcolor="white",
-        plot_bgcolor="white",
+        # autoexpand desligado de propósito: com ele a biblioteca cresce as
+        # margens por conta própria e a altura real da área de plotagem deixa
+        # de ser conhecida, que é o que a conta dos rótulos precisa saber.
+        margin={
+            "l": MARGEM_ESQUERDA,
+            "r": margem_direita,
+            "t": MARGEM_TOPO,
+            "b": margem_base,
+            "autoexpand": False,
+        },
+        paper_bgcolor=COR_PAPEL,
+        plot_bgcolor=COR_PAPEL,
         hovermode="x unified",
-        legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "x": 0},
-        font={"family": "Arial", "color": ITAU_BLACK, "size": 14},
+        showlegend=legenda,
+        legend={
+            "orientation": "h",
+            "yanchor": "top",
+            "y": -0.14,
+            "x": 0,
+            "font": {"size": TAMANHO_LEGENDA},
+        },
+        font={"family": "Arial", "color": ITAU_BLACK, "size": TAMANHO_FONTE_BASE},
         yaxis_title=y_title,
+        # Trava de tamanho de texto: rótulo que não couber em 12 px é escondido
+        # em vez de encolhido. Sem isto a biblioteca desenhava o mesmo rótulo
+        # entre 0,2 px e 14 px na mesma barra.
+        uniformtext={"mode": "hide", "minsize": TAMANHO_ROTULO_PX},
+        separators=",.",
         meta=meta,
     )
+
     datas = _valid_trace_dates(fig)
     tickvals, ticktext = eixo_datas_adaptativo(datas)
     tickangle = (
@@ -307,12 +547,18 @@ def _base_layout(fig: go.Figure, *, title: str, y_title: str, height: int = 390)
         tickvals=tickvals or None,
         ticktext=ticktext or None,
         tickangle=tickangle,
-        tickfont={"size": 12},
+        tickfont={"size": TAMANHO_FONTE_EIXO},
     )
     fig.update_yaxes(
-        gridcolor="#ECE8E5", zerolinecolor="#B8B1AB", tickfont={"size": 12}
+        gridcolor=COR_GRADE,
+        zerolinecolor=COR_EIXO_ZERO,
+        tickfont={"size": TAMANHO_FONTE_EIXO},
     )
     return fig
+
+
+# Nome antigo, mantido porque outras abas importam.
+_base_layout = aplicar_estilo
 
 
 def line_figure(
@@ -324,15 +570,40 @@ def line_figure(
     labels: Mapping[str, str] | None = None,
     decimals: int = 1,
     suffix: str = "",
+    destaques: Sequence[str] | None = None,
+    height: int = ALTURA_PADRAO,
 ) -> go.Figure:
+    """Gráfico de linhas com hierarquia de espessura e rótulo no fim da linha.
+
+    ``destaques`` marca as séries que recebem a espessura de foco. Sem ele,
+    séries com "total"/"derivado" no alias entram como agregado tracejado e o
+    resto fica na espessura de contexto.
+    """
+    presentes = [alias for alias in aliases if alias in wide.columns]
+    # Acima de cinco séries a legenda separada obriga o olho a ir e voltar
+    # comparando cores parecidas; o nome vai para a ponta da linha.
+    rotulo_direto = len(presentes) > MAXIMO_CORES_LINHA
+    marcados = set(destaques or ())
+
     fig = go.Figure()
     endpoints: list[tuple[pd.Timestamp, float, str, str]] = []
-    for index, alias in enumerate(aliases):
-        if alias not in wide.columns:
-            continue
+    for index, alias in enumerate(presentes):
         values = pd.to_numeric(wide[alias], errors="coerce")
-        label = (labels or {}).get(alias) or (get_series(alias).label if alias in SGS_SERIES else alias)
-        color = ITAU_PALETTE[index % len(ITAU_PALETTE)]
+        label = (labels or {}).get(alias) or (
+            get_series(alias).label if alias in SGS_SERIES else alias
+        )
+        color = cor_de_linha(index)
+        dash = tracejado_de_linha(index)
+        agregado = ("total" in alias) or ("derivado" in alias)
+        if alias in marcados:
+            width = LARGURA_LINHA_FOCO
+        elif agregado:
+            width = LARGURA_LINHA_AGREGADO
+            dash = dash or "dash"
+        elif not marcados and index == 0:
+            width = LARGURA_LINHA_FOCO
+        else:
+            width = LARGURA_LINHA_CONTEXTO
         fig.add_trace(
             go.Scatter(
                 x=wide.index,
@@ -340,18 +611,31 @@ def line_figure(
                 name=label,
                 mode="lines",
                 cliponaxis=False,
-                line={"color": color, "width": 2.3},
+                connectgaps=False,
+                line={"color": color, "width": width, "dash": dash or "solid"},
                 meta={"series_alias": alias},
+                hovertemplate="%{y:.2f}" + (suffix or "") + "<extra>%{fullData.name}</extra>",
             )
         )
         valid = values.dropna()
         if not valid.empty:
             value = float(valid.iloc[-1])
-            text = f"{value:.{decimals}f}{suffix}".replace(".", ",")
-            endpoints.append((pd.Timestamp(valid.index[-1]), value, text, color))
-    _add_last_line_labels(fig, endpoints)
+            numero = f"{value:.{decimals}f}{suffix}".replace(".", ",")
+            texto = f"{label}  {numero}" if rotulo_direto else numero
+            endpoints.append((pd.Timestamp(valid.index[-1]), value, texto, color))
+
     fig.update_layout(meta={"source_aliases": _source_aliases(wide, aliases)})
-    return _base_layout(fig, title=title, y_title=y_title)
+    aplicar_estilo(
+        fig,
+        title=title,
+        y_title=y_title,
+        height=height,
+        legenda=not rotulo_direto,
+        rotulo_direto=rotulo_direto,
+    )
+    # Depois do estilo: a conta dos rótulos precisa da geometria já definida.
+    _add_last_line_labels(fig, endpoints)
+    return fig
 
 
 def stacked_figure(
@@ -364,43 +648,73 @@ def stacked_figure(
     scale: float = 1.0,
     total: pd.Series | None = None,
     percent: bool = False,
+    height: int = ALTURA_PADRAO,
 ) -> go.Figure:
+    """Barras empilhadas com rótulo de tamanho único e contraste garantido."""
     fig = go.Figure()
-    for index, alias in enumerate(aliases):
-        if alias not in wide.columns:
-            continue
+    presentes = [alias for alias in aliases if alias in wide.columns]
+    for index, alias in enumerate(presentes):
         values = pd.to_numeric(wide[alias], errors="coerce") * scale
-        label = (labels or {}).get(alias) or (get_series(alias).label if alias in SGS_SERIES else alias)
+        label = (labels or {}).get(alias) or (
+            get_series(alias).label if alias in SGS_SERIES else alias
+        )
+        preenchimento = cor_de_preenchimento(index)
         fig.add_trace(
             go.Bar(
                 x=wide.index,
                 y=values,
                 name=label,
-                marker_color=ITAU_PALETTE[index % len(ITAU_PALETTE)],
+                marker_color=preenchimento,
                 text=_last_text(values, 1, "%" if percent else ""),
                 textposition="inside",
+                # Horizontal sempre. Girar o texto para caber é o que produzia
+                # um rótulo deitado ao lado de nove em pé na mesma barra.
+                textangle=0,
+                insidetextanchor="middle",
+                insidetextfont={
+                    "size": TAMANHO_ROTULO_PX,
+                    "color": cor_do_rotulo(preenchimento),
+                    "family": "Arial",
+                },
+                textfont={"size": TAMANHO_ROTULO_PX, "family": "Arial"},
+                constraintext="inside",
                 meta={"series_alias": alias},
+                hovertemplate="%{y:.1f}" + ("%" if percent else "")
+                + "<extra>%{fullData.name}</extra>",
             )
         )
-    if total is not None:
-        total_values = pd.to_numeric(total, errors="coerce") * scale
-        fig.add_trace(
-            go.Scatter(
-                x=wide.index,
-                y=total_values,
-                name="Total",
-                mode="text",
-                text=_last_text(total_values, 1, "%" if percent else ""),
-                textposition="top center",
-                showlegend=False,
-                cliponaxis=False,
-            )
-        )
+
     fig.update_layout(barmode="stack")
     total_alias = getattr(total, "name", None) if total is not None else None
     source_candidates = [*aliases, *([total_alias] if total_alias else [])]
     fig.update_layout(meta={"source_aliases": _source_aliases(wide, source_candidates)})
-    return _base_layout(fig, title=title, y_title=y_title)
+    aplicar_estilo(fig, title=title, y_title=y_title, height=height, legenda=True)
+
+    if total is not None:
+        # Anotação, não série. Como série invisível de texto, o total fazia o
+        # exportador ler "barra + ponto" e trocar o empilhado por linhas.
+        total_values = pd.to_numeric(total, errors="coerce") * scale
+        valid = total_values.dropna()
+        if not valid.empty:
+            valor = float(valid.iloc[-1])
+            fig.add_annotation(
+                x=pd.Timestamp(valid.index[-1]),
+                y=valor,
+                text=f"{valor:.1f}{'%' if percent else ''}".replace(".", ","),
+                showarrow=False,
+                yshift=11,
+                xanchor="center",
+                font={
+                    "size": TAMANHO_ROTULO_PX,
+                    "color": ITAU_BLACK,
+                    "family": "Arial",
+                },
+                bgcolor="rgba(255,255,255,0.86)",
+                borderpad=1,
+            )
+            # Folga só para o rótulo do total caber acima da barra mais alta.
+            fig.update_yaxes(range=[0, max(valor, float(valid.max())) * 1.08])
+    return fig
 
 
 def bar_line_figure(
@@ -411,19 +725,29 @@ def bar_line_figure(
     title: str,
     bar_title: str = "R$ bi",
     line_title: str = "meses",
+    height: int = ALTURA_PADRAO,
 ) -> go.Figure:
     fig = make_subplots(specs=[[{"secondary_y": True}]])
     if bar_alias in wide.columns:
         bar = pd.to_numeric(wide[bar_alias], errors="coerce") / 1000.0
+        preenchimento = ITAU_LIGHT_GRAY
         fig.add_trace(
             go.Bar(
                 x=wide.index,
                 y=bar,
                 name=get_series(bar_alias).label,
-                marker_color=ITAU_LIGHT_GRAY,
+                marker_color=preenchimento,
                 text=_last_text(bar, 1),
                 textposition="outside",
-                meta={"series_alias": bar_alias},
+                textangle=0,
+                textfont={
+                    "size": TAMANHO_ROTULO_PX,
+                    "color": ITAU_BLACK,
+                    "family": "Arial",
+                },
+                cliponaxis=False,
+                meta={"series_alias": bar_alias, "eixo": "primario"},
+                hovertemplate="%{y:.1f}<extra>%{fullData.name}</extra>",
             ),
             secondary_y=False,
         )
@@ -436,22 +760,46 @@ def bar_line_figure(
                 y=line,
                 name=get_series(line_alias).label,
                 mode="lines",
-                line={"color": line_color, "width": 2.5},
+                line={"color": line_color, "width": LARGURA_LINHA_FOCO},
                 cliponaxis=False,
-                meta={"series_alias": line_alias},
+                connectgaps=False,
+                meta={"series_alias": line_alias, "eixo": "secundario"},
+                hovertemplate="%{y:.1f}<extra>%{fullData.name}</extra>",
             ),
             secondary_y=True,
         )
-        valid = line.dropna()
+
+    fig.update_layout(
+        meta={
+            "source_aliases": _source_aliases(wide, [bar_alias, line_alias]),
+            # O exportador precisa saber que este card tem dois eixos, com
+            # unidades e formatos diferentes, para não achatar os dois em um.
+            "eixo_secundario": get_series(line_alias).label
+            if line_alias in SGS_SERIES
+            else line_alias,
+            "titulo_eixo_primario": bar_title,
+            "titulo_eixo_secundario": line_title,
+            "formato_primario": "0.0",
+            "formato_secundario": "0.0",
+            "tipo_grafico": "column_line",
+        }
+    )
+    aplicar_estilo(fig, title=title, y_title=bar_title, height=height, legenda=True)
+    fig.update_yaxes(title_text=bar_title, secondary_y=False, rangemode="tozero")
+    fig.update_yaxes(title_text=line_title, secondary_y=True, showgrid=False)
+
+    if line_alias in wide.columns:
+        valid = pd.to_numeric(wide[line_alias], errors="coerce").dropna()
         if not valid.empty:
             value = float(valid.iloc[-1])
             _add_last_line_labels(
                 fig,
-                [(pd.Timestamp(valid.index[-1]), value, f"{value:.1f}".replace(".", ","), line_color)],
+                [(
+                    pd.Timestamp(valid.index[-1]),
+                    value,
+                    f"{value:.1f}".replace(".", ","),
+                    ITAU_ORANGE,
+                )],
                 yref="y2",
             )
-    fig.update_layout(meta={"source_aliases": _source_aliases(wide, [bar_alias, line_alias])})
-    _base_layout(fig, title=title, y_title=bar_title)
-    fig.update_yaxes(title_text=bar_title, secondary_y=False)
-    fig.update_yaxes(title_text=line_title, secondary_y=True, showgrid=False)
     return fig

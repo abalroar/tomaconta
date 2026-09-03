@@ -1,4 +1,9 @@
-"""Página Streamlit do mercado de crédito agregado (SGS/BCB)."""
+"""Página Streamlit do mercado de crédito agregado (SGS/BCB).
+
+Um card por linha, em largura total. Havia gráficos com nove e dez séries
+divididos em duas colunas: metade da largura para dez linhas não deixa nenhuma
+legível, e o rótulo do fim de cada linha não tinha onde caber.
+"""
 
 from __future__ import annotations
 
@@ -10,6 +15,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from utils.sgs_credit_analytics import (
+    _valid_trace_dates,
     bar_line_figure,
     build_ipca_index,
     coverage_ratio,
@@ -59,6 +65,12 @@ def _available(wide: pd.DataFrame, aliases: Sequence[str]) -> bool:
     return bool(set(aliases).intersection(wide.columns))
 
 
+def _competencia_do_card(fig: go.Figure) -> pd.Timestamp | None:
+    """Última competência com dado efetivamente desenhado neste card."""
+    datas = _valid_trace_dates(fig)
+    return max(datas) if datas else None
+
+
 def _chart(fig: go.Figure, key: str) -> None:
     meta = fig.layout.meta if isinstance(fig.layout.meta, dict) else {}
     raw_title = meta.get("chart_title") or getattr(fig.layout.title, "text", None)
@@ -70,7 +82,7 @@ def _chart(fig: go.Figure, key: str) -> None:
         else "Gráfico"
     )
     source_aliases = meta.get("source_aliases", [])
-    title_column, info_column = st.columns([0.92, 0.08], vertical_alignment="center")
+    title_column, info_column = st.columns([0.96, 0.04], vertical_alignment="center")
     with title_column:
         st.markdown(f"##### {title}")
     with info_column:
@@ -95,8 +107,35 @@ def _chart(fig: go.Figure, key: str) -> None:
     # O tema Plotly do app converte ``title=None`` no texto literal
     # ``undefined``. Uma string vazia remove o título interno com segurança;
     # o título visível do card permanece no cabeçalho acima do gráfico.
-    fig.update_layout(title_text="", margin={**fig.layout.margin.to_plotly_json(), "t": 42})
+    fig.update_layout(title_text="")
     st.plotly_chart(fig, width="stretch", config=PLOTLY_CONFIG, key=key)
+    # A competência real deste card, e não a do seletor: séries diferentes
+    # fecham em meses diferentes e dois cards vizinhos podiam terminar em
+    # jun/26 e jul/26 sem nada dizer isso.
+    competencia = _competencia_do_card(fig)
+    if competencia is not None:
+        st.caption(f"dados até {formatar_competencia(competencia)}")
+
+
+def _competencias_por_fonte(wide: pd.DataFrame) -> dict[str, pd.Timestamp]:
+    """Última competência de cada bloco de séries do cache SGS."""
+    resultado: dict[str, pd.Timestamp] = {}
+    for rotulo, colunas in {
+        "crédito, taxas e inadimplência": [
+            c for c in wide.columns
+            if c.startswith(("saldo_", "concessoes_", "taxa_", "spread_", "inad_", "pre_inad_", "provisao_"))
+        ],
+        "endividamento das famílias": [
+            c for c in wide.columns
+            if c.startswith(("comprometimento_", "endividamento_"))
+        ],
+    }.items():
+        if not colunas:
+            continue
+        validos = wide[colunas].dropna(how="all")
+        if not validos.empty:
+            resultado[rotulo] = pd.Timestamp(validos.index[-1])
+    return resultado
 
 
 def _period_filter(wide: pd.DataFrame) -> pd.DataFrame:
@@ -142,7 +181,7 @@ def _period_filter(wide: pd.DataFrame) -> pd.DataFrame:
             key="sgs_credit_period_end",
             help=(
                 "Mais recente usa a última competência fechada das séries de crédito. "
-                "Cada linha termina em sua própria última observação dentro desse limite."
+                "Cada card mostra no rodapé a competência que ele efetivamente alcança."
             ),
         )
     filtered = _filter_period_range(
@@ -225,14 +264,11 @@ def _render_concessoes(wide: pd.DataFrame) -> None:
         ("Cartão de crédito", "concessoes_livre_pf_cartao", "prazo_livre_pf_cartao_parcelado"),
         ("Crédito imobiliário", "concessoes_direcionado_pf_imobiliario", "prazo_direcionado_pf_imobiliario"),
     ]
-    for row_start in range(0, len(cards), 2):
-        columns = st.columns(2)
-        for column, (title, volume, term) in zip(columns, cards[row_start : row_start + 2]):
-            with column:
-                _chart(
-                    bar_line_figure(wide, bar_alias=volume, line_alias=term, title=title),
-                    f"sgs_concessoes_{volume}",
-                )
+    for title, volume, term in cards:
+        _chart(
+            bar_line_figure(wide, bar_alias=volume, line_alias=term, title=title),
+            f"sgs_concessoes_{volume}",
+        )
 
 
 def _render_credit_stock(wide: pd.DataFrame) -> None:
@@ -241,45 +277,40 @@ def _render_credit_stock(wide: pd.DataFrame) -> None:
         "credito_ampliado_titulos",
         "credito_ampliado_divida_externa",
     ]
-    col1, col2 = st.columns(2)
-    with col1:
-        _chart(
-            stacked_figure(
-                wide,
-                expanded,
-                title="Composição do saldo de crédito ampliado",
-                y_title="R$ bi",
-                scale=0.001,
-                total=wide.get("credito_ampliado_total"),
-            ),
-            "sgs_credito_ampliado",
-        )
+    _chart(
+        stacked_figure(
+            wide,
+            expanded,
+            title="Composição do saldo de crédito ampliado",
+            y_title="R$ bi",
+            scale=0.001,
+            total=wide.get("credito_ampliado_total"),
+        ),
+        "sgs_credito_ampliado",
+    )
     components = ["saldo_livre_pj", "saldo_livre_pf", "saldo_direcionado_pj", "saldo_direcionado_pf"]
-    with col2:
-        _chart(
-            stacked_figure(
-                wide,
-                components,
-                title="Estoque de crédito total do SFN",
-                y_title="R$ bi",
-                scale=0.001,
-                total=wide.get("saldo_sfn_total_derivado"),
-            ),
-            "sgs_credito_sfn",
-        )
+    _chart(
+        stacked_figure(
+            wide,
+            components,
+            title="Estoque de crédito total do SFN",
+            y_title="R$ bi",
+            scale=0.001,
+            total=wide.get("saldo_sfn_total_derivado"),
+        ),
+        "sgs_credito_sfn",
+    )
     growth = _real_growth_frame(wide, expanded + ["credito_ampliado_total"])
-    growth_column, _ = st.columns(2)
-    with growth_column:
-        _chart(
-            line_figure(
-                growth,
-                expanded + ["credito_ampliado_total"],
-                title="Ritmo de evolução do estoque de crédito",
-                y_title="Δ YoY real (%)",
-                suffix="%",
-            ),
-            "sgs_credito_ampliado_real",
-        )
+    _chart(
+        line_figure(
+            growth,
+            expanded + ["credito_ampliado_total"],
+            title="Ritmo de evolução do estoque de crédito",
+            y_title="Δ YoY real (%)",
+            suffix="%",
+        ),
+        "sgs_credito_ampliado_real",
+    )
 
 
 def _render_credit_borrower(wide: pd.DataFrame) -> None:
@@ -295,31 +326,28 @@ def _render_credit_borrower(wide: pd.DataFrame) -> None:
         ),
         "sgs_tomador_saldo",
     )
-    col1, col2 = st.columns(2)
-    with col1:
-        pf = _real_growth_frame(wide, ["saldo_livre_pf", "saldo_direcionado_pf", "saldo_pf_total"])
-        _chart(
-            line_figure(
-                pf,
-                ["saldo_livre_pf", "saldo_direcionado_pf", "saldo_pf_total"],
-                title="Crescimento da carteira PF total",
-                y_title="Δ YoY real (%)",
-                suffix="%",
-            ),
-            "sgs_tomador_pf_growth",
-        )
-    with col2:
-        pj = _real_growth_frame(wide, ["saldo_livre_pj", "saldo_direcionado_pj", "saldo_pj_total"])
-        _chart(
-            line_figure(
-                pj,
-                ["saldo_livre_pj", "saldo_direcionado_pj", "saldo_pj_total"],
-                title="Crescimento da carteira PJ total",
-                y_title="Δ YoY real (%)",
-                suffix="%",
-            ),
-            "sgs_tomador_pj_growth",
-        )
+    pf = _real_growth_frame(wide, ["saldo_livre_pf", "saldo_direcionado_pf", "saldo_pf_total"])
+    _chart(
+        line_figure(
+            pf,
+            ["saldo_livre_pf", "saldo_direcionado_pf", "saldo_pf_total"],
+            title="Crescimento da carteira PF total",
+            y_title="Δ YoY real (%)",
+            suffix="%",
+        ),
+        "sgs_tomador_pf_growth",
+    )
+    pj = _real_growth_frame(wide, ["saldo_livre_pj", "saldo_direcionado_pj", "saldo_pj_total"])
+    _chart(
+        line_figure(
+            pj,
+            ["saldo_livre_pj", "saldo_direcionado_pj", "saldo_pj_total"],
+            title="Crescimento da carteira PJ total",
+            y_title="Δ YoY real (%)",
+            suffix="%",
+        ),
+        "sgs_tomador_pj_growth",
+    )
     participation = shares(wide, components, wide.get("saldo_sfn_total_derivado"))
     _chart(
         stacked_figure(
@@ -380,59 +408,53 @@ def _render_credit_product(wide: pd.DataFrame) -> None:
         wide, pj_products, total_alias="saldo_pj_total", residual_alias="outros_pj_derivado"
     )
     labels = {"outros_pf_derivado": "Outros", "outros_pj_derivado": "Outros"}
-    col1, col2 = st.columns(2)
-    with col1:
-        _chart(
-            stacked_figure(
-                pf_mix,
-                [*pf_products, "outros_pf_derivado"],
-                title="Mix da carteira PF",
-                y_title="% da carteira PF",
-                labels=labels,
-                total=pd.Series(100.0, index=pf_mix.index),
-                percent=True,
-            ),
-            "sgs_mix_pf",
-        )
-    with col2:
-        _chart(
-            stacked_figure(
-                pj_mix,
-                [*pj_products, "outros_pj_derivado"],
-                title="Mix da carteira PJ",
-                y_title="% da carteira PJ",
-                labels=labels,
-                total=pd.Series(100.0, index=pj_mix.index),
-                percent=True,
-            ),
-            "sgs_mix_pj",
-        )
+    _chart(
+        stacked_figure(
+            pf_mix,
+            [*pf_products, "outros_pf_derivado"],
+            title="Mix da carteira PF",
+            y_title="% da carteira PF",
+            labels=labels,
+            total=pd.Series(100.0, index=pf_mix.index),
+            percent=True,
+        ),
+        "sgs_mix_pf",
+    )
+    _chart(
+        stacked_figure(
+            pj_mix,
+            [*pj_products, "outros_pj_derivado"],
+            title="Mix da carteira PJ",
+            y_title="% da carteira PJ",
+            labels=labels,
+            total=pd.Series(100.0, index=pj_mix.index),
+            percent=True,
+        ),
+        "sgs_mix_pj",
+    )
 
-    col1, col2 = st.columns(2)
-    with col1:
-        growth_pf = _real_growth_frame(wide, pf_products)
-        _chart(
-            line_figure(
-                growth_pf,
-                pf_products,
-                title="Crescimento por produto PF",
-                y_title="Δ YoY real (%)",
-                suffix="%",
-            ),
-            "sgs_produto_pf_growth",
-        )
-    with col2:
-        growth_pj = _real_growth_frame(wide, pj_products)
-        _chart(
-            line_figure(
-                growth_pj,
-                pj_products,
-                title="Crescimento por produto PJ",
-                y_title="Δ YoY real (%)",
-                suffix="%",
-            ),
-            "sgs_produto_pj_growth",
-        )
+    growth_pf = _real_growth_frame(wide, pf_products)
+    _chart(
+        line_figure(
+            growth_pf,
+            pf_products,
+            title="Crescimento por produto PF",
+            y_title="Δ YoY real (%)",
+            suffix="%",
+        ),
+        "sgs_produto_pf_growth",
+    )
+    growth_pj = _real_growth_frame(wide, pj_products)
+    _chart(
+        line_figure(
+            growth_pj,
+            pj_products,
+            title="Crescimento por produto PJ",
+            y_title="Δ YoY real (%)",
+            suffix="%",
+        ),
+        "sgs_produto_pj_growth",
+    )
 
     card_aliases = [
         "saldo_livre_pf_cartao_rotativo",
@@ -489,32 +511,29 @@ def _render_credit_product(wide: pd.DataFrame) -> None:
 def _render_credit_company(wide: pd.DataFrame) -> None:
     aliases = ["saldo_pj_mpme", "saldo_pj_grande"]
     total = sum_columns(wide, aliases)
-    col1, col2 = st.columns(2)
-    with col1:
-        _chart(
-            stacked_figure(
-                wide,
-                aliases,
-                title="Saldo da carteira PJ por tipo de empresa",
-                y_title="R$ bi",
-                scale=0.001,
-                total=total,
-            ),
-            "sgs_empresa_saldo",
-        )
-    with col2:
-        participation = shares(wide, aliases, total)
-        _chart(
-            stacked_figure(
-                participation,
-                aliases,
-                title="Participação por tipo de empresa",
-                y_title="% do crédito PJ",
-                total=pd.Series(100.0, index=participation.index),
-                percent=True,
-            ),
-            "sgs_empresa_share",
-        )
+    _chart(
+        stacked_figure(
+            wide,
+            aliases,
+            title="Saldo da carteira PJ por tipo de empresa",
+            y_title="R$ bi",
+            scale=0.001,
+            total=total,
+        ),
+        "sgs_empresa_saldo",
+    )
+    participation = shares(wide, aliases, total)
+    _chart(
+        stacked_figure(
+            participation,
+            aliases,
+            title="Participação por tipo de empresa",
+            y_title="% do crédito PJ",
+            total=pd.Series(100.0, index=participation.index),
+            percent=True,
+        ),
+        "sgs_empresa_share",
+    )
     growth_source = wide.attrs.get("full_history", wide).copy()
     growth_source["saldo_pj_porte_total_derivado"] = sum_columns(growth_source, aliases)
     growth = _real_growth_frame(
@@ -537,36 +556,33 @@ def _render_credit_control(wide: pd.DataFrame) -> None:
     aliases = ["saldo_controle_publico", "saldo_controle_privado_nacional", "saldo_controle_estrangeiro"]
     total = sum_columns(wide, aliases)
     participation = shares(wide, aliases, total)
-    col1, col2 = st.columns(2)
-    with col1:
-        _chart(
-            stacked_figure(
-                participation,
-                aliases,
-                title="Mix do saldo de crédito SFN por controle",
-                y_title="% do crédito total",
-                total=pd.Series(100.0, index=participation.index),
-                percent=True,
-            ),
-            "sgs_controle_share",
-        )
-    with col2:
-        source = wide.attrs.get("full_history", wide).copy()
-        source["saldo_controle_total_derivado"] = sum_columns(source, aliases)
-        growth = _real_growth_frame(
-            source, [*aliases, "saldo_controle_total_derivado"]
-        ).reindex(wide.index)
-        _chart(
-            line_figure(
-                growth,
-                [*aliases, "saldo_controle_total_derivado"],
-                title="Ritmo de crescimento por controle",
-                y_title="Δ YoY real (%)",
-                labels={"saldo_controle_total_derivado": "Total SFN"},
-                suffix="%",
-            ),
-            "sgs_controle_growth",
-        )
+    _chart(
+        stacked_figure(
+            participation,
+            aliases,
+            title="Mix do saldo de crédito SFN por controle",
+            y_title="% do crédito total",
+            total=pd.Series(100.0, index=participation.index),
+            percent=True,
+        ),
+        "sgs_controle_share",
+    )
+    source = wide.attrs.get("full_history", wide).copy()
+    source["saldo_controle_total_derivado"] = sum_columns(source, aliases)
+    growth = _real_growth_frame(
+        source, [*aliases, "saldo_controle_total_derivado"]
+    ).reindex(wide.index)
+    _chart(
+        line_figure(
+            growth,
+            [*aliases, "saldo_controle_total_derivado"],
+            title="Ritmo de crescimento por controle",
+            y_title="Δ YoY real (%)",
+            labels={"saldo_controle_total_derivado": "Total SFN"},
+            suffix="%",
+        ),
+        "sgs_controle_growth",
+    )
 
 
 def _render_credit(wide: pd.DataFrame) -> None:
@@ -594,41 +610,38 @@ def _render_situation(wide: pd.DataFrame) -> None:
         commitment["comprometimento_total_derivado"] = sum_columns(
             commitment, ["comprometimento_juros", "comprometimento_amortizacao"]
         )
-    commitment_column, employment_column = st.columns(2)
-    with commitment_column:
-        _chart(
-            line_figure(
-                commitment,
-                [
-                    "comprometimento_amortizacao",
-                    "comprometimento_juros",
-                    "comprometimento_total_derivado",
-                    "comprometimento_servico_ex_habitacional",
-                    "endividamento_renda",
-                ],
-                title="Comprometimento de renda das famílias",
-                y_title="% da renda",
-                labels={"comprometimento_total_derivado": "Comprometimento total"},
-                suffix="%",
-            ),
-            "sgs_comprometimento",
-        )
+    _chart(
+        line_figure(
+            commitment,
+            [
+                "comprometimento_amortizacao",
+                "comprometimento_juros",
+                "comprometimento_total_derivado",
+                "comprometimento_servico_ex_habitacional",
+                "endividamento_renda",
+            ],
+            title="Comprometimento de renda das famílias",
+            y_title="% da renda",
+            labels={"comprometimento_total_derivado": "Comprometimento total"},
+            suffix="%",
+        ),
+        "sgs_comprometimento",
+    )
     employment = wide[[column for column in ["desocupacao"] if column in wide.columns]].copy()
     employment_change = _yoy_pp_frame(wide, ["desocupacao"])
     if "desocupacao" in employment_change:
         employment["retomada_emprego_derivada"] = employment_change["desocupacao"]
     employment.attrs["source_aliases"] = ["desocupacao"]
-    with employment_column:
-        _chart(
-            line_figure(
-                employment,
-                ["desocupacao", "retomada_emprego_derivada"],
-                title="Taxa de desocupação e velocidade de retomada do emprego",
-                y_title="% / variação YoY em p.p.",
-                labels={"retomada_emprego_derivada": "Variação YoY da desocupação"},
-            ),
-            "sgs_emprego",
-        )
+    _chart(
+        line_figure(
+            employment,
+            ["desocupacao", "retomada_emprego_derivada"],
+            title="Taxa de desocupação e velocidade de retomada do emprego",
+            y_title="% / variação YoY em p.p.",
+            labels={"retomada_emprego_derivada": "Variação YoY da desocupação"},
+        ),
+        "sgs_emprego",
+    )
 
 
 def _render_npl(wide: pd.DataFrame, get_cache_manager=None) -> None:
@@ -649,18 +662,16 @@ def _render_npl(wide: pd.DataFrame, get_cache_manager=None) -> None:
     wide = _period_filter(wide)
     if selected == "Cobertura e Provisionamento":
         provision = ["provisao_sfn", "provisao_publico", "provisao_privado_nacional", "provisao_estrangeiro"]
-        provision_column, coverage_column = st.columns(2)
-        with provision_column:
-            _chart(
-                line_figure(
-                    wide,
-                    provision,
-                    title="Nível de provisão",
-                    y_title="% da carteira total",
-                    suffix="%",
-                ),
-                "sgs_provisao",
-            )
+        _chart(
+            line_figure(
+                wide,
+                provision,
+                title="Nível de provisão",
+                y_title="% da carteira total",
+                suffix="%",
+            ),
+            "sgs_provisao",
+        )
         coverage = pd.DataFrame(index=wide.index)
         pairs = {
             "cobertura_sfn_derivada": ("provisao_sfn", "inad_total"),
@@ -672,38 +683,35 @@ def _render_npl(wide: pd.DataFrame, get_cache_manager=None) -> None:
             if {provision_alias, npl_alias}.issubset(wide.columns):
                 coverage[alias] = coverage_ratio(wide[provision_alias], wide[npl_alias])
         coverage.attrs["source_aliases"] = [item for pair in pairs.values() for item in pair]
-        with coverage_column:
-            _chart(
-                line_figure(
-                    coverage,
-                    list(pairs),
-                    title="Nível de cobertura (>90 dias)",
-                    y_title="% da carteira inadimplente",
-                    labels={
-                        "cobertura_sfn_derivada": "SFN",
-                        "cobertura_publico_derivada": "Público",
-                        "cobertura_privado_nacional_derivada": "Privado nacional",
-                        "cobertura_estrangeiro_derivada": "Estrangeiro",
-                    },
-                    suffix="%",
-                ),
-                "sgs_cobertura",
-            )
+        _chart(
+            line_figure(
+                coverage,
+                list(pairs),
+                title="Nível de cobertura (>90 dias)",
+                y_title="% da carteira inadimplente",
+                labels={
+                    "cobertura_sfn_derivada": "SFN",
+                    "cobertura_publico_derivada": "Público",
+                    "cobertura_privado_nacional_derivada": "Privado nacional",
+                    "cobertura_estrangeiro_derivada": "Estrangeiro",
+                },
+                suffix="%",
+            ),
+            "sgs_cobertura",
+        )
         return
 
     aggregate = ["pre_inad_livre_pf", "inad_livre_pf", "pre_inad_livre_pj", "inad_livre_pj", "pre_inad_livre_total", "inad_livre_total"]
-    aggregate_column, _ = st.columns(2)
-    with aggregate_column:
-        _chart(
-            line_figure(
-                wide,
-                aggregate,
-                title="Pré-inadimplência (15–90d) e inadimplência (>90d) — recursos livres",
-                y_title="% da carteira",
-                suffix="%",
-            ),
-            "sgs_npl_aggregate",
-        )
+    _chart(
+        line_figure(
+            wide,
+            aggregate,
+            title="Pré-inadimplência (15–90d) e inadimplência (>90d) — recursos livres",
+            y_title="% da carteira",
+            suffix="%",
+        ),
+        "sgs_npl_aggregate",
+    )
     pf_pre = [
         "pre_inad_livre_pf_nao_consignado", "pre_inad_livre_pf_cheque",
         "pre_inad_livre_pf_cartao_total", "pre_inad_livre_pf_cartao_rotativo",
@@ -717,17 +725,17 @@ def _render_npl(wide: pd.DataFrame, get_cache_manager=None) -> None:
     ]
     pj_pre = ["pre_inad_livre_pj_conta_garantida", "pre_inad_livre_pj_capital_giro", "pre_inad_livre_pj_duplicatas"]
     pj_npl = ["inad_livre_pj_conta_garantida", "inad_livre_pj_capital_giro", "inad_livre_pj_duplicatas"]
-    for row_start, (title_left, left, title_right, right) in enumerate(
-        [
-            ("Produtos PF — pré-inadimplência", pf_pre, "Produtos PF — inadimplência", pf_npl),
-            ("Produtos PJ — pré-inadimplência", pj_pre, "Produtos PJ — inadimplência", pj_npl),
-        ]
-    ):
-        col1, col2 = st.columns(2)
-        with col1:
-            _chart(line_figure(wide, left, title=title_left, y_title="% da carteira", suffix="%"), f"sgs_npl_left_{row_start}")
-        with col2:
-            _chart(line_figure(wide, right, title=title_right, y_title="% da carteira", suffix="%"), f"sgs_npl_right_{row_start}")
+    cards = [
+        ("Produtos PF — pré-inadimplência", pf_pre),
+        ("Produtos PF — inadimplência", pf_npl),
+        ("Produtos PJ — pré-inadimplência", pj_pre),
+        ("Produtos PJ — inadimplência", pj_npl),
+    ]
+    for posicao, (titulo, aliases) in enumerate(cards):
+        _chart(
+            line_figure(wide, aliases, title=titulo, y_title="% da carteira", suffix="%"),
+            f"sgs_npl_card_{posicao}",
+        )
 
 
 def _render_rates(wide: pd.DataFrame) -> None:
@@ -741,23 +749,28 @@ def _render_rates(wide: pd.DataFrame) -> None:
         validas = wide[referencias].dropna(how="all")
         if not validas.empty:
             wide = wide.loc[wide.index <= validas.index.max()].copy()
+    # Cartão rotativo roda a ~450% a.a. e imobiliário a ~11%: no mesmo eixo
+    # linear, metade das séries vira uma linha reta colada na base. Os cards
+    # são separados por ordem de grandeza da taxa.
     cards = [
         (
-            "Taxa média PF",
-            ["taxa_pf_consignado", "taxa_pf_veiculos", "taxa_pf_imobiliario", "taxa_pf_cheque", "taxa_pf_nao_consignado", "taxa_pf_cartao_total"],
+            "Taxa média PF — crédito com garantia",
+            ["taxa_pf_imobiliario", "taxa_pf_veiculos", "taxa_pf_consignado"],
         ),
-        ("Cartão", ["taxa_pf_cartao_total", "taxa_pf_cartao_rotativo", "taxa_pf_cartao_parcelado"]),
-        ("Taxa média PJ", ["taxa_pj_conta_garantida", "taxa_pj_duplicatas", "taxa_pj_capital_giro"]),
+        (
+            "Taxa média PF — crédito sem garantia",
+            ["taxa_pf_cartao_total", "taxa_pf_nao_consignado", "taxa_pf_cheque"],
+        ),
+        ("Cartão — taxa média e parcelado", ["taxa_pf_cartao_total", "taxa_pf_cartao_parcelado"]),
+        ("Cartão — rotativo", ["taxa_pf_cartao_rotativo"]),
+        ("Taxa média PJ", ["taxa_pj_conta_garantida", "taxa_pj_capital_giro", "taxa_pj_duplicatas"]),
         ("Taxa e spread agregados", ["taxa_pf_livre", "spread_pf_livre", "taxa_pj_livre", "spread_pj_livre", "cdi_aa"]),
     ]
-    for row_start in range(0, len(cards), 2):
-        cols = st.columns(2)
-        for col, (title, aliases) in zip(cols, cards[row_start : row_start + 2]):
-            with col:
-                _chart(
-                    line_figure(wide, aliases, title=title, y_title="% a.a. / p.p.", suffix="%"),
-                    f"sgs_rates_{row_start}_{title}",
-                )
+    for posicao, (title, aliases) in enumerate(cards):
+        _chart(
+            line_figure(wide, aliases, title=title, y_title="% a.a. / p.p.", suffix="%"),
+            f"sgs_rates_{posicao}",
+        )
     aliases = ["taxa_pf_livre", "spread_pf_livre", "taxa_pj_livre", "spread_pj_livre"]
     changes = _yoy_pp_frame(wide, aliases)
     _chart(
@@ -837,6 +850,21 @@ def _render_glossary(frame: pd.DataFrame, metadata: Mapping | None) -> None:
         width="stretch",
     )
 
+    st.markdown("##### Leitura dos gráficos")
+    st.markdown(
+        "- **Cores:** a paleta de linhas tem cinco cores, todas com pelo menos "
+        "3:1 de contraste sobre o branco e distância perceptual (ΔE) acima de 27 "
+        "entre si. Da sexta série em diante a cor repete e o **traço tracejado** "
+        "passa a distinguir.\n"
+        "- **Espessura:** linha grossa é a série em foco, tracejada é o agregado, "
+        "fina é contexto.\n"
+        "- **Rótulos:** tamanho único de 12 px, sempre na horizontal. Fatia de "
+        "barra que não comporta o rótulo nesse tamanho fica sem rótulo — o valor "
+        "continua no tooltip — em vez de receber um texto encolhido ou deitado.\n"
+        "- **Competência:** o rodapé de cada card informa a última competência "
+        "que aquele card efetivamente alcança, que nem sempre é a do seletor."
+    )
+
     latest = pd.to_datetime(frame["data"], errors="coerce").max()
     latest_label = latest.strftime("%m/%Y") if pd.notna(latest) else "N/D"
     source = (metadata or {}).get("fonte") or "BCData/SGS"
@@ -845,13 +873,46 @@ def _render_glossary(frame: pd.DataFrame, metadata: Mapping | None) -> None:
         f"- **SGS:** Banco Central do Brasil · última observação no cache: "
         f"**{latest_label}** · origem do cache: **{source}**.\n"
         "- **SCR.data:** dados do documento 3040, operação a operação; "
-        "podem divergir do IF.data e dos balancetes COSIF.\n"
+        "podem divergir do IF.data e dos balancetes COSIF. Tem calendário de "
+        "publicação próprio e costuma ficar um mês atrás do SGS.\n"
         "- **Localização SCR:** a UF vem do CEP do tomador.\n"
         "- **Porte SCR:** PF usa faixa de renda; PJ usa faturamento. Os critérios "
         "não devem ser combinados no mesmo eixo.\n"
         "- **Sigilo SCR:** contagens iguais ou inferiores ao limite de divulgação "
         "podem ser suprimidas pelo BCB."
     )
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _competencia_publicada_no_bcb() -> str | None:
+    """Última competência que o BCB já publicou, para comparar com o cache.
+
+    Consulta leve, de uma série só. Falha em silêncio: o aviso simplesmente
+    não aparece se o BCB estiver fora do ar.
+    """
+    from utils.ifdata_cache.sgs_credit import ultima_competencia_publicada
+
+    return ultima_competencia_publicada()
+
+
+def _aviso_de_defasagem(wide: pd.DataFrame) -> None:
+    cache_ate = pd.DatetimeIndex(wide.index).max() if len(wide.index) else None
+    if cache_ate is None:
+        return
+    try:
+        publicada = _competencia_publicada_no_bcb()
+    except Exception:
+        return
+    if not publicada:
+        return
+    publicada_ts = pd.Timestamp(f"{publicada}-01")
+    if publicada_ts.to_period("M") > pd.Timestamp(cache_ate).to_period("M"):
+        st.warning(
+            f"O Banco Central já publicou **{formatar_competencia(publicada_ts)}**; "
+            f"o cache desta seção está em **{formatar_competencia(cache_ate)}**. "
+            "Rode a atualização em *Atualizar Base* para trazer o mês novo.",
+            icon=":material/update:",
+        )
 
 
 def render_mercado_credito(cache, *, get_cache_manager=None) -> None:
@@ -881,6 +942,20 @@ def render_mercado_credito(cache, *, get_cache_manager=None) -> None:
         return
 
     full_wide = derive_credit_totals(to_wide(result.dados))
+
+    # As duas fontes da seção têm calendários diferentes, e dentro do próprio
+    # SGS o bloco de endividamento das famílias sai depois do de crédito.
+    competencias = _competencias_por_fonte(full_wide)
+    if competencias:
+        st.caption(
+            "Competência no cache · "
+            + " · ".join(
+                f"{rotulo}: **{formatar_competencia(data)}**"
+                for rotulo, data in competencias.items()
+            )
+        )
+    _aviso_de_defasagem(full_wide)
+
     selected = st.segmented_control(
         "Área",
         MAIN_SECTIONS,
@@ -921,7 +996,7 @@ def render_mercado_credito(cache, *, get_cache_manager=None) -> None:
         )
         with export_slot.container():
             st.download_button(
-                "Baixar PPTX desta aba",
+                f"Baixar {meta_export['paineis']} gráficos desta aba em PPTX",
                 data=blob,
                 file_name="estatisticas_credito_bc.pptx",
                 mime=(
@@ -931,7 +1006,7 @@ def render_mercado_credito(cache, *, get_cache_manager=None) -> None:
                 key=f"sgs_pptx_{selected}_{detalhe}",
                 type="primary",
                 help=(
-                    f"{meta_export['paineis']} gráficos Office nativos, "
+                    "Gráficos Office nativos e editáveis, "
                     f"até {meta_export['paineis_por_slide']} por slide."
                 ),
             )

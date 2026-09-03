@@ -8,12 +8,15 @@ from typing import Any, Sequence
 import pandas as pd
 
 from .scr_pptx_export import exportar_paineis_pptx
-from .sgs_credit_analytics import ITAU_MID_GRAY, ITAU_PALETTE
+from .sgs_credit_analytics import ITAU_MID_GRAY, PALETA_LINHA, PALETA_PREENCHIMENTO
+
+
+def _meta(fig: Any) -> dict:
+    return fig.layout.meta if isinstance(fig.layout.meta, dict) else {}
 
 
 def _titulo(fig: Any) -> str:
-    meta = fig.layout.meta if isinstance(fig.layout.meta, dict) else {}
-    candidato = meta.get("chart_title")
+    candidato = _meta(fig).get("chart_title")
     if isinstance(candidato, str) and candidato.strip():
         return candidato.strip()
     texto = getattr(getattr(fig.layout, "title", None), "text", None)
@@ -22,17 +25,18 @@ def _titulo(fig: Any) -> str:
     return "Gráfico"
 
 
-def _cor_trace(trace: Any, posicao: int) -> str:
+def _cor_trace(trace: Any, posicao: int, *, empilhado: bool) -> str:
     linha = getattr(getattr(trace, "line", None), "color", None)
     marcador = getattr(getattr(trace, "marker", None), "color", None)
     cor = linha or marcador
     if isinstance(cor, str) and cor.startswith("#"):
         return cor
-    return ITAU_PALETTE[posicao % len(ITAU_PALETTE)]
+    paleta = PALETA_PREENCHIMENTO if empilhado else PALETA_LINHA
+    return paleta[posicao % len(paleta)]
 
 
 def _formato_e_escala(fig: Any) -> tuple[str, float]:
-    meta = fig.layout.meta if isinstance(fig.layout.meta, dict) else {}
+    meta = _meta(fig)
     formato_explicito = meta.get("value_format")
     escala_explicita = meta.get("value_scale")
     if isinstance(formato_explicito, str) and escala_explicita is not None:
@@ -45,24 +49,52 @@ def _formato_e_escala(fig: Any) -> tuple[str, float]:
     return "0.0", 1.0
 
 
+def _tipo_grafico(fig: Any, tipos: set[str]) -> str:
+    """Tipo do gráfico exportado, na ordem: o que a figura declara, depois o
+    que os traces mostram.
+
+    A dedução por tipo de trace sozinha errava em todo empilhado: o rótulo do
+    total era uma série invisível de texto, então a figura chegava aqui como
+    "barra + ponto" e caía no ramo de linhas. Hoje o total é anotação, e a
+    figura ainda pode declarar o tipo explicitamente.
+    """
+    declarado = _meta(fig).get("tipo_grafico")
+    if isinstance(declarado, str) and declarado:
+        return declarado
+    if tipos == {"bar"}:
+        return "column_stacked"
+    return "line"
+
+
 def figura_para_painel(fig: Any) -> Any:
     """Converte traces Plotly em uma especificação aceita pelo exportador."""
     formato, escala = _formato_e_escala(fig)
+    meta = _meta(fig)
     linhas: list[dict[str, Any]] = []
     ordem: list[str] = []
     ordem_categorias: list[str] = []
     cores: dict[str, str] = {}
     tipos: set[str] = set()
+    secundarias: list[str] = []
 
-    for posicao, trace in enumerate(fig.data):
-        if getattr(trace, "x", None) is None or getattr(trace, "y", None) is None:
-            continue
+    traces = [
+        trace for trace in fig.data
+        if getattr(trace, "x", None) is not None and getattr(trace, "y", None) is not None
+    ]
+    empilhado = {str(getattr(t, "type", "scatter")) for t in traces} == {"bar"}
+
+    for posicao, trace in enumerate(traces):
         nome = str(getattr(trace, "name", None) or f"Série {posicao + 1}")
         if nome in ordem:
             nome = f"{nome} ({posicao + 1})"
         ordem.append(nome)
-        cores[nome] = _cor_trace(trace, posicao)
+        cores[nome] = _cor_trace(trace, posicao, empilhado=empilhado)
         tipos.add(str(getattr(trace, "type", "scatter")))
+        meta_trace = trace.meta if isinstance(trace.meta, dict) else {}
+        if meta_trace.get("eixo") == "secundario" or (
+            getattr(trace, "yaxis", None) == "y2"
+        ):
+            secundarias.append(nome)
         for data, valor in zip(trace.x, trace.y):
             numero = pd.to_numeric(valor, errors="coerce")
             try:
@@ -78,13 +110,20 @@ def figura_para_painel(fig: Any) -> Any:
                 "denominador": pd.NA,
             })
 
-    apenas_barras = tipos == {"bar"}
-    meta = fig.layout.meta if isinstance(fig.layout.meta, dict) else {}
+    tipo_grafico = _tipo_grafico(fig, tipos)
+    if tipo_grafico == "column_line" and not secundarias:
+        tipo_grafico = "line"
+
     fonte = str(
         meta.get("source") or "fonte: Banco Central do Brasil · BCData/SGS"
     )
     titulo_y = getattr(getattr(fig.layout, "yaxis", None), "title", None)
     subtitulo = getattr(titulo_y, "text", None) or "Série mensal"
+    if tipo_grafico == "column_line":
+        subtitulo = (
+            f"{meta.get('titulo_eixo_primario', subtitulo)} · "
+            f"{meta.get('titulo_eixo_secundario', 'eixo direito')} à direita"
+        )
     return SimpleNamespace(
         titulo=_titulo(fig),
         subtitulo=str(subtitulo),
@@ -97,13 +136,11 @@ def figura_para_painel(fig: Any) -> Any:
         tracejadas=[],
         metrica="sgs",
         carteira_final_rs_mil=0.0,
-        formato_numero=formato,
-        tipo_grafico="column_stacked" if apenas_barras else "line",
-        rotular_todos_pontos=bool(
-            (fig.layout.meta or {}).get("label_all_points", False)
-            if isinstance(fig.layout.meta, dict)
-            else False
-        ),
+        formato_numero=str(meta.get("formato_primario") or formato),
+        formato_secundario=str(meta.get("formato_secundario") or formato),
+        series_secundarias=secundarias,
+        tipo_grafico=tipo_grafico,
+        rotular_todos_pontos=bool(meta.get("label_all_points", False)),
     )
 
 

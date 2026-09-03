@@ -375,13 +375,22 @@ def test_credit_module_has_period_range_info_popovers_and_no_expectations_regist
     assert "Expectativas do Mercado de Crédito" not in source
     assert "Registry de séries SGS" not in source
     assert "DateOffset(months=11)" in source
-    assert '"Baixar PPTX desta aba"' in source
+    # O rótulo diz quantos gráficos saem, e a montagem do deck é única.
+    assert 'gráficos desta aba em PPTX' in source
     assert "reversed(periods)" in source
     assert "formatar_competencia" in source
     assert 'div[data-testid="stPopover"] button' not in source
     assert '"SCR.data"' in source
     assert "_render_source_footer" not in source
     assert 'fig.update_layout(title_text=""' in source
+    # Um card por linha: nenhum gráfico divide a largura com outro. As duas
+    # colunas que restam são a linha de filtros de período e o cabeçalho do
+    # card (título + botão "i"), nunca um par de gráficos.
+    assert "with col1:" not in source
+    assert "with col2:" not in source
+    assert "zip(columns," not in source
+    # O rodapé de cada card informa a competência que ele alcança.
+    assert "_competencia_do_card" in source
     assert "fig.update_layout(title=None" not in source
 
 
