@@ -439,7 +439,7 @@ def construir_por_regiao(
     data_base: Optional[str] = None,
     nivel: str = "uf",
 ) -> Dict[str, Any]:
-    """Heatmap por UF, ranking com carteira ao lado e séries por região."""
+    """Mapa por UF, ranking com carteira ao lado e séries por região."""
     if nivel not in ("uf", "regiao"):
         raise ValueError("nivel deve ser 'uf' ou 'regiao'")
 
