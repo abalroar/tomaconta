@@ -54,6 +54,47 @@ def _windows(start: date, end: date, months: int = 120) -> Iterable[tuple[date, 
         cursor = _add_months(cursor, months)
 
 
+# Série de referência para a sonda de frescor: saldo total de crédito com
+# recursos livres, mensal, publicada junto com o restante do bloco de crédito.
+SERIE_REFERENCIA_FRESCOR = "saldo_livre_total"
+
+
+def ultima_competencia_publicada(
+    alias: str = SERIE_REFERENCIA_FRESCOR,
+    *,
+    provider: SeriesProvider | None = None,
+    meses: int = 4,
+) -> str | None:
+    """Última competência que o BCB já publicou, no formato ``YYYY-MM``.
+
+    Uma consulta só, de uma série só, sobre os últimos meses — o suficiente
+    para comparar com o cache e avisar quando existe mês novo lá fora. O app
+    nunca comparava o cache com a fonte, então um mês inteiro podia passar sem
+    ninguém perceber que o parquet ficou para trás.
+
+    Devolve ``None`` em qualquer falha: o aviso some, a seção continua.
+    """
+    try:
+        spec = get_series(alias)
+    except KeyError:
+        return None
+    fetcher = provider or default_providers().get(spec.provider)
+    if fetcher is None:
+        return None
+    fim = date.today()
+    inicio = _add_months(date(fim.year, fim.month, 1), -max(meses, 1))
+    try:
+        frame = fetcher.fetch(spec, inicio, fim)
+    except Exception:
+        return None
+    if frame is None or frame.empty or "data" not in frame.columns:
+        return None
+    datas = pd.to_datetime(frame["data"], errors="coerce").dropna()
+    if datas.empty:
+        return None
+    return datas.max().strftime("%Y-%m")
+
+
 def _decorate(frame: pd.DataFrame, spec: SeriesSpec) -> pd.DataFrame:
     result = frame.copy()
     result["codigo"] = int(spec.code) if spec.code is not None else pd.NA
@@ -151,7 +192,13 @@ class SGSCreditCache(BaseCache):
             info_extra={
                 "inicio_solicitado": start_date.isoformat(),
                 "fim_solicitado": end_date.isoformat(),
-                "series_solicitadas": len(specs),
+                # `series_no_arquivo` descreve o parquet salvo; `series_da_rodada`
+                # descreve o pedido desta execução. Um campo só reportava o
+                # pedido, então uma atualização incremental de 3 séries deixava
+                # o metadado dizendo "3" num arquivo de 130.
+                "series_no_arquivo": int(combined["serie"].nunique()),
+                "series_da_rodada": len(specs),
+                "series_solicitadas": int(combined["serie"].nunique()),
                 "series_com_dados": int(combined["serie"].nunique()),
                 "falhas": failures,
                 "registry_size": len(SGS_SERIES),

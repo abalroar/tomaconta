@@ -39,7 +39,12 @@ from pptx.enum.text import PP_ALIGN
 from pptx.oxml.ns import qn
 from pptx.util import Emu, Inches, Pt
 
-from .sgs_credit_analytics import eixo_datas_adaptativo, formatar_competencia
+from .sgs_credit_analytics import (
+    ITAU_BLACK,
+    cor_do_rotulo,
+    eixo_datas_adaptativo,
+    formatar_competencia,
+)
 
 # Slide 16:9.
 SLIDE_LARGURA = Inches(13.333)
@@ -237,6 +242,98 @@ def _estilizar_eixos(
     _definir_intervalo_rotulos(eixo_categoria, total_categorias)
 
 
+def _proximo_ax_id(chart, deslocamento: int) -> int:
+    """Id de eixo inédito dentro do gráfico."""
+    existentes = {
+        int(no.get("val"))
+        for no in chart._chartSpace.iter(qn("c:axId"))
+        if no.get("val")
+    }
+    candidato = (max(existentes) if existentes else 100_000_000) + deslocamento
+    while candidato in existentes:
+        candidato += 1
+    return candidato
+
+
+def _mover_para_eixo_secundario(
+    chart, indices: Sequence[int], formato_numero: str
+) -> bool:
+    """Tira as séries de ``indices`` do gráfico de colunas e as põe em linha,
+    num segundo eixo de valores à direita.
+
+    Sem isto, um card de volume (R$ bi) mais prazo (meses) era achatado num
+    eixo único: a linha de prazo, entre 23 e 34, virava uma reta no rodapé de
+    um eixo que ia até 350.
+    """
+    if not indices:
+        return False
+    plot_area = chart._chartSpace.chart.plotArea
+    bar_chart = plot_area.find(qn("c:barChart"))
+    if bar_chart is None:
+        return False
+
+    series = bar_chart.findall(qn("c:ser"))
+    mover = [series[i] for i in indices if 0 <= i < len(series)]
+    if not mover or len(mover) == len(series):
+        return False
+
+    id_categoria = _proximo_ax_id(chart, 1)
+    id_valor = _proximo_ax_id(chart, 2)
+
+    line_chart = etree.SubElement(plot_area, qn("c:lineChart"))
+    agrupamento = etree.SubElement(line_chart, qn("c:grouping"))
+    agrupamento.set("val", "standard")
+    varia = etree.SubElement(line_chart, qn("c:varyColors"))
+    varia.set("val", "0")
+    for elemento in mover:
+        bar_chart.remove(elemento)
+        line_chart.append(elemento)
+        marcador = elemento.find(qn("c:marker"))
+        if marcador is None:
+            marcador = etree.SubElement(elemento, qn("c:marker"))
+        simbolo = marcador.find(qn("c:symbol"))
+        if simbolo is None:
+            simbolo = etree.SubElement(marcador, qn("c:symbol"))
+        simbolo.set("val", "none")
+    marcador_grupo = etree.SubElement(line_chart, qn("c:marker"))
+    marcador_grupo.set("val", "1")
+    for identificador in (id_categoria, id_valor):
+        no = etree.SubElement(line_chart, qn("c:axId"))
+        no.set("val", str(identificador))
+
+    # Eixo de categorias espelhado e oculto: o Office exige o par, mas quem lê
+    # o slide só deve ver um eixo de meses.
+    cat_ax = etree.SubElement(plot_area, qn("c:catAx"))
+    _definir(cat_ax, "c:axId", str(id_categoria))
+    escala_cat = etree.SubElement(cat_ax, qn("c:scaling"))
+    _definir(escala_cat, "c:orientation", "minMax")
+    _definir(cat_ax, "c:delete", "1")
+    _definir(cat_ax, "c:axPos", "b")
+    _definir(cat_ax, "c:crossAx", str(id_valor))
+
+    val_ax = etree.SubElement(plot_area, qn("c:valAx"))
+    _definir(val_ax, "c:axId", str(id_valor))
+    escala_val = etree.SubElement(val_ax, qn("c:scaling"))
+    _definir(escala_val, "c:orientation", "minMax")
+    _definir(val_ax, "c:delete", "0")
+    _definir(val_ax, "c:axPos", "r")
+    formato = etree.SubElement(val_ax, qn("c:numFmt"))
+    formato.set("formatCode", formato_numero)
+    formato.set("sourceLinked", "0")
+    _definir(val_ax, "c:majorTickMark", "none")
+    _definir(val_ax, "c:minorTickMark", "none")
+    _definir(val_ax, "c:tickLblPos", "nextTo")
+    _definir(val_ax, "c:crossAx", str(id_categoria))
+    _definir(val_ax, "c:crosses", "max")
+    return True
+
+
+def _definir(pai, tag: str, valor: str):
+    no = etree.SubElement(pai, qn(tag))
+    no.set("val", valor)
+    return no
+
+
 def _adicionar_painel(
     slide,
     painel: Any,
@@ -304,12 +401,16 @@ def _adicionar_painel(
         dados.add_series(rotulo_serie_fn(nome), valores)
 
     tipo_grafico = getattr(painel, "tipo_grafico", "line")
-    chart_type = (
-        XL_CHART_TYPE.COLUMN_STACKED
-        if tipo_grafico == "column_stacked"
-        else XL_CHART_TYPE.LINE
-    )
+    if tipo_grafico == "column_stacked":
+        chart_type = XL_CHART_TYPE.COLUMN_STACKED
+    elif tipo_grafico == "column_line":
+        # Entra como colunas; as séries do eixo secundário viram linha logo
+        # depois, com o segundo eixo de valores.
+        chart_type = XL_CHART_TYPE.COLUMN_CLUSTERED
+    else:
+        chart_type = XL_CHART_TYPE.LINE
     formato_numero = getattr(painel, "formato_numero", FORMATO_PERCENTUAL)
+    series_secundarias = set(getattr(painel, "series_secundarias", ()) or ())
     grafico = slide.shapes.add_chart(
         chart_type, left, topo_grafico, width, altura_grafico, dados
     ).chart
@@ -331,7 +432,10 @@ def _adicionar_painel(
         serie.smooth = False
         cor = _hex_para_rgb(painel.cores.get(nome, "#8F8F8F"))
         eh_total = nome in painel.tracejadas
-        if tipo_grafico == "column_stacked":
+        eh_secundaria = nome in series_secundarias
+        if tipo_grafico == "column_stacked" or (
+            tipo_grafico == "column_line" and not eh_secundaria
+        ):
             serie.format.fill.solid()
             serie.format.fill.fore_color.rgb = cor
             serie.format.line.color.rgb = cor
@@ -363,15 +467,34 @@ def _adicionar_painel(
                 )
             rotulo.font.size = Pt(FONTE_ROTULO_PT)
             rotulo.font.bold = True
-            rotulo.font.color.rgb = _hex_para_rgb(painel.cores.get(nome, "#8F8F8F"))
+            # Dentro da coluna, o texto vai sobre o preenchimento e a cor é a
+            # declarada para aquele preenchimento; fora dela, o texto está no
+            # papel branco do slide e a única cor que passa é a tinta escura.
+            # Nunca a cor da série: um rótulo em cinza claro a 8 pt sobre
+            # branco tinha 2,4:1 de contraste.
+            rotulo.font.color.rgb = _hex_para_rgb(
+                cor_do_rotulo(painel.cores.get(nome, "#8F8F8F"))
+                if tipo_grafico == "column_stacked"
+                else ITAU_BLACK
+            )
 
     _estilizar_eixos(grafico, len(categorias), formato_numero)
+
+    secundario = False
+    if tipo_grafico == "column_line" and series_secundarias:
+        indices = [i for i, nome in enumerate(ordem) if nome in series_secundarias]
+        secundario = _mover_para_eixo_secundario(
+            grafico,
+            indices,
+            getattr(painel, "formato_secundario", formato_numero),
+        )
 
     return {
         "titulo": painel.titulo,
         "series": len(ordem),
         "categorias": len(categorias),
         "rotulos": len(ordem),
+        "eixo_secundario": secundario,
     }
 
 

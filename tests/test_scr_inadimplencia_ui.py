@@ -447,7 +447,12 @@ def test_rota_renderiza_todas_as_secoes():
     assert "px.choropleth" in fonte
     assert "_figura_heatmap_ufs" not in fonte
     assert '"Recorte", ["uf", "regiao"]' in fonte
-    assert '"Baixar PPTX desta aba"' in fonte
+    assert "gráficos desta aba em PPTX" in fonte
+    # O mapa ganha rótulo fixo por UF e escala da casa; a barra por UF, que é
+    # o que vai no PPTX, também fica na tela.
+    assert "_rotulos_do_mapa" in fonte
+    assert "color_continuous_scale=ESCALA_MAPA" in fonte
+    assert "_figura_ufs" in fonte
 
 
 def test_rota_protege_secoes_que_exigem_grao_completo():
@@ -456,10 +461,17 @@ def test_rota_protege_secoes_que_exigem_grao_completo():
     assert "Por segmento de IF" not in fonte
 
 
-def test_rota_coloca_alertas_no_popover_e_remove_rodape_verbose():
+def test_rota_mostra_alertas_de_legibilidade_na_superficie():
+    """O aviso fica junto do controle que o causou, não dentro do popover.
+
+    Escondido no "i", o alerta de "9 linhas no mesmo painel" nunca era lido a
+    tempo de mudar a seleção.
+    """
     fonte = _scr_route_source()
     assert 'st.popover("i"' in fonte
-    assert "Alertas de legibilidade" in fonte
+    assert "avaliar_legibilidade" in fonte
+    assert "st.warning(mensagem" in fonte
+    assert "Alertas de legibilidade" not in fonte
     assert "scr_spec.rodape(" not in fonte
     assert "st.warning(_pn_texto" not in fonte
     assert "st.caption(f\"ℹ️" not in fonte
@@ -483,7 +495,6 @@ def test_rota_scr_expoe_somente_modalidades_oficiais():
 
 def test_rota_marca_quebras_de_serie():
     fonte = _scr_route_source()
-    assert "_marcar_quebras" in fonte
     assert "scr_spec.marcar_quebras" in fonte
 
 
