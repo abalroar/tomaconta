@@ -211,6 +211,7 @@ def filtrar(
     segmento: Optional[Any] = None,
     modalidade: Optional[Any] = None,
     submodalidade: Optional[Any] = None,
+    modalidade_bcb: Optional[Any] = None,
     data_base_inicial: Optional[str] = None,
     data_base_final: Optional[str] = None,
     excluir_legado: bool = False,
@@ -233,6 +234,7 @@ def filtrar(
         "segmento": segmento,
         "modalidade": modalidade,
         "submodalidade": submodalidade,
+        "modalidade_bcb": modalidade_bcb,
     }
     for coluna, valor in condicoes.items():
         if valor is None or coluna not in out.columns:

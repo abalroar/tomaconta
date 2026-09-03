@@ -215,7 +215,29 @@ def _add_last_line_labels(
         )
 
 
+def eixo_datas_semestral(index: Sequence[object]) -> tuple[list[pd.Timestamp], list[str]]:
+    """Marca jun/dez anteriores e sempre a última data disponível."""
+    datas = pd.DatetimeIndex(pd.to_datetime(list(index), errors="coerce")).dropna()
+    if datas.empty:
+        return [], []
+    tabela = pd.DataFrame({"data": datas})
+    tabela["mes"] = tabela["data"].dt.to_period("M")
+    # Algumas fontes têm dias de fechamento diferentes entre instituições.
+    # Uma única marca por competência evita repetir, por exemplo, ``dez.25``.
+    por_mes = tabela.groupby("mes", observed=True)["data"].max().sort_index()
+    ultimo_mes = por_mes.index[-1]
+    meses_selecionados = [
+        mes for mes in por_mes.index if mes.month in (6, 12) or mes == ultimo_mes
+    ]
+    selecionadas = [pd.Timestamp(por_mes.loc[mes]) for mes in meses_selecionados]
+    meses = ("jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez")
+    rotulos = [f"{meses[mes.month - 1]}.{str(mes.year)[-2:]}" for mes in meses_selecionados]
+    return selecionadas, rotulos
+
+
 def _base_layout(fig: go.Figure, *, title: str, y_title: str, height: int = 390) -> go.Figure:
+    meta = dict(fig.layout.meta) if isinstance(fig.layout.meta, dict) else {}
+    meta["chart_title"] = str(title)
     fig.update_layout(
         title={"text": title, "x": 0.01, "xanchor": "left"},
         height=height,
@@ -224,11 +246,34 @@ def _base_layout(fig: go.Figure, *, title: str, y_title: str, height: int = 390)
         plot_bgcolor="white",
         hovermode="x unified",
         legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "x": 0},
-        font={"family": "Arial", "color": ITAU_BLACK},
+        font={"family": "Arial", "color": ITAU_BLACK, "size": 14},
         yaxis_title=y_title,
+        meta=meta,
     )
-    fig.update_xaxes(showgrid=False, tickformat="%b-%y")
-    fig.update_yaxes(gridcolor="#ECE8E5", zerolinecolor="#B8B1AB")
+    datas: list[pd.Timestamp] = []
+    for trace in fig.data:
+        if getattr(trace, "x", None) is not None:
+            datas.extend(pd.Timestamp(value) for value in trace.x if pd.notna(value))
+    tickvals, ticktext = eixo_datas_semestral(datas)
+    tickangle = (
+        -35
+        if any(
+            (right - left).days <= 45
+            for left, right in zip(tickvals, tickvals[1:])
+        )
+        else 0
+    )
+    fig.update_xaxes(
+        showgrid=False,
+        tickmode="array" if tickvals else "auto",
+        tickvals=tickvals or None,
+        ticktext=ticktext or None,
+        tickangle=tickangle,
+        tickfont={"size": 12},
+    )
+    fig.update_yaxes(
+        gridcolor="#ECE8E5", zerolinecolor="#B8B1AB", tickfont={"size": 12}
+    )
     return fig
 
 

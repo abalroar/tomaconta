@@ -46,6 +46,7 @@ def _linha(**kwargs):
         "porte": "Até 1 salário mínimo",
         "modalidade": "Empréstimos",
         "submodalidade": "Cheque especial",
+        "modalidade_bcb": "PF - Outros créditos",
         "numero_de_operacoes": 10,
         "ops_suprimidas": 0,
         "carteira_ativa": 1000.0,
@@ -72,10 +73,12 @@ def fato_multiperiodo():
                    modalidade="Empréstimos", carteira_ativa=4000.0, carteira_inadimplencia=80.0),
             _linha(data_base=periodo, cliente="PJ", porte="Grande",
                    uf="RS", segmento="Banco", submodalidade="Capital de giro com teto rotativo",
-                   modalidade="Empréstimos", carteira_ativa=8000.0, carteira_inadimplencia=40.0),
+                   modalidade="Empréstimos", modalidade_bcb="PJ - Capital de giro",
+                   carteira_ativa=8000.0, carteira_inadimplencia=40.0),
             _linha(data_base=periodo, cliente="PJ", porte="Micro",
                    uf="AM", segmento="Financeira", submodalidade="Cartão de crédito - não migrado",
-                   modalidade="Outros créditos", carteira_ativa=2000.0, carteira_inadimplencia=1500.0),
+                   modalidade="Outros créditos", modalidade_bcb="PJ - Outros créditos",
+                   carteira_ativa=2000.0, carteira_inadimplencia=1500.0),
         ]
     return _fato(linhas)
 
@@ -86,9 +89,7 @@ def fato_multiperiodo():
 
 def test_secoes_cobrem_os_recortes_pedidos():
     chaves = [secao.key for secao in T.SECOES]
-    assert chaves == ["paineis", "panorama", "produto", "renda", "regiao", "segmento"]
-    # "Painéis" vem primeiro: é a visão de trabalho da aba.
-    assert chaves[0] == "paineis"
+    assert chaves == ["paineis", "regiao"]
 
 
 def test_secoes_tem_chave_unica_e_rotulo():
@@ -98,10 +99,9 @@ def test_secoes_tem_chave_unica_e_rotulo():
 
 
 def test_apenas_regiao_e_segmento_exigem_o_grao_completo():
-    # O resumo por região não guarda UF nem segmento; as demais seções têm que
-    # funcionar no modo "série completa".
+    # O mapa usa o grão de UF.
     exigem = {secao.key for secao in T.SECOES if secao.exige_detalhe}
-    assert exigem == {"regiao", "segmento"}
+    assert exigem == {"regiao"}
 
 
 def test_descrever_secoes_expoe_a_tabela():
@@ -151,19 +151,20 @@ def test_panorama_composicao_fecha_com_a_carteira(fato_multiperiodo):
 # PRODUTO
 # =============================================================================
 
-def test_produto_esconde_legado_do_ranking_mas_avisa(fato_multiperiodo):
+def test_produto_usa_apenas_modalidades_agregadas_oficiais(fato_multiperiodo):
     resultado = T.construir_por_produto(fato_multiperiodo, carteira_minima_rs_mil=0)
-    produtos = resultado["ranking"]["submodalidade"].astype(str).tolist()
+    produtos = resultado["ranking"]["modalidade_bcb"].astype(str).tolist()
+    assert set(produtos) <= set(S.MODALIDADES_BCB)
     assert "Cartão de crédito - não migrado" not in produtos
-    assert resultado["legado_ocultado"] == ["Cartão de crédito - não migrado"]
+    assert resultado["legado_ocultado"] == []
 
 
-def test_produto_alterna_entre_modalidade_e_submodalidade(fato_multiperiodo):
-    submod = T.construir_por_produto(fato_multiperiodo, nivel="submodalidade", carteira_minima_rs_mil=0)
-    mod = T.construir_por_produto(fato_multiperiodo, nivel="modalidade", carteira_minima_rs_mil=0)
-    assert "submodalidade" in submod["ranking"].columns
-    assert "modalidade" in mod["ranking"].columns
-    assert len(mod["ranking"]) < len(submod["ranking"])
+def test_produto_rejeita_modalidade_bruta_e_submodalidade(fato_multiperiodo):
+    for nivel in ("modalidade", "submodalidade"):
+        with pytest.raises(ValueError, match="modalidade_bcb"):
+            T.construir_por_produto(
+                fato_multiperiodo, nivel=nivel, carteira_minima_rs_mil=0
+            )
 
 
 def test_produto_rejeita_nivel_invalido(fato_multiperiodo):
@@ -173,9 +174,22 @@ def test_produto_rejeita_nivel_invalido(fato_multiperiodo):
 
 def test_produto_series_seguem_os_destaques(fato_multiperiodo):
     resultado = T.construir_por_produto(
-        fato_multiperiodo, carteira_minima_rs_mil=0, destaques=["Cheque especial"]
+        fato_multiperiodo,
+        carteira_minima_rs_mil=0,
+        destaques=["PF - Outros créditos"],
     )
-    assert set(resultado["series"]["submodalidade"].astype(str)) == {"Cheque especial"}
+    assert set(resultado["series"]["modalidade_bcb"].astype(str)) == {
+        "PF - Outros créditos"
+    }
+
+
+def test_modalidades_disponiveis_reproduzem_filtro_oficial_do_bcb():
+    assert T.modalidades_bcb_disponiveis("PF") == list(S.MODALIDADES_BCB_PF)
+    assert T.modalidades_bcb_disponiveis("PJ") == list(S.MODALIDADES_BCB_PJ)
+    assert len(T.modalidades_bcb_disponiveis("PF")) == 7
+    assert len(T.modalidades_bcb_disponiveis("PJ")) == 9
+    assert "PJ - Cheque especial e conta garantida" in T.modalidades_bcb_disponiveis("PJ")
+    assert all("Capital de giro rotativo" not in item for item in S.MODALIDADES_BCB_PJ)
 
 
 # =============================================================================
@@ -381,7 +395,7 @@ def test_aba_declarada_em_atualizar_base():
 
 def test_app_recarrega_modulo_scr_antigo_no_hot_reload():
     fonte = _app_source()
-    assert '_EXPECTED_SCR_RELEASE_TAG = "v1.1-cache"' in fonte
+    assert '_EXPECTED_SCR_RELEASE_TAG = "v1.2-scr-cache"' in fonte
     assert 'getattr(_ifdata_scr_data, "SCR_RELEASE_TAG", None)' in fonte
     assert "importlib.reload(_ifdata_scr_data)" in fonte
     assert "_ifdata_cache_package._manager = None" in fonte
@@ -405,36 +419,41 @@ def test_rota_nunca_tira_media_de_percentual():
 def test_rota_cacheia_o_carregamento_pesado():
     fonte = _scr_route_source()
     assert "@st.cache_data" in fonte
-    # As duas fontes de dados (slices anuais e resumo) precisam ser cacheadas.
-    assert "def _scr_detalhe(" in fonte
-    assert "def _scr_resumo(" in fonte
+    assert "def _detalhe(" in fonte
 
 
 def test_rota_renderiza_todas_as_secoes():
     fonte = _scr_route_source()
-    for secao in T.SECOES:
-        assert f'"{secao.key}"' in fonte, f"seção {secao.key} não é renderizada"
+    assert 'st.tabs(["Painéis", "Por região"])' in fonte
+    assert [secao.key for secao in T.SECOES] == ["paineis", "regiao"]
 
 
 def test_rota_protege_secoes_que_exigem_grao_completo():
     fonte = _scr_route_source()
-    # As seções de UF/segmento só entram quando há detalhe carregado.
-    assert "exige_detalhe" in fonte
-    assert 'if "regiao" in _scr_por_key:' in fonte
-    assert 'if "segmento" in _scr_por_key:' in fonte
+    assert 'st.tabs(["Painéis", "Por região"])' in fonte
+    assert "Por segmento de IF" not in fonte
 
 
-def test_rota_exibe_rodape_de_qualidade():
+def test_rota_coloca_alertas_no_popover_e_remove_rodape_verbose():
     fonte = _scr_route_source()
-    assert "scr_spec.rodape(" in fonte
-    assert "share_carteira" in fonte
-    assert "download_button" in fonte
+    assert 'st.popover("i"' in fonte
+    assert "Alertas de legibilidade" in fonte
+    assert "scr_spec.rodape(" not in fonte
+    assert "st.warning(_pn_texto" not in fonte
+    assert "st.caption(f\"ℹ️" not in fonte
+
+
+def test_rota_scr_expoe_somente_modalidades_oficiais():
+    fonte = _scr_route_source()
+    assert 'nivel_produto="modalidade_bcb"' in fonte
+    assert '"nível de produto"' not in fonte
+    assert '"submodalidade", "modalidade"' not in fonte
 
 
 def test_rota_marca_quebras_de_serie():
     fonte = _scr_route_source()
-    assert "_scr_marcar_quebras" in fonte
-    assert "_scr_avisar_quebras" in fonte
+    assert "_marcar_quebras" in fonte
+    assert "scr_spec.marcar_quebras" in fonte
 
 
 # =============================================================================
@@ -490,7 +509,10 @@ def _fato_paineis():
     """Dois produtos, três faixas de renda PF, quatro data-bases."""
     linhas = []
     for i, periodo in enumerate(("2026-03", "2026-04", "2026-05", "2026-06")):
-        for produto, base in (("Cheque especial", 0.10), ("Custeio", 0.04)):
+        for produto, modalidade_bcb, base in (
+            ("Cheque especial", "PF - Outros créditos", 0.10),
+            ("Custeio", "PF - Rural e agroindustrial", 0.04),
+        ):
             for faixa, mult in (
                 ("Até 1 salário mínimo", 1.6),
                 ("Mais de 1 a 2 salários mínimos", 1.2),
@@ -499,6 +521,7 @@ def _fato_paineis():
                 linhas.append(_linha(
                     data_base=periodo, cliente="PF", porte=faixa, uf="SP",
                     submodalidade=produto, modalidade="Empréstimos",
+                    modalidade_bcb=modalidade_bcb,
                     carteira_ativa=1000.0,
                     carteira_inadimplencia=1000.0 * base * mult * (1 + i * 0.05),
                 ))
@@ -507,16 +530,20 @@ def _fato_paineis():
 
 def test_paineis_um_por_produto():
     paineis = T.construir_paineis(
-        _fato_paineis(), produtos=["Cheque especial", "Custeio"], quebra="renda"
+        _fato_paineis(),
+        produtos=["PF - Outros créditos", "PF - Rural e agroindustrial"],
+        quebra="renda",
     )
-    assert [p.produto for p in paineis] == ["Cheque especial", "Custeio"]
+    assert [p.produto for p in paineis] == [
+        "PF - Outros créditos", "PF - Rural e agroindustrial"
+    ]
     assert all("Inad (> 90 d)" in p.titulo for p in paineis)
     assert all(p.subtitulo == "Por Faixa Salário Mínimo - % carteira" for p in paineis)
 
 
 def test_paineis_incluem_linha_todos_como_referencia():
     painel = T.construir_paineis(
-        _fato_paineis(), produtos=["Cheque especial"], quebra="renda", incluir_total=True
+        _fato_paineis(), produtos=["PF - Outros créditos"], quebra="renda", incluir_total=True
     )[0]
     assert T.SERIE_TOTAL in painel.ordem_series
     assert painel.ordem_series[-1] == T.SERIE_TOTAL   # sempre por último
@@ -524,14 +551,14 @@ def test_paineis_incluem_linha_todos_como_referencia():
     assert T.SERIE_TOTAL in painel.tracejadas
 
     sem_total = T.construir_paineis(
-        _fato_paineis(), produtos=["Cheque especial"], quebra="renda", incluir_total=False
+        _fato_paineis(), produtos=["PF - Outros créditos"], quebra="renda", incluir_total=False
     )[0]
     assert T.SERIE_TOTAL not in sem_total.ordem_series
 
 
 def test_paineis_ordenam_faixas_pela_renda_nao_pelo_valor():
     painel = T.construir_paineis(
-        _fato_paineis(), produtos=["Cheque especial"], quebra="renda", incluir_total=False
+        _fato_paineis(), produtos=["PF - Outros créditos"], quebra="renda", incluir_total=False
     )[0]
     esperada = [p for p in Q.ordem_portes("PF") if p in painel.ordem_series]
     assert list(painel.ordem_series) == esperada
@@ -539,7 +566,7 @@ def test_paineis_ordenam_faixas_pela_renda_nao_pelo_valor():
 
 def test_paineis_usam_rampa_ordenada_na_renda():
     painel = T.construir_paineis(
-        _fato_paineis(), produtos=["Cheque especial"], quebra="renda", incluir_total=False
+        _fato_paineis(), produtos=["PF - Outros créditos"], quebra="renda", incluir_total=False
     )[0]
     cores = [painel.cores[s] for s in painel.ordem_series]
     # Dimensão ordenada usa a rampa, e a faixa mais baixa recebe o laranja Itaú.
@@ -559,7 +586,7 @@ def test_paleta_e_so_laranja_preto_e_cinza():
 
 def test_paineis_rejeitam_quebra_desconhecida():
     with pytest.raises(ValueError):
-        T.construir_paineis(_fato_paineis(), produtos=["Cheque especial"], quebra="cnae")
+        T.construir_paineis(_fato_paineis(), produtos=["PF - Outros créditos"], quebra="cnae")
 
 
 def test_faixas_padrao_da_renda_sao_as_sete_principais():
@@ -591,9 +618,14 @@ def test_formatar_percentual_2casas(valor, esperado):
 def test_legibilidade_alerta_com_series_demais():
     linhas = []
     for faixa in [*Q.ordem_portes("PF")]:
-        linhas.append(_linha(porte=faixa, submodalidade="Cheque especial", cliente="PF"))
+        linhas.append(_linha(
+            porte=faixa,
+            submodalidade="Cheque especial",
+            modalidade_bcb="PF - Outros créditos",
+            cliente="PF",
+        ))
     paineis = T.construir_paineis(
-        _fato(linhas), produtos=["Cheque especial"], quebra="renda",
+        _fato(linhas), produtos=["PF - Outros créditos"], quebra="renda",
         faixas=Q.ordem_portes("PF"), incluir_total=True,
     )
     avisos = T.avaliar_legibilidade(paineis)
@@ -605,26 +637,31 @@ def test_legibilidade_detecta_rotulos_colados():
     # Duas faixas terminando a 0,01 p.p. uma da outra.
     linhas = [
         _linha(porte="Até 1 salário mínimo", cliente="PF", submodalidade="X",
+               modalidade_bcb="PF - Outros créditos",
                carteira_ativa=1000.0, carteira_inadimplencia=50.0),
         _linha(porte="Acima de 20 salários mínimos", cliente="PF", submodalidade="X",
+               modalidade_bcb="PF - Outros créditos",
                carteira_ativa=1000.0, carteira_inadimplencia=50.1),
     ]
     painel = T.construir_paineis(
-        _fato(linhas), produtos=["X"], quebra="renda", incluir_total=False
+        _fato(linhas), produtos=["PF - Outros créditos"], quebra="renda", incluir_total=False
     )[0]
     assert T.rotulos_sobrepostos(painel)
 
 
 def test_legibilidade_avisa_carteira_pequena():
     linhas = [_linha(porte="Até 1 salário mínimo", cliente="PF", submodalidade="Nicho",
+                     modalidade_bcb="PF - Outros créditos",
                      carteira_ativa=100.0, carteira_inadimplencia=10.0)]
-    paineis = T.construir_paineis(_fato(linhas), produtos=["Nicho"], quebra="renda")
+    paineis = T.construir_paineis(
+        _fato(linhas), produtos=["PF - Outros créditos"], quebra="renda"
+    )
     assert any("base pequena" in a["mensagem"] for a in T.avaliar_legibilidade(paineis))
 
 
 def test_legibilidade_nao_reclama_de_painel_saudavel():
     paineis = T.construir_paineis(
-        _fato_paineis(), produtos=["Cheque especial"], quebra="renda", incluir_total=False
+        _fato_paineis(), produtos=["PF - Outros créditos"], quebra="renda", incluir_total=False
     )
     alertas = [a for a in T.avaliar_legibilidade(paineis) if a["nivel"] == "alerta"]
     assert not alertas

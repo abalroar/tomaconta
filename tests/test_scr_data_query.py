@@ -34,6 +34,7 @@ def _linha(**kwargs):
         "porte": "Até 1 salário mínimo",
         "modalidade": "Empréstimos",
         "submodalidade": "Cheque especial",
+        "modalidade_bcb": "PF - Outros créditos",
         "numero_de_operacoes": 10,
         "ops_suprimidas": 0,
         "carteira_ativa": 1000.0,

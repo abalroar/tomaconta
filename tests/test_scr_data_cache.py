@@ -77,9 +77,10 @@ def test_le_csv_sem_bom():
     assert df.loc[0, "carteira_ativa"] == pytest.approx(1000.0)
 
 
-def test_descarta_colunas_fora_de_escopo():
+def test_le_origem_para_classificar_e_descarta_demais_colunas_fora_de_escopo():
     df = S.ler_csv_scr(_csv([_linha()]))
-    for coluna in ("cnae_ocupacao", "origem", "indexador", "carteira_a_vencer"):
+    assert "origem" in df.columns
+    for coluna in ("cnae_ocupacao", "indexador", "carteira_a_vencer"):
         assert coluna not in df.columns
 
 
@@ -129,6 +130,73 @@ def test_normalizacao_limpa_rotulos_do_csv():
         S.ler_csv_scr(_csv([_linha(submodalidade="Financiamento habitacional \x96 exceto SFH")]))
     )
     assert df.loc[0, "submodalidade"] == "Financiamento habitacional - exceto SFH"
+
+
+@pytest.mark.parametrize(
+    "cliente,origem,modalidade,submodalidade,esperada",
+    [
+        ("PF", "Sem destinação específica", "Outros créditos",
+         "Cartão de crédito - compra à vista e parcelado lojista",
+         "PF - Cartão de crédito"),
+        ("PF", "Sem destinação específica", "Empréstimos",
+         "Crédito pessoal - com consignação em folha de pagam.",
+         "PF - Empréstimo com consignação em folha"),
+        ("PF", "Sem destinação específica", "Empréstimos",
+         "Crédito pessoal - sem consignação em folha de pagam.",
+         "PF - Empréstimo sem consignação em folha"),
+        ("PJ", "Sem destinação específica", "Empréstimos",
+         "Crédito pessoal - sem consignação em folha de pagam.",
+         "PF - Empréstimo sem consignação em folha"),
+        ("PF", "Com destinação específica", "Financiamentos imobiliários",
+         "Financiamento habitacional - SFH", "PF - Habitacional"),
+        ("PF", "Com destinação específica", "Empréstimos",
+         "Outros empréstimos", "PF - Outros créditos"),
+        ("PF", "Com destinação específica",
+         "Financiamentos rurais (ex-financiamentos rurais e agroindustriais)",
+         "Custeio", "PF - Rural e agroindustrial"),
+        ("PF", "Sem destinação específica", "Financiamentos",
+         "Aquisição de bens - veículos automotores", "PF - Veículos"),
+        ("PJ", "Sem destinação específica", "Empréstimos",
+         "Capital de giro com teto rotativo", "PJ - Capital de giro"),
+        ("PJ", "Sem destinação específica", "Empréstimos",
+         "Conta Garantida", "PJ - Cheque especial e conta garantida"),
+        ("PJ", "Sem destinação específica", "Financiamentos à exportação",
+         "Financiamento à exportação", "PJ - Comércio exterior"),
+        ("PJ", "Com destinação específica", "Financiamentos",
+         "Financiamento de projeto",
+         "PJ - Financiamento de infraestrutura/desenvolvimento/projeto e outros créditos"),
+        ("PJ", "Com destinação específica", "Financiamentos imobiliários",
+         "Financiamento habitacional - exceto SFH", "PJ - Habitacional"),
+        ("PJ", "Sem destinação específica", "Financiamentos",
+         "Aquisição de bens - outros bens", "PJ - Investimento"),
+        ("PJ", "Sem destinação específica", "Direitos creditórios descontados",
+         "Desconto de duplicatas", "PJ - Operações com recebíveis"),
+        ("PJ", "Sem destinação específica", "Outros créditos",
+         "Avais e fianças honrados", "PJ - Outros créditos"),
+        ("PJ", "Com destinação específica",
+         "Financiamentos rurais (ex-financiamentos rurais e agroindustriais)",
+         "Investimento", "PJ - Rural e agroindustrial"),
+    ],
+)
+def test_modalidade_bcb_reproduz_as_opcoes_oficiais(
+    cliente, origem, modalidade, submodalidade, esperada
+):
+    df = S.normalizar_csv_scr(S.ler_csv_scr(_csv([
+        _linha(
+            cliente=cliente,
+            origem=origem,
+            modalidade=modalidade,
+            submodalidade=submodalidade,
+        )
+    ])))
+    assert df.loc[0, "modalidade_bcb"] == esperada
+
+
+def test_modalidade_bcb_rejeita_origem_pj_desconhecida():
+    with pytest.raises(S.SCRQualityError, match="sem modalidade agregada"):
+        S.normalizar_csv_scr(S.ler_csv_scr(_csv([
+            _linha(cliente="PJ", origem="Origem nova do BCB")
+        ])))
 
 
 # =============================================================================
@@ -265,9 +333,9 @@ def test_dim_porte_ordena_faixas_pela_renda():
 
 def test_dim_produto_marca_legado_e_vigencia():
     pares = pd.DataFrame([
-        {"modalidade": "Empréstimos", "submodalidade": "Cheque especial", "data_base": "2012-07"},
-        {"modalidade": "Empréstimos", "submodalidade": "Cheque especial", "data_base": "2026-06"},
-        {"modalidade": "Outros créditos", "submodalidade": "Cartão de crédito - não migrado", "data_base": "2026-06"},
+        {"modalidade": "Empréstimos", "submodalidade": "Cheque especial", "modalidade_bcb": "PF - Outros créditos", "data_base": "2012-07"},
+        {"modalidade": "Empréstimos", "submodalidade": "Cheque especial", "modalidade_bcb": "PF - Outros créditos", "data_base": "2026-06"},
+        {"modalidade": "Outros créditos", "submodalidade": "Cartão de crédito - não migrado", "modalidade_bcb": "PF - Cartão de crédito", "data_base": "2026-06"},
     ])
     dim = S.construir_dim_produto(pares)
     cheque = dim[dim["submodalidade"] == "Cheque especial"].iloc[0]
@@ -351,10 +419,10 @@ def test_cache_scr_usa_release_proprio_quando_release_global_avanca(tmp_path, mo
 
     cache = S.SCRDataCache(tmp_path)
 
-    assert cache.release_tag == "v1.1-cache"
+    assert cache.release_tag == "v1.2-scr-cache"
     assert cache.github_release_parquet_url == (
         "https://github.com/abalroar/tomaconta/releases/download/"
-        "v1.1-cache/scr_data_dados.parquet"
+        "v1.2-scr-cache/scr_data_dados.parquet"
     )
 
 

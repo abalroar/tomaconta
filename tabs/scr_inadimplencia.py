@@ -23,13 +23,15 @@ from utils import scr_data_query as Q
 from utils.ifdata_cache.scr_data import (
     ORDEM_REGIOES,
     ORDEM_SEGMENTOS,
+    MODALIDADES_BCB,
+    MODALIDADES_BCB_PF,
+    MODALIDADES_BCB_PJ,
     PORTE_INDISPONIVEL,
     PORTE_PJ_CRITERIO,
     PORTE_PJ_ORDEM,
     PRIMEIRA_DATA_BASE,
     SCR_METODOLOGIA_URL,
     SCR_PAGINA_URL,
-    SUBMODALIDADES_LEGADO,
     UF_IBGE,
     UF_NOME,
 )
@@ -43,9 +45,30 @@ SUBTITLE = (
 MENU_LABEL = "Inadimplência SCR"
 CACHE_NAME = "scr_data"
 
+
+def modalidades_bcb_disponiveis(
+    cliente: Optional[str] = None,
+    *,
+    presentes: Optional[Sequence[str]] = None,
+) -> List[str]:
+    """Modalidades do painel oficial, em sua ordem de apresentação."""
+    if cliente is None:
+        ordem = list(MODALIDADES_BCB)
+    elif str(cliente).upper() == "PF":
+        ordem = list(MODALIDADES_BCB_PF)
+    elif str(cliente).upper() == "PJ":
+        ordem = list(MODALIDADES_BCB_PJ)
+    else:
+        raise ValueError(f"cliente deve ser 'PF', 'PJ' ou None, recebido {cliente!r}")
+
+    if presentes is None:
+        return ordem
+    dominio = {str(item) for item in presentes}
+    return [item for item in ordem if item in dominio]
+
 # Janela default da aba. O grão completo é carregado por ano; 36 meses cobrem
 # três safras sem estourar o cold start do Streamlit Cloud.
-JANELA_PADRAO_MESES = 36
+JANELA_PADRAO_MESES = 12
 JANELAS_DISPONIVEIS = (12, 24, 36, 60)
 
 # Corte de materialidade default dos rankings, em R$ mil (= R$ 1 bi).
@@ -84,49 +107,14 @@ SECOES: tuple[SecaoSpec, ...] = (
         key="paineis",
         label="Painéis",
         resumo=(
-            "Um painel por produto, uma linha por faixa do recorte escolhido "
+            "Um painel por modalidade oficial do SCR.data, uma linha por faixa do recorte escolhido "
             "(renda, região, segmento), no tempo. É a visão de trabalho da aba "
             "e a que vai para o PPTX, quatro por slide."
         ),
-        dimensoes=("modalidade", "submodalidade", "porte", "regiao", "segmento"),
+        dimensoes=("modalidade_bcb", "porte", "regiao", "segmento"),
         nota=(
             "A linha `Todos` é o agregado do produto sem recorte — a referência "
             "contra a qual as faixas se leem."
-        ),
-    ),
-    SecaoSpec(
-        key="panorama",
-        label="Panorama",
-        resumo=(
-            "Visão geral do sistema: carteira, inadimplência, ativo problemático "
-            "e atraso curto, com a série desde jul/2012 e a quebra PF/PJ."
-        ),
-        dimensoes=("data_base", "cliente"),
-    ),
-    SecaoSpec(
-        key="produto",
-        label="Por produto",
-        resumo=(
-            "Inadimplência por produto, sem recorte de renda. Alterna entre as "
-            "13 modalidades e as 55 submodalidades."
-        ),
-        dimensoes=("modalidade", "submodalidade"),
-        nota=(
-            "Rankings aplicam corte de carteira mínima e escondem submodalidades "
-            "residuais de migração de leiaute."
-        ),
-    ),
-    SecaoSpec(
-        key="renda",
-        label="Por faixa de renda / porte",
-        resumo=(
-            "PF por faixa de renda em salários mínimos; PJ por porte de "
-            "faturamento. Nunca no mesmo eixo — são critérios diferentes."
-        ),
-        dimensoes=("porte", "cliente"),
-        nota=(
-            "Os limites de faturamento PJ são nominais e nunca foram corrigidos "
-            "por inflação, o que empurra empresas de faixa ao longo da série."
         ),
     ),
     SecaoSpec(
@@ -138,17 +126,6 @@ SECOES: tuple[SecaoSpec, ...] = (
         ),
         dimensoes=("uf", "regiao"),
         exige_detalhe=True,
-    ),
-    SecaoSpec(
-        key="segmento",
-        label="Por segmento de IF",
-        resumo=(
-            "Fintechs (SCD/SEP) e instituições de pagamento contra bancos, "
-            "cooperativas e financeiras."
-        ),
-        dimensoes=("segmento",),
-        exige_detalhe=True,
-        nota="Cada segmento só entra no gráfico a partir da data-base em que aparece na base.",
     ),
 )
 
@@ -262,15 +239,15 @@ def construir_por_produto(
     df: pd.DataFrame,
     *,
     metrica: str = Q.METRICA_PADRAO,
-    nivel: str = "submodalidade",
+    nivel: str = "modalidade_bcb",
     data_base: Optional[str] = None,
     carteira_minima_rs_mil: float = CARTEIRA_MINIMA_PADRAO_RS_MIL,
     destaques: Optional[Sequence[str]] = None,
     limite_series: int = 8,
 ) -> Dict[str, Any]:
     """Ranking na data-base, séries dos produtos escolhidos e heatmap."""
-    if nivel not in ("modalidade", "submodalidade"):
-        raise ValueError("nivel deve ser 'modalidade' ou 'submodalidade'")
+    if nivel != "modalidade_bcb":
+        raise ValueError("nivel deve ser 'modalidade_bcb'")
 
     referencia = data_base or _ultima_data_base(df)
     recorte = Q.filtrar(df, data_base_inicial=referencia, data_base_final=referencia)
@@ -280,6 +257,7 @@ def construir_por_produto(
         nivel,
         metrica,
         carteira_minima_rs_mil=carteira_minima_rs_mil,
+        excluir_legado=False,
     )
 
     escolhidos = list(destaques) if destaques else (
@@ -306,9 +284,7 @@ def construir_por_produto(
         "destaques": escolhidos,
         "series": series,
         "heatmap": heatmap,
-        "legado_ocultado": sorted(
-            set(recorte["submodalidade"].astype(str)) & set(SUBMODALIDADES_LEGADO)
-        ) if "submodalidade" in recorte.columns else [],
+        "legado_ocultado": [],
         "quebras": _quebras(df, metrica),
     }
 
@@ -325,7 +301,7 @@ def construir_por_porte(
     data_base: Optional[str] = None,
     salario_minimo: Optional[float] = None,
     indexar_series: bool = False,
-    nivel_produto: str = "submodalidade",
+    nivel_produto: str = "modalidade_bcb",
     limite_produtos: int = 12,
 ) -> Dict[str, Any]:
     """Barras por faixa, séries por faixa e cruzamento faixa × produto.
@@ -875,7 +851,7 @@ def construir_paineis(
     df: pd.DataFrame,
     *,
     produtos: Sequence[str],
-    nivel_produto: str = "submodalidade",
+    nivel_produto: str = "modalidade_bcb",
     quebra: str = "renda",
     metrica: str = Q.METRICA_PADRAO,
     cliente: Optional[str] = None,
@@ -887,8 +863,8 @@ def construir_paineis(
     ``incluir_total`` acrescenta a linha ``Todos`` — o agregado do produto sem
     recorte, que é a referência contra a qual as faixas se leem.
     """
-    if nivel_produto not in ("modalidade", "submodalidade"):
-        raise ValueError("nivel_produto deve ser 'modalidade' ou 'submodalidade'")
+    if nivel_produto != "modalidade_bcb":
+        raise ValueError("nivel_produto deve ser 'modalidade_bcb'")
     spec = QUEBRAS_POR_KEY.get(quebra)
     if spec is None:
         raise ValueError(f"quebra desconhecida: {quebra!r}")
