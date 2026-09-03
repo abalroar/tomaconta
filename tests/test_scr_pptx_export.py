@@ -150,14 +150,16 @@ def test_series_preservam_nome_curto_e_valores():
     assert list(chart.plots[0].series[0].values)[-1] == pytest.approx(0.15)
 
 
-def test_eixo_exibe_junho_dezembro_e_ultimo_mes():
+def test_eixo_exibe_todos_os_meses_em_janela_curta():
     blob, _ = X.exportar_paineis_pptx([_painel()])
     chart = [s for s in _abrir(blob).slides[0].shapes if s.has_chart][0].chart
-    assert list(chart.plots[0].categories) == ["\u00a0"] * 5 + ["jun.26"]
+    assert list(chart.plots[0].categories) == [
+        "Jan/26", "Fev/26", "Mar/26", "Abr/26", "Mai/26", "Jun/26"
+    ]
 
 
 @pytest.mark.parametrize("entrada,esperado", [
-    ("2026-06", "jun.26"), ("2024-09", "set.24"), ("2012-07", "jul.12"),
+    ("2026-06", "Jun/26"), ("2024-09", "Set/24"), ("2012-07", "Jul/12"),
 ])
 def test_rotulo_mes(entrada, esperado):
     assert X.rotulo_mes(entrada) == esperado
@@ -205,6 +207,19 @@ def test_rotulo_pula_cauda_sem_dados():
     assert _indices_dos_rotulos(chart) == [5, 2], (
         "a série completa rotula o índice 5; a que termina cedo, o último válido (2)"
     )
+
+
+def test_rotulos_finais_proximos_recebem_posicoes_escalonadas():
+    painel = _painel(series={
+        "Norte": [0.10, 0.1045],
+        "Nordeste": [0.099, 0.1037],
+        "Sul": [0.08, 0.0828],
+    }, n_meses=2)
+    blob, _ = X.exportar_paineis_pptx([painel])
+    chart = [s for s in _abrir(blob).slides[0].shapes if s.has_chart][0].chart
+    xml = chart._chartSpace.xml
+    assert '<c:dLblPos val="t"' in xml
+    assert '<c:dLblPos val="r"' in xml
 
 
 # =============================================================================

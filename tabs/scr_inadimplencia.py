@@ -1,4 +1,4 @@
-"""Especificação da visão "Inadimplência SCR".
+"""Especificação da visão "Inad por Faixa de Renda".
 
 O módulo é intencionalmente independente de Streamlit: a mesma especificação de
 seções alimenta o render da aba, os testes e eventuais exportações, evitando que
@@ -38,11 +38,11 @@ from utils.ifdata_cache.scr_data import (
 
 TITLE = "Inadimplência do crédito (SCR)"
 SUBTITLE = (
-    "Carteira, inadimplência e ativo problemático por faixa de renda, produto, "
-    "região e segmento de instituição — SCR.data do Banco Central"
+    "Carteira ativa, inadimplência > 90 dias e ativos problemáticos por "
+    "modalidade, renda e região — SCR.data do Banco Central"
 )
 
-MENU_LABEL = "Inadimplência SCR"
+MENU_LABEL = "Inad por Faixa de Renda"
 CACHE_NAME = "scr_data"
 
 
@@ -66,8 +66,8 @@ def modalidades_bcb_disponiveis(
     dominio = {str(item) for item in presentes}
     return [item for item in ordem if item in dominio]
 
-# Janela default da aba. O grão completo é carregado por ano; 36 meses cobrem
-# três safras sem estourar o cold start do Streamlit Cloud.
+# Janela default da aba. O grão completo é carregado por ano e o recorte padrão
+# mantém doze competências mensais.
 JANELA_PADRAO_MESES = 12
 JANELAS_DISPONIVEIS = (12, 24, 36, 60)
 
@@ -119,10 +119,10 @@ SECOES: tuple[SecaoSpec, ...] = (
     ),
     SecaoSpec(
         key="regiao",
-        label="Por região",
+        label="Brasil e regiões",
         resumo=(
-            "Mapa e ranking por UF, séries por região. A UF vem do CEP do "
-            "tomador, não da agência que concedeu o crédito."
+            "Heatmap de participação da carteira por UF e séries por região. "
+            "A UF vem do CEP do tomador."
         ),
         dimensoes=("uf", "regiao"),
         exige_detalhe=True,
@@ -439,7 +439,7 @@ def construir_por_regiao(
     data_base: Optional[str] = None,
     nivel: str = "uf",
 ) -> Dict[str, Any]:
-    """Mapa por UF, ranking com carteira ao lado e séries por região."""
+    """Heatmap por UF, ranking com carteira ao lado e séries por região."""
     if nivel not in ("uf", "regiao"):
         raise ValueError("nivel deve ser 'uf' ou 'regiao'")
 
@@ -457,6 +457,24 @@ def construir_por_regiao(
         mapa["codigo_ibge"] = mapa["uf"].astype(str).map(
             lambda uf: f"{UF_IBGE[uf]}" if uf in UF_IBGE else None
         )
+        carteira_uf = Q.agregar(recorte, "carteira_ativa", by=["uf"])[
+            ["uf", "valor"]
+        ].rename(columns={"valor": "carteira_rs_mil"})
+        mapa = mapa.merge(carteira_uf, on="uf", how="left")
+        carteira_brasil = float(mapa["carteira_rs_mil"].sum())
+        mapa["participacao_carteira"] = mapa["carteira_rs_mil"].div(
+            carteira_brasil if carteira_brasil > 0 else float("nan")
+        )
+        ordem_regiao = {nome: posicao for posicao, nome in enumerate(ORDEM_REGIOES)}
+        mapa["ordem_regiao"] = mapa["regiao"].map(ordem_regiao)
+        mapa = mapa.sort_values(
+            ["ordem_regiao", "participacao_carteira"],
+            ascending=[True, False],
+            kind="stable",
+        ).reset_index(drop=True)
+        mapa["ordem_na_regiao"] = mapa.groupby("regiao", observed=True).cumcount()
+    else:
+        carteira_brasil = 0.0
 
     media_brasil = Q.agregar(recorte, metrica)
     referencia_brasil = (
@@ -478,6 +496,7 @@ def construir_por_regiao(
         "geojson_disponivel": GEOJSON_UF_PATH.exists(),
         "featureidkey": GEOJSON_FEATURE_KEY,
         "media_brasil": referencia_brasil,
+        "carteira_brasil_rs_mil": carteira_brasil,
         "ranking": ranking,
         "series": series,
         "cruzamento_porte": cruzamento_porte,

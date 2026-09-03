@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections import defaultdict
 
 import pandas as pd
-import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
@@ -14,7 +13,12 @@ def render_scr_inadimplencia(get_cache_manager) -> None:
     from tabs import scr_inadimplencia as scr_spec
     from utils import scr_data_query as scr_q
     from utils import scr_pptx_export as scr_pptx
-    from utils.sgs_credit_analytics import _add_last_line_labels, eixo_datas_semestral
+    from utils.sgs_credit_analytics import (
+        _add_last_line_labels,
+        _valid_trace_dates,
+        eixo_datas_adaptativo,
+        formatar_competencia,
+    )
     from utils.sgs_credit_pptx_export import exportar_figuras_pptx
 
     plotly_config = {"displayModeBar": "hover", "displaylogo": False, "responsive": True}
@@ -29,21 +33,21 @@ def render_scr_inadimplencia(get_cache_manager) -> None:
         return manager.get_cache("scr_data") if manager else None
 
     @st.cache_data(ttl=3600, show_spinner=False)
-    def _ultima_data_base() -> str | None:
+    def _periodos_disponiveis() -> tuple[str, ...]:
         cache = _cache()
         if cache is None:
-            return None
+            return ()
         try:
             resultado = cache.bootstrap_local_assets()
             if not resultado.sucesso:
-                return None
+                return ()
             periodos = cache.get_info().get("periodos") or []
             if periodos:
-                return str(periodos[-1])
+                return tuple(sorted(str(periodo) for periodo in periodos))
             datas = pd.read_parquet(cache.arquivo_dados, columns=["data_base"])
-            return str(datas["data_base"].astype(str).max())
+            return tuple(sorted(datas["data_base"].astype(str).unique()))
         except Exception:
-            return None
+            return ()
 
     @st.cache_data(ttl=3600, show_spinner="Carregando SCR.data...")
     def _detalhe(anos: tuple[int, ...]) -> pd.DataFrame:
@@ -63,11 +67,8 @@ def render_scr_inadimplencia(get_cache_manager) -> None:
         return scr_spec.marcar_quebras(fig, quebras)
 
     def _layout(fig: go.Figure, *, altura: int = 390) -> go.Figure:
-        datas: list[pd.Timestamp] = []
-        for trace in fig.data:
-            if getattr(trace, "x", None) is not None:
-                datas.extend(pd.Timestamp(valor) for valor in trace.x if pd.notna(valor))
-        tickvals, ticktext = eixo_datas_semestral(datas)
+        datas = _valid_trace_dates(fig)
+        tickvals, ticktext = eixo_datas_adaptativo(datas)
         tickangle = (
             -35
             if any(
@@ -149,7 +150,10 @@ def render_scr_inadimplencia(get_cache_manager) -> None:
         _add_last_line_labels(fig, endpoints, plot_height=255)
         _layout(fig, altura=355)
         fig.update_yaxes(rangemode="tozero" if eixo_zero else "normal")
-        fig.update_layout(meta={"chart_title": painel.titulo})
+        fig.update_layout(meta={
+            "chart_title": painel.titulo,
+            "source": "fonte: Banco Central do Brasil · SCR.data",
+        })
         return fig
 
     def _card_header(painel, avisos: list[dict]) -> None:
@@ -171,17 +175,137 @@ def render_scr_inadimplencia(get_cache_manager) -> None:
                 else:
                     st.caption("Sem alertas de legibilidade neste recorte.")
 
-    ultima = _ultima_data_base()
-    if not ultima:
+    def _figura_heatmap_ufs(tabela: pd.DataFrame) -> go.Figure:
+        if tabela.empty:
+            return go.Figure()
+        regioes = [
+            regiao for regiao in scr_spec.ORDEM_REGIOES
+            if regiao in set(tabela["regiao"].astype(str))
+        ]
+        total_linhas = int(tabela["ordem_na_regiao"].max()) + 1 if not tabela.empty else 0
+        z = [[None for _ in regioes] for _ in range(total_linhas)]
+        textos = [["" for _ in regioes] for _ in range(total_linhas)]
+        detalhes = [[None for _ in regioes] for _ in range(total_linhas)]
+        posicoes = {regiao: indice for indice, regiao in enumerate(regioes)}
+        for linha in tabela.itertuples(index=False):
+            coluna = posicoes[str(linha.regiao)]
+            posicao = int(linha.ordem_na_regiao)
+            participacao = float(linha.participacao_carteira)
+            z[posicao][coluna] = participacao
+            textos[posicao][coluna] = (
+                f"<b>{linha.uf}</b><br>{participacao * 100:.1f}%".replace(".", ",")
+            )
+            detalhes[posicao][coluna] = [
+                linha.uf_nome,
+                scr_q.formatar_reais_de_mil(linha.carteira_rs_mil),
+                _fmt(linha.valor),
+            ]
+        figura = go.Figure(go.Heatmap(
+            z=z,
+            x=regioes,
+            y=list(range(1, total_linhas + 1)),
+            text=textos,
+            texttemplate="%{text}",
+            customdata=detalhes,
+            colorscale=[
+                [0.0, "#F2EFEC"],
+                [0.35, "#F5B478"],
+                [1.0, "#EC7000"],
+            ],
+            xgap=5,
+            ygap=5,
+            colorbar=dict(title="% Brasil", tickformat=".1%", thickness=12),
+            hovertemplate=(
+                "<b>%{customdata[0]}</b><br>Participação no Brasil: %{z:.2%}"
+                "<br>Carteira ativa: %{customdata[1]}"
+                f"<br>{scr_q.METRICAS[_metrica].rotulo}: %{{customdata[2]}}<extra></extra>"
+            ),
+        ))
+        figura.update_layout(
+            height=520,
+            margin=dict(l=4, r=18, t=18, b=4),
+            paper_bgcolor="#FFFFFF",
+            plot_bgcolor="#FFFFFF",
+            font=dict(family="Arial", size=13, color=scr_spec.COR_TEXTO),
+            xaxis=dict(side="top", tickfont=dict(size=12), showgrid=False),
+            yaxis=dict(visible=False, autorange="reversed"),
+        )
+        return figura
+
+    def _figura_export_ufs(tabela: pd.DataFrame) -> go.Figure:
+        if tabela.empty:
+            return go.Figure()
+        exportacao = tabela.sort_values(
+            ["ordem_regiao", "participacao_carteira"],
+            ascending=[True, False],
+            kind="stable",
+        )
+        figura = go.Figure(go.Bar(
+            x=exportacao["uf"].astype(str),
+            y=exportacao["participacao_carteira"].astype(float) * 100.0,
+            name="Participação",
+            marker_color=scr_spec.COR_LARANJA,
+        ))
+        figura.update_layout(
+            yaxis_title="% da carteira Brasil",
+            meta={
+                "chart_title": "Participação de cada UF na carteira Brasil",
+                "value_format": "0.0%",
+                "value_scale": 0.01,
+                "label_all_points": True,
+                "source": "fonte: Banco Central do Brasil · SCR.data",
+            },
+        )
+        return figura
+
+    periodos_disponiveis = _periodos_disponiveis()
+    if not periodos_disponiveis:
         st.error("Cache SCR.data indisponível ou com schema anterior ao das modalidades oficiais.")
         return
+    ultima = periodos_disponiveis[-1]
 
-    filtro_periodo, filtro_cliente, filtro_metrica = st.columns([1, 1, 1.35])
-    with filtro_periodo:
-        janela = st.selectbox(
-            "Período", scr_spec.JANELAS_DISPONIVEIS,
-            index=scr_spec.JANELAS_DISPONIVEIS.index(scr_spec.JANELA_PADRAO_MESES),
-            format_func=lambda meses: f"últimos {meses} meses", key="scr_janela",
+    periodos_timestamp = [pd.Timestamp(f"{periodo}-01") for periodo in periodos_disponiveis]
+    ultima_timestamp = periodos_timestamp[-1]
+    inicio_padrao_alvo = ultima_timestamp - pd.DateOffset(
+        months=scr_spec.JANELA_PADRAO_MESES - 1
+    )
+    posicao_inicio = min(
+        int(pd.DatetimeIndex(periodos_timestamp).searchsorted(inicio_padrao_alvo, side="left")),
+        len(periodos_timestamp) - 1,
+    )
+    inicio_padrao = periodos_timestamp[posicao_inicio]
+    opcoes_inicio = list(reversed(periodos_timestamp))
+
+    filtro_inicio, filtro_fim, filtro_cliente, filtro_metrica = st.columns(
+        [1, 1, 1, 1.35]
+    )
+    with filtro_inicio:
+        inicio_selecionado = st.selectbox(
+            "Período inicial",
+            opcoes_inicio,
+            index=opcoes_inicio.index(inicio_padrao),
+            format_func=formatar_competencia,
+            key="scr_period_start",
+        )
+    opcoes_fim: list[str | pd.Timestamp] = [
+        "Mais recente",
+        *[
+            periodo for periodo in reversed(periodos_timestamp)
+            if periodo >= inicio_selecionado
+        ],
+    ]
+    fim_guardado = st.session_state.get("scr_period_end")
+    if fim_guardado != "Mais recente" and fim_guardado not in opcoes_fim:
+        st.session_state["scr_period_end"] = "Mais recente"
+    with filtro_fim:
+        fim_selecionado = st.selectbox(
+            "Período final",
+            opcoes_fim,
+            index=0,
+            format_func=lambda valor: (
+                valor if isinstance(valor, str) else formatar_competencia(valor)
+            ),
+            key="scr_period_end",
         )
     with filtro_cliente:
         cliente_opcao = st.radio(
@@ -194,9 +318,13 @@ def render_scr_inadimplencia(get_cache_manager) -> None:
             format_func=lambda chave: scr_q.METRICAS[chave].rotulo, key="scr_metrica",
         )
 
-    anos = tuple(scr_q.anos_da_janela(ultima, janela))
+    fim_timestamp = (
+        ultima_timestamp if fim_selecionado == "Mais recente" else fim_selecionado
+    )
+    anos = tuple(range(inicio_selecionado.year, fim_timestamp.year + 1))
     base = _detalhe(anos)
-    inicio, fim = scr_q.janela_de_data_bases(ultima, janela)
+    inicio = inicio_selecionado.strftime("%Y-%m")
+    fim = fim_timestamp.strftime("%Y-%m")
     base = scr_q.filtrar(base, data_base_inicial=inicio, data_base_final=fim)
     cliente = None if cliente_opcao == "PF + PJ" else cliente_opcao
     dados = scr_q.filtrar(base, cliente=cliente)
@@ -205,7 +333,7 @@ def render_scr_inadimplencia(get_cache_manager) -> None:
         return
     data_base = str(dados["data_base"].astype(str).max())
 
-    aba_paineis, aba_regiao = st.tabs(["Painéis", "Por região"])
+    aba_paineis, aba_regiao = st.tabs(["Painéis", "Brasil e regiões"])
 
     with aba_paineis:
         controle_quebra, controle_total, controle_zero = st.columns([1.6, 0.8, 0.9])
@@ -255,7 +383,7 @@ def render_scr_inadimplencia(get_cache_manager) -> None:
                     titulo_deck=f"SCR.data · {scr_q.METRICAS[_metrica].rotulo} · {data_base}",
                 )
                 st.download_button(
-                    "Baixar PPTX dos painéis", data=blob,
+                    "Baixar PPTX desta aba", data=blob,
                     file_name=f"scr_paineis_{data_base}.pptx",
                     mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
                     key="scr_pn_pptx", type="primary",
@@ -278,61 +406,46 @@ def render_scr_inadimplencia(get_cache_manager) -> None:
         opcoes_regiao = scr_spec.modalidades_bcb_disponiveis(
             cliente, presentes=dados["modalidade_bcb"].astype(str).unique().tolist()
         )
-        filtro_modalidade, filtro_geo = st.columns([2.1, 1])
-        with filtro_modalidade:
-            modalidade_regiao = st.selectbox(
-                "Modalidade", opcoes_regiao, key="scr_regiao_modalidade"
-            )
-        with filtro_geo:
-            nivel_geo = st.radio(
-                "Recorte", ["uf", "regiao"], horizontal=True,
-                format_func=lambda valor: "UF" if valor == "uf" else "Região",
-                key="scr_nivel_geo",
-            )
+        modalidade_regiao = st.selectbox(
+            "Modalidade", opcoes_regiao, key="scr_regiao_modalidade"
+        )
 
         dados_regiao = scr_q.filtrar(dados, modalidade_bcb=modalidade_regiao)
         geo = scr_spec.construir_por_regiao(
-            dados_regiao, metrica=_metrica, data_base=data_base, nivel=nivel_geo
+            dados_regiao, metrica=_metrica, data_base=data_base, nivel="uf"
         )
 
-        mapa_col, ranking_col = st.columns([1.35, 1])
-        with mapa_col:
-            geojson = scr_spec.carregar_geojson_uf()
-            if geojson is not None and not geo["mapa"].empty:
-                figura_mapa = px.choropleth(
-                    geo["mapa"], geojson=geojson, locations="codigo_ibge",
-                    featureidkey=geo["featureidkey"], color="valor",
-                    color_continuous_scale="Oranges", hover_name="uf_nome",
-                    hover_data={"codigo_ibge": False, "valor": ":.2%", "regiao": True},
+        resumo_brasil, resumo_metrica, resumo_data = st.columns(3)
+        resumo_brasil.metric(
+            "Carteira Brasil",
+            scr_q.formatar_reais_de_mil(geo["carteira_brasil_rs_mil"]),
+        )
+        resumo_metrica.metric(
+            scr_q.METRICAS[_metrica].rotulo,
+            _fmt(geo["media_brasil"]),
+        )
+        resumo_data.metric("Data-base", formatar_competencia(f"{data_base}-01"))
+
+        titulo_heatmap, info_heatmap = st.columns([0.94, 0.06])
+        with titulo_heatmap:
+            st.markdown("##### Participação de cada UF na carteira Brasil")
+            st.caption(
+                "Estados agrupados por região e ordenados pela participação dentro de cada região."
+            )
+        with info_heatmap:
+            with st.popover("i", help="Definições do heatmap"):
+                st.markdown("**Carteira Brasil e Carteira (R$ bi)**")
+                st.markdown(
+                    "Carteira ativa total da modalidade selecionada, incluindo operações "
+                    "adimplentes e inadimplentes. É o denominador das taxas."
                 )
-                figura_mapa.update_geos(
-                    visible=False, projection_type=scr_spec.MAPA_PROJECAO,
-                    lonaxis_range=list(scr_spec.MAPA_LON_RANGE),
-                    lataxis_range=list(scr_spec.MAPA_LAT_RANGE),
-                    bgcolor="rgba(0,0,0,0)",
+                st.markdown("**Participação da UF**")
+                st.markdown(
+                    "Carteira ativa da UF dividida pela carteira ativa do Brasil, com os "
+                    "mesmos filtros. A UF corresponde ao CEP do tomador."
                 )
-                figura_mapa.update_layout(
-                    height=430, margin=dict(l=0, r=0, t=10, b=0),
-                    coloraxis_colorbar=dict(tickformat=".1%", title=""),
-                    font=dict(size=13),
-                )
-                st.plotly_chart(figura_mapa, width="stretch", config=plotly_config)
-        with ranking_col:
-            ranking = geo["ranking"].copy()
-            if not ranking.empty:
-                ranking["taxa"] = ranking["valor"].map(_fmt)
-                ranking["carteira"] = ranking["denominador"].map(scr_q.formatar_reais_de_mil)
-                st.dataframe(
-                    ranking[[nivel_geo, "taxa", "carteira"]], hide_index=True,
-                    width="stretch", height=430,
-                    column_config={
-                        nivel_geo: st.column_config.TextColumn(
-                            "UF" if nivel_geo == "uf" else "Região"
-                        ),
-                        "taxa": st.column_config.TextColumn(scr_q.METRICAS[_metrica].rotulo),
-                        "carteira": st.column_config.TextColumn("Carteira"),
-                    },
-                )
+        figura_heatmap = _figura_heatmap_ufs(geo["mapa"])
+        st.plotly_chart(figura_heatmap, width="stretch", config=plotly_config)
 
         figura_regiao = go.Figure()
         endpoints_regiao: list[tuple[pd.Timestamp, float, str, str]] = []
@@ -365,6 +478,7 @@ def render_scr_inadimplencia(get_cache_manager) -> None:
             "chart_title": f"{modalidade_regiao} por região",
             "value_format": "0.00%",
             "value_scale": 1.0,
+            "source": "fonte: Banco Central do Brasil · SCR.data",
         })
 
         titulo_col, info_col = st.columns([0.94, 0.06])
@@ -374,21 +488,24 @@ def render_scr_inadimplencia(get_cache_manager) -> None:
             with st.popover("i", help="Metodologia regional"):
                 st.markdown(
                     "A UF corresponde ao CEP do tomador. A taxa é a razão entre "
-                    "a soma da carteira inadimplida e a soma da carteira ativa."
+                    "a soma da carteira inadimplida e a soma da carteira ativa. "
+                    "As definições completas estão em **Glossário > SCR.data**."
                 )
         st.plotly_chart(figura_regiao, width="stretch", config=plotly_config)
 
+        figura_ufs_export = _figura_export_ufs(geo["mapa"])
         blob_regiao, meta_regiao = exportar_figuras_pptx(
-            [figura_regiao], titulo_deck=f"SCR.data · {modalidade_regiao} · {data_base}"
+            [figura_ufs_export, figura_regiao],
+            titulo_deck=f"SCR.data · {modalidade_regiao} · {data_base}",
         )
         export_col, csv_col = st.columns(2)
         with export_col:
             st.download_button(
-                "Baixar PPTX da região", data=blob_regiao,
+                "Baixar PPTX desta aba", data=blob_regiao,
                 file_name=f"scr_regiao_{data_base}.pptx",
                 mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
                 key="scr_regiao_pptx", type="primary",
-                help=f"{meta_regiao['paineis']} gráfico Office nativo.",
+                help=f"{meta_regiao['paineis']} gráficos Office nativos.",
             )
         with csv_col:
             st.download_button(

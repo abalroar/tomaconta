@@ -14,6 +14,7 @@ from utils.sgs_credit_analytics import (
     build_ipca_index,
     coverage_ratio,
     derive_credit_totals,
+    formatar_competencia,
     line_figure,
     real_yoy,
     shares,
@@ -42,7 +43,11 @@ CREDIT_SUBSECTIONS = (
     "Por Tipo de Empresa",
     "Por Controle",
 )
-NPL_SUBSECTIONS = ("Pré Inad e Inad", "Cobertura e Provisionamento", "Inadimplência SCR")
+NPL_SUBSECTIONS = (
+    "Pré Inad e Inad",
+    "Cobertura e Provisionamento",
+    "Inad por Faixa de Renda",
+)
 
 PLOTLY_CONFIG = {"displayModeBar": "hover", "displaylogo": False, "responsive": True}
 _EXPORT_FIGURES: ContextVar[list[go.Figure] | None] = ContextVar(
@@ -97,20 +102,34 @@ def _chart(fig: go.Figure, key: str) -> None:
 def _period_filter(wide: pd.DataFrame) -> pd.DataFrame:
     if wide.empty:
         return wide
-    periods = pd.DatetimeIndex(wide.index).dropna().sort_values().unique()
+    # CDI e Selic podem trazer o mês corrente antes das séries de crédito. A
+    # janela acompanha a última competência fechada das séries analíticas.
+    analytical_columns = [
+        column for column in wide.columns if column not in {"cdi_aa", "selic_aa"}
+    ]
+    analytical = wide[analytical_columns].dropna(how="all") if analytical_columns else wide
+    periods = pd.DatetimeIndex(analytical.index).dropna().sort_values().unique()
+    if periods.empty:
+        periods = pd.DatetimeIndex(wide.index).dropna().sort_values().unique()
     latest = pd.Timestamp(periods[-1])
     target_start = latest - pd.DateOffset(months=11)
-    default_start = int(periods.searchsorted(target_start, side="left"))
+    default_start_period = pd.Timestamp(
+        periods[min(int(periods.searchsorted(target_start, side="left")), len(periods) - 1)]
+    )
+    start_options = [pd.Timestamp(period) for period in reversed(periods)]
     start_column, end_column = st.columns(2)
     with start_column:
         start = st.selectbox(
             "Período inicial",
-            list(periods),
-            index=min(default_start, len(periods) - 1),
-            format_func=lambda value: pd.Timestamp(value).strftime("%m/%Y"),
+            start_options,
+            index=start_options.index(default_start_period),
+            format_func=formatar_competencia,
             key="sgs_credit_period_start",
         )
-    end_options: list[str | pd.Timestamp] = ["Mais recente", *[pd.Timestamp(p) for p in periods if p >= start]]
+    end_options: list[str | pd.Timestamp] = [
+        "Mais recente",
+        *[pd.Timestamp(period) for period in reversed(periods) if period >= start],
+    ]
     stored_end = st.session_state.get("sgs_credit_period_end")
     if stored_end != "Mais recente" and stored_end not in end_options:
         st.session_state["sgs_credit_period_end"] = "Mais recente"
@@ -119,14 +138,17 @@ def _period_filter(wide: pd.DataFrame) -> pd.DataFrame:
             "Período final",
             end_options,
             index=0,
-            format_func=lambda value: value if isinstance(value, str) else value.strftime("%m/%Y"),
+            format_func=lambda value: value if isinstance(value, str) else formatar_competencia(value),
             key="sgs_credit_period_end",
-            help="Mais recente preserva a última observação disponível de cada série, mesmo quando as defasagens diferem.",
+            help=(
+                "Mais recente usa a última competência fechada das séries de crédito. "
+                "Cada linha termina em sua própria última observação dentro desse limite."
+            ),
         )
     filtered = _filter_period_range(
         wide,
         pd.Timestamp(start),
-        None if end == "Mais recente" else pd.Timestamp(end),
+        latest if end == "Mais recente" else pd.Timestamp(end),
     )
     return filtered
 
@@ -616,7 +638,7 @@ def _render_npl(wide: pd.DataFrame, get_cache_manager=None) -> None:
         default=NPL_SUBSECTIONS[0],
         key="sgs_npl_subsection",
     )
-    if selected == "Inadimplência SCR":
+    if selected == "Inad por Faixa de Renda":
         if get_cache_manager is None:
             st.error("Gerenciador do cache SCR.data indisponível.")
             return
@@ -709,6 +731,16 @@ def _render_npl(wide: pd.DataFrame, get_cache_manager=None) -> None:
 
 
 def _render_rates(wide: pd.DataFrame) -> None:
+    # O benchmark CDI pode entrar no mês corrente antes das taxas de crédito.
+    # O card termina na última competência publicada das taxas principais.
+    referencias = [
+        column for column in ("taxa_pf_livre", "taxa_pj_livre")
+        if column in wide.columns
+    ]
+    if referencias:
+        validas = wide[referencias].dropna(how="all")
+        if not validas.empty:
+            wide = wide.loc[wide.index <= validas.index.max()].copy()
     cards = [
         (
             "Taxa média PF",
@@ -741,6 +773,52 @@ def _render_rates(wide: pd.DataFrame) -> None:
 
 def _render_glossary(frame: pd.DataFrame, metadata: Mapping | None) -> None:
     st.markdown("#### Glossário e metodologia")
+    glossary_section = st.segmented_control(
+        "Conteúdo do glossário",
+        ("Indicadores SGS", "SCR.data"),
+        default="Indicadores SGS",
+        key="sgs_credit_glossary_section",
+    )
+    if glossary_section == "SCR.data":
+        st.markdown("##### Conceitos oficiais do SCR.data")
+        st.markdown(
+            "- **Carteira ativa:** soma dos valores a vencer e vencidos das operações "
+            "abrangidas pelo SCR. Na visão regional, **Carteira (R$ bi)** é o total "
+            "da carteira da modalidade na UF, independentemente de a operação estar "
+            "inadimplente. É o denominador das taxas.\n"
+            "- **Inadimplência:** carteira integral das operações com alguma parcela "
+            "em atraso superior a 90 dias, dividida pela carteira de todas as operações.\n"
+            "- **Ativo problemático:** carteira das operações classificadas como ativos "
+            "problemáticos dividida pela carteira total. Desde 2025, o BCB considera "
+            "a classificação informada pelas instituições na característica especial 19.\n"
+            "- **Localização:** a UF decorre do CEP de residência da pessoa física ou "
+            "da sede da pessoa jurídica.\n"
+            "- **Participação da UF:** carteira ativa da UF dividida pela carteira ativa "
+            "do Brasil, após os mesmos filtros de cliente e modalidade."
+        )
+        st.markdown("##### Escopo, periodicidade e limites")
+        st.markdown(
+            "O BCB atualiza o relatório mensalmente, no último dia útil, com divulgação "
+            "cerca de 30 dias após o fechamento. O documento 3040 cobre operações de "
+            "crédito cursadas no país acima do limite de identificação do SCR: R$ 1 mil "
+            "até mai/2016 e R$ 200 desde jun/2016. Saldos de dependências ou controladas "
+            "no exterior ficam fora da publicação. Recortes com até 15 operações têm a "
+            "contagem protegida; os valores monetários permanecem no agregado publicado."
+        )
+        st.markdown("##### Comparabilidade")
+        st.markdown(
+            "Os totais podem divergir do IF.data, do COSIF e de outras estatísticas do "
+            "BCB por diferenças de documento, cobertura, tolerância de remessa e tratamento "
+            "de agregações com poucas operações. Para dados consolidados de crédito, o BCB "
+            "orienta consultar a Nota para a Imprensa e o SGS."
+        )
+        st.markdown(
+            "**Fontes oficiais:** [SCR.data](https://www.bcb.gov.br/estabilidadefinanceira/scrdata) · "
+            "[Metodologia](https://www.bcb.gov.br/content/estabilidadefinanceira/scr/scr.data/scr_data_metodologia.pdf) · "
+            "[Documento 3040](https://www.bcb.gov.br/estabilidadefinanceira/scrdoc3040)"
+        )
+        return
+
     rows = [
         ("Crescimento real em 12 meses", "(Xₜ / índice IPCAₜ) ÷ (Xₜ₋₁₂ / índice IPCAₜ₋₁₂) − 1", "%"),
         ("Variação de taxa/spread", "xₜ − xₜ₋₁₂", "p.p."),
@@ -782,6 +860,29 @@ def render_mercado_credito(cache, *, get_cache_manager=None) -> None:
         <style>
         div[data-testid="stMarkdownContainer"] h4 { font-size: 1.42rem; }
         div[data-testid="stMarkdownContainer"] h5 { font-size: 1.18rem; }
+        div[data-testid="stPopover"] button {
+            width: 2rem;
+            min-width: 2rem;
+            height: 2rem;
+            min-height: 2rem;
+            padding: 0;
+            border-radius: 50%;
+            border-color: #8C8279;
+            color: #231F20;
+            font-weight: 700;
+            line-height: 1;
+        }
+        div[data-testid="stPopover"] button:hover {
+            border-color: #EC7000;
+            color: #EC7000;
+        }
+        div[data-testid="stPopover"] button [data-testid="stIconMaterial"] {
+            display: none;
+        }
+        div[data-testid="stPopover"] button > div {
+            justify-content: center;
+            gap: 0;
+        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -843,7 +944,7 @@ def render_mercado_credito(cache, *, get_cache_manager=None) -> None:
         )
         with export_slot.container():
             st.download_button(
-                "Baixar PPTX desta página",
+                "Baixar PPTX desta aba",
                 data=blob,
                 file_name="estatisticas_credito_bc.pptx",
                 mime=(
