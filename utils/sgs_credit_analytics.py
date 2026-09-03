@@ -30,6 +30,11 @@ ITAU_PALETTE = (
     ITAU_LIGHT_GRAY,
 )
 
+MESES_ABREV_PT = (
+    "Jan", "Fev", "Mar", "Abr", "Mai", "Jun",
+    "Jul", "Ago", "Set", "Out", "Nov", "Dez",
+)
+
 
 def normalized_long(frame: pd.DataFrame) -> pd.DataFrame:
     required = {"data", "serie", "valor"}
@@ -204,19 +209,34 @@ def _add_last_line_labels(
             bgcolor="rgba(255,255,255,0.82)",
             borderpad=1,
         )
-    x_values: list[pd.Timestamp] = []
-    for trace in fig.data:
-        trace_x = getattr(trace, "x", None)
-        if trace_x is not None:
-            x_values.extend(pd.Timestamp(value) for value in trace_x if pd.notna(value))
+    x_values = _valid_trace_dates(fig)
     if x_values:
         fig.update_xaxes(
             range=[min(x_values), max(x_values) + pd.DateOffset(months=1)]
         )
 
 
-def eixo_datas_semestral(index: Sequence[object]) -> tuple[list[pd.Timestamp], list[str]]:
-    """Marca jun/dez anteriores e sempre a última data disponível."""
+def formatar_competencia(value: object) -> str:
+    """Formata uma data mensal como ``Jan/26``."""
+    data = pd.Timestamp(value)
+    return f"{MESES_ABREV_PT[data.month - 1]}/{str(data.year)[-2:]}"
+
+
+def passo_eixo_mensal(total_meses: int) -> int:
+    """Escolhe um intervalo legível para os rótulos do eixo mensal."""
+    if total_meses <= 14:
+        return 1
+    if total_meses <= 26:
+        return 2
+    if total_meses <= 42:
+        return 3
+    if total_meses <= 84:
+        return 6
+    return 12
+
+
+def eixo_datas_adaptativo(index: Sequence[object]) -> tuple[list[pd.Timestamp], list[str]]:
+    """Marca meses em passo adaptativo e sempre inclui a última observação."""
     datas = pd.DatetimeIndex(pd.to_datetime(list(index), errors="coerce")).dropna()
     if datas.empty:
         return [], []
@@ -225,14 +245,35 @@ def eixo_datas_semestral(index: Sequence[object]) -> tuple[list[pd.Timestamp], l
     # Algumas fontes têm dias de fechamento diferentes entre instituições.
     # Uma única marca por competência evita repetir, por exemplo, ``dez.25``.
     por_mes = tabela.groupby("mes", observed=True)["data"].max().sort_index()
-    ultimo_mes = por_mes.index[-1]
-    meses_selecionados = [
-        mes for mes in por_mes.index if mes.month in (6, 12) or mes == ultimo_mes
-    ]
+    meses = list(por_mes.index)
+    passo = passo_eixo_mensal(len(meses))
+    meses_selecionados = meses[::passo]
+    ultimo_mes = meses[-1]
+    if meses_selecionados[-1] != ultimo_mes:
+        meses_selecionados.append(ultimo_mes)
     selecionadas = [pd.Timestamp(por_mes.loc[mes]) for mes in meses_selecionados]
-    meses = ("jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez")
-    rotulos = [f"{meses[mes.month - 1]}.{str(mes.year)[-2:]}" for mes in meses_selecionados]
+    rotulos = [formatar_competencia(data) for data in selecionadas]
     return selecionadas, rotulos
+
+
+def eixo_datas_semestral(index: Sequence[object]) -> tuple[list[pd.Timestamp], list[str]]:
+    """Compatibilidade: usa a nova régua adaptativa."""
+    return eixo_datas_adaptativo(index)
+
+
+def _valid_trace_dates(fig: go.Figure) -> list[pd.Timestamp]:
+    """Datas que têm valor efetivamente desenhado em ao menos um trace."""
+    datas: list[pd.Timestamp] = []
+    for trace in fig.data:
+        trace_x = getattr(trace, "x", None)
+        trace_y = getattr(trace, "y", None)
+        if trace_x is None or trace_y is None:
+            continue
+        for value_x, value_y in zip(trace_x, trace_y):
+            numero = pd.to_numeric(value_y, errors="coerce")
+            if pd.notna(value_x) and pd.notna(numero):
+                datas.append(pd.Timestamp(value_x))
+    return datas
 
 
 def _base_layout(fig: go.Figure, *, title: str, y_title: str, height: int = 390) -> go.Figure:
@@ -250,11 +291,8 @@ def _base_layout(fig: go.Figure, *, title: str, y_title: str, height: int = 390)
         yaxis_title=y_title,
         meta=meta,
     )
-    datas: list[pd.Timestamp] = []
-    for trace in fig.data:
-        if getattr(trace, "x", None) is not None:
-            datas.extend(pd.Timestamp(value) for value in trace.x if pd.notna(value))
-    tickvals, ticktext = eixo_datas_semestral(datas)
+    datas = _valid_trace_dates(fig)
+    tickvals, ticktext = eixo_datas_adaptativo(datas)
     tickangle = (
         -35
         if any(

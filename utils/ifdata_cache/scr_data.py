@@ -48,7 +48,10 @@ logger = logging.getLogger("ifdata_cache")
 # =============================================================================
 
 SCR_ZIP_URL_TEMPLATE = "https://www.bcb.gov.br/pda/desig/scrdata_{ano}.zip"
-SCR_METODOLOGIA_URL = "https://www.bcb.gov.br/pda/desig/metodologia_versao2.pdf"
+SCR_METODOLOGIA_URL = (
+    "https://www.bcb.gov.br/content/estabilidadefinanceira/"
+    "scr/scr.data/scr_data_metodologia.pdf"
+)
 SCR_PAGINA_URL = "https://www.bcb.gov.br/estabilidadefinanceira/scrdata"
 SCR_DOC3040_URL = "https://www.bcb.gov.br/estabilidadefinanceira/scrdoc3040"
 SCR_EQUIVALENCIA_MODALIDADES_URL = (

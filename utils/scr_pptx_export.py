@@ -28,11 +28,18 @@ from lxml import etree
 from pptx import Presentation
 from pptx.chart.data import CategoryChartData
 from pptx.dml.color import RGBColor
-from pptx.enum.chart import XL_CHART_TYPE, XL_LEGEND_POSITION, XL_TICK_MARK
+from pptx.enum.chart import (
+    XL_CHART_TYPE,
+    XL_DATA_LABEL_POSITION,
+    XL_LEGEND_POSITION,
+    XL_TICK_MARK,
+)
 from pptx.enum.dml import MSO_LINE_DASH_STYLE
 from pptx.enum.text import PP_ALIGN
 from pptx.oxml.ns import qn
 from pptx.util import Emu, Inches, Pt
+
+from .sgs_credit_analytics import eixo_datas_adaptativo, formatar_competencia
 
 # Slide 16:9.
 SLIDE_LARGURA = Inches(13.333)
@@ -64,20 +71,15 @@ FORMATO_PERCENTUAL = "0.00%"
 LARGURA_LINHA_PT = 1.75
 LARGURA_LINHA_TOTAL_PT = 2.25
 
-MESES_ABREV = [
-    "jan", "fev", "mar", "abr", "mai", "jun",
-    "jul", "ago", "set", "out", "nov", "dez",
-]
-
 PAINEIS_POR_SLIDE = 4
 
 
 def rotulo_mes(data_base: str) -> str:
-    """``2026-06`` -> ``jun.26``, no padrão dos eixos do deck."""
+    """``2026-06`` -> ``Jun/26``, no padrão dos eixos do deck."""
     texto = str(data_base)
     try:
         ano, mes = texto.split("-")[:2]
-        return f"{MESES_ABREV[int(mes) - 1]}.{ano[-2:]}"
+        return formatar_competencia(pd.Timestamp(year=int(ano), month=int(mes), day=1))
     except (ValueError, IndexError):
         return texto
 
@@ -159,6 +161,57 @@ def _rotular_apenas_ultimo_ponto(
         no.set("val", valor)
 
 
+def _rotular_todos_os_pontos(
+    serie, total: int, formato_numero: str = FORMATO_PERCENTUAL
+) -> None:
+    for indice in range(total):
+        _rotular_apenas_ultimo_ponto(serie, indice, formato_numero)
+
+
+def _posicoes_escalonadas_rotulos(
+    tabela: pd.DataFrame, ordem: Sequence[str]
+) -> Dict[str, XL_DATA_LABEL_POSITION]:
+    """Alterna acima/abaixo quando os pontos finais formam um aglomerado."""
+    finais: List[Tuple[str, float]] = []
+    for nome in ordem:
+        validos = pd.to_numeric(tabela[nome], errors="coerce").dropna()
+        if not validos.empty:
+            finais.append((nome, float(validos.iloc[-1])))
+    if len(finais) < 2:
+        return {nome: XL_DATA_LABEL_POSITION.RIGHT for nome, _ in finais}
+
+    valores = [valor for _, valor in finais]
+    amplitude = max(valores) - min(valores)
+    referencia = max(abs(valor) for valor in valores) or 1.0
+    distancia_minima = max(amplitude * 0.10, referencia * 0.012)
+    ordenados = sorted(finais, key=lambda item: item[1], reverse=True)
+    posicoes = {nome: XL_DATA_LABEL_POSITION.RIGHT for nome, _ in ordenados}
+
+    inicio = 0
+    while inicio < len(ordenados):
+        fim = inicio + 1
+        while (
+            fim < len(ordenados)
+            and abs(ordenados[fim - 1][1] - ordenados[fim][1]) <= distancia_minima
+        ):
+            fim += 1
+        grupo = ordenados[inicio:fim]
+        if len(grupo) > 1:
+            alternativas = (
+                (XL_DATA_LABEL_POSITION.ABOVE, XL_DATA_LABEL_POSITION.RIGHT)
+                if len(grupo) == 2
+                else (
+                    XL_DATA_LABEL_POSITION.ABOVE,
+                    XL_DATA_LABEL_POSITION.RIGHT,
+                    XL_DATA_LABEL_POSITION.BELOW,
+                )
+            )
+            for posicao, (nome, _) in enumerate(grupo):
+                posicoes[nome] = alternativas[posicao % len(alternativas)]
+        inicio = fim
+    return posicoes
+
+
 def _estilizar_eixos(
     chart, total_categorias: int, formato_numero: str = FORMATO_PERCENTUAL
 ) -> None:
@@ -222,14 +275,25 @@ def _adicionar_painel(
         index="data_base", columns="serie", values="valor", aggfunc="first",
         observed=True,
     ).sort_index()
-    rotulos_completos = [rotulo_mes(str(idx)) for idx in tabela.index]
-    categorias = [
-        rotulo if (
-            posicao == len(rotulos_completos) - 1
-            or str(idx)[5:7] in {"06", "12"}
-        ) else "\u00a0"
-        for posicao, (idx, rotulo) in enumerate(zip(tabela.index, rotulos_completos))
-    ]
+    ordem_categorias = getattr(painel, "ordem_categorias", None)
+    if ordem_categorias:
+        presentes = [categoria for categoria in ordem_categorias if categoria in tabela.index]
+        tabela = tabela.reindex(presentes)
+    indices = [str(idx) for idx in tabela.index]
+    meses_validos = all(
+        len(indice) >= 7 and indice[4] == "-" and indice[5:7].isdigit()
+        for indice in indices
+    )
+    if meses_validos:
+        datas = [pd.Timestamp(f"{indice[:7]}-01") for indice in indices]
+        selecionadas, _ = eixo_datas_adaptativo(datas)
+        meses_selecionados = {data.strftime("%Y-%m") for data in selecionadas}
+        categorias = [
+            rotulo_mes(indice) if indice[:7] in meses_selecionados else "\u00a0"
+            for indice in indices
+        ]
+    else:
+        categorias = indices
 
     dados = CategoryChartData()
     dados.categories = categorias
@@ -261,6 +325,7 @@ def _adicionar_painel(
     plot.has_data_labels = False
 
     indice_ultimo = len(categorias) - 1
+    posicoes_rotulos = _posicoes_escalonadas_rotulos(tabela, ordem)
     for posicao, nome in enumerate(ordem):
         serie = plot.series[posicao]
         serie.smooth = False
@@ -281,9 +346,21 @@ def _adicionar_painel(
         ultimo_valido = indice_ultimo
         while ultimo_valido >= 0 and pd.isna(coluna.iloc[ultimo_valido]):
             ultimo_valido -= 1
-        _rotular_apenas_ultimo_ponto(serie, ultimo_valido, formato_numero)
-        if ultimo_valido >= 0:
-            rotulo = serie.points[ultimo_valido].data_label
+        rotular_todos = bool(getattr(painel, "rotular_todos_pontos", False))
+        if rotular_todos:
+            _rotular_todos_os_pontos(serie, len(coluna), formato_numero)
+            indices_rotulados = [
+                indice for indice, valor in enumerate(coluna) if pd.notna(valor)
+            ]
+        else:
+            _rotular_apenas_ultimo_ponto(serie, ultimo_valido, formato_numero)
+            indices_rotulados = [ultimo_valido] if ultimo_valido >= 0 else []
+        for indice_rotulo in indices_rotulados:
+            rotulo = serie.points[indice_rotulo].data_label
+            if not rotular_todos:
+                rotulo.position = posicoes_rotulos.get(
+                    nome, XL_DATA_LABEL_POSITION.RIGHT
+                )
             rotulo.font.size = Pt(FONTE_ROTULO_PT)
             rotulo.font.bold = True
             rotulo.font.color.rgb = _hex_para_rgb(painel.cores.get(nome, "#8F8F8F"))

@@ -261,6 +261,24 @@ def test_regiao_ancora_escala_na_media_brasil(fato_multiperiodo):
     assert resultado["media_brasil"] == pytest.approx(esperado)
 
 
+def test_regiao_calcula_participacao_sobre_carteira_ativa_e_ordena_ufs():
+    fato = _fato([
+        _linha(uf="SP", carteira_ativa=6000.0, carteira_inadimplencia=600.0),
+        _linha(uf="RJ", carteira_ativa=3000.0, carteira_inadimplencia=600.0),
+        _linha(uf="BA", carteira_ativa=1000.0, carteira_inadimplencia=500.0),
+    ])
+
+    resultado = T.construir_por_regiao(fato)
+    mapa = resultado["mapa"]
+
+    assert resultado["carteira_brasil_rs_mil"] == pytest.approx(10000.0)
+    shares = dict(zip(mapa["uf"].astype(str), mapa["participacao_carteira"]))
+    assert shares == pytest.approx({"SP": 0.6, "RJ": 0.3, "BA": 0.1})
+    sudeste = mapa[mapa["regiao"].astype(str) == "Sudeste"]
+    assert sudeste["uf"].astype(str).tolist() == ["SP", "RJ"]
+    assert sudeste["ordem_na_regiao"].tolist() == [0, 1]
+
+
 def test_regiao_series_seguem_ordem_norte_sul(fato_multiperiodo):
     series = T.construir_por_regiao(fato_multiperiodo)["series"]
     ordem = series["regiao"].astype(str).drop_duplicates().tolist()
@@ -380,7 +398,7 @@ def test_menu_registra_a_aba():
     fonte = _app_source()
     assert '"Estatísticas Crédito BC": ["mercado_credito_sgs", "scr_data"]' in fonte
     mercado = (APP_PATH.parent / "tabs" / "mercado_credito.py").read_text(encoding="utf-8")
-    assert '"Inadimplência SCR"' in mercado
+    assert '"Inad por Faixa de Renda"' in mercado
     assert "render_scr_inadimplencia(get_cache_manager)" in mercado
 
 
@@ -424,13 +442,15 @@ def test_rota_cacheia_o_carregamento_pesado():
 
 def test_rota_renderiza_todas_as_secoes():
     fonte = _scr_route_source()
-    assert 'st.tabs(["Painéis", "Por região"])' in fonte
+    assert 'st.tabs(["Painéis", "Brasil e regiões"])' in fonte
     assert [secao.key for secao in T.SECOES] == ["paineis", "regiao"]
+    assert "_figura_heatmap_ufs" in fonte
+    assert '"Baixar PPTX desta aba"' in fonte
 
 
 def test_rota_protege_secoes_que_exigem_grao_completo():
     fonte = _scr_route_source()
-    assert 'st.tabs(["Painéis", "Por região"])' in fonte
+    assert 'st.tabs(["Painéis", "Brasil e regiões"])' in fonte
     assert "Por segmento de IF" not in fonte
 
 
@@ -441,6 +461,15 @@ def test_rota_coloca_alertas_no_popover_e_remove_rodape_verbose():
     assert "scr_spec.rodape(" not in fonte
     assert "st.warning(_pn_texto" not in fonte
     assert "st.caption(f\"ℹ️" not in fonte
+
+
+def test_rota_scr_tem_intervalo_mensal_flexivel_e_ordem_recente_primeiro():
+    fonte = _scr_route_source()
+    assert '"Período inicial"' in fonte
+    assert '"Período final"' in fonte
+    assert '"Mais recente"' in fonte
+    assert "reversed(periodos_timestamp)" in fonte
+    assert "formatar_competencia" in fonte
 
 
 def test_rota_scr_expoe_somente_modalidades_oficiais():

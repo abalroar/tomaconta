@@ -6,6 +6,7 @@ from io import BytesIO
 from pathlib import Path
 
 import pandas as pd
+import plotly.graph_objects as go
 import pytest
 
 from utils.ifdata_cache.sgs_credit import SGSCreditCache
@@ -20,7 +21,7 @@ from utils.sgs_credit_analytics import (
     real_yoy,
     shares,
 )
-from utils.sgs_credit_pptx_export import exportar_figuras_pptx
+from utils.sgs_credit_pptx_export import exportar_figuras_pptx, figura_para_painel
 from utils.sgs_credit_providers import BCBSGSProvider
 from utils.sgs_credit_registry import SGS_SERIES, SGS_SERIES_BY_CODE, get_series
 from tabs.mercado_credito import _filter_period_range, _real_growth_frame
@@ -123,20 +124,24 @@ def test_figures_label_only_last_valid_point_and_combo_has_secondary_axis():
     assert line.layout.meta["chart_title"] == "Taxa"
 
 
-def test_eixo_marca_junho_dezembro_e_ultimo_mes_disponivel():
+def test_eixo_escolhe_passo_adaptativo_e_inclui_ultimo_mes_disponivel():
     datas = pd.date_range("2025-01-31", "2026-07-31", freq="ME")
     valores, rotulos = eixo_datas_semestral(datas)
 
     assert [data.strftime("%Y-%m") for data in valores] == [
-        "2025-06", "2025-12", "2026-06", "2026-07"
+        "2025-01", "2025-03", "2025-05", "2025-07", "2025-09",
+        "2025-11", "2026-01", "2026-03", "2026-05", "2026-07",
     ]
-    assert rotulos == ["jun.25", "dez.25", "jun.26", "jul.26"]
+    assert rotulos == [
+        "Jan/25", "Mar/25", "Mai/25", "Jul/25", "Set/25",
+        "Nov/25", "Jan/26", "Mar/26", "Mai/26", "Jul/26",
+    ]
 
     fig = line_figure(
         pd.DataFrame({"taxa_pf_livre": range(len(datas))}, index=datas),
         ["taxa_pf_livre"], title="Taxa", y_title="%",
     )
-    assert fig.layout.xaxis.tickangle == -35
+    assert fig.layout.xaxis.tickangle == 0
 
 
 def test_eixo_nao_repete_mes_quando_series_fecham_em_dias_distintos():
@@ -147,7 +152,7 @@ def test_eixo_nao_repete_mes_quando_series_fecham_em_dias_distintos():
     assert [data.strftime("%Y-%m-%d") for data in valores] == [
         "2025-12-31", "2026-06-30", "2026-07-30"
     ]
-    assert rotulos == ["dez.25", "jun.26", "jul.26"]
+    assert rotulos == ["Dez/25", "Jun/26", "Jul/26"]
 
 
 def test_export_sgs_gera_grafico_office_nativo_com_titulo_e_ultimo_rotulo():
@@ -168,6 +173,29 @@ def test_export_sgs_gera_grafico_office_nativo_com_titulo_e_ultimo_rotulo():
     assert len(charts) == 1
     assert "Taxa PF" in textos
     assert "undefined" not in blob.decode("latin-1", errors="ignore").lower()
+
+
+def test_export_sgs_aceita_categorias_de_uf_e_rotula_todas_as_barras():
+    from pptx import Presentation
+
+    fig = go.Figure(go.Bar(x=["SP", "RJ", "BA"], y=[50.0, 30.0, 20.0], name="Participação"))
+    fig.update_layout(meta={
+        "chart_title": "Participação por UF",
+        "value_format": "0.0%",
+        "value_scale": 0.01,
+        "label_all_points": True,
+        "source": "fonte: Banco Central do Brasil · SCR.data",
+    })
+
+    painel = figura_para_painel(fig)
+    assert painel.fonte.endswith("SCR.data")
+
+    blob, _ = exportar_figuras_pptx([fig], titulo_deck="Teste")
+    deck = Presentation(BytesIO(blob))
+    chart = [shape.chart for shape in deck.slides[0].shapes if shape.has_chart][0]
+
+    assert list(chart.plots[0].categories) == ["SP", "RJ", "BA"]
+    assert all(point.data_label is not None for point in chart.series[0].points)
 
 
 def test_line_labels_are_staggered_and_keep_series_order():
@@ -347,7 +375,11 @@ def test_credit_module_has_period_range_info_popovers_and_no_expectations_regist
     assert "Expectativas do Mercado de Crédito" not in source
     assert "Registry de séries SGS" not in source
     assert "DateOffset(months=11)" in source
-    assert '"Baixar PPTX desta página"' in source
+    assert '"Baixar PPTX desta aba"' in source
+    assert "reversed(periods)" in source
+    assert "formatar_competencia" in source
+    assert "border-radius: 50%" in source
+    assert '"SCR.data"' in source
     assert "_render_source_footer" not in source
     assert 'fig.update_layout(title_text=""' in source
     assert "fig.update_layout(title=None" not in source

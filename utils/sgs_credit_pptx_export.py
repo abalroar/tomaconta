@@ -50,6 +50,7 @@ def figura_para_painel(fig: Any) -> Any:
     formato, escala = _formato_e_escala(fig)
     linhas: list[dict[str, Any]] = []
     ordem: list[str] = []
+    ordem_categorias: list[str] = []
     cores: dict[str, str] = {}
     tipos: set[str] = set()
 
@@ -64,15 +65,24 @@ def figura_para_painel(fig: Any) -> Any:
         tipos.add(str(getattr(trace, "type", "scatter")))
         for data, valor in zip(trace.x, trace.y):
             numero = pd.to_numeric(valor, errors="coerce")
+            try:
+                categoria = pd.Timestamp(data).strftime("%Y-%m")
+            except (TypeError, ValueError):
+                categoria = str(data)
+            if categoria not in ordem_categorias:
+                ordem_categorias.append(categoria)
             linhas.append({
-                "data_base": pd.Timestamp(data).strftime("%Y-%m"),
+                "data_base": categoria,
                 "serie": nome,
                 "valor": None if pd.isna(numero) else float(numero) * escala,
                 "denominador": pd.NA,
             })
 
     apenas_barras = tipos == {"bar"}
-    fonte = "fonte: Banco Central do Brasil · BCData/SGS"
+    meta = fig.layout.meta if isinstance(fig.layout.meta, dict) else {}
+    fonte = str(
+        meta.get("source") or "fonte: Banco Central do Brasil · BCData/SGS"
+    )
     titulo_y = getattr(getattr(fig.layout, "yaxis", None), "title", None)
     subtitulo = getattr(titulo_y, "text", None) or "Série mensal"
     return SimpleNamespace(
@@ -82,12 +92,18 @@ def figura_para_painel(fig: Any) -> Any:
         produto=_titulo(fig),
         series=pd.DataFrame(linhas),
         ordem_series=ordem,
+        ordem_categorias=ordem_categorias,
         cores=cores or {"Série": ITAU_MID_GRAY},
         tracejadas=[],
         metrica="sgs",
         carteira_final_rs_mil=0.0,
         formato_numero=formato,
         tipo_grafico="column_stacked" if apenas_barras else "line",
+        rotular_todos_pontos=bool(
+            (fig.layout.meta or {}).get("label_all_points", False)
+            if isinstance(fig.layout.meta, dict)
+            else False
+        ),
     )
 
 
