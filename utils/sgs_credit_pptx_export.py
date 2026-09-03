@@ -84,13 +84,19 @@ def figura_para_painel(fig: Any) -> Any:
     empilhado = {str(getattr(t, "type", "scatter")) for t in traces} == {"bar"}
 
     for posicao, trace in enumerate(traces):
-        nome = str(getattr(trace, "name", None) or f"Série {posicao + 1}")
+        meta_trace = trace.meta if isinstance(trace.meta, dict) else {}
+        # O nome do trace pode trazer marcação HTML, usada para tingir o item
+        # da legenda no navegador. No deck vale o texto limpo.
+        nome = str(
+            meta_trace.get("rotulo_limpo")
+            or getattr(trace, "name", None)
+            or f"Série {posicao + 1}"
+        )
         if nome in ordem:
             nome = f"{nome} ({posicao + 1})"
         ordem.append(nome)
         cores[nome] = _cor_trace(trace, posicao, empilhado=empilhado)
         tipos.add(str(getattr(trace, "type", "scatter")))
-        meta_trace = trace.meta if isinstance(trace.meta, dict) else {}
         if meta_trace.get("eixo") == "secundario" or (
             getattr(trace, "yaxis", None) == "y2"
         ):

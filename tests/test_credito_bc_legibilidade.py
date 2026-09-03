@@ -19,8 +19,10 @@ from pptx.oxml.ns import qn
 
 from utils.sgs_credit_analytics import (
     COR_ROTULO_SOBRE,
+    ITAU_ORANGE,
     PALETA_LINHA,
     PALETA_PREENCHIMENTO,
+    TAMANHO_ROTULO_BARRA_PX,
     TAMANHO_ROTULO_PX,
     _altura_area_plotagem,
     _espalhar_em_pixels,
@@ -257,3 +259,266 @@ def test_card_de_volume_e_prazo_mantem_os_dois_eixos_no_pptx():
     assert plot_area.find(qn("c:lineChart")) is not None
     assert len(plot_area.findall(qn("c:valAx"))) == 2
     assert meta["detalhe"][0]["eixo_secundario"] is True
+
+
+# =============================================================================
+# VALIDADE DO ARQUIVO POWERPOINT
+# =============================================================================
+# O PowerPoint recusa o arquivo inteiro ("é preciso reparar") quando a ordem
+# dos elementos foge da sequência do schema. Foi o que aconteceu com o deck de
+# Concessões: o <c:lineChart> do eixo secundário entrava depois dos eixos, e o
+# <c:marker> da série movida entrava depois de <c:val>.
+
+_NS = "{http://schemas.openxmlformats.org/drawingml/2006/chart}"
+
+# Grupos de gráfico devem vir todos antes de qualquer eixo (CT_PlotArea).
+_GRUPOS = {
+    "areaChart", "area3DChart", "lineChart", "line3DChart", "stockChart",
+    "radarChart", "scatterChart", "pieChart", "pie3DChart", "doughnutChart",
+    "barChart", "bar3DChart", "ofPieChart", "surfaceChart", "surface3DChart",
+    "bubbleChart",
+}
+_EIXOS = {"valAx", "catAx", "dateAx", "serAx"}
+
+_SEQUENCIAS = {
+    "lineChart": [
+        "grouping", "varyColors", "ser", "dLbls", "dropLines", "hiLowLines",
+        "upDownBars", "marker", "smooth", "axId", "extLst",
+    ],
+    "barChart": [
+        "barDir", "grouping", "varyColors", "ser", "dLbls", "gapWidth",
+        "overlap", "serLines", "axId", "extLst",
+    ],
+    "catAx": [
+        "axId", "scaling", "delete", "axPos", "majorGridlines", "minorGridlines",
+        "title", "numFmt", "majorTickMark", "minorTickMark", "tickLblPos",
+        "spPr", "txPr", "crossAx", "crosses", "crossesAt", "auto", "lblAlgn",
+        "lblOffset", "tickLblSkip", "tickMarkSkip", "noMultiLvlLbl", "extLst",
+    ],
+    "valAx": [
+        "axId", "scaling", "delete", "axPos", "majorGridlines", "minorGridlines",
+        "title", "numFmt", "majorTickMark", "minorTickMark", "tickLblPos",
+        "spPr", "txPr", "crossAx", "crosses", "crossesAt", "crossBetween",
+        "majorUnit", "minorUnit", "dispUnits", "extLst",
+    ],
+}
+_SEQUENCIA_SER = [
+    "idx", "order", "tx", "spPr", "marker", "invertIfNegative",
+    "pictureOptions", "dPt", "dLbls", "trendline", "errBars", "cat", "val",
+    "shape", "smooth", "extLst",
+]
+
+
+def _local(elemento) -> str:
+    return elemento.tag.replace(_NS, "")
+
+
+def _em_ordem(elemento, sequencia: list[str]) -> bool:
+    posicoes = [
+        sequencia.index(_local(filho))
+        for filho in elemento
+        if _local(filho) in sequencia
+    ]
+    return posicoes == sorted(posicoes)
+
+
+def validar_xml_do_grafico(xml: bytes) -> list[str]:
+    """Erros de ordem que fazem o PowerPoint pedir reparo. Vazio = válido."""
+    from lxml import etree
+
+    erros: list[str] = []
+    raiz = etree.fromstring(xml)
+    for plot_area in raiz.iter(f"{_NS}plotArea"):
+        filhos = [_local(e) for e in plot_area]
+        indices_grupo = [i for i, n in enumerate(filhos) if n in _GRUPOS]
+        indices_eixo = [i for i, n in enumerate(filhos) if n in _EIXOS]
+        if indices_grupo and indices_eixo and max(indices_grupo) > min(indices_eixo):
+            erros.append(f"grupo de gráfico depois de eixo: {filhos}")
+        for elemento in plot_area:
+            nome = _local(elemento)
+            if nome in _SEQUENCIAS and not _em_ordem(elemento, _SEQUENCIAS[nome]):
+                erros.append(f"<c:{nome}> fora de ordem: {[_local(f) for f in elemento]}")
+            for ser in elemento.findall(f"{_NS}ser"):
+                if not _em_ordem(ser, _SEQUENCIA_SER):
+                    erros.append(
+                        f"<c:ser> de <c:{nome}> fora de ordem: "
+                        f"{[_local(f) for f in ser]}"
+                    )
+    return erros
+
+
+def _graficos_do_deck(blob: bytes) -> list[bytes]:
+    import zipfile
+
+    arquivo = zipfile.ZipFile(BytesIO(blob))
+    return [
+        arquivo.read(nome)
+        for nome in arquivo.namelist()
+        if nome.startswith("ppt/charts/chart") and nome.endswith(".xml")
+    ]
+
+
+def test_deck_de_concessoes_respeita_a_sequencia_do_schema():
+    """O card de volume e prazo é o que quebrava o arquivo inteiro."""
+    index = pd.date_range("2025-08-31", periods=12, freq="ME")
+    wide = pd.DataFrame(
+        {
+            "concessoes_livre_pj": [250_000.0 + i * 8_000 for i in range(12)],
+            "prazo_livre_pj": [24.0 + i * 0.8 for i in range(12)],
+        },
+        index=index,
+    )
+    fig = bar_line_figure(
+        wide, bar_alias="concessoes_livre_pj", line_alias="prazo_livre_pj",
+        title="Concessões PJ",
+    )
+    blob, _ = exportar_figuras_pptx([fig], titulo_deck="Concessões")
+    for xml in _graficos_do_deck(blob):
+        assert validar_xml_do_grafico(xml) == []
+
+
+def test_deck_de_empilhado_e_de_linha_respeitam_a_sequencia_do_schema():
+    wide = _wide(series=4)
+    total = wide[[f"serie_{i}" for i in range(4)]].sum(axis=1)
+    figuras = [
+        stacked_figure(
+            wide, [f"serie_{i}" for i in range(4)],
+            title="Empilhado", y_title="R$ bi", total=total,
+        ),
+        line_figure(
+            _wide(series=7), [f"serie_{i}" for i in range(7)],
+            title="Linhas", y_title="%",
+        ),
+    ]
+    blob, _ = exportar_figuras_pptx(figuras, titulo_deck="Misto")
+    for xml in _graficos_do_deck(blob):
+        assert validar_xml_do_grafico(xml) == []
+
+
+def test_validador_pega_a_inversao_que_quebrava_o_arquivo():
+    """Prova que o teste acima falharia se a regressão voltasse."""
+    from lxml import etree
+
+    xml = f"""<c:chartSpace xmlns:c="{_NS[1:-1]}">
+      <c:chart><c:plotArea>
+        <c:barChart><c:axId val="1"/></c:barChart>
+        <c:valAx><c:axId val="2"/></c:valAx>
+        <c:lineChart><c:axId val="3"/></c:lineChart>
+      </c:plotArea></c:chart>
+    </c:chartSpace>""".encode()
+    assert validar_xml_do_grafico(xml)
+
+
+# =============================================================================
+# LEITURA DAS BARRAS
+# =============================================================================
+
+def test_primeira_barra_nao_e_cortada_pela_faixa_do_eixo():
+    """A faixa precisa de meia categoria de folga antes da primeira barra.
+
+    Começando exatamente no centro dela, o Plotly desenhava só a metade
+    direita — e o duplo clique "consertava" porque restaura o autorange.
+    """
+    index = pd.date_range("2025-08-31", periods=12, freq="ME")
+    wide = pd.DataFrame(
+        {
+            "concessoes_livre_pj": [250_000.0 + i * 8_000 for i in range(12)],
+            "prazo_livre_pj": [24.0 + i * 0.8 for i in range(12)],
+        },
+        index=index,
+    )
+    fig = bar_line_figure(
+        wide, bar_alias="concessoes_livre_pj", line_alias="prazo_livre_pj",
+        title="Concessões PJ",
+    )
+    inicio = pd.Timestamp(fig.layout.xaxis.range[0])
+    fim = pd.Timestamp(fig.layout.xaxis.range[1])
+    assert inicio < index[0], "a faixa começa em cima da primeira barra"
+    assert (index[0] - inicio) >= pd.Timedelta(days=10)
+    assert fim > index[-1]
+
+
+def test_barra_larga_rotula_todos_os_periodos_com_fonte_maior():
+    index = pd.date_range("2025-08-31", periods=12, freq="ME")
+    wide = pd.DataFrame(
+        {
+            "concessoes_livre_pj": [250_000.0 + i * 8_000 for i in range(12)],
+            "prazo_livre_pj": [24.0 + i * 0.8 for i in range(12)],
+        },
+        index=index,
+    )
+    fig = bar_line_figure(
+        wide, bar_alias="concessoes_livre_pj", line_alias="prazo_livre_pj",
+        title="Concessões PJ",
+    )
+    barra = fig.data[0]
+    assert sum(1 for t in barra.text if t) == 12
+    assert barra.textfont.size == TAMANHO_ROTULO_BARRA_PX
+    assert fig.layout.uniformtext.minsize == TAMANHO_ROTULO_BARRA_PX
+    assert barra.textangle == 0
+
+
+def test_eixo_secundario_e_a_linha_saem_em_laranja():
+    """Cor é o que diz que "meses" se lê à direita, sem precisar de nota."""
+    index = pd.date_range("2025-08-31", periods=6, freq="ME")
+    wide = pd.DataFrame(
+        {
+            "concessoes_livre_pj": [250_000.0 + i * 8_000 for i in range(6)],
+            "prazo_livre_pj": [24.0 + i * 0.8 for i in range(6)],
+        },
+        index=index,
+    )
+    fig = bar_line_figure(
+        wide, bar_alias="concessoes_livre_pj", line_alias="prazo_livre_pj",
+        title="Concessões PJ",
+    )
+    assert fig.data[1].line.color == ITAU_ORANGE
+    assert fig.layout.yaxis2.tickfont.color == ITAU_ORANGE
+    assert ITAU_ORANGE in fig.data[1].name  # item da legenda tingido
+    # O nome com marcação HTML não pode vazar para o deck.
+    assert figura_para_painel(fig).ordem_series[1] == "Prazo médio"
+
+
+# =============================================================================
+# CARD DE MEIA LARGURA
+# =============================================================================
+
+def test_card_compacto_encolhe_a_margem_e_mantem_o_nome_na_ponta_da_linha():
+    """Meia largura preserva o que torna oito linhas próximas legíveis."""
+    wide = _wide(series=8)
+    compacto = line_figure(
+        wide, [f"serie_{i}" for i in range(8)],
+        title="Oito linhas", y_title="%", suffix="%", compacto=True,
+    )
+    largo = line_figure(
+        wide, [f"serie_{i}" for i in range(8)],
+        title="Oito linhas", y_title="%", suffix="%",
+    )
+    assert compacto.layout.height < largo.layout.height
+    assert compacto.layout.margin.r < largo.layout.margin.r
+    assert compacto.layout.showlegend is False
+    assert len(compacto.layout.annotations) == 8
+    assert any("serie_0" in a.text for a in compacto.layout.annotations)
+
+    altura_area = _altura_area_plotagem(compacto)
+    menor, maior = compacto.layout.yaxis.range
+    escala = altura_area / (maior - menor)
+    posicoes = sorted((maior - a.y) * escala + a.ay for a in compacto.layout.annotations)
+    for anterior, seguinte in zip(posicoes, posicoes[1:]):
+        assert seguinte - anterior >= TAMANHO_ROTULO_PX
+
+
+def test_eixo_categorico_nao_quebra_o_estilo():
+    """A barra por UF passa pela mesma função de estilo dos gráficos de tempo.
+
+    Com siglas no eixo X, a extração de datas estourava e derrubava a aba
+    "Brasil e regiões" inteira.
+    """
+    import plotly.graph_objects as go
+
+    from utils.sgs_credit_analytics import _valid_trace_dates, aplicar_estilo
+
+    fig = go.Figure(go.Bar(x=["RR", "SP", "BA"], y=[1.0, 2.0, 3.0]))
+    assert _valid_trace_dates(fig) == []
+    aplicar_estilo(fig, title="Por UF", y_title="%", legenda=False)
+    assert fig.layout.xaxis.tickmode != "array"
