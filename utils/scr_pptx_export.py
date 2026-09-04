@@ -43,6 +43,7 @@ from .sgs_credit_analytics import (
     ITAU_BLACK,
     cor_do_rotulo,
     eixo_datas_adaptativo,
+    escala_de_eixo,
     formatar_competencia,
 )
 
@@ -63,7 +64,13 @@ FONTE_TITULO_PT = 13
 FONTE_SUBTITULO_PT = 10
 FONTE_FONTE_PT = 7.5
 FONTE_EIXO_PT = 8
-FONTE_LEGENDA_PT = 8
+# O eixo dos meses tem doze marcas e é o primeiro a ficar apinhado; um
+# ponto a menos que o eixo de valores resolve sem perder leitura.
+FONTE_EIXO_CATEGORIA_PT = 7
+# A legenda vai no mesmo corpo do eixo: ela ocupa a faixa da direita, e cada
+# ponto a mais ali é largura que sai do gráfico — a ponto de os meses do eixo
+# ficarem colados um no outro.
+FONTE_LEGENDA_PT = 7
 FONTE_ROTULO_PT = 8
 # Na coluna empilhada o rótulo tem que caber na largura da barra: com 12
 # meses num gráfico de meia lâmina, a barra tem cerca de 0,34 in e um valor
@@ -71,6 +78,9 @@ FONTE_ROTULO_PT = 8
 FONTE_ROTULO_COLUNA_PT = 7
 # Abaixo desta fatia do total, o rótulo não cabe na altura da barra.
 PARTICIPACAO_MINIMA_ROTULO = 0.07
+# Acima disto a barra fica mais estreita que o próprio valor e o rótulo vai
+# para a vertical, que é o que evita o corte no meio do número.
+MAXIMO_COLUNAS_ROTULO_DEITADO = 14
 # Muitas séries no mesmo gráfico: o rótulo encolhe para os nomes caberem
 # empilhados na faixa da direita sem se sobrepor.
 FONTE_ROTULO_DENSO_PT = 6.5
@@ -142,7 +152,14 @@ def _caixa_texto(
     return caixa
 
 
-
+def _definir_tick_lbl_pos(eixo, valor: str) -> None:
+    """Onde os rótulos do eixo de categorias são desenhados."""
+    elemento = eixo._element
+    no = elemento.find(qn("c:tickLblPos"))
+    if no is None:
+        no = etree.SubElement(elemento, qn("c:tickLblPos"))
+    no.set("val", valor)
+    _ordenar_filhos(elemento, ORDEM_CAT_AX)
 
 
 def _definir_intervalo_rotulos(category_axis, total_categorias: int) -> int:
@@ -156,6 +173,15 @@ def _definir_intervalo_rotulos(category_axis, total_categorias: int) -> int:
         no.set("val", str(intervalo))
     _ordenar_filhos(elemento, ORDEM_CAT_AX)
     return intervalo
+
+
+# Ordem exigida para os filhos de <c:dLbl> (CT_DLbl).
+ORDEM_DLBL = (
+    "c:idx", "c:delete", "c:layout", "c:tx", "c:numFmt", "c:spPr", "c:txPr",
+    "c:dLblPos", "c:showLegendKey", "c:showVal", "c:showCatName",
+    "c:showSerName", "c:showPercent", "c:showBubbleSize", "c:separator",
+    "c:extLst",
+)
 
 
 def _rotular_apenas_ultimo_ponto(
@@ -195,6 +221,7 @@ def _rotular_apenas_ultimo_ponto(
         if no is None:
             no = etree.SubElement(dLbl, qn(tag))
         no.set("val", valor)
+    _ordenar_filhos(dLbl, ORDEM_DLBL)
 
 
 def _rotular_todos_os_pontos(
@@ -224,6 +251,45 @@ def _layout_do_rotulo(rotulo, x: float, y: float) -> None:
     for tag, valor in (("c:x", round(x, 4)), ("c:y", round(y, 4))):
         no = etree.SubElement(manual, qn(tag))
         no.set("val", str(valor))
+    _ordenar_filhos(elemento, ORDEM_DLBL)
+
+
+# Fração da largura reservada, à direita, para o rótulo do último ponto.
+GUTTER_ROTULO_LINHA = 0.28
+GUTTER_ROTULO_LINHA_MINIMO = 0.16
+# Piso da faixa de rótulo e largura dos números do eixo da direita, ambos em
+# polegadas: é o que a régua e o nome da série ocupam de fato no papel.
+LARGURA_MINIMA_FAIXA_IN = 0.95
+LARGURA_REGUA_DIREITA_IN = 0.62
+
+
+def gutter_para(
+    finais: Sequence[Tuple[str, float]], largura_emu: int, rotulo_fn=None,
+    recuo_in: float = 0.0,
+) -> float:
+    """Faixa à direita: a régua do eixo mais o maior nome de série.
+
+    Gráfico com nomes curtos — "PF inad; 7,8%" — não precisa de um terço da
+    largura reservado, e essa sobra vinha do eixo dos meses, que ficava
+    apinhado. A conta é em polegadas: numa lâmina inteira, uma fração fixa
+    reservava quatro polegadas para um rótulo de uma.
+
+    O nome entra inteiro quando cabe numa linha dentro do teto da faixa. Quando
+    não cabe, entra pela metade, que é o que ele ocupa quebrado em duas — o
+    Office quebra o rótulo só na borda do gráfico, então a faixa precisa
+    comportar a largura que ele vai mesmo ter.
+    """
+    if not finais:
+        return GUTTER_ROTULO_LINHA_MINIMO
+    rotulo_fn = rotulo_fn or (lambda nome: nome)
+    corpo = corpo_do_rotulo(len(finais))
+    maior = max(len(f"{rotulo_fn(nome)}; 00,0%") for nome, _ in finais)
+    largura_in = max(largura_emu / 914400.0, 0.5)
+    uma_linha_in = maior * (LARGURA_MEDIA_CARACTERE * corpo / 72)
+    teto_in = GUTTER_ROTULO_LINHA * largura_in - recuo_in
+    necessario_in = uma_linha_in if uma_linha_in <= teto_in else uma_linha_in / 2
+    total_in = max(necessario_in, LARGURA_MINIMA_FAIXA_IN) + recuo_in
+    return min(GUTTER_ROTULO_LINHA, total_in / largura_in)
 
 
 def corpo_do_rotulo(total_series: int) -> float:
@@ -236,6 +302,9 @@ def _escalonar_no_gutter(
     altura_grafico_emu: int,
     largura_grafico_emu: int,
     rotulo_fn=None,
+    gutter: float = GUTTER_ROTULO_LINHA,
+    secundarias: Sequence[str] = (),
+    escalas: Optional[Dict[bool, Tuple[float, float]]] = None,
 ) -> Dict[str, float]:
     """Posição vertical de cada rótulo na faixa da direita, sem sobreposição.
 
@@ -248,13 +317,13 @@ def _escalonar_no_gutter(
         return {}
     rotulo_fn = rotulo_fn or (lambda nome: nome)
     altura_in = max(altura_grafico_emu / 914400.0, 0.5)
-    largura_faixa_in = largura_grafico_emu / 914400.0 * GUTTER_ROTULO_LINHA
+    largura_faixa_in = largura_grafico_emu / 914400.0 * gutter
     corpo = corpo_do_rotulo(len(finais))
     # A caixa do rótulo tem margem própria e quebra antes do que a largura
     # bruta sugere; o fator segura a estimativa do lado conservador, porque
     # subestimar a altura de um rótulo faz ele entrar no de baixo.
     por_linha = max(
-        int(largura_faixa_in * 0.7 / (LARGURA_MEDIA_CARACTERE * corpo / 72)), 8
+        int(largura_faixa_in * 0.58 / (LARGURA_MEDIA_CARACTERE * corpo / 72)), 8
     )
     unidade = (corpo * FATOR_LINHA_CALIBRI / 72) / altura_in
 
@@ -263,21 +332,44 @@ def _escalonar_no_gutter(
         return max(1, -(-len(texto) // por_linha)) * unidade
 
     topo, base = 0.04, 0.04 + ALTURA_PLOT_LINHA
-    valores = [valor for _, valor in finais]
-    menor, maior = min(valores), max(valores)
-    amplitude = (maior - menor) or 1.0
-    alvos = {
-        nome: topo + (maior - valor) / amplitude * (base - topo - unidade)
-        for nome, valor in finais
-    }
+    # Cada série é lida na régua do próprio eixo, a mesma que o gráfico usa.
+    # Normalizar pelo intervalo dos valores finais jogava o rótulo do eixo da
+    # direita para o rodapé, longe da linha que ele nomeia.
+    secundarias = set(secundarias)
+    escalas = dict(escalas or {})
+    for eh_secundaria in (False, True):
+        if eh_secundaria in escalas:
+            continue
+        grupo = [
+            valor for nome, valor in finais
+            if (nome in secundarias) is eh_secundaria
+        ]
+        if grupo:
+            escalas[eh_secundaria] = escala_de_eixo(grupo)
+
+    def alvo(nome: str, valor: float) -> float:
+        piso, teto = escalas[nome in secundarias]
+        amplitude = (teto - piso) or 1.0
+        fracao = min(max((teto - valor) / amplitude, 0.0), 1.0)
+        return topo + fracao * (base - topo - unidade)
+
+    alvos = {nome: alvo(nome, valor) for nome, valor in finais}
 
     ordem = sorted(alvos, key=lambda nome: alvos[nome])
     necessario = sum(alturas(nome) for nome in ordem)
+    def empilhar(fator: float = 1.0) -> Dict[str, float]:
+        """Encosta um rótulo no outro, de cima para baixo, na ordem das séries."""
+        posicao, resultado = topo, {}
+        for nome in ordem:
+            resultado[nome] = posicao
+            posicao += alturas(nome) * fator
+        return resultado
+
     if necessario > base - topo:
-        # Não cabe nem encostando um no outro: distribui por igual na faixa,
-        # o que ainda preserva a ordem das séries e a maior distância possível.
-        passo = (base - topo) / len(ordem)
-        return {nome: topo + i * passo for i, nome in enumerate(ordem)}
+        # Não cabe nem encostando um no outro: comprime na proporção da altura
+        # de cada rótulo. Repartir a faixa em fatias iguais dava a um nome de
+        # duas linhas o mesmo espaço de um de uma, e os dois se sobrepunham.
+        return empilhar((base - topo) / necessario)
 
     posicoes = dict(alvos)
     for anterior, atual in zip(ordem, ordem[1:]):
@@ -286,10 +378,9 @@ def _escalonar_no_gutter(
     if fundo > base:
         folga_acima = posicoes[ordem[0]] - topo
         if fundo - base > folga_acima:
-            # Não há de onde subir: distribui por igual, mantendo a ordem, em
-            # vez de deixar o excedente empilhado no rodapé.
-            passo = (base - topo) / len(ordem)
-            return {nome: topo + i * passo for i, nome in enumerate(ordem)}
+            # Não há de onde subir: encosta todos a partir do topo. Cabe, já
+            # que a soma das alturas foi conferida acima.
+            return empilhar()
         for nome in posicoes:
             posicoes[nome] -= fundo - base
     return posicoes
@@ -340,9 +431,19 @@ def _posicoes_escalonadas_rotulos(
 
 
 def _estilizar_eixos(
-    chart, total_categorias: int, formato_numero: str = FORMATO_PERCENTUAL
+    chart, total_categorias: int, formato_numero: str = FORMATO_PERCENTUAL,
+    base_zero: bool = False,
+    escala: Optional[Tuple[float, float]] = None,
 ) -> None:
     eixo_valor = chart.value_axis
+    if escala is not None:
+        # Escala fixa: o rótulo do último ponto é posicionado por coordenada e
+        # precisa da mesma régua que o gráfico desenha.
+        eixo_valor.minimum_scale, eixo_valor.maximum_scale = escala
+    elif base_zero:
+        # Mesma âncora da tela: barra medida a partir do zero, para a variação
+        # aparecer na proporção certa.
+        eixo_valor.minimum_scale = 0
     eixo_valor.tick_labels.number_format = formato_numero
     eixo_valor.tick_labels.number_format_is_linked = False
     eixo_valor.tick_labels.font.size = Pt(FONTE_EIXO_PT)
@@ -355,7 +456,10 @@ def _estilizar_eixos(
     eixo_valor.minor_tick_mark = XL_TICK_MARK.NONE
 
     eixo_categoria = chart.category_axis
-    eixo_categoria.tick_labels.font.size = Pt(FONTE_EIXO_PT)
+    eixo_categoria.tick_labels.font.size = Pt(FONTE_EIXO_CATEGORIA_PT)
+    # Meses sempre no rodapé do gráfico. Com o padrão, uma série que cruza o
+    # zero empurra os rótulos para o meio, por cima das próprias linhas.
+    _definir_tick_lbl_pos(eixo_categoria, "low")
     eixo_categoria.tick_labels.font.color.rgb = COR_EIXO
     eixo_categoria.has_major_gridlines = False
     eixo_categoria.format.line.color.rgb = COR_GRADE
@@ -367,15 +471,56 @@ def _estilizar_eixos(
 # Fração da largura reservada, à direita, para o rótulo do último ponto. Sem
 # ela o rótulo é desenhado dentro da área de plotagem, sobre as próprias
 # linhas, e cortado na borda do gráfico.
-GUTTER_ROTULO_LINHA = 0.28
 # Na coluna empilhada o rótulo do último mês fica dentro da fatia, mas o
 # texto sobra para a direita da barra e era cortado na borda do gráfico.
-GUTTER_ROTULO_COLUNA = 0.30
+GUTTER_ROTULO_COLUNA = 0.24
+GUTTER_LEGENDA_MAXIMO = 0.30
+# Piso da faixa de legenda, em polegadas: o quadrado da cor mais um nome curto.
+LARGURA_MINIMA_LEGENDA_IN = 1.05
 # Altura da área de plotagem. O resto do quadro é o eixo de categorias e a
 # legenda. A coluna precisa de mais folga embaixo: a legenda tem mais itens e
 # entrava por cima dos meses.
 ALTURA_PLOT_LINHA = 0.86
 ALTURA_PLOT_COLUNA = 0.84
+
+
+# Ordem exigida para os filhos de <c:legend> (CT_Legend).
+ORDEM_LEGENDA = (
+    "c:legendPos", "c:legendEntry", "c:layout", "c:overlay", "c:spPr",
+    "c:txPr", "c:extLst",
+)
+
+
+def _layout_manual_da_legenda(
+    legend, gutter: float, total_series: int, altura_emu: int
+) -> None:
+    """Prende a legenda à faixa da direita, na altura que as entradas pedem.
+
+    Sem caixa explícita o Office desenha a legenda numa área própria, menor
+    que o quadro, e corta as entradas que não couberem: o card de mix da
+    carteira mostrava sete das dez séries, e as três escondidas eram
+    justamente as de nome comprido. A caixa acompanha o número de séries e
+    fica centrada — cobrindo a altura inteira, três entradas ficavam espalhadas
+    de ponta a ponta.
+    """
+    altura_in = max(altura_emu / 914400.0, 0.5)
+    linha = (FONTE_LEGENDA_PT * FATOR_LINHA_CALIBRI / 72) * 1.25
+    altura = min(0.96, (total_series * linha + 0.08) / altura_in)
+    elemento = legend._element
+    existente = elemento.find(qn("c:layout"))
+    if existente is not None:
+        elemento.remove(existente)
+    layout = etree.SubElement(elemento, qn("c:layout"))
+    manual = etree.SubElement(layout, qn("c:manualLayout"))
+    _definir(manual, "c:xMode", "edge")
+    _definir(manual, "c:yMode", "edge")
+    for tag, valor in (
+        ("c:x", round(1.0 - gutter, 4)), ("c:y", round((1.0 - altura) / 2, 4)),
+        ("c:w", round(gutter, 4)), ("c:h", round(altura, 4)),
+    ):
+        no = etree.SubElement(manual, qn(tag))
+        no.set("val", str(valor))
+    _ordenar_filhos(elemento, ORDEM_LEGENDA)
 
 
 def _layout_manual_do_plot(plot_area, gutter: float, altura: float) -> None:
@@ -430,19 +575,6 @@ def _sem_preenchimento_nem_contorno(elemento, sequencia: Sequence[str]) -> None:
     linha = etree.SubElement(sp_pr, qn("a:ln"))
     etree.SubElement(linha, qn("a:noFill"))
     _ordenar_filhos(elemento, sequencia)
-
-
-def _proximo_ax_id(chart, deslocamento: int) -> int:
-    """Id de eixo inédito dentro do gráfico."""
-    existentes = {
-        int(no.get("val"))
-        for no in chart._chartSpace.iter(qn("c:axId"))
-        if no.get("val")
-    }
-    candidato = (max(existentes) if existentes else 100_000_000) + deslocamento
-    while candidato in existentes:
-        candidato += 1
-    return candidato
 
 
 # Ordem exigida pelo schema para os filhos de <c:ser> num gráfico de linhas
@@ -507,7 +639,8 @@ def _indice_apos_grupos(plot_area) -> int:
 
 
 def _mover_para_eixo_secundario(
-    chart, indices: Sequence[int], formato_numero: str, cor: RGBColor | None = None
+    chart, indices: Sequence[int], formato_numero: str, cor: RGBColor | None = None,
+    escala: Optional[Tuple[float, float]] = None,
 ) -> bool:
     """Tira as séries de ``indices`` do gráfico de colunas e as põe em linha,
     num segundo eixo de valores à direita.
@@ -523,9 +656,14 @@ def _mover_para_eixo_secundario(
     if not indices:
         return False
     plot_area = chart._chartSpace.chart.plotArea
-    bar_chart = plot_area.find(qn("c:barChart"))
-    if bar_chart is None:
+    # O grupo de origem é a coluna nos cards de volume e prazo, e a própria
+    # linha quando uma das séries do gráfico de linhas vai para a direita.
+    grupo = plot_area.find(qn("c:barChart"))
+    if grupo is None:
+        grupo = plot_area.find(qn("c:lineChart"))
+    if grupo is None:
         return False
+    bar_chart = grupo
 
     series = bar_chart.findall(qn("c:ser"))
     mover = [series[i] for i in indices if 0 <= i < len(series)]
@@ -544,8 +682,15 @@ def _mover_para_eixo_secundario(
     for elemento in mover:
         bar_chart.remove(elemento)
         line_chart.append(elemento)
-        marcador = etree.SubElement(elemento, qn("c:marker"))
-        simbolo = etree.SubElement(marcador, qn("c:symbol"))
+        # A série que vem de um gráfico de linhas já traz o marcador. Criar um
+        # segundo deixa dois <c:marker> na mesma série e o PowerPoint recusa o
+        # arquivo.
+        marcador = elemento.find(qn("c:marker"))
+        if marcador is None:
+            marcador = etree.SubElement(elemento, qn("c:marker"))
+        simbolo = marcador.find(qn("c:symbol"))
+        if simbolo is None:
+            simbolo = etree.SubElement(marcador, qn("c:symbol"))
         simbolo.set("val", "none")
         _ordenar_line_ser(elemento)
     marcador_grupo = etree.SubElement(line_chart, qn("c:marker"))
@@ -576,6 +721,15 @@ def _mover_para_eixo_secundario(
     _definir(val_ax, "c:majorTickMark", "none")
     _definir(val_ax, "c:minorTickMark", "none")
     _definir(val_ax, "c:tickLblPos", "nextTo")
+    # Sem spPr o Office desenha o eixo secundário com a linha preta grossa do
+    # estilo padrão, ao lado do eixo da esquerda, que é um fio cinza.
+    sp_pr = etree.SubElement(val_ax, qn("c:spPr"))
+    etree.SubElement(sp_pr, qn("a:noFill"))
+    linha_eixo = etree.SubElement(sp_pr, qn("a:ln"))
+    linha_eixo.set("w", str(Pt(0.5).emu // 1))
+    preenchimento_linha = etree.SubElement(linha_eixo, qn("a:solidFill"))
+    tinta = etree.SubElement(preenchimento_linha, qn("a:srgbClr"))
+    tinta.set("val", str(COR_GRADE))
     if cor is not None:
         # Eixo da direita na cor da linha que ele mede: é o que diz ao leitor
         # que "meses" se lê à direita.
@@ -583,9 +737,19 @@ def _mover_para_eixo_secundario(
     _definir(val_ax, "c:crossAx", str(id_categoria))
     _definir(val_ax, "c:crosses", "max")
     # Ancorado em zero, como na tela: sem isso um prazo que varia 1 mês em 47
-    # preenche a altura do gráfico igual a um que varia 11 em 27.
-    escala_val.insert(0, _no_com_valor("c:min", "0"))
+    # preenche a altura do gráfico igual a um que varia 11 em 27. O teto também
+    # é fixo, porque o rótulo da série vai por coordenada nesta mesma régua.
+    # CT_Scaling é sequência: logBase, orientation, max, min — nessa ordem.
+    piso, teto = escala if escala is not None else (0.0, None)
+    if teto is not None:
+        escala_val.append(_no_com_valor("c:max", _texto_de_numero(teto)))
+    escala_val.append(_no_com_valor("c:min", _texto_de_numero(piso)))
     return True
+
+
+def _texto_de_numero(valor: float) -> str:
+    """Número sem notação científica nem zeros à toa, como o Office grava."""
+    return f"{valor:.10f}".rstrip("0").rstrip(".") or "0"
 
 
 def _texto_do_eixo(cor: RGBColor):
@@ -603,6 +767,38 @@ def _texto_do_eixo(cor: RGBColor):
     valor.set("val", str(cor))
     etree.SubElement(paragrafo, qn("a:endParaRPr"))
     return tx_pr
+
+
+def _girar_rotulo(rotulo) -> None:
+    """Põe o rótulo na vertical, lendo de baixo para cima.
+
+    Com 27 categorias a barra fica mais estreita que o texto e o Office corta
+    o rótulo no meio ("11," em vez de "11,42%"). Na vertical ele cabe.
+    """
+    tx_pr = rotulo._dLbl.find(qn("c:txPr"))
+    if tx_pr is None:
+        return
+    corpo = tx_pr.find(qn("a:bodyPr"))
+    if corpo is None:
+        corpo = etree.Element(qn("a:bodyPr"))
+        tx_pr.insert(0, corpo)
+    corpo.set("rot", "-5400000")
+    corpo.set("vert", "horz")
+
+
+def _preencher_rotulo(rotulo, cor_hex: str) -> None:
+    """Fundo sólido no rótulo, na cor da série, sem contorno."""
+    elemento = rotulo._dLbl
+    existente = elemento.find(qn("c:spPr"))
+    if existente is not None:
+        elemento.remove(existente)
+    sp_pr = etree.SubElement(elemento, qn("c:spPr"))
+    preenchimento = etree.SubElement(sp_pr, qn("a:solidFill"))
+    valor = etree.SubElement(preenchimento, qn("a:srgbClr"))
+    valor.set("val", str(cor_hex).lstrip("#").upper())
+    linha = etree.SubElement(sp_pr, qn("a:ln"))
+    etree.SubElement(linha, qn("a:noFill"))
+    _ordenar_filhos(elemento, ORDEM_DLBL)
 
 
 def _no_com_valor(tag: str, valor: str):
@@ -723,7 +919,9 @@ def _adicionar_painel(
     # Gráfico de linhas não leva legenda: o nome da série já vai no rótulo do
     # último ponto, e a legenda embaixo disputava espaço com os meses do eixo.
     # A coluna empilhada mantém a legenda, porque lá o rótulo leva só o valor.
-    grafico.has_legend = tipo_grafico == "column_stacked"
+    # Uma série só não precisa de legenda: o título do card já diz o que é, e
+    # o Office ainda lista as categorias quando a legenda fica ligada.
+    grafico.has_legend = tipo_grafico == "column_stacked" and len(ordem) > 1
     if grafico.has_legend:
         # Legenda à direita, na faixa que já fica reservada. Embaixo, um mix de
         # dez produtos ocupava quatro fileiras e esmagava as barras.
@@ -758,13 +956,61 @@ def _adicionar_painel(
         (nome, valor) for nome, valor in finais
         if tipo_grafico == "line" or nome in series_secundarias
     ]
+    # Régua de cada eixo, calculada aqui e aplicada tanto ao eixo quanto à
+    # coordenada do rótulo — os dois precisam ler a mesma escala.
+    escalas: Dict[bool, Tuple[float, float]] = {}
+    if tipo_grafico in {"line", "column_line"}:
+        for eh_secundaria in (False, True):
+            colunas = [
+                nome for nome in ordem
+                if (nome in series_secundarias) is eh_secundaria
+            ]
+            if not colunas:
+                continue
+            valores = pd.to_numeric(
+                tabela[colunas].stack(), errors="coerce"
+            ).dropna()
+            if valores.empty:
+                continue
+            # Barra e eixo secundário ancoram no zero por natureza: a barra
+            # codifica o valor no comprimento e a régua da direita foi
+            # ancorada de propósito, para o prazo não encher a altura toda.
+            # A linha do eixo primário fica com a regra automática.
+            escalas[eh_secundaria] = escala_de_eixo(
+                valores.tolist(),
+                ancorar_zero=(
+                    True if eh_secundaria or tipo_grafico == "column_line"
+                    else None
+                ),
+            )
+    # Com eixo secundário, a régua da direita ocupa a borda da área de
+    # plotagem: o rótulo precisa começar depois dela, senão cai sobre os
+    # próprios números do eixo. A régua ocupa uma largura em polegadas, não
+    # uma fração do gráfico.
+    largura_in = max(int(width) / 914400.0, 0.5)
+    recuo_in = (
+        min(0.10 * largura_in, LARGURA_REGUA_DIREITA_IN)
+        if series_secundarias else 0.012 * largura_in
+    )
+    recuo_eixo = recuo_in / largura_in
+    gutter_linha = gutter_para(
+        finais_de_linha, int(width), rotulo_serie_fn, recuo_in=recuo_in
+    )
     alturas_rotulo = (
         {} if tipo_grafico == "column_stacked"
         else _escalonar_no_gutter(
-            finais_de_linha, int(altura_grafico), int(width), rotulo_serie_fn
+            finais_de_linha, int(altura_grafico), int(width), rotulo_serie_fn,
+            gutter=gutter_linha, secundarias=series_secundarias,
+            escalas=escalas,
         )
     )
-    x_rotulo = 0.06 + (0.94 - GUTTER_ROTULO_LINHA) + 0.012
+    # O Office ancora o rótulo pelo centro da caixa, e não pela borda esquerda:
+    # a coordenada é o meio da faixa, senão o nome mais longo cresce para a
+    # esquerda e cai por cima dos números do eixo.
+    x_rotulo = (
+        0.06 + (0.94 - gutter_linha) + recuo_eixo
+        + (gutter_linha - recuo_eixo) / 2
+    )
     for posicao, nome in enumerate(ordem):
         serie = plot.series[posicao]
         serie.smooth = False
@@ -826,7 +1072,10 @@ def _adicionar_painel(
             rotulo = serie.points[indice_rotulo].data_label
             if eh_coluna:
                 rotulo.position = (
-                    XL_DATA_LABEL_POSITION.INSIDE_END
+                    # No meio da fatia, e não na borda de cima: com a caixa
+                    # centrada na borda, a fatia de baixo jogava metade do
+                    # rótulo abaixo do eixo, por cima do nome do mês.
+                    XL_DATA_LABEL_POSITION.CENTER
                     if tipo_grafico == "column_stacked"
                     else XL_DATA_LABEL_POSITION.OUTSIDE_END
                 )
@@ -844,28 +1093,59 @@ def _adicionar_painel(
                 FONTE_ROTULO_COLUNA_PT if eh_coluna
                 else corpo_do_rotulo(len(finais))
             )
+            if eh_coluna and len(categorias) > MAXIMO_COLUNAS_ROTULO_DEITADO:
+                _girar_rotulo(rotulo)
             rotulo.font.bold = True
-            # Dentro da coluna, o texto vai sobre o preenchimento e a cor é a
-            # declarada para aquele preenchimento; fora dela, o texto está no
-            # papel branco do slide e a única cor que passa é a tinta escura.
-            # Nunca a cor da série: um rótulo em cinza claro a 8 pt sobre
-            # branco tinha 2,4:1 de contraste.
-            rotulo.font.color.rgb = _hex_para_rgb(
-                cor_do_rotulo(painel.cores.get(nome, "#8F8F8F"))
-                if tipo_grafico == "column_stacked"
-                else ITAU_BLACK
-            )
+            cor_serie = painel.cores.get(nome, "#8F8F8F")
+            if eh_coluna:
+                # Rótulo de barra ganha fundo sólido na cor da própria série,
+                # com o texto na tinta que contrasta com ela. Fica ancorado na
+                # série mesmo quando o valor cai fora da barra.
+                _preencher_rotulo(rotulo, cor_serie)
+                rotulo.font.color.rgb = _hex_para_rgb(cor_do_rotulo(cor_serie))
+            else:
+                # Rótulo de linha na cor da própria linha: é o que liga o valor
+                # à série sem precisar de legenda.
+                rotulo.font.color.rgb = _hex_para_rgb(cor_serie)
 
-    _estilizar_eixos(grafico, len(categorias), formato_numero)
+    _estilizar_eixos(
+        grafico, len(categorias), formato_numero,
+        base_zero=tipo_grafico in {"column_stacked", "column_line"},
+        escala=escalas.get(False),
+    )
     empilhado = tipo_grafico == "column_stacked"
+    if empilhado and not grafico.has_legend:
+        # Sem legenda a faixa da direita não serve para nada: o rótulo da barra
+        # é desenhado dentro dela. A área de plotagem toma a largura inteira.
+        gutter = 0.06
+    elif empilhado:
+        # A faixa da direita abriga a legenda: precisa caber o maior nome de
+        # série, senão a legenda é desenhada por cima das barras.
+        maior = max((len(rotulo_serie_fn(nome)) for nome in ordem), default=10)
+        largura_in = max(int(width) / 914400.0, 0.5)
+        necessario = (maior + 3) * (LARGURA_MEDIA_CARACTERE * FONTE_LEGENDA_PT / 72)
+        # Como na faixa de rótulo, a conta é em polegadas: o piso em fração da
+        # largura roubava um quarto do gráfico de quem tem nome curto, e os
+        # meses do eixo ficavam apinhados a ponto de "Jul/26" encostar no
+        # vizinho.
+        gutter = min(
+            GUTTER_LEGENDA_MAXIMO,
+            max(LARGURA_MINIMA_LEGENDA_IN, necessario) / largura_in,
+        )
+    else:
+        gutter = gutter_linha
     _layout_manual_do_plot(
         grafico._chartSpace.chart.plotArea,
-        GUTTER_ROTULO_COLUNA if empilhado else GUTTER_ROTULO_LINHA,
+        gutter,
         ALTURA_PLOT_COLUNA if empilhado else ALTURA_PLOT_LINHA,
     )
+    if grafico.has_legend:
+        _layout_manual_da_legenda(
+            grafico.legend, gutter, len(ordem), int(altura_grafico)
+        )
 
     secundario = False
-    if tipo_grafico == "column_line" and series_secundarias:
+    if tipo_grafico in {"column_line", "line"} and series_secundarias:
         indices = [i for i, nome in enumerate(ordem) if nome in series_secundarias]
         cor_secundaria = next(
             (
@@ -880,6 +1160,7 @@ def _adicionar_painel(
             indices,
             getattr(painel, "formato_secundario", formato_numero),
             cor_secundaria,
+            escala=escalas.get(True),
         )
 
     return {

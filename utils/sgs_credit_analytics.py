@@ -121,7 +121,9 @@ ALTURA_PADRAO = 470
 # se perde.
 ALTURA_COMPACTA = 430
 MARGEM_ESQUERDA = 64
-MARGEM_DIREITA_LEGENDA = 108
+# Card sem rótulo no fim da linha: à direita sobra só o respiro da borda. O
+# valor antigo, 108, era do tempo em que a margem servia para tudo.
+MARGEM_DIREITA_LEGENDA = 76
 MARGEM_DIREITA_ROTULO_DIRETO = 210
 MARGEM_DIREITA_ROTULO_DIRETO_COMPACTA = 168
 # Com eixo secundário, a régua da direita precisa de espaço próprio: sem ele
@@ -361,6 +363,69 @@ def _valores_do_eixo(fig: go.Figure, yref: str) -> list[float]:
     return valores
 
 
+def _passo_redondo(bruto: float) -> float:
+    """Degrau de grade em número redondo, logo acima de ``bruto``."""
+    if not np.isfinite(bruto) or bruto <= 0:
+        return 1.0
+    expoente = 10 ** np.floor(np.log10(bruto))
+    for multiplo in (1, 2, 2.5, 5, 10):
+        if bruto <= multiplo * expoente:
+            return float(multiplo * expoente)
+    return float(10 * expoente)
+
+
+# Fração da altura que o dado precisa ocupar para o zero valer a pena. Abaixo
+# dela o eixo enquadra o dado.
+OCUPACAO_MINIMA_COM_ZERO = 0.5
+# Folga acima e abaixo do dado quando o eixo o enquadra, em fração da amplitude.
+FOLGA_ENQUADRAMENTO = 0.08
+
+
+def escala_de_eixo(
+    valores: Sequence[float], *, ancorar_zero: bool | None = None
+) -> tuple[float, float]:
+    """Piso e teto do eixo, em degraus redondos, recalculados a cada leitura.
+
+    O zero entra em três situações: a série o cruza, o dado ocupa ao menos
+    metade da altura com ele dentro, ou quem chama declara que ele é a
+    referência — barra, que codifica o valor no comprimento, e eixo secundário
+    ancorado de propósito. Fora disso o eixo enquadra o dado: uma inadimplência
+    entre 3,6% e 5,8% desenhada de 0 a 6 vira uma linha quase reta no alto de
+    um gráfico vazio, e o movimento — que é o que a página mostra — some.
+
+    Como a conta parte dos próprios valores, o eixo acompanha o dado: quando a
+    série anda, o piso e o teto andam junto, sem número fixo no código.
+    """
+    finitos = [
+        float(valor) for valor in valores
+        if valor is not None and np.isfinite(float(valor))
+    ]
+    if not finitos:
+        return (0.0, 1.0)
+    menor, maior = min(finitos), max(finitos)
+    if maior == menor:
+        maior = menor + (abs(menor) or 1.0) * 0.1
+    if ancorar_zero is None:
+        if menor <= 0 <= maior:
+            ancorar_zero = True
+        else:
+            # Distância do dado até o zero, medida pela ponta mais próxima.
+            distancia = min(abs(menor), abs(maior))
+            ocupacao = (maior - menor) / (distancia + maior - menor)
+            ancorar_zero = ocupacao >= OCUPACAO_MINIMA_COM_ZERO
+    if ancorar_zero:
+        menor, maior = min(menor, 0.0), max(maior, 0.0)
+    else:
+        folga = (maior - menor) * FOLGA_ENQUADRAMENTO
+        menor, maior = menor - folga, maior + folga
+    passo = _passo_redondo((maior - menor) / 7)
+    piso = float(np.floor(menor / passo) * passo)
+    teto = float(np.ceil(maior / passo) * passo)
+    if teto <= piso:
+        teto = piso + passo
+    return (round(piso, 10), round(teto, 10))
+
+
 def _faixa_do_eixo(
     fig: go.Figure, yref: str, *, base_zero: bool = False
 ) -> tuple[float, float]:
@@ -368,14 +433,7 @@ def _faixa_do_eixo(
     valores = _valores_do_eixo(fig, yref)
     if not valores:
         return (0.0, 1.0)
-    menor, maior = float(np.nanmin(valores)), float(np.nanmax(valores))
-    if base_zero:
-        menor = min(menor, 0.0)
-    amplitude = maior - menor
-    if amplitude <= 0:
-        amplitude = max(abs(maior), 1.0)
-    folga = amplitude * 0.06
-    return (menor if base_zero else menor - folga, maior + folga)
+    return escala_de_eixo(valores, ancorar_zero=True if base_zero else None)
 
 
 def _espalhar_em_pixels(
@@ -430,6 +488,37 @@ FOLGA_EIXO_BARRA = 1.85
 FOLGA_EIXO_LINHA = 1.15
 
 
+# Largura média de um caractere do rótulo, em pixels, no corpo padrão. Serve
+# para dimensionar a faixa da direita — e não para desenhar nada.
+LARGURA_CARACTERE_PX = 6.6
+# Piso da margem direita: o gráfico nunca encosta na borda do card.
+MARGEM_DIREITA_MINIMA = 24
+
+
+def _ajustar_margem_direita(fig: go.Figure, achatados, recuo: int) -> None:
+    """Encolhe a margem da direita até o tamanho do maior rótulo de fim.
+
+    A margem era fixa e dimensionada para o pior caso. Num card cujo rótulo é
+    "29,3" ela reservava mais de cem pixels de papel em branco, e o desenho
+    parava bem antes da borda do card. Só encolhe: quem precisa de mais que o
+    padrão continua com o padrão.
+    """
+    maior = max(
+        (
+            len(linha)
+            for (ponto, _) in achatados
+            for linha in str(ponto[2]).split("<br>")
+        ),
+        default=0,
+    )
+    if not maior:
+        return
+    margem = fig.layout.margin
+    atual = float(margem.r) if margem.r is not None else MARGEM_DIREITA_LEGENDA
+    necessario = recuo + maior * LARGURA_CARACTERE_PX + 12
+    fig.update_layout(margin_r=max(MARGEM_DIREITA_MINIMA, min(atual, necessario)))
+
+
 def posicionar_rotulos_finais(
     fig: go.Figure,
     grupos: Sequence[tuple[Sequence[tuple[pd.Timestamp, float, str, str]], str, tuple[float, float] | None]],
@@ -461,6 +550,8 @@ def posicionar_rotulos_finais(
     achatados = [
         (ponto, yref) for pontos, yref, _ in grupos for ponto in pontos
     ]
+    recuo_rotulo = LARGURA_EIXO_SECUNDARIO + 6 if "y2" in escalas else 34
+    _ajustar_margem_direita(fig, achatados, recuo_rotulo)
     linhas_por_rotulo = max(
         (str(ponto[2]).count("<br>") + 1 for ponto, _ in achatados), default=1
     )
@@ -480,7 +571,7 @@ def posicionar_rotulos_finais(
             arrowhead=0,
             arrowwidth=1,
             arrowcolor=cor,
-            ax=LARGURA_EIXO_SECUNDARIO + 6 if "y2" in escalas else 34,
+            ax=recuo_rotulo,
             ay=int(round(tela_final - tela(bruto_y, yref))),
             xanchor="left",
             align="left",
@@ -538,6 +629,8 @@ def _add_last_line_labels(
         ALTURA_ROTULO_PX * linhas_por_rotulo + FOLGA_ROTULO_PX,
         altura_area,
     )
+    recuo_rotulo = LARGURA_EIXO_SECUNDARIO + 6 if yref == "y2" else 34
+    _ajustar_margem_direita(fig, [(ponto, yref) for ponto in endpoints], recuo_rotulo)
 
     for (ultimo_x, bruto_y, texto, cor), tela_final in zip(endpoints, finais):
         fig.add_annotation(
@@ -550,7 +643,7 @@ def _add_last_line_labels(
             arrowhead=0,
             arrowwidth=1,
             arrowcolor=cor,
-            ax=34,
+            ax=recuo_rotulo,
             ay=int(round(tela_final - tela(bruto_y))),
             xanchor="left",
             align="left",

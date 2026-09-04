@@ -716,3 +716,22 @@ def test_legibilidade_nao_reclama_de_painel_saudavel():
     )
     alertas = [a for a in T.avaliar_legibilidade(paineis) if a["nivel"] == "alerta"]
     assert not alertas
+
+
+def test_rampa_ordenada_tem_contraste_de_linha_no_branco():
+    """Nenhum degrau da rampa pode sumir no papel.
+
+    #CFCFCF, o antigo quarto degrau, ficava em 1,55:1: a linha e o rótulo dela
+    desapareciam no slide e na tela.
+    """
+    def luminancia(cor: str) -> float:
+        canais = [int(cor.lstrip("#")[i:i + 2], 16) / 255 for i in (0, 2, 4)]
+        linear = [
+            c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+            for c in canais
+        ]
+        return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+
+    for cor in T.RAMPA_ORDENADA:
+        contraste = 1.05 / (luminancia(cor) + 0.05)
+        assert contraste >= 3.0, f"{cor} fica em {contraste:.2f}:1 no branco"

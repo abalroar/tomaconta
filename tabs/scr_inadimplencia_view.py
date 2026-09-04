@@ -24,6 +24,7 @@ from utils.sgs_credit_analytics import (
     TAMANHO_ROTULO_PX,
     aplicar_estilo,
     encurtar_rotulo,
+    escala_de_eixo,
     formatar_numero,
     posicionar_rotulos_finais,
 )
@@ -80,7 +81,7 @@ def figura_painel(
     painel,
     quebra_spec,
     *,
-    eixo_zero: bool = True,
+    eixo_zero: bool | None = None,
     quebras_serie=(),
     rotulo_metrica: str = "",
 ) -> go.Figure:
@@ -148,8 +149,16 @@ def figura_painel(
         compacto=True,
     )
     fig.update_yaxes(tickformat=".2%")
-    posicionar_rotulos_finais(fig, [(endpoints, "y", None)])
-    fig.update_yaxes(rangemode="tozero" if eixo_zero else "normal")
+    # A faixa entra pronta. ``rangemode`` não tinha efeito nenhum aqui: o
+    # posicionamento dos rótulos grava um ``range`` explícito, e com range
+    # explícito o Plotly ignora o modo. ``eixo_zero=None`` deixa a régua
+    # automática — o zero entra quando o dado ocupa ao menos metade da altura.
+    valores = [
+        float(valor) for coluna in desenhadas
+        for valor in pd.to_numeric(tabela[coluna], errors="coerce").dropna()
+    ]
+    faixa = escala_de_eixo(valores, ancorar_zero=eixo_zero) if valores else None
+    posicionar_rotulos_finais(fig, [(endpoints, "y", faixa)])
     scr_spec.marcar_quebras(fig, quebras_serie)
     fig.update_layout(meta={
         "chart_title": painel.titulo,
@@ -505,7 +514,12 @@ def render_scr_inadimplencia(get_cache_manager) -> None:
             # barra de filtros junto dos quatro que mudam sempre.
             with st.popover("Exibição", help="Opções de exibição dos painéis"):
                 incluir_total = st.toggle("Linha total", value=True, key="scr_pn_total")
-                eixo_zero = st.toggle("Eixo em zero", value=True, key="scr_pn_zero")
+                # Fora do modo automático, quem marca força o zero no eixo.
+                eixo_zero = (
+                    True
+                    if st.toggle("Forçar eixo em zero", value=False, key="scr_pn_zero")
+                    else None
+                )
 
         quebra_spec = scr_spec.QUEBRAS_POR_KEY[quebra_key]
         cliente_painel = quebra_spec.exige_cliente or cliente

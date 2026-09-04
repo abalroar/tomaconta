@@ -10,6 +10,7 @@ impressão de persistência e o texto voltaria ao anterior no próximo restart.
 from __future__ import annotations
 
 from datetime import date
+from html import escape
 
 import streamlit as st
 
@@ -27,6 +28,14 @@ from utils.sgs_credit_analytics import formatar_competencia
 
 _ESTILO = """
 <style>
+div[data-testid="stMarkdownContainer"] .titulo-leitura {
+  margin: 0;
+  padding: 0;
+  font-size: 1.42rem;
+  font-weight: 600;
+  line-height: 1.3;
+  color: #1A1715;
+}
 div[data-testid="stMarkdownContainer"] .leitura-dado {
   background: #FAF8F5;
   border-bottom: 1px solid #E8E2DB;
@@ -81,9 +90,14 @@ def render_comentario(
     # inteira abaixo. Com o botão ao lado do box, ele comia largura do
     # comentário e desalinhava o card em relação aos gráficos.
     rotulo = titulo or atual.titulo
-    coluna_titulo, coluna_editar = st.columns([0.965, 0.035], vertical_alignment="center")
+    coluna_titulo, coluna_editar = st.columns(
+        [0.955, 0.045], vertical_alignment="center"
+    )
     with coluna_titulo:
-        st.markdown(f"#### {rotulo}")
+        st.markdown(
+            f"<div class='titulo-leitura'>{escape(rotulo)}</div>",
+            unsafe_allow_html=True,
+        )
     with coluna_editar:
         if st.button(
             "✎",
