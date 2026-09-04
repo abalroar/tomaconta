@@ -560,9 +560,22 @@ def _adicionar_painel(
         else:
             _rotular_apenas_ultimo_ponto(serie, ultimo_valido, formato_numero)
             indices_rotulados = [ultimo_valido] if ultimo_valido >= 0 else []
+        # A posição do rótulo é validada pelo tipo do gráfico: coluna aceita
+        # apenas ctr/inBase/inEnd/outEnd. Escrever "r" ou "t" numa série de
+        # coluna produz um arquivo que o PowerPoint recusa inteiro, oferecendo
+        # reparo — foi o que quebrou o deck de Concessões.
+        eh_coluna = tipo_grafico == "column_stacked" or (
+            tipo_grafico == "column_line" and not eh_secundaria
+        )
         for indice_rotulo in indices_rotulados:
             rotulo = serie.points[indice_rotulo].data_label
-            if not rotular_todos:
+            if eh_coluna:
+                rotulo.position = (
+                    XL_DATA_LABEL_POSITION.INSIDE_END
+                    if tipo_grafico == "column_stacked"
+                    else XL_DATA_LABEL_POSITION.OUTSIDE_END
+                )
+            elif not rotular_todos:
                 rotulo.position = posicoes_rotulos.get(
                     nome, XL_DATA_LABEL_POSITION.RIGHT
                 )

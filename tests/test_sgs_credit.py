@@ -383,12 +383,14 @@ def test_credit_module_has_period_range_info_popovers_and_no_expectations_regist
     assert '"SCR.data"' in source
     assert "_render_source_footer" not in source
     assert 'fig.update_layout(title_text=""' in source
-    # Um card por linha: nenhum gráfico divide a largura com outro. As duas
-    # colunas que restam são a linha de filtros de período e o cabeçalho do
-    # card (título + botão "i"), nunca um par de gráficos.
+    # Nenhum par de gráficos é montado à mão: a distribuição em linhas passa
+    # sempre por _cards_em_grade, que sabe a largura de cada card.
     assert "with col1:" not in source
     assert "with col2:" not in source
     assert "zip(columns," not in source
+    # Séries próximas pedem meia largura; barra empilhada pede largura total.
+    for chave in ("sgs_comprometimento", "sgs_emprego", "sgs_rates_", "sgs_npl_pf_pre"):
+        assert chave in source
     # O rodapé de cada card informa a competência que ele alcança.
     assert "_competencia_do_card" in source
     assert "fig.update_layout(title=None" not in source

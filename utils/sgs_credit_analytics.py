@@ -124,6 +124,9 @@ MARGEM_ESQUERDA = 64
 MARGEM_DIREITA_LEGENDA = 108
 MARGEM_DIREITA_ROTULO_DIRETO = 210
 MARGEM_DIREITA_ROTULO_DIRETO_COMPACTA = 168
+# Com eixo secundário, a régua da direita precisa de espaço próprio: sem ele
+# ela é desenhada por cima dos dados, já que autoexpand fica desligado.
+LARGURA_EIXO_SECUNDARIO = 44
 MARGEM_TOPO = 48
 MARGEM_BASE_COM_LEGENDA = 92
 MARGEM_BASE_SEM_LEGENDA = 56
@@ -282,12 +285,20 @@ def ultima_competencia(values: pd.Series) -> pd.Timestamp | None:
     return pd.Timestamp(valid.index[-1])
 
 
+def formatar_numero(valor: float, casas: int = 1, sufixo: str = "") -> str:
+    """Número no padrão brasileiro: ponto separa milhar, vírgula separa decimal."""
+    texto = f"{float(valor):,.{casas}f}"
+    # Troca os dois separadores de uma vez, sem passar por um estado ambíguo.
+    texto = texto.replace(",", "\x00").replace(".", ",").replace("\x00", ".")
+    return f"{texto}{sufixo}"
+
+
 def _last_text(values: pd.Series, decimals: int = 1, suffix: str = "") -> list[str | None]:
     text: list[str | None] = [None] * len(values)
     valid_positions = np.flatnonzero(values.notna().to_numpy())
     if len(valid_positions):
         value = float(values.iloc[valid_positions[-1]])
-        text[valid_positions[-1]] = f"{value:.{decimals}f}{suffix}".replace(".", ",")
+        text[valid_positions[-1]] = formatar_numero(value, decimals, suffix)
     return text
 
 
@@ -299,8 +310,7 @@ def _all_text(values: pd.Series, decimals: int = 1, suffix: str = "") -> list[st
     receber um texto encolhido.
     """
     return [
-        None if pd.isna(valor)
-        else f"{float(valor):.{decimals}f}{suffix}".replace(".", ",")
+        None if pd.isna(valor) else formatar_numero(valor, decimals, suffix)
         for valor in values
     ]
 
@@ -411,6 +421,82 @@ def _espalhar_em_pixels(
     return posicoes
 
 
+# Combo volume + prazo: as barras ficam na metade de baixo e a linha na parte
+# de cima, as duas ancoradas em zero. Ancorar o prazo em zero é o que dá
+# sensibilidade proporcional — um prazo que varia 1 mês em 47 (Veículos) fica
+# visualmente plano e um que varia 11 meses em 27 (PJ livre) fica visível. Com
+# escala automática, os dois preenchiam a altura inteira do card por igual.
+FOLGA_EIXO_BARRA = 1.85
+FOLGA_EIXO_LINHA = 1.15
+
+
+def posicionar_rotulos_finais(
+    fig: go.Figure,
+    grupos: Sequence[tuple[Sequence[tuple[pd.Timestamp, float, str, str]], str, tuple[float, float] | None]],
+) -> None:
+    """Rótulos de fim de linha de todos os eixos, espalhados em uma só passada.
+
+    Um gráfico com eixo secundário tem dois conjuntos de rótulos sobre a mesma
+    área. Espalhar cada conjunto por si deixava o rótulo do eixo da direita em
+    cima dos da esquerda, porque nenhum dos dois enxergava o outro.
+    """
+    grupos = [(list(pontos), yref, faixa) for pontos, yref, faixa in grupos if pontos]
+    if not grupos:
+        return
+    altura_area = _altura_area_plotagem(fig)
+
+    escalas: dict[str, tuple[float, float]] = {}
+    for pontos, yref, faixa in grupos:
+        menor, maior = faixa or _faixa_do_eixo(fig, yref)
+        if maior - menor <= 0:
+            return
+        eixo = "yaxis" if yref == "y" else f"yaxis{yref[1:]}"
+        fig.update_layout({eixo: {"range": [menor, maior], "autorange": False}})
+        escalas[yref] = (menor, maior)
+
+    def tela(valor: float, yref: str) -> float:
+        menor, maior = escalas[yref]
+        return (maior - float(valor)) * altura_area / (maior - menor)
+
+    achatados = [
+        (ponto, yref) for pontos, yref, _ in grupos for ponto in pontos
+    ]
+    linhas_por_rotulo = max(
+        (str(ponto[2]).count("<br>") + 1 for ponto, _ in achatados), default=1
+    )
+    alvos = [tela(ponto[1], yref) for ponto, yref in achatados]
+    finais = _espalhar_em_pixels(
+        alvos, ALTURA_ROTULO_PX * linhas_por_rotulo + FOLGA_ROTULO_PX, altura_area
+    )
+
+    for ((ultimo_x, bruto_y, texto, cor), yref), tela_final in zip(achatados, finais):
+        fig.add_annotation(
+            x=ultimo_x,
+            y=bruto_y,
+            xref="x",
+            yref=yref,
+            text=texto,
+            showarrow=True,
+            arrowhead=0,
+            arrowwidth=1,
+            arrowcolor=cor,
+            ax=LARGURA_EIXO_SECUNDARIO + 6 if "y2" in escalas else 34,
+            ay=int(round(tela_final - tela(bruto_y, yref))),
+            xanchor="left",
+            align="left",
+            font={"color": cor, "size": TAMANHO_ROTULO_PX},
+            bgcolor="rgba(255,255,255,0.86)",
+            borderpad=1,
+        )
+
+    datas = _valid_trace_dates(fig)
+    if datas:
+        folga = _meia_categoria(datas) if _tem_barra(fig) else pd.Timedelta(0)
+        fig.update_xaxes(
+            range=[min(datas) - folga, max(datas) + max(folga, pd.Timedelta(days=30))]
+        )
+
+
 def _add_last_line_labels(
     fig: go.Figure,
     endpoints: Sequence[tuple[pd.Timestamp, float, str, str]],
@@ -418,6 +504,7 @@ def _add_last_line_labels(
     yref: str = "y",
     base_zero: bool = False,
     plot_height: float | None = None,
+    faixa: tuple[float, float] | None = None,
 ) -> None:
     """Rótulos coloridos no fim de cada linha, sem sobreposição.
 
@@ -428,7 +515,7 @@ def _add_last_line_labels(
         return
 
     altura_area = float(plot_height) if plot_height else _altura_area_plotagem(fig)
-    menor, maior = _faixa_do_eixo(fig, yref, base_zero=base_zero)
+    menor, maior = faixa or _faixa_do_eixo(fig, yref, base_zero=base_zero)
     eixo = "yaxis" if yref == "y" else f"yaxis{yref[1:]}"
     fig.update_layout({eixo: {"range": [menor, maior], "autorange": False}})
 
@@ -571,6 +658,7 @@ def aplicar_estilo(
     rotulo_direto: bool = False,
     compacto: bool = False,
     tamanho_rotulo: int = TAMANHO_ROTULO_PX,
+    eixo_secundario: bool = False,
 ) -> go.Figure:
     """Estilo único de toda a seção: tipografia, grade, margens e régua do eixo.
 
@@ -588,6 +676,8 @@ def aplicar_estilo(
         )
     else:
         margem_direita = MARGEM_DIREITA_LEGENDA
+    if eixo_secundario:
+        margem_direita += LARGURA_EIXO_SECUNDARIO
     margem_base = MARGEM_BASE_COM_LEGENDA if legenda else MARGEM_BASE_SEM_LEGENDA
 
     fig.update_layout(
@@ -646,6 +736,9 @@ def aplicar_estilo(
         gridcolor=COR_GRADE,
         zerolinecolor=COR_EIXO_ZERO,
         tickfont={"size": TAMANHO_FONTE_EIXO},
+        # Com separators=",." acima, o agrupamento do d3 vira ponto de milhar e
+        # vírgula decimal: 7372 sai como 7.372.
+        tickformat=",",
     )
     return fig
 
@@ -666,6 +759,8 @@ def line_figure(
     destaques: Sequence[str] | None = None,
     height: int | None = None,
     compacto: bool = False,
+    secundarios: Sequence[str] | None = None,
+    y_title_secundario: str = "",
 ) -> go.Figure:
     """Gráfico de linhas com hierarquia de espessura e rótulo no fim da linha.
 
@@ -684,8 +779,16 @@ def line_figure(
         height = ALTURA_COMPACTA if compacto else ALTURA_PADRAO
     marcados = set(destaques or ())
 
-    fig = go.Figure()
+    # Séries de outra ordem de grandeza vão para o eixo da direita. Sem isso,
+    # endividamento a 49,8% da renda achata comprometimento e serviço da dívida,
+    # que rodam entre 5% e 29%, na base do gráfico.
+    no_secundario = {alias for alias in (secundarios or ()) if alias in presentes}
+    if no_secundario:
+        fig = make_subplots(specs=[[{"secondary_y": True}]])
+    else:
+        fig = go.Figure()
     endpoints: list[tuple[pd.Timestamp, float, str, str]] = []
+    endpoints_secundario: list[tuple[pd.Timestamp, float, str, str]] = []
     for index, alias in enumerate(presentes):
         values = pd.to_numeric(wide[alias], errors="coerce")
         label = (labels or {}).get(alias) or (
@@ -703,23 +806,30 @@ def line_figure(
             width = LARGURA_LINHA_FOCO
         else:
             width = LARGURA_LINHA_CONTEXTO
-        fig.add_trace(
-            go.Scatter(
-                x=wide.index,
-                y=values,
-                name=label,
-                mode="lines",
-                cliponaxis=False,
-                connectgaps=False,
-                line={"color": color, "width": width, "dash": dash or "solid"},
-                meta={"series_alias": alias},
-                hovertemplate="%{y:.2f}" + (suffix or "") + "<extra>%{fullData.name}</extra>",
-            )
+        secundario = alias in no_secundario
+        traco = go.Scatter(
+            x=wide.index,
+            y=values,
+            name=f"{label} (dir.)" if secundario else label,
+            mode="lines",
+            cliponaxis=False,
+            connectgaps=False,
+            line={"color": color, "width": width, "dash": dash or "solid"},
+            meta={
+                "series_alias": alias,
+                "eixo": "secundario" if secundario else "primario",
+                "rotulo_limpo": label,
+            },
+            hovertemplate="%{y:.2f}" + (suffix or "") + "<extra>%{fullData.name}</extra>",
         )
+        if no_secundario:
+            fig.add_trace(traco, secondary_y=secundario)
+        else:
+            fig.add_trace(traco)
         valid = values.dropna()
         if not valid.empty:
             value = float(valid.iloc[-1])
-            numero = f"{value:.{decimals}f}{suffix}".replace(".", ",")
+            numero = formatar_numero(value, decimals, suffix)
             if not rotulo_direto:
                 texto = numero
             elif compacto:
@@ -728,7 +838,8 @@ def line_figure(
                 texto = f"{encurtar_rotulo(label)}<br>{numero}"
             else:
                 texto = f"{label}  {numero}"
-            endpoints.append((pd.Timestamp(valid.index[-1]), value, texto, color))
+            destino = endpoints_secundario if secundario else endpoints
+            destino.append((pd.Timestamp(valid.index[-1]), value, texto, color))
 
     fig.update_layout(meta={"source_aliases": _source_aliases(wide, aliases)})
     aplicar_estilo(
@@ -739,9 +850,53 @@ def line_figure(
         legenda=not rotulo_direto,
         rotulo_direto=rotulo_direto,
         compacto=compacto,
+        eixo_secundario=bool(no_secundario),
     )
+    faixa_secundaria = None
+    if no_secundario:
+        topo = max(
+            float(pd.to_numeric(wide[alias], errors="coerce").max())
+            for alias in no_secundario
+        )
+        if topo > 0:
+            # Mesma regra do combo volume + prazo: eixo secundário ancorado em
+            # zero. O leitor vê o nível pela altura da linha na escala e a
+            # variação pelo tamanho do movimento, os dois proporcionais.
+            faixa_secundaria = (0.0, topo * FOLGA_EIXO_LINHA)
+        fig.update_yaxes(title_text=y_title, secondary_y=False)
+        cor_secundaria = next(
+            (
+                cor_de_linha(posicao)
+                for posicao, alias in enumerate(presentes)
+                if alias in no_secundario
+            ),
+            ITAU_BLACK,
+        )
+        fig.update_yaxes(
+            # Em meia largura o título do eixo da direita não cabe ao lado dos
+            # próprios números. O "(dir.)" no nome da série faz esse trabalho.
+            title_text="" if compacto else (y_title_secundario or y_title),
+            secondary_y=True,
+            showgrid=False,
+            range=list(faixa_secundaria) if faixa_secundaria else None,
+            # Régua na cor da série que ela mede, como nos cards de volume e prazo.
+            color=cor_secundaria,
+            tickfont={"color": cor_secundaria, "size": TAMANHO_FONTE_EIXO},
+        )
+        fig.update_layout(meta={
+            **(fig.layout.meta if isinstance(fig.layout.meta, dict) else {}),
+            "titulo_eixo_primario": y_title,
+            "titulo_eixo_secundario": y_title_secundario or y_title,
+            "tipo_grafico": "line",
+        })
     # Depois do estilo: a conta dos rótulos precisa da geometria já definida.
-    _add_last_line_labels(fig, endpoints)
+    posicionar_rotulos_finais(
+        fig,
+        [
+            (endpoints, "y", None),
+            (endpoints_secundario, "y2", faixa_secundaria),
+        ],
+    )
     return fig
 
 
@@ -756,10 +911,15 @@ def stacked_figure(
     total: pd.Series | None = None,
     percent: bool = False,
     height: int = ALTURA_PADRAO,
-    rotular_todos: bool = False,
+    rotular_todos: bool = True,
     tamanho_rotulo: int = TAMANHO_ROTULO_PX,
 ) -> go.Figure:
-    """Barras empilhadas com rótulo de tamanho único e contraste garantido."""
+    """Barras empilhadas com rótulo de tamanho único e contraste garantido.
+
+    O rótulo entra em todo período por padrão. A trava de tamanho uniforme
+    continua valendo, então a fatia que não comportar o rótulo em
+    ``tamanho_rotulo`` fica sem ele, e o valor segue no tooltip.
+    """
     rotulos = _all_text if rotular_todos else _last_text
     fig = go.Figure()
     presentes = [alias for alias in aliases if alias in wide.columns]
@@ -813,7 +973,7 @@ def stacked_figure(
             fig.add_annotation(
                 x=pd.Timestamp(valid.index[-1]),
                 y=valor,
-                text=f"{valor:.1f}{'%' if percent else ''}".replace(".", ","),
+                text=formatar_numero(valor, 1, "%" if percent else ""),
                 showarrow=False,
                 yshift=11,
                 xanchor="center",
@@ -915,9 +1075,26 @@ def bar_line_figure(
     )
     aplicar_estilo(
         fig, title=title, y_title=bar_title, height=height, legenda=True,
-        tamanho_rotulo=tamanho_rotulo,
+        tamanho_rotulo=tamanho_rotulo, eixo_secundario=True,
     )
-    fig.update_yaxes(title_text=bar_title, secondary_y=False, rangemode="tozero")
+
+    faixa_barra = None
+    if bar_alias in wide.columns:
+        topo_barra = pd.to_numeric(wide[bar_alias], errors="coerce").dropna().max()
+        if pd.notna(topo_barra) and float(topo_barra) > 0:
+            faixa_barra = (0.0, float(topo_barra) / 1000.0 * FOLGA_EIXO_BARRA)
+    fig.update_yaxes(
+        title_text=bar_title,
+        secondary_y=False,
+        range=list(faixa_barra) if faixa_barra else None,
+        rangemode="tozero",
+    )
+
+    faixa_linha = None
+    if line_alias in wide.columns:
+        topo_linha = pd.to_numeric(wide[line_alias], errors="coerce").dropna().max()
+        if pd.notna(topo_linha) and float(topo_linha) > 0:
+            faixa_linha = (0.0, float(topo_linha) * FOLGA_EIXO_LINHA)
     fig.update_yaxes(
         title_text=line_title,
         secondary_y=True,
@@ -925,6 +1102,7 @@ def bar_line_figure(
         color=ITAU_ORANGE,
         tickfont={"color": ITAU_ORANGE, "size": TAMANHO_FONTE_EIXO},
         title_font={"color": ITAU_ORANGE},
+        range=list(faixa_linha) if faixa_linha else None,
     )
 
     if line_alias in wide.columns:
@@ -936,9 +1114,10 @@ def bar_line_figure(
                 [(
                     pd.Timestamp(valid.index[-1]),
                     value,
-                    f"{value:.1f}".replace(".", ","),
+                    formatar_numero(value, 1),
                     ITAU_ORANGE,
                 )],
                 yref="y2",
+                faixa=faixa_linha,
             )
     return fig
