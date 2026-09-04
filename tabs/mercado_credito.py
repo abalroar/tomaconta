@@ -1,8 +1,10 @@
 """Página Streamlit do mercado de crédito agregado (SGS/BCB).
 
-Um card por linha, em largura total. Havia gráficos com nove e dez séries
-divididos em duas colunas: metade da largura para dez linhas não deixa nenhuma
-legível, e o rótulo do fim de cada linha não tinha onde caber.
+A largura do card acompanha o que ele desenha. Barra empilhada ocupa a linha
+inteira, porque a fatia precisa de altura para caber o rótulo. Gráfico de
+linhas próximas — inadimplência, taxas, situação das famílias — vai a dois por
+linha: esticado pela tela toda, o gráfico perde sensibilidade vertical e as
+séries se colam. O nome de cada série continua na ponta da linha nos dois casos.
 """
 
 from __future__ import annotations
@@ -662,38 +664,46 @@ def _render_situation(wide: pd.DataFrame) -> None:
         commitment["comprometimento_total_derivado"] = sum_columns(
             commitment, ["comprometimento_juros", "comprometimento_amortizacao"]
         )
-    _chart(
-        line_figure(
-            commitment,
-            [
-                "comprometimento_amortizacao",
-                "comprometimento_juros",
-                "comprometimento_total_derivado",
-                "comprometimento_servico_ex_habitacional",
-                "endividamento_renda",
-            ],
-            title="Comprometimento de renda das famílias",
-            y_title="% da renda",
-            labels={"comprometimento_total_derivado": "Comprometimento total"},
-            suffix="%",
-        ),
-        "sgs_comprometimento",
-    )
     employment = wide[[column for column in ["desocupacao"] if column in wide.columns]].copy()
     employment_change = _yoy_pp_frame(wide, ["desocupacao"])
     if "desocupacao" in employment_change:
         employment["retomada_emprego_derivada"] = employment_change["desocupacao"]
     employment.attrs["source_aliases"] = ["desocupacao"]
-    _chart(
-        line_figure(
-            employment,
-            ["desocupacao", "retomada_emprego_derivada"],
-            title="Taxa de desocupação e velocidade de retomada do emprego",
-            y_title="% / variação YoY em p.p.",
-            labels={"retomada_emprego_derivada": "Variação YoY da desocupação"},
+    _cards_em_grade([
+        (
+            line_figure(
+                commitment,
+                [
+                    "comprometimento_amortizacao",
+                    "comprometimento_juros",
+                    "comprometimento_total_derivado",
+                    "comprometimento_servico_ex_habitacional",
+                    "endividamento_renda",
+                ],
+                title="Comprometimento de renda das famílias",
+                y_title="% da renda",
+                labels={"comprometimento_total_derivado": "Comprometimento total"},
+                suffix="%",
+                compacto=True,
+                # Endividamento roda a 49,8% da renda e achatava as demais
+                # séries, entre 5% e 29%, na base do gráfico.
+                secundarios=["endividamento_renda"],
+                y_title_secundario="% da renda",
+            ),
+            "sgs_comprometimento",
         ),
-        "sgs_emprego",
-    )
+        (
+            line_figure(
+                employment,
+                ["desocupacao", "retomada_emprego_derivada"],
+                title="Taxa de desocupação e velocidade de retomada do emprego",
+                y_title="% / variação YoY em p.p.",
+                labels={"retomada_emprego_derivada": "Variação YoY da desocupação"},
+                compacto=True,
+            ),
+            "sgs_emprego",
+        ),
+    ])
 
 
 def _render_npl(wide: pd.DataFrame, get_cache_manager=None) -> None:
@@ -855,22 +865,28 @@ def _render_rates(wide: pd.DataFrame) -> None:
         ("Taxa média PJ", ["taxa_pj_conta_garantida", "taxa_pj_capital_giro", "taxa_pj_duplicatas"]),
         ("Taxa e spread agregados", ["taxa_pf_livre", "spread_pf_livre", "taxa_pj_livre", "spread_pj_livre", "cdi_aa"]),
     ]
-    for posicao, (title, aliases) in enumerate(cards):
-        _chart(
-            line_figure(wide, aliases, title=title, y_title="% a.a. / p.p.", suffix="%"),
+    aliases_yoy = ["taxa_pf_livre", "spread_pf_livre", "taxa_pj_livre", "spread_pj_livre"]
+    cards.append(
+        (
+            "Ritmo de crescimento da taxa média e do spread médio",
+            aliases_yoy,
+        )
+    )
+    grade = [
+        (
+            line_figure(
+                _yoy_pp_frame(wide, aliases) if title.startswith("Ritmo") else wide,
+                aliases,
+                title=title,
+                y_title="variação YoY (p.p.)" if title.startswith("Ritmo") else "% a.a. / p.p.",
+                suffix="" if title.startswith("Ritmo") else "%",
+                compacto=True,
+            ),
             f"sgs_rates_{posicao}",
         )
-    aliases = ["taxa_pf_livre", "spread_pf_livre", "taxa_pj_livre", "spread_pj_livre"]
-    changes = _yoy_pp_frame(wide, aliases)
-    _chart(
-        line_figure(
-            changes,
-            aliases,
-            title="Ritmo de crescimento da taxa média e do spread médio",
-            y_title="variação YoY (p.p.)",
-        ),
-        "sgs_rates_yoy_pp",
-    )
+        for posicao, (title, aliases) in enumerate(cards)
+    ]
+    _cards_em_grade(grade)
 
 
 def _render_glossary(frame: pd.DataFrame, metadata: Mapping | None) -> None:

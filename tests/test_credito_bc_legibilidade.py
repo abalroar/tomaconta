@@ -25,6 +25,7 @@ from utils.sgs_credit_analytics import (
     TAMANHO_ROTULO_BARRA_PX,
     TAMANHO_ROTULO_PX,
     _altura_area_plotagem,
+    formatar_numero,
     _espalhar_em_pixels,
     bar_line_figure,
     line_figure,
@@ -309,6 +310,17 @@ _SEQUENCIA_SER = [
 ]
 
 
+# ST_DLblPos aceito por tipo de grupo. Coluna não aceita r/t/b/l: escrever uma
+# dessas numa série de coluna faz o PowerPoint recusar o arquivo inteiro.
+_POSICOES_VALIDAS = {
+    "barChart": {"ctr", "inBase", "inEnd", "outEnd"},
+    "lineChart": {"ctr", "l", "r", "t", "b"},
+    "areaChart": {"ctr"},
+    "pieChart": {"bestFit", "ctr", "inEnd", "outEnd"},
+    "scatterChart": {"ctr", "l", "r", "t", "b"},
+}
+
+
 def _local(elemento) -> str:
     return elemento.tag.replace(_NS, "")
 
@@ -338,12 +350,20 @@ def validar_xml_do_grafico(xml: bytes) -> list[str]:
             nome = _local(elemento)
             if nome in _SEQUENCIAS and not _em_ordem(elemento, _SEQUENCIAS[nome]):
                 erros.append(f"<c:{nome}> fora de ordem: {[_local(f) for f in elemento]}")
+            validas = _POSICOES_VALIDAS.get(nome)
             for ser in elemento.findall(f"{_NS}ser"):
                 if not _em_ordem(ser, _SEQUENCIA_SER):
                     erros.append(
                         f"<c:ser> de <c:{nome}> fora de ordem: "
                         f"{[_local(f) for f in ser]}"
                     )
+                if validas is None:
+                    continue
+                for posicao in ser.iter(f"{_NS}dLblPos"):
+                    if posicao.get("val") not in validas:
+                        erros.append(
+                            f"dLblPos '{posicao.get('val')}' inválido em <c:{nome}>"
+                        )
     return erros
 
 
@@ -397,8 +417,6 @@ def test_deck_de_empilhado_e_de_linha_respeitam_a_sequencia_do_schema():
 
 def test_validador_pega_a_inversao_que_quebrava_o_arquivo():
     """Prova que o teste acima falharia se a regressão voltasse."""
-    from lxml import etree
-
     xml = f"""<c:chartSpace xmlns:c="{_NS[1:-1]}">
       <c:chart><c:plotArea>
         <c:barChart><c:axId val="1"/></c:barChart>
@@ -407,6 +425,22 @@ def test_validador_pega_a_inversao_que_quebrava_o_arquivo():
       </c:plotArea></c:chart>
     </c:chartSpace>""".encode()
     assert validar_xml_do_grafico(xml)
+
+
+def test_validador_pega_posicao_de_rotulo_invalida_em_coluna():
+    """A segunda causa do deck recusado: dLblPos "r" numa série de coluna."""
+    xml = f"""<c:chartSpace xmlns:c="{_NS[1:-1]}">
+      <c:chart><c:plotArea>
+        <c:barChart>
+          <c:ser><c:idx val="0"/><c:dLbls><c:dLbl>
+            <c:dLblPos val="r"/>
+          </c:dLbl></c:dLbls></c:ser>
+        </c:barChart>
+        <c:valAx><c:axId val="2"/></c:valAx>
+      </c:plotArea></c:chart>
+    </c:chartSpace>""".encode()
+    erros = validar_xml_do_grafico(xml)
+    assert any("dLblPos" in erro for erro in erros)
 
 
 # =============================================================================
@@ -522,3 +556,161 @@ def test_eixo_categorico_nao_quebra_o_estilo():
     assert _valid_trace_dates(fig) == []
     aplicar_estilo(fig, title="Por UF", y_title="%", legenda=False)
     assert fig.layout.xaxis.tickmode != "array"
+
+
+# =============================================================================
+# NÚMERO NO PADRÃO BRASILEIRO
+# =============================================================================
+
+@pytest.mark.parametrize(
+    "valor,casas,esperado",
+    [
+        (7372.0, 1, "7.372,0"),
+        (1234567.89, 2, "1.234.567,89"),
+        (729.2, 1, "729,2"),
+        (4.88, 2, "4,88"),
+        (-6.3, 1, "-6,3"),
+        (0.2, 1, "0,2"),
+    ],
+)
+def test_ponto_separa_milhar_e_virgula_separa_decimal(valor, casas, esperado):
+    assert formatar_numero(valor, casas) == esperado
+
+
+def test_rotulos_do_grafico_usam_o_padrao_brasileiro():
+    index = pd.date_range("2025-08-31", periods=12, freq="ME")
+    wide = pd.DataFrame(
+        {f"serie_{i}": [1_500_000.0 + i * 500_000 + p * 1000 for p in range(12)]
+         for i in range(3)},
+        index=index,
+    )
+    total = wide.sum(axis=1)
+    fig = stacked_figure(
+        wide, [f"serie_{i}" for i in range(3)],
+        title="Saldos", y_title="R$ bi", scale=0.001, total=total,
+    )
+    assert any("." in (t or "") and "," in (t or "") for t in fig.data[0].text)
+    assert "." in fig.layout.annotations[0].text
+    assert fig.layout.yaxis.tickformat == ","
+    assert fig.layout.separators == ",."
+
+
+# =============================================================================
+# SENSIBILIDADE DO EIXO SECUNDÁRIO
+# =============================================================================
+
+def _combo(prazo: list[float]):
+    index = pd.date_range("2025-08-31", periods=len(prazo), freq="ME")
+    wide = pd.DataFrame(
+        {
+            "concessoes_livre_pj": [250_000.0 + i * 5_000 for i in range(len(prazo))],
+            "prazo_livre_pj": prazo,
+        },
+        index=index,
+    )
+    return bar_line_figure(
+        wide, bar_alias="concessoes_livre_pj", line_alias="prazo_livre_pj",
+        title="Combo",
+    )
+
+
+def _ocupacao_vertical(fig, valores: list[float]) -> float:
+    menor, maior = fig.layout.yaxis2.range
+    return (max(valores) - min(valores)) / (maior - menor)
+
+
+def test_variacao_pequena_de_prazo_aparece_pequena():
+    """Veículos varia 1 mês em 47. Com escala automática, isso enchia o card.
+
+    Ancorar o eixo secundário em zero faz a altura ocupada acompanhar a
+    variação relativa, e não a amplitude absoluta.
+    """
+    quase_constante = [46.3 + 0.1 * i for i in range(11)] + [47.3]
+    muito_variavel = [23.0 + i for i in range(11)] + [34.1]
+
+    plano = _ocupacao_vertical(_combo(quase_constante), quase_constante)
+    movido = _ocupacao_vertical(_combo(muito_variavel), muito_variavel)
+
+    assert plano < 0.05, "variação de 2% não pode ocupar mais que 5% da altura"
+    assert movido > 0.20, "variação de 40% precisa ser visível"
+    assert movido > plano * 5
+
+
+def test_eixo_secundario_comeca_em_zero_nos_dois_tipos_de_grafico():
+    combo = _combo([24.0 + i * 0.4 for i in range(12)])
+    assert combo.layout.yaxis.range[0] == 0
+    assert combo.layout.yaxis2.range[0] == 0
+
+    index = pd.date_range("2025-08-31", periods=12, freq="ME")
+    wide = pd.DataFrame(
+        {
+            "comprometimento_juros": [10.0 + i * 0.1 for i in range(12)],
+            "endividamento_renda": [49.0 + i * 0.08 for i in range(12)],
+        },
+        index=index,
+    )
+    linhas = line_figure(
+        wide, ["comprometimento_juros", "endividamento_renda"],
+        title="Situação", y_title="% da renda", compacto=True,
+        secundarios=["endividamento_renda"],
+    )
+    assert linhas.layout.yaxis2.range[0] == 0
+
+
+def test_rotulos_dos_dois_eixos_nao_colidem():
+    """Endividamento, no eixo da direita, caía em cima dos rótulos da esquerda.
+
+    Cada eixo era espalhado por si e nenhum enxergava o outro.
+    """
+    index = pd.date_range("2025-08-31", periods=12, freq="ME")
+    wide = pd.DataFrame(
+        {
+            "comprometimento_amortizacao": [18.0] * 12,
+            "comprometimento_juros": [10.9] * 12,
+            "comprometimento_total_derivado": [28.8] * 12,
+            "comprometimento_servico_ex_habitacional": [26.6] * 12,
+            "endividamento_renda": [49.8] * 12,
+        },
+        index=index,
+    )
+    fig = line_figure(
+        wide, list(wide.columns), title="Situação", y_title="% da renda",
+        suffix="%", compacto=True, secundarios=["endividamento_renda"],
+    )
+    assert len(fig.layout.annotations) == 5
+
+    altura = _altura_area_plotagem(fig)
+    posicoes = []
+    for anotacao in fig.layout.annotations:
+        eixo = fig.layout.yaxis2 if anotacao.yref == "y2" else fig.layout.yaxis
+        menor, maior = eixo.range
+        posicoes.append((maior - anotacao.y) * altura / (maior - menor) + anotacao.ay)
+    posicoes.sort()
+    for anterior, seguinte in zip(posicoes, posicoes[1:]):
+        assert seguinte - anterior >= TAMANHO_ROTULO_PX
+
+
+def test_eixo_secundario_ganha_margem_propria():
+    """Sem margem, a régua da direita era desenhada por cima dos dados."""
+    index = pd.date_range("2025-08-31", periods=12, freq="ME")
+    wide = pd.DataFrame(
+        {"a": [10.0] * 12, "b": [50.0] * 12}, index=index
+    )
+    com = line_figure(wide, ["a", "b"], title="X", y_title="%", compacto=True,
+                      secundarios=["b"])
+    sem = line_figure(wide, ["a", "b"], title="X", y_title="%", compacto=True)
+    assert com.layout.margin.r > sem.layout.margin.r
+
+
+# =============================================================================
+# RÓTULO EM TODOS OS PERÍODOS
+# =============================================================================
+
+def test_barra_empilhada_rotula_todos_os_periodos_por_padrao():
+    wide = _wide(series=3)
+    fig = stacked_figure(
+        wide, [f"serie_{i}" for i in range(3)], title="X", y_title="R$ bi",
+    )
+    for trace in fig.data:
+        assert sum(1 for texto in trace.text if texto) == len(wide)
+    assert fig.layout.uniformtext.mode == "hide"
