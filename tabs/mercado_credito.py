@@ -337,7 +337,6 @@ def _yoy_pp_frame(wide: pd.DataFrame, aliases: Sequence[str]) -> pd.DataFrame:
 
 
 def _render_concessoes(wide: pd.DataFrame) -> None:
-    st.markdown("#### Concessões")
     _leitura("concessoes", wide)
     components = [
         "concessoes_sa_livre_pj",
@@ -857,7 +856,7 @@ def _botao_deck_completo(wide: pd.DataFrame, get_cache_manager) -> None:
             "presentationml.presentation"
         ),
         key="sgs_deck_completo",
-        type="primary",
+        width="stretch",
         help=(
             "Todas as abas em um arquivo, na ordem da tela, com a leitura dos "
             "dados de cada uma acima dos gráficos."
@@ -1306,11 +1305,15 @@ def render_mercado_credito(cache, *, get_cache_manager=None) -> None:
         default=MAIN_SECTIONS[0],
         key="sgs_credit_main_section",
     )
-    coluna_aba, coluna_deck = st.columns(2)
-    with coluna_aba:
-        export_slot = st.empty()
-    with coluna_deck:
-        _botao_deck_completo(_period_filter_silencioso(full_wide), get_cache_manager)
+    # Os dois downloads ficam num popover: dois botões primários no topo
+    # competiam com o conteúdo e ocupavam uma faixa inteira da página.
+    _, coluna_export = st.columns([0.82, 0.18])
+    with coluna_export:
+        with st.popover("Exportar", width="stretch"):
+            export_slot = st.empty()
+            _botao_deck_completo(
+                _period_filter_silencioso(full_wide), get_cache_manager
+            )
     figuras: list[go.Figure] = []
     token = _EXPORT_FIGURES.set(figuras)
     try:
@@ -1352,7 +1355,7 @@ def render_mercado_credito(cache, *, get_cache_manager=None) -> None:
                     "presentationml.presentation"
                 ),
                 key=f"sgs_pptx_{selected}_{detalhe}",
-                type="primary",
+                width="stretch",
                 help=(
                     "Gráficos Office nativos e editáveis, "
                     f"até {meta_export['paineis_por_slide']} por slide."

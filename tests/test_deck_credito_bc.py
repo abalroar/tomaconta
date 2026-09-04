@@ -21,6 +21,7 @@ from utils.sgs_credit_analytics import derive_credit_totals, to_wide
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_credito_bc_legibilidade import (  # noqa: E402
+    _NS,
     _graficos_do_deck,
     validar_xml_do_grafico,
 )
@@ -234,18 +235,23 @@ def test_titulo_e_comentario_ficam_proximos(deck):
     assert titulo.height == ALTURA_TITULO_SECAO
 
 
-def test_todo_grafico_do_deck_tem_a_mesma_altura(deck):
-    """Altura fixa da célula: o gráfico não muda de tamanho por causa do texto."""
+def test_grade_preenche_a_altura_livre_do_slide(deck):
+    """A célula cresce para ocupar o que sobra abaixo do comentário.
+
+    Altura fixa deixava metade do slide vazia sempre que a faixa de leitura era
+    curta. Dentro de um mesmo slide todos os gráficos continuam iguais.
+    """
     _, _, apresentacao = deck
-    alturas = {
-        forma.height
-        for slide in apresentacao.slides
-        for forma in slide.shapes
-        if forma.has_chart
-    }
-    assert len(alturas) == 1
-    altura = next(iter(alturas)) / 914400
-    assert 2.2 <= altura <= 3.0, f"{altura:.2f} in fora da faixa desenhada"
+    limite = apresentacao.slide_height - 347472
+    for slide in apresentacao.slides:
+        graficos = [forma for forma in slide.shapes if forma.has_chart]
+        if not graficos:
+            continue
+        assert len({forma.height for forma in graficos}) == 1
+        base = max(forma.top + forma.height for forma in graficos)
+        # A última linha encosta na margem inferior: sem sobra desperdiçada.
+        assert limite - base <= 91440, "sobrou mais de 0,1 in de espaço vazio"
+        assert base <= limite + 1
 
 
 def test_nenhum_grafico_passa_da_margem_inferior(deck):
@@ -267,12 +273,19 @@ def test_rotulo_traz_nome_da_serie_junto_do_valor(deck):
         raiz = etree.fromstring(xml)
         # Só os rótulos ponto a ponto; o bloco de padrão do gráfico continua
         # desligado, e é ele que vale para os pontos sem rótulo.
-        for rotulo in raiz.iter(qn("c:dLbl")):
-            nome = rotulo.find(qn("c:showSerName"))
-            valor = rotulo.find(qn("c:showVal"))
-            assert nome is not None and nome.get("val") == "1"
-            assert valor is not None and valor.get("val") == "1"
-            encontrou = True
+        for grupo in raiz.iter():
+            tipo = grupo.tag.replace(_NS, "")
+            if tipo not in {"barChart", "lineChart"}:
+                continue
+            # Na coluna o nome não cabe na largura da barra e fica na legenda;
+            # na linha ele vai junto do valor, na faixa da direita.
+            esperado = "0" if tipo == "barChart" else "1"
+            for rotulo in grupo.iter(qn("c:dLbl")):
+                nome = rotulo.find(qn("c:showSerName"))
+                valor = rotulo.find(qn("c:showVal"))
+                assert valor is not None and valor.get("val") == "1"
+                assert nome is not None and nome.get("val") == esperado
+                encontrou = True
     assert encontrou, "nenhum rótulo configurado no deck"
 
 
@@ -301,3 +314,102 @@ def test_mapa_nao_entra_no_deck(gerenciador):
     for figura in figuras:
         for trace in figura.data:
             assert trace.type not in {"choropleth", "choroplethmapbox", "scattergeo"}
+
+
+# =============================================================================
+# LEGIBILIDADE DOS RÓTULOS NO SLIDE RENDERIZADO
+# =============================================================================
+
+def test_rotulo_de_linha_fica_na_faixa_a_direita_da_plotagem(deck):
+    """A área de plotagem encolhe e o rótulo do último ponto vai para a sobra.
+
+    Sem isso o rótulo era desenhado sobre as próprias linhas e cortado na
+    borda do gráfico.
+    """
+    from lxml import etree
+
+    from utils.scr_pptx_export import GUTTER_ROTULO_LINHA
+
+    blob, _, _ = deck
+    conferidos = 0
+    for xml in _graficos_do_deck(blob):
+        raiz = etree.fromstring(xml)
+        if raiz.find(f".//{qn('c:lineChart')}") is None:
+            continue
+        layout = raiz.find(
+            f".//{qn('c:plotArea')}/{qn('c:layout')}/{qn('c:manualLayout')}"
+        )
+        assert layout is not None, "gráfico de linhas sem layout manual"
+        largura = float(layout.find(qn("c:w")).get("val"))
+        assert largura <= 1.0 - GUTTER_ROTULO_LINHA
+        conferidos += 1
+    assert conferidos, "nenhum gráfico de linhas no deck"
+
+
+def test_rotulos_finais_nao_se_sobrepoem_na_faixa():
+    """O escalonamento respeita a altura de cada nome, inclusive os que quebram."""
+    from utils.scr_pptx_export import _escalonar_no_gutter
+
+    finais = [
+        ("Desconto de duplicatas/recebíveis", -3.6), ("Capital de giro", -5.4),
+        ("Conta garantida", -2.5), ("Aquisição de bens", -9.7), ("ACC", -3.3),
+        ("Financiamento à exportação", -10.3), ("Rural PJ", 22.4),
+        ("Imobiliário PJ", 8.7), ("BNDES PJ", 5.5),
+    ]
+    posicoes = _escalonar_no_gutter(
+        finais, int(2.5 * 914400), int(6.14 * 914400)
+    )
+    assert len(posicoes) == len(finais)
+    ordenadas = sorted(posicoes.values())
+    for anterior, seguinte in zip(ordenadas, ordenadas[1:]):
+        assert seguinte - anterior >= 0.05, "rótulos empilhados no mesmo ponto"
+    assert min(ordenadas) >= 0.03
+    assert max(ordenadas) <= 0.95
+
+
+def test_barra_empilhada_tem_barra_larga_para_o_rotulo_caber(deck):
+    """O PowerPoint recorta o rótulo pela largura da barra."""
+    from lxml import etree
+
+    blob, _, _ = deck
+    for xml in _graficos_do_deck(blob):
+        raiz = etree.fromstring(xml)
+        barra = raiz.find(f".//{qn('c:barChart')}")
+        if barra is None or raiz.find(f".//{qn('c:lineChart')}") is not None:
+            continue
+        vao = barra.find(qn("c:gapWidth"))
+        assert vao is not None and int(vao.get("val")) <= 50
+
+
+def test_legenda_so_existe_onde_o_rotulo_nao_traz_o_nome(deck):
+    """Linha não leva legenda: o nome já vai no rótulo e sobrava disputa de
+    espaço com os meses do eixo."""
+    from lxml import etree
+
+    blob, _, _ = deck
+    for xml in _graficos_do_deck(blob):
+        raiz = etree.fromstring(xml)
+        tem_legenda = raiz.find(f".//{qn('c:legend')}") is not None
+        so_linhas = (
+            raiz.find(f".//{qn('c:lineChart')}") is not None
+            and raiz.find(f".//{qn('c:barChart')}") is None
+        )
+        if so_linhas:
+            assert not tem_legenda
+
+
+def test_eixo_secundario_do_deck_comeca_em_zero(deck):
+    """Mesma sensibilidade da tela: prazo que varia pouco aparece plano."""
+    from lxml import etree
+
+    blob, _, _ = deck
+    achou = False
+    for xml in _graficos_do_deck(blob):
+        raiz = etree.fromstring(xml)
+        eixos = raiz.findall(f".//{qn('c:valAx')}")
+        if len(eixos) < 2:
+            continue
+        minimo = eixos[-1].find(f"{qn('c:scaling')}/{qn('c:min')}")
+        assert minimo is not None and float(minimo.get("val")) == 0
+        achou = True
+    assert achou, "nenhum card de dois eixos no deck"
