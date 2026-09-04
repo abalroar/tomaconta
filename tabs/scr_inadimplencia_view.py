@@ -13,6 +13,21 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
+from tabs import scr_inadimplencia as scr_spec
+from utils.sgs_credit_analytics import (
+    ALTURA_COMPACTA,
+    ITAU_BLACK,
+    ITAU_ORANGE,
+    LARGURA_LINHA_AGREGADO,
+    LARGURA_LINHA_CONTEXTO,
+    LARGURA_LINHA_FOCO,
+    TAMANHO_ROTULO_PX,
+    aplicar_estilo,
+    encurtar_rotulo,
+    formatar_numero,
+    posicionar_rotulos_finais,
+)
+
 
 # Centroide do maior anel de cada UF, calculado a partir do geojson versionado
 # em data/bundled/geo/uf_brasil.geojson. É onde o rótulo do mapa pousa.
@@ -56,6 +71,185 @@ ESCALA_MAPA = [
 COR_BORDA_UF = "#7A7A7A"
 
 
+# =============================================================================
+# CONSTRUTORES DE FIGURA
+# =============================================================================
+# Fora do render para que o deck completo consiga montá-las sem Streamlit.
+
+def figura_painel(
+    painel,
+    quebra_spec,
+    *,
+    eixo_zero: bool = True,
+    quebras_serie=(),
+    rotulo_metrica: str = "",
+) -> go.Figure:
+    fig = go.Figure()
+    endpoints: list[tuple[pd.Timestamp, float, str, str]] = []
+    tabela = painel.series.copy()
+    tabela["data_base"] = pd.to_datetime(
+        tabela["data_base"].astype(str) + "-01", errors="coerce"
+    )
+    tabela["serie"] = tabela["serie"].astype(str)
+    tabela = tabela.pivot_table(
+        index="data_base", columns="serie", values="valor",
+        aggfunc="first", observed=True,
+    ).sort_index()
+
+    desenhadas = [n for n in painel.ordem_series if n in tabela.columns]
+    # Em meia largura o nome vai para a ponta da linha já a partir da
+    # terceira série: a legenda horizontal quebraria em duas fileiras.
+    rotulo_direto = len(desenhadas) > 2
+    for nome in desenhadas:
+        serie = tabela[nome]
+        validos = serie.dropna()
+        cor = painel.cores.get(nome)
+        tracejada = nome in painel.tracejadas
+        agregado = nome == scr_spec.SERIE_TOTAL
+        if agregado:
+            largura = LARGURA_LINHA_AGREGADO
+        elif nome == desenhadas[0]:
+            largura = LARGURA_LINHA_FOCO
+        else:
+            largura = LARGURA_LINHA_CONTEXTO
+        fig.add_trace(go.Scatter(
+            x=tabela.index,
+            y=serie.values,
+            name=scr_spec.rotulo_serie(nome, quebra_spec),
+            mode="lines",
+            line=dict(
+                color=cor,
+                width=largura,
+                dash="dash" if tracejada else "solid",
+            ),
+            connectgaps=False,
+            cliponaxis=False,
+            hovertemplate="%{x|%m/%Y}<br>%{y:.2%}<extra>%{fullData.name}</extra>",
+        ))
+        if not validos.empty:
+            y_final = float(validos.iloc[-1])
+            numero = scr_spec.formatar_percentual_2casas(y_final)
+            rotulo = scr_spec.rotulo_serie(nome, quebra_spec)
+            endpoints.append((
+                pd.Timestamp(validos.index[-1]),
+                y_final,
+                f"{encurtar_rotulo(rotulo)}<br>{numero}" if rotulo_direto
+                else numero,
+                cor,
+            ))
+
+    aplicar_estilo(
+        fig,
+        title=painel.titulo,
+        y_title=rotulo_metrica,
+        height=ALTURA_COMPACTA,
+        legenda=not rotulo_direto,
+        rotulo_direto=rotulo_direto,
+        compacto=True,
+    )
+    fig.update_yaxes(tickformat=".2%")
+    posicionar_rotulos_finais(fig, [(endpoints, "y", None)])
+    fig.update_yaxes(rangemode="tozero" if eixo_zero else "normal")
+    scr_spec.marcar_quebras(fig, quebras_serie)
+    fig.update_layout(meta={
+        "chart_title": painel.titulo,
+        "value_format": "0.00%",
+        "value_scale": 1.0,
+        "source": "fonte: Banco Central do Brasil · SCR.data",
+    })
+    return fig
+
+
+def figura_por_uf(tabela: pd.DataFrame, rotulo_metrica: str) -> go.Figure:
+    """A mesma variável do mapa, em barras — é o que vai para o PPTX.
+
+    Mapa não existe como gráfico nativo do Office; esta barra carrega
+    exatamente o que o mapa colore, na mesma métrica, e fica também na tela.
+    """
+    if tabela.empty:
+        return go.Figure()
+    ordenada = tabela.sort_values("valor", ascending=False, kind="stable")
+    valores = ordenada["valor"].astype(float) * 100.0
+    figura = go.Figure(go.Bar(
+        x=ordenada["uf"].astype(str),
+        y=valores,
+        name=rotulo_metrica,
+        marker_color=ITAU_ORANGE,
+        text=[formatar_numero(valor, 2) for valor in valores],
+        textposition="outside",
+        textangle=0,
+        textfont={"size": TAMANHO_ROTULO_PX, "color": ITAU_BLACK, "family": "Arial"},
+        cliponaxis=False,
+        hovertemplate="%{y:.2f}%<extra>%{x}</extra>",
+    ))
+    aplicar_estilo(
+        figura,
+        title=f"{rotulo_metrica} por UF",
+        y_title=f"{rotulo_metrica} (%)",
+        height=380,
+        legenda=False,
+    )
+    figura.update_xaxes(tickmode="auto", tickvals=None, ticktext=None, tickangle=0)
+    figura.update_layout(meta={
+        "chart_title": f"{rotulo_metrica} por UF",
+        "value_format": "0.00%",
+        "value_scale": 0.01,
+        "label_all_points": True,
+        "source": "fonte: Banco Central do Brasil · SCR.data",
+    })
+    return figura
+
+
+def figura_por_regiao(geo, *, rotulo_metrica: str, titulo: str) -> go.Figure:
+    """Série da métrica por região, uma linha por macrorregião."""
+    figura = go.Figure()
+    endpoints: list[tuple[pd.Timestamp, float, str, str]] = []
+    cores = scr_spec.cores_das_series(
+        list(scr_spec.ORDEM_REGIOES), scr_spec.QUEBRAS_POR_KEY["regiao"]
+    )
+    for posicao, nome in enumerate(scr_spec.ORDEM_REGIOES):
+        serie = geo["series"][geo["series"]["regiao"].astype(str) == nome]
+        if serie.empty:
+            continue
+        x = pd.to_datetime(serie["data_base"].astype(str) + "-01")
+        y = pd.to_numeric(serie["valor"], errors="coerce")
+        cor = cores.get(nome, ITAU_ORANGE)
+        figura.add_trace(go.Scatter(
+            x=x, y=y, name=nome, mode="lines",
+            line=dict(
+                color=cor,
+                width=LARGURA_LINHA_FOCO if posicao == 0 else LARGURA_LINHA_CONTEXTO,
+            ),
+            connectgaps=False, cliponaxis=False,
+            hovertemplate="%{x|%m/%Y}<br>%{y:.2%}<extra>%{fullData.name}</extra>",
+        ))
+        validos = y.dropna()
+        if not validos.empty:
+            indice = validos.index[-1]
+            valor_final = float(y.loc[indice])
+            endpoints.append((
+                pd.Timestamp(x.loc[indice]),
+                valor_final,
+                f"{encurtar_rotulo(nome)}<br>"
+                f"{scr_spec.formatar_percentual_2casas(valor_final)}",
+                cor,
+            ))
+    aplicar_estilo(
+        figura, title=titulo, y_title=rotulo_metrica,
+        height=ALTURA_COMPACTA, legenda=False, rotulo_direto=True, compacto=True,
+    )
+    figura.update_yaxes(tickformat=".2%")
+    posicionar_rotulos_finais(figura, [(endpoints, "y", None)])
+    scr_spec.marcar_quebras(figura, geo["quebras"])
+    figura.update_layout(meta={
+        "chart_title": titulo,
+        "value_format": "0.00%",
+        "value_scale": 1.0,
+        "source": "fonte: Banco Central do Brasil · SCR.data",
+    })
+    return figura
+
+
 def _memo_pptx(chave: str, construir):
     """Monta o deck só quando os filtros mudam.
 
@@ -71,22 +265,9 @@ def _memo_pptx(chave: str, construir):
 
 
 def render_scr_inadimplencia(get_cache_manager) -> None:
-    from tabs import scr_inadimplencia as scr_spec
     from utils import scr_data_query as scr_q
     from utils import scr_pptx_export as scr_pptx
-    from utils.sgs_credit_analytics import (
-        ALTURA_COMPACTA,
-        ITAU_BLACK,
-        ITAU_ORANGE,
-        LARGURA_LINHA_AGREGADO,
-        LARGURA_LINHA_CONTEXTO,
-        LARGURA_LINHA_FOCO,
-        TAMANHO_ROTULO_PX,
-        _add_last_line_labels,
-        aplicar_estilo,
-        encurtar_rotulo,
-        formatar_competencia,
-    )
+    from utils.sgs_credit_analytics import formatar_competencia
     from utils.sgs_credit_pptx_export import exportar_figuras_pptx
 
     plotly_config = {"displayModeBar": "hover", "displaylogo": False, "responsive": True}
@@ -144,81 +325,6 @@ def render_scr_inadimplencia(get_cache_manager) -> None:
             "- As definições completas estão em **Glossário > SCR.data**."
         )
 
-    def _figura_painel(painel, quebra_spec, eixo_zero: bool, quebras_serie) -> go.Figure:
-        fig = go.Figure()
-        endpoints: list[tuple[pd.Timestamp, float, str, str]] = []
-        tabela = painel.series.copy()
-        tabela["data_base"] = pd.to_datetime(
-            tabela["data_base"].astype(str) + "-01", errors="coerce"
-        )
-        tabela["serie"] = tabela["serie"].astype(str)
-        tabela = tabela.pivot_table(
-            index="data_base", columns="serie", values="valor",
-            aggfunc="first", observed=True,
-        ).sort_index()
-
-        desenhadas = [n for n in painel.ordem_series if n in tabela.columns]
-        # Em meia largura o nome vai para a ponta da linha já a partir da
-        # terceira série: a legenda horizontal quebraria em duas fileiras.
-        rotulo_direto = len(desenhadas) > 2
-        for nome in desenhadas:
-            serie = tabela[nome]
-            validos = serie.dropna()
-            cor = painel.cores.get(nome)
-            tracejada = nome in painel.tracejadas
-            agregado = nome == scr_spec.SERIE_TOTAL
-            if agregado:
-                largura = LARGURA_LINHA_AGREGADO
-            elif nome == desenhadas[0]:
-                largura = LARGURA_LINHA_FOCO
-            else:
-                largura = LARGURA_LINHA_CONTEXTO
-            fig.add_trace(go.Scatter(
-                x=tabela.index,
-                y=serie.values,
-                name=scr_spec.rotulo_serie(nome, quebra_spec),
-                mode="lines",
-                line=dict(
-                    color=cor,
-                    width=largura,
-                    dash="dash" if tracejada else "solid",
-                ),
-                connectgaps=False,
-                cliponaxis=False,
-                hovertemplate="%{x|%m/%Y}<br>%{y:.2%}<extra>%{fullData.name}</extra>",
-            ))
-            if not validos.empty:
-                y_final = float(validos.iloc[-1])
-                numero = scr_spec.formatar_percentual_2casas(y_final)
-                rotulo = scr_spec.rotulo_serie(nome, quebra_spec)
-                endpoints.append((
-                    pd.Timestamp(validos.index[-1]),
-                    y_final,
-                    f"{encurtar_rotulo(rotulo)}<br>{numero}" if rotulo_direto
-                    else numero,
-                    cor,
-                ))
-
-        aplicar_estilo(
-            fig,
-            title=painel.titulo,
-            y_title=scr_q.METRICAS[_metrica].rotulo,
-            height=ALTURA_COMPACTA,
-            legenda=not rotulo_direto,
-            rotulo_direto=rotulo_direto,
-            compacto=True,
-        )
-        fig.update_yaxes(tickformat=".2%")
-        _add_last_line_labels(fig, endpoints, base_zero=eixo_zero)
-        scr_spec.marcar_quebras(fig, quebras_serie)
-        fig.update_layout(meta={
-            "chart_title": painel.titulo,
-            "value_format": "0.00%",
-            "value_scale": 1.0,
-            "source": "fonte: Banco Central do Brasil · SCR.data",
-        })
-        return fig
-
     def _card_header(painel) -> None:
         titulo_col, info_col = st.columns([0.94, 0.06], vertical_alignment="top")
         with titulo_col:
@@ -228,45 +334,6 @@ def render_scr_inadimplencia(get_cache_manager) -> None:
             with st.popover("i", help="Metodologia deste card"):
                 st.markdown("**Metodologia**")
                 _nota_metodologica()
-
-    def _figura_ufs(tabela: pd.DataFrame, rotulo_metrica: str) -> go.Figure:
-        """A mesma variável do mapa, em barras — é o que vai para o PPTX.
-
-        Mapa não existe como gráfico nativo do Office; esta barra carrega
-        exatamente o que o mapa colore, na mesma métrica, e fica também na tela.
-        """
-        if tabela.empty:
-            return go.Figure()
-        ordenada = tabela.sort_values("valor", ascending=False, kind="stable")
-        valores = ordenada["valor"].astype(float) * 100.0
-        figura = go.Figure(go.Bar(
-            x=ordenada["uf"].astype(str),
-            y=valores,
-            name=rotulo_metrica,
-            marker_color=ITAU_ORANGE,
-            text=[f"{valor:.2f}".replace(".", ",") for valor in valores],
-            textposition="outside",
-            textangle=0,
-            textfont={"size": TAMANHO_ROTULO_PX, "color": ITAU_BLACK, "family": "Arial"},
-            cliponaxis=False,
-            hovertemplate="%{y:.2f}%<extra>%{x}</extra>",
-        ))
-        aplicar_estilo(
-            figura,
-            title=f"{rotulo_metrica} por UF",
-            y_title=f"{rotulo_metrica} (%)",
-            height=380,
-            legenda=False,
-        )
-        figura.update_xaxes(tickmode="auto", tickvals=None, ticktext=None, tickangle=0)
-        figura.update_layout(meta={
-            "chart_title": f"{rotulo_metrica} por UF",
-            "value_format": "0.00%",
-            "value_scale": 0.01,
-            "label_all_points": True,
-            "source": "fonte: Banco Central do Brasil · SCR.data",
-        })
-        return figura
 
     def _rotulos_do_mapa(mapa: pd.DataFrame) -> list[go.Scattergeo]:
         """Sigla e percentual desenhados sobre o mapa, sem depender do mouse."""
@@ -499,7 +566,7 @@ def render_scr_inadimplencia(get_cache_manager) -> None:
                     data=blob,
                     file_name=f"scr_paineis_{data_base}.pptx",
                     mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                    key="scr_pn_pptx", type="primary",
+                    key="scr_pn_pptx", width="stretch",
                     help="Gráficos Office nativos, editáveis; até 4 por slide.",
                 )
             except Exception as exc:
@@ -515,7 +582,11 @@ def render_scr_inadimplencia(get_cache_manager) -> None:
                     with coluna:
                         _card_header(painel)
                         st.plotly_chart(
-                            _figura_painel(painel, quebra_spec, eixo_zero, painel_quebras),
+                            figura_painel(
+                        painel, quebra_spec, eixo_zero=eixo_zero,
+                        quebras_serie=painel_quebras,
+                        rotulo_metrica=scr_q.METRICAS[_metrica].rotulo,
+                    ),
                             width="stretch", config=plotly_config,
                         )
 
@@ -540,55 +611,13 @@ def render_scr_inadimplencia(get_cache_manager) -> None:
             dados_regiao, metrica=_metrica, data_base=data_base, nivel=nivel_geo
         )
 
-        figura_ufs = _figura_ufs(geo["mapa"], rotulo_metrica)
+        figura_ufs = figura_por_uf(geo["mapa"], rotulo_metrica)
 
-        figura_regiao = go.Figure()
-        endpoints_regiao: list[tuple[pd.Timestamp, float, str, str]] = []
-        cores_regiao = scr_spec.cores_das_series(
-            list(scr_spec.ORDEM_REGIOES), scr_spec.QUEBRAS_POR_KEY["regiao"]
+        figura_regiao = figura_por_regiao(
+            geo,
+            rotulo_metrica=rotulo_metrica,
+            titulo=f"{modalidade_regiao} por região",
         )
-        for posicao, nome in enumerate(scr_spec.ORDEM_REGIOES):
-            serie = geo["series"][geo["series"]["regiao"].astype(str) == nome]
-            if serie.empty:
-                continue
-            x = pd.to_datetime(serie["data_base"].astype(str) + "-01")
-            y = pd.to_numeric(serie["valor"], errors="coerce")
-            cor = cores_regiao.get(nome, ITAU_ORANGE)
-            figura_regiao.add_trace(go.Scatter(
-                x=x, y=y, name=nome, mode="lines",
-                line=dict(
-                    color=cor,
-                    width=LARGURA_LINHA_FOCO if posicao == 0 else LARGURA_LINHA_CONTEXTO,
-                ),
-                connectgaps=False, cliponaxis=False,
-                hovertemplate="%{x|%m/%Y}<br>%{y:.2%}<extra>%{fullData.name}</extra>",
-            ))
-            validos = y.dropna()
-            if not validos.empty:
-                indice = validos.index[-1]
-                valor_final = float(y.loc[indice])
-                endpoints_regiao.append((
-                    pd.Timestamp(x.loc[indice]),
-                    valor_final,
-                    f"{nome}  {scr_spec.formatar_percentual_2casas(valor_final)}",
-                    cor,
-                ))
-        aplicar_estilo(
-            figura_regiao,
-            title=f"{modalidade_regiao} por região",
-            y_title=rotulo_metrica,
-            legenda=False,
-            rotulo_direto=True,
-        )
-        figura_regiao.update_yaxes(tickformat=".2%")
-        _add_last_line_labels(figura_regiao, endpoints_regiao)
-        scr_spec.marcar_quebras(figura_regiao, geo["quebras"])
-        figura_regiao.update_layout(meta={
-            "chart_title": f"{modalidade_regiao} por região",
-            "value_format": "0.00%",
-            "value_scale": 1.0,
-            "source": "fonte: Banco Central do Brasil · SCR.data",
-        })
 
         chave_regiao = "|".join([
             "regiao", inicio, fim, str(cliente), _metrica, modalidade_regiao, nivel_geo,
@@ -608,7 +637,7 @@ def render_scr_inadimplencia(get_cache_manager) -> None:
                 data=blob_regiao,
                 file_name=f"scr_regiao_{data_base}.pptx",
                 mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                key="scr_regiao_pptx", type="primary",
+                key="scr_regiao_pptx", width="stretch",
                 help=(
                     "Os dois gráficos abaixo, em formato Office nativo e editável. "
                     "O mapa não tem equivalente nativo no Office — a mesma métrica "

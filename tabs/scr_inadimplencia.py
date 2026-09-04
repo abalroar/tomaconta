@@ -679,8 +679,11 @@ COR_TEXTO = COR_PRETO
 # Rampa para dimensões ORDENADAS (faixas de renda, porte). Vai do laranja, que
 # sinaliza o grupo sob estresse, aos cinzas escuros. É monotônica em luminosidade
 # para que a ordem da renda seja lida no próprio gradiente.
+# O degrau cinza mais claro começa em #949494, que é onde uma linha sobre papel
+# branco ainda chega a 3:1. #CFCFCF, o valor anterior, ficava em 1,55:1: a série
+# e o rótulo dela sumiam no fundo do slide.
 RAMPA_ORDENADA = [
-    "#EC7000", "#D98325", "#A34700", "#CFCFCF", "#949494", "#7A7A7A", "#4F4F4F",
+    "#EC7000", "#D47D1E", "#A34700", "#949494", "#757575", "#5C5C5C", "#3F3F3F",
 ]
 
 # Paleta para dimensões SEM ordem natural (região, segmento, produto). É a

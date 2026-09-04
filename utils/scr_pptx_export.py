@@ -20,6 +20,7 @@ Duas exigências de leitura que o módulo garante:
 
 from __future__ import annotations
 
+import math
 from io import BytesIO
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -63,8 +64,23 @@ FONTE_TITULO_PT = 13
 FONTE_SUBTITULO_PT = 10
 FONTE_FONTE_PT = 7.5
 FONTE_EIXO_PT = 8
+# O eixo dos meses tem doze marcas e é o primeiro a ficar apinhado; um
+# ponto a menos que o eixo de valores resolve sem perder leitura.
+FONTE_EIXO_CATEGORIA_PT = 7
 FONTE_LEGENDA_PT = 8
 FONTE_ROTULO_PT = 8
+# Na coluna empilhada o rótulo tem que caber na largura da barra: com 12
+# meses num gráfico de meia lâmina, a barra tem cerca de 0,34 in e um valor
+# de seis dígitos a 8 pt passa disso, e o PowerPoint corta as pontas.
+FONTE_ROTULO_COLUNA_PT = 7
+# Abaixo desta fatia do total, o rótulo não cabe na altura da barra.
+PARTICIPACAO_MINIMA_ROTULO = 0.07
+# Acima disto a barra fica mais estreita que o próprio valor e o rótulo vai
+# para a vertical, que é o que evita o corte no meio do número.
+MAXIMO_COLUNAS_ROTULO_DEITADO = 14
+# Muitas séries no mesmo gráfico: o rótulo encolhe para os nomes caberem
+# empilhados na faixa da direita sem se sobrepor.
+FONTE_ROTULO_DENSO_PT = 6.5
 
 COR_TITULO = RGBColor(0x11, 0x11, 0x11)
 COR_SUBTITULO = RGBColor(0x3C, 0x3C, 0x3C)
@@ -122,6 +138,9 @@ def _caixa_texto(
     for indice, bloco in enumerate(blocos):
         paragrafo = quadro.paragraphs[0] if indice == 0 else quadro.add_paragraph()
         paragrafo.alignment = PP_ALIGN.LEFT
+        paragrafo.line_spacing = entrelinha or 1.0
+        paragrafo.space_before = Pt(espaco_entre_paragrafos)
+        paragrafo.space_after = Pt(0)
         if entrelinha:
             paragrafo.line_spacing = entrelinha
         if indice and espaco_entre_paragrafos:
@@ -134,6 +153,14 @@ def _caixa_texto(
     return caixa
 
 
+def _definir_tick_lbl_pos(eixo, valor: str) -> None:
+    """Onde os rótulos do eixo de categorias são desenhados."""
+    elemento = eixo._element
+    no = elemento.find(qn("c:tickLblPos"))
+    if no is None:
+        no = etree.SubElement(elemento, qn("c:tickLblPos"))
+    no.set("val", valor)
+    _ordenar_filhos(elemento, ORDEM_CAT_AX)
 
 
 
@@ -150,8 +177,20 @@ def _definir_intervalo_rotulos(category_axis, total_categorias: int) -> int:
     return intervalo
 
 
+# Ordem exigida para os filhos de <c:dLbl> (CT_DLbl).
+ORDEM_DLBL = (
+    "c:idx", "c:delete", "c:layout", "c:tx", "c:numFmt", "c:spPr", "c:txPr",
+    "c:dLblPos", "c:showLegendKey", "c:showVal", "c:showCatName",
+    "c:showSerName", "c:showPercent", "c:showBubbleSize", "c:separator",
+    "c:extLst",
+)
+
+
 def _rotular_apenas_ultimo_ponto(
-    serie, indice_ultimo: int, formato_numero: str = FORMATO_PERCENTUAL
+    serie,
+    indice_ultimo: int,
+    formato_numero: str = FORMATO_PERCENTUAL,
+    com_nome: bool = True,
 ) -> None:
     """Liga o rótulo só no último ponto da série.
 
@@ -169,11 +208,13 @@ def _rotular_apenas_ultimo_ponto(
     formato.set("formatCode", formato_numero)
     formato.set("sourceLinked", "0")
 
+    # Nome da série junto do valor: o rótulo do último ponto identifica a linha
+    # sozinho, como na tela, e continua ligado ao dado.
     mostrar = {
         "c:showLegendKey": "0",
         "c:showVal": "1",
         "c:showCatName": "0",
-        "c:showSerName": "0",
+        "c:showSerName": "1" if com_nome else "0",
         "c:showPercent": "0",
         "c:showBubbleSize": "0",
     }
@@ -182,13 +223,208 @@ def _rotular_apenas_ultimo_ponto(
         if no is None:
             no = etree.SubElement(dLbl, qn(tag))
         no.set("val", valor)
+    _ordenar_filhos(dLbl, ORDEM_DLBL)
 
 
 def _rotular_todos_os_pontos(
-    serie, total: int, formato_numero: str = FORMATO_PERCENTUAL
+    serie, total: int, formato_numero: str = FORMATO_PERCENTUAL,
+    com_nome: bool = True,
 ) -> None:
     for indice in range(total):
-        _rotular_apenas_ultimo_ponto(serie, indice, formato_numero)
+        _rotular_apenas_ultimo_ponto(serie, indice, formato_numero, com_nome)
+
+
+def _layout_do_rotulo(rotulo, x: float, y: float) -> None:
+    """Fixa a posição de um rótulo dentro do quadro do gráfico.
+
+    ``x`` e ``y`` são frações do gráfico, medidas da borda. É o que permite
+    empurrar todos os rótulos finais para a faixa à direita da área de
+    plotagem, escalonados, em vez de deixá-los sobre as próprias linhas.
+    """
+    elemento = rotulo._dLbl
+    existente = elemento.find(qn("c:layout"))
+    if existente is not None:
+        elemento.remove(existente)
+    layout = etree.Element(qn("c:layout"))
+    elemento.insert(0, layout)
+    manual = etree.SubElement(layout, qn("c:manualLayout"))
+    _definir(manual, "c:xMode", "edge")
+    _definir(manual, "c:yMode", "edge")
+    for tag, valor in (("c:x", round(x, 4)), ("c:y", round(y, 4))):
+        no = etree.SubElement(manual, qn(tag))
+        no.set("val", str(valor))
+    _ordenar_filhos(elemento, ORDEM_DLBL)
+
+
+# Fração da largura reservada, à direita, para o rótulo do último ponto.
+GUTTER_ROTULO_LINHA = 0.28
+GUTTER_ROTULO_LINHA_MINIMO = 0.16
+# Piso da faixa de rótulo e largura dos números do eixo da direita, ambos em
+# polegadas: é o que a régua e o nome da série ocupam de fato no papel.
+LARGURA_MINIMA_FAIXA_IN = 0.95
+LARGURA_REGUA_DIREITA_IN = 0.62
+
+
+def gutter_para(
+    finais: Sequence[Tuple[str, float]], largura_emu: int, rotulo_fn=None,
+    recuo_in: float = 0.0,
+) -> float:
+    """Faixa à direita: a régua do eixo mais o maior nome de série.
+
+    Gráfico com nomes curtos — "PF inad; 7,8%" — não precisa de um terço da
+    largura reservado, e essa sobra vinha do eixo dos meses, que ficava
+    apinhado. A conta é em polegadas: numa lâmina inteira, uma fração fixa
+    reservava quatro polegadas para um rótulo de uma.
+
+    O nome entra inteiro quando cabe numa linha dentro do teto da faixa. Quando
+    não cabe, entra pela metade, que é o que ele ocupa quebrado em duas — o
+    Office quebra o rótulo só na borda do gráfico, então a faixa precisa
+    comportar a largura que ele vai mesmo ter.
+    """
+    if not finais:
+        return GUTTER_ROTULO_LINHA_MINIMO
+    rotulo_fn = rotulo_fn or (lambda nome: nome)
+    corpo = corpo_do_rotulo(len(finais))
+    maior = max(len(f"{rotulo_fn(nome)}; 00,0%") for nome, _ in finais)
+    largura_in = max(largura_emu / 914400.0, 0.5)
+    uma_linha_in = maior * (LARGURA_MEDIA_CARACTERE * corpo / 72)
+    teto_in = GUTTER_ROTULO_LINHA * largura_in - recuo_in
+    necessario_in = uma_linha_in if uma_linha_in <= teto_in else uma_linha_in / 2
+    total_in = max(necessario_in, LARGURA_MINIMA_FAIXA_IN) + recuo_in
+    return min(GUTTER_ROTULO_LINHA, total_in / largura_in)
+
+
+def corpo_do_rotulo(total_series: int) -> float:
+    """Corpo do rótulo final: encolhe quando há muita série para empilhar."""
+    return FONTE_ROTULO_PT if total_series <= 5 else FONTE_ROTULO_DENSO_PT
+
+
+def _passo_redondo(bruto: float) -> float:
+    """Passo de grade em número redondo, logo acima de ``bruto``."""
+    if bruto <= 0:
+        return 1.0
+    expoente = 10 ** math.floor(math.log10(bruto))
+    for multiplo in (1, 2, 2.5, 5, 10):
+        if bruto <= multiplo * expoente:
+            return multiplo * expoente
+    return 10 * expoente
+
+
+def escala_de_eixo(valores: Sequence[float], base_zero: bool = False) -> Tuple[float, float]:
+    """Piso e teto do eixo de valores, em múltiplos redondos.
+
+    O export fixa a escala em vez de deixar o Office escolher porque o rótulo
+    do último ponto é posicionado por coordenada: sem saber onde o eixo começa
+    e termina, o nome da série cai longe da linha que ele nomeia.
+    """
+    finitos = [
+        float(valor) for valor in valores
+        if valor is not None and math.isfinite(float(valor))
+    ]
+    if not finitos:
+        return (0.0, 1.0)
+    menor, maior = min(finitos), max(finitos)
+    if maior == menor:
+        maior = menor + (abs(menor) or 1.0) * 0.1
+    # Mesma regra do Office: série que não fica achatada por isso começa no
+    # zero, que é a leitura honesta de um nível.
+    if base_zero or 0 <= menor <= maior * 5 / 6:
+        menor = 0.0
+    passo = _passo_redondo((maior - menor) / 7)
+    piso = math.floor(menor / passo) * passo
+    teto = math.ceil(maior / passo) * passo
+    if teto <= piso:
+        teto = piso + passo
+    return (round(piso, 10), round(teto, 10))
+
+
+def _escalonar_no_gutter(
+    finais: Sequence[Tuple[str, float]],
+    altura_grafico_emu: int,
+    largura_grafico_emu: int,
+    rotulo_fn=None,
+    gutter: float = GUTTER_ROTULO_LINHA,
+    secundarias: Sequence[str] = (),
+    escalas: Optional[Dict[bool, Tuple[float, float]]] = None,
+) -> Dict[str, float]:
+    """Posição vertical de cada rótulo na faixa da direita, sem sobreposição.
+
+    Mesma regra da tela: parte da altura do próprio valor, empurra para baixo
+    quem colidiria com o vizinho e recentraliza o conjunto. A altura de cada
+    rótulo acompanha o número de linhas que o nome da série ocupa na faixa —
+    "Financiamento à exportação" quebra em duas e precisa do dobro do espaço.
+    """
+    if not finais:
+        return {}
+    rotulo_fn = rotulo_fn or (lambda nome: nome)
+    altura_in = max(altura_grafico_emu / 914400.0, 0.5)
+    largura_faixa_in = largura_grafico_emu / 914400.0 * gutter
+    corpo = corpo_do_rotulo(len(finais))
+    # A caixa do rótulo tem margem própria e quebra antes do que a largura
+    # bruta sugere; o fator segura a estimativa do lado conservador, porque
+    # subestimar a altura de um rótulo faz ele entrar no de baixo.
+    por_linha = max(
+        int(largura_faixa_in * 0.58 / (LARGURA_MEDIA_CARACTERE * corpo / 72)), 8
+    )
+    unidade = (corpo * FATOR_LINHA_CALIBRI / 72) / altura_in
+
+    def alturas(nome: str) -> float:
+        texto = f"{rotulo_fn(nome)}; 00,0%"
+        return max(1, -(-len(texto) // por_linha)) * unidade
+
+    topo, base = 0.04, 0.04 + ALTURA_PLOT_LINHA
+    # Cada série é lida na régua do próprio eixo, a mesma que o gráfico usa.
+    # Normalizar pelo intervalo dos valores finais jogava o rótulo do eixo da
+    # direita para o rodapé, longe da linha que ele nomeia.
+    secundarias = set(secundarias)
+    escalas = dict(escalas or {})
+    for eh_secundaria in (False, True):
+        if eh_secundaria in escalas:
+            continue
+        grupo = [
+            valor for nome, valor in finais
+            if (nome in secundarias) is eh_secundaria
+        ]
+        if grupo:
+            escalas[eh_secundaria] = escala_de_eixo(grupo)
+
+    def alvo(nome: str, valor: float) -> float:
+        piso, teto = escalas[nome in secundarias]
+        amplitude = (teto - piso) or 1.0
+        fracao = min(max((teto - valor) / amplitude, 0.0), 1.0)
+        return topo + fracao * (base - topo - unidade)
+
+    alvos = {nome: alvo(nome, valor) for nome, valor in finais}
+
+    ordem = sorted(alvos, key=lambda nome: alvos[nome])
+    necessario = sum(alturas(nome) for nome in ordem)
+    def empilhar(fator: float = 1.0) -> Dict[str, float]:
+        """Encosta um rótulo no outro, de cima para baixo, na ordem das séries."""
+        posicao, resultado = topo, {}
+        for nome in ordem:
+            resultado[nome] = posicao
+            posicao += alturas(nome) * fator
+        return resultado
+
+    if necessario > base - topo:
+        # Não cabe nem encostando um no outro: comprime na proporção da altura
+        # de cada rótulo. Repartir a faixa em fatias iguais dava a um nome de
+        # duas linhas o mesmo espaço de um de uma, e os dois se sobrepunham.
+        return empilhar((base - topo) / necessario)
+
+    posicoes = dict(alvos)
+    for anterior, atual in zip(ordem, ordem[1:]):
+        posicoes[atual] = max(posicoes[atual], posicoes[anterior] + alturas(anterior))
+    fundo = posicoes[ordem[-1]] + alturas(ordem[-1])
+    if fundo > base:
+        folga_acima = posicoes[ordem[0]] - topo
+        if fundo - base > folga_acima:
+            # Não há de onde subir: encosta todos a partir do topo. Cabe, já
+            # que a soma das alturas foi conferida acima.
+            return empilhar()
+        for nome in posicoes:
+            posicoes[nome] -= fundo - base
+    return posicoes
 
 
 def _posicoes_escalonadas_rotulos(
@@ -236,9 +472,19 @@ def _posicoes_escalonadas_rotulos(
 
 
 def _estilizar_eixos(
-    chart, total_categorias: int, formato_numero: str = FORMATO_PERCENTUAL
+    chart, total_categorias: int, formato_numero: str = FORMATO_PERCENTUAL,
+    base_zero: bool = False,
+    escala: Optional[Tuple[float, float]] = None,
 ) -> None:
     eixo_valor = chart.value_axis
+    if escala is not None:
+        # Escala fixa: o rótulo do último ponto é posicionado por coordenada e
+        # precisa da mesma régua que o gráfico desenha.
+        eixo_valor.minimum_scale, eixo_valor.maximum_scale = escala
+    elif base_zero:
+        # Mesma âncora da tela: barra medida a partir do zero, para a variação
+        # aparecer na proporção certa.
+        eixo_valor.minimum_scale = 0
     eixo_valor.tick_labels.number_format = formato_numero
     eixo_valor.tick_labels.number_format_is_linked = False
     eixo_valor.tick_labels.font.size = Pt(FONTE_EIXO_PT)
@@ -251,7 +497,10 @@ def _estilizar_eixos(
     eixo_valor.minor_tick_mark = XL_TICK_MARK.NONE
 
     eixo_categoria = chart.category_axis
-    eixo_categoria.tick_labels.font.size = Pt(FONTE_EIXO_PT)
+    eixo_categoria.tick_labels.font.size = Pt(FONTE_EIXO_CATEGORIA_PT)
+    # Meses sempre no rodapé do gráfico. Com o padrão, uma série que cruza o
+    # zero empurra os rótulos para o meio, por cima das próprias linhas.
+    _definir_tick_lbl_pos(eixo_categoria, "low")
     eixo_categoria.tick_labels.font.color.rgb = COR_EIXO
     eixo_categoria.has_major_gridlines = False
     eixo_categoria.format.line.color.rgb = COR_GRADE
@@ -260,6 +509,37 @@ def _estilizar_eixos(
     _definir_intervalo_rotulos(eixo_categoria, total_categorias)
 
 
+# Fração da largura reservada, à direita, para o rótulo do último ponto. Sem
+# ela o rótulo é desenhado dentro da área de plotagem, sobre as próprias
+# linhas, e cortado na borda do gráfico.
+# Na coluna empilhada o rótulo do último mês fica dentro da fatia, mas o
+# texto sobra para a direita da barra e era cortado na borda do gráfico.
+GUTTER_ROTULO_COLUNA = 0.24
+GUTTER_LEGENDA_MAXIMO = 0.34
+# Altura da área de plotagem. O resto do quadro é o eixo de categorias e a
+# legenda. A coluna precisa de mais folga embaixo: a legenda tem mais itens e
+# entrava por cima dos meses.
+ALTURA_PLOT_LINHA = 0.86
+ALTURA_PLOT_COLUNA = 0.84
+
+
+def _layout_manual_do_plot(plot_area, gutter: float, altura: float) -> None:
+    """Encolhe a área de plotagem para abrir espaço de rótulo à direita."""
+    existente = plot_area.find(qn("c:layout"))
+    if existente is not None:
+        plot_area.remove(existente)
+    layout = etree.Element(qn("c:layout"))
+    plot_area.insert(0, layout)
+    manual = etree.SubElement(layout, qn("c:manualLayout"))
+    _definir(manual, "c:layoutTarget", "inner")
+    _definir(manual, "c:xMode", "edge")
+    _definir(manual, "c:yMode", "edge")
+    for tag, valor in (
+        ("c:x", 0.06), ("c:y", 0.04),
+        ("c:w", round(0.94 - gutter, 4)), ("c:h", altura),
+    ):
+        no = etree.SubElement(manual, qn(tag))
+        no.set("val", str(valor))
 # Ordem exigida para os filhos de <c:chartSpace> (CT_ChartSpace). O spPr entra
 # depois de <c:chart> e antes de <c:txPr>; anexado no fim, ficaria depois de
 # <c:externalData> e o PowerPoint recusaria o arquivo.
@@ -328,6 +608,28 @@ def _proximo_ax_id(chart, deslocamento: int) -> int:
     while candidato in existentes:
         candidato += 1
     return candidato
+
+
+# Ordem exigida para os filhos de <c:chartSpace> (CT_ChartSpace). O spPr entra
+# depois de <c:chart> e antes de <c:txPr>; anexado no fim, ficaria depois de
+# <c:externalData> e o PowerPoint recusaria o arquivo.
+ORDEM_CHART_SPACE = (
+    "c:date1904", "c:lang", "c:roundedCorners", "c:style", "c:clrMapOvr",
+    "c:pivotSource", "c:protection", "c:chart", "c:spPr", "c:txPr",
+    "c:externalData", "c:printSettings", "c:userShapes", "c:extLst",
+)
+
+
+def _sem_preenchimento_nem_contorno(elemento, sequencia: Sequence[str]) -> None:
+    """Aplica ``noFill`` no preenchimento e na linha, na posição do schema."""
+    existente = elemento.find(qn("c:spPr"))
+    if existente is not None:
+        elemento.remove(existente)
+    sp_pr = etree.SubElement(elemento, qn("c:spPr"))
+    etree.SubElement(sp_pr, qn("a:noFill"))
+    linha = etree.SubElement(sp_pr, qn("a:ln"))
+    etree.SubElement(linha, qn("a:noFill"))
+    _ordenar_filhos(elemento, sequencia)
 
 
 # Ordem exigida pelo schema para os filhos de <c:ser> num gráfico de linhas
@@ -392,7 +694,8 @@ def _indice_apos_grupos(plot_area) -> int:
 
 
 def _mover_para_eixo_secundario(
-    chart, indices: Sequence[int], formato_numero: str, cor: RGBColor | None = None
+    chart, indices: Sequence[int], formato_numero: str, cor: RGBColor | None = None,
+    escala: Optional[Tuple[float, float]] = None,
 ) -> bool:
     """Tira as séries de ``indices`` do gráfico de colunas e as põe em linha,
     num segundo eixo de valores à direita.
@@ -408,9 +711,14 @@ def _mover_para_eixo_secundario(
     if not indices:
         return False
     plot_area = chart._chartSpace.chart.plotArea
-    bar_chart = plot_area.find(qn("c:barChart"))
-    if bar_chart is None:
+    # O grupo de origem é a coluna nos cards de volume e prazo, e a própria
+    # linha quando uma das séries do gráfico de linhas vai para a direita.
+    grupo = plot_area.find(qn("c:barChart"))
+    if grupo is None:
+        grupo = plot_area.find(qn("c:lineChart"))
+    if grupo is None:
         return False
+    bar_chart = grupo
 
     series = bar_chart.findall(qn("c:ser"))
     mover = [series[i] for i in indices if 0 <= i < len(series)]
@@ -429,8 +737,15 @@ def _mover_para_eixo_secundario(
     for elemento in mover:
         bar_chart.remove(elemento)
         line_chart.append(elemento)
-        marcador = etree.SubElement(elemento, qn("c:marker"))
-        simbolo = etree.SubElement(marcador, qn("c:symbol"))
+        # A série que vem de um gráfico de linhas já traz o marcador. Criar um
+        # segundo deixa dois <c:marker> na mesma série e o PowerPoint recusa o
+        # arquivo.
+        marcador = elemento.find(qn("c:marker"))
+        if marcador is None:
+            marcador = etree.SubElement(elemento, qn("c:marker"))
+        simbolo = marcador.find(qn("c:symbol"))
+        if simbolo is None:
+            simbolo = etree.SubElement(marcador, qn("c:symbol"))
         simbolo.set("val", "none")
         _ordenar_line_ser(elemento)
     marcador_grupo = etree.SubElement(line_chart, qn("c:marker"))
@@ -461,13 +776,35 @@ def _mover_para_eixo_secundario(
     _definir(val_ax, "c:majorTickMark", "none")
     _definir(val_ax, "c:minorTickMark", "none")
     _definir(val_ax, "c:tickLblPos", "nextTo")
+    # Sem spPr o Office desenha o eixo secundário com a linha preta grossa do
+    # estilo padrão, ao lado do eixo da esquerda, que é um fio cinza.
+    sp_pr = etree.SubElement(val_ax, qn("c:spPr"))
+    etree.SubElement(sp_pr, qn("a:noFill"))
+    linha_eixo = etree.SubElement(sp_pr, qn("a:ln"))
+    linha_eixo.set("w", str(Pt(0.5).emu // 1))
+    preenchimento_linha = etree.SubElement(linha_eixo, qn("a:solidFill"))
+    tinta = etree.SubElement(preenchimento_linha, qn("a:srgbClr"))
+    tinta.set("val", str(COR_GRADE))
     if cor is not None:
         # Eixo da direita na cor da linha que ele mede: é o que diz ao leitor
         # que "meses" se lê à direita.
         val_ax.append(_texto_do_eixo(cor))
     _definir(val_ax, "c:crossAx", str(id_categoria))
     _definir(val_ax, "c:crosses", "max")
+    # Ancorado em zero, como na tela: sem isso um prazo que varia 1 mês em 47
+    # preenche a altura do gráfico igual a um que varia 11 em 27. O teto também
+    # é fixo, porque o rótulo da série vai por coordenada nesta mesma régua.
+    # CT_Scaling é sequência: logBase, orientation, max, min — nessa ordem.
+    piso, teto = escala if escala is not None else (0.0, None)
+    if teto is not None:
+        escala_val.append(_no_com_valor("c:max", _texto_de_numero(teto)))
+    escala_val.append(_no_com_valor("c:min", _texto_de_numero(piso)))
     return True
+
+
+def _texto_de_numero(valor: float) -> str:
+    """Número sem notação científica nem zeros à toa, como o Office grava."""
+    return f"{valor:.10f}".rstrip("0").rstrip(".") or "0"
 
 
 def _texto_do_eixo(cor: RGBColor):
@@ -487,10 +824,55 @@ def _texto_do_eixo(cor: RGBColor):
     return tx_pr
 
 
+def _girar_rotulo(rotulo) -> None:
+    """Põe o rótulo na vertical, lendo de baixo para cima.
+
+    Com 27 categorias a barra fica mais estreita que o texto e o Office corta
+    o rótulo no meio ("11," em vez de "11,42%"). Na vertical ele cabe.
+    """
+    tx_pr = rotulo._dLbl.find(qn("c:txPr"))
+    if tx_pr is None:
+        return
+    corpo = tx_pr.find(qn("a:bodyPr"))
+    if corpo is None:
+        corpo = etree.Element(qn("a:bodyPr"))
+        tx_pr.insert(0, corpo)
+    corpo.set("rot", "-5400000")
+    corpo.set("vert", "horz")
+
+
+def _preencher_rotulo(rotulo, cor_hex: str) -> None:
+    """Fundo sólido no rótulo, na cor da série, sem contorno."""
+    elemento = rotulo._dLbl
+    existente = elemento.find(qn("c:spPr"))
+    if existente is not None:
+        elemento.remove(existente)
+    sp_pr = etree.SubElement(elemento, qn("c:spPr"))
+    preenchimento = etree.SubElement(sp_pr, qn("a:solidFill"))
+    valor = etree.SubElement(preenchimento, qn("a:srgbClr"))
+    valor.set("val", str(cor_hex).lstrip("#").upper())
+    linha = etree.SubElement(sp_pr, qn("a:ln"))
+    etree.SubElement(linha, qn("a:noFill"))
+    _ordenar_filhos(elemento, ORDEM_DLBL)
+
+
+def _no_com_valor(tag: str, valor: str):
+    no = etree.Element(qn(tag))
+    no.set("val", valor)
+    return no
+
+
 def _definir(pai, tag: str, valor: str):
     no = etree.SubElement(pai, qn(tag))
     no.set("val", valor)
     return no
+
+
+# Cabeçalho compacto do card no deck: título e unidade na mesma caixa, com
+# espaço reservado para duas linhas. Alguns títulos passam de 70 caracteres e,
+# com uma linha só, transbordavam sobre o gráfico. A fonte é igual em todos os
+# cards e vive uma vez por seção, na faixa de leitura.
+ALTURA_TITULO_COMPACTO = Inches(0.46)
 
 
 def _adicionar_painel(
@@ -502,24 +884,35 @@ def _adicionar_painel(
     width: Emu,
     height: Emu,
     rotulo_serie_fn,
+    cabecalho_compacto: bool = False,
 ) -> Dict[str, Any]:
-    """Desenha um quadrante: título, subtítulo, fonte e gráfico nativo."""
-    _caixa_texto(
-        slide, left=left, top=top, width=width, height=ALTURA_TITULO,
-        texto=painel.titulo, tamanho=FONTE_TITULO_PT, cor=COR_TITULO, negrito=True,
-    )
-    _caixa_texto(
-        slide, left=left, top=top + ALTURA_TITULO, width=width, height=ALTURA_SUBTITULO,
-        texto=painel.subtitulo, tamanho=FONTE_SUBTITULO_PT, cor=COR_SUBTITULO,
-    )
-    _caixa_texto(
-        slide, left=left, top=top + ALTURA_TITULO + ALTURA_SUBTITULO,
-        width=width, height=ALTURA_FONTE,
-        texto=painel.fonte, tamanho=FONTE_FONTE_PT, cor=COR_FONTE,
-    )
+    """Desenha um card: cabeçalho e gráfico nativo."""
+    if cabecalho_compacto:
+        unidade = str(getattr(painel, "subtitulo", "") or "").strip()
+        rotulo = f"{painel.titulo}  ·  {unidade}" if unidade else painel.titulo
+        _caixa_texto(
+            slide, left=left, top=top, width=width, height=ALTURA_TITULO_COMPACTO,
+            texto=rotulo, tamanho=FONTE_TITULO_PT, cor=COR_TITULO, negrito=True,
+        )
+        altura_cabecalho = ALTURA_TITULO_COMPACTO
+    else:
+        _caixa_texto(
+            slide, left=left, top=top, width=width, height=ALTURA_TITULO,
+            texto=painel.titulo, tamanho=FONTE_TITULO_PT, cor=COR_TITULO, negrito=True,
+        )
+        _caixa_texto(
+            slide, left=left, top=top + ALTURA_TITULO, width=width, height=ALTURA_SUBTITULO,
+            texto=painel.subtitulo, tamanho=FONTE_SUBTITULO_PT, cor=COR_SUBTITULO,
+        )
+        _caixa_texto(
+            slide, left=left, top=top + ALTURA_TITULO + ALTURA_SUBTITULO,
+            width=width, height=ALTURA_FONTE,
+            texto=painel.fonte, tamanho=FONTE_FONTE_PT, cor=COR_FONTE,
+        )
+        altura_cabecalho = ALTURA_TITULO + ALTURA_SUBTITULO + ALTURA_FONTE
 
-    topo_grafico = top + ALTURA_TITULO + ALTURA_SUBTITULO + ALTURA_FONTE
-    altura_grafico = height - (ALTURA_TITULO + ALTURA_SUBTITULO + ALTURA_FONTE)
+    topo_grafico = top + altura_cabecalho
+    altura_grafico = height - altura_cabecalho
 
     # `data_base` e `serie` chegam como categóricas com TODAS as categorias da
     # série histórica. Sem virar texto antes, o pivot recria as data-bases
@@ -578,6 +971,19 @@ def _adicionar_painel(
     # volta do gráfico. O deck não tem moldura em lugar nenhum.
     _sem_preenchimento_nem_contorno(grafico._chartSpace, ORDEM_CHART_SPACE)
 
+    # Gráfico de linhas não leva legenda: o nome da série já vai no rótulo do
+    # último ponto, e a legenda embaixo disputava espaço com os meses do eixo.
+    # A coluna empilhada mantém a legenda, porque lá o rótulo leva só o valor.
+    # Uma série só não precisa de legenda: o título do card já diz o que é, e
+    # o Office ainda lista as categorias quando a legenda fica ligada.
+    grafico.has_legend = tipo_grafico == "column_stacked" and len(ordem) > 1
+    if grafico.has_legend:
+        # Legenda à direita, na faixa que já fica reservada. Embaixo, um mix de
+        # dez produtos ocupava quatro fileiras e esmagava as barras.
+        grafico.legend.position = XL_LEGEND_POSITION.RIGHT
+        grafico.legend.include_in_layout = False
+        grafico.legend.font.size = Pt(FONTE_LEGENDA_PT)
+        grafico.legend.font.color.rgb = COR_EIXO
     grafico.has_legend = True
     grafico.legend.position = XL_LEGEND_POSITION.BOTTOM
     grafico.legend.include_in_layout = False
@@ -586,18 +992,88 @@ def _adicionar_painel(
 
     plot = grafico.plots[0]
     plot.has_data_labels = False
+    if tipo_grafico == "column_stacked":
+        # O PowerPoint recorta o rótulo pela largura da barra. Com o vão padrão
+        # de 150% a barra fica com 0,15 in num gráfico de meia lâmina e o valor
+        # sai cortado nas duas pontas; encostando as barras ela dobra de
+        # largura e o rótulo cabe.
+        plot.gap_width = 25
+        plot.overlap = 100
 
     indice_ultimo = len(categorias) - 1
     posicoes_rotulos = _posicoes_escalonadas_rotulos(tabela, ordem)
+    totais_por_categoria = (
+        tabela[ordem].abs().sum(axis=1).replace(0, float("nan"))
+        if tipo_grafico == "column_stacked" else None
+    )
+    # Valor final de cada série, para escalonar os rótulos na faixa da direita.
+    finais: List[Tuple[str, float]] = []
+    for nome in ordem:
+        validos = pd.to_numeric(tabela[nome], errors="coerce").dropna()
+        if not validos.empty:
+            finais.append((nome, float(validos.iloc[-1])))
+    finais_de_linha = [
+        (nome, valor) for nome, valor in finais
+        if tipo_grafico == "line" or nome in series_secundarias
+    ]
+    # Régua de cada eixo, calculada aqui e aplicada tanto ao eixo quanto à
+    # coordenada do rótulo — os dois precisam ler a mesma escala.
+    escalas: Dict[bool, Tuple[float, float]] = {}
+    if tipo_grafico in {"line", "column_line"}:
+        for eh_secundaria in (False, True):
+            colunas = [
+                nome for nome in ordem
+                if (nome in series_secundarias) is eh_secundaria
+            ]
+            if not colunas:
+                continue
+            valores = pd.to_numeric(
+                tabela[colunas].stack(), errors="coerce"
+            ).dropna()
+            if valores.empty:
+                continue
+            escalas[eh_secundaria] = escala_de_eixo(
+                valores.tolist(),
+                base_zero=eh_secundaria or tipo_grafico == "column_line",
+            )
+    # Com eixo secundário, a régua da direita ocupa a borda da área de
+    # plotagem: o rótulo precisa começar depois dela, senão cai sobre os
+    # próprios números do eixo. A régua ocupa uma largura em polegadas, não
+    # uma fração do gráfico.
+    largura_in = max(int(width) / 914400.0, 0.5)
+    recuo_in = (
+        min(0.10 * largura_in, LARGURA_REGUA_DIREITA_IN)
+        if series_secundarias else 0.012 * largura_in
+    )
+    recuo_eixo = recuo_in / largura_in
+    gutter_linha = gutter_para(
+        finais_de_linha, int(width), rotulo_serie_fn, recuo_in=recuo_in
+    )
+    alturas_rotulo = (
+        {} if tipo_grafico == "column_stacked"
+        else _escalonar_no_gutter(
+            finais_de_linha, int(altura_grafico), int(width), rotulo_serie_fn,
+            gutter=gutter_linha, secundarias=series_secundarias,
+            escalas=escalas,
+        )
+    )
+    # O Office ancora o rótulo pelo centro da caixa, e não pela borda esquerda:
+    # a coordenada é o meio da faixa, senão o nome mais longo cresce para a
+    # esquerda e cai por cima dos números do eixo.
+    x_rotulo = (
+        0.06 + (0.94 - gutter_linha) + recuo_eixo
+        + (gutter_linha - recuo_eixo) / 2
+    )
     for posicao, nome in enumerate(ordem):
         serie = plot.series[posicao]
         serie.smooth = False
         cor = _hex_para_rgb(painel.cores.get(nome, "#8F8F8F"))
         eh_total = nome in painel.tracejadas
         eh_secundaria = nome in series_secundarias
-        if tipo_grafico == "column_stacked" or (
+        eh_coluna = tipo_grafico == "column_stacked" or (
             tipo_grafico == "column_line" and not eh_secundaria
-        ):
+        )
+        if eh_coluna:
             serie.format.fill.solid()
             serie.format.fill.fore_color.rgb = cor
             serie.format.line.color.rgb = cor
@@ -613,21 +1089,38 @@ def _adicionar_painel(
         while ultimo_valido >= 0 and pd.isna(coluna.iloc[ultimo_valido]):
             ultimo_valido -= 1
         rotular_todos = bool(getattr(painel, "rotular_todos_pontos", False))
+        # Fatia pequena demais não comporta o rótulo e o texto acaba por cima
+        # da fatia vizinha. Mesma regra da tela, onde a trava de tamanho
+        # uniforme esconde o que não cabe.
+        participacao = None
+        if eh_coluna and totais_por_categoria is not None:
+            participacao = (
+                pd.to_numeric(coluna, errors="coerce") / totais_por_categoria
+            )
+        # Nome da série no rótulo só onde ele cabe. Numa fatia de coluna
+        # empilhada o texto é mais largo que a barra e vira uma pilha ilegível
+        # à direita; lá o nome fica na legenda e o rótulo leva só o valor.
+        com_nome = not eh_coluna
         if rotular_todos:
-            _rotular_todos_os_pontos(serie, len(coluna), formato_numero)
+            _rotular_todos_os_pontos(serie, len(coluna), formato_numero, com_nome)
             indices_rotulados = [
                 indice for indice, valor in enumerate(coluna) if pd.notna(valor)
             ]
+        elif (
+            participacao is not None
+            and ultimo_valido >= 0
+            and float(participacao.iloc[ultimo_valido] or 0) < PARTICIPACAO_MINIMA_ROTULO
+        ):
+            indices_rotulados = []
         else:
-            _rotular_apenas_ultimo_ponto(serie, ultimo_valido, formato_numero)
+            _rotular_apenas_ultimo_ponto(
+                serie, ultimo_valido, formato_numero, com_nome
+            )
             indices_rotulados = [ultimo_valido] if ultimo_valido >= 0 else []
         # A posição do rótulo é validada pelo tipo do gráfico: coluna aceita
         # apenas ctr/inBase/inEnd/outEnd. Escrever "r" ou "t" numa série de
         # coluna produz um arquivo que o PowerPoint recusa inteiro, oferecendo
         # reparo — foi o que quebrou o deck de Concessões.
-        eh_coluna = tipo_grafico == "column_stacked" or (
-            tipo_grafico == "column_line" and not eh_secundaria
-        )
         for indice_rotulo in indices_rotulados:
             rotulo = serie.points[indice_rotulo].data_label
             if eh_coluna:
@@ -640,23 +1133,61 @@ def _adicionar_painel(
                 rotulo.position = posicoes_rotulos.get(
                     nome, XL_DATA_LABEL_POSITION.RIGHT
                 )
-            rotulo.font.size = Pt(FONTE_ROTULO_PT)
-            rotulo.font.bold = True
-            # Dentro da coluna, o texto vai sobre o preenchimento e a cor é a
-            # declarada para aquele preenchimento; fora dela, o texto está no
-            # papel branco do slide e a única cor que passa é a tinta escura.
-            # Nunca a cor da série: um rótulo em cinza claro a 8 pt sobre
-            # branco tinha 2,4:1 de contraste.
-            rotulo.font.color.rgb = _hex_para_rgb(
-                cor_do_rotulo(painel.cores.get(nome, "#8F8F8F"))
-                if tipo_grafico == "column_stacked"
-                else ITAU_BLACK
+            if (
+                not eh_coluna
+                and nome in alturas_rotulo
+                and indice_rotulo == ultimo_valido
+            ):
+                _layout_do_rotulo(rotulo, x_rotulo, alturas_rotulo[nome])
+            rotulo.font.size = Pt(
+                FONTE_ROTULO_COLUNA_PT if eh_coluna
+                else corpo_do_rotulo(len(finais))
             )
+            if eh_coluna and len(categorias) > MAXIMO_COLUNAS_ROTULO_DEITADO:
+                _girar_rotulo(rotulo)
+            rotulo.font.bold = True
+            cor_serie = painel.cores.get(nome, "#8F8F8F")
+            if eh_coluna:
+                # Rótulo de barra ganha fundo sólido na cor da própria série,
+                # com o texto na tinta que contrasta com ela. Fica ancorado na
+                # série mesmo quando o valor cai fora da barra.
+                _preencher_rotulo(rotulo, cor_serie)
+                rotulo.font.color.rgb = _hex_para_rgb(cor_do_rotulo(cor_serie))
+            else:
+                # Rótulo de linha na cor da própria linha: é o que liga o valor
+                # à série sem precisar de legenda.
+                rotulo.font.color.rgb = _hex_para_rgb(cor_serie)
 
-    _estilizar_eixos(grafico, len(categorias), formato_numero)
+    _estilizar_eixos(
+        grafico, len(categorias), formato_numero,
+        base_zero=tipo_grafico in {"column_stacked", "column_line"},
+        escala=escalas.get(False),
+    )
+    empilhado = tipo_grafico == "column_stacked"
+    if empilhado and not grafico.has_legend:
+        # Sem legenda a faixa da direita não serve para nada: o rótulo da barra
+        # é desenhado dentro dela. A área de plotagem toma a largura inteira.
+        gutter = 0.06
+    elif empilhado:
+        # A faixa da direita abriga a legenda: precisa caber o maior nome de
+        # série, senão a legenda é desenhada por cima das barras.
+        maior = max((len(rotulo_serie_fn(nome)) for nome in ordem), default=10)
+        largura_in = int(width) / 914400.0
+        necessario = (maior + 3) * (LARGURA_MEDIA_CARACTERE * FONTE_LEGENDA_PT / 72)
+        gutter = min(
+            GUTTER_LEGENDA_MAXIMO,
+            max(GUTTER_ROTULO_COLUNA, necessario / max(largura_in, 0.5)),
+        )
+    else:
+        gutter = gutter_linha
+    _layout_manual_do_plot(
+        grafico._chartSpace.chart.plotArea,
+        gutter,
+        ALTURA_PLOT_COLUNA if empilhado else ALTURA_PLOT_LINHA,
+    )
 
     secundario = False
-    if tipo_grafico == "column_line" and series_secundarias:
+    if tipo_grafico in {"column_line", "line"} and series_secundarias:
         indices = [i for i, nome in enumerate(ordem) if nome in series_secundarias]
         cor_secundaria = next(
             (
@@ -671,6 +1202,7 @@ def _adicionar_painel(
             indices,
             getattr(painel, "formato_secundario", formato_numero),
             cor_secundaria,
+            escala=escalas.get(True),
         )
 
     return {
@@ -747,6 +1279,9 @@ def exportar_paineis_pptx(
 # =============================================================================
 # DECK POR SEÇÃO
 # =============================================================================
+# Um deck contínuo: a leitura dos dados de cada aba na faixa de topo e os
+# gráficos daquela aba na grade abaixo. Sem slide divisor, sem régua, sem
+# moldura — só caixas de texto e gráficos nativos do Office.
 # Um deck contínuo: a leitura dos dados de cada aba e, em seguida, os gráficos
 # daquela aba. Sem slide divisor, sem régua, sem moldura — só caixas de texto e
 # gráficos nativos do Office.
@@ -754,6 +1289,56 @@ def exportar_paineis_pptx(
 FONTE_CAPA_PT = 26
 FONTE_CAPA_SUB_PT = 12
 FONTE_SECAO_PT = 20
+FONTE_COMENTARIO_PT = 10.5
+FONTE_NOME_ABA_PT = 10
+ENTRELINHA_COMENTARIO = 1.5
+
+LARGURA_UTIL = Emu(int(SLIDE_LARGURA - 2 * MARGEM))
+ALTURA_UTIL = Emu(int(SLIDE_ALTURA - 2 * MARGEM - TOPO_CONTEUDO))
+COLUNAS_GRADE = 2
+LINHAS_GRADE = 2
+LARGURA_CELULA = Emu(int((LARGURA_UTIL - GUTTER_H) / COLUNAS_GRADE))
+
+ALTURA_NOME_ABA = Inches(0.30)
+ALTURA_TITULO_SECAO = Inches(0.34)
+RESPIRO_GRADE = Inches(0.16)
+MAXIMO_GRAFICOS_POR_SLIDE = COLUNAS_GRADE * LINHAS_GRADE
+# Uma linha de respiro entre o título e o primeiro parágrafo, no lugar do vão
+# de 0,80 in que separava os dois em slides diferentes.
+RESPIRO_TITULO = Inches(0.26)
+# O PowerPoint conta "1,5 linhas" sobre a altura natural da fonte, não sobre o
+# corpo: em Calibri isso dá 1,22x o corpo. Usar o corpo direto subdimensionava
+# a caixa e a linha de fontes entrava por cima do último parágrafo.
+FATOR_LINHA_CALIBRI = 1.22
+
+
+def altura_de_linha(corpo_pt: float, entrelinha: float = ENTRELINHA_COMENTARIO) -> int:
+    return int(Inches(corpo_pt * FATOR_LINHA_CALIBRI * entrelinha / 72))
+
+# Largura média de caractere ~0,48 em. Serve para estimar quantas linhas o
+# comentário ocupa e decidir entre faixa e lâmina própria.
+LARGURA_MEDIA_CARACTERE = 0.48
+# Acima disso o comentário passa a 8 pt e continua na mesma lâmina dos
+# gráficos, em vez de ocupar uma lâmina só para ele.
+MAXIMO_LINHAS_CONFORTAVEIS = 5
+FONTE_COMENTARIO_COMPACTA_PT = 8
+
+LARGURA_LEITURA = Inches(9.6)
+
+
+def _caracteres_por_linha(largura_emu: int, corpo_pt: float) -> int:
+    polegadas = largura_emu / 914400.0
+    return max(int(polegadas / (LARGURA_MEDIA_CARACTERE * corpo_pt / 72.0)), 1)
+
+
+def linhas_do_comentario(texto: str, largura_emu: int, corpo_pt: float) -> int:
+    """Linhas que o comentário ocupa numa caixa dessa largura."""
+    por_linha = _caracteres_por_linha(largura_emu, corpo_pt)
+    return sum(
+        max(1, -(-len(bloco) // por_linha))
+        for bloco in str(texto).split("\n\n")
+        if bloco.strip()
+    )
 FONTE_COMENTARIO_PT = 12.5
 ENTRELINHA_COMENTARIO = 1.32
 LARGURA_LEITURA = Inches(9.6)
@@ -768,6 +1353,7 @@ def _slide_de_capa(prs, *, titulo: str, subtitulo: str, rodape: str) -> None:
     slide = _slide_em_branco(prs)
     _caixa_texto(
         slide, left=MARGEM, top=Inches(2.5),
+        width=LARGURA_UTIL, height=Inches(1.0),
         width=Emu(int(SLIDE_LARGURA - 2 * MARGEM)), height=Inches(1.0),
         texto=titulo, tamanho=FONTE_CAPA_PT, cor=COR_TITULO, negrito=True,
     )
@@ -783,6 +1369,81 @@ def _slide_de_capa(prs, *, titulo: str, subtitulo: str, rodape: str) -> None:
     )
 
 
+def _bloco_de_leitura(
+    slide, *, titulo: str, texto: str, fontes: str, linhas: int, largura: int,
+    corpo: float = FONTE_COMENTARIO_PT,
+) -> int:
+    """Título e comentário no topo do slide. Devolve a altura ocupada."""
+    _caixa_texto(
+        slide, left=MARGEM, top=MARGEM,
+        width=largura, height=ALTURA_TITULO_SECAO,
+        texto=titulo, tamanho=FONTE_SECAO_PT, cor=COR_TITULO, negrito=True,
+    )
+    topo_texto = int(MARGEM + ALTURA_TITULO_SECAO + RESPIRO_TITULO)
+    altura_texto = linhas * altura_de_linha(corpo)
+    _caixa_texto(
+        slide, left=MARGEM, top=Emu(topo_texto),
+        width=largura, height=Emu(altura_texto),
+        texto=texto, tamanho=corpo, cor=COR_SUBTITULO,
+        entrelinha=ENTRELINHA_COMENTARIO, espaco_entre_paragrafos=0,
+    )
+    altura = int(ALTURA_TITULO_SECAO) + int(RESPIRO_TITULO) + altura_texto
+    if fontes:
+        _caixa_texto(
+            slide, left=MARGEM, top=Emu(int(MARGEM) + altura + int(Inches(0.04))),
+            width=largura, height=Inches(0.18),
+            texto=fontes, tamanho=FONTE_FONTE_PT, cor=COR_FONTE,
+        )
+        altura += int(Inches(0.04)) + int(Inches(0.18))
+    return altura
+
+
+def _slide_de_leitura(prs, *, titulo: str, texto: str, fontes: str) -> None:
+    """Comentário longo demais para a faixa ganha lâmina própria."""
+    slide = _slide_em_branco(prs)
+    linhas = linhas_do_comentario(texto, int(LARGURA_LEITURA), FONTE_COMENTARIO_PT)
+    _bloco_de_leitura(
+        slide, titulo=titulo, texto=texto, fontes=fontes,
+        linhas=linhas, largura=int(LARGURA_LEITURA),
+    )
+
+
+def _desenhar_grade(
+    slide, paineis: Sequence[Any], *, altura_cabecalho: int, rotulo_serie_fn
+) -> List[Dict[str, Any]]:
+    """Grade de duas colunas que preenche a altura livre do slide.
+
+    A altura da célula sai do que sobra abaixo do cabeçalho, dividido pelo
+    número de linhas que a seção precisa. Slide com dois gráficos usa a altura
+    inteira; com três ou quatro, duas linhas. Célula de altura fixa deixava
+    metade do slide vazia sempre que a faixa de leitura era curta.
+    """
+    if not paineis:
+        return []
+    topo_grade = int(MARGEM) + altura_cabecalho + int(RESPIRO_GRADE)
+    disponivel = int(SLIDE_ALTURA) - int(MARGEM) - topo_grade
+    linhas = -(-len(paineis) // COLUNAS_GRADE)
+    altura_celula = int((disponivel - (linhas - 1) * int(GUTTER_V)) / linhas)
+
+    resumo: List[Dict[str, Any]] = []
+    for posicao, painel in enumerate(paineis):
+        coluna, linha = posicao % COLUNAS_GRADE, posicao // COLUNAS_GRADE
+        # Linha incompleta fica centralizada, em vez de encostar à esquerda.
+        nesta_linha = min(len(paineis) - linha * COLUNAS_GRADE, COLUNAS_GRADE)
+        # Gráfico sozinho na linha ocupa a largura inteira, em vez de metade
+        # dela com o outro lado vazio.
+        largura = LARGURA_UTIL if nesta_linha == 1 else LARGURA_CELULA
+        ocupado = nesta_linha * int(largura) + (nesta_linha - 1) * int(GUTTER_H)
+        recuo = int((int(LARGURA_UTIL) - ocupado) / 2)
+        resumo.append(_adicionar_painel(
+            slide, painel,
+            left=Emu(int(MARGEM) + recuo + coluna * (int(largura) + int(GUTTER_H))),
+            top=Emu(topo_grade + linha * (altura_celula + int(GUTTER_V))),
+            width=largura, height=Emu(altura_celula),
+            rotulo_serie_fn=rotulo_serie_fn,
+            cabecalho_compacto=True,
+        ))
+    return resumo
 def _slide_de_leitura(prs, *, titulo: str, texto: str, fontes: str) -> None:
     """Nome da aba e a leitura dos dados dela. Só texto."""
     slide = _slide_em_branco(prs)
@@ -813,6 +1474,10 @@ def exportar_deck_por_secao(
     rodape_capa: str = "",
     rotulo_serie_fn=None,
 ) -> Tuple[bytes, Dict[str, Any]]:
+    """Deck contínuo de várias abas, na ordem em que aparecem na tela.
+
+    ``secoes`` é uma sequência de ``(titulo, leitura, paineis)``, onde
+    ``leitura`` é ``(texto, fontes)`` ou ``None``.
     """Deck contínuo de várias abas.
 
     ``secoes`` é uma sequência de ``(titulo, leitura, paineis)``, onde
@@ -831,6 +1496,47 @@ def exportar_deck_por_secao(
         prs, titulo=titulo_deck, subtitulo=subtitulo_capa, rodape=rodape_capa
     )
 
+    resumo: List[Dict[str, Any]] = []
+    slides = 1
+    for titulo, leitura, paineis in secoes:
+        texto, fontes = leitura if leitura else ("", "")
+        texto = str(texto or "")
+        corpo = FONTE_COMENTARIO_PT
+        linhas_faixa = (
+            linhas_do_comentario(texto, int(LARGURA_UTIL), corpo)
+            if texto.strip() else 0
+        )
+        if linhas_faixa > MAXIMO_LINHAS_CONFORTAVEIS:
+            # Comentário longo encolhe para 8 pt e fica na mesma lâmina dos
+            # gráficos, em vez de ocupar uma lâmina só para ele.
+            corpo = FONTE_COMENTARIO_COMPACTA_PT
+            linhas_faixa = linhas_do_comentario(texto, int(LARGURA_UTIL), corpo)
+
+        restantes = list(paineis)
+        primeiro = True
+        while restantes or (primeiro and texto.strip()):
+            slide = _slide_em_branco(prs)
+            slides += 1
+            if primeiro and texto.strip():
+                altura_cabecalho = _bloco_de_leitura(
+                    slide, titulo=titulo, texto=texto, fontes=fontes,
+                    linhas=linhas_faixa, largura=int(LARGURA_UTIL), corpo=corpo,
+                )
+            else:
+                _caixa_texto(
+                    slide, left=MARGEM, top=MARGEM,
+                    width=LARGURA_UTIL, height=ALTURA_NOME_ABA,
+                    texto=titulo, tamanho=FONTE_NOME_ABA_PT, cor=COR_FONTE,
+                )
+                altura_cabecalho = int(ALTURA_NOME_ABA)
+            bloco = restantes[:MAXIMO_GRAFICOS_POR_SLIDE]
+            restantes = restantes[MAXIMO_GRAFICOS_POR_SLIDE:]
+            resumo.extend(_desenhar_grade(
+                slide, bloco,
+                altura_cabecalho=altura_cabecalho,
+                rotulo_serie_fn=rotulo_serie_fn,
+            ))
+            primeiro = False
     largura_painel = Emu(int((SLIDE_LARGURA - 2 * MARGEM - GUTTER_H) / 2))
     altura_painel = Emu(int(SLIDE_ALTURA - 2 * MARGEM - TOPO_CONTEUDO))
 
@@ -866,6 +1572,7 @@ def exportar_deck_por_secao(
         "slides": slides,
         "paineis": len(resumo),
         "secoes": len(secoes),
+        "paineis_por_slide": MAXIMO_GRAFICOS_POR_SLIDE,
         "paineis_por_slide": PAINEIS_POR_SLIDE_DECK,
         "detalhe": resumo,
     }
