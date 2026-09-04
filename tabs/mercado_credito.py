@@ -68,14 +68,25 @@ _EXPORT_FIGURES: ContextVar[list[go.Figure] | None] = ContextVar(
 # usuário precise abrir uma por uma.
 _SILENCIOSO: ContextVar[bool] = ContextVar("sgs_credit_silencioso", default=False)
 
-# Ordem das abas de Crédito SFN no deck: a mesma da tela, do total para os
-# recortes.
-SECOES_CREDITO_DECK = (
-    ("Estoque de Crédito Total", "credito_estoque"),
-    ("Por Tomador", "credito_tomador"),
-    ("Por Produto", "credito_produto"),
-    ("Por Tipo de Empresa", "credito_empresa"),
-    ("Por Controle", "credito_controle"),
+# Ordem das abas no deck completo: a mesma da tela, área por área e submenu
+# por submenu. A chave é a do comentário em data/comentarios_credito_bc.json.
+SECOES_DECK = (
+    ("Concessões", "concessoes", "_render_concessoes"),
+    ("Crédito SFN · Estoque de Crédito Total", "credito_estoque", "_render_credit_stock"),
+    ("Crédito SFN · Por Tomador", "credito_tomador", "_render_credit_borrower"),
+    ("Crédito SFN · Por Produto", "credito_produto", "_render_credit_product"),
+    ("Crédito SFN · Por Tipo de Empresa", "credito_empresa", "_render_credit_company"),
+    ("Crédito SFN · Por Controle", "credito_controle", "_render_credit_control"),
+    ("Situação dos Agentes", "situacao", "_render_situation"),
+    ("Inadimplência · Pré-inadimplência e inadimplência", "npl_pre_inad", "_render_npl_pre"),
+    ("Inadimplência · Cobertura e provisionamento", "npl_cobertura", "_render_npl_cobertura"),
+    ("Inadimplência · Inadimplência por faixa de renda", "npl_faixa_renda", None),
+    ("Taxas de Juros e Spread", "taxas", "_render_rates"),
+)
+SECOES_CREDITO_DECK = tuple(
+    (titulo.split(" · ")[-1], chave)
+    for titulo, chave, _ in SECOES_DECK
+    if titulo.startswith("Crédito SFN")
 )
 
 
@@ -254,6 +265,33 @@ def _period_filter(wide: pd.DataFrame) -> pd.DataFrame:
         latest if end == "Mais recente" else pd.Timestamp(end),
     )
     return filtered
+
+
+def _period_filter_silencioso(wide: pd.DataFrame) -> pd.DataFrame:
+    """Mesma janela do seletor, sem desenhar o seletor de novo.
+
+    O deck é montado antes das abas e não pode duplicar os controles.
+    """
+    if wide.empty:
+        return wide
+    analiticas = [c for c in wide.columns if c not in {"cdi_aa", "selic_aa"}]
+    periodos = pd.DatetimeIndex(
+        (wide[analiticas] if analiticas else wide).dropna(how="all").index
+    ).dropna().sort_values().unique()
+    if not len(periodos):
+        return wide
+    fim = pd.Timestamp(periodos[-1])
+    guardado = st.session_state.get("sgs_credit_period_start")
+    inicio = pd.Timestamp(guardado) if guardado is not None else pd.Timestamp(
+        periodos[min(
+            int(periodos.searchsorted(fim - pd.DateOffset(months=11), side="left")),
+            len(periodos) - 1,
+        )]
+    )
+    guardado_fim = st.session_state.get("sgs_credit_period_end")
+    if guardado_fim is not None and not isinstance(guardado_fim, str):
+        fim = pd.Timestamp(guardado_fim)
+    return _filter_period_range(wide, inicio, fim)
 
 
 def _filter_period_range(
@@ -659,90 +697,170 @@ def _render_credit_control(wide: pd.DataFrame) -> None:
     )
 
 
-_RENDER_POR_SUBSECAO = {
-    "Estoque de Crédito Total": "_render_credit_stock",
-    "Por Tomador": "_render_credit_borrower",
-    "Por Produto": "_render_credit_product",
-    "Por Tipo de Empresa": "_render_credit_company",
-    "Por Controle": "_render_credit_control",
-}
+def _render_npl_pre(wide: pd.DataFrame) -> None:
+    """Cards de pré-inadimplência e inadimplência, sem o seletor de sub-aba."""
+    _render_npl_cards(wide, "Pré Inad e Inad")
 
 
-def _figuras_da_subsecao(nome: str, wide: pd.DataFrame) -> list[go.Figure]:
+def _render_npl_cobertura(wide: pd.DataFrame) -> None:
+    _render_npl_cards(wide, "Cobertura e Provisionamento")
+
+
+def _figuras_da_secao(chave_render: str, wide: pd.DataFrame) -> list[go.Figure]:
     """Monta as figuras de uma aba sem desenhar nada na tela."""
     figuras: list[go.Figure] = []
     token_silencio = _SILENCIOSO.set(True)
     token_figuras = _EXPORT_FIGURES.set(figuras)
     try:
-        globals()[_RENDER_POR_SUBSECAO[nome]](wide)
+        globals()[chave_render](wide)
     finally:
         _EXPORT_FIGURES.reset(token_figuras)
         _SILENCIOSO.reset(token_silencio)
     return figuras
 
 
-def _deck_credito_sfn(wide: pd.DataFrame) -> tuple[bytes, dict]:
+def _figuras_da_subsecao(nome: str, wide: pd.DataFrame) -> list[go.Figure]:
+    """Compatibilidade: uma aba de Crédito SFN pelo nome curto."""
+    alvo = next(
+        render for titulo, _, render in SECOES_DECK
+        if render and titulo.split(" · ")[-1] == nome
+    )
+    return _figuras_da_secao(alvo, wide)
+
+
+def _figuras_faixa_de_renda(get_cache_manager) -> list[go.Figure]:
+    """Painéis por faixa de renda e a visão regional, do cache do SCR.data.
+
+    O deck leva todas as modalidades PF disponíveis, e não só as quatro que a
+    tela abre por padrão. O mapa fica de fora: coroplético não existe como
+    gráfico nativo do Office. A mesma métrica vai como barra por UF.
+    """
+    from tabs import scr_inadimplencia as scr_spec
+    from tabs.scr_inadimplencia_view import (
+        figura_painel,
+        figura_por_regiao,
+        figura_por_uf,
+    )
+    from utils import scr_data_query as scr_q
+
+    manager = get_cache_manager() if get_cache_manager else None
+    cache = manager.get_cache("scr_data") if manager else None
+    if cache is None:
+        return []
+    periodos = sorted(str(p) for p in (cache.get_info().get("periodos") or []))
+    if not periodos:
+        return []
+    fim = pd.Timestamp(f"{periodos[-1]}-01")
+    inicio = fim - pd.DateOffset(months=scr_spec.JANELA_PADRAO_MESES - 1)
+    base = cache.carregar_detalhe(anos=list(range(inicio.year, fim.year + 1)))
+    base = scr_q.filtrar(
+        base,
+        data_base_inicial=inicio.strftime("%Y-%m"),
+        data_base_final=fim.strftime("%Y-%m"),
+    )
+    if base.empty:
+        return []
+    data_base = str(base["data_base"].astype(str).max())
+    metrica = scr_q.METRICA_PADRAO
+    rotulo = scr_q.METRICAS[metrica].rotulo
+    quebra = scr_spec.QUEBRAS_POR_KEY["renda"]
+    cliente = quebra.exige_cliente
+
+    presentes = base["modalidade_bcb"].astype(str).unique().tolist()
+    modalidades = scr_spec.modalidades_bcb_disponiveis(cliente, presentes=presentes)
+    paineis = scr_spec.construir_paineis(
+        base, produtos=modalidades, nivel_produto="modalidade_bcb",
+        quebra="renda", metrica=metrica, cliente=cliente,
+        faixas=scr_spec.faixas_padrao("renda"), incluir_total=True,
+    )
+    quebras_serie = scr_spec._quebras(base, metrica)
+    figuras = [
+        figura_painel(
+            painel, quebra, eixo_zero=True,
+            quebras_serie=quebras_serie, rotulo_metrica=rotulo,
+        )
+        for painel in paineis
+    ]
+
+    if modalidades:
+        regiao = scr_q.filtrar(base, modalidade_bcb=modalidades[0])
+        geo = scr_spec.construir_por_regiao(
+            regiao, metrica=metrica, data_base=data_base, nivel="uf"
+        )
+        figuras.append(figura_por_uf(geo["mapa"], rotulo))
+        figuras.append(figura_por_regiao(
+            geo, rotulo_metrica=rotulo,
+            titulo=f"{modalidades[0]} por região",
+        ))
+    return [figura for figura in figuras if figura.data]
+
+
+def _deck_completo(wide: pd.DataFrame, get_cache_manager) -> tuple[bytes, dict]:
     from utils.comentarios_credito import carregar, comentario
     from utils.sgs_credit_pptx_export import exportar_deck_secoes_pptx
 
     documento = carregar()
     secoes = []
-    for titulo, chave in SECOES_CREDITO_DECK:
+    for titulo, chave, render in SECOES_DECK:
+        if render:
+            figuras = _figuras_da_secao(render, wide)
+        else:
+            figuras = _figuras_faixa_de_renda(get_cache_manager)
+        if not figuras:
+            continue
         leitura = comentario(chave, documento=documento)
         secoes.append((
             titulo,
             (leitura.texto, "Fontes: " + " · ".join(leitura.fontes))
             if leitura is not None and not leitura.vazio
             else None,
-            _figuras_da_subsecao(titulo, wide),
+            figuras,
         ))
     datas = pd.DatetimeIndex(wide.index).dropna()
     competencia = formatar_competencia(datas.max()) if len(datas) else "N/D"
     return exportar_deck_secoes_pptx(
         secoes,
-        titulo_deck="Estatísticas Crédito BC · Crédito SFN",
-        subtitulo_capa=(
-            f"Séries mensais do SGS/BCB · janela até {competencia}"
-        ),
-        rodape_capa="fonte: Banco Central do Brasil · BCData/SGS",
+        titulo_deck="Estatísticas Crédito BC",
+        subtitulo_capa=f"Séries do SGS e do SCR.data · janela até {competencia}",
+        rodape_capa="fonte: Banco Central do Brasil · BCData/SGS e SCR.data",
     )
 
 
-def _botao_deck_credito_sfn(wide: pd.DataFrame) -> None:
-    """Deck contínuo das cinco abas, com a leitura dos dados de cada uma."""
+def _botao_deck_completo(wide: pd.DataFrame, get_cache_manager) -> None:
+    """Todas as abas em um arquivo, com a leitura dos dados de cada uma."""
     datas = pd.DatetimeIndex(wide.index).dropna()
     chave = "|".join([
-        "deck_credito",
+        "deck_completo",
         str(datas.min()) if len(datas) else "",
         str(datas.max()) if len(datas) else "",
     ])
-    memo = st.session_state.setdefault("_deck_credito_memo", {})
+    memo = st.session_state.setdefault("_deck_completo_memo", {})
     if memo.get("chave") != chave:
         memo["chave"] = chave
         memo["erro"] = ""
-        try:
-            memo["valor"] = _deck_credito_sfn(wide)
-        except Exception as exc:  # noqa: BLE001 - a aba continua sem o deck
-            memo["valor"] = None
-            memo["erro"] = str(exc)
+        with st.spinner("Montando o deck completo..."):
+            try:
+                memo["valor"] = _deck_completo(wide, get_cache_manager)
+            except Exception as exc:  # noqa: BLE001 - a seção continua sem o deck
+                memo["valor"] = None
+                memo["erro"] = str(exc)
     if not memo.get("valor"):
-        # O botão sumir sem explicação deixaria o usuário sem saber o que houve.
         st.caption(f"Deck completo indisponível: {memo.get('erro') or 'sem gráficos'}")
         return
     blob, meta = memo["valor"]
     st.download_button(
-        f"Baixar deck completo de Crédito SFN "
-        f"({meta['paineis']} gráficos, {meta['slides']} slides)",
+        f"Baixar deck completo ({meta['paineis']} gráficos, {meta['slides']} slides)",
         data=blob,
-        file_name="credito_sfn.pptx",
+        file_name="estatisticas_credito_bc.pptx",
         mime=(
             "application/vnd.openxmlformats-officedocument."
             "presentationml.presentation"
         ),
-        key="sgs_deck_credito_sfn",
+        key="sgs_deck_completo",
+        type="primary",
         help=(
-            "As cinco abas em um arquivo, na ordem da tela, com a leitura dos "
-            "dados de cada uma antes dos gráficos."
+            "Todas as abas em um arquivo, na ordem da tela, com a leitura dos "
+            "dados de cada uma acima dos gráficos."
         ),
     )
 
@@ -754,7 +872,6 @@ def _render_credit(wide: pd.DataFrame) -> None:
         default=CREDIT_SUBSECTIONS[0],
         key="sgs_credit_subsection",
     )
-    _botao_deck_credito_sfn(wide)
     if selected == "Por Tomador":
         _render_credit_borrower(wide)
     elif selected == "Por Produto":
@@ -835,7 +952,15 @@ def _render_npl(wide: pd.DataFrame, get_cache_manager=None) -> None:
 
         render_scr_inadimplencia(get_cache_manager)
         return
-    wide = _period_filter(wide)
+    _render_npl_cards(_period_filter(wide), selected)
+
+
+def _render_npl_cards(wide: pd.DataFrame, selected: str) -> None:
+    """Cards de uma sub-aba de inadimplência, sem o seletor.
+
+    Separado do render para que o deck completo monte as duas sub-abas sem
+    passar pelo controle de tela.
+    """
     if selected == "Cobertura e Provisionamento":
         _leitura("npl_cobertura", wide)
         provision = ["provisao_sfn", "provisao_publico", "provisao_privado_nacional", "provisao_estrangeiro"]
@@ -1181,7 +1306,11 @@ def render_mercado_credito(cache, *, get_cache_manager=None) -> None:
         default=MAIN_SECTIONS[0],
         key="sgs_credit_main_section",
     )
-    export_slot = st.empty()
+    coluna_aba, coluna_deck = st.columns(2)
+    with coluna_aba:
+        export_slot = st.empty()
+    with coluna_deck:
+        _botao_deck_completo(_period_filter_silencioso(full_wide), get_cache_manager)
     figuras: list[go.Figure] = []
     token = _EXPORT_FIGURES.set(figuras)
     try:
