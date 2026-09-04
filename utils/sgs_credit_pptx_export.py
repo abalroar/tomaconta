@@ -7,7 +7,7 @@ from typing import Any, Sequence
 
 import pandas as pd
 
-from .scr_pptx_export import exportar_paineis_pptx
+from .scr_pptx_export import exportar_deck_por_secao, exportar_paineis_pptx
 from .sgs_credit_analytics import ITAU_MID_GRAY, PALETA_LINHA, PALETA_PREENCHIMENTO
 
 
@@ -158,3 +158,34 @@ def exportar_figuras_pptx(
     if not paineis:
         raise ValueError("nenhum gráfico com dados para exportar")
     return exportar_paineis_pptx(paineis, titulo_deck=titulo_deck)
+
+
+def exportar_deck_secoes_pptx(
+    secoes: Sequence[tuple[str, tuple[str, str] | None, Sequence[Any]]],
+    *,
+    titulo_deck: str,
+    subtitulo_capa: str = "",
+    rodape_capa: str = "",
+) -> tuple[bytes, dict[str, Any]]:
+    """Deck contínuo de várias abas: a leitura de cada uma e depois os gráficos.
+
+    ``secoes`` chega como ``(titulo, (texto, fontes) | None, figuras)`` na ordem
+    em que as abas aparecem na tela.
+    """
+    convertidas = [
+        (
+            titulo,
+            leitura,
+            [figura_para_painel(fig) for fig in figuras if getattr(fig, "data", None)],
+        )
+        for titulo, leitura, figuras in secoes
+    ]
+    convertidas = [item for item in convertidas if item[2]]
+    if not convertidas:
+        raise ValueError("nenhum gráfico com dados para exportar")
+    return exportar_deck_por_secao(
+        convertidas,
+        titulo_deck=titulo_deck,
+        subtitulo_capa=subtitulo_capa,
+        rodape_capa=rodape_capa,
+    )
