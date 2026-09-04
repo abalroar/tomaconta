@@ -87,6 +87,14 @@ SECOES_CREDITO_DECK = tuple(
     (titulo.split(" · ")[-1], chave)
     for titulo, chave, _ in SECOES_DECK
     if titulo.startswith("Crédito SFN")
+# Ordem das abas de Crédito SFN no deck: a mesma da tela, do total para os
+# recortes.
+SECOES_CREDITO_DECK = (
+    ("Estoque de Crédito Total", "credito_estoque"),
+    ("Por Tomador", "credito_tomador"),
+    ("Por Produto", "credito_produto"),
+    ("Por Tipo de Empresa", "credito_empresa"),
+    ("Por Controle", "credito_controle"),
 )
 
 
@@ -708,12 +716,23 @@ def _render_npl_cobertura(wide: pd.DataFrame) -> None:
 
 
 def _figuras_da_secao(chave_render: str, wide: pd.DataFrame) -> list[go.Figure]:
+_RENDER_POR_SUBSECAO = {
+    "Estoque de Crédito Total": "_render_credit_stock",
+    "Por Tomador": "_render_credit_borrower",
+    "Por Produto": "_render_credit_product",
+    "Por Tipo de Empresa": "_render_credit_company",
+    "Por Controle": "_render_credit_control",
+}
+
+
+def _figuras_da_subsecao(nome: str, wide: pd.DataFrame) -> list[go.Figure]:
     """Monta as figuras de uma aba sem desenhar nada na tela."""
     figuras: list[go.Figure] = []
     token_silencio = _SILENCIOSO.set(True)
     token_figuras = _EXPORT_FIGURES.set(figuras)
     try:
         globals()[chave_render](wide)
+        globals()[_RENDER_POR_SUBSECAO[nome]](wide)
     finally:
         _EXPORT_FIGURES.reset(token_figuras)
         _SILENCIOSO.reset(token_silencio)
@@ -797,6 +816,7 @@ def _figuras_faixa_de_renda(get_cache_manager) -> list[go.Figure]:
 
 
 def _deck_completo(wide: pd.DataFrame, get_cache_manager) -> tuple[bytes, dict]:
+def _deck_credito_sfn(wide: pd.DataFrame) -> tuple[bytes, dict]:
     from utils.comentarios_credito import carregar, comentario
     from utils.sgs_credit_pptx_export import exportar_deck_secoes_pptx
 
@@ -809,6 +829,7 @@ def _deck_completo(wide: pd.DataFrame, get_cache_manager) -> tuple[bytes, dict]:
             figuras = _figuras_faixa_de_renda(get_cache_manager)
         if not figuras:
             continue
+    for titulo, chave in SECOES_CREDITO_DECK:
         leitura = comentario(chave, documento=documento)
         secoes.append((
             titulo,
@@ -816,6 +837,7 @@ def _deck_completo(wide: pd.DataFrame, get_cache_manager) -> tuple[bytes, dict]:
             if leitura is not None and not leitura.vazio
             else None,
             figuras,
+            _figuras_da_subsecao(titulo, wide),
         ))
     datas = pd.DatetimeIndex(wide.index).dropna()
     competencia = formatar_competencia(datas.max()) if len(datas) else "N/D"
@@ -846,6 +868,33 @@ def _botao_deck_completo(wide: pd.DataFrame, get_cache_manager) -> None:
                 memo["valor"] = None
                 memo["erro"] = str(exc)
     if not memo.get("valor"):
+        titulo_deck="Estatísticas Crédito BC · Crédito SFN",
+        subtitulo_capa=(
+            f"Séries mensais do SGS/BCB · janela até {competencia}"
+        ),
+        rodape_capa="fonte: Banco Central do Brasil · BCData/SGS",
+    )
+
+
+def _botao_deck_credito_sfn(wide: pd.DataFrame) -> None:
+    """Deck contínuo das cinco abas, com a leitura dos dados de cada uma."""
+    datas = pd.DatetimeIndex(wide.index).dropna()
+    chave = "|".join([
+        "deck_credito",
+        str(datas.min()) if len(datas) else "",
+        str(datas.max()) if len(datas) else "",
+    ])
+    memo = st.session_state.setdefault("_deck_credito_memo", {})
+    if memo.get("chave") != chave:
+        memo["chave"] = chave
+        memo["erro"] = ""
+        try:
+            memo["valor"] = _deck_credito_sfn(wide)
+        except Exception as exc:  # noqa: BLE001 - a aba continua sem o deck
+            memo["valor"] = None
+            memo["erro"] = str(exc)
+    if not memo.get("valor"):
+        # O botão sumir sem explicação deixaria o usuário sem saber o que houve.
         st.caption(f"Deck completo indisponível: {memo.get('erro') or 'sem gráficos'}")
         return
     blob, meta = memo["valor"]
@@ -853,6 +902,10 @@ def _botao_deck_completo(wide: pd.DataFrame, get_cache_manager) -> None:
         f"Baixar deck completo ({meta['paineis']} gráficos, {meta['slides']} slides)",
         data=blob,
         file_name="estatisticas_credito_bc.pptx",
+        f"Baixar deck completo de Crédito SFN "
+        f"({meta['paineis']} gráficos, {meta['slides']} slides)",
+        data=blob,
+        file_name="credito_sfn.pptx",
         mime=(
             "application/vnd.openxmlformats-officedocument."
             "presentationml.presentation"
@@ -862,6 +915,10 @@ def _botao_deck_completo(wide: pd.DataFrame, get_cache_manager) -> None:
         help=(
             "Todas as abas em um arquivo, na ordem da tela, com a leitura dos "
             "dados de cada uma acima dos gráficos."
+        key="sgs_deck_credito_sfn",
+        help=(
+            "As cinco abas em um arquivo, na ordem da tela, com a leitura dos "
+            "dados de cada uma antes dos gráficos."
         ),
     )
 
@@ -873,6 +930,7 @@ def _render_credit(wide: pd.DataFrame) -> None:
         default=CREDIT_SUBSECTIONS[0],
         key="sgs_credit_subsection",
     )
+    _botao_deck_credito_sfn(wide)
     if selected == "Por Tomador":
         _render_credit_borrower(wide)
     elif selected == "Por Produto":

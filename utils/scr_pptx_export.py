@@ -141,6 +141,10 @@ def _caixa_texto(
         paragrafo.line_spacing = entrelinha or 1.0
         paragrafo.space_before = Pt(espaco_entre_paragrafos)
         paragrafo.space_after = Pt(0)
+        if entrelinha:
+            paragrafo.line_spacing = entrelinha
+        if indice and espaco_entre_paragrafos:
+            paragrafo.space_before = Pt(espaco_entre_paragrafos)
         corrida = paragrafo.add_run()
         corrida.text = bloco
         corrida.font.size = Pt(tamanho)
@@ -157,6 +161,7 @@ def _definir_tick_lbl_pos(eixo, valor: str) -> None:
         no = etree.SubElement(elemento, qn("c:tickLblPos"))
     no.set("val", valor)
     _ordenar_filhos(elemento, ORDEM_CAT_AX)
+
 
 
 def _definir_intervalo_rotulos(category_axis, total_categorias: int) -> int:
@@ -535,6 +540,61 @@ def _layout_manual_do_plot(plot_area, gutter: float, altura: float) -> None:
     ):
         no = etree.SubElement(manual, qn(tag))
         no.set("val", str(valor))
+# Ordem exigida para os filhos de <c:chartSpace> (CT_ChartSpace). O spPr entra
+# depois de <c:chart> e antes de <c:txPr>; anexado no fim, ficaria depois de
+# <c:externalData> e o PowerPoint recusaria o arquivo.
+ORDEM_CHART_SPACE = (
+    "c:date1904", "c:lang", "c:roundedCorners", "c:style", "c:clrMapOvr",
+    "c:pivotSource", "c:protection", "c:chart", "c:spPr", "c:txPr",
+    "c:externalData", "c:printSettings", "c:userShapes", "c:extLst",
+)
+
+
+def _sem_preenchimento_nem_contorno(elemento, sequencia: Sequence[str]) -> None:
+    """Aplica ``noFill`` no preenchimento e na linha, na posição do schema."""
+    existente = elemento.find(qn("c:spPr"))
+    if existente is not None:
+        elemento.remove(existente)
+    sp_pr = etree.SubElement(elemento, qn("c:spPr"))
+    etree.SubElement(sp_pr, qn("a:noFill"))
+    linha = etree.SubElement(sp_pr, qn("a:ln"))
+    etree.SubElement(linha, qn("a:noFill"))
+    _ordenar_filhos(elemento, sequencia)
+
+
+def _proximo_ax_id(chart, deslocamento: int) -> int:
+    """Id de eixo inédito dentro do gráfico."""
+    existentes = {
+        int(no.get("val"))
+        for no in chart._chartSpace.iter(qn("c:axId"))
+        if no.get("val")
+    }
+    candidato = (max(existentes) if existentes else 100_000_000) + deslocamento
+    while candidato in existentes:
+        candidato += 1
+    return candidato
+
+
+# Ordem exigida para os filhos de <c:chartSpace> (CT_ChartSpace). O spPr entra
+# depois de <c:chart> e antes de <c:txPr>; anexado no fim, ficaria depois de
+# <c:externalData> e o PowerPoint recusaria o arquivo.
+ORDEM_CHART_SPACE = (
+    "c:date1904", "c:lang", "c:roundedCorners", "c:style", "c:clrMapOvr",
+    "c:pivotSource", "c:protection", "c:chart", "c:spPr", "c:txPr",
+    "c:externalData", "c:printSettings", "c:userShapes", "c:extLst",
+)
+
+
+def _sem_preenchimento_nem_contorno(elemento, sequencia: Sequence[str]) -> None:
+    """Aplica ``noFill`` no preenchimento e na linha, na posição do schema."""
+    existente = elemento.find(qn("c:spPr"))
+    if existente is not None:
+        elemento.remove(existente)
+    sp_pr = etree.SubElement(elemento, qn("c:spPr"))
+    etree.SubElement(sp_pr, qn("a:noFill"))
+    linha = etree.SubElement(sp_pr, qn("a:ln"))
+    etree.SubElement(linha, qn("a:noFill"))
+    _ordenar_filhos(elemento, sequencia)
 
 
 def _proximo_ax_id(chart, deslocamento: int) -> int:
@@ -924,6 +984,11 @@ def _adicionar_painel(
         grafico.legend.include_in_layout = False
         grafico.legend.font.size = Pt(FONTE_LEGENDA_PT)
         grafico.legend.font.color.rgb = COR_EIXO
+    grafico.has_legend = True
+    grafico.legend.position = XL_LEGEND_POSITION.BOTTOM
+    grafico.legend.include_in_layout = False
+    grafico.legend.font.size = Pt(FONTE_LEGENDA_PT)
+    grafico.legend.font.color.rgb = COR_EIXO
 
     plot = grafico.plots[0]
     plot.has_data_labels = False
@@ -1217,6 +1282,9 @@ def exportar_paineis_pptx(
 # Um deck contínuo: a leitura dos dados de cada aba na faixa de topo e os
 # gráficos daquela aba na grade abaixo. Sem slide divisor, sem régua, sem
 # moldura — só caixas de texto e gráficos nativos do Office.
+# Um deck contínuo: a leitura dos dados de cada aba e, em seguida, os gráficos
+# daquela aba. Sem slide divisor, sem régua, sem moldura — só caixas de texto e
+# gráficos nativos do Office.
 
 FONTE_CAPA_PT = 26
 FONTE_CAPA_SUB_PT = 12
@@ -1271,6 +1339,10 @@ def linhas_do_comentario(texto: str, largura_emu: int, corpo_pt: float) -> int:
         for bloco in str(texto).split("\n\n")
         if bloco.strip()
     )
+FONTE_COMENTARIO_PT = 12.5
+ENTRELINHA_COMENTARIO = 1.32
+LARGURA_LEITURA = Inches(9.6)
+PAINEIS_POR_SLIDE_DECK = 2
 
 
 def _slide_em_branco(prs):
@@ -1282,6 +1354,7 @@ def _slide_de_capa(prs, *, titulo: str, subtitulo: str, rodape: str) -> None:
     _caixa_texto(
         slide, left=MARGEM, top=Inches(2.5),
         width=LARGURA_UTIL, height=Inches(1.0),
+        width=Emu(int(SLIDE_LARGURA - 2 * MARGEM)), height=Inches(1.0),
         texto=titulo, tamanho=FONTE_CAPA_PT, cor=COR_TITULO, negrito=True,
     )
     _caixa_texto(
@@ -1371,6 +1444,26 @@ def _desenhar_grade(
             cabecalho_compacto=True,
         ))
     return resumo
+def _slide_de_leitura(prs, *, titulo: str, texto: str, fontes: str) -> None:
+    """Nome da aba e a leitura dos dados dela. Só texto."""
+    slide = _slide_em_branco(prs)
+    _caixa_texto(
+        slide, left=MARGEM, top=Inches(0.55),
+        width=Emu(int(SLIDE_LARGURA - 2 * MARGEM)), height=Inches(0.5),
+        texto=titulo, tamanho=FONTE_SECAO_PT, cor=COR_TITULO, negrito=True,
+    )
+    _caixa_texto(
+        slide, left=MARGEM, top=Inches(1.35),
+        width=LARGURA_LEITURA, height=Inches(4.6),
+        texto=texto, tamanho=FONTE_COMENTARIO_PT, cor=COR_SUBTITULO,
+        entrelinha=ENTRELINHA_COMENTARIO, espaco_entre_paragrafos=10,
+    )
+    if fontes:
+        _caixa_texto(
+            slide, left=MARGEM, top=Inches(6.6),
+            width=LARGURA_LEITURA, height=Inches(0.4),
+            texto=fontes, tamanho=FONTE_FONTE_PT, cor=COR_FONTE,
+        )
 
 
 def exportar_deck_por_secao(
@@ -1385,6 +1478,11 @@ def exportar_deck_por_secao(
 
     ``secoes`` é uma sequência de ``(titulo, leitura, paineis)``, onde
     ``leitura`` é ``(texto, fontes)`` ou ``None``.
+    """Deck contínuo de várias abas.
+
+    ``secoes`` é uma sequência de ``(titulo, leitura, paineis)``, onde
+    ``leitura`` é ``(texto, fontes)`` ou ``None``. A ordem das seções é a
+    ordem das abas na tela.
     """
     if not secoes:
         raise ValueError("nenhuma seção para exportar")
@@ -1439,6 +1537,34 @@ def exportar_deck_por_secao(
                 rotulo_serie_fn=rotulo_serie_fn,
             ))
             primeiro = False
+    largura_painel = Emu(int((SLIDE_LARGURA - 2 * MARGEM - GUTTER_H) / 2))
+    altura_painel = Emu(int(SLIDE_ALTURA - 2 * MARGEM - TOPO_CONTEUDO))
+
+    resumo: List[Dict[str, Any]] = []
+    slides = 1
+    for titulo, leitura, paineis in secoes:
+        if leitura is not None:
+            texto, fontes = leitura
+            if str(texto).strip():
+                _slide_de_leitura(prs, titulo=titulo, texto=texto, fontes=fontes)
+                slides += 1
+        for inicio in range(0, len(paineis), PAINEIS_POR_SLIDE_DECK):
+            bloco = paineis[inicio:inicio + PAINEIS_POR_SLIDE_DECK]
+            slide = _slide_em_branco(prs)
+            slides += 1
+            _caixa_texto(
+                slide, left=MARGEM, top=Inches(0.16),
+                width=Emu(int(SLIDE_LARGURA - 2 * MARGEM)), height=Inches(0.3),
+                texto=titulo, tamanho=FONTE_SUBTITULO_PT, cor=COR_FONTE,
+            )
+            for posicao, painel in enumerate(bloco):
+                left = Emu(int(MARGEM + posicao * (largura_painel + GUTTER_H)))
+                resumo.append(_adicionar_painel(
+                    slide, painel,
+                    left=left, top=Emu(int(MARGEM + TOPO_CONTEUDO)),
+                    width=largura_painel, height=altura_painel,
+                    rotulo_serie_fn=rotulo_serie_fn,
+                ))
 
     buffer = BytesIO()
     prs.save(buffer)
@@ -1447,5 +1573,6 @@ def exportar_deck_por_secao(
         "paineis": len(resumo),
         "secoes": len(secoes),
         "paineis_por_slide": MAXIMO_GRAFICOS_POR_SLIDE,
+        "paineis_por_slide": PAINEIS_POR_SLIDE_DECK,
         "detalhe": resumo,
     }
