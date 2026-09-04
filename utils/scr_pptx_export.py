@@ -105,19 +105,33 @@ def _caixa_texto(
     tamanho: float,
     cor: RGBColor,
     negrito: bool = False,
-) -> None:
+    entrelinha: Optional[float] = None,
+    espaco_entre_paragrafos: float = 0.0,
+):
+    """Caixa de texto sem preenchimento e sem contorno.
+
+    Um texto com linhas em branco vira vários parágrafos, para o bloco de
+    leitura dos dados sair no deck como sai na tela.
+    """
     caixa = slide.shapes.add_textbox(left, top, width, height)
     quadro = caixa.text_frame
     quadro.word_wrap = True
     quadro.margin_left = quadro.margin_right = 0
     quadro.margin_top = quadro.margin_bottom = 0
-    paragrafo = quadro.paragraphs[0]
-    paragrafo.alignment = PP_ALIGN.LEFT
-    corrida = paragrafo.add_run()
-    corrida.text = texto
-    corrida.font.size = Pt(tamanho)
-    corrida.font.bold = negrito
-    corrida.font.color.rgb = cor
+    blocos = [parte.strip() for parte in str(texto).split("\n\n") if parte.strip()] or [""]
+    for indice, bloco in enumerate(blocos):
+        paragrafo = quadro.paragraphs[0] if indice == 0 else quadro.add_paragraph()
+        paragrafo.alignment = PP_ALIGN.LEFT
+        if entrelinha:
+            paragrafo.line_spacing = entrelinha
+        if indice and espaco_entre_paragrafos:
+            paragrafo.space_before = Pt(espaco_entre_paragrafos)
+        corrida = paragrafo.add_run()
+        corrida.text = bloco
+        corrida.font.size = Pt(tamanho)
+        corrida.font.bold = negrito
+        corrida.font.color.rgb = cor
+    return caixa
 
 
 
@@ -246,6 +260,28 @@ def _estilizar_eixos(
     _definir_intervalo_rotulos(eixo_categoria, total_categorias)
 
 
+# Ordem exigida para os filhos de <c:chartSpace> (CT_ChartSpace). O spPr entra
+# depois de <c:chart> e antes de <c:txPr>; anexado no fim, ficaria depois de
+# <c:externalData> e o PowerPoint recusaria o arquivo.
+ORDEM_CHART_SPACE = (
+    "c:date1904", "c:lang", "c:roundedCorners", "c:style", "c:clrMapOvr",
+    "c:pivotSource", "c:protection", "c:chart", "c:spPr", "c:txPr",
+    "c:externalData", "c:printSettings", "c:userShapes", "c:extLst",
+)
+
+
+def _sem_preenchimento_nem_contorno(elemento, sequencia: Sequence[str]) -> None:
+    """Aplica ``noFill`` no preenchimento e na linha, na posição do schema."""
+    existente = elemento.find(qn("c:spPr"))
+    if existente is not None:
+        elemento.remove(existente)
+    sp_pr = etree.SubElement(elemento, qn("c:spPr"))
+    etree.SubElement(sp_pr, qn("a:noFill"))
+    linha = etree.SubElement(sp_pr, qn("a:ln"))
+    etree.SubElement(linha, qn("a:noFill"))
+    _ordenar_filhos(elemento, sequencia)
+
+
 def _proximo_ax_id(chart, deslocamento: int) -> int:
     """Id de eixo inédito dentro do gráfico."""
     existentes = {
@@ -257,6 +293,28 @@ def _proximo_ax_id(chart, deslocamento: int) -> int:
     while candidato in existentes:
         candidato += 1
     return candidato
+
+
+# Ordem exigida para os filhos de <c:chartSpace> (CT_ChartSpace). O spPr entra
+# depois de <c:chart> e antes de <c:txPr>; anexado no fim, ficaria depois de
+# <c:externalData> e o PowerPoint recusaria o arquivo.
+ORDEM_CHART_SPACE = (
+    "c:date1904", "c:lang", "c:roundedCorners", "c:style", "c:clrMapOvr",
+    "c:pivotSource", "c:protection", "c:chart", "c:spPr", "c:txPr",
+    "c:externalData", "c:printSettings", "c:userShapes", "c:extLst",
+)
+
+
+def _sem_preenchimento_nem_contorno(elemento, sequencia: Sequence[str]) -> None:
+    """Aplica ``noFill`` no preenchimento e na linha, na posição do schema."""
+    existente = elemento.find(qn("c:spPr"))
+    if existente is not None:
+        elemento.remove(existente)
+    sp_pr = etree.SubElement(elemento, qn("c:spPr"))
+    etree.SubElement(sp_pr, qn("a:noFill"))
+    linha = etree.SubElement(sp_pr, qn("a:ln"))
+    etree.SubElement(linha, qn("a:noFill"))
+    _ordenar_filhos(elemento, sequencia)
 
 
 def _proximo_ax_id(chart, deslocamento: int) -> int:
@@ -516,6 +574,9 @@ def _adicionar_painel(
         chart_type, left, topo_grafico, width, altura_grafico, dados
     ).chart
     grafico.has_title = False
+    # Sem o spPr explícito, o Office desenha o contorno do estilo padrão em
+    # volta do gráfico. O deck não tem moldura em lugar nenhum.
+    _sem_preenchimento_nem_contorno(grafico._chartSpace, ORDEM_CHART_SPACE)
 
     grafico.has_legend = True
     grafico.legend.position = XL_LEGEND_POSITION.BOTTOM
@@ -679,5 +740,132 @@ def exportar_paineis_pptx(
         "paineis": len(paineis),
         "paineis_por_slide": PAINEIS_POR_SLIDE,
         "formato_percentual": FORMATO_PERCENTUAL,
+        "detalhe": resumo,
+    }
+
+
+# =============================================================================
+# DECK POR SEÇÃO
+# =============================================================================
+# Um deck contínuo: a leitura dos dados de cada aba e, em seguida, os gráficos
+# daquela aba. Sem slide divisor, sem régua, sem moldura — só caixas de texto e
+# gráficos nativos do Office.
+
+FONTE_CAPA_PT = 26
+FONTE_CAPA_SUB_PT = 12
+FONTE_SECAO_PT = 20
+FONTE_COMENTARIO_PT = 12.5
+ENTRELINHA_COMENTARIO = 1.32
+LARGURA_LEITURA = Inches(9.6)
+PAINEIS_POR_SLIDE_DECK = 2
+
+
+def _slide_em_branco(prs):
+    return prs.slides.add_slide(prs.slide_layouts[6])
+
+
+def _slide_de_capa(prs, *, titulo: str, subtitulo: str, rodape: str) -> None:
+    slide = _slide_em_branco(prs)
+    _caixa_texto(
+        slide, left=MARGEM, top=Inches(2.5),
+        width=Emu(int(SLIDE_LARGURA - 2 * MARGEM)), height=Inches(1.0),
+        texto=titulo, tamanho=FONTE_CAPA_PT, cor=COR_TITULO, negrito=True,
+    )
+    _caixa_texto(
+        slide, left=MARGEM, top=Inches(3.5),
+        width=LARGURA_LEITURA, height=Inches(0.5),
+        texto=subtitulo, tamanho=FONTE_CAPA_SUB_PT, cor=COR_SUBTITULO,
+    )
+    _caixa_texto(
+        slide, left=MARGEM, top=Inches(6.6),
+        width=LARGURA_LEITURA, height=Inches(0.4),
+        texto=rodape, tamanho=FONTE_FONTE_PT, cor=COR_FONTE,
+    )
+
+
+def _slide_de_leitura(prs, *, titulo: str, texto: str, fontes: str) -> None:
+    """Nome da aba e a leitura dos dados dela. Só texto."""
+    slide = _slide_em_branco(prs)
+    _caixa_texto(
+        slide, left=MARGEM, top=Inches(0.55),
+        width=Emu(int(SLIDE_LARGURA - 2 * MARGEM)), height=Inches(0.5),
+        texto=titulo, tamanho=FONTE_SECAO_PT, cor=COR_TITULO, negrito=True,
+    )
+    _caixa_texto(
+        slide, left=MARGEM, top=Inches(1.35),
+        width=LARGURA_LEITURA, height=Inches(4.6),
+        texto=texto, tamanho=FONTE_COMENTARIO_PT, cor=COR_SUBTITULO,
+        entrelinha=ENTRELINHA_COMENTARIO, espaco_entre_paragrafos=10,
+    )
+    if fontes:
+        _caixa_texto(
+            slide, left=MARGEM, top=Inches(6.6),
+            width=LARGURA_LEITURA, height=Inches(0.4),
+            texto=fontes, tamanho=FONTE_FONTE_PT, cor=COR_FONTE,
+        )
+
+
+def exportar_deck_por_secao(
+    secoes: Sequence[Tuple[str, Optional[Any], Sequence[Any]]],
+    *,
+    titulo_deck: str,
+    subtitulo_capa: str = "",
+    rodape_capa: str = "",
+    rotulo_serie_fn=None,
+) -> Tuple[bytes, Dict[str, Any]]:
+    """Deck contínuo de várias abas.
+
+    ``secoes`` é uma sequência de ``(titulo, leitura, paineis)``, onde
+    ``leitura`` é ``(texto, fontes)`` ou ``None``. A ordem das seções é a
+    ordem das abas na tela.
+    """
+    if not secoes:
+        raise ValueError("nenhuma seção para exportar")
+
+    rotulo_serie_fn = rotulo_serie_fn or (lambda nome: nome)
+    prs = Presentation()
+    prs.slide_width = SLIDE_LARGURA
+    prs.slide_height = SLIDE_ALTURA
+
+    _slide_de_capa(
+        prs, titulo=titulo_deck, subtitulo=subtitulo_capa, rodape=rodape_capa
+    )
+
+    largura_painel = Emu(int((SLIDE_LARGURA - 2 * MARGEM - GUTTER_H) / 2))
+    altura_painel = Emu(int(SLIDE_ALTURA - 2 * MARGEM - TOPO_CONTEUDO))
+
+    resumo: List[Dict[str, Any]] = []
+    slides = 1
+    for titulo, leitura, paineis in secoes:
+        if leitura is not None:
+            texto, fontes = leitura
+            if str(texto).strip():
+                _slide_de_leitura(prs, titulo=titulo, texto=texto, fontes=fontes)
+                slides += 1
+        for inicio in range(0, len(paineis), PAINEIS_POR_SLIDE_DECK):
+            bloco = paineis[inicio:inicio + PAINEIS_POR_SLIDE_DECK]
+            slide = _slide_em_branco(prs)
+            slides += 1
+            _caixa_texto(
+                slide, left=MARGEM, top=Inches(0.16),
+                width=Emu(int(SLIDE_LARGURA - 2 * MARGEM)), height=Inches(0.3),
+                texto=titulo, tamanho=FONTE_SUBTITULO_PT, cor=COR_FONTE,
+            )
+            for posicao, painel in enumerate(bloco):
+                left = Emu(int(MARGEM + posicao * (largura_painel + GUTTER_H)))
+                resumo.append(_adicionar_painel(
+                    slide, painel,
+                    left=left, top=Emu(int(MARGEM + TOPO_CONTEUDO)),
+                    width=largura_painel, height=altura_painel,
+                    rotulo_serie_fn=rotulo_serie_fn,
+                ))
+
+    buffer = BytesIO()
+    prs.save(buffer)
+    return buffer.getvalue(), {
+        "slides": slides,
+        "paineis": len(resumo),
+        "secoes": len(secoes),
+        "paineis_por_slide": PAINEIS_POR_SLIDE_DECK,
         "detalhe": resumo,
     }

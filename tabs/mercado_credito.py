@@ -63,6 +63,20 @@ PLOTLY_CONFIG = {"displayModeBar": "hover", "displaylogo": False, "responsive": 
 _EXPORT_FIGURES: ContextVar[list[go.Figure] | None] = ContextVar(
     "sgs_credit_export_figures", default=None
 )
+# Em modo silencioso as funções de render montam as figuras e não desenham
+# nada. É como o deck completo reúne as cinco abas de Crédito SFN sem que o
+# usuário precise abrir uma por uma.
+_SILENCIOSO: ContextVar[bool] = ContextVar("sgs_credit_silencioso", default=False)
+
+# Ordem das abas de Crédito SFN no deck: a mesma da tela, do total para os
+# recortes.
+SECOES_CREDITO_DECK = (
+    ("Estoque de Crédito Total", "credito_estoque"),
+    ("Por Tomador", "credito_tomador"),
+    ("Por Produto", "credito_produto"),
+    ("Por Tipo de Empresa", "credito_empresa"),
+    ("Por Controle", "credito_controle"),
+)
 
 
 def _available(wide: pd.DataFrame, aliases: Sequence[str]) -> bool:
@@ -76,6 +90,11 @@ def _competencia_do_card(fig: go.Figure) -> pd.Timestamp | None:
 
 
 def _chart(fig: go.Figure, key: str) -> None:
+    if _SILENCIOSO.get():
+        colecionador = _EXPORT_FIGURES.get()
+        if colecionador is not None and fig.data:
+            colecionador.append(fig)
+        return
     meta = fig.layout.meta if isinstance(fig.layout.meta, dict) else {}
     raw_title = meta.get("chart_title") or getattr(fig.layout.title, "text", None)
     title = (
@@ -130,6 +149,8 @@ def _leitura(
     isso, uma página cujas séries fecham antes do resto do cache — como
     comprometimento de renda — seria marcada como desatualizada sem estar.
     """
+    if _SILENCIOSO.get():
+        return
     quadro = wide
     if aliases:
         colunas = [alias for alias in aliases if alias in wide.columns]
@@ -148,6 +169,10 @@ def _cards_em_grade(cards: Sequence[tuple[go.Figure, str]], colunas: int = 2) ->
     sensibilidade vertical e as séries se colam. Os cards de inadimplência
     voltam a dois por linha, mantendo o nome de cada série na ponta da linha.
     """
+    if _SILENCIOSO.get():
+        for figura, chave in cards:
+            _chart(figura, chave)
+        return
     for inicio in range(0, len(cards), colunas):
         faixa = cards[inicio:inicio + colunas]
         grade = st.columns(colunas)
@@ -634,6 +659,94 @@ def _render_credit_control(wide: pd.DataFrame) -> None:
     )
 
 
+_RENDER_POR_SUBSECAO = {
+    "Estoque de Crédito Total": "_render_credit_stock",
+    "Por Tomador": "_render_credit_borrower",
+    "Por Produto": "_render_credit_product",
+    "Por Tipo de Empresa": "_render_credit_company",
+    "Por Controle": "_render_credit_control",
+}
+
+
+def _figuras_da_subsecao(nome: str, wide: pd.DataFrame) -> list[go.Figure]:
+    """Monta as figuras de uma aba sem desenhar nada na tela."""
+    figuras: list[go.Figure] = []
+    token_silencio = _SILENCIOSO.set(True)
+    token_figuras = _EXPORT_FIGURES.set(figuras)
+    try:
+        globals()[_RENDER_POR_SUBSECAO[nome]](wide)
+    finally:
+        _EXPORT_FIGURES.reset(token_figuras)
+        _SILENCIOSO.reset(token_silencio)
+    return figuras
+
+
+def _deck_credito_sfn(wide: pd.DataFrame) -> tuple[bytes, dict]:
+    from utils.comentarios_credito import carregar, comentario
+    from utils.sgs_credit_pptx_export import exportar_deck_secoes_pptx
+
+    documento = carregar()
+    secoes = []
+    for titulo, chave in SECOES_CREDITO_DECK:
+        leitura = comentario(chave, documento=documento)
+        secoes.append((
+            titulo,
+            (leitura.texto, "Fontes: " + " · ".join(leitura.fontes))
+            if leitura is not None and not leitura.vazio
+            else None,
+            _figuras_da_subsecao(titulo, wide),
+        ))
+    datas = pd.DatetimeIndex(wide.index).dropna()
+    competencia = formatar_competencia(datas.max()) if len(datas) else "N/D"
+    return exportar_deck_secoes_pptx(
+        secoes,
+        titulo_deck="Estatísticas Crédito BC · Crédito SFN",
+        subtitulo_capa=(
+            f"Séries mensais do SGS/BCB · janela até {competencia}"
+        ),
+        rodape_capa="fonte: Banco Central do Brasil · BCData/SGS",
+    )
+
+
+def _botao_deck_credito_sfn(wide: pd.DataFrame) -> None:
+    """Deck contínuo das cinco abas, com a leitura dos dados de cada uma."""
+    datas = pd.DatetimeIndex(wide.index).dropna()
+    chave = "|".join([
+        "deck_credito",
+        str(datas.min()) if len(datas) else "",
+        str(datas.max()) if len(datas) else "",
+    ])
+    memo = st.session_state.setdefault("_deck_credito_memo", {})
+    if memo.get("chave") != chave:
+        memo["chave"] = chave
+        memo["erro"] = ""
+        try:
+            memo["valor"] = _deck_credito_sfn(wide)
+        except Exception as exc:  # noqa: BLE001 - a aba continua sem o deck
+            memo["valor"] = None
+            memo["erro"] = str(exc)
+    if not memo.get("valor"):
+        # O botão sumir sem explicação deixaria o usuário sem saber o que houve.
+        st.caption(f"Deck completo indisponível: {memo.get('erro') or 'sem gráficos'}")
+        return
+    blob, meta = memo["valor"]
+    st.download_button(
+        f"Baixar deck completo de Crédito SFN "
+        f"({meta['paineis']} gráficos, {meta['slides']} slides)",
+        data=blob,
+        file_name="credito_sfn.pptx",
+        mime=(
+            "application/vnd.openxmlformats-officedocument."
+            "presentationml.presentation"
+        ),
+        key="sgs_deck_credito_sfn",
+        help=(
+            "As cinco abas em um arquivo, na ordem da tela, com a leitura dos "
+            "dados de cada uma antes dos gráficos."
+        ),
+    )
+
+
 def _render_credit(wide: pd.DataFrame) -> None:
     selected = st.segmented_control(
         "Visão do crédito",
@@ -641,6 +754,7 @@ def _render_credit(wide: pd.DataFrame) -> None:
         default=CREDIT_SUBSECTIONS[0],
         key="sgs_credit_subsection",
     )
+    _botao_deck_credito_sfn(wide)
     if selected == "Por Tomador":
         _render_credit_borrower(wide)
     elif selected == "Por Produto":

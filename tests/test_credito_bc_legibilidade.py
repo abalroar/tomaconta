@@ -303,6 +303,16 @@ _SEQUENCIAS = {
         "majorUnit", "minorUnit", "dispUnits", "extLst",
     ],
 }
+_SEQUENCIA_CHART_SPACE = [
+    "date1904", "lang", "roundedCorners", "style", "clrMapOvr", "pivotSource",
+    "protection", "chart", "spPr", "txPr", "externalData", "printSettings",
+    "userShapes", "extLst",
+]
+_SEQUENCIA_CHART = [
+    "title", "autoTitleDeleted", "pivotFmts", "view3D", "floor", "sideWall",
+    "backWall", "plotArea", "legend", "plotVisOnly", "dispBlanksAs",
+    "showDLblsOverMax", "extLst",
+]
 _SEQUENCIA_SER = [
     "idx", "order", "tx", "spPr", "marker", "invertIfNegative",
     "pictureOptions", "dPt", "dLbls", "trendline", "errBars", "cat", "val",
@@ -340,6 +350,13 @@ def validar_xml_do_grafico(xml: bytes) -> list[str]:
 
     erros: list[str] = []
     raiz = etree.fromstring(xml)
+    if not _em_ordem(raiz, _SEQUENCIA_CHART_SPACE):
+        erros.append(
+            f"<c:chartSpace> fora de ordem: {[_local(e) for e in raiz]}"
+        )
+    for grafico in raiz.iter(f"{_NS}chart"):
+        if not _em_ordem(grafico, _SEQUENCIA_CHART):
+            erros.append(f"<c:chart> fora de ordem: {[_local(e) for e in grafico]}")
     for plot_area in raiz.iter(f"{_NS}plotArea"):
         filhos = [_local(e) for e in plot_area]
         indices_grupo = [i for i, n in enumerate(filhos) if n in _GRUPOS]
@@ -714,3 +731,14 @@ def test_barra_empilhada_rotula_todos_os_periodos_por_padrao():
     for trace in fig.data:
         assert sum(1 for texto in trace.text if texto) == len(wide)
     assert fig.layout.uniformtext.mode == "hide"
+
+
+def test_validador_pega_spPr_depois_de_externalData():
+    """Terceira ordem que o PowerPoint não perdoa, no nível do chartSpace."""
+    xml = f"""<c:chartSpace xmlns:c="{_NS[1:-1]}">
+      <c:chart/>
+      <c:externalData r:id="rId1" xmlns:r="http://x"/>
+      <c:spPr/>
+    </c:chartSpace>""".encode()
+    erros = validar_xml_do_grafico(xml)
+    assert any("chartSpace" in erro for erro in erros)
