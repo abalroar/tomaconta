@@ -91,6 +91,8 @@ def render_scr_inadimplencia(get_cache_manager) -> None:
 
     plotly_config = {"displayModeBar": "hover", "displaylogo": False, "responsive": True}
 
+    from tabs.comentario_credito import render_comentario
+
     st.markdown(f"#### {scr_spec.TITLE}")
     st.caption("Inadimplência e ativo problemático por modalidade, renda e região.")
 
@@ -412,10 +414,12 @@ def render_scr_inadimplencia(get_cache_manager) -> None:
     data_base = str(dados["data_base"].astype(str).max())
     rotulo_metrica = scr_q.METRICAS[_metrica].rotulo
 
+    render_comentario("npl_faixa_renda", data_base_cache=data_base)
+
     st.caption(
         f"SCR.data · dados até **{formatar_competencia(f'{data_base}-01')}**. "
-        "As séries do SGS nas outras sub-abas podem estar um mês à frente: as "
-        "duas fontes têm calendários de publicação diferentes."
+        "SGS e SCR.data têm calendários de publicação próprios e podem fechar em "
+        "competências diferentes; o rodapé de cada card informa a sua."
     )
 
     aba_paineis, aba_regiao = st.tabs(["Painéis", "Brasil e regiões"])

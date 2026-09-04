@@ -1,0 +1,118 @@
+{
+  "versao": 1,
+  "atualizado_em": "2026-09-03",
+  "data_base": "2026-07",
+  "nota": "Leitura dos dados por página da seção Estatísticas Crédito BC. Editável na tela; para valer para todo mundo, o JSON baixado no card precisa substituir este arquivo em um commit.",
+  "paginas": {
+    "concessoes": {
+      "titulo": "Concessões",
+      "data_base": "2026-07",
+      "fontes": [
+        "Nota à Imprensa do BC, 28/08/2026",
+        "Call 2T26 · Itaú Unibanco",
+        "Valor · PIB do 2T26"
+      ],
+      "texto": "As concessões dessazonalizadas ficaram estáveis em jul-26, em R$ 731 bi. PJ caiu 0,3% e PF subiu 0,3%. Sem ajuste sazonal o total caiu 1,6%, com PJ em -8,9%, reversão do avanço de Duplicatas de jun-26. A originação roda no mesmo patamar desde o início do ano, com a composição migrando de empresa para família.\n\nO consumo das famílias caiu 0,4% no 2T26 contra expectativa de alta de 0,6%. A FBCF desacelerou de 3,4% para 1,2%. O Itaú cortou o guidance de carteira para 2026 e atribuiu a decisão a preço: “temos visto o nível de apetite no mercado maior do que o nosso [...] essas operações, em geral, estão destruindo valor para o acionista, estão sendo feitas abaixo de custo de capital”. Dado agregado e originador apontam desaceleração da originação."
+    },
+    "credito_estoque": {
+      "titulo": "Estoque de crédito total",
+      "data_base": "2026-07",
+      "fontes": [
+        "Nota à Imprensa do BC, 28/08/2026",
+        "Call 2T26 · Itaú Unibanco"
+      ],
+      "texto": "O estoque do SFN chegou a R$ 7,4 tri em jul-26, com alta de 0,3% no mês e 9,5% em 12m, contra 9,7% na leitura até jun-26. A desaceleração é de 0,2 p.p. e não configura inflexão.\n\nO crédito ampliado ao setor não financeiro cresce 11,9% em 12m, puxado por títulos públicos (+17,2%) e securitizados (+18,9%). O financiamento à economia cresce mais rápido fora do balanço bancário do que dentro dele. O Itaú descreve a mesma dinâmica: “boa parte da originação que fazemos em TVM, distribuímos no mercado e não fazemos essas operações exclusivamente para o nosso balanço”."
+    },
+    "credito_tomador": {
+      "titulo": "Por tomador",
+      "data_base": "2026-07",
+      "fontes": [
+        "Nota à Imprensa do BC, 28/08/2026",
+        "Cache SGS",
+        "Call 2T26 · Itaú Unibanco"
+      ],
+      "texto": "PF cresceu 10,8% em 12m em jul-26, contra 10,7% no mês anterior. PJ cresceu 7,4%, contra 8,0%. A distância entre os dois se abre há mais de um ano.\n\nEm PJ, o direcionado subiu 16,8% em 12m e o livre 1,4%. Todo o crescimento de empresa vem de recurso regulado. Em PF, o Consignado CLT saiu de R$ 49,9 bi para R$ 117,7 bi em 12m e responde por 15% do acréscimo da carteira. O Itaú reporta 90,1% de alta em 12m na mesma linha. A expansão de PF está concentrada na modalidade com garantia de folha."
+    },
+    "credito_produto": {
+      "titulo": "Por produto",
+      "data_base": "2026-07",
+      "fontes": [
+        "Nota à Imprensa do BC, 28/08/2026",
+        "Ailton de Aquino (BC), Zetta Summit 01/09/2026",
+        "Ata do Comef, 02/09/2026"
+      ],
+      "texto": "Em PF, o BC atribui o avanço de jul-26 a três linhas: Cartão à Vista, Consignado CLT e Veículos. Duas são crédito barato ou com garantia. Em PJ, o livre caiu 1,9%, puxado por Duplicatas — reversão do avanço sazonal do mês anterior. KG > 365d também recuou.\n\nO diretor de fiscalização do BC, Ailton de Aquino, disse em 01/09 que a diretoria está “embarcada em ter um olhar macroprudencial para as linhas de crédito mais caras, especialmente o cartão de crédito e não consignado”, e espera “medidas relevantes para o sistema financeiro” nos próximos meses. A ata do Comef de 02/09 confirma as medidas em preparação. O mix desta página é o alvo declarado da regulação em desenho."
+    },
+    "credito_empresa": {
+      "titulo": "Por tipo de empresa",
+      "data_base": "2026-07",
+      "fontes": [
+        "Cache SGS",
+        "Ata do Comef, 02/09/2026",
+        "Call 2T26 · Itaú Unibanco"
+      ],
+      "texto": "MPME cresceu 6,5% em 12m em jul-26 e grandes empresas 7,5%. O porte menor cresce menos que o maior no agregado.\n\nA ata do Comef registra redução no número de empresas com aumento do lucro líquido e alta no número de PJ com elevação da despesa financeira líquida. O Itaú, que cresce 11,6% em 12m nesse segmento, reportou piora do atraso curto em MPME e antecipou continuidade: “esperamos uma normalização desse indicador na medida em que as carências dos programas governamentais [...] se estabilizem [...] devemos ter ainda mais um trimestre de aumento, especialmente no over 90”. Supervisor e originador projetam a mesma deterioração em MPME, com origem no fim das carências dos programas públicos. A carteira do banco cresce bem acima do sistema nesse porte, então a leitura vale para a direção e não para o nível."
+    },
+    "credito_controle": {
+      "titulo": "Por controle",
+      "data_base": "2026-07",
+      "fontes": [
+        "Nota à Imprensa do BC, 28/08/2026",
+        "Cache SGS"
+      ],
+      "texto": "O crédito direcionado cresceu 12,8% em 12m contra 7,0% do livre. A expansão do sistema está concentrada onde o funding é regulado, o que explica a distribuição por controle.\n\nNenhuma das fontes desta rodada trata da composição por controle acionário. Afirmar tendência aqui exigiria abertura por instituição ou por origem de funding dentro de cada grupo, que a página não mostra."
+    },
+    "situacao": {
+      "titulo": "Situação dos agentes",
+      "data_base": "2026-06",
+      "fontes": [
+        "Nota à Imprensa do BC, 28/08/2026",
+        "Ata do Comef, 02/09/2026",
+        "Ailton de Aquino (BC), Zetta Summit 01/09/2026"
+      ],
+      "texto": "O endividamento das famílias ficou estável em jun-26, em 49,8% da renda, com alta de 1,0 p.p. em 12m. O comprometimento de renda subiu 0,4 p.p. no mês e 1,7 p.p. em 12m, para 28,9%, o maior nível da série iniciada em 2005. O estoque de dívida parou de subir e o custo de carregá-la continuou subindo.\n\nA ata do Comef atribui o quadro à composição da dívida: “esse quadro segue sendo influenciado pela participação relevante de modalidades de crédito mais onerosas na composição da dívida das famílias. Na visão do Comitê, o cenário requer cautela e diligência adicionais no mercado de crédito”. Ailton de Aquino apontou fator fora das estatísticas de crédito: “é indiscutível que bets são um elemento central do endividamento das famílias”. Estas séries fecham em jun-26, um mês atrás das séries de crédito."
+    },
+    "npl_pre_inad": {
+      "titulo": "Pré-inadimplência e inadimplência",
+      "data_base": "2026-07",
+      "fontes": [
+        "Nota à Imprensa do BC, 28/08/2026",
+        "Cache SGS",
+        "Call 2T26 · Itaú Unibanco",
+        "PEF do BC, ago/2026"
+      ],
+      "texto": "A inadimplência do SFN chegou a 4,9% em jul-26, com alta de 0,3 p.p. no mês e 0,9 p.p. em 12m. No livre foi a 6,4% e no livre PF a 7,8%. A pré-inadimplência PF recuou de 4,64% para 4,51%, primeiro recuo desde dez-25. A pré-inadimplência PJ subiu de 2,73% para 2,93%. O atraso curto de PF parou de piorar no mesmo mês em que o atraso longo acelerou, comportamento de safra contaminada terminando de migrar para vencido acima de 90 dias.\n\nO Itaú confirma a direção do agregado: “é evidente que o cenário deteriorou [...] vemos um aumento relevante nos atrasos over 90 do mercado”. A carteira do banco ficou estável, com NPL 15-90 em torno de 3% em PF, NPL 90 em 2,1% e custo do crédito em 2,7% da carteira desde o 1T25. O banco atribui a distância a duas causas: o de-risking do portfólio foi feito antes, e as políticas de baixa não mudaram — “a Res. 4966 te dá graus de liberdade, a gente manteve exatamente nossa prática [...] não fazemos gestão de indicador de atraso e muito menos de provisão utilizando esses graus de liberdade”. Parte da dispersão entre instituições na série agregada pode refletir escolha de política de baixa sob a 4966. Na PEF de ago-26, inadimplência foi o item mais citado entre os três riscos mais relevantes, com alta de 21% para 26% das citações."
+    },
+    "npl_cobertura": {
+      "titulo": "Cobertura e provisionamento",
+      "data_base": "2026-07",
+      "fontes": [
+        "Cache SGS",
+        "Ata do Comef, 02/09/2026",
+        "Call 2T26 · Itaú Unibanco"
+      ],
+      "texto": "A provisão do SFN está em 7,8% da carteira, 0,4 p.p. acima de 12m atrás. A inadimplência subiu 0,9 p.p. no mesmo período, e a cobertura cai por essa diferença. A ata do Comef avalia que as provisões “mantiveram-se compatíveis com as estimativas de perdas esperadas” e que a rentabilidade “continuou pressionada pelo aumento das provisões, [mas] o impacto foi menos intenso do que no trimestre anterior”.\n\nQueda de cobertura tem componente contábil. O Itaú reportou queda da cobertura do estágio 2 em PJ por migração de clientes para o estágio 3, que “tipicamente saem com nível de cobertura mais alto”, com a provisão já constituída. Ler a linha de cobertura sem o movimento entre estágios superestima a deterioração. O Comef acrescenta ponto que a série não mostra: “a nova dinâmica de realização do ativo fiscal diferido demanda maior atenção à gestão de capital”."
+    },
+    "npl_faixa_renda": {
+      "titulo": "Inadimplência por faixa de renda",
+      "data_base": "2026-07",
+      "fontes": [
+        "Cache SCR.data",
+        "Ata do Comef, 02/09/2026",
+        "Metodologia SCR.data (BCB)"
+      ],
+      "texto": "O SCR.data fecha em jul-26, mesma competência das séries do SGS nas abas vizinhas. As duas fontes têm calendários de publicação próprios e já divergiram em um mês; o rodapé de cada card informa a competência efetiva.\n\nDuas ressalvas metodológicas valem antes de comparar faixas. Os limites são nominais em salários mínimos e se movem todo ano, o que produz migração inflacionária entre faixas ao longo da série. O ativo problemático tem quebra de série em jan-25, quando a régua de risco E-H foi substituída pela marcação da própria instituição, e comparações que atravessam essa data medem mudança de critério. O recorte por renda é a única série pública que permite testar a afirmação do Comef sobre a “participação relevante de modalidades de crédito mais onerosas na composição da dívida das famílias” separando quem carrega essas modalidades."
+    },
+    "taxas": {
+      "titulo": "Taxas de juros e spread",
+      "data_base": "2026-07",
+      "fontes": [
+        "Nota à Imprensa do BC, 28/08/2026",
+        "Cache SGS",
+        "Call 2T26 · Itaú Unibanco",
+        "Valor · PIB do 2T26"
+      ],
+      "texto": "A taxa média das concessões caiu 1,2 p.p. no mês, para 32,1% a.a., e subiu 0,3 p.p. em 12m. No livre PF caiu 3,9 p.p., para 60,0% a.a., contra alta de 1,6 p.p. em 12m. No livre PJ subiu 1,1 p.p. no mês, para 25,4% a.a. O BC atribui o movimento ao efeito taxa, com recuos em crédito pessoal não consignado (-16,1 p.p.) e cartão total (-5,7 p.p.).\n\nA alta de 84,3 p.p. no cartão rotativo ocorre em série que o próprio BC descreve como de “elevada volatilidade na série histórica” e não indica repactuação de preço. A queda mensal não reverte a alta de 12m: a Selic saiu de 15% para 14% ao longo de 2026 e segue perto de 10% em termos reais. O Itaú reportou margem financeira ajustada ao risco de 6,2%, com alta de 10 bps no trimestre, sem sinal de compressão competitiva."
+    }
+  }
+}
