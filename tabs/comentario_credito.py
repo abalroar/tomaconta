@@ -28,25 +28,23 @@ from utils.sgs_credit_analytics import formatar_competencia
 _ESTILO = """
 <style>
 div[data-testid="stMarkdownContainer"] .leitura-dado {
-  border-left: 3px solid #EC7000;
-  background: #FBFAF8;
-  padding: 14px 20px 12px;
-  margin: 4px 0 18px;
+  background: #FAF8F5;
+  border-bottom: 1px solid #E8E2DB;
+  padding: 12px 16px 10px;
+  margin: 0 0 14px;
 }
 div[data-testid="stMarkdownContainer"] .leitura-dado p {
-  margin: 0 0 10px;
-  font-size: 0.97rem;
-  line-height: 1.58;
+  margin: 0 0 8px;
+  font-size: 0.95rem;
+  line-height: 1.55;
   color: #1A1715;
 }
 div[data-testid="stMarkdownContainer"] .leitura-dado p:last-child { margin-bottom: 0; }
 div[data-testid="stMarkdownContainer"] .leitura-rodape {
-  margin-top: 12px;
-  padding-top: 9px;
-  border-top: 1px solid #E0D9D2;
-  font-size: 0.76rem;
-  color: #6E655F;
-  line-height: 1.5;
+  margin-top: 10px;
+  font-size: 0.74rem;
+  color: #8A8078;
+  line-height: 1.45;
 }
 </style>
 """
@@ -63,7 +61,9 @@ def _competencia(valor: str) -> str:
         return valor
 
 
-def render_comentario(chave: str, *, data_base_cache: str | None = None) -> None:
+def render_comentario(
+    chave: str, *, data_base_cache: str | None = None, titulo: str | None = None
+) -> None:
     """Desenha o card da página ``chave``. Silencioso se não há texto."""
     documento = carregar()
     base = buscar_comentario(chave, documento=documento)
@@ -76,49 +76,57 @@ def render_comentario(chave: str, *, data_base_cache: str | None = None) -> None
         return
 
     st.markdown(_ESTILO, unsafe_allow_html=True)
-    coluna_texto, coluna_acao = st.columns([0.9, 0.1], vertical_alignment="top")
 
-    with coluna_acao:
-        rotulo = "Fechar" if editando else "Editar"
-        if st.button(rotulo, key=f"_comentario_btn_{chave}", width="stretch"):
+    # Título e lápis na mesma linha, com o box de texto ocupando a largura
+    # inteira abaixo. Com o botão ao lado do box, ele comia largura do
+    # comentário e desalinhava o card em relação aos gráficos.
+    rotulo = titulo or atual.titulo
+    coluna_titulo, coluna_editar = st.columns([0.965, 0.035], vertical_alignment="center")
+    with coluna_titulo:
+        st.markdown(f"#### {rotulo}")
+    with coluna_editar:
+        if st.button(
+            "✎",
+            key=f"_comentario_btn_{chave}",
+            help="Editar a leitura dos dados",
+            type="tertiary",
+        ):
             st.session_state[f"_comentario_edit_{chave}"] = not editando
             st.rerun()
 
-    with coluna_texto:
-        if editando:
-            texto = st.text_area(
-                "Leitura dos dados",
-                value=atual.texto,
-                height=260,
-                key=f"_comentario_texto_{chave}",
-                help="Linha em branco separa parágrafos.",
-            )
-            fontes = st.text_input(
-                "Fontes",
-                value=" · ".join(atual.fontes),
-                key=f"_comentario_fontes_{chave}",
-                help="Separadas por ·",
-            )
-            editado = com_texto(
-                atual,
-                texto,
-                tuple(item.strip() for item in fontes.split("·") if item.strip()),
-            )
-            _edicoes()[chave] = editado
-            atual = editado
-        else:
-            corpo = "".join(f"<p>{paragrafo}</p>" for paragrafo in atual.paragrafos)
-            rodape = []
-            if atual.data_base:
-                rodape.append(f"escrito sobre {_competencia(atual.data_base)}")
-            if atual.fontes:
-                rodape.append("fontes: " + " · ".join(atual.fontes))
-            st.markdown(
-                f'<div class="leitura-dado">{corpo}'
-                + (f'<div class="leitura-rodape">{" — ".join(rodape)}</div>' if rodape else "")
-                + "</div>",
-                unsafe_allow_html=True,
-            )
+    if editando:
+        texto = st.text_area(
+            "Leitura dos dados",
+            value=atual.texto,
+            height=240,
+            key=f"_comentario_texto_{chave}",
+            help="Linha em branco separa parágrafos.",
+        )
+        fontes = st.text_input(
+            "Fontes",
+            value=" · ".join(atual.fontes),
+            key=f"_comentario_fontes_{chave}",
+            help="Separadas por ·",
+        )
+        atual = com_texto(
+            atual,
+            texto,
+            tuple(item.strip() for item in fontes.split("·") if item.strip()),
+        )
+        _edicoes()[chave] = atual
+    else:
+        corpo = "".join(f"<p>{paragrafo}</p>" for paragrafo in atual.paragrafos)
+        rodape = []
+        if atual.data_base:
+            rodape.append(f"escrito sobre {_competencia(atual.data_base)}")
+        if atual.fontes:
+            rodape.append("fontes: " + " · ".join(atual.fontes))
+        st.markdown(
+            f'<div class="leitura-dado">{corpo}'
+            + (f'<div class="leitura-rodape">{" — ".join(rodape)}</div>' if rodape else "")
+            + "</div>",
+            unsafe_allow_html=True,
+        )
 
     if desatualizado(atual, data_base_cache):
         st.caption(
@@ -130,11 +138,7 @@ def render_comentario(chave: str, *, data_base_cache: str | None = None) -> None
         st.download_button(
             "Baixar JSON atualizado",
             data=serializar(
-                aplicar(
-                    documento,
-                    _edicoes(),
-                    atualizado_em=date.today().isoformat(),
-                )
+                aplicar(documento, _edicoes(), atualizado_em=date.today().isoformat())
             ),
             file_name="comentarios_credito_bc.json",
             mime="application/json",

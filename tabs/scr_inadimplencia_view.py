@@ -566,7 +566,7 @@ def render_scr_inadimplencia(get_cache_manager) -> None:
                     data=blob,
                     file_name=f"scr_paineis_{data_base}.pptx",
                     mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                    key="scr_pn_pptx", type="primary",
+                    key="scr_pn_pptx", width="stretch",
                     help="Gráficos Office nativos, editáveis; até 4 por slide.",
                 )
             except Exception as exc:
@@ -637,7 +637,7 @@ def render_scr_inadimplencia(get_cache_manager) -> None:
                 data=blob_regiao,
                 file_name=f"scr_regiao_{data_base}.pptx",
                 mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                key="scr_regiao_pptx", type="primary",
+                key="scr_regiao_pptx", width="stretch",
                 help=(
                     "Os dois gráficos abaixo, em formato Office nativo e editável. "
                     "O mapa não tem equivalente nativo no Office — a mesma métrica "
