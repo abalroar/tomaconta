@@ -30,6 +30,7 @@ from utils.sgs_credit_analytics import (
     to_wide,
     yoy_pp,
 )
+from tabs.comentario_credito import render_comentario
 from utils.sgs_credit_registry import SGS_SERIES
 
 
@@ -116,6 +117,25 @@ def _chart(fig: go.Figure, key: str) -> None:
     competencia = _competencia_do_card(fig)
     if competencia is not None:
         st.caption(f"dados até {formatar_competencia(competencia)}")
+
+
+def _leitura(
+    chave: str, wide: pd.DataFrame, aliases: Sequence[str] | None = None
+) -> None:
+    """Card de leitura dos dados, com a competência do cache para conferência.
+
+    ``aliases`` restringe a competência às séries que a página desenha. Sem
+    isso, uma página cujas séries fecham antes do resto do cache — como
+    comprometimento de renda — seria marcada como desatualizada sem estar.
+    """
+    quadro = wide
+    if aliases:
+        colunas = [alias for alias in aliases if alias in wide.columns]
+        if colunas:
+            quadro = wide[colunas].dropna(how="all")
+    datas = pd.DatetimeIndex(quadro.index).dropna()
+    base = datas.max().strftime("%Y-%m") if len(datas) else None
+    render_comentario(chave, data_base_cache=base)
 
 
 def _cards_em_grade(cards: Sequence[tuple[go.Figure, str]], colunas: int = 2) -> None:
@@ -253,6 +273,7 @@ def _yoy_pp_frame(wide: pd.DataFrame, aliases: Sequence[str]) -> pd.DataFrame:
 
 def _render_concessoes(wide: pd.DataFrame) -> None:
     st.markdown("#### Concessões")
+    _leitura("concessoes", wide)
     components = [
         "concessoes_sa_livre_pj",
         "concessoes_sa_direcionado_pj",
@@ -293,6 +314,7 @@ def _render_concessoes(wide: pd.DataFrame) -> None:
 
 
 def _render_credit_stock(wide: pd.DataFrame) -> None:
+    _leitura("credito_estoque", wide)
     expanded = [
         "credito_ampliado_emprestimos",
         "credito_ampliado_titulos",
@@ -335,6 +357,7 @@ def _render_credit_stock(wide: pd.DataFrame) -> None:
 
 
 def _render_credit_borrower(wide: pd.DataFrame) -> None:
+    _leitura("credito_tomador", wide)
     components = ["saldo_livre_pf", "saldo_direcionado_pf", "saldo_livre_pj", "saldo_direcionado_pj"]
     _chart(
         stacked_figure(
@@ -400,6 +423,7 @@ def _mix_with_residual(
 
 
 def _render_credit_product(wide: pd.DataFrame) -> None:
+    _leitura("credito_produto", wide)
     pf_products = [
         "saldo_livre_pf_cheque",
         "saldo_livre_pf_pessoal_nao_consignado",
@@ -530,6 +554,7 @@ def _render_credit_product(wide: pd.DataFrame) -> None:
 
 
 def _render_credit_company(wide: pd.DataFrame) -> None:
+    _leitura("credito_empresa", wide)
     aliases = ["saldo_pj_mpme", "saldo_pj_grande"]
     total = sum_columns(wide, aliases)
     _chart(
@@ -574,6 +599,7 @@ def _render_credit_company(wide: pd.DataFrame) -> None:
 
 
 def _render_credit_control(wide: pd.DataFrame) -> None:
+    _leitura("credito_controle", wide)
     aliases = ["saldo_controle_publico", "saldo_controle_privado_nacional", "saldo_controle_estrangeiro"]
     total = sum_columns(wide, aliases)
     participation = shares(wide, aliases, total)
@@ -626,6 +652,11 @@ def _render_credit(wide: pd.DataFrame) -> None:
 
 
 def _render_situation(wide: pd.DataFrame) -> None:
+    _leitura(
+        "situacao",
+        wide,
+        ["comprometimento_juros", "comprometimento_amortizacao", "endividamento_renda"],
+    )
     commitment = wide.copy()
     if {"comprometimento_juros", "comprometimento_amortizacao"}.issubset(commitment.columns):
         commitment["comprometimento_total_derivado"] = sum_columns(
@@ -682,6 +713,7 @@ def _render_npl(wide: pd.DataFrame, get_cache_manager=None) -> None:
         return
     wide = _period_filter(wide)
     if selected == "Cobertura e Provisionamento":
+        _leitura("npl_cobertura", wide)
         provision = ["provisao_sfn", "provisao_publico", "provisao_privado_nacional", "provisao_estrangeiro"]
         coverage = pd.DataFrame(index=wide.index)
         pairs = {
@@ -724,6 +756,7 @@ def _render_npl(wide: pd.DataFrame, get_cache_manager=None) -> None:
         ])
         return
 
+    _leitura("npl_pre_inad", wide)
     aggregate = [
         "pre_inad_livre_pf", "inad_livre_pf", "pre_inad_livre_pj",
         "inad_livre_pj", "pre_inad_livre_total", "inad_livre_total",
@@ -804,6 +837,7 @@ def _render_rates(wide: pd.DataFrame) -> None:
         validas = wide[referencias].dropna(how="all")
         if not validas.empty:
             wide = wide.loc[wide.index <= validas.index.max()].copy()
+    _leitura("taxas", wide)
     # Cartão rotativo roda a ~450% a.a. e imobiliário a ~11%: no mesmo eixo
     # linear, metade das séries vira uma linha reta colada na base. Os cards
     # são separados por ordem de grandeza da taxa.
