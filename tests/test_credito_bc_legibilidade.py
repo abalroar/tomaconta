@@ -772,3 +772,68 @@ def test_validador_pega_dLbl_fora_de_ordem():
       </c:plotArea></c:chart>
     </c:chartSpace>""".encode()
     assert any("dLbl" in erro for erro in validar_xml_do_grafico(xml))
+
+
+# =============================================================================
+# RÉGUA DO EIXO: A MESMA NA TELA E NO DECK
+# =============================================================================
+
+def test_eixo_enquadra_o_dado_quando_o_zero_deixaria_a_linha_no_alto():
+    """Inadimplência de 3,6% a 5,8% não se lê num eixo que começa em zero."""
+    from utils.sgs_credit_analytics import escala_de_eixo
+
+    assert escala_de_eixo([3.62, 4.88, 5.78]) == (3.0, 6.0)
+    # Com o zero dentro, o dado ocuparia 37% da altura: fica sem o zero.
+    piso, teto = escala_de_eixo([150.2, 211.4])
+    assert piso >= 140 and teto <= 240
+
+
+def test_eixo_mantem_o_zero_quando_ele_carrega_leitura():
+    """Zero fica quando a série o cruza ou quando o dado ocupa a altura."""
+    from utils.sgs_credit_analytics import escala_de_eixo
+
+    assert escala_de_eixo([-10.3, 22.4])[0] < 0
+    assert escala_de_eixo([3.5, 30.8]) == (0.0, 35.0)
+    assert escala_de_eixo([0.42, 0.94], ancorar_zero=True)[0] == 0.0
+
+
+def test_eixo_acompanha_o_dado_quando_a_serie_anda():
+    """A régua sai do dado: sem número fixo, ela anda junto com a série."""
+    from utils.sgs_credit_analytics import escala_de_eixo
+
+    base = [3.6, 5.8]
+    adiante = [valor + 3 for valor in base]
+    assert escala_de_eixo(adiante)[0] > escala_de_eixo(base)[0]
+    assert escala_de_eixo(adiante)[1] > escala_de_eixo(base)[1]
+
+
+def test_tela_e_deck_leem_a_mesma_regua():
+    """O card do site e a lâmina do deck não podem discordar da escala."""
+    from utils.sgs_credit_analytics import escala_de_eixo, line_figure
+
+    indice = pd.date_range("2025-08-01", periods=12, freq="MS")
+    wide = pd.DataFrame(
+        {
+            "npl_a": [4.6, 4.5, 4.7, 4.8, 4.9, 5.0, 5.1, 5.2, 5.3, 5.4, 5.6, 5.8],
+            "npl_b": [3.6, 3.7, 4.1, 3.8, 4.0, 4.0, 3.9, 4.1, 4.3, 4.5, 4.7, 4.9],
+        },
+        index=indice,
+    )
+    figura = line_figure(
+        wide, ["npl_a", "npl_b"], title="Produtos", y_title="% da carteira",
+        suffix="%", compacto=True,
+    )
+    valores = [valor for coluna in wide.columns for valor in wide[coluna]]
+    assert tuple(figura.layout.yaxis.range) == escala_de_eixo(valores)
+
+
+def test_margem_direita_encolhe_ate_o_tamanho_do_rotulo():
+    """Rótulo curto não justifica cem pixels de papel em branco à direita."""
+    from utils.sgs_credit_analytics import MARGEM_DIREITA_LEGENDA, line_figure
+
+    indice = pd.date_range("2025-08-01", periods=12, freq="MS")
+    wide = pd.DataFrame({"taxa": [1.0 + i / 10 for i in range(12)]}, index=indice)
+    figura = line_figure(
+        wide, ["taxa"], title="Taxa", y_title="%", suffix="%",
+    )
+    assert figura.layout.margin.r < MARGEM_DIREITA_LEGENDA

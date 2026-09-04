@@ -20,7 +20,6 @@ Duas exigências de leitura que o módulo garante:
 
 from __future__ import annotations
 
-import math
 from io import BytesIO
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -44,6 +43,7 @@ from .sgs_credit_analytics import (
     ITAU_BLACK,
     cor_do_rotulo,
     eixo_datas_adaptativo,
+    escala_de_eixo,
     formatar_competencia,
 )
 
@@ -67,7 +67,10 @@ FONTE_EIXO_PT = 8
 # O eixo dos meses tem doze marcas e é o primeiro a ficar apinhado; um
 # ponto a menos que o eixo de valores resolve sem perder leitura.
 FONTE_EIXO_CATEGORIA_PT = 7
-FONTE_LEGENDA_PT = 8
+# A legenda vai no mesmo corpo do eixo: ela ocupa a faixa da direita, e cada
+# ponto a mais ali é largura que sai do gráfico — a ponto de os meses do eixo
+# ficarem colados um no outro.
+FONTE_LEGENDA_PT = 7
 FONTE_ROTULO_PT = 8
 # Na coluna empilhada o rótulo tem que caber na largura da barra: com 12
 # meses num gráfico de meia lâmina, a barra tem cerca de 0,34 in e um valor
@@ -294,45 +297,6 @@ def corpo_do_rotulo(total_series: int) -> float:
     return FONTE_ROTULO_PT if total_series <= 5 else FONTE_ROTULO_DENSO_PT
 
 
-def _passo_redondo(bruto: float) -> float:
-    """Passo de grade em número redondo, logo acima de ``bruto``."""
-    if bruto <= 0:
-        return 1.0
-    expoente = 10 ** math.floor(math.log10(bruto))
-    for multiplo in (1, 2, 2.5, 5, 10):
-        if bruto <= multiplo * expoente:
-            return multiplo * expoente
-    return 10 * expoente
-
-
-def escala_de_eixo(valores: Sequence[float], base_zero: bool = False) -> Tuple[float, float]:
-    """Piso e teto do eixo de valores, em múltiplos redondos.
-
-    O export fixa a escala em vez de deixar o Office escolher porque o rótulo
-    do último ponto é posicionado por coordenada: sem saber onde o eixo começa
-    e termina, o nome da série cai longe da linha que ele nomeia.
-    """
-    finitos = [
-        float(valor) for valor in valores
-        if valor is not None and math.isfinite(float(valor))
-    ]
-    if not finitos:
-        return (0.0, 1.0)
-    menor, maior = min(finitos), max(finitos)
-    if maior == menor:
-        maior = menor + (abs(menor) or 1.0) * 0.1
-    # Mesma regra do Office: série que não fica achatada por isso começa no
-    # zero, que é a leitura honesta de um nível.
-    if base_zero or 0 <= menor <= maior * 5 / 6:
-        menor = 0.0
-    passo = _passo_redondo((maior - menor) / 7)
-    piso = math.floor(menor / passo) * passo
-    teto = math.ceil(maior / passo) * passo
-    if teto <= piso:
-        teto = piso + passo
-    return (round(piso, 10), round(teto, 10))
-
-
 def _escalonar_no_gutter(
     finais: Sequence[Tuple[str, float]],
     altura_grafico_emu: int,
@@ -510,12 +474,53 @@ def _estilizar_eixos(
 # Na coluna empilhada o rótulo do último mês fica dentro da fatia, mas o
 # texto sobra para a direita da barra e era cortado na borda do gráfico.
 GUTTER_ROTULO_COLUNA = 0.24
-GUTTER_LEGENDA_MAXIMO = 0.34
+GUTTER_LEGENDA_MAXIMO = 0.30
+# Piso da faixa de legenda, em polegadas: o quadrado da cor mais um nome curto.
+LARGURA_MINIMA_LEGENDA_IN = 1.05
 # Altura da área de plotagem. O resto do quadro é o eixo de categorias e a
 # legenda. A coluna precisa de mais folga embaixo: a legenda tem mais itens e
 # entrava por cima dos meses.
 ALTURA_PLOT_LINHA = 0.86
 ALTURA_PLOT_COLUNA = 0.84
+
+
+# Ordem exigida para os filhos de <c:legend> (CT_Legend).
+ORDEM_LEGENDA = (
+    "c:legendPos", "c:legendEntry", "c:layout", "c:overlay", "c:spPr",
+    "c:txPr", "c:extLst",
+)
+
+
+def _layout_manual_da_legenda(
+    legend, gutter: float, total_series: int, altura_emu: int
+) -> None:
+    """Prende a legenda à faixa da direita, na altura que as entradas pedem.
+
+    Sem caixa explícita o Office desenha a legenda numa área própria, menor
+    que o quadro, e corta as entradas que não couberem: o card de mix da
+    carteira mostrava sete das dez séries, e as três escondidas eram
+    justamente as de nome comprido. A caixa acompanha o número de séries e
+    fica centrada — cobrindo a altura inteira, três entradas ficavam espalhadas
+    de ponta a ponta.
+    """
+    altura_in = max(altura_emu / 914400.0, 0.5)
+    linha = (FONTE_LEGENDA_PT * FATOR_LINHA_CALIBRI / 72) * 1.25
+    altura = min(0.96, (total_series * linha + 0.08) / altura_in)
+    elemento = legend._element
+    existente = elemento.find(qn("c:layout"))
+    if existente is not None:
+        elemento.remove(existente)
+    layout = etree.SubElement(elemento, qn("c:layout"))
+    manual = etree.SubElement(layout, qn("c:manualLayout"))
+    _definir(manual, "c:xMode", "edge")
+    _definir(manual, "c:yMode", "edge")
+    for tag, valor in (
+        ("c:x", round(1.0 - gutter, 4)), ("c:y", round((1.0 - altura) / 2, 4)),
+        ("c:w", round(gutter, 4)), ("c:h", round(altura, 4)),
+    ):
+        no = etree.SubElement(manual, qn(tag))
+        no.set("val", str(valor))
+    _ordenar_filhos(elemento, ORDEM_LEGENDA)
 
 
 def _layout_manual_do_plot(plot_area, gutter: float, altura: float) -> None:
@@ -967,9 +972,16 @@ def _adicionar_painel(
             ).dropna()
             if valores.empty:
                 continue
+            # Barra e eixo secundário ancoram no zero por natureza: a barra
+            # codifica o valor no comprimento e a régua da direita foi
+            # ancorada de propósito, para o prazo não encher a altura toda.
+            # A linha do eixo primário fica com a regra automática.
             escalas[eh_secundaria] = escala_de_eixo(
                 valores.tolist(),
-                base_zero=eh_secundaria or tipo_grafico == "column_line",
+                ancorar_zero=(
+                    True if eh_secundaria or tipo_grafico == "column_line"
+                    else None
+                ),
             )
     # Com eixo secundário, a régua da direita ocupa a borda da área de
     # plotagem: o rótulo precisa começar depois dela, senão cai sobre os
@@ -1060,7 +1072,10 @@ def _adicionar_painel(
             rotulo = serie.points[indice_rotulo].data_label
             if eh_coluna:
                 rotulo.position = (
-                    XL_DATA_LABEL_POSITION.INSIDE_END
+                    # No meio da fatia, e não na borda de cima: com a caixa
+                    # centrada na borda, a fatia de baixo jogava metade do
+                    # rótulo abaixo do eixo, por cima do nome do mês.
+                    XL_DATA_LABEL_POSITION.CENTER
                     if tipo_grafico == "column_stacked"
                     else XL_DATA_LABEL_POSITION.OUTSIDE_END
                 )
@@ -1107,11 +1122,15 @@ def _adicionar_painel(
         # A faixa da direita abriga a legenda: precisa caber o maior nome de
         # série, senão a legenda é desenhada por cima das barras.
         maior = max((len(rotulo_serie_fn(nome)) for nome in ordem), default=10)
-        largura_in = int(width) / 914400.0
+        largura_in = max(int(width) / 914400.0, 0.5)
         necessario = (maior + 3) * (LARGURA_MEDIA_CARACTERE * FONTE_LEGENDA_PT / 72)
+        # Como na faixa de rótulo, a conta é em polegadas: o piso em fração da
+        # largura roubava um quarto do gráfico de quem tem nome curto, e os
+        # meses do eixo ficavam apinhados a ponto de "Jul/26" encostar no
+        # vizinho.
         gutter = min(
             GUTTER_LEGENDA_MAXIMO,
-            max(GUTTER_ROTULO_COLUNA, necessario / max(largura_in, 0.5)),
+            max(LARGURA_MINIMA_LEGENDA_IN, necessario) / largura_in,
         )
     else:
         gutter = gutter_linha
@@ -1120,6 +1139,10 @@ def _adicionar_painel(
         gutter,
         ALTURA_PLOT_COLUNA if empilhado else ALTURA_PLOT_LINHA,
     )
+    if grafico.has_legend:
+        _layout_manual_da_legenda(
+            grafico.legend, gutter, len(ordem), int(altura_grafico)
+        )
 
     secundario = False
     if tipo_grafico in {"column_line", "line"} and series_secundarias:

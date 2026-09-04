@@ -434,8 +434,8 @@ def test_eixo_secundario_do_deck_comeca_em_zero(deck):
     assert achou, "nenhum card de dois eixos no deck"
 
 
-def test_escala_de_eixo_usa_degrau_redondo_e_ancora_no_zero():
-    """A régua do eixo é calculada aqui, e não deixada ao Office.
+def test_escala_de_eixo_usa_degrau_redondo_e_segue_o_dado():
+    """A régua do eixo é calculada a cada leitura, e não deixada ao Office.
 
     O rótulo do último ponto é posicionado por coordenada: se a escala do
     gráfico não for a mesma que a conta do rótulo usa, o nome da série cai
@@ -443,16 +443,21 @@ def test_escala_de_eixo_usa_degrau_redondo_e_ancora_no_zero():
     """
     from utils.scr_pptx_export import escala_de_eixo
 
-    # Série que não fica achatada pelo zero começa no zero.
-    assert escala_de_eixo([3.6, 5.8, 6.6]) == (0.0, 7.0)
-    # Série estreita no alto da escala mantém o piso, senão vira uma reta.
+    # Dado que ocupa metade da altura com o zero dentro mantém o zero.
+    assert escala_de_eixo([3.5, 30.8]) == (0.0, 35.0)
+    # Dado espremido longe do zero é enquadrado: de 0 a 6 a linha vira reta.
+    assert escala_de_eixo([3.62, 5.78]) == (3.0, 6.0)
     piso, teto = escala_de_eixo([430.2, 453.1, 436.2])
-    assert piso >= 400 and teto >= 453.1
-    # Valor negativo puxa o piso para baixo do zero.
+    assert piso >= 425 and teto >= 453.1
+    # Série que cruza o zero mantém o zero, que é o que separa alta de queda.
     piso, teto = escala_de_eixo([-10.3, 22.4])
     assert piso <= -10.3 and teto >= 22.4
-    # Eixo secundário é sempre ancorado no zero.
-    assert escala_de_eixo([0.42, 0.94], base_zero=True)[0] == 0.0
+    # Barra e eixo secundário ancoram por declaração de quem chama.
+    assert escala_de_eixo([0.42, 0.94], ancorar_zero=True)[0] == 0.0
+    # O eixo anda com o dado: a mesma série deslocada muda piso e teto.
+    antes = escala_de_eixo([3.62, 5.78])
+    depois = escala_de_eixo([5.62, 7.78])
+    assert depois[0] > antes[0] and depois[1] > antes[1]
 
 
 def test_rotulo_fica_na_altura_da_propria_regua():
@@ -529,3 +534,56 @@ def test_serie_unica_nao_leva_legenda(deck):
         series = raiz.findall(f".//{qn('c:ser')}")
         if len(series) == 1:
             assert raiz.find(f".//{qn('c:legend')}") is None
+
+
+def test_legenda_do_deck_cabe_todas_as_series(deck):
+    """Sem caixa explícita o Office corta as entradas que não couberem.
+
+    O mix da carteira tem dez séries e mostrava sete: as três escondidas eram
+    as de nome comprido, que é justamente quem precisa de legenda.
+    """
+    from lxml import etree
+
+    from pptx import Presentation
+    from utils.scr_pptx_export import FONTE_LEGENDA_PT
+
+    blob, _, _ = deck
+    conferidos = 0
+    for slide in Presentation(BytesIO(blob)).slides:
+        for forma in slide.shapes:
+            if not forma.has_chart:
+                continue
+            raiz = forma.chart._chartSpace
+            legenda = raiz.find(f".//{qn('c:legend')}")
+            if legenda is None:
+                continue
+            manual = legenda.find(f"{qn('c:layout')}/{qn('c:manualLayout')}")
+            assert manual is not None, "legenda sem caixa explícita"
+            altura_in = (
+                float(manual.find(qn("c:h")).get("val")) * forma.height / 914400.0
+            )
+            series = len(raiz.findall(f".//{qn('c:ser')}"))
+            # Uma linha de texto por entrada, com o corpo declarado.
+            assert altura_in >= series * (FONTE_LEGENDA_PT / 72) * 1.2
+            conferidos += 1
+    assert conferidos, "nenhuma legenda no deck"
+
+
+def test_rotulo_de_barra_empilhada_fica_dentro_da_fatia(deck):
+    """Na borda de cima, a fatia de baixo jogava o rótulo sobre o nome do mês."""
+    from lxml import etree
+
+    blob, _, _ = deck
+    achou = False
+    for xml in _graficos_do_deck(blob):
+        raiz = etree.fromstring(xml)
+        grupo = raiz.find(f".//{qn('c:barChart')}")
+        if grupo is None:
+            continue
+        empilhamento = grupo.find(qn("c:grouping"))
+        if empilhamento is None or empilhamento.get("val") != "stacked":
+            continue
+        for posicao in grupo.iter(qn("c:dLblPos")):
+            assert posicao.get("val") == "ctr"
+            achou = True
+    assert achou, "nenhum rótulo de coluna empilhada no deck"

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from contextvars import ContextVar
+from html import escape
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -100,6 +101,25 @@ def _competencia_do_card(fig: go.Figure) -> pd.Timestamp | None:
     return max(datas) if datas else None
 
 
+# O título do card vai numa caixa de uma linha, sem as margens que o Streamlit
+# põe num heading: com elas o bloco do título ficava mais alto que o botão "i"
+# ao lado e os dois nunca alinhavam, por mais que a coluna centralizasse.
+_ESTILO_SECAO = """
+<style>
+div[data-testid="stMarkdownContainer"] h4 { font-size: 1.42rem; }
+div[data-testid="stMarkdownContainer"] h5 { font-size: 1.18rem; }
+div[data-testid="stMarkdownContainer"] .titulo-card {
+  margin: 0;
+  padding: 0;
+  font-size: 1.18rem;
+  font-weight: 600;
+  line-height: 1.35;
+  color: #1A1715;
+}
+</style>
+"""
+
+
 def _chart(fig: go.Figure, key: str) -> None:
     if _SILENCIOSO.get():
         colecionador = _EXPORT_FIGURES.get()
@@ -116,9 +136,14 @@ def _chart(fig: go.Figure, key: str) -> None:
         else "Gráfico"
     )
     source_aliases = meta.get("source_aliases", [])
-    title_column, info_column = st.columns([0.96, 0.04], vertical_alignment="center")
+    title_column, info_column = st.columns(
+        [0.955, 0.045], vertical_alignment="center"
+    )
     with title_column:
-        st.markdown(f"##### {title}")
+        st.markdown(
+            f"<div class='titulo-card'>{escape(title)}</div>",
+            unsafe_allow_html=True,
+        )
     with info_column:
         with st.popover("i", help="Séries do BCB usadas neste gráfico"):
             st.markdown("**Séries BCB/SGS**")
@@ -777,7 +802,7 @@ def _figuras_faixa_de_renda(get_cache_manager) -> list[go.Figure]:
     quebras_serie = scr_spec._quebras(base, metrica)
     figuras = [
         figura_painel(
-            painel, quebra, eixo_zero=True,
+            painel, quebra,
             quebras_serie=quebras_serie, rotulo_metrica=rotulo,
         )
         for painel in paineis
@@ -1265,15 +1290,7 @@ def _aviso_de_defasagem(wide: pd.DataFrame) -> None:
 
 
 def render_mercado_credito(cache, *, get_cache_manager=None) -> None:
-    st.markdown(
-        """
-        <style>
-        div[data-testid="stMarkdownContainer"] h4 { font-size: 1.42rem; }
-        div[data-testid="stMarkdownContainer"] h5 { font-size: 1.18rem; }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
+    st.markdown(_ESTILO_SECAO, unsafe_allow_html=True)
     st.markdown(f"### {TITLE}")
     st.caption(SUBTITLE)
     if cache is None:
