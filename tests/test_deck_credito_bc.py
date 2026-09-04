@@ -328,21 +328,33 @@ def test_rotulo_de_linha_fica_na_faixa_a_direita_da_plotagem(deck):
     """
     from lxml import etree
 
-    from utils.scr_pptx_export import GUTTER_ROTULO_LINHA
+    from pptx import Presentation
+    from utils.scr_pptx_export import (
+        GUTTER_ROTULO_LINHA,
+        LARGURA_MINIMA_FAIXA_IN,
+    )
 
-    blob, _, _ = deck
+    blob, _, apresentacao = deck
     conferidos = 0
-    for xml in _graficos_do_deck(blob):
-        raiz = etree.fromstring(xml)
-        if raiz.find(f".//{qn('c:lineChart')}") is None:
-            continue
-        layout = raiz.find(
-            f".//{qn('c:plotArea')}/{qn('c:layout')}/{qn('c:manualLayout')}"
-        )
-        assert layout is not None, "gráfico de linhas sem layout manual"
-        largura = float(layout.find(qn("c:w")).get("val"))
-        assert largura <= 1.0 - GUTTER_ROTULO_LINHA
-        conferidos += 1
+    for slide in Presentation(BytesIO(blob)).slides:
+        for forma in slide.shapes:
+            if not forma.has_chart:
+                continue
+            raiz = forma.chart._chartSpace
+            if raiz.find(f".//{qn('c:lineChart')}") is None:
+                continue
+            layout = raiz.find(
+                f".//{qn('c:plotArea')}/{qn('c:layout')}/{qn('c:manualLayout')}"
+            )
+            assert layout is not None, "gráfico de linhas sem layout manual"
+            esquerda = float(layout.find(qn("c:x")).get("val"))
+            largura = float(layout.find(qn("c:w")).get("val"))
+            faixa = 1.0 - (esquerda + largura)
+            # A faixa é medida em polegadas: cabe o maior nome de série, com um
+            # piso que não some e um teto que não come o gráfico.
+            assert faixa * forma.width / 914400.0 >= LARGURA_MINIMA_FAIXA_IN * 0.95
+            assert faixa <= GUTTER_ROTULO_LINHA + 0.001
+            conferidos += 1
     assert conferidos, "nenhum gráfico de linhas no deck"
 
 
@@ -359,12 +371,19 @@ def test_rotulos_finais_nao_se_sobrepoem_na_faixa():
     posicoes = _escalonar_no_gutter(
         finais, int(2.5 * 914400), int(6.14 * 914400)
     )
+    from utils.scr_pptx_export import FATOR_LINHA_CALIBRI, corpo_do_rotulo
+
     assert len(posicoes) == len(finais)
-    ordenadas = sorted(posicoes.values())
-    for anterior, seguinte in zip(ordenadas, ordenadas[1:]):
-        assert seguinte - anterior >= 0.05, "rótulos empilhados no mesmo ponto"
-    assert min(ordenadas) >= 0.03
-    assert max(ordenadas) <= 0.95
+    # A folga exigida é a altura do rótulo de cima, não um número fixo: um nome
+    # que quebra em duas linhas precisa do dobro do espaço do vizinho de baixo.
+    linha = (corpo_do_rotulo(len(finais)) * FATOR_LINHA_CALIBRI / 72) / 2.5
+    longos = {"Desconto de duplicatas/recebíveis", "Financiamento à exportação"}
+    ordenadas = sorted(posicoes.items(), key=lambda item: item[1])
+    for (nome, alto), (_, baixo) in zip(ordenadas, ordenadas[1:]):
+        minimo = linha * (2 if nome in longos else 1)
+        assert baixo - alto >= minimo * 0.98, f"{nome} invade o rótulo de baixo"
+    assert ordenadas[0][1] >= 0.03
+    assert ordenadas[-1][1] <= 0.95
 
 
 def test_barra_empilhada_tem_barra_larga_para_o_rotulo_caber(deck):
@@ -413,3 +432,100 @@ def test_eixo_secundario_do_deck_comeca_em_zero(deck):
         assert minimo is not None and float(minimo.get("val")) == 0
         achou = True
     assert achou, "nenhum card de dois eixos no deck"
+
+
+def test_escala_de_eixo_usa_degrau_redondo_e_ancora_no_zero():
+    """A régua do eixo é calculada aqui, e não deixada ao Office.
+
+    O rótulo do último ponto é posicionado por coordenada: se a escala do
+    gráfico não for a mesma que a conta do rótulo usa, o nome da série cai
+    longe da linha que ele nomeia.
+    """
+    from utils.scr_pptx_export import escala_de_eixo
+
+    # Série que não fica achatada pelo zero começa no zero.
+    assert escala_de_eixo([3.6, 5.8, 6.6]) == (0.0, 7.0)
+    # Série estreita no alto da escala mantém o piso, senão vira uma reta.
+    piso, teto = escala_de_eixo([430.2, 453.1, 436.2])
+    assert piso >= 400 and teto >= 453.1
+    # Valor negativo puxa o piso para baixo do zero.
+    piso, teto = escala_de_eixo([-10.3, 22.4])
+    assert piso <= -10.3 and teto >= 22.4
+    # Eixo secundário é sempre ancorado no zero.
+    assert escala_de_eixo([0.42, 0.94], base_zero=True)[0] == 0.0
+
+
+def test_rotulo_fica_na_altura_da_propria_regua():
+    """Duas séries em eixos diferentes, cada uma medida na escala do seu eixo.
+
+    Normalizar as duas pelo intervalo dos valores finais mandava o rótulo do
+    eixo da direita para o rodapé, ao lado de uma linha que corre no topo.
+    """
+    from utils.scr_pptx_export import _escalonar_no_gutter
+
+    posicoes = _escalonar_no_gutter(
+        [("Capital de giro", 5.8), ("Conta garantida", 4.9),
+         ("Desconto de recebíveis", 0.9)],
+        int(3.4 * 914400), int(12.0 * 914400),
+        secundarias=["Desconto de recebíveis"],
+        escalas={False: (0.0, 6.0), True: (0.0, 1.0)},
+    )
+    # 0,9 de 1,0 é o topo do eixo da direita: o rótulo acompanha a linha.
+    assert posicoes["Desconto de recebíveis"] < posicoes["Conta garantida"]
+    assert posicoes["Desconto de recebíveis"] < 0.2
+
+
+def test_eixo_secundario_tem_teto_fixo_e_fio_claro(deck):
+    """Teto explícito para casar com o rótulo; fio cinza como o eixo da esquerda."""
+    from lxml import etree
+
+    blob, _, _ = deck
+    achou = False
+    for xml in _graficos_do_deck(blob):
+        raiz = etree.fromstring(xml)
+        eixos = raiz.findall(f".//{qn('c:valAx')}")
+        if len(eixos) < 2:
+            continue
+        maximo = eixos[-1].find(f"{qn('c:scaling')}/{qn('c:max')}")
+        assert maximo is not None and float(maximo.get("val")) > 0
+        cor = eixos[-1].find(
+            f"{qn('c:spPr')}/{qn('a:ln')}/{qn('a:solidFill')}/{qn('a:srgbClr')}"
+        )
+        assert cor is not None and cor.get("val") == "E6E6E6"
+        achou = True
+    assert achou, "nenhum card de dois eixos no deck"
+
+
+def test_barra_com_muitas_categorias_gira_o_rotulo(deck):
+    """27 UFs deixam a barra mais estreita que o número, e o Office o corta."""
+    from lxml import etree
+
+    blob, _, _ = deck
+    achou = False
+    for xml in _graficos_do_deck(blob):
+        raiz = etree.fromstring(xml)
+        if raiz.find(f".//{qn('c:barChart')}") is None:
+            continue
+        primeira = raiz.find(f".//{qn('c:ser')}")
+        categorias = primeira.findall(f"{qn('c:cat')}//{qn('c:pt')}")
+        if len(categorias) <= 14:
+            continue
+        corpos = raiz.findall(
+            f".//{qn('c:dLbl')}/{qn('c:txPr')}/{qn('a:bodyPr')}"
+        )
+        assert corpos, "barra densa sem rótulo"
+        assert all(no.get("rot") == "-5400000" for no in corpos)
+        achou = True
+    assert achou, "nenhuma barra com muitas categorias no deck"
+
+
+def test_serie_unica_nao_leva_legenda(deck):
+    """Com uma série só o Office lista as categorias na legenda, o que é ruído."""
+    from lxml import etree
+
+    blob, _, _ = deck
+    for xml in _graficos_do_deck(blob):
+        raiz = etree.fromstring(xml)
+        series = raiz.findall(f".//{qn('c:ser')}")
+        if len(series) == 1:
+            assert raiz.find(f".//{qn('c:legend')}") is None

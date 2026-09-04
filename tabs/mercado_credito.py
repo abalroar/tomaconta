@@ -445,17 +445,8 @@ def _render_credit_borrower(wide: pd.DataFrame) -> None:
         ),
         "sgs_tomador_pf_growth",
     )
-    pj = _real_growth_frame(wide, ["saldo_livre_pj", "saldo_direcionado_pj", "saldo_pj_total"])
-    _chart(
-        line_figure(
-            pj,
-            ["saldo_livre_pj", "saldo_direcionado_pj", "saldo_pj_total"],
-            title="Crescimento da carteira PJ total",
-            y_title="Δ YoY real (%)",
-            suffix="%",
-        ),
-        "sgs_tomador_pj_growth",
-    )
+    # Barra à esquerda, linha à direita na fileira de baixo: a coluna esquerda
+    # do slide fica com os dois empilhados, a direita com os dois de linha.
     participation = shares(wide, components, wide.get("saldo_sfn_total_derivado"))
     _chart(
         stacked_figure(
@@ -467,6 +458,17 @@ def _render_credit_borrower(wide: pd.DataFrame) -> None:
             percent=True,
         ),
         "sgs_tomador_participacao",
+    )
+    pj = _real_growth_frame(wide, ["saldo_livre_pj", "saldo_direcionado_pj", "saldo_pj_total"])
+    _chart(
+        line_figure(
+            pj,
+            ["saldo_livre_pj", "saldo_direcionado_pj", "saldo_pj_total"],
+            title="Crescimento da carteira PJ total",
+            y_title="Δ YoY real (%)",
+            suffix="%",
+        ),
+        "sgs_tomador_pj_growth",
     )
 
 
@@ -1068,6 +1070,10 @@ def _render_npl_cards(wide: pd.DataFrame, selected: str) -> None:
             line_figure(
                 wide, pj_npl, title="Produtos PJ — inadimplência",
                 y_title="% da carteira", suffix="%", compacto=True,
+                # Desconto de recebíveis roda a 1% enquanto capital de giro
+                # roda a 4%: no eixo único ele fica colado na base.
+                secundarios=["inad_livre_pj_duplicatas"],
+                y_title_secundario="% da carteira",
             ),
             "sgs_npl_pj_inad",
         ),

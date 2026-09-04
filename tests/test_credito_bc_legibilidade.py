@@ -313,6 +313,11 @@ _SEQUENCIA_CHART = [
     "backWall", "plotArea", "legend", "plotVisOnly", "dispBlanksAs",
     "showDLblsOverMax", "extLst",
 ]
+_SEQUENCIA_DLBL = [
+    "idx", "delete", "layout", "tx", "numFmt", "spPr", "txPr", "dLblPos",
+    "showLegendKey", "showVal", "showCatName", "showSerName", "showPercent",
+    "showBubbleSize", "separator", "extLst",
+]
 _SEQUENCIA_SER = [
     "idx", "order", "tx", "spPr", "marker", "invertIfNegative",
     "pictureOptions", "dPt", "dLbls", "trendline", "errBars", "cat", "val",
@@ -374,6 +379,16 @@ def validar_xml_do_grafico(xml: bytes) -> list[str]:
                         f"<c:ser> de <c:{nome}> fora de ordem: "
                         f"{[_local(f) for f in ser]}"
                     )
+                # Filho único repetido: mover uma série entre grupos já
+                # duplicou <c:marker> e o PowerPoint recusou o arquivo.
+                for unico in ("marker", "spPr", "tx", "cat", "val", "smooth"):
+                    if sum(1 for f in ser if _local(f) == unico) > 1:
+                        erros.append(f"<c:{unico}> repetido em <c:ser>")
+                for rotulo in ser.iter(f"{_NS}dLbl"):
+                    if not _em_ordem(rotulo, _SEQUENCIA_DLBL):
+                        erros.append(
+                            f"<c:dLbl> fora de ordem: {[_local(f) for f in rotulo]}"
+                        )
                 if validas is None:
                     continue
                 for posicao in ser.iter(f"{_NS}dLblPos"):
@@ -742,3 +757,18 @@ def test_validador_pega_spPr_depois_de_externalData():
     </c:chartSpace>""".encode()
     erros = validar_xml_do_grafico(xml)
     assert any("chartSpace" in erro for erro in erros)
+
+
+def test_validador_pega_dLbl_fora_de_ordem():
+    """Quarta ordem que o PowerPoint não perdoa, no rótulo ponto a ponto."""
+    xml = f"""<c:chartSpace xmlns:c="{_NS[1:-1]}">
+      <c:chart><c:plotArea>
+        <c:lineChart>
+          <c:ser><c:idx val="0"/><c:dLbls><c:dLbl>
+            <c:layout/><c:numFmt formatCode="0.0"/><c:idx val="5"/>
+          </c:dLbl></c:dLbls></c:ser>
+        </c:lineChart>
+        <c:valAx><c:axId val="2"/></c:valAx>
+      </c:plotArea></c:chart>
+    </c:chartSpace>""".encode()
+    assert any("dLbl" in erro for erro in validar_xml_do_grafico(xml))
