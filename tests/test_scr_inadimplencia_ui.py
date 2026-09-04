@@ -452,7 +452,10 @@ def test_rota_renderiza_todas_as_secoes():
     # o que vai no PPTX, também fica na tela.
     assert "_rotulos_do_mapa" in fonte
     assert "color_continuous_scale=ESCALA_MAPA" in fonte
-    assert "_figura_ufs" in fonte
+    # Construtores no nível do módulo: o deck completo os monta sem Streamlit.
+    assert "def figura_por_uf(" in fonte
+    assert "def figura_painel(" in fonte
+    assert "def figura_por_regiao(" in fonte
 
 
 def test_rota_protege_secoes_que_exigem_grao_completo():

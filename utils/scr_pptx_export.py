@@ -122,10 +122,9 @@ def _caixa_texto(
     for indice, bloco in enumerate(blocos):
         paragrafo = quadro.paragraphs[0] if indice == 0 else quadro.add_paragraph()
         paragrafo.alignment = PP_ALIGN.LEFT
-        if entrelinha:
-            paragrafo.line_spacing = entrelinha
-        if indice and espaco_entre_paragrafos:
-            paragrafo.space_before = Pt(espaco_entre_paragrafos)
+        paragrafo.line_spacing = entrelinha or 1.0
+        paragrafo.space_before = Pt(espaco_entre_paragrafos)
+        paragrafo.space_after = Pt(0)
         corrida = paragrafo.add_run()
         corrida.text = bloco
         corrida.font.size = Pt(tamanho)
@@ -169,11 +168,13 @@ def _rotular_apenas_ultimo_ponto(
     formato.set("formatCode", formato_numero)
     formato.set("sourceLinked", "0")
 
+    # Nome da série junto do valor: o rótulo do último ponto identifica a linha
+    # sozinho, como na tela, e continua ligado ao dado.
     mostrar = {
         "c:showLegendKey": "0",
         "c:showVal": "1",
         "c:showCatName": "0",
-        "c:showSerName": "0",
+        "c:showSerName": "1",
         "c:showPercent": "0",
         "c:showBubbleSize": "0",
     }
@@ -493,6 +494,13 @@ def _definir(pai, tag: str, valor: str):
     return no
 
 
+# Cabeçalho compacto do card no deck: título e unidade na mesma caixa, com
+# espaço reservado para duas linhas. Alguns títulos passam de 70 caracteres e,
+# com uma linha só, transbordavam sobre o gráfico. A fonte é igual em todos os
+# cards e vive uma vez por seção, na faixa de leitura.
+ALTURA_TITULO_COMPACTO = Inches(0.46)
+
+
 def _adicionar_painel(
     slide,
     painel: Any,
@@ -502,24 +510,35 @@ def _adicionar_painel(
     width: Emu,
     height: Emu,
     rotulo_serie_fn,
+    cabecalho_compacto: bool = False,
 ) -> Dict[str, Any]:
-    """Desenha um quadrante: título, subtítulo, fonte e gráfico nativo."""
-    _caixa_texto(
-        slide, left=left, top=top, width=width, height=ALTURA_TITULO,
-        texto=painel.titulo, tamanho=FONTE_TITULO_PT, cor=COR_TITULO, negrito=True,
-    )
-    _caixa_texto(
-        slide, left=left, top=top + ALTURA_TITULO, width=width, height=ALTURA_SUBTITULO,
-        texto=painel.subtitulo, tamanho=FONTE_SUBTITULO_PT, cor=COR_SUBTITULO,
-    )
-    _caixa_texto(
-        slide, left=left, top=top + ALTURA_TITULO + ALTURA_SUBTITULO,
-        width=width, height=ALTURA_FONTE,
-        texto=painel.fonte, tamanho=FONTE_FONTE_PT, cor=COR_FONTE,
-    )
+    """Desenha um card: cabeçalho e gráfico nativo."""
+    if cabecalho_compacto:
+        unidade = str(getattr(painel, "subtitulo", "") or "").strip()
+        rotulo = f"{painel.titulo}  ·  {unidade}" if unidade else painel.titulo
+        _caixa_texto(
+            slide, left=left, top=top, width=width, height=ALTURA_TITULO_COMPACTO,
+            texto=rotulo, tamanho=FONTE_TITULO_PT, cor=COR_TITULO, negrito=True,
+        )
+        altura_cabecalho = ALTURA_TITULO_COMPACTO
+    else:
+        _caixa_texto(
+            slide, left=left, top=top, width=width, height=ALTURA_TITULO,
+            texto=painel.titulo, tamanho=FONTE_TITULO_PT, cor=COR_TITULO, negrito=True,
+        )
+        _caixa_texto(
+            slide, left=left, top=top + ALTURA_TITULO, width=width, height=ALTURA_SUBTITULO,
+            texto=painel.subtitulo, tamanho=FONTE_SUBTITULO_PT, cor=COR_SUBTITULO,
+        )
+        _caixa_texto(
+            slide, left=left, top=top + ALTURA_TITULO + ALTURA_SUBTITULO,
+            width=width, height=ALTURA_FONTE,
+            texto=painel.fonte, tamanho=FONTE_FONTE_PT, cor=COR_FONTE,
+        )
+        altura_cabecalho = ALTURA_TITULO + ALTURA_SUBTITULO + ALTURA_FONTE
 
-    topo_grafico = top + ALTURA_TITULO + ALTURA_SUBTITULO + ALTURA_FONTE
-    altura_grafico = height - (ALTURA_TITULO + ALTURA_SUBTITULO + ALTURA_FONTE)
+    topo_grafico = top + altura_cabecalho
+    altura_grafico = height - altura_cabecalho
 
     # `data_base` e `serie` chegam como categóricas com TODAS as categorias da
     # série histórica. Sem virar texto antes, o pivot recria as data-bases
@@ -747,17 +766,62 @@ def exportar_paineis_pptx(
 # =============================================================================
 # DECK POR SEÇÃO
 # =============================================================================
-# Um deck contínuo: a leitura dos dados de cada aba e, em seguida, os gráficos
-# daquela aba. Sem slide divisor, sem régua, sem moldura — só caixas de texto e
-# gráficos nativos do Office.
+# Um deck contínuo: a leitura dos dados de cada aba na faixa de topo e os
+# gráficos daquela aba na grade abaixo. Sem slide divisor, sem régua, sem
+# moldura — só caixas de texto e gráficos nativos do Office.
 
 FONTE_CAPA_PT = 26
 FONTE_CAPA_SUB_PT = 12
 FONTE_SECAO_PT = 20
-FONTE_COMENTARIO_PT = 12.5
-ENTRELINHA_COMENTARIO = 1.32
+FONTE_COMENTARIO_PT = 10.5
+FONTE_NOME_ABA_PT = 10
+ENTRELINHA_COMENTARIO = 1.5
+
+LARGURA_UTIL = Emu(int(SLIDE_LARGURA - 2 * MARGEM))
+ALTURA_UTIL = Emu(int(SLIDE_ALTURA - 2 * MARGEM - TOPO_CONTEUDO))
+COLUNAS_GRADE = 2
+LINHAS_GRADE = 2
+LARGURA_CELULA = Emu(int((LARGURA_UTIL - GUTTER_H) / COLUNAS_GRADE))
+
+ALTURA_NOME_ABA = Inches(0.30)
+ALTURA_TITULO_SECAO = Inches(0.34)
+RESPIRO_GRADE = Inches(0.16)
+# Altura fixa da célula em todo o deck. Deixar a célula esticar para preencher
+# a sobra faria o gráfico mudar de tamanho conforme o comentário acima dele
+# fosse mais curto ou mais longo. Com altura fixa, o que varia é o número de
+# linhas por slide: dois gráficos onde há faixa de leitura, quatro nas lâminas
+# de continuação. A conta sai da lâmina de continuação, cujo cabeçalho é só o
+# nome da aba.
+ALTURA_CELULA = Emu(int(
+    (SLIDE_ALTURA - 2 * MARGEM - ALTURA_NOME_ABA - RESPIRO_GRADE - GUTTER_V)
+    / LINHAS_GRADE
+))
+# Uma linha de respiro entre o título e o primeiro parágrafo, no lugar do vão
+# de 0,80 in que separava os dois em slides diferentes.
+RESPIRO_TITULO = Inches(0.26)
+ALTURA_LINHA_COMENTARIO = Inches(FONTE_COMENTARIO_PT * ENTRELINHA_COMENTARIO / 72)
+
+# Largura média de caractere ~0,48 em. Serve para estimar quantas linhas o
+# comentário ocupa e decidir entre faixa e lâmina própria.
+LARGURA_MEDIA_CARACTERE = 0.48
+MAXIMO_LINHAS_FAIXA = 6
+
 LARGURA_LEITURA = Inches(9.6)
-PAINEIS_POR_SLIDE_DECK = 2
+
+
+def _caracteres_por_linha(largura_emu: int, corpo_pt: float) -> int:
+    polegadas = largura_emu / 914400.0
+    return max(int(polegadas / (LARGURA_MEDIA_CARACTERE * corpo_pt / 72.0)), 1)
+
+
+def linhas_do_comentario(texto: str, largura_emu: int, corpo_pt: float) -> int:
+    """Linhas que o comentário ocupa numa caixa dessa largura."""
+    por_linha = _caracteres_por_linha(largura_emu, corpo_pt)
+    return sum(
+        max(1, -(-len(bloco) // por_linha))
+        for bloco in str(texto).split("\n\n")
+        if bloco.strip()
+    )
 
 
 def _slide_em_branco(prs):
@@ -768,7 +832,7 @@ def _slide_de_capa(prs, *, titulo: str, subtitulo: str, rodape: str) -> None:
     slide = _slide_em_branco(prs)
     _caixa_texto(
         slide, left=MARGEM, top=Inches(2.5),
-        width=Emu(int(SLIDE_LARGURA - 2 * MARGEM)), height=Inches(1.0),
+        width=LARGURA_UTIL, height=Inches(1.0),
         texto=titulo, tamanho=FONTE_CAPA_PT, cor=COR_TITULO, negrito=True,
     )
     _caixa_texto(
@@ -783,26 +847,69 @@ def _slide_de_capa(prs, *, titulo: str, subtitulo: str, rodape: str) -> None:
     )
 
 
-def _slide_de_leitura(prs, *, titulo: str, texto: str, fontes: str) -> None:
-    """Nome da aba e a leitura dos dados dela. Só texto."""
-    slide = _slide_em_branco(prs)
+def _bloco_de_leitura(
+    slide, *, titulo: str, texto: str, fontes: str, linhas: int, largura: int
+) -> int:
+    """Título e comentário no topo do slide. Devolve a altura ocupada."""
     _caixa_texto(
-        slide, left=MARGEM, top=Inches(0.55),
-        width=Emu(int(SLIDE_LARGURA - 2 * MARGEM)), height=Inches(0.5),
+        slide, left=MARGEM, top=MARGEM,
+        width=largura, height=ALTURA_TITULO_SECAO,
         texto=titulo, tamanho=FONTE_SECAO_PT, cor=COR_TITULO, negrito=True,
     )
+    topo_texto = int(MARGEM + ALTURA_TITULO_SECAO + RESPIRO_TITULO)
+    altura_texto = int(linhas * ALTURA_LINHA_COMENTARIO)
     _caixa_texto(
-        slide, left=MARGEM, top=Inches(1.35),
-        width=LARGURA_LEITURA, height=Inches(4.6),
+        slide, left=MARGEM, top=Emu(topo_texto),
+        width=largura, height=Emu(altura_texto),
         texto=texto, tamanho=FONTE_COMENTARIO_PT, cor=COR_SUBTITULO,
-        entrelinha=ENTRELINHA_COMENTARIO, espaco_entre_paragrafos=10,
+        entrelinha=ENTRELINHA_COMENTARIO, espaco_entre_paragrafos=0,
     )
+    altura = ALTURA_TITULO_SECAO + RESPIRO_TITULO + altura_texto
     if fontes:
         _caixa_texto(
-            slide, left=MARGEM, top=Inches(6.6),
-            width=LARGURA_LEITURA, height=Inches(0.4),
+            slide, left=MARGEM, top=Emu(int(MARGEM + altura + Inches(0.06))),
+            width=largura, height=Inches(0.2),
             texto=fontes, tamanho=FONTE_FONTE_PT, cor=COR_FONTE,
         )
+        altura += Inches(0.06) + Inches(0.2)
+    return int(altura)
+
+
+def _slide_de_leitura(prs, *, titulo: str, texto: str, fontes: str) -> None:
+    """Comentário longo demais para a faixa ganha lâmina própria."""
+    slide = _slide_em_branco(prs)
+    linhas = linhas_do_comentario(texto, int(LARGURA_LEITURA), FONTE_COMENTARIO_PT)
+    _bloco_de_leitura(
+        slide, titulo=titulo, texto=texto, fontes=fontes,
+        linhas=linhas, largura=int(LARGURA_LEITURA),
+    )
+
+
+def linhas_que_cabem(altura_cabecalho: int) -> int:
+    """Quantas linhas da grade cabem abaixo de um cabeçalho dessa altura."""
+    topo = int(MARGEM) + altura_cabecalho + int(RESPIRO_GRADE)
+    disponivel = int(SLIDE_ALTURA) - int(MARGEM) - topo
+    passo = int(ALTURA_CELULA) + int(GUTTER_V)
+    return max(1, int((disponivel + int(GUTTER_V)) / passo))
+
+
+def _desenhar_grade(
+    slide, paineis: Sequence[Any], *, altura_cabecalho: int, rotulo_serie_fn
+) -> List[Dict[str, Any]]:
+    """Grade de 2 colunas com célula de altura fixa."""
+    topo_grade = int(MARGEM) + altura_cabecalho + int(RESPIRO_GRADE)
+    resumo: List[Dict[str, Any]] = []
+    for posicao, painel in enumerate(paineis):
+        coluna, linha = posicao % COLUNAS_GRADE, posicao // COLUNAS_GRADE
+        resumo.append(_adicionar_painel(
+            slide, painel,
+            left=Emu(int(MARGEM + coluna * (LARGURA_CELULA + GUTTER_H))),
+            top=Emu(int(topo_grade + linha * (int(ALTURA_CELULA) + int(GUTTER_V)))),
+            width=LARGURA_CELULA, height=ALTURA_CELULA,
+            rotulo_serie_fn=rotulo_serie_fn,
+            cabecalho_compacto=True,
+        ))
+    return resumo
 
 
 def exportar_deck_por_secao(
@@ -813,11 +920,10 @@ def exportar_deck_por_secao(
     rodape_capa: str = "",
     rotulo_serie_fn=None,
 ) -> Tuple[bytes, Dict[str, Any]]:
-    """Deck contínuo de várias abas.
+    """Deck contínuo de várias abas, na ordem em que aparecem na tela.
 
     ``secoes`` é uma sequência de ``(titulo, leitura, paineis)``, onde
-    ``leitura`` é ``(texto, fontes)`` ou ``None``. A ordem das seções é a
-    ordem das abas na tela.
+    ``leitura`` é ``(texto, fontes)`` ou ``None``.
     """
     if not secoes:
         raise ValueError("nenhuma seção para exportar")
@@ -831,34 +937,46 @@ def exportar_deck_por_secao(
         prs, titulo=titulo_deck, subtitulo=subtitulo_capa, rodape=rodape_capa
     )
 
-    largura_painel = Emu(int((SLIDE_LARGURA - 2 * MARGEM - GUTTER_H) / 2))
-    altura_painel = Emu(int(SLIDE_ALTURA - 2 * MARGEM - TOPO_CONTEUDO))
-
     resumo: List[Dict[str, Any]] = []
     slides = 1
     for titulo, leitura, paineis in secoes:
-        if leitura is not None:
-            texto, fontes = leitura
-            if str(texto).strip():
-                _slide_de_leitura(prs, titulo=titulo, texto=texto, fontes=fontes)
-                slides += 1
-        for inicio in range(0, len(paineis), PAINEIS_POR_SLIDE_DECK):
-            bloco = paineis[inicio:inicio + PAINEIS_POR_SLIDE_DECK]
+        texto, fontes = leitura if leitura else ("", "")
+        texto = str(texto or "")
+        linhas_faixa = (
+            linhas_do_comentario(texto, int(LARGURA_UTIL), FONTE_COMENTARIO_PT)
+            if texto.strip() else 0
+        )
+        usa_faixa = bool(texto.strip()) and linhas_faixa <= MAXIMO_LINHAS_FAIXA
+        if texto.strip() and not usa_faixa:
+            _slide_de_leitura(prs, titulo=titulo, texto=texto, fontes=fontes)
+            slides += 1
+
+        restantes = list(paineis)
+        primeiro = True
+        while restantes or (primeiro and usa_faixa):
             slide = _slide_em_branco(prs)
             slides += 1
-            _caixa_texto(
-                slide, left=MARGEM, top=Inches(0.16),
-                width=Emu(int(SLIDE_LARGURA - 2 * MARGEM)), height=Inches(0.3),
-                texto=titulo, tamanho=FONTE_SUBTITULO_PT, cor=COR_FONTE,
-            )
-            for posicao, painel in enumerate(bloco):
-                left = Emu(int(MARGEM + posicao * (largura_painel + GUTTER_H)))
-                resumo.append(_adicionar_painel(
-                    slide, painel,
-                    left=left, top=Emu(int(MARGEM + TOPO_CONTEUDO)),
-                    width=largura_painel, height=altura_painel,
+            if primeiro and usa_faixa:
+                altura_cabecalho = _bloco_de_leitura(
+                    slide, titulo=titulo, texto=texto, fontes=fontes,
+                    linhas=linhas_faixa, largura=int(LARGURA_UTIL),
+                )
+            else:
+                _caixa_texto(
+                    slide, left=MARGEM, top=MARGEM,
+                    width=LARGURA_UTIL, height=ALTURA_NOME_ABA,
+                    texto=titulo, tamanho=FONTE_NOME_ABA_PT, cor=COR_FONTE,
+                )
+                altura_cabecalho = int(ALTURA_NOME_ABA)
+            cabem = linhas_que_cabem(altura_cabecalho) * COLUNAS_GRADE
+            bloco, restantes = restantes[:cabem], restantes[cabem:]
+            if bloco:
+                resumo.extend(_desenhar_grade(
+                    slide, bloco,
+                    altura_cabecalho=altura_cabecalho,
                     rotulo_serie_fn=rotulo_serie_fn,
                 ))
+            primeiro = False
 
     buffer = BytesIO()
     prs.save(buffer)
@@ -866,6 +984,6 @@ def exportar_deck_por_secao(
         "slides": slides,
         "paineis": len(resumo),
         "secoes": len(secoes),
-        "paineis_por_slide": PAINEIS_POR_SLIDE_DECK,
+        "paineis_por_slide": COLUNAS_GRADE * LINHAS_GRADE,
         "detalhe": resumo,
     }
