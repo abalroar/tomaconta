@@ -24279,6 +24279,7 @@ elif menu == "Carteira 4.966":
         )
 elif menu == "Taxas de Juros por Produto":
     import textwrap as _taxas_textwrap
+    from utils.taxas_juros_periodos import selecionar_periodo_taxas
     from utils.taxas_juros_presentation import (
         assinatura_figuras_taxas,
         figura_taxas_para_exportar,
@@ -24629,7 +24630,10 @@ elif menu == "Taxas de Juros por Produto":
         fig.update_layout(uirevision=str((
             st.session_state.get("tj_beta_bancos_contexto"),
             st.session_state.get("tj_beta_tipo_taxa"),
-            st.session_state.get("tj_beta_janela_meses"),
+            st.session_state.get("tj_beta_mensal_inicio"),
+            st.session_state.get("tj_beta_mensal_fim"),
+            st.session_state.get("tj_beta_diario_inicio"),
+            st.session_state.get("tj_beta_diario_fim"),
         )))
         return fig
 
@@ -25179,13 +25183,15 @@ elif menu == "Taxas de Juros por Produto":
             label_by_key[str(key)] = str(banco)
         return selected_keys, label_by_key
 
-    @st.cache_data(ttl=900, max_entries=4, show_spinner="Carregando série diária dos últimos 3 meses...")
+    @st.cache_data(ttl=900, max_entries=4, show_spinner="Carregando série diária no período selecionado...")
     def _buscar_taxas_beta_diario_3m_cache(
         codigo_segmento: str,
         codigo_modalidade: str,
         institution_keys: tuple[str, ...],
         institution_labels: tuple[tuple[str, str], ...],
         meses_referencia: int = 3,
+        window_start: Optional[str] = None,
+        window_end: Optional[str] = None,
     ):
         cache = _obter_cache_taxas_historico_beta()
         if cache is None or load_taxas_juros_historico_recent_daily_display is None:
@@ -25197,6 +25203,8 @@ elif menu == "Taxas de Juros por Produto":
             institution_keys=list(institution_keys),
             institution_label_by_key=dict(institution_labels),
             lookback_months=int(meses_referencia),
+            window_start=window_start,
+            window_end=window_end,
         )
 
         meta = dict(meta or {})
@@ -25209,6 +25217,8 @@ elif menu == "Taxas de Juros por Produto":
         bancos_selecionados: List[str],
         anchor_date: pd.Timestamp,
         meses_referencia: int = 3,
+        window_start: Optional[str] = None,
+        window_end: Optional[str] = None,
     ) -> tuple[pd.DataFrame, dict[str, object]]:
         if df_hist.empty or pd.isna(anchor_date):
             return pd.DataFrame(), {
@@ -25219,7 +25229,12 @@ elif menu == "Taxas de Juros por Produto":
                 "source": "live_slice",
             }
 
-        window_start = anchor_date - pd.DateOffset(months=int(meses_referencia))
+        if window_end is not None:
+            anchor_date = min(anchor_date, pd.Timestamp(window_end))
+        window_start = (
+            pd.Timestamp(window_start) if window_start is not None
+            else anchor_date - pd.DateOffset(months=int(meses_referencia))
+        )
         df_window = df_hist[
             (df_hist["Fim Período"] >= window_start)
             & (df_hist["Fim Período"] <= anchor_date)
@@ -25288,7 +25303,7 @@ elif menu == "Taxas de Juros por Produto":
             )
         with col_cfg2:
             _normalizar_escolha_taxas_beta("tj_beta_tipo_taxa", TIPOS_TAXA_BETA)
-            tipo_taxa_beta = st.segmented_control(
+            tipo_taxa_beta = st.selectbox(
                 "Taxa",
                 TIPOS_TAXA_BETA,
                 key="tj_beta_tipo_taxa",
@@ -25438,7 +25453,8 @@ elif menu == "Taxas de Juros por Produto":
                         st.markdown(
                             "Fonte: Banco Central do Brasil (BCB). "
                             "A visão mensal usa a última observação disponível de cada mês. "
-                            "A série diária cobre os 3 meses anteriores à data mais recente e preserva lacunas oficiais."
+                            "Escolha início e fim em cada série. Os padrões são os últimos 12 meses na mensal "
+                            "e os últimos 60 dias na diária, até a última data disponível. Lacunas oficiais são preservadas."
                         )
                         st.caption(f"Produtos disponíveis neste segmento: {len(produtos_beta)}.")
 
@@ -25522,33 +25538,28 @@ elif menu == "Taxas de Juros por Produto":
                 else:
                     meses_disponiveis_beta = sorted(df_hist_beta_mensal['AnoMes'].dropna().unique().tolist())
                     limite_meses_beta = 60 if usa_cache_historico_beta else 12
-                    max_meses_beta = max(1, min(limite_meses_beta, len(meses_disponiveis_beta)))
+                    meses_disponiveis_beta = meses_disponiveis_beta[-limite_meses_beta:]
                     with controles_taxas_beta:
-                        col_view1, col_view2 = st.columns([1.8, 1.0], gap="large")
+                        col_view1, col_view2 = st.columns([1.0, 2.0], gap="large")
                         with col_view1:
-                            _normalizar_escolha_taxas_beta(
-                                "tj_beta_modo_visual",
-                                VISUALIZACOES_TAXAS_BETA,
-                            )
-                            modo_visual_beta = st.segmented_control(
-                                "Visualização",
-                                VISUALIZACOES_TAXAS_BETA,
+                            _normalizar_escolha_taxas_beta("tj_beta_modo_visual", VISUALIZACOES_TAXAS_BETA)
+                            modo_visual_beta = st.selectbox(
+                                "Visualização", VISUALIZACOES_TAXAS_BETA,
                                 key="tj_beta_modo_visual",
-                                on_change=_normalizar_escolha_taxas_beta,
-                                args=("tj_beta_modo_visual", VISUALIZACOES_TAXAS_BETA),
-                                width="stretch",
                             )
                         with col_view2:
-                            janela_estado_beta = st.session_state.get("tj_beta_janela_meses")
-                            if not isinstance(janela_estado_beta, int) or not 1 <= janela_estado_beta <= max_meses_beta:
-                                st.session_state["tj_beta_janela_meses"] = min(12, max_meses_beta)
-                            janela_meses_beta = st.slider(
-                                "Janela mensal",
-                                min_value=1,
-                                max_value=max_meses_beta,
-                                key="tj_beta_janela_meses",
-                                format="%d meses",
+                            inicio_mensal_beta, fim_mensal_beta = selecionar_periodo_taxas(
+                                chave="tj_beta_mensal", frequencia="M",
+                                data_min=pd.Period(meses_disponiveis_beta[0], freq="M").start_time,
+                                data_max=pd.Period(meses_disponiveis_beta[-1], freq="M").start_time,
+                                contexto=contexto_bancos_beta,
                             )
+                    janela_meses_beta = (
+                        fim_mensal_beta.to_period("M").ordinal - inicio_mensal_beta.to_period("M").ordinal + 1
+                    )
+                    periodo_mensal_label_beta = (
+                        f"{inicio_mensal_beta.strftime('%m/%Y')} a {fim_mensal_beta.strftime('%m/%Y')}"
+                    )
 
                     df_chart_beta = (
                         df_hist_beta_mensal[
@@ -25557,7 +25568,11 @@ elif menu == "Taxas de Juros por Produto":
                         .sort_values('Fim Período')
                         .copy()
                     )
-                    df_chart_beta = _selecionar_janela_mensal_beta(df_chart_beta, janela_meses_beta)
+                    df_chart_beta = df_chart_beta[
+                        df_chart_beta["AnoMes"].between(
+                            inicio_mensal_beta.to_period("M"), fim_mensal_beta.to_period("M")
+                        )
+                    ].copy()
                     ticks_taxas_beta, labels_ticks_taxas_beta = eixo_datas_semestral(
                         df_chart_beta["Fim Período"].dropna().tolist()
                     )
@@ -25622,11 +25637,15 @@ elif menu == "Taxas de Juros por Produto":
                             f"{_formatar_modalidade_beta(produto_beta)} · {len(bancos_sel_beta)} instituições · "
                             + (f"Referência: {_formatar_data_taxas_beta(data_mais_recente_beta)}"
                                if modo_visual_beta == "Ranking atual"
-                               else f"{janela_meses_beta} meses · {tipo_taxa_beta}")
+                               else f"{periodo_mensal_label_beta} · {tipo_taxa_beta}")
                         ),
                     )
 
-                    if modo_visual_beta == "Linha comparativa":
+                    df_chart_beta_valid = df_chart_beta.dropna(subset=[tipo_taxa_beta]).copy()
+                    fig_beta = None
+                    if modo_visual_beta != "Ranking atual" and df_chart_beta_valid.empty:
+                        st.info("Sem série mensal disponível para os bancos selecionados nesse período.")
+                    elif modo_visual_beta == "Linha comparativa":
                         fig_beta = px.line(
                             df_chart_beta,
                             x='Fim Período',
@@ -25776,21 +25795,19 @@ elif menu == "Taxas de Juros por Produto":
                             key="tj_beta_chart_monthly_ranking",
                         )
 
-                    figuras_exportaveis_taxas_beta["Visão atual"] = figura_taxas_para_exportar(
-                        fig_beta,
-                        titulo=f"{titulo_mensal_beta} · {_formatar_modalidade_beta(produto_beta)}",
-                        subtitulo=(
-                            f"{contexto_export_taxas_beta} · "
-                            + (f"Referência: {_formatar_data_taxas_beta(data_mais_recente_beta)}"
-                               if modo_visual_beta == "Ranking atual"
-                               else f"Janela: {janela_meses_beta} meses")
-                        ),
-                        paineis=modo_visual_beta == "Painéis por banco",
-                    )
+                    if fig_beta is not None:
+                        figuras_exportaveis_taxas_beta["Visão atual"] = figura_taxas_para_exportar(
+                            fig_beta,
+                            titulo=f"{titulo_mensal_beta} · {_formatar_modalidade_beta(produto_beta)}",
+                            subtitulo=(
+                                f"{contexto_export_taxas_beta} · "
+                                + (f"Referência: {_formatar_data_taxas_beta(data_mais_recente_beta)}"
+                                   if modo_visual_beta == "Ranking atual"
+                                   else periodo_mensal_label_beta)
+                            ),
+                            paineis=modo_visual_beta == "Painéis por banco",
+                        )
 
-                    df_chart_beta_valid = pd.DataFrame()
-                    if not df_chart_beta.empty and tipo_taxa_beta in df_chart_beta.columns:
-                        df_chart_beta_valid = df_chart_beta.dropna(subset=[tipo_taxa_beta]).copy()
                     if not df_chart_beta_valid.empty:
                         monthly_excel_beta = _build_taxas_beta_monthly_excel(
                             segmento=segmento_beta,
@@ -25808,6 +25825,21 @@ elif menu == "Taxas de Juros por Produto":
                         df_rank=df_rank_beta_display,
                     )
 
+                    _render_taxas_beta_chart_header("Série diária")
+                    if usa_cache_historico_beta:
+                        calendario_diario_beta = df_datas_hist_beta
+                        if "tipo_modalidade" in calendario_diario_beta.columns:
+                            calendario_diario_beta = calendario_diario_beta[
+                                calendario_diario_beta["tipo_modalidade"].astype(str) == "D"
+                            ]
+                        datas_diarias_beta = pd.to_datetime(calendario_diario_beta["fim_periodo"], errors="coerce").dropna()
+                    else:
+                        datas_diarias_beta = pd.to_datetime(df_hist_beta_raw["Fim Período"], errors="coerce").dropna()
+                    inicio_diario_beta, fim_diario_beta = selecionar_periodo_taxas(
+                        chave="tj_beta_diario", frequencia="D",
+                        data_min=datas_diarias_beta.min(), data_max=datas_diarias_beta.max(),
+                        contexto=contexto_bancos_beta,
+                    )
                     if usa_cache_historico_beta and selected_keys_beta:
                         try:
                             df_daily_beta, meta_daily_beta = _buscar_taxas_beta_diario_3m_cache(
@@ -25815,6 +25847,8 @@ elif menu == "Taxas de Juros por Produto":
                                 str(produto_beta_valor),
                                 tuple(selected_keys_beta),
                                 tuple(sorted(label_by_key_beta.items())),
+                                window_start=str(inicio_diario_beta.date()),
+                                window_end=str(fim_diario_beta.date()),
                             )
                         except Exception as exc:
                             df_daily_beta = pd.DataFrame()
@@ -25824,6 +25858,8 @@ elif menu == "Taxas de Juros por Produto":
                             df_hist_beta_raw,
                             bancos_selecionados=bancos_sel_beta,
                             anchor_date=data_mais_recente_beta,
+                            window_start=str(inicio_diario_beta.date()),
+                            window_end=str(fim_diario_beta.date()),
                         )
 
                     df_daily_beta_valid = pd.DataFrame()
@@ -25831,20 +25867,16 @@ elif menu == "Taxas de Juros por Produto":
                         df_daily_beta_valid = df_daily_beta.dropna(subset=[tipo_taxa_beta]).copy()
                     daily_has_values_beta = not df_daily_beta_valid.empty
                     if not daily_has_values_beta:
-                        _render_taxas_beta_chart_header("Série diária", "Últimos 3 meses")
-                        st.info("Sem série diária disponível para os bancos selecionados nos últimos 3 meses.")
+                        st.info("Sem série diária disponível para os bancos selecionados nesse período.")
                         if meta_daily_beta.get("error"):
                             st.caption(f"Erro retornado: {meta_daily_beta['error']}")
                     else:
                         anchor_daily_label = meta_daily_beta.get("anchor_date") or data_mais_recente_beta.strftime('%Y-%m-%d')
                         window_daily_label = meta_daily_beta.get("window_start") or "-"
-                        _render_taxas_beta_chart_header(
-                            "Série diária",
-                            (
-                                f"{_formatar_data_taxas_beta(window_daily_label)} a "
-                                f"{_formatar_data_taxas_beta(anchor_daily_label)} | "
-                                f"{meta_daily_beta.get('calendar_points', 0):,} datas oficiais"
-                            ),
+                        st.caption(
+                            f"{_formatar_data_taxas_beta(window_daily_label)} a "
+                            f"{_formatar_data_taxas_beta(anchor_daily_label)} · "
+                            f"{meta_daily_beta.get('calendar_points', 0):,} datas oficiais"
                         )
                         fig_daily_beta = px.line(
                             df_daily_beta,
@@ -25910,140 +25942,6 @@ elif menu == "Taxas de Juros por Produto":
                                 f"{len(df_daily_beta):,} linhas no gráfico."
                             )
 
-                    with st.popover(
-                        "Opções da série diária",
-                        icon=":material/tune:",
-                        width="content",
-                    ):
-                        carregar_detalhe_beta = st.toggle(
-                            "Exibir detalhe recente (60 dias)",
-                            key="tj_beta_carregar_detalhe",
-                            help="Carrega uma consulta adicional com maior granularidade.",
-                        )
-                        if carregar_detalhe_beta:
-                            granularidades_taxas_beta = [
-                                "Último ponto da semana",
-                                "Todos os pontos disponíveis",
-                            ]
-                            _normalizar_escolha_taxas_beta(
-                                "tj_beta_granularidade_recente",
-                                granularidades_taxas_beta,
-                            )
-                            granularidade_beta = st.segmented_control(
-                                "Granularidade",
-                                granularidades_taxas_beta,
-                                key="tj_beta_granularidade_recente",
-                                on_change=_normalizar_escolha_taxas_beta,
-                                args=("tj_beta_granularidade_recente", granularidades_taxas_beta),
-                                width="stretch",
-                            )
-
-                    if carregar_detalhe_beta:
-                        _render_taxas_beta_chart_header(
-                            "Detalhe recente",
-                            f"60 dias | {granularidade_beta.lower()}",
-                        )
-                        if usa_cache_historico_beta:
-                            try:
-                                df_recent_beta_raw, meta_recent_beta = _buscar_taxas_beta_detalhe_recente_cache(
-                                    codigo_segmento_beta,
-                                    str(produto_beta_valor),
-                                    tuple(sorted(bancos_sel_beta)),
-                                )
-                            except Exception as exc:
-                                df_recent_beta_raw = pd.DataFrame()
-                                meta_recent_beta = {"rows_returned": 0, "source": "historico_cache", "errors": {"cache": str(exc)}}
-                        else:
-                            df_recent_beta_raw, meta_recent_beta = _buscar_taxas_beta_detalhe_recente(
-                                segmento_beta,
-                                produto_beta,
-                                tuple(sorted(bancos_sel_beta)),
-                            )
-                        colunas_detalhe_beta = {
-                            'Fim Período',
-                            'Instituição Financeira',
-                            tipo_taxa_beta,
-                        }
-                        if (
-                            df_recent_beta_raw.empty
-                            or not colunas_detalhe_beta.issubset(df_recent_beta_raw.columns)
-                        ):
-                            df_recent_beta = pd.DataFrame()
-                        else:
-                            df_recent_beta = df_recent_beta_raw.sort_values('Fim Período').copy()
-                        if granularidade_beta == "Último ponto da semana":
-                            df_recent_beta = _reduzir_taxas_beta_semanal(df_recent_beta)
-
-                        if df_recent_beta.empty:
-                            st.info("Sem detalhe recente disponível para os bancos selecionados.")
-                            errors_beta = meta_recent_beta.get("errors") or {}
-                            if errors_beta:
-                                st.caption(f"Erros retornados: {errors_beta}")
-                        else:
-                            fig_recent_beta = px.line(
-                                df_recent_beta,
-                                x='Fim Período',
-                                y=tipo_taxa_beta,
-                                color='Instituição Financeira',
-                                markers=True,
-                                template='plotly_white',
-                                color_discrete_map=color_map_beta,
-                                labels={
-                                    'Fim Período': 'Data',
-                                    tipo_taxa_beta: tipo_taxa_beta,
-                                    'Instituição Financeira': 'Instituição',
-                                },
-                            )
-                            _estilizar_grafico_taxas_beta(
-                                fig_recent_beta,
-                                height=440,
-                                yaxis_title=tipo_taxa_beta,
-                                legend_y=-0.18,
-                                margin={"b": 150, "r": 42, "t": 14, "l": 58},
-                            )
-                            fig_recent_beta.update_xaxes(
-                                tickformat="%d/%m/%y",
-                                nticks=5,
-                                tickangle=-25,
-                                automargin=True,
-                            )
-                            fig_recent_beta.update_traces(
-                                line={"width": 1.9},
-                                marker={"size": 3.5, "opacity": 0.62},
-                            )
-                            figuras_exportaveis_taxas_beta["Detalhe recente"] = figura_taxas_para_exportar(
-                                fig_recent_beta,
-                                titulo=f"Detalhe recente · {_formatar_modalidade_beta(produto_beta)}",
-                                subtitulo=f"{contexto_export_taxas_beta} · 60 dias · {granularidade_beta}",
-                                diaria=True,
-                            )
-                            st.plotly_chart(
-                                fig_recent_beta,
-                                width="stretch",
-                                theme=None,
-                                config=TAXAS_BETA_PLOTLY_CONFIG,
-                                key="tj_beta_chart_recent",
-                            )
-                            if st.session_state.get("modo_diagnostico"):
-                                if usa_cache_historico_beta:
-                                    st.caption(
-                                        f"{len(df_recent_beta):,} linhas plotadas para "
-                                        f"{len(bancos_sel_beta)} instituição(ões) a partir do cache histórico."
-                                    )
-                                else:
-                                    st.caption(
-                                        f"{len(df_recent_beta):,} linhas plotadas para "
-                                        f"{len(bancos_sel_beta)} instituição(ões) | "
-                                        f"{meta_recent_beta.get('pages_loaded', 0)} página(s) consultada(s)."
-                                    )
-                            if meta_recent_beta.get("hit_page_limit"):
-                                st.warning(
-                                    "O detalhe recente pode estar incompleto porque a consulta atingiu o limite de paginação."
-                                )
-                            errors_beta = meta_recent_beta.get("errors") or {}
-                            if errors_beta:
-                                st.caption(f"Algumas instituições retornaram erro: {errors_beta}")
-
                     with pptx_slot_taxas_beta:
                         with st.popover("Exportar PowerPoint", icon=":material/download:", width="stretch"):
                             opcoes_pptx_taxas_beta = ["Todos os gráficos exibidos", *figuras_exportaveis_taxas_beta]
@@ -26059,14 +25957,14 @@ elif menu == "Taxas de Juros por Produto":
                             )
                             st.caption(
                                 f"{modo_visual_beta} · {tipo_taxa_beta} · {len(bancos_sel_beta)} instituições. "
-                                "O arquivo usa os filtros e as cores atuais. O detalhe de 60 dias entra quando estiver exibido."
+                                "O arquivo usa os períodos selecionados em cada série, os filtros e as cores atuais."
                             )
                             assinatura_pptx_taxas_beta = assinatura_figuras_taxas(figuras_pptx_taxas_beta)
                             pronto_pptx_taxas_beta = st.session_state.get("tj_beta_pptx_pronto")
                             if pronto_pptx_taxas_beta and pronto_pptx_taxas_beta[0] != assinatura_pptx_taxas_beta:
                                 st.session_state.pop("tj_beta_pptx_pronto", None)
                                 pronto_pptx_taxas_beta = None
-                            if st.button("Gerar PPTX", key="tj_beta_gerar_pptx", type="primary", width="stretch"):
+                            if st.button("Gerar PPTX", key="tj_beta_gerar_pptx", type="primary", width="stretch", disabled=not figuras_pptx_taxas_beta):
                                 st.session_state.pop("tj_beta_pptx_pronto", None)
                                 pronto_pptx_taxas_beta = None
                                 try:
@@ -26131,7 +26029,7 @@ elif menu == "Taxas de Juros por Produto":
                                 st.download_button(
                                     label="Série diária (Excel)",
                                     data=daily_excel_beta,
-                                    file_name=f"taxas_beta_diario_3m_{segmento_beta}_{produto_beta[:20]}.xlsx",
+                                    file_name=f"taxas_beta_diario_{segmento_beta}_{produto_beta[:20]}.xlsx",
                                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                     key="tj_beta_download_diario_excel",
                                     width="stretch",
@@ -26139,7 +26037,7 @@ elif menu == "Taxas de Juros por Produto":
                                 )
 
                         if daily_has_values_beta:
-                            tab_rank_beta, tab_daily_beta = st.tabs(["Ranking atual", "Série diária (3 meses)"])
+                            tab_rank_beta, tab_daily_beta = st.tabs(["Ranking atual", "Série diária"])
                             with tab_rank_beta:
                                 st.dataframe(
                                     df_rank_beta_display,
@@ -28421,7 +28319,7 @@ elif menu == "Glossário":
         """)
     with st.expander("**Módulos recentes e regras de leitura**", expanded=False):
         st.markdown("""
-        - **Taxas de Juros por Produto:** consome preferencialmente um cache histórico consolidado e usa a última observação disponível de cada mês para a visão mensal; a série diária mostra os últimos 3 meses ancorados na data mais recente da base.
+        - **Taxas de Juros por Produto:** consome preferencialmente um cache histórico consolidado e usa a última observação disponível de cada mês para a visão mensal; as séries mensal e diária têm início e fim selecionáveis, com padrões de 12 meses e 60 dias até a última data disponível.
         - **Contas COSIF:** lê o BLOPRUDENCIAL mensal e reconstrói saldo, trimestre ou acumulado semestral conforme a natureza da conta COSIF e a competência escolhida.
         - **Balanço, DRE e DMPL (Ind.):** consulta o documento 9011 ao vivo; por isso, a disponibilidade depende do JSON retornado pelo Banco Central para a instituição e competência escolhidas.
         - **Estatísticas Crédito BC > Inadimplência e Provisionamento > Inadimplência SCR:** lê o cache `scr_data`, materializado dos ZIPs anuais do PDA/BCB (o SCR.data não tem API). O grão completo fica em um parquet por ano e a aba carrega só a janela escolhida; o modo "série completa" troca para um resumo por região que cobre jul/2012 em diante, mas sem UF nem segmento. Toda taxa é razão de somas, nunca média de percentuais.
@@ -28501,7 +28399,7 @@ elif menu == "Glossário":
     _render_secao_glossario("6) Juros, COSIF e Módulos Experimentais", [
         {"Indicador": "Taxa Mensal (%)", "Aba(s)": "Taxas de Juros por Produto, Glossário", "Fonte": "BCB Olinda `ConsultaUnificada` / cache histórico de taxas", "Fórmula": "Valor publicado pelo BCB para a instituição, produto e janela oficial", "Unidade": "% a.m.", "Interpretação": "Taxa média ponderada mensal observada para a combinação selecionada.", "Limitação": "Nem toda instituição publica em toda janela; lacunas são preservadas.", "Periodicidade": "Diária por janela oficial"},
         {"Indicador": "Taxa Anual (%)", "Aba(s)": "Taxas de Juros por Produto, Glossário", "Fonte": "BCB Olinda `ConsultaUnificada` / cache histórico de taxas", "Fórmula": "Valor publicado pelo BCB para a mesma linha da taxa mensal", "Unidade": "% a.a.", "Interpretação": "Versão anualizada publicada pelo BCB para a mesma observação.", "Limitação": "Segue a disponibilidade e as revisões do próprio serviço do BCB.", "Periodicidade": "Diária por janela oficial"},
-        {"Indicador": "Série diária · últimos 3 meses", "Aba(s)": "Taxas de Juros por Produto, Glossário", "Fonte": "Cache histórico de taxas + calendário oficial `ConsultaDatas`", "Fórmula": "Recorte dos últimos 3 meses ancorado na última `fim_periodo` disponível, com reindexação pelas datas oficiais", "Unidade": "Série temporal", "Interpretação": "Permite comparar a trajetória recente dos bancos selecionados sem imputar pontos inexistentes.", "Limitação": "Lacunas permanecem vazias quando a instituição não publica na janela.", "Periodicidade": "Diária por janela oficial"},
+        {"Indicador": "Série diária · período selecionado", "Aba(s)": "Taxas de Juros por Produto, Glossário", "Fonte": "Cache histórico de taxas + calendário oficial `ConsultaDatas`", "Fórmula": "Recorte entre início e fim selecionados, com padrão de 60 dias até a última `fim_periodo` disponível e reindexação pelas datas oficiais", "Unidade": "Série temporal", "Interpretação": "Permite comparar a trajetória recente dos bancos selecionados sem imputar pontos inexistentes.", "Limitação": "Lacunas permanecem vazias quando a instituição não publica na janela.", "Periodicidade": "Diária por janela oficial"},
         {"Indicador": "Conta COSIF", "Aba(s)": "Contas COSIF, Glossário", "Fonte": "BLOPRUDENCIAL mensal", "Fórmula": "Código contábil selecionado no dropdown", "Unidade": "Conta", "Interpretação": "Define a linha contábil usada para construir o ranking mensal.", "Limitação": "A nomenclatura pode variar por período; o app privilegia o código COSIF como chave.", "Periodicidade": "Mensal"},
         {"Indicador": "Valor Calculado", "Aba(s)": "Contas COSIF, Glossário", "Fonte": "BLOPRUDENCIAL mensal", "Fórmula": "Saldo do período, trimestre isolado ou acumulado semestral, conforme a regra aplicável à conta", "Unidade": "R$", "Interpretação": "Valor efetivamente comparado entre instituições no ranking.", "Limitação": "Instituições sem base necessária são excluídas do cálculo.", "Periodicidade": "Mensal / trimestral / semestral reconstruído"},
         {"Indicador": "Valor Calculado (abs)", "Aba(s)": "Contas COSIF, Glossário", "Fonte": "Derivação local sobre o valor calculado", "Fórmula": "abs(Valor Calculado)", "Unidade": "R$", "Interpretação": "Usado apenas para ordenar e medir participação no total exibido.", "Limitação": "Não substitui o sinal econômico do valor original.", "Periodicidade": "Mesmo período do Valor Calculado"},

@@ -713,6 +713,8 @@ def load_taxas_juros_historico_recent_daily_display(
     institution_keys: Sequence[str],
     institution_label_by_key: Optional[Dict[str, str]] = None,
     lookback_months: int = 3,
+    window_start: Optional[str] = None,
+    window_end: Optional[str] = None,
 ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     selected_keys = [str(value) for value in institution_keys if str(value).strip()]
     if not selected_keys:
@@ -734,7 +736,15 @@ def load_taxas_juros_historico_recent_daily_display(
             "selected_institutions": len(selected_keys),
         }
 
-    window_start = anchor_date - pd.DateOffset(months=int(lookback_months))
+    if window_end is not None:
+        anchor_date = min(anchor_date, pd.Timestamp(window_end).normalize())
+    window_start = (
+        pd.Timestamp(window_start).normalize()
+        if window_start is not None
+        else anchor_date - pd.DateOffset(months=int(lookback_months))
+    )
+    if window_start > anchor_date:
+        raise ValueError("O início da série diária deve ser anterior ou igual ao fim.")
     df_datas = load_taxas_juros_historico_dimension(cache, name="datas")
     df_datas = df_datas.copy()
     if "tipo_modalidade" in df_datas.columns:

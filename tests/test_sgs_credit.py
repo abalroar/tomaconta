@@ -412,9 +412,10 @@ def test_navigation_has_dedicated_bcb_group_and_no_top_level_scr():
     assert "Taxas de Juros por Produto" not in assignments["MENU_PRINCIPAL"]
 
 
-def test_taxas_por_produto_defaults_to_12_months_and_exports_pptx():
+def test_taxas_por_produto_selects_periods_and_exports_pptx():
     source = (PROJECT_ROOT / "app1.py").read_text(encoding="utf-8")
-    assert 'st.session_state["tj_beta_janela_meses"] = min(12, max_meses_beta)' in source
+    assert 'chave="tj_beta_mensal", frequencia="M"' in source
+    assert 'chave="tj_beta_diario", frequencia="D"' in source
     assert 'file_name="taxas_juros_por_produto.pptx"' in source
     assert 'key="tj_beta_download_pptx"' in source
 

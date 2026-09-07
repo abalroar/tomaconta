@@ -144,9 +144,8 @@ def test_taxas_preserves_rate_and_monthly_visualization_options():
     )
 
 
-def test_taxas_preserves_daily_series_and_recent_detail():
+def test_taxas_uses_independent_start_and_end_controls_for_monthly_and_daily_series():
     source = _taxas_route_source()
-    sequences = _constant_string_sequences()
     assignments = _assigned_call_names()
     call_names = {
         _qualified_name(node.func)
@@ -156,19 +155,27 @@ def test_taxas_preserves_daily_series_and_recent_detail():
 
     assert "Série diária" in source
     assert assignments["fig_daily_beta"] == {"px.line"}
+    periods = _calls("selecionar_periodo_taxas")
+    assert len(periods) == 2
     assert {
-        "_buscar_taxas_beta_diario_3m_cache",
-        "_montar_taxas_beta_diario_3m_live",
-    }.issubset(call_names)
+        (_keyword_constant(call, "chave"), _keyword_constant(call, "frequencia"))
+        for call in periods
+    } == {("tj_beta_mensal", "M"), ("tj_beta_diario", "D")}
 
-    assert "Detalhe recente" in source
-    assert "60 dias" in source
-    assert ("Último ponto da semana", "Todos os pontos disponíveis") in sequences
-    assert assignments["fig_recent_beta"] == {"px.line"}
-    assert {
-        "_buscar_taxas_beta_detalhe_recente_cache",
-        "_buscar_taxas_beta_detalhe_recente",
-    }.issubset(call_names)
+    # A single daily chart covers the chosen interval. Its duplicate recent
+    # panel and preset/granularity controls must not return to the screen.
+    assert "fig_recent_beta" not in assignments
+    assert not _calls("st.slider")
+    assert not _calls("st.toggle")
+    assert not _calls("st.segmented_control")
+    assert "_buscar_taxas_beta_detalhe_recente_cache" not in call_names
+    assert "_buscar_taxas_beta_detalhe_recente" not in call_names
+    secondary_panel_labels = {
+        _first_constant_string(call)
+        for widget_name in ("st.expander", "st.popover")
+        for call in _calls(widget_name)
+    }
+    assert "Opções da série diária" not in secondary_panel_labels
 
 
 def test_taxas_replaces_operational_cards_with_compact_base_context():
