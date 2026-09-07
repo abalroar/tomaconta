@@ -406,7 +406,7 @@ def test_navigation_has_dedicated_bcb_group_and_no_top_level_scr():
         for target in node.targets
         if isinstance(target, ast.Name) and target.id in {"MENU_PRINCIPAL", "MENU_BCB"}
     }
-    assert assignments["MENU_BCB"] == ["Estatísticas Crédito BC", "Taxas de Juros por Produto"]
+    assert assignments["MENU_BCB"] == ["Estatísticas Crédito BC", "Taxas de Juros por Produto", "Meios de Pagamento (SPB)"]
     assert "Inadimplência (SCR)" not in assignments["MENU_PRINCIPAL"]
     assert "Estatísticas Crédito BC" not in assignments["MENU_PRINCIPAL"]
     assert "Taxas de Juros por Produto" not in assignments["MENU_PRINCIPAL"]
