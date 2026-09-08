@@ -15833,11 +15833,10 @@ MENU_PRINCIPAL = [
     "Balanço, DRE e DMPL (Ind.)",
     "Contas COSIF",
     "Carteira 4.966",
-    "Meios de Pagamento (SPB)",
 ]
 
 # Lista de opções de dados e estatísticas do Banco Central
-MENU_BCB = ["Estatísticas Crédito BC", "Taxas de Juros por Produto"]
+MENU_BCB = ["Estatísticas Crédito BC", "Taxas de Juros por Produto", "Meios de Pagamento (SPB)"]
 
 # Lista de opções do menu secundário (utilitários)
 MENU_SECUNDARIO = ["Sobre", "Atualizar Base", "Glossário"]
@@ -24279,6 +24278,13 @@ elif menu == "Carteira 4.966":
             args=("Atualizar Base",),
         )
 elif menu == "Taxas de Juros por Produto":
+    import textwrap as _taxas_textwrap
+    from utils.taxas_juros_periodos import selecionar_periodo_taxas
+    from utils.taxas_juros_presentation import (
+        assinatura_figuras_taxas,
+        figura_taxas_para_exportar,
+        formatar_planilhas_taxas,
+    )
     # =========================================================================
     # ABA TAXAS DE JUROS (BETA LEVE)
     # Estratégia: consultas progressivas com filtro no servidor do BCB.
@@ -24552,28 +24558,33 @@ elif menu == "Taxas de Juros por Produto":
         margin: Optional[dict] = None,
         grid_axis: str = "y",
     ):
-        margin = margin or {"b": 92, "r": 68, "t": 18, "l": 58}
+        margin = dict(margin or {"b": 92, "r": 68, "t": 18, "l": 58})
+        if showlegend:
+            # Reserva espaço para a legenda sem tirar altura útil do gráfico.
+            margin["b"] = max(88, 48 + 22 * math.ceil(len(fig.data) / 4))
+            legend_y = -0.17
         legend = {
             "orientation": "h",
             "yanchor": "top",
             "y": legend_y,
-            "xanchor": "center",
-            "x": 0.5,
+            "xanchor": "left",
+            "x": 0,
             "maxheight": 96,
-            "font": {"size": 10, "family": "IBM Plex Sans, sans-serif"},
+            "font": {"size": 11, "family": "IBM Plex Sans, sans-serif"},
             "title": {"text": ""},
         }
         fig.update_layout(
             height=height,
-            title=None,
+            title_text="",
             xaxis_title=xaxis_title,
             yaxis_title=yaxis_title,
             showlegend=showlegend,
             legend=legend if showlegend else None,
             margin=margin,
             hovermode="x unified" if grid_axis == "y" else "closest",
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor="#FFFFFF",
+            plot_bgcolor="#FFFFFF",
+            separators=",.",
             font={
                 "family": "IBM Plex Sans, sans-serif",
                 "size": 12,
@@ -24591,8 +24602,8 @@ elif menu == "Taxas de Juros por Produto":
         )
         fig.update_xaxes(
             showgrid=grid_axis == "x",
-            gridcolor="#e2e8f0",
-            gridwidth=1,
+            gridcolor="#E8EBEE",
+            gridwidth=0.6,
             showline=False,
             zeroline=False,
             tickfont={"size": 11, "color": "#64748b"},
@@ -24600,13 +24611,30 @@ elif menu == "Taxas de Juros por Produto":
         )
         fig.update_yaxes(
             showgrid=grid_axis == "y",
-            gridcolor="#e2e8f0",
-            gridwidth=1,
+            gridcolor="#E8EBEE",
+            gridwidth=0.6,
             showline=False,
             zeroline=False,
             tickfont={"size": 11, "color": "#64748b"},
             title_font={"size": 12, "color": "#475569"},
         )
+        if grid_axis == "y":
+            fig.update_yaxes(ticksuffix="%", tickformat=".2f", automargin=True)
+            fig.update_traces(
+                hovertemplate="%{x|%d/%m/%Y}<br><b>%{y:.2f}%</b><extra>%{fullData.name}</extra>",
+                selector={"type": "scatter"},
+            )
+        else:
+            fig.update_xaxes(ticksuffix="%", tickformat=".2f", rangemode="tozero", automargin=True)
+            fig.update_yaxes(automargin=True)
+        fig.update_layout(uirevision=str((
+            st.session_state.get("tj_beta_bancos_contexto"),
+            st.session_state.get("tj_beta_tipo_taxa"),
+            st.session_state.get("tj_beta_mensal_inicio"),
+            st.session_state.get("tj_beta_mensal_fim"),
+            st.session_state.get("tj_beta_diario_inicio"),
+            st.session_state.get("tj_beta_diario_fim"),
+        )))
         return fig
 
     def _sanitizar_nome_aba_excel_taxas_beta(nome: str, fallback: str = "dados") -> str:
@@ -24644,7 +24672,7 @@ elif menu == "Taxas de Juros por Produto":
             df_export.to_excel(writer, sheet_name="ranking_atual", index=False)
 
             workbook = writer.book
-            header_fmt = workbook.add_format({"bold": True, "bg_color": "#EEF2FF", "border": 1})
+            header_fmt = workbook.add_format({"bold": True, "bg_color": "#20252B", "font_color": "#FFFFFF", "text_wrap": True, "valign": "vcenter"})
             int_fmt = workbook.add_format({"num_format": "0"})
             num_fmt = workbook.add_format({"num_format": "0.00"})
 
@@ -24667,6 +24695,8 @@ elif menu == "Taxas de Juros por Produto":
                 if taxa_col in df_export.columns:
                     taxa_idx = df_export.columns.get_loc(taxa_col)
                     ws_rank.set_column(taxa_idx, taxa_idx, 16, num_fmt)
+
+            formatar_planilhas_taxas(writer)
 
         buffer.seek(0)
         return buffer.getvalue()
@@ -24787,7 +24817,7 @@ elif menu == "Taxas de Juros por Produto":
             matriz.to_excel(writer, sheet_name=sheet_name, index=False)
 
             workbook = writer.book
-            header_fmt = workbook.add_format({"bold": True, "bg_color": "#EEF2FF", "border": 1})
+            header_fmt = workbook.add_format({"bold": True, "bg_color": "#20252B", "font_color": "#FFFFFF", "text_wrap": True, "valign": "vcenter"})
             num_fmt = workbook.add_format({"num_format": "0.00"})
 
             ws_contexto = writer.sheets["contexto"]
@@ -24802,6 +24832,8 @@ elif menu == "Taxas de Juros por Produto":
             ws_daily.set_column(0, 0, 34)
             if len(matriz.columns) > 1:
                 ws_daily.set_column(1, len(matriz.columns) - 1, 12, num_fmt)
+
+            formatar_planilhas_taxas(writer)
 
         buffer.seek(0)
         return buffer.getvalue()
@@ -24863,7 +24895,7 @@ elif menu == "Taxas de Juros por Produto":
             matriz.to_excel(writer, sheet_name=sheet_name, index=False)
 
             workbook = writer.book
-            header_fmt = workbook.add_format({"bold": True, "bg_color": "#EEF2FF", "border": 1})
+            header_fmt = workbook.add_format({"bold": True, "bg_color": "#20252B", "font_color": "#FFFFFF", "text_wrap": True, "valign": "vcenter"})
             num_fmt = workbook.add_format({"num_format": "0.00"})
 
             ws_contexto = writer.sheets["contexto"]
@@ -24878,6 +24910,8 @@ elif menu == "Taxas de Juros por Produto":
             ws_monthly.set_column(0, 0, 34)
             if len(matriz.columns) > 1:
                 ws_monthly.set_column(1, len(matriz.columns) - 1, 12, num_fmt)
+
+            formatar_planilhas_taxas(writer)
 
         buffer.seek(0)
         return buffer.getvalue()
@@ -25149,13 +25183,15 @@ elif menu == "Taxas de Juros por Produto":
             label_by_key[str(key)] = str(banco)
         return selected_keys, label_by_key
 
-    @st.cache_data(ttl=900, max_entries=4, show_spinner="Carregando série diária dos últimos 3 meses...")
+    @st.cache_data(ttl=900, max_entries=4, show_spinner="Carregando série diária no período selecionado...")
     def _buscar_taxas_beta_diario_3m_cache(
         codigo_segmento: str,
         codigo_modalidade: str,
         institution_keys: tuple[str, ...],
         institution_labels: tuple[tuple[str, str], ...],
         meses_referencia: int = 3,
+        window_start: Optional[str] = None,
+        window_end: Optional[str] = None,
     ):
         cache = _obter_cache_taxas_historico_beta()
         if cache is None or load_taxas_juros_historico_recent_daily_display is None:
@@ -25167,6 +25203,8 @@ elif menu == "Taxas de Juros por Produto":
             institution_keys=list(institution_keys),
             institution_label_by_key=dict(institution_labels),
             lookback_months=int(meses_referencia),
+            window_start=window_start,
+            window_end=window_end,
         )
 
         meta = dict(meta or {})
@@ -25179,6 +25217,8 @@ elif menu == "Taxas de Juros por Produto":
         bancos_selecionados: List[str],
         anchor_date: pd.Timestamp,
         meses_referencia: int = 3,
+        window_start: Optional[str] = None,
+        window_end: Optional[str] = None,
     ) -> tuple[pd.DataFrame, dict[str, object]]:
         if df_hist.empty or pd.isna(anchor_date):
             return pd.DataFrame(), {
@@ -25189,7 +25229,12 @@ elif menu == "Taxas de Juros por Produto":
                 "source": "live_slice",
             }
 
-        window_start = anchor_date - pd.DateOffset(months=int(meses_referencia))
+        if window_end is not None:
+            anchor_date = min(anchor_date, pd.Timestamp(window_end))
+        window_start = (
+            pd.Timestamp(window_start) if window_start is not None
+            else anchor_date - pd.DateOffset(months=int(meses_referencia))
+        )
         df_window = df_hist[
             (df_hist["Fim Período"] >= window_start)
             & (df_hist["Fim Período"] <= anchor_date)
@@ -25258,7 +25303,7 @@ elif menu == "Taxas de Juros por Produto":
             )
         with col_cfg2:
             _normalizar_escolha_taxas_beta("tj_beta_tipo_taxa", TIPOS_TAXA_BETA)
-            tipo_taxa_beta = st.segmented_control(
+            tipo_taxa_beta = st.selectbox(
                 "Taxa",
                 TIPOS_TAXA_BETA,
                 key="tj_beta_tipo_taxa",
@@ -25408,7 +25453,8 @@ elif menu == "Taxas de Juros por Produto":
                         st.markdown(
                             "Fonte: Banco Central do Brasil (BCB). "
                             "A visão mensal usa a última observação disponível de cada mês. "
-                            "A série diária cobre os 3 meses anteriores à data mais recente e preserva lacunas oficiais."
+                            "Escolha início e fim em cada série. Os padrões são os últimos 12 meses na mensal "
+                            "e os últimos 60 dias na diária, até a última data disponível. Lacunas oficiais são preservadas."
                         )
                         st.caption(f"Produtos disponíveis neste segmento: {len(produtos_beta)}.")
 
@@ -25492,33 +25538,28 @@ elif menu == "Taxas de Juros por Produto":
                 else:
                     meses_disponiveis_beta = sorted(df_hist_beta_mensal['AnoMes'].dropna().unique().tolist())
                     limite_meses_beta = 60 if usa_cache_historico_beta else 12
-                    max_meses_beta = max(1, min(limite_meses_beta, len(meses_disponiveis_beta)))
+                    meses_disponiveis_beta = meses_disponiveis_beta[-limite_meses_beta:]
                     with controles_taxas_beta:
-                        col_view1, col_view2 = st.columns([1.8, 1.0], gap="large")
+                        col_view1, col_view2 = st.columns([1.0, 2.0], gap="large")
                         with col_view1:
-                            _normalizar_escolha_taxas_beta(
-                                "tj_beta_modo_visual",
-                                VISUALIZACOES_TAXAS_BETA,
-                            )
-                            modo_visual_beta = st.segmented_control(
-                                "Visualização",
-                                VISUALIZACOES_TAXAS_BETA,
+                            _normalizar_escolha_taxas_beta("tj_beta_modo_visual", VISUALIZACOES_TAXAS_BETA)
+                            modo_visual_beta = st.selectbox(
+                                "Visualização", VISUALIZACOES_TAXAS_BETA,
                                 key="tj_beta_modo_visual",
-                                on_change=_normalizar_escolha_taxas_beta,
-                                args=("tj_beta_modo_visual", VISUALIZACOES_TAXAS_BETA),
-                                width="stretch",
                             )
                         with col_view2:
-                            janela_estado_beta = st.session_state.get("tj_beta_janela_meses")
-                            if not isinstance(janela_estado_beta, int) or not 1 <= janela_estado_beta <= max_meses_beta:
-                                st.session_state["tj_beta_janela_meses"] = min(12, max_meses_beta)
-                            janela_meses_beta = st.slider(
-                                "Janela mensal",
-                                min_value=1,
-                                max_value=max_meses_beta,
-                                key="tj_beta_janela_meses",
-                                format="%d meses",
+                            inicio_mensal_beta, fim_mensal_beta = selecionar_periodo_taxas(
+                                chave="tj_beta_mensal", frequencia="M",
+                                data_min=pd.Period(meses_disponiveis_beta[0], freq="M").start_time,
+                                data_max=pd.Period(meses_disponiveis_beta[-1], freq="M").start_time,
+                                contexto=contexto_bancos_beta,
                             )
+                    janela_meses_beta = (
+                        fim_mensal_beta.to_period("M").ordinal - inicio_mensal_beta.to_period("M").ordinal + 1
+                    )
+                    periodo_mensal_label_beta = (
+                        f"{inicio_mensal_beta.strftime('%m/%Y')} a {fim_mensal_beta.strftime('%m/%Y')}"
+                    )
 
                     df_chart_beta = (
                         df_hist_beta_mensal[
@@ -25527,7 +25568,11 @@ elif menu == "Taxas de Juros por Produto":
                         .sort_values('Fim Período')
                         .copy()
                     )
-                    df_chart_beta = _selecionar_janela_mensal_beta(df_chart_beta, janela_meses_beta)
+                    df_chart_beta = df_chart_beta[
+                        df_chart_beta["AnoMes"].between(
+                            inicio_mensal_beta.to_period("M"), fim_mensal_beta.to_period("M")
+                        )
+                    ].copy()
                     ticks_taxas_beta, labels_ticks_taxas_beta = eixo_datas_semestral(
                         df_chart_beta["Fim Período"].dropna().tolist()
                     )
@@ -25580,13 +25625,27 @@ elif menu == "Taxas de Juros por Produto":
                         "Painéis por banco": "Painéis por instituição",
                         "Ranking atual": "Ranking atual",
                     }[modo_visual_beta]
-                    pptx_slot_taxas_beta = st.empty()
+                    figuras_exportaveis_taxas_beta = {}
+                    contexto_export_taxas_beta = (
+                        f"{segmento_beta.title()} · {tipo_taxa_beta} · "
+                        f"{len(bancos_sel_beta)} instituições"
+                    )
+                    pptx_slot_taxas_beta = st.container()
                     _render_taxas_beta_chart_header(
                         titulo_mensal_beta,
-                        f"{_formatar_modalidade_beta(produto_beta)} | {janela_meses_beta} meses",
+                        (
+                            f"{_formatar_modalidade_beta(produto_beta)} · {len(bancos_sel_beta)} instituições · "
+                            + (f"Referência: {_formatar_data_taxas_beta(data_mais_recente_beta)}"
+                               if modo_visual_beta == "Ranking atual"
+                               else f"{periodo_mensal_label_beta} · {tipo_taxa_beta}")
+                        ),
                     )
 
-                    if modo_visual_beta == "Linha comparativa":
+                    df_chart_beta_valid = df_chart_beta.dropna(subset=[tipo_taxa_beta]).copy()
+                    fig_beta = None
+                    if modo_visual_beta != "Ranking atual" and df_chart_beta_valid.empty:
+                        st.info("Sem série mensal disponível para os bancos selecionados nesse período.")
+                    elif modo_visual_beta == "Linha comparativa":
                         fig_beta = px.line(
                             df_chart_beta,
                             x='Fim Período',
@@ -25617,9 +25676,11 @@ elif menu == "Taxas de Juros por Produto":
                         )
                         fig_beta.update_traces(
                             line={"width": 2.1},
-                            marker={"size": 5, "opacity": 0.78},
+                            marker={"size": 4 if janela_meses_beta <= 18 else 3, "opacity": 0.75},
                         )
                         _adicionar_rotulos_finais_taxas_beta(fig_beta, df_chart_beta, tipo_taxa_beta, color_map_beta)
+                        if len(bancos_sel_beta) > 6:
+                            st.caption("Os rótulos finais destacam as duas taxas extremas. Passe o cursor ou use a legenda para consultar cada instituição.")
                         st.plotly_chart(
                             fig_beta,
                             width="stretch",
@@ -25629,6 +25690,10 @@ elif menu == "Taxas de Juros por Produto":
                         )
                     elif modo_visual_beta == "Painéis por banco":
                         facet_wrap_beta = 2 if len(bancos_sel_beta) <= 4 else 3
+                        indices_ticks_paineis_beta = sorted({
+                            round(i * (len(ticks_taxas_beta) - 1) / 3)
+                            for i in range(4)
+                        }) if ticks_taxas_beta else []
                         fig_beta = px.line(
                             df_chart_beta,
                             x='Fim Período',
@@ -25647,16 +25712,16 @@ elif menu == "Taxas de Juros por Produto":
                         )
                         _estilizar_grafico_taxas_beta(
                             fig_beta,
-                            height=max(460, 240 * math.ceil(len(bancos_sel_beta) / facet_wrap_beta)),
+                            height=max(460, 270 * math.ceil(len(bancos_sel_beta) / facet_wrap_beta)),
                             yaxis_title=tipo_taxa_beta,
                             showlegend=False,
-                            margin={"b": 54, "r": 20, "t": 28, "l": 50},
+                            margin={"b": 58, "r": 24, "t": 40, "l": 60},
                         )
                         fig_beta.update_xaxes(
                             tickmode="array",
-                            tickvals=ticks_taxas_beta,
-                            ticktext=labels_ticks_taxas_beta,
-                            tickangle=angulo_ticks_taxas_beta,
+                            tickvals=[ticks_taxas_beta[i] for i in indices_ticks_paineis_beta],
+                            ticktext=[labels_ticks_taxas_beta[i] for i in indices_ticks_paineis_beta],
+                            tickangle=0,
                             automargin=True,
                         )
                         fig_beta.update_traces(
@@ -25665,8 +25730,10 @@ elif menu == "Taxas de Juros por Produto":
                         )
                         fig_beta.for_each_annotation(
                             lambda ann: ann.update(
-                                text=ann.text.split("=")[-1],
-                                font={"family": "IBM Plex Sans, sans-serif", "size": 11, "color": "#334155"},
+                                text="<br>".join(
+                                    _taxas_textwrap.wrap(_html_mod.escape(ann.text.split("=")[-1]), width=30)
+                                ),
+                                font={"family": "IBM Plex Sans, sans-serif", "size": 12, "color": "#334155"},
                             )
                         )
                         st.plotly_chart(
@@ -25708,15 +25775,18 @@ elif menu == "Taxas de Juros por Produto":
                             texttemplate='%{text:.2f}%',
                             textposition='outside',
                             cliponaxis=False,
+                            marker_line_width=0,
+                            hovertemplate="%{y}<br><b>%{x:.2f}%</b><extra></extra>",
                         )
                         _estilizar_grafico_taxas_beta(
                             fig_beta,
-                            height=max(360, 36 * len(df_rank_chart) + 120),
+                            height=max(360, 40 * len(df_rank_chart) + 120),
                             xaxis_title=tipo_taxa_beta,
                             showlegend=False,
-                            margin={"b": 42, "r": 48, "t": 14, "l": 42},
+                            margin={"b": 48, "r": 80, "t": 18, "l": 42},
                             grid_axis="x",
                         )
+                        fig_beta.update_layout(bargap=0.32)
                         st.plotly_chart(
                             fig_beta,
                             width="stretch",
@@ -25725,52 +25795,19 @@ elif menu == "Taxas de Juros por Produto":
                             key="tj_beta_chart_monthly_ranking",
                         )
 
-                    try:
-                        from utils.sgs_credit_pptx_export import exportar_figuras_pptx
+                    if fig_beta is not None:
+                        figuras_exportaveis_taxas_beta["Visão atual"] = figura_taxas_para_exportar(
+                            fig_beta,
+                            titulo=f"{titulo_mensal_beta} · {_formatar_modalidade_beta(produto_beta)}",
+                            subtitulo=(
+                                f"{contexto_export_taxas_beta} · "
+                                + (f"Referência: {_formatar_data_taxas_beta(data_mais_recente_beta)}"
+                                   if modo_visual_beta == "Ranking atual"
+                                   else periodo_mensal_label_beta)
+                            ),
+                            paineis=modo_visual_beta == "Painéis por banco",
+                        )
 
-                        fig_export_taxas_beta = px.line(
-                            df_chart_beta,
-                            x="Fim Período",
-                            y=tipo_taxa_beta,
-                            color="Instituição Financeira",
-                            color_discrete_map=color_map_beta,
-                        )
-                        fig_export_taxas_beta.update_layout(
-                            yaxis_title=tipo_taxa_beta,
-                            meta={
-                                "chart_title": (
-                                    f"{_formatar_modalidade_beta(produto_beta)} · "
-                                    f"{tipo_taxa_beta}"
-                                )
-                            },
-                        )
-                        pptx_taxas_beta, meta_pptx_taxas_beta = exportar_figuras_pptx(
-                            [fig_export_taxas_beta],
-                            titulo_deck="Taxas de juros por produto · Banco Central",
-                        )
-                        with pptx_slot_taxas_beta.container():
-                            st.download_button(
-                                "Baixar PPTX desta página",
-                                data=pptx_taxas_beta,
-                                file_name="taxas_juros_por_produto.pptx",
-                                mime=(
-                                    "application/vnd.openxmlformats-officedocument."
-                                    "presentationml.presentation"
-                                ),
-                                key="tj_beta_download_pptx",
-                                type="primary",
-                                help=(
-                                    f"{meta_pptx_taxas_beta['paineis']} gráfico Office "
-                                    "nativo com rótulo no último ponto."
-                                ),
-                            )
-                    except Exception as exc:
-                        if st.session_state.get("modo_diagnostico"):
-                            st.caption(f"PPTX indisponível: {exc}")
-
-                    df_chart_beta_valid = pd.DataFrame()
-                    if not df_chart_beta.empty and tipo_taxa_beta in df_chart_beta.columns:
-                        df_chart_beta_valid = df_chart_beta.dropna(subset=[tipo_taxa_beta]).copy()
                     if not df_chart_beta_valid.empty:
                         monthly_excel_beta = _build_taxas_beta_monthly_excel(
                             segmento=segmento_beta,
@@ -25788,6 +25825,21 @@ elif menu == "Taxas de Juros por Produto":
                         df_rank=df_rank_beta_display,
                     )
 
+                    _render_taxas_beta_chart_header("Série diária")
+                    if usa_cache_historico_beta:
+                        calendario_diario_beta = df_datas_hist_beta
+                        if "tipo_modalidade" in calendario_diario_beta.columns:
+                            calendario_diario_beta = calendario_diario_beta[
+                                calendario_diario_beta["tipo_modalidade"].astype(str) == "D"
+                            ]
+                        datas_diarias_beta = pd.to_datetime(calendario_diario_beta["fim_periodo"], errors="coerce").dropna()
+                    else:
+                        datas_diarias_beta = pd.to_datetime(df_hist_beta_raw["Fim Período"], errors="coerce").dropna()
+                    inicio_diario_beta, fim_diario_beta = selecionar_periodo_taxas(
+                        chave="tj_beta_diario", frequencia="D",
+                        data_min=datas_diarias_beta.min(), data_max=datas_diarias_beta.max(),
+                        contexto=contexto_bancos_beta,
+                    )
                     if usa_cache_historico_beta and selected_keys_beta:
                         try:
                             df_daily_beta, meta_daily_beta = _buscar_taxas_beta_diario_3m_cache(
@@ -25795,6 +25847,8 @@ elif menu == "Taxas de Juros por Produto":
                                 str(produto_beta_valor),
                                 tuple(selected_keys_beta),
                                 tuple(sorted(label_by_key_beta.items())),
+                                window_start=str(inicio_diario_beta.date()),
+                                window_end=str(fim_diario_beta.date()),
                             )
                         except Exception as exc:
                             df_daily_beta = pd.DataFrame()
@@ -25804,6 +25858,8 @@ elif menu == "Taxas de Juros por Produto":
                             df_hist_beta_raw,
                             bancos_selecionados=bancos_sel_beta,
                             anchor_date=data_mais_recente_beta,
+                            window_start=str(inicio_diario_beta.date()),
+                            window_end=str(fim_diario_beta.date()),
                         )
 
                     df_daily_beta_valid = pd.DataFrame()
@@ -25811,20 +25867,16 @@ elif menu == "Taxas de Juros por Produto":
                         df_daily_beta_valid = df_daily_beta.dropna(subset=[tipo_taxa_beta]).copy()
                     daily_has_values_beta = not df_daily_beta_valid.empty
                     if not daily_has_values_beta:
-                        _render_taxas_beta_chart_header("Série diária", "Últimos 3 meses")
-                        st.info("Sem série diária disponível para os bancos selecionados nos últimos 3 meses.")
+                        st.info("Sem série diária disponível para os bancos selecionados nesse período.")
                         if meta_daily_beta.get("error"):
                             st.caption(f"Erro retornado: {meta_daily_beta['error']}")
                     else:
                         anchor_daily_label = meta_daily_beta.get("anchor_date") or data_mais_recente_beta.strftime('%Y-%m-%d')
                         window_daily_label = meta_daily_beta.get("window_start") or "-"
-                        _render_taxas_beta_chart_header(
-                            "Série diária",
-                            (
-                                f"{_formatar_data_taxas_beta(window_daily_label)} a "
-                                f"{_formatar_data_taxas_beta(anchor_daily_label)} | "
-                                f"{meta_daily_beta.get('calendar_points', 0):,} datas oficiais"
-                            ),
+                        st.caption(
+                            f"{_formatar_data_taxas_beta(window_daily_label)} a "
+                            f"{_formatar_data_taxas_beta(anchor_daily_label)} · "
+                            f"{meta_daily_beta.get('calendar_points', 0):,} datas oficiais"
                         )
                         fig_daily_beta = px.line(
                             df_daily_beta,
@@ -25858,6 +25910,16 @@ elif menu == "Taxas de Juros por Produto":
                             marker={"size": 2.5, "opacity": 0.45},
                         )
                         _adicionar_rotulos_finais_taxas_beta(fig_daily_beta, df_daily_beta, tipo_taxa_beta, color_map_beta)
+                        figuras_exportaveis_taxas_beta["Série diária"] = figura_taxas_para_exportar(
+                            fig_daily_beta,
+                            titulo=f"Série diária · {_formatar_modalidade_beta(produto_beta)}",
+                            subtitulo=(
+                                f"{contexto_export_taxas_beta} · "
+                                f"{_formatar_data_taxas_beta(window_daily_label)} a "
+                                f"{_formatar_data_taxas_beta(anchor_daily_label)}"
+                            ),
+                            diaria=True,
+                        )
                         st.plotly_chart(
                             fig_daily_beta,
                             width="stretch",
@@ -25880,133 +25942,57 @@ elif menu == "Taxas de Juros por Produto":
                                 f"{len(df_daily_beta):,} linhas no gráfico."
                             )
 
-                    with st.popover(
-                        "Opções da série diária",
-                        icon=":material/tune:",
-                        width="content",
-                    ):
-                        carregar_detalhe_beta = st.toggle(
-                            "Exibir detalhe recente (60 dias)",
-                            key="tj_beta_carregar_detalhe",
-                            help="Carrega uma consulta adicional com maior granularidade.",
-                        )
-                        if carregar_detalhe_beta:
-                            granularidades_taxas_beta = [
-                                "Último ponto da semana",
-                                "Todos os pontos disponíveis",
-                            ]
-                            _normalizar_escolha_taxas_beta(
-                                "tj_beta_granularidade_recente",
-                                granularidades_taxas_beta,
+                    with pptx_slot_taxas_beta:
+                        with st.popover("Exportar PowerPoint", icon=":material/download:", width="stretch"):
+                            opcoes_pptx_taxas_beta = ["Todos os gráficos exibidos", *figuras_exportaveis_taxas_beta]
+                            if st.session_state.get("tj_beta_pptx_escopo") not in opcoes_pptx_taxas_beta:
+                                st.session_state["tj_beta_pptx_escopo"] = opcoes_pptx_taxas_beta[0]
+                            escopo_pptx_taxas_beta = st.selectbox(
+                                "Conteúdo do PPTX", opcoes_pptx_taxas_beta, key="tj_beta_pptx_escopo",
                             )
-                            granularidade_beta = st.segmented_control(
-                                "Granularidade",
-                                granularidades_taxas_beta,
-                                key="tj_beta_granularidade_recente",
-                                on_change=_normalizar_escolha_taxas_beta,
-                                args=("tj_beta_granularidade_recente", granularidades_taxas_beta),
-                                width="stretch",
+                            figuras_pptx_taxas_beta = (
+                                list(figuras_exportaveis_taxas_beta.values())
+                                if escopo_pptx_taxas_beta == "Todos os gráficos exibidos"
+                                else [figuras_exportaveis_taxas_beta[escopo_pptx_taxas_beta]]
                             )
+                            st.caption(
+                                f"{modo_visual_beta} · {tipo_taxa_beta} · {len(bancos_sel_beta)} instituições. "
+                                "O arquivo usa os períodos selecionados em cada série, os filtros e as cores atuais."
+                            )
+                            assinatura_pptx_taxas_beta = assinatura_figuras_taxas(figuras_pptx_taxas_beta)
+                            pronto_pptx_taxas_beta = st.session_state.get("tj_beta_pptx_pronto")
+                            if pronto_pptx_taxas_beta and pronto_pptx_taxas_beta[0] != assinatura_pptx_taxas_beta:
+                                st.session_state.pop("tj_beta_pptx_pronto", None)
+                                pronto_pptx_taxas_beta = None
+                            if st.button("Gerar PPTX", key="tj_beta_gerar_pptx", type="primary", width="stretch", disabled=not figuras_pptx_taxas_beta):
+                                st.session_state.pop("tj_beta_pptx_pronto", None)
+                                pronto_pptx_taxas_beta = None
+                                try:
+                                    from utils.sgs_credit_pptx_export import exportar_figuras_pptx
 
-                    if carregar_detalhe_beta:
-                        _render_taxas_beta_chart_header(
-                            "Detalhe recente",
-                            f"60 dias | {granularidade_beta.lower()}",
-                        )
-                        if usa_cache_historico_beta:
-                            try:
-                                df_recent_beta_raw, meta_recent_beta = _buscar_taxas_beta_detalhe_recente_cache(
-                                    codigo_segmento_beta,
-                                    str(produto_beta_valor),
-                                    tuple(sorted(bancos_sel_beta)),
-                                )
-                            except Exception as exc:
-                                df_recent_beta_raw = pd.DataFrame()
-                                meta_recent_beta = {"rows_returned": 0, "source": "historico_cache", "errors": {"cache": str(exc)}}
-                        else:
-                            df_recent_beta_raw, meta_recent_beta = _buscar_taxas_beta_detalhe_recente(
-                                segmento_beta,
-                                produto_beta,
-                                tuple(sorted(bancos_sel_beta)),
-                            )
-                        colunas_detalhe_beta = {
-                            'Fim Período',
-                            'Instituição Financeira',
-                            tipo_taxa_beta,
-                        }
-                        if (
-                            df_recent_beta_raw.empty
-                            or not colunas_detalhe_beta.issubset(df_recent_beta_raw.columns)
-                        ):
-                            df_recent_beta = pd.DataFrame()
-                        else:
-                            df_recent_beta = df_recent_beta_raw.sort_values('Fim Período').copy()
-                        if granularidade_beta == "Último ponto da semana":
-                            df_recent_beta = _reduzir_taxas_beta_semanal(df_recent_beta)
-
-                        if df_recent_beta.empty:
-                            st.info("Sem detalhe recente disponível para os bancos selecionados.")
-                            errors_beta = meta_recent_beta.get("errors") or {}
-                            if errors_beta:
-                                st.caption(f"Erros retornados: {errors_beta}")
-                        else:
-                            fig_recent_beta = px.line(
-                                df_recent_beta,
-                                x='Fim Período',
-                                y=tipo_taxa_beta,
-                                color='Instituição Financeira',
-                                markers=True,
-                                template='plotly_white',
-                                color_discrete_map=color_map_beta,
-                                labels={
-                                    'Fim Período': 'Data',
-                                    tipo_taxa_beta: tipo_taxa_beta,
-                                    'Instituição Financeira': 'Instituição',
-                                },
-                            )
-                            _estilizar_grafico_taxas_beta(
-                                fig_recent_beta,
-                                height=440,
-                                yaxis_title=tipo_taxa_beta,
-                                legend_y=-0.18,
-                                margin={"b": 150, "r": 42, "t": 14, "l": 58},
-                            )
-                            fig_recent_beta.update_xaxes(
-                                tickformat="%d/%m/%y",
-                                nticks=5,
-                                tickangle=-25,
-                                automargin=True,
-                            )
-                            fig_recent_beta.update_traces(
-                                line={"width": 1.9},
-                                marker={"size": 3.5, "opacity": 0.62},
-                            )
-                            st.plotly_chart(
-                                fig_recent_beta,
-                                width="stretch",
-                                theme=None,
-                                config=TAXAS_BETA_PLOTLY_CONFIG,
-                                key="tj_beta_chart_recent",
-                            )
-                            if st.session_state.get("modo_diagnostico"):
-                                if usa_cache_historico_beta:
-                                    st.caption(
-                                        f"{len(df_recent_beta):,} linhas plotadas para "
-                                        f"{len(bancos_sel_beta)} instituição(ões) a partir do cache histórico."
+                                    with st.spinner("Preparando os gráficos editáveis..."):
+                                        pptx_taxas_beta, meta_pptx_taxas_beta = exportar_figuras_pptx(
+                                            figuras_pptx_taxas_beta,
+                                            titulo_deck="Taxas de juros por produto · Banco Central",
+                                            perfil="taxas",
+                                        )
+                                    pronto_pptx_taxas_beta = (
+                                        assinatura_pptx_taxas_beta, pptx_taxas_beta, meta_pptx_taxas_beta,
                                     )
-                                else:
-                                    st.caption(
-                                        f"{len(df_recent_beta):,} linhas plotadas para "
-                                        f"{len(bancos_sel_beta)} instituição(ões) | "
-                                        f"{meta_recent_beta.get('pages_loaded', 0)} página(s) consultada(s)."
-                                    )
-                            if meta_recent_beta.get("hit_page_limit"):
-                                st.warning(
-                                    "O detalhe recente pode estar incompleto porque a consulta atingiu o limite de paginação."
+                                    st.session_state["tj_beta_pptx_pronto"] = pronto_pptx_taxas_beta
+                                except Exception as exc:
+                                    st.error("Não foi possível preparar o PPTX. Seus filtros foram mantidos; tente gerar novamente.")
+                                    if st.session_state.get("modo_diagnostico"):
+                                        st.caption(str(exc))
+                            if pronto_pptx_taxas_beta:
+                                _, pptx_taxas_beta, meta_pptx_taxas_beta = pronto_pptx_taxas_beta
+                                st.caption(f"Pronto: {meta_pptx_taxas_beta['paineis']} gráficos editáveis em {meta_pptx_taxas_beta['slides']} slides.")
+                                st.download_button(
+                                    "Baixar PPTX desta página", data=pptx_taxas_beta,
+                                    file_name="taxas_juros_por_produto.pptx",
+                                    mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                                    key="tj_beta_download_pptx", on_click="ignore", width="stretch",
                                 )
-                            errors_beta = meta_recent_beta.get("errors") or {}
-                            if errors_beta:
-                                st.caption(f"Algumas instituições retornaram erro: {errors_beta}")
 
                     ranking_column_config_beta = {
                         "Posição": st.column_config.NumberColumn("Posição", format="%d"),
@@ -26043,7 +26029,7 @@ elif menu == "Taxas de Juros por Produto":
                                 st.download_button(
                                     label="Série diária (Excel)",
                                     data=daily_excel_beta,
-                                    file_name=f"taxas_beta_diario_3m_{segmento_beta}_{produto_beta[:20]}.xlsx",
+                                    file_name=f"taxas_beta_diario_{segmento_beta}_{produto_beta[:20]}.xlsx",
                                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                     key="tj_beta_download_diario_excel",
                                     width="stretch",
@@ -26051,7 +26037,7 @@ elif menu == "Taxas de Juros por Produto":
                                 )
 
                         if daily_has_values_beta:
-                            tab_rank_beta, tab_daily_beta = st.tabs(["Ranking atual", "Série diária (3 meses)"])
+                            tab_rank_beta, tab_daily_beta = st.tabs(["Ranking atual", "Série diária"])
                             with tab_rank_beta:
                                 st.dataframe(
                                     df_rank_beta_display,
@@ -26086,6 +26072,13 @@ elif menu == "Taxas de Juros por Produto":
                             )
 
 elif menu == "Meios de Pagamento (SPB)":
+    from utils.spb_meios_pagamento_viz import style_spb_figure
+
+    spb_plot_config = {
+        "displaylogo": False,
+        "toImageButtonOptions": {"format": "png", "scale": 2},
+    }
+    spb_saved_selections = st.session_state.setdefault("spb_saved_selections", {})
     # =========================================================================
     # ABA MEIOS DE PAGAMENTO (SPB) - Estatísticas do Adendo Estatístico (Olinda/BCB)
     # Fonte: serviço Olinda MPV_DadosAbertos (12 entidades). Cada dataset é
@@ -26156,6 +26149,27 @@ elif menu == "Meios de Pagamento (SPB)":
         periodicidade = "mensal" if periodo_col == "ano_mes" else "trimestral"
         return melt_nucleo_spb(df, periodo_col, periodicidade)
 
+    def _spb_chart_controls(df: pd.DataFrame, *, key: str, series_column: str, series_label: str) -> pd.DataFrame:
+        """Filter already prepared display rows; source data and aggregations are unchanged."""
+        periods = sorted(df["trimestre"].dropna().unique().tolist())
+        series = sorted(df[series_column].dropna().unique().tolist())
+        if not periods or not series:
+            return df.iloc[0:0]
+        first, last, instruments = st.columns([1, 1, 2])
+        with first:
+            start = st.selectbox("trimestre inicial", periods, format_func=_spb_trimestre_label, key=f"{key}_ini")
+        with last:
+            end = st.selectbox("trimestre final", periods, index=len(periods) - 1, format_func=_spb_trimestre_label, key=f"{key}_fim")
+        with instruments:
+            selected = st.multiselect(series_label, series, default=series, key=f"{key}_series")
+        if start > end:
+            st.warning("Escolha um trimestre final igual ou posterior ao inicial.")
+            return df.iloc[0:0]
+        if not selected:
+            st.info(f"Selecione ao menos uma opção em {series_label}.")
+            return df.iloc[0:0]
+        return df[df["trimestre"].between(start, end) & df[series_column].isin(selected)].copy()
+
     cache_manager = get_cache_manager()
     spb_cache_obj = cache_manager.get_cache("spb_meios_pagamento") if cache_manager else None
 
@@ -26202,6 +26216,12 @@ elif menu == "Meios de Pagamento (SPB)":
                     else [i for i in SPB_QUARTERLY_DEFAULT_INSTRUMENTS if i in instrumentos_nucleo]
                 )
                 default_ini_idx = spb_default_start_index(periodos_nucleo, periodicidade_key)
+                saved_nucleo = spb_saved_selections.get(f"spb_nucleo_{periodicidade_key}", {})
+                if saved_nucleo.get("ini") in periodos_nucleo:
+                    default_ini_idx = periodos_nucleo.index(saved_nucleo["ini"])
+                default_fim_idx = periodos_nucleo.index(saved_nucleo["fim"]) if saved_nucleo.get("fim") in periodos_nucleo else len(periodos_nucleo) - 1
+                if "instrumentos" in saved_nucleo:
+                    default_instrumentos = [i for i in saved_nucleo["instrumentos"] if i in instrumentos_nucleo]
 
                 col_ini, col_fim, col_inst = st.columns([1, 1, 2])
                 with col_ini:
@@ -26216,7 +26236,7 @@ elif menu == "Meios de Pagamento (SPB)":
                     periodo_fim_spb = st.selectbox(
                         "período final",
                         options=periodos_nucleo,
-                        index=len(periodos_nucleo) - 1,
+                        index=default_fim_idx,
                         format_func=lambda p: labels_nucleo.get(p, str(p)),
                         key=f"spb_nucleo_{periodicidade_key}_fim",
                     )
@@ -26236,9 +26256,13 @@ elif menu == "Meios de Pagamento (SPB)":
                     st.stop()
 
                 long_nucleo_filtrado = spb_filter_period_range(long_nucleo, periodo_ini_spb, periodo_fim_spb)
+                spb_saved_selections[f"spb_nucleo_{periodicidade_key}"] = {
+                    "ini": periodo_ini_spb, "fim": periodo_fim_spb, "instrumentos": list(instrumentos_sel_spb),
+                }
                 st.caption(
-                    "Eixo X compacto: mensal em mm-aaaa e trimestral no mês de fechamento. "
-                    "Os rótulos no fim das séries mostram o último ponto vigente na cor da modalidade."
+                    f"{labels_nucleo[periodo_ini_spb]} a {labels_nucleo[periodo_fim_spb]} · "
+                    f"{len(instrumentos_sel_spb)} instrumentos. Passe o cursor para comparar os valores; "
+                    "clique na legenda para exibir ou ocultar uma série."
                 )
 
                 col_qtd, col_val = st.columns(2)
@@ -26251,7 +26275,7 @@ elif menu == "Meios de Pagamento (SPB)":
                         yaxis_title="mil transações",
                         palette=SPB_ITAU_BBA_PALETTE,
                     )
-                    st.plotly_chart(fig_qtd_spb, width="stretch", config={"displaylogo": False})
+                    st.plotly_chart(fig_qtd_spb, width="stretch", config=spb_plot_config)
                 with col_val:
                     fig_val_spb = spb_build_line_figure(
                         long_nucleo_filtrado,
@@ -26261,7 +26285,7 @@ elif menu == "Meios de Pagamento (SPB)":
                         yaxis_title="R$ milhão",
                         palette=SPB_ITAU_BBA_PALETTE,
                     )
-                    st.plotly_chart(fig_val_spb, width="stretch", config={"displaylogo": False})
+                    st.plotly_chart(fig_val_spb, width="stretch", config=spb_plot_config)
 
                 with st.expander("Última leitura da janela selecionada", expanded=False):
                     col_last_q, col_last_v = st.columns(2)
@@ -26324,6 +26348,10 @@ elif menu == "Meios de Pagamento (SPB)":
                     st.stop()
 
                 long_part_filtrado = spb_filter_period_range(long_part, periodo_ini_part, periodo_fim_part)
+                spb_saved_selections["spb_participacao"] = {
+                    "ini": periodo_ini_part, "fim": periodo_fim_part, "instrumentos": list(instrumentos_part_sel),
+                }
+                st.caption("Participação calculada sobre o total dos instrumentos selecionados em cada trimestre.")
                 col_pq, col_pv = st.columns(2)
                 for col_part, tipo_part, titulo_part in (
                     (col_pq, "Quantidade (mil)", "Quantidade de Transações (%)"),
@@ -26337,7 +26365,7 @@ elif menu == "Meios de Pagamento (SPB)":
                             title=titulo_part,
                             palette=SPB_ITAU_BBA_PALETTE,
                         )
-                        st.plotly_chart(fig_part, width="stretch", config={"displaylogo": False})
+                        st.plotly_chart(fig_part, width="stretch", config=spb_plot_config)
 
                 with st.expander("Última composição percentual", expanded=True):
                     col_comp_q, col_comp_v = st.columns(2)
@@ -26380,12 +26408,21 @@ elif menu == "Meios de Pagamento (SPB)":
                             yaxis_title="mil transações" if tipo_cons == "Quantidade (mil)" else "R$ milhão",
                             palette=SPB_ITAU_BBA_PALETTE,
                         )
-                        st.plotly_chart(fig_cons, width="stretch", config={"displaylogo": False})
+                        st.plotly_chart(fig_cons, width="stretch", config=spb_plot_config)
 
         with tab_tarifas:
+            df_intercambio = _spb_carregar_dataset("intercambio")
+            df_desconto = _spb_carregar_dataset("desconto")
+            tarifas_options = pd.concat(
+                [df_intercambio.reindex(columns=["trimestre", "funcao_cartao"]), df_desconto.reindex(columns=["trimestre", "funcao_cartao"])],
+                ignore_index=True,
+            ).dropna().drop_duplicates()
+            tarifas_selected = _spb_chart_controls(
+                tarifas_options, key="spb_tarifas", series_column="funcao_cartao", series_label="funções do cartão",
+            )
+            tarifas_order = sorted(tarifas_options["funcao_cartao"].unique().tolist())
             col_int, col_desc = st.columns(2)
             with col_int:
-                df_intercambio = _spb_carregar_dataset("intercambio")
                 if df_intercambio.empty:
                     st.warning("Dataset 'intercambio' (INTERCAMDA) ainda não materializado localmente.")
                 else:
@@ -26394,16 +26431,16 @@ elif menu == "Meios de Pagamento (SPB)":
                         .groupby(["trimestre", "funcao_cartao"], as_index=False)["tarifa_intercambio_ponderada"]
                         .mean()
                     )
+                    agg_int = agg_int.merge(tarifas_selected, on=["trimestre", "funcao_cartao"], how="inner")
                     agg_int["periodo_label"] = agg_int["trimestre"].map(_spb_trimestre_label)
                     fig_int = px.line(
                         agg_int.sort_values("trimestre"), x="periodo_label", y="tarifa_intercambio_ponderada",
                         color="funcao_cartao", title="Tarifa de Intercâmbio por Função (% média ponderada)", markers=True,
                     )
-                    fig_int.update_layout(xaxis_title="", yaxis_title="%", legend_title="")
-                    st.plotly_chart(fig_int, width="stretch")
+                    style_spb_figure(fig_int, title="Tarifa de Intercâmbio por Função", yaxis_title="%", series_order=tarifas_order, period_order=agg_int.sort_values("trimestre")["periodo_label"].drop_duplicates().tolist())
+                    st.plotly_chart(fig_int, width="stretch", config=spb_plot_config)
                     st.caption("Média simples por trimestre/função entre as combinações de produto/bandeira/forma de captura reportadas pelo BCB.")
             with col_desc:
-                df_desconto = _spb_carregar_dataset("desconto")
                 if df_desconto.empty:
                     st.warning("Dataset 'desconto' (DESCONTODA) ainda não materializado localmente.")
                 else:
@@ -26412,13 +26449,14 @@ elif menu == "Meios de Pagamento (SPB)":
                         .groupby(["trimestre", "funcao_cartao"], as_index=False)["tx_media_desconto"]
                         .mean()
                     )
+                    agg_desc = agg_desc.merge(tarifas_selected, on=["trimestre", "funcao_cartao"], how="inner")
                     agg_desc["periodo_label"] = agg_desc["trimestre"].map(_spb_trimestre_label)
                     fig_desc = px.line(
                         agg_desc.sort_values("trimestre"), x="periodo_label", y="tx_media_desconto",
                         color="funcao_cartao", title="Taxa de Desconto por Função (% média ponderada)", markers=True,
                     )
-                    fig_desc.update_layout(xaxis_title="", yaxis_title="%", legend_title="")
-                    st.plotly_chart(fig_desc, width="stretch")
+                    style_spb_figure(fig_desc, title="Taxa de Desconto (MDR) por Função", yaxis_title="%", series_order=tarifas_order, period_order=agg_desc.sort_values("trimestre")["periodo_label"].drop_duplicates().tolist())
+                    st.plotly_chart(fig_desc, width="stretch", config=spb_plot_config)
                     st.caption("Média simples por trimestre/função entre as combinações de bandeira/forma de captura/parcelas reportadas pelo BCB.")
 
         with tab_canais:
@@ -26429,12 +26467,14 @@ elif menu == "Meios de Pagamento (SPB)":
                 df_cs = df_canais_serv.dropna(subset=["operacao"]).copy()
                 df_cs["qtd_milhoes"] = pd.to_numeric(df_cs["qtd_transacoes"], errors="coerce") / 1e6
                 df_cs["periodo_label"] = df_cs["trimestre"].map(_spb_trimestre_label)
+                canais_serv_order = sorted(df_cs["operacao"].dropna().unique().tolist())
+                df_cs = _spb_chart_controls(df_cs, key="spb_canais_servicos", series_column="operacao", series_label="canais de acesso")
                 fig_cs = px.line(
                     df_cs.sort_values("trimestre"), x="periodo_label", y="qtd_milhoes", color="operacao",
                     title="Serviços por Canal de Acesso - Quantidade de Transações (milhão)", markers=True,
                 )
-                fig_cs.update_layout(xaxis_title="", yaxis_title="milhão", legend_title="")
-                st.plotly_chart(fig_cs, width="stretch")
+                style_spb_figure(fig_cs, title="Serviços por Canal de Acesso", yaxis_title="milhão de transações", series_order=canais_serv_order, period_order=df_cs.sort_values("trimestre")["periodo_label"].drop_duplicates().tolist())
+                st.plotly_chart(fig_cs, width="stretch", config=spb_plot_config)
 
             df_canais_trans = _spb_carregar_dataset("canais_transacoes")
             if df_canais_trans.empty:
@@ -26447,18 +26487,20 @@ elif menu == "Meios de Pagamento (SPB)":
                     df_ct = df_ct[df_ct["produto"] == produto_sel_ct]
                 df_ct["qtd_milhoes"] = pd.to_numeric(df_ct["qtd_transacoes"], errors="coerce") / 1e6
                 df_ct["periodo_label"] = df_ct["trimestre"].map(_spb_trimestre_label)
+                canais_trans_order = sorted(df_canais_trans["canal_acesso"].dropna().unique().tolist())
+                df_ct = _spb_chart_controls(df_ct, key="spb_canais_transacoes", series_column="canal_acesso", series_label="canais de acesso")
                 fig_ct = px.line(
                     df_ct.sort_values("trimestre"), x="periodo_label", y="qtd_milhoes", color="canal_acesso",
                     title=f"Pagamento de Conta/Transferência/Pix por Canal de Acesso ({produto_sel_ct or 'todos'}) - Milhão",
                     markers=True,
                 )
-                fig_ct.update_layout(xaxis_title="", yaxis_title="milhão", legend_title="")
-                st.plotly_chart(fig_ct, width="stretch")
+                style_spb_figure(fig_ct, title=f"{produto_sel_ct or 'Transações'} por Canal de Acesso", yaxis_title="milhão de transações", series_order=canais_trans_order, period_order=df_ct.sort_values("trimestre")["periodo_label"].drop_duplicates().tolist())
+                st.plotly_chart(fig_ct, width="stretch", config=spb_plot_config)
 
         with tab_outros:
             st.caption(
-                "⚠️ Estes datasets ainda não foram conferidos visualmente contra a página oficial do BCB — "
-                "exibição em tabela/gráfico simples, sujeita a ajuste de título/eixo quando confirmados."
+                "Estes conjuntos de dados ainda não foram conferidos visualmente contra a página oficial do BCB. "
+                "A tabela preserva os campos publicados; títulos e unidades aguardam essa conferência."
             )
             opcoes_outros_spb = {
                 "cartoes": "Quantidade e valor de transações de cartões",
@@ -26469,21 +26511,36 @@ elif menu == "Meios de Pagamento (SPB)":
                 "infra_estabelecimentos": "Infraestrutura de captura por UF do estabelecimento",
             }
             dataset_outro_sel = st.selectbox(
-                "dataset", options=list(opcoes_outros_spb.keys()),
+                "conjunto de dados", options=list(opcoes_outros_spb.keys()),
                 format_func=lambda k: opcoes_outros_spb[k], key="spb_outros_dataset",
             )
             df_outro = _spb_carregar_dataset(dataset_outro_sel)
             if df_outro.empty:
                 st.warning(f"Dataset '{dataset_outro_sel}' ainda não materializado localmente.")
             else:
-                st.caption(f"{len(df_outro):,} linha(s), {len(df_outro.columns)} coluna(s).")
-                st.dataframe(df_outro.head(500), width="stretch", hide_index=True)
+                col_periodo_outro, col_pagina_outro = st.columns(2)
+                with col_periodo_outro:
+                    if "trimestre" in df_outro.columns:
+                        periodos_outro = sorted(df_outro["trimestre"].dropna().unique().tolist())
+                        periodo_outro = st.selectbox(
+                            "trimestre", [None] + periodos_outro,
+                            format_func=lambda p: "Todos os trimestres" if p is None else _spb_trimestre_label(p),
+                            key=f"spb_outros_{dataset_outro_sel}_periodo",
+                        )
+                        if periodo_outro is not None:
+                            df_outro = df_outro[df_outro["trimestre"] == periodo_outro]
+                paginas_outro = max(1, (len(df_outro) + 499) // 500)
+                with col_pagina_outro:
+                    pagina_outro = st.selectbox("página da tabela", range(1, paginas_outro + 1), key=f"spb_outros_{dataset_outro_sel}_pagina")
+                inicio_outro = (pagina_outro - 1) * 500
+                st.caption(f"{len(df_outro):,} linhas · {len(df_outro.columns)} colunas · página {pagina_outro} de {paginas_outro}")
+                st.dataframe(df_outro.iloc[inicio_outro:inicio_outro + 500], width="stretch", hide_index=True)
 
         with tab_exportar:
-            st.markdown("#### Exportar dashboard")
+            st.markdown("#### Exportar gráficos do núcleo e participação")
             st.caption(
-                "Gera um PPT com fundo branco, paleta Itaú BBA, gráficos do núcleo mensal/trimestral, "
-                "participação percentual e leitura executiva do último período disponível."
+                "PPTX com gráficos editáveis do núcleo mensal/trimestral, participação percentual "
+                "e tabelas da última composição. Seleções extensas continuam em slides adicionais."
             )
 
             df_mensal_ppt = _spb_carregar_dataset("nucleo_mensal")
@@ -26500,9 +26557,11 @@ elif menu == "Meios de Pagamento (SPB)":
                     end_default = periods[-1]
                     instruments = spb_available_instruments(long_df)
                     selected_default = [i for i in default_instruments if i in instruments] or instruments
-                    start = st.session_state.get(f"{session_prefix}_ini", start_default)
-                    end = st.session_state.get(f"{session_prefix}_fim", end_default)
-                    selected = st.session_state.get(f"{session_prefix}_instrumentos", selected_default) or selected_default
+                    saved = spb_saved_selections.get(session_prefix, {})
+                    start = st.session_state.get(f"{session_prefix}_ini", saved.get("ini", start_default))
+                    end = st.session_state.get(f"{session_prefix}_fim", saved.get("fim", end_default))
+                    selected = st.session_state.get(f"{session_prefix}_instrumentos", saved.get("instrumentos", selected_default))
+                    selected = [i for i in selected if i in instruments]
                     return spb_filter_period_range(long_df, start, end), selected
 
                 long_mensal_export, instrumentos_mensal_export = _spb_window_for_export(
@@ -26514,82 +26573,119 @@ elif menu == "Meios de Pagamento (SPB)":
                 long_tri_export, instrumentos_tri_export = _spb_window_for_export(
                     long_trimestral_ppt,
                     "trimestral",
+                    "spb_nucleo_trimestral",
+                    SPB_QUARTERLY_DEFAULT_INSTRUMENTS,
+                )
+                long_part_export, instrumentos_part_export = _spb_window_for_export(
+                    long_trimestral_ppt,
+                    "trimestral",
                     "spb_participacao",
                     SPB_QUARTERLY_DEFAULT_INSTRUMENTS,
                 )
 
-                st.info(
-                    "O arquivo usa a janela de período e as modalidades já selecionadas nas abas Núcleo/Participação; "
-                    "se ainda não houver seleção, usa a janela pós-lançamento do Pix."
-                )
+                spb_export_windows = [
+                    ("Núcleo mensal", long_mensal_export, instrumentos_mensal_export),
+                    ("Núcleo trimestral", long_tri_export, instrumentos_tri_export),
+                    ("Participação e resumo", long_part_export, instrumentos_part_export),
+                ]
+                export_rows_spb = []
+                for section, window, selected in spb_export_windows:
+                    period_labels = list(spb_period_label_map(window).values())
+                    export_rows_spb.append({
+                        "Seção": section,
+                        "Período": f"{period_labels[0]} a {period_labels[-1]}" if period_labels else "Sem dados na janela",
+                        "Instrumentos": ", ".join(selected) or "Nenhum selecionado",
+                    })
+                st.dataframe(pd.DataFrame(export_rows_spb), width="stretch", hide_index=True)
+                st.caption("Cada seção usa seus próprios filtros. As seleções mensal e trimestral ficam preservadas ao alternar a periodicidade no Núcleo.")
 
-                if st.button("Preparar PPT", key="spb_prepare_ppt"):
-                    ppt_bytes = build_spb_native_pptx(
-                        title="Dados de Meios de Pagamento - BCB",
-                        charts=[
-                            {
-                                "title": "Núcleo mensal - quantidade",
-                                "long_df": long_mensal_export,
-                                "tipo": "Quantidade (mil)",
-                                "instruments": instrumentos_mensal_export,
-                                "yaxis_title": "mil transações",
-                                "palette": SPB_ITAU_BBA_PALETTE,
-                            },
-                            {
-                                "title": "Núcleo mensal - valor",
-                                "long_df": long_mensal_export,
-                                "tipo": "Valor (R$ milhão)",
-                                "instruments": instrumentos_mensal_export,
-                                "yaxis_title": "R$ milhão",
-                                "palette": SPB_ITAU_BBA_PALETTE,
-                            },
-                            {
-                                "title": "Núcleo trimestral - quantidade",
-                                "long_df": long_tri_export,
-                                "tipo": "Quantidade (mil)",
-                                "instruments": instrumentos_tri_export,
-                                "yaxis_title": "mil transações",
-                                "palette": SPB_ITAU_BBA_PALETTE,
-                            },
-                            {
-                                "title": "Núcleo trimestral - valor",
-                                "long_df": long_tri_export,
-                                "tipo": "Valor (R$ milhão)",
-                                "instruments": instrumentos_tri_export,
-                                "yaxis_title": "R$ milhão",
-                                "palette": SPB_ITAU_BBA_PALETTE,
-                            },
-                            {
-                                "title": "Participação percentual - quantidade",
-                                "long_df": long_tri_export,
-                                "tipo": "Quantidade (mil)",
-                                "instruments": instrumentos_tri_export,
-                                "yaxis_title": "% do total selecionado",
-                                "share": True,
-                                "palette": SPB_ITAU_BBA_PALETTE,
-                            },
-                            {
-                                "title": "Participação percentual - valor",
-                                "long_df": long_tri_export,
-                                "tipo": "Valor (R$ milhão)",
-                                "instruments": instrumentos_tri_export,
-                                "yaxis_title": "% do total selecionado",
-                                "share": True,
-                                "palette": SPB_ITAU_BBA_PALETTE,
-                            },
-                        ],
-                        summaries={
-                            "Quantidade": spb_latest_summary(long_tri_export, "Quantidade (mil)", instrumentos_tri_export),
-                            "Valor": spb_latest_summary(long_tri_export, "Valor (R$ milhão)", instrumentos_tri_export),
-                        },
-                        source_note="Fonte: Banco Central do Brasil, Olinda/MPV_DadosAbertos. Valores em R$ milhão; quantidades em mil transações.",
-                    )
+                import hashlib as spb_hashlib
+                spb_signature = spb_hashlib.sha256()
+                for section, window, selected in spb_export_windows:
+                    spb_signature.update((section + repr(selected)).encode("utf-8"))
+                    spb_signature.update(pd.util.hash_pandas_object(window, index=True).values.tobytes())
+                spb_signature = spb_signature.hexdigest()
+                spb_export_valid = all(not window.empty and selected for _, window, selected in spb_export_windows)
+                spb_export_stored = st.session_state.get("spb_prepared_ppt", {})
+                if spb_export_stored and spb_export_stored.get("signature") != spb_signature:
+                    st.info("Os filtros ou os dados mudaram. Prepare o PPTX novamente para baixar a seleção atual.")
+
+                if st.button("Preparar PPTX", key="spb_prepare_ppt", disabled=not spb_export_valid):
+                    try:
+                        with st.spinner("Preparando gráficos e tabelas editáveis..."):
+                            ppt_bytes = build_spb_native_pptx(
+                                title="Dados de Meios de Pagamento - BCB",
+                                charts=[
+                                    {
+                                        "title": "Núcleo mensal - quantidade",
+                                        "long_df": long_mensal_export,
+                                        "tipo": "Quantidade (mil)",
+                                        "instruments": instrumentos_mensal_export,
+                                        "yaxis_title": "mil transações",
+                                        "palette": SPB_ITAU_BBA_PALETTE,
+                                    },
+                                    {
+                                        "title": "Núcleo mensal - valor",
+                                        "long_df": long_mensal_export,
+                                        "tipo": "Valor (R$ milhão)",
+                                        "instruments": instrumentos_mensal_export,
+                                        "yaxis_title": "R$ milhão",
+                                        "palette": SPB_ITAU_BBA_PALETTE,
+                                    },
+                                    {
+                                        "title": "Núcleo trimestral - quantidade",
+                                        "long_df": long_tri_export,
+                                        "tipo": "Quantidade (mil)",
+                                        "instruments": instrumentos_tri_export,
+                                        "yaxis_title": "mil transações",
+                                        "palette": SPB_ITAU_BBA_PALETTE,
+                                    },
+                                    {
+                                        "title": "Núcleo trimestral - valor",
+                                        "long_df": long_tri_export,
+                                        "tipo": "Valor (R$ milhão)",
+                                        "instruments": instrumentos_tri_export,
+                                        "yaxis_title": "R$ milhão",
+                                        "palette": SPB_ITAU_BBA_PALETTE,
+                                    },
+                                    {
+                                        "title": "Participação percentual - quantidade",
+                                        "long_df": long_part_export,
+                                        "tipo": "Quantidade (mil)",
+                                        "instruments": instrumentos_part_export,
+                                        "yaxis_title": "% do total selecionado",
+                                        "share": True,
+                                        "palette": SPB_ITAU_BBA_PALETTE,
+                                    },
+                                    {
+                                        "title": "Participação percentual - valor",
+                                        "long_df": long_part_export,
+                                        "tipo": "Valor (R$ milhão)",
+                                        "instruments": instrumentos_part_export,
+                                        "yaxis_title": "% do total selecionado",
+                                        "share": True,
+                                        "palette": SPB_ITAU_BBA_PALETTE,
+                                    },
+                                ],
+                                summaries={
+                                    "Quantidade": spb_latest_summary(long_part_export, "Quantidade (mil)", instrumentos_part_export),
+                                    "Valor": spb_latest_summary(long_part_export, "Valor (R$ milhão)", instrumentos_part_export),
+                                },
+                                source_note="Fonte: Banco Central do Brasil, Olinda/MPV_DadosAbertos. Valores em R$ milhão; quantidades em mil transações.",
+                            )
+                        st.session_state["spb_prepared_ppt"] = {"signature": spb_signature, "data": ppt_bytes}
+                    except Exception as exc:
+                        st.error(f"Não foi possível preparar o PPTX: {exc}")
+                spb_export_stored = st.session_state.get("spb_prepared_ppt", {})
+                if spb_export_stored.get("signature") == spb_signature:
+                    st.success("PPTX pronto para a seleção exibida acima.")
                     st.download_button(
-                        "Baixar PPT",
-                        data=ppt_bytes,
+                        "Baixar PPTX",
+                        data=spb_export_stored["data"],
                         file_name="Dados de Meios de Pagamento - BCB.pptx",
                         mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
                         key="spb_download_ppt",
+                        on_click="ignore",
                         width="stretch",
                     )
 
@@ -28223,7 +28319,7 @@ elif menu == "Glossário":
         """)
     with st.expander("**Módulos recentes e regras de leitura**", expanded=False):
         st.markdown("""
-        - **Taxas de Juros por Produto:** consome preferencialmente um cache histórico consolidado e usa a última observação disponível de cada mês para a visão mensal; a série diária mostra os últimos 3 meses ancorados na data mais recente da base.
+        - **Taxas de Juros por Produto:** consome preferencialmente um cache histórico consolidado e usa a última observação disponível de cada mês para a visão mensal; as séries mensal e diária têm início e fim selecionáveis, com padrões de 12 meses e 60 dias até a última data disponível.
         - **Contas COSIF:** lê o BLOPRUDENCIAL mensal e reconstrói saldo, trimestre ou acumulado semestral conforme a natureza da conta COSIF e a competência escolhida.
         - **Balanço, DRE e DMPL (Ind.):** consulta o documento 9011 ao vivo; por isso, a disponibilidade depende do JSON retornado pelo Banco Central para a instituição e competência escolhidas.
         - **Estatísticas Crédito BC > Inadimplência e Provisionamento > Inadimplência SCR:** lê o cache `scr_data`, materializado dos ZIPs anuais do PDA/BCB (o SCR.data não tem API). O grão completo fica em um parquet por ano e a aba carrega só a janela escolhida; o modo "série completa" troca para um resumo por região que cobre jul/2012 em diante, mas sem UF nem segmento. Toda taxa é razão de somas, nunca média de percentuais.
@@ -28303,7 +28399,7 @@ elif menu == "Glossário":
     _render_secao_glossario("6) Juros, COSIF e Módulos Experimentais", [
         {"Indicador": "Taxa Mensal (%)", "Aba(s)": "Taxas de Juros por Produto, Glossário", "Fonte": "BCB Olinda `ConsultaUnificada` / cache histórico de taxas", "Fórmula": "Valor publicado pelo BCB para a instituição, produto e janela oficial", "Unidade": "% a.m.", "Interpretação": "Taxa média ponderada mensal observada para a combinação selecionada.", "Limitação": "Nem toda instituição publica em toda janela; lacunas são preservadas.", "Periodicidade": "Diária por janela oficial"},
         {"Indicador": "Taxa Anual (%)", "Aba(s)": "Taxas de Juros por Produto, Glossário", "Fonte": "BCB Olinda `ConsultaUnificada` / cache histórico de taxas", "Fórmula": "Valor publicado pelo BCB para a mesma linha da taxa mensal", "Unidade": "% a.a.", "Interpretação": "Versão anualizada publicada pelo BCB para a mesma observação.", "Limitação": "Segue a disponibilidade e as revisões do próprio serviço do BCB.", "Periodicidade": "Diária por janela oficial"},
-        {"Indicador": "Série diária · últimos 3 meses", "Aba(s)": "Taxas de Juros por Produto, Glossário", "Fonte": "Cache histórico de taxas + calendário oficial `ConsultaDatas`", "Fórmula": "Recorte dos últimos 3 meses ancorado na última `fim_periodo` disponível, com reindexação pelas datas oficiais", "Unidade": "Série temporal", "Interpretação": "Permite comparar a trajetória recente dos bancos selecionados sem imputar pontos inexistentes.", "Limitação": "Lacunas permanecem vazias quando a instituição não publica na janela.", "Periodicidade": "Diária por janela oficial"},
+        {"Indicador": "Série diária · período selecionado", "Aba(s)": "Taxas de Juros por Produto, Glossário", "Fonte": "Cache histórico de taxas + calendário oficial `ConsultaDatas`", "Fórmula": "Recorte entre início e fim selecionados, com padrão de 60 dias até a última `fim_periodo` disponível e reindexação pelas datas oficiais", "Unidade": "Série temporal", "Interpretação": "Permite comparar a trajetória recente dos bancos selecionados sem imputar pontos inexistentes.", "Limitação": "Lacunas permanecem vazias quando a instituição não publica na janela.", "Periodicidade": "Diária por janela oficial"},
         {"Indicador": "Conta COSIF", "Aba(s)": "Contas COSIF, Glossário", "Fonte": "BLOPRUDENCIAL mensal", "Fórmula": "Código contábil selecionado no dropdown", "Unidade": "Conta", "Interpretação": "Define a linha contábil usada para construir o ranking mensal.", "Limitação": "A nomenclatura pode variar por período; o app privilegia o código COSIF como chave.", "Periodicidade": "Mensal"},
         {"Indicador": "Valor Calculado", "Aba(s)": "Contas COSIF, Glossário", "Fonte": "BLOPRUDENCIAL mensal", "Fórmula": "Saldo do período, trimestre isolado ou acumulado semestral, conforme a regra aplicável à conta", "Unidade": "R$", "Interpretação": "Valor efetivamente comparado entre instituições no ranking.", "Limitação": "Instituições sem base necessária são excluídas do cálculo.", "Periodicidade": "Mensal / trimestral / semestral reconstruído"},
         {"Indicador": "Valor Calculado (abs)", "Aba(s)": "Contas COSIF, Glossário", "Fonte": "Derivação local sobre o valor calculado", "Fórmula": "abs(Valor Calculado)", "Unidade": "R$", "Interpretação": "Usado apenas para ordenar e medir participação no total exibido.", "Limitação": "Não substitui o sinal econômico do valor original.", "Periodicidade": "Mesmo período do Valor Calculado"},

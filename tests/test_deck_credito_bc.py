@@ -9,6 +9,7 @@ from __future__ import annotations
 import sys
 from io import BytesIO
 from pathlib import Path
+from types import SimpleNamespace
 
 import pandas as pd
 import pytest
@@ -47,11 +48,32 @@ def janela() -> pd.DataFrame:
 
 
 @pytest.fixture(scope="module")
-def gerenciador():
-    from utils.ifdata_cache import CacheManager
+def gerenciador(janela):
+    """SCR sintético: o teste de exportação independe de caches e rede locais."""
+    from utils.ifdata_cache import scr_data as S
+    from test_scr_inadimplencia_ui import _fato, _linha
 
-    manager = CacheManager()
-    return lambda: manager
+    periodos = pd.date_range(end=janela.index.max(), periods=18, freq="ME")
+    linhas = [
+        _linha(data_base=periodo.strftime("%Y-%m"), uf=uf, porte=porte,
+               modalidade_bcb=modalidade, carteira_ativa=1000.0 + posicao,
+               carteira_inadimplencia=30.0 + posicao)
+        for periodo in periodos
+        for modalidade in S.MODALIDADES_BCB_PF
+        for porte in S.PORTE_PF_ORDEM[:3]
+        for posicao, uf in enumerate(S.REGIAO_POR_UF)
+    ]
+    fato = _fato(linhas)
+
+    class CacheSCRTeste:
+        def get_info(self):
+            return {"periodos": [p.strftime("%Y-%m") for p in periodos]}
+
+        def carregar_detalhe(self, *, anos):
+            return fato[fato["data_base"].str[:4].astype(int).isin(anos)].copy()
+
+    cache = CacheSCRTeste()
+    return lambda: SimpleNamespace(get_cache=lambda nome: cache if nome == "scr_data" else None)
 
 
 @pytest.fixture(scope="module")
@@ -186,7 +208,8 @@ def test_comentario_sai_em_paragrafos_separados(deck):
 
 def test_todas_as_abas_e_submenus_entram(deck):
     _, meta, _ = deck
-    assert meta["secoes"] == len(MC.SECOES_DECK)
+    assert meta["secoes"] == len(MC.SECOES_DECK) + meta["secoes_glossario"]
+    assert meta["completo"] is True
     # 42 gráficos do SGS mais os da aba de faixa de renda, que traz todas as
     # modalidades PF e a visão regional.
     assert meta["paineis"] >= 48
@@ -587,3 +610,203 @@ def test_rotulo_de_barra_empilhada_fica_dentro_da_fatia(deck):
             assert posicao.get("val") == "ctr"
             achou = True
     assert achou, "nenhum rótulo de coluna empilhada no deck"
+
+
+# =============================================================================
+# GERAÇÃO, COBERTURA E FILTROS
+# =============================================================================
+
+
+def test_scr_respeita_o_mesmo_periodo_do_deck(gerenciador, janela):
+    inicio, fim = janela.index[-4], janela.index[-2]
+    figuras = MC._figuras_faixa_de_renda(gerenciador, inicio=inicio, fim=fim)
+    datas = [data for figura in figuras for data in MC._valid_trace_dates(figura)]
+    assert datas
+    assert min(datas).to_period("M") == inicio.to_period("M")
+    assert max(datas).to_period("M") == fim.to_period("M")
+
+
+def test_glossario_do_deck_preserva_definicoes_e_fontes_da_tela(deck):
+    from utils.credito_bc_glossario import SGS_ROWS, SCR_SECTIONS
+
+    _, meta, apresentacao = deck
+    slides = [slide for slide in apresentacao.slides if any(
+        forma.has_text_frame and forma.text.startswith("Glossário ·") for forma in slide.shapes
+    )]
+    texto = "\n".join(forma.text for slide in slides for forma in slide.shapes if forma.has_text_frame)
+    assert len(slides) == meta["secoes_glossario"]
+    assert all(not any(forma.has_chart for forma in slide.shapes) for slide in slides)
+    for indicador, definicao, unidade in SGS_ROWS:
+        assert indicador in texto
+        assert definicao in texto
+        assert unidade in texto
+    for _, markdown in SCR_SECTIONS:
+        for paragrafo in markdown.splitlines():
+            assert paragrafo.removeprefix("- ").replace("**", "") in texto
+    assert "https://www.bcb.gov.br/estabilidadefinanceira/scrdata" in texto
+    for slide in slides:
+        for forma in slide.shapes:
+            if not forma.has_text_frame:
+                continue
+            assert forma.top + forma.height <= apresentacao.slide_height
+            if len(forma.text) > 150:
+                assert all(run.font.size.pt >= 15 for p in forma.text_frame.paragraphs for run in p.runs)
+
+
+def _figura_workflow():
+    import plotly.graph_objects as go
+
+    fig = go.Figure(go.Scatter(x=pd.to_datetime(["2026-05-31", "2026-06-30"]),
+                              y=[1.0, 2.0], name="Série de teste"))
+    fig.update_layout(meta={"chart_title": "Gráfico de teste"})
+    return fig
+
+
+def test_ausencia_do_scr_e_declarada_no_arquivo_parcial(monkeypatch, janela):
+    monkeypatch.setattr(MC, "_figuras_da_secao", lambda *args: [_figura_workflow()])
+    blob, meta = MC._deck_completo(janela, None)
+    assert meta["completo"] is False
+    scr = next(item for item in meta["cobertura"] if "faixa de renda" in item["Seção"])
+    assert scr["Situação"] == "Sem dados"
+    assert scr["Gráficos"] == 0
+    texto = "\n".join(f.text for s in Presentation(BytesIO(blob)).slides for f in s.shapes if f.has_text_frame)
+    assert "exportação parcial" in texto
+    assert "Sem dados disponíveis" in texto
+    assert scr["Seção"] in texto
+
+
+def test_falha_de_secao_mantem_as_demais_e_informa_cobertura(monkeypatch, janela):
+    def figuras(render, wide):
+        if render == "_render_concessoes":
+            raise RuntimeError("falha controlada")
+        return [_figura_workflow()]
+
+    monkeypatch.setattr(MC, "_figuras_da_secao", figuras)
+    monkeypatch.setattr(MC, "_figuras_faixa_de_renda", lambda *args, **kwargs: [_figura_workflow()])
+    eventos = []
+    _, meta = MC._deck_completo(janela, None, progresso=lambda valor, texto: eventos.append((valor, texto)))
+    assert meta["completo"] is False
+    assert meta["cobertura"][0]["Situação"] == "Falha"
+    assert meta["cobertura"][0]["erro"] == "falha controlada"
+    assert all(item["Gráficos"] == 1 for item in meta["cobertura"][1:])
+    assert eventos[-1] == (1.0, "Arquivo pronto")
+    assert [v for v, _ in eventos] == sorted(v for v, _ in eventos)
+
+
+def test_nenhum_grafico_nao_vira_arquivo_completo(monkeypatch, janela):
+    monkeypatch.setattr(MC, "_figuras_da_secao", lambda *args: [])
+    monkeypatch.setattr(MC, "_figuras_faixa_de_renda", lambda *args, **kwargs: [])
+    with pytest.raises(ValueError, match="Nenhuma seção"):
+        MC._deck_completo(janela, None)
+
+
+def test_assinatura_muda_com_valores_historico_comentarios_e_ignora_idade(monkeypatch):
+    import utils.comentarios_credito as comentarios
+
+    historia = pd.DataFrame({"valor": [10.0, float("nan"), 20.0]}, index=pd.date_range("2025-01-31", periods=3, freq="ME"))
+    janela = historia.iloc[-1:].copy()
+    janela.attrs["full_history"] = historia
+    doc = {"texto": "primeira leitura"}
+    monkeypatch.setattr(comentarios, "carregar", lambda: doc)
+    idade = [1]
+    info = {"periodos": ["2025-03"], "timestamp_salvamento": "2025-04-01"}
+    cache = SimpleNamespace(get_info=lambda: {**info, "idade_horas": idade[0]})
+    manager = lambda: SimpleNamespace(get_cache=lambda nome: cache)
+    original = MC._assinatura_deck(janela, manager)
+    idade[0] = 2
+    assert MC._assinatura_deck(janela, manager) == original
+    janela.iloc[0, 0] = 21.0
+    assert MC._assinatura_deck(janela, manager) != original
+    janela.iloc[0, 0] = 20.0
+    historia.iloc[0, 0] = 12.0
+    assert MC._assinatura_deck(janela, manager) != original
+    historia.iloc[0, 0] = 10.0
+    doc["texto"] = "leitura revisada"
+    assert MC._assinatura_deck(janela, manager) != original
+    doc["texto"] = "primeira leitura"
+    info["timestamp_salvamento"] = "2025-04-02"
+    assert MC._assinatura_deck(janela, manager) != original
+
+
+def test_botao_so_gera_por_pedido_e_permite_tentar_novamente(monkeypatch, janela):
+    from contextlib import nullcontext
+
+    cliques, chamadas, downloads = [False], [], []
+    estado = {}
+    st = SimpleNamespace(
+        session_state=estado,
+        markdown=lambda *args, **kwargs: None,
+        caption=lambda *args, **kwargs: None,
+        info=lambda *args, **kwargs: None,
+        error=lambda *args, **kwargs: None,
+        warning=lambda *args, **kwargs: None,
+        button=lambda *args, **kwargs: cliques[0],
+        toggle=lambda *args, **kwargs: True,
+        selectbox=lambda label, opcoes, **kwargs: opcoes[kwargs.get("index", 0)],
+        progress=lambda *args, **kwargs: SimpleNamespace(progress=lambda *a, **kw: None, empty=lambda: None),
+        download_button=lambda *args, **kwargs: downloads.append(kwargs["data"]),
+        expander=lambda *args, **kwargs: nullcontext(),
+        dataframe=lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(MC, "st", st)
+
+    def gerar(*args, **kwargs):
+        chamadas.append(True)
+        if len(chamadas) == 1:
+            raise RuntimeError("falha temporária")
+        return b"arquivo", {"completo": True, "cobertura": [{"erro": ""}],
+                            "paineis": 1, "slides": 1, "secoes_glossario": 1}
+
+    monkeypatch.setattr(MC, "_deck_completo", gerar)
+    MC._botao_deck_completo(janela, None)
+    assert chamadas == []
+    cliques[0] = True
+    MC._botao_deck_completo(janela, None)
+    assert estado["_deck_completo_memo"]["erro"] == "falha temporária"
+    assert downloads == []
+    MC._botao_deck_completo(janela, None)
+    assert len(chamadas) == 2
+    assert downloads == [b"arquivo"]
+    cliques[0] = False
+    MC._botao_deck_completo(janela, None)
+    assert len(chamadas) == 2
+    revisada = janela.copy()
+    revisada.iloc[0, 0] = 123456.0
+    MC._botao_deck_completo(revisada, None)
+    assert "valor" not in estado["_deck_completo_memo"]
+
+
+def test_exportacao_manual_funciona_sem_visitar_as_abas(monkeypatch):
+    from streamlit.testing.v1 import AppTest
+
+    argumentos = []
+
+    def gerar(wide, manager, **kwargs):
+        argumentos.append((wide.index.min(), wide.index.max(), kwargs["modalidade_regiao"]))
+        return b"arquivo", {"completo": True, "cobertura": [{"erro": ""}],
+                            "paineis": 1, "slides": 1, "secoes_glossario": 1}
+
+    monkeypatch.setattr(MC, "_deck_completo", gerar)
+    app = AppTest.from_string('''
+import pandas as pd
+from tabs.mercado_credito import _botao_deck_completo
+wide = pd.DataFrame({"taxa_pf_livre": [10., 11., 12., 13.]},
+                    index=pd.date_range("2026-03-31", periods=4, freq="ME"))
+_botao_deck_completo(wide, None)
+''').run()
+    assert not app.exception
+    assert argumentos == []
+    app.toggle(key="sgs_deck_periodo_tela").set_value(False).run()
+    app.selectbox(key="sgs_deck_period_start").set_value(pd.Timestamp("2026-04-30")).run()
+    app.selectbox(key="sgs_deck_period_end").set_value(pd.Timestamp("2026-05-31")).run()
+    app.selectbox(key="sgs_deck_modalidade_regiao").set_value("PF - Veículos").run()
+    app.button(key="sgs_gerar_deck_completo").click().run()
+    assert not app.exception
+    assert argumentos == [(pd.Timestamp("2026-04-30"), pd.Timestamp("2026-05-31"), "PF - Veículos")]
+
+
+def test_recorte_regional_selecionado_entra_no_deck(gerenciador):
+    figuras = MC._figuras_faixa_de_renda(gerenciador, modalidade_regiao="PF - Veículos")
+    assert figuras[-1].layout.meta["chart_title"] == "PF - Veículos por região"
+    with pytest.raises(ValueError, match="Sem dados regionais"):
+        MC._figuras_faixa_de_renda(gerenciador, modalidade_regiao="PJ - Capital de giro")

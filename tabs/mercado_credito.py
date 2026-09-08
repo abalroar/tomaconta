@@ -9,9 +9,11 @@ séries se colam. O nome de cada série continua na ponta da linha nos dois caso
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from contextvars import ContextVar
 from html import escape
+from hashlib import sha256
+import json
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -35,6 +37,10 @@ from utils.sgs_credit_analytics import (
 )
 from tabs.comentario_credito import render_comentario
 from utils.sgs_credit_registry import SGS_SERIES
+from utils.credito_bc_glossario import (
+    SGS_ROWS, SGS_READING, SCR_SECTIONS, SCR_SOURCES,
+    secoes_glossario_deck, texto_criterios,
+)
 
 
 TITLE = "Estatísticas Crédito BC"
@@ -754,7 +760,11 @@ def _figuras_da_subsecao(nome: str, wide: pd.DataFrame) -> list[go.Figure]:
     return _figuras_da_secao(alvo, wide)
 
 
-def _figuras_faixa_de_renda(get_cache_manager) -> list[go.Figure]:
+def _figuras_faixa_de_renda(
+    get_cache_manager, *, inicio: pd.Timestamp | None = None,
+    fim: pd.Timestamp | None = None,
+    modalidade_regiao: str | None = None,
+) -> list[go.Figure]:
     """Painéis por faixa de renda e a visão regional, do cache do SCR.data.
 
     O deck leva todas as modalidades PF disponíveis, e não só as quatro que a
@@ -776,8 +786,9 @@ def _figuras_faixa_de_renda(get_cache_manager) -> list[go.Figure]:
     periodos = sorted(str(p) for p in (cache.get_info().get("periodos") or []))
     if not periodos:
         return []
-    fim = pd.Timestamp(f"{periodos[-1]}-01")
-    inicio = fim - pd.DateOffset(months=scr_spec.JANELA_PADRAO_MESES - 1)
+    fim = pd.Timestamp(fim).to_period("M").to_timestamp() if fim is not None else pd.Timestamp(f"{periodos[-1]}-01")
+    inicio = (pd.Timestamp(inicio).to_period("M").to_timestamp() if inicio is not None
+              else fim - pd.DateOffset(months=scr_spec.JANELA_PADRAO_MESES - 1))
     base = cache.carregar_detalhe(anos=list(range(inicio.year, fim.year + 1)))
     base = scr_q.filtrar(
         base,
@@ -809,87 +820,209 @@ def _figuras_faixa_de_renda(get_cache_manager) -> list[go.Figure]:
     ]
 
     if modalidades:
-        regiao = scr_q.filtrar(base, modalidade_bcb=modalidades[0])
+        modalidade_geo = modalidade_regiao or modalidades[0]
+        if modalidade_geo not in presentes:
+            raise ValueError(f"Sem dados regionais de {modalidade_geo} no período selecionado.")
+        regiao = scr_q.filtrar(base, modalidade_bcb=modalidade_geo)
         geo = scr_spec.construir_por_regiao(
             regiao, metrica=metrica, data_base=data_base, nivel="uf"
         )
         figuras.append(figura_por_uf(geo["mapa"], rotulo))
         figuras.append(figura_por_regiao(
             geo, rotulo_metrica=rotulo,
-            titulo=f"{modalidades[0]} por região",
+            titulo=f"{modalidade_geo} por região",
         ))
     return [figura for figura in figuras if figura.data]
 
 
-def _deck_completo(wide: pd.DataFrame, get_cache_manager) -> tuple[bytes, dict]:
+def _intervalo_figuras(figuras: Sequence[go.Figure]) -> tuple[str, str]:
+    datas = [data for figura in figuras for data in _valid_trace_dates(figura)]
+    return ((formatar_competencia(min(datas)), formatar_competencia(max(datas)))
+            if datas else ("N/D", "N/D"))
+
+
+def _deck_completo(
+    wide: pd.DataFrame, get_cache_manager, *,
+    metadata: Mapping | None = None,
+    modalidade_regiao: str | None = None,
+    progresso: Callable[[float, str], None] | None = None,
+) -> tuple[bytes, dict]:
     from utils.comentarios_credito import carregar, comentario
     from utils.sgs_credit_pptx_export import exportar_deck_secoes_pptx
 
+    datas = pd.DatetimeIndex(wide.index).dropna()
+    if not len(datas):
+        raise ValueError("Não há dados no período selecionado.")
+    inicio, fim = datas.min(), datas.max()
     documento = carregar()
-    secoes = []
-    for titulo, chave, render in SECOES_DECK:
-        if render:
-            figuras = _figuras_da_secao(render, wide)
-        else:
-            figuras = _figuras_faixa_de_renda(get_cache_manager)
+    secoes, cobertura = [], []
+    for posicao, (titulo, chave, render) in enumerate(SECOES_DECK):
+        if progresso:
+            progresso(posicao / (len(SECOES_DECK) + 1), f"Preparando {titulo}")
+        erro = ""
+        try:
+            figuras = (_figuras_da_secao(render, wide) if render else
+                       _figuras_faixa_de_renda(get_cache_manager, inicio=inicio, fim=fim,
+                                               modalidade_regiao=modalidade_regiao))
+            figuras = [fig for fig in figuras if any(
+                pd.to_numeric(pd.Series(trace.y), errors="coerce").notna().any()
+                for trace in fig.data if getattr(trace, "y", None) is not None
+            )]
+        except Exception as exc:  # A falha fica visível na seção e na cobertura.
+            figuras, erro = [], str(exc)
+        de, ate = _intervalo_figuras(figuras)
+        cobertura.append({
+            "Seção": titulo, "Situação": "Incluída" if figuras else ("Falha" if erro else "Sem dados"),
+            "Gráficos": len(figuras), "De": de, "Até": ate, "erro": erro,
+        })
         if not figuras:
+            motivo = ("Não foi possível preparar os gráficos desta seção. Gere o arquivo novamente."
+                      if erro else "Sem dados disponíveis para os gráficos desta seção no período selecionado.")
+            secoes.append((titulo, (motivo, "Fonte: Banco Central do Brasil"), []))
             continue
         leitura = comentario(chave, documento=documento)
         secoes.append((
             titulo,
-            (leitura.texto, "Fontes: " + " · ".join(leitura.fontes))
-            if leitura is not None and not leitura.vazio
-            else None,
+            (leitura.texto, "Fontes: " + " · ".join(leitura.fontes)
+             + (f" · Leitura referente a {leitura.data_base}" if leitura.data_base else ""))
+            if leitura is not None and not leitura.vazio else None,
             figuras,
         ))
-    datas = pd.DatetimeIndex(wide.index).dropna()
-    competencia = formatar_competencia(datas.max()) if len(datas) else "N/D"
-    return exportar_deck_secoes_pptx(
+    if not any(item["Gráficos"] for item in cobertura):
+        raise ValueError("Nenhuma seção possui gráficos disponíveis no período selecionado.")
+    fonte = str((metadata or {}).get("fonte") or "BCData/SGS")
+    historia = wide.attrs.get("full_history", wide)
+    ultima = pd.DatetimeIndex(historia.index).max()
+    glossario = secoes_glossario_deck(ultima.strftime("%m/%Y"), fonte)
+    secoes.extend(glossario)
+    completo = all(item["Situação"] == "Incluída" for item in cobertura)
+    if progresso:
+        progresso(len(SECOES_DECK) / (len(SECOES_DECK) + 1), "Montando gráficos editáveis e glossário")
+    blob, meta = exportar_deck_secoes_pptx(
         secoes,
-        titulo_deck="Estatísticas Crédito BC",
-        subtitulo_capa=f"Séries do SGS e do SCR.data · janela até {competencia}",
+        titulo_deck=TITLE if completo else f"{TITLE} · exportação parcial",
+        subtitulo_capa=(f"Séries do SGS e do SCR.data · janela até {formatar_competencia(fim)} "
+                        f"· início em {formatar_competencia(inicio)}"),
         rodape_capa="fonte: Banco Central do Brasil · BCData/SGS e SCR.data",
     )
+    meta.update(cobertura=cobertura, completo=completo, secoes_glossario=len(glossario),
+                periodo_inicial=inicio.strftime("%Y-%m"), periodo_final=fim.strftime("%Y-%m"),
+                modalidade_regiao=modalidade_regiao)
+    if progresso:
+        progresso(1.0, "Arquivo pronto")
+    return blob, meta
 
 
-def _botao_deck_completo(wide: pd.DataFrame, get_cache_manager) -> None:
-    """Todas as abas em um arquivo, com a leitura dos dados de cada uma."""
+def _assinatura_deck(
+    wide: pd.DataFrame, get_cache_manager, metadata: Mapping | None = None,
+    modalidade_regiao: str | None = None,
+) -> str:
+    """Identifica os insumos do arquivo, inclusive revisões na mesma competência."""
+    from utils.comentarios_credito import carregar
+
+    resumo = sha256()
+    for frame in (wide, wide.attrs.get("full_history", wide)):
+        resumo.update(repr(tuple(frame.columns)).encode("utf-8"))
+        resumo.update(pd.util.hash_pandas_object(frame, index=True).values.tobytes())
+    contexto = {"comentarios": carregar(), "sgs": metadata or {}, "modalidade_regiao": modalidade_regiao}
+    try:
+        manager = get_cache_manager() if get_cache_manager else None
+        cache = manager.get_cache("scr_data") if manager else None
+        contexto["scr"] = (
+            {key: value for key, value in cache.get_info().items() if key != "idade_horas"}
+            if cache else None
+        )
+    except Exception as exc:
+        contexto["scr"] = {"indisponivel": type(exc).__name__}
+    resumo.update(json.dumps(contexto, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8"))
+    return resumo.hexdigest()
+
+
+def _botao_deck_completo(
+    wide: pd.DataFrame, get_cache_manager, *, metadata: Mapping | None = None,
+) -> None:
+    """A geração começa por pedido, com cobertura e opção de tentar novamente."""
     datas = pd.DatetimeIndex(wide.index).dropna()
-    chave = "|".join([
-        "deck_completo",
-        str(datas.min()) if len(datas) else "",
-        str(datas.max()) if len(datas) else "",
-    ])
+    if not len(datas):
+        st.info("Selecione um período com dados para gerar o arquivo.")
+        return
+    from tabs import scr_inadimplencia as scr_spec
+
+    st.markdown("**Arquivo completo**")
+    if not st.toggle("Usar o período das séries SGS", value=True, key="sgs_deck_periodo_tela"):
+        historia = wide.attrs.get("full_history", wide)
+        analiticas = [c for c in historia.columns if c not in {"cdi_aa", "selic_aa"}]
+        historico_util = historia[analiticas] if analiticas else historia
+        periodos = list(pd.DatetimeIndex(historico_util.dropna(how="all").index).sort_values().unique())
+        if not periodos:
+            st.info("Sem períodos disponíveis para o arquivo.")
+            return
+        inicios = list(reversed(periodos))
+        inicio_padrao = datas.min() if datas.min() in inicios else inicios[-1]
+        inicio = st.selectbox("Início do arquivo", inicios, index=inicios.index(inicio_padrao),
+                              format_func=formatar_competencia, key="sgs_deck_period_start")
+        fins = [p for p in reversed(periodos) if p >= inicio]
+        if st.session_state.get("sgs_deck_period_end") not in fins:
+            st.session_state["sgs_deck_period_end"] = datas.max() if datas.max() in fins else fins[0]
+        fim = st.selectbox("Fim do arquivo", fins, format_func=formatar_competencia,
+                          key="sgs_deck_period_end")
+        wide = _filter_period_range(historia, pd.Timestamp(inicio), pd.Timestamp(fim))
+        datas = pd.DatetimeIndex(wide.index).dropna()
+    opcoes_regiao = [*scr_spec.MODALIDADES_BCB_PF, *scr_spec.MODALIDADES_BCB_PJ]
+    regiao_tela = st.session_state.get("scr_regiao_modalidade")
+    regiao_padrao = regiao_tela if regiao_tela in opcoes_regiao else opcoes_regiao[0]
+    modalidade_regiao = st.selectbox(
+        "Modalidade da visão regional", opcoes_regiao, index=opcoes_regiao.index(regiao_padrao),
+        key="sgs_deck_modalidade_regiao",
+    )
+    st.caption(
+        f"Período: {formatar_competencia(datas.min())} a {formatar_competencia(datas.max())}. "
+        "Inclui as seções SGS, inadimplência PF por renda em todas as modalidades, "
+        f"visão regional de {modalidade_regiao} e glossário. "
+        "O SCR respeita o mesmo período e termina em sua última observação disponível."
+    )
+    chave = _assinatura_deck(wide, get_cache_manager, metadata, modalidade_regiao)
     memo = st.session_state.setdefault("_deck_completo_memo", {})
     if memo.get("chave") != chave:
+        memo.clear()
         memo["chave"] = chave
-        memo["erro"] = ""
-        with st.spinner("Montando o deck completo..."):
-            try:
-                memo["valor"] = _deck_completo(wide, get_cache_manager)
-            except Exception as exc:  # noqa: BLE001 - a seção continua sem o deck
-                memo["valor"] = None
-                memo["erro"] = str(exc)
+    rotulo = "Gerar novamente" if memo.get("valor") else ("Tentar novamente" if memo.get("erro") else "Gerar PPTX completo")
+    if st.button(rotulo, key="sgs_gerar_deck_completo", width="stretch"):
+        memo.pop("valor", None)
+        memo.pop("erro", None)
+        barra = st.progress(0, text="Preparando exportação")
+        try:
+            memo["valor"] = _deck_completo(
+                wide, get_cache_manager, metadata=metadata, modalidade_regiao=modalidade_regiao,
+                progresso=lambda valor, texto: barra.progress(valor, text=texto),
+            )
+        except Exception as exc:
+            memo["erro"] = str(exc)
+        finally:
+            barra.empty()
+    if memo.get("erro"):
+        st.error(f"Não foi possível gerar o arquivo: {memo['erro']}")
     if not memo.get("valor"):
-        st.caption(f"Deck completo indisponível: {memo.get('erro') or 'sem gráficos'}")
         return
     blob, meta = memo["valor"]
+    if not meta["completo"]:
+        ausentes = [item["Seção"] for item in meta["cobertura"] if item["Situação"] != "Incluída"]
+        st.warning("Arquivo parcial. Seções indisponíveis: " + "; ".join(ausentes))
+    qualificacao = "completo" if meta["completo"] else "parcial"
     st.download_button(
-        f"Baixar deck completo ({meta['paineis']} gráficos, {meta['slides']} slides)",
+        f"Baixar deck {qualificacao} ({meta['paineis']} gráficos, {meta['slides']} slides)",
         data=blob,
-        file_name="estatisticas_credito_bc.pptx",
-        mime=(
-            "application/vnd.openxmlformats-officedocument."
-            "presentationml.presentation"
-        ),
-        key="sgs_deck_completo",
-        width="stretch",
-        help=(
-            "Todas as abas em um arquivo, na ordem da tela, com a leitura dos "
-            "dados de cada uma acima dos gráficos."
-        ),
+        file_name=f"estatisticas_credito_bc_{qualificacao}.pptx",
+        mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        key="sgs_deck_completo", width="stretch",
+        help="Gráficos e textos editáveis, na ordem das seções do aplicativo.",
     )
-
+    with st.expander("Conferir conteúdo do arquivo"):
+        st.dataframe(pd.DataFrame(meta["cobertura"]).drop(columns="erro"), hide_index=True, width="stretch")
+        st.caption(f"Glossário: {meta['secoes_glossario']} slides. Mapas são apresentados como barras editáveis por UF.")
+        for item in meta["cobertura"]:
+            if item["erro"]:
+                st.caption(f"{item['Seção']}: {item['erro']}")
 
 def _render_credit(wide: pd.DataFrame) -> None:
     selected = st.segmented_control(
@@ -1167,57 +1300,16 @@ def _render_glossary(frame: pd.DataFrame, metadata: Mapping | None) -> None:
         key="sgs_credit_glossary_section",
     )
     if glossary_section == "SCR.data":
-        st.markdown("##### Conceitos oficiais do SCR.data")
-        st.markdown(
-            "- **Carteira ativa:** soma dos valores a vencer e vencidos das operações "
-            "abrangidas pelo SCR. Na visão regional, **Carteira (R$ bi)** é o total "
-            "da carteira da modalidade na UF, independentemente de a operação estar "
-            "inadimplente. É o denominador das taxas.\n"
-            "- **Inadimplência:** carteira integral das operações com alguma parcela "
-            "em atraso superior a 90 dias, dividida pela carteira de todas as operações.\n"
-            "- **Ativo problemático:** carteira das operações classificadas como ativos "
-            "problemáticos dividida pela carteira total. Desde 2025, o BCB considera "
-            "a classificação informada pelas instituições na característica especial 19.\n"
-            "- **Localização:** a UF decorre do CEP de residência da pessoa física ou "
-            "da sede da pessoa jurídica.\n"
-            "- **Participação da UF:** carteira ativa da UF dividida pela carteira ativa "
-            "do Brasil, após os mesmos filtros de cliente e modalidade."
-        )
-        st.markdown("##### Escopo, periodicidade e limites")
-        st.markdown(
-            "O BCB atualiza o relatório mensalmente, no último dia útil, com divulgação "
-            "cerca de 30 dias após o fechamento. O documento 3040 cobre operações de "
-            "crédito cursadas no país acima do limite de identificação do SCR: R$ 1 mil "
-            "até mai/2016 e R$ 200 desde jun/2016. Saldos de dependências ou controladas "
-            "no exterior ficam fora da publicação. Recortes com até 15 operações têm a "
-            "contagem protegida; os valores monetários permanecem no agregado publicado."
-        )
-        st.markdown("##### Comparabilidade")
-        st.markdown(
-            "Os totais podem divergir do IF.data, do COSIF e de outras estatísticas do "
-            "BCB por diferenças de documento, cobertura, tolerância de remessa e tratamento "
-            "de agregações com poucas operações. Para dados consolidados de crédito, o BCB "
-            "orienta consultar a Nota para a Imprensa e o SGS."
-        )
-        st.markdown(
-            "**Fontes oficiais:** [SCR.data](https://www.bcb.gov.br/estabilidadefinanceira/scrdata) · "
-            "[Metodologia](https://www.bcb.gov.br/content/estabilidadefinanceira/scr/scr.data/scr_data_metodologia.pdf) · "
-            "[Documento 3040](https://www.bcb.gov.br/estabilidadefinanceira/scrdoc3040)"
-        )
+        st.markdown(SCR_SECTIONS[0][0])
+        st.markdown(SCR_SECTIONS[0][1])
+        st.markdown(SCR_SECTIONS[1][0])
+        st.markdown(SCR_SECTIONS[1][1])
+        st.markdown(SCR_SECTIONS[2][0])
+        st.markdown(SCR_SECTIONS[2][1])
+        st.markdown(SCR_SOURCES)
         return
 
-    rows = [
-        ("Crescimento real em 12 meses", "(Xₜ / índice IPCAₜ) ÷ (Xₜ₋₁₂ / índice IPCAₜ₋₁₂) − 1", "%"),
-        ("Variação de taxa/spread", "xₜ − xₜ₋₁₂", "p.p."),
-        ("Participação", "componente ÷ total", "%"),
-        ("Cobertura", "provisão / carteira ÷ inadimplência / carteira", "%"),
-        ("Pré-inadimplência", "Operações com atraso entre 15 e 90 dias", "% da carteira"),
-        ("Inadimplência", "Operações com atraso superior a 90 dias", "% da carteira"),
-        ("Comprometimento total", "amortização do principal + juros", "% da renda"),
-        ("Outros — mix PF/PJ", "resíduo entre o total e os produtos explicitamente classificados", "% da carteira"),
-        ("Crédito em % do PIB", "aguarda validação da série mensal de PIB usada no workbook histórico", "% do PIB"),
-        ("MPMe", "receita bruta até R$ 300 milhões ou ativos totais até R$ 240 milhões", "classificação"),
-    ]
+    rows = SGS_ROWS
     st.dataframe(
         pd.DataFrame(rows, columns=["Indicador", "Definição / fórmula", "Unidade"]),
         hide_index=True,
@@ -1225,36 +1317,13 @@ def _render_glossary(frame: pd.DataFrame, metadata: Mapping | None) -> None:
     )
 
     st.markdown("##### Leitura dos gráficos")
-    st.markdown(
-        "- **Cores:** a paleta de linhas tem cinco cores, todas com pelo menos "
-        "3:1 de contraste sobre o branco e distância perceptual (ΔE) acima de 27 "
-        "entre si. Da sexta série em diante a cor repete e o **traço tracejado** "
-        "passa a distinguir.\n"
-        "- **Espessura:** linha grossa é a série em foco, tracejada é o agregado, "
-        "fina é contexto.\n"
-        "- **Rótulos:** tamanho único de 12 px, sempre na horizontal. Fatia de "
-        "barra que não comporta o rótulo nesse tamanho fica sem rótulo — o valor "
-        "continua no tooltip — em vez de receber um texto encolhido ou deitado.\n"
-        "- **Competência:** o rodapé de cada card informa a última competência "
-        "que aquele card efetivamente alcança, que nem sempre é a do seletor."
-    )
+    st.markdown(SGS_READING)
 
     latest = pd.to_datetime(frame["data"], errors="coerce").max()
     latest_label = latest.strftime("%m/%Y") if pd.notna(latest) else "N/D"
     source = (metadata or {}).get("fonte") or "BCData/SGS"
     st.markdown("##### Fontes, cache e critérios de leitura")
-    st.markdown(
-        f"- **SGS:** Banco Central do Brasil · última observação no cache: "
-        f"**{latest_label}** · origem do cache: **{source}**.\n"
-        "- **SCR.data:** dados do documento 3040, operação a operação; "
-        "podem divergir do IF.data e dos balancetes COSIF. Tem calendário de "
-        "publicação próprio e costuma ficar um mês atrás do SGS.\n"
-        "- **Localização SCR:** a UF vem do CEP do tomador.\n"
-        "- **Porte SCR:** PF usa faixa de renda; PJ usa faturamento. Os critérios "
-        "não devem ser combinados no mesmo eixo.\n"
-        "- **Sigilo SCR:** contagens iguais ou inferiores ao limite de divulgação "
-        "podem ser suprimidas pelo BCB."
-    )
+    st.markdown(texto_criterios(latest_label, source))
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -1333,10 +1402,8 @@ def render_mercado_credito(cache, *, get_cache_manager=None) -> None:
     _, coluna_export = st.columns([0.82, 0.18])
     with coluna_export:
         with st.popover("Exportar", width="stretch"):
-            export_slot = st.empty()
-            _botao_deck_completo(
-                _period_filter_silencioso(full_wide), get_cache_manager
-            )
+            export_slot = st.container()
+            deck_slot = st.container()
     figuras: list[go.Figure] = []
     token = _EXPORT_FIGURES.set(figuras)
     try:
@@ -1355,6 +1422,11 @@ def render_mercado_credito(cache, *, get_cache_manager=None) -> None:
     finally:
         _EXPORT_FIGURES.reset(token)
 
+    with deck_slot:
+        _botao_deck_completo(
+            _period_filter_silencioso(full_wide), get_cache_manager, metadata=result.metadata,
+        )
+
     if figuras:
         from utils.sgs_credit_pptx_export import exportar_figuras_pptx
 
@@ -1368,7 +1440,7 @@ def render_mercado_credito(cache, *, get_cache_manager=None) -> None:
             figuras,
             titulo_deck=f"{TITLE} · {pagina}",
         )
-        with export_slot.container():
+        with export_slot:
             st.download_button(
                 f"Baixar {meta_export['paineis']} gráficos desta aba em PPTX",
                 data=blob,

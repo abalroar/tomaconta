@@ -406,15 +406,16 @@ def test_navigation_has_dedicated_bcb_group_and_no_top_level_scr():
         for target in node.targets
         if isinstance(target, ast.Name) and target.id in {"MENU_PRINCIPAL", "MENU_BCB"}
     }
-    assert assignments["MENU_BCB"] == ["Estatísticas Crédito BC", "Taxas de Juros por Produto"]
+    assert assignments["MENU_BCB"] == ["Estatísticas Crédito BC", "Taxas de Juros por Produto", "Meios de Pagamento (SPB)"]
     assert "Inadimplência (SCR)" not in assignments["MENU_PRINCIPAL"]
     assert "Estatísticas Crédito BC" not in assignments["MENU_PRINCIPAL"]
     assert "Taxas de Juros por Produto" not in assignments["MENU_PRINCIPAL"]
 
 
-def test_taxas_por_produto_defaults_to_12_months_and_exports_pptx():
+def test_taxas_por_produto_selects_periods_and_exports_pptx():
     source = (PROJECT_ROOT / "app1.py").read_text(encoding="utf-8")
-    assert 'st.session_state["tj_beta_janela_meses"] = min(12, max_meses_beta)' in source
+    assert 'chave="tj_beta_mensal", frequencia="M"' in source
+    assert 'chave="tj_beta_diario", frequencia="D"' in source
     assert 'file_name="taxas_juros_por_produto.pptx"' in source
     assert 'key="tj_beta_download_pptx"' in source
 

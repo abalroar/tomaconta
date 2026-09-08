@@ -159,13 +159,15 @@ def _definir_tick_lbl_pos(eixo, valor: str) -> None:
     if no is None:
         no = etree.SubElement(elemento, qn("c:tickLblPos"))
     no.set("val", valor)
-    _ordenar_filhos(elemento, ORDEM_CAT_AX)
+    _ordenar_filhos(elemento, ORDEM_DATE_AX if elemento.tag == qn("c:dateAx") else ORDEM_CAT_AX)
 
 
 def _definir_intervalo_rotulos(category_axis, total_categorias: int) -> int:
     """Mantém todas as categorias; os meses intermediários têm rótulo vazio."""
     intervalo = 1
     elemento = category_axis._element
+    if elemento.tag == qn("c:dateAx"):
+        return intervalo
     for tag in ("c:tickLblSkip", "c:tickMarkSkip"):
         no = elemento.find(qn(tag))
         if no is None:
@@ -608,6 +610,14 @@ ORDEM_CAT_AX = (
     "c:tickLblSkip", "c:tickMarkSkip", "c:noMultiLvlLbl", "c:extLst",
 )
 
+ORDEM_DATE_AX = (
+    "c:axId", "c:scaling", "c:delete", "c:axPos", "c:majorGridlines",
+    "c:minorGridlines", "c:title", "c:numFmt", "c:majorTickMark",
+    "c:minorTickMark", "c:tickLblPos", "c:spPr", "c:txPr", "c:crossAx",
+    "c:crosses", "c:crossesAt", "c:auto", "c:lblOffset", "c:baseTimeUnit",
+    "c:majorUnit", "c:majorTimeUnit", "c:minorUnit", "c:minorTimeUnit", "c:extLst",
+)
+
 
 def _ordenar_filhos(elemento, sequencia: Sequence[str]) -> None:
     """Reordena os filhos para a sequência que o schema exige.
@@ -820,6 +830,64 @@ def _definir(pai, tag: str, valor: str):
 ALTURA_TITULO_COMPACTO = Inches(0.46)
 
 
+def _adicionar_ranking_horizontal(
+    slide, painel: Any, tabela: pd.DataFrame, *, left: Emu, top: Emu,
+    width: Emu, height: Emu,
+) -> Dict[str, Any]:
+    """Ranking nativo com uma série e cores editáveis por instituição."""
+    categorias = [str(item) for item in tabela.index]
+    valores = [None if pd.isna(valor) else float(valor) for valor in tabela["Taxa"]]
+    formato = getattr(painel, "formato_numero", FORMATO_PERCENTUAL)
+    dados = CategoryChartData()
+    dados.categories = categorias
+    dados.add_series("Taxa", valores, number_format=formato)
+    grafico = slide.shapes.add_chart(
+        XL_CHART_TYPE.BAR_CLUSTERED, left, top, width, height, dados
+    ).chart
+    grafico.has_title = grafico.has_legend = False
+    _sem_preenchimento_nem_contorno(grafico._chartSpace, ORDEM_CHART_SPACE)
+    plot = grafico.plots[0]
+    plot.gap_width = 55
+    plot.has_data_labels = False
+    serie = plot.series[0]
+    cores = getattr(painel, "cores_categorias", {})
+    total_rotulos = 0
+    for indice, (categoria, valor) in enumerate(zip(categorias, valores)):
+        cor = _hex_para_rgb(cores.get(categoria, "#6F6F6F"))
+        ponto = serie.points[indice]
+        ponto.format.fill.solid()
+        ponto.format.fill.fore_color.rgb = cor
+        ponto.format.line.fill.background()
+        if valor is None:
+            continue
+        _rotular_apenas_ultimo_ponto(serie, indice, formato, com_nome=False)
+        rotulo = ponto.data_label
+        rotulo.position = XL_DATA_LABEL_POSITION.OUTSIDE_END
+        rotulo.font.size = Pt(11)
+        rotulo.font.color.rgb = COR_TITULO
+        total_rotulos += 1
+    _estilizar_eixos(grafico, len(categorias), formato, base_zero=True)
+    grafico.category_axis.tick_labels.font.size = Pt(11)
+    grafico.value_axis.tick_labels.font.size = Pt(10)
+    if getattr(painel, "inverter_categorias", False):
+        escala = grafico.category_axis._element.find(qn("c:scaling"))
+        orientacao = escala.find(qn("c:orientation"))
+        if orientacao is None:
+            orientacao = etree.SubElement(escala, qn("c:orientation"))
+        orientacao.set("val", "maxMin")
+    # O layout automático do Office reserva espaço para o nome completo do
+    # banco. Uma escala com folga comporta o rótulo externo da maior barra.
+    validos = [valor for valor in valores if valor is not None]
+    if validos:
+        piso, teto = escala_de_eixo(validos, ancorar_zero=True)
+        grafico.value_axis.minimum_scale = piso
+        grafico.value_axis.maximum_scale = max(teto, max(validos) * 1.15)
+    return {
+        "titulo": painel.titulo, "series": 1, "categorias": len(categorias),
+        "rotulos": total_rotulos, "eixo_secundario": False,
+    }
+
+
 def _adicionar_painel(
     slide,
     painel: Any,
@@ -841,20 +909,21 @@ def _adicionar_painel(
         )
         altura_cabecalho = ALTURA_TITULO_COMPACTO
     else:
+        altura_titulo = Inches(0.48) if getattr(painel, "estilo_taxas", False) else ALTURA_TITULO
         _caixa_texto(
-            slide, left=left, top=top, width=width, height=ALTURA_TITULO,
+            slide, left=left, top=top, width=width, height=altura_titulo,
             texto=painel.titulo, tamanho=FONTE_TITULO_PT, cor=COR_TITULO, negrito=True,
         )
         _caixa_texto(
-            slide, left=left, top=top + ALTURA_TITULO, width=width, height=ALTURA_SUBTITULO,
+            slide, left=left, top=top + altura_titulo, width=width, height=ALTURA_SUBTITULO,
             texto=painel.subtitulo, tamanho=FONTE_SUBTITULO_PT, cor=COR_SUBTITULO,
         )
         _caixa_texto(
-            slide, left=left, top=top + ALTURA_TITULO + ALTURA_SUBTITULO,
+            slide, left=left, top=top + altura_titulo + ALTURA_SUBTITULO,
             width=width, height=ALTURA_FONTE,
             texto=painel.fonte, tamanho=FONTE_FONTE_PT, cor=COR_FONTE,
         )
-        altura_cabecalho = ALTURA_TITULO + ALTURA_SUBTITULO + ALTURA_FONTE
+        altura_cabecalho = altura_titulo + ALTURA_SUBTITULO + ALTURA_FONTE
 
     topo_grafico = top + altura_cabecalho
     altura_grafico = height - altura_cabecalho
@@ -871,14 +940,29 @@ def _adicionar_painel(
     ).sort_index()
     ordem_categorias = getattr(painel, "ordem_categorias", None)
     if ordem_categorias:
-        presentes = [categoria for categoria in ordem_categorias if categoria in tabela.index]
+        presentes = (
+            list(ordem_categorias) if getattr(painel, "preservar_lacunas", False)
+            else [categoria for categoria in ordem_categorias if categoria in tabela.index]
+        )
         tabela = tabela.reindex(presentes)
+    if getattr(painel, "preservar_lacunas", False):
+        tabela = tabela.reindex(columns=painel.ordem_series)
+    if getattr(painel, "tipo_grafico", "line") == "bar_horizontal":
+        return _adicionar_ranking_horizontal(
+            slide, painel, tabela, left=left, top=topo_grafico,
+            width=width, height=altura_grafico,
+        )
     indices = [str(idx) for idx in tabela.index]
     meses_validos = all(
         len(indice) >= 7 and indice[4] == "-" and indice[5:7].isdigit()
         for indice in indices
     )
-    if meses_validos:
+    taxas = getattr(painel, "estilo_taxas", False)
+    datas_taxas = taxas and meses_validos
+    diaria = getattr(painel, "formato_data", None) == "diaria"
+    if datas_taxas:
+        categorias = [pd.Timestamp(indice).to_pydatetime() for indice in indices]
+    elif meses_validos:
         datas = [pd.Timestamp(f"{indice[:7]}-01") for indice in indices]
         selecionadas, _ = eixo_datas_adaptativo(datas)
         meses_selecionados = {data.strftime("%Y-%m") for data in selecionadas}
@@ -891,11 +975,16 @@ def _adicionar_painel(
 
     dados = CategoryChartData()
     dados.categories = categorias
+    if datas_taxas:
+        dados.categories.number_format = "dd/mm/yyyy" if diaria else "mmm/yy"
     ordem = [s for s in painel.ordem_series if s in tabela.columns]
     for nome in ordem:
         coluna = tabela[nome]
         valores = [None if pd.isna(v) else float(v) for v in coluna]
-        dados.add_series(rotulo_serie_fn(nome), valores)
+        dados.add_series(
+            rotulo_serie_fn(nome), valores,
+            number_format=getattr(painel, "formato_numero", FORMATO_PERCENTUAL) if taxas else None,
+        )
 
     tipo_grafico = getattr(painel, "tipo_grafico", "line")
     if tipo_grafico == "column_stacked":
@@ -912,6 +1001,12 @@ def _adicionar_painel(
         chart_type, left, topo_grafico, width, altura_grafico, dados
     ).chart
     grafico.has_title = False
+    if taxas:
+        elemento_chart = grafico._chartSpace.chart
+        vazios = elemento_chart.find(qn("c:dispBlanksAs"))
+        if vazios is None:
+            vazios = etree.SubElement(elemento_chart, qn("c:dispBlanksAs"))
+        vazios.set("val", "gap")
     # Sem o spPr explícito, o Office desenha o contorno do estilo padrão em
     # volta do gráfico. O deck não tem moldura em lugar nenhum.
     _sem_preenchimento_nem_contorno(grafico._chartSpace, ORDEM_CHART_SPACE)
@@ -921,13 +1016,13 @@ def _adicionar_painel(
     # A coluna empilhada mantém a legenda, porque lá o rótulo leva só o valor.
     # Uma série só não precisa de legenda: o título do card já diz o que é, e
     # o Office ainda lista as categorias quando a legenda fica ligada.
-    grafico.has_legend = tipo_grafico == "column_stacked" and len(ordem) > 1
+    grafico.has_legend = (tipo_grafico == "column_stacked" or taxas) and len(ordem) > 1
     if grafico.has_legend:
         # Legenda à direita, na faixa que já fica reservada. Embaixo, um mix de
         # dez produtos ocupava quatro fileiras e esmagava as barras.
         grafico.legend.position = XL_LEGEND_POSITION.RIGHT
         grafico.legend.include_in_layout = False
-        grafico.legend.font.size = Pt(FONTE_LEGENDA_PT)
+        grafico.legend.font.size = Pt(10 if taxas else FONTE_LEGENDA_PT)
         grafico.legend.font.color.rgb = COR_EIXO
 
     plot = grafico.plots[0]
@@ -983,6 +1078,8 @@ def _adicionar_painel(
                     else None
                 ),
             )
+    if getattr(painel, "escala_taxas", None) is not None:
+        escalas[False] = tuple(painel.escala_taxas)
     # Com eixo secundário, a régua da direita ocupa a borda da área de
     # plotagem: o rótulo precisa começar depois dela, senão cai sobre os
     # próprios números do eixo. A régua ocupa uma largura em polegadas, não
@@ -1047,7 +1144,7 @@ def _adicionar_painel(
         # Nome da série no rótulo só onde ele cabe. Numa fatia de coluna
         # empilhada o texto é mais largo que a barra e vira uma pilha ilegível
         # à direita; lá o nome fica na legenda e o rótulo leva só o valor.
-        com_nome = not eh_coluna
+        com_nome = not eh_coluna and not taxas
         if rotular_todos:
             _rotular_todos_os_pontos(serie, len(coluna), formato_numero, com_nome)
             indices_rotulados = [
@@ -1079,18 +1176,22 @@ def _adicionar_painel(
                     if tipo_grafico == "column_stacked"
                     else XL_DATA_LABEL_POSITION.OUTSIDE_END
                 )
+            elif taxas:
+                rotulo.position = XL_DATA_LABEL_POSITION.ABOVE
             elif not rotular_todos:
                 rotulo.position = posicoes_rotulos.get(
                     nome, XL_DATA_LABEL_POSITION.RIGHT
                 )
             if (
                 not eh_coluna
+                and not taxas
                 and nome in alturas_rotulo
                 and indice_rotulo == ultimo_valido
             ):
                 _layout_do_rotulo(rotulo, x_rotulo, alturas_rotulo[nome])
             rotulo.font.size = Pt(
-                FONTE_ROTULO_COLUNA_PT if eh_coluna
+                (10 if int(width) > int(Inches(8)) else 8) if taxas
+                else FONTE_ROTULO_COLUNA_PT if eh_coluna
                 else corpo_do_rotulo(len(finais))
             )
             if eh_coluna and len(categorias) > MAXIMO_COLUNAS_ROTULO_DEITADO:
@@ -1113,6 +1214,24 @@ def _adicionar_painel(
         base_zero=tipo_grafico in {"column_stacked", "column_line"},
         escala=escalas.get(False),
     )
+    if datas_taxas:
+        # Eixo de datas nativo: intervalos diários e mensais são respeitados
+        # pelo Office, e o workbook mantém as datas de todas as observações.
+        eixo_data = grafico.category_axis
+        eixo_data.tick_labels.number_format = "dd/mm/yy" if diaria else "mmm/yy"
+        eixo_data.tick_labels.number_format_is_linked = False
+        eixo_data.tick_labels.font.size = Pt(10 if int(width) > int(Inches(8)) else 8)
+        unidades = (categorias[-1] - categorias[0]).days if diaria else len(categorias)
+        intervalo = max(1, -(-unidades // (7 if int(width) > int(Inches(8)) else 4)))
+        elemento = eixo_data._element
+        for tag, valor in (("c:baseTimeUnit", "days" if diaria else "months"),
+                           ("c:majorUnit", str(intervalo)),
+                           ("c:majorTimeUnit", "days" if diaria else "months")):
+            no = elemento.find(qn(tag))
+            if no is None:
+                no = etree.SubElement(elemento, qn(tag))
+            no.set("val", valor)
+        _ordenar_filhos(elemento, ORDEM_DATE_AX)
     empilhado = tipo_grafico == "column_stacked"
     if empilhado and not grafico.has_legend:
         # Sem legenda a faixa da direita não serve para nada: o rótulo da barra
@@ -1134,12 +1253,13 @@ def _adicionar_painel(
         )
     else:
         gutter = gutter_linha
-    _layout_manual_do_plot(
-        grafico._chartSpace.chart.plotArea,
-        gutter,
-        ALTURA_PLOT_COLUNA if empilhado else ALTURA_PLOT_LINHA,
-    )
-    if grafico.has_legend:
+    if not taxas:
+        _layout_manual_do_plot(
+            grafico._chartSpace.chart.plotArea,
+            gutter,
+            ALTURA_PLOT_COLUNA if empilhado else ALTURA_PLOT_LINHA,
+        )
+    if grafico.has_legend and not taxas:
         _layout_manual_da_legenda(
             grafico.legend, gutter, len(ordem), int(altura_grafico)
         )
@@ -1177,6 +1297,7 @@ def exportar_paineis_pptx(
     *,
     rotulo_serie_fn=None,
     titulo_deck: Optional[str] = None,
+    blocos_por_slide: Optional[Sequence[int]] = None,
 ) -> Tuple[bytes, Dict[str, Any]]:
     """Monta o PPTX com quatro painéis por slide e devolve os bytes.
 
@@ -1185,6 +1306,11 @@ def exportar_paineis_pptx(
     """
     if not paineis:
         raise ValueError("nenhum painel para exportar")
+    if blocos_por_slide is not None and (
+        sum(blocos_por_slide) != len(paineis)
+        or any(tamanho not in (1, 2, 3, 4) for tamanho in blocos_por_slide)
+    ):
+        raise ValueError("os blocos devem distribuir todos os painéis em grupos de 1 a 4")
 
     rotulo_serie_fn = rotulo_serie_fn or (lambda nome: nome)
 
@@ -1200,8 +1326,14 @@ def exportar_paineis_pptx(
 
     resumo: List[Dict[str, Any]] = []
     slides = 0
-    for inicio in range(0, len(paineis), PAINEIS_POR_SLIDE):
-        bloco = paineis[inicio:inicio + PAINEIS_POR_SLIDE]
+    tamanhos = list(blocos_por_slide) if blocos_por_slide is not None else [
+        min(PAINEIS_POR_SLIDE, len(paineis) - inicio)
+        for inicio in range(0, len(paineis), PAINEIS_POR_SLIDE)
+    ]
+    inicio = 0
+    for tamanho in tamanhos:
+        bloco = paineis[inicio:inicio + tamanho]
+        inicio += tamanho
         slide = prs.slides.add_slide(layout_branco)
         slides += 1
 
@@ -1214,12 +1346,18 @@ def exportar_paineis_pptx(
 
         for posicao, painel in enumerate(bloco):
             coluna, linha = posicao % 2, posicao // 2
+            largura_painel, altura_painel = largura_quadrante, altura_quadrante
+            if blocos_por_slide is not None:
+                linhas = -(-len(bloco) // 2)
+                altura_painel = Emu(int((SLIDE_ALTURA - 2 * MARGEM - TOPO_CONTEUDO - (linhas - 1) * GUTTER_V) / linhas))
+                if len(bloco) == 1:
+                    largura_painel = Emu(int(SLIDE_LARGURA - 2 * MARGEM))
             left = Emu(int(MARGEM + coluna * (largura_quadrante + GUTTER_H)))
-            top = Emu(int(MARGEM + TOPO_CONTEUDO + linha * (altura_quadrante + GUTTER_V)))
+            top = Emu(int(MARGEM + TOPO_CONTEUDO + linha * (altura_painel + GUTTER_V)))
             resumo.append(_adicionar_painel(
                 slide, painel,
                 left=left, top=top,
-                width=largura_quadrante, height=altura_quadrante,
+                width=largura_painel, height=altura_painel,
                 rotulo_serie_fn=rotulo_serie_fn,
             ))
 
@@ -1427,6 +1565,16 @@ def exportar_deck_por_secao(
         texto, fontes = leitura if leitura else ("", "")
         texto = str(texto or "")
         corpo = FONTE_COMENTARIO_PT
+        if not paineis and (texto.strip() or str(fontes or "").strip()):
+            slide = _slide_em_branco(prs)
+            slides += 1
+            corpo = 15
+            linhas = linhas_do_comentario(texto, int(LARGURA_UTIL), corpo)
+            _bloco_de_leitura(
+                slide, titulo=titulo, texto=texto, fontes=str(fontes or ""),
+                linhas=linhas, largura=int(LARGURA_UTIL), corpo=corpo,
+            )
+            continue
         linhas_faixa = (
             linhas_do_comentario(texto, int(LARGURA_UTIL), corpo)
             if texto.strip() else 0
