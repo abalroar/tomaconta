@@ -136,7 +136,7 @@ def test_get_postprocess_targets_maps_base_caches():
     assert get_postprocess_targets(["bloprudencial"]) == ["critical_screens"]
 
 
-def test_get_publishable_bundle_skips_failed_gate_targets():
+def test_get_publishable_bundle_blocks_entire_package_on_failed_gate():
     publishable, warnings = get_publishable_bundle(
         ["principal"],
         materialization_details=[
@@ -151,8 +151,8 @@ def test_get_publishable_bundle_skips_failed_gate_targets():
         },
     )
 
-    assert publishable == ["principal", "critical_screens"]
-    assert warnings == ["derived_metrics: esperado 202512, encontrado 202509"]
+    assert publishable == []
+    assert any("esperado 202512, encontrado 202509" in warning for warning in warnings)
 
 
 class _QualityCache:

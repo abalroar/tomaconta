@@ -12,7 +12,8 @@ from typing import Any, Mapping, Optional, Sequence
 
 import pandas as pd
 
-from .release_config import ReleaseConfig, get_release_config
+from .release_config import ReleaseConfig, build_release_base_url, get_release_config
+from .update_catalog import resolve_cache_release
 
 
 PLACEHOLDER_IF_PATTERN = re.compile(r"^\[IF\s+[A-Za-z0-9]+\]$", re.IGNORECASE)
@@ -171,6 +172,7 @@ def collect_cache_diagnostics(
         info = cache.get_info()
         metadata = load_json_file(cache.arquivo_metadata)
         max_period = max_period_from_metadata(metadata) or max_period_from_values(info.get("periodos") or [])
+        release_repo, release_tag = resolve_cache_release(cache, release)
         diagnostics[cache_name] = {
             "cache": cache_name,
             "exists": bool(info.get("existe")),
@@ -187,9 +189,9 @@ def collect_cache_diagnostics(
                 if include_hashes
                 else None
             ),
-            "release_repo": release.repo,
-            "release_tag": release.tag,
-            "release_base_url": release.release_base_url,
+            "release_repo": release_repo,
+            "release_tag": release_tag,
+            "release_base_url": build_release_base_url(repo=release_repo, tag=release_tag),
         }
     return diagnostics
 
@@ -212,9 +214,20 @@ def evaluate_alignment_gates(
         }
         missing = [nome for nome, record in gate_records.items() if not record.get("exists")]
         actual_refs = {
-            nome: record.get("max_period_ref") or ""
+            nome: str(record.get("max_period_ref") or "")
             for nome, record in gate_records.items()
         }
+
+        def valid_reference(value):
+            if not re.fullmatch(r"[0-9]{6}", value):
+                return False
+            try:
+                datetime(int(value[:4]), int(value[4:]), 1)
+            except ValueError:
+                return False
+            return spec.get("periodicity") != "quarterly" or value[4:] in {"03", "06", "09", "12"}
+
+        invalid = [name for name, value in actual_refs.items() if not valid_reference(value)]
         actual_values = {
             valor
             for valor in actual_refs.values()
@@ -223,14 +236,19 @@ def evaluate_alignment_gates(
         expected_raw = expected.get(gate_key) or expected.get(spec.get("periodicity", ""))
         expected_ref = normalize_period_reference(expected_raw) if expected_raw else ""
 
-        success = not missing and len(actual_values) == 1
+        invalid_expected = bool(expected_raw) and not valid_reference(expected_ref)
+        success = bool(caches) and not missing and not invalid and not invalid_expected and len(actual_values) == 1
         if expected_ref:
             success = success and actual_values == {expected_ref}
 
         if missing:
             message = f"caches ausentes: {', '.join(missing)}"
-        elif not actual_values:
-            message = "período máximo indisponível nas metadata locais"
+        elif invalid:
+            message = f"competência máxima ausente ou inválida: {', '.join(invalid)}"
+        elif invalid_expected:
+            message = f"competência esperada inválida: {expected_raw}"
+        elif not caches:
+            message = "nenhum cache definido no gate"
         elif len(actual_values) > 1:
             message = "desalinhado: períodos máximos diferentes entre caches"
         elif expected_ref and actual_values != {expected_ref}:

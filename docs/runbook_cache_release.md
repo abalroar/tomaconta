@@ -6,6 +6,20 @@ Atualize **bases primeiro**, derive/publice **só no fim**.
 
 Se `principal`, `capital`, `dre`, `critical_screens` e os derivados não terminarem no **mesmo período-alvo**, a atualização ainda não acabou.
 
+Na aba, extração, validação e publicação têm estados separados. “Salva localmente” confirma persistência; “Publicação concluída” indica o envio do pacote. Para confirmar ativação, conferir o artefato efetivamente lido pelas telas, pois alguns leitores preferem `data/bundled`.
+
+### Preparar e retomar pela interface
+
+1. Selecionar fonte, modo e intervalo. Nos caches IFData trimestrais, `incremental` e `overwrite` atualizam a janela selecionada preservando o histórico externo à janela. Reconstrução integral usa o modo explícito `rebuild` na API do gerenciador; os adaptadores de Taxas, SGS, SPB e BLOPRUDENCIAL mantêm suas regras próprias.
+2. Extrair. A publicação automática vem desmarcada. O comprovante registra unidades persistidas, falhas e pendências.
+3. Se houver pendência trimestral, usar **Retomar execução**. O plano original é recuperado, inclusive janela, modo, tamanho de lote e destino de publicação; mudanças no formulário pertencem a uma nova execução.
+4. Depois das bases, usar **recalcular dependentes agora** ou **Validar e publicar pacote**. Extração local sem publicação automática não rematerializa dependentes incondicionalmente.
+5. Falha no envio permite **Tentar publicação novamente**, preservando os dados já extraídos. O pacote é novamente validado antes do envio.
+
+Os comprovantes ficam em `data/cache/update_runs/<run_id>/run.json`; o manager também mantém resultados agregados por cache em `data/cache/update_results/`. Pendências de uma execução anterior impedem publicação até serem resolvidas. Checkpoints antigos sem configuração completa são preservados e identificados como legados.
+
+UI e CLIs compartilham a trava `data/cache/.update.lock`. A existência de uma operação ativa é verificada pelo sistema operacional; apagar o arquivo de status não encerra um executor. Não remover o arquivo da trava. Background trimestral utiliza uma thread do processo local; restart/deploy pode interrompê-la e o armazenamento local do Cloud continua efêmero.
+
 ## 2) Ritmo recomendado
 
 | Evento | Frequência | O que atualizar |
@@ -81,7 +95,8 @@ Os problemas históricos mais comuns foram:
    - É preciso persistir também o cache `bloprudencial` usado pelo `CacheManager`.
 
 5. **Publicação com gate vermelho**
-   - O upload pode até acontecer, mas a produção continua quebrada porque o conjunto publicado não fecha no mesmo período.
+   - O pacote inteiro é bloqueado quando um gate obrigatório está ausente/reprovado, quando há resultado parcial ou quando uma dependência obrigatória falha.
+   - Fontes já publicadas são confirmadas por hash; fontes locais divergentes precisam integrar o pacote. Se a inclusão exigir outros derivados, a interface informa quais precisam ser preparados.
 
 ## 6) Crashes comuns e resposta rápida
 
@@ -100,9 +115,10 @@ A atualização só está pronta quando:
 
 1. Os gates críticos estão `OK` no mesmo período-alvo.
 2. `critical_screens` foi materializado **depois** das bases e do `bloprudencial`.
-3. Não há cache crítico em estado “somente local” antes do publish final.
+3. As fontes usadas na materialização correspondem ao remoto confirmado ou integram o pacote enviado.
 4. O release/tag corretos estão acessíveis.
 5. O `manifest.json` publicado reflete o período esperado.
+6. A competência e identidade do arquivo efetivamente usado pelas telas foram verificadas separadamente da publicação.
 
 ## 8) Publicação segura
 
@@ -111,12 +127,15 @@ A atualização só está pronta quando:
 1. Confirmar `repo`, `tag` e token.
 2. Conferir se os gates estão verdes.
 3. Fazer download local de backup do cache, se necessário.
+4. O manifesto remoto precisa estar disponível e corresponder ao destino escolhido. A publicação preserva entradas de outros pacotes; publicar SGS isoladamente não avança a referência trimestral da DRE.
+5. Os arquivos do pacote são reconferidos antes da primeira alteração remota. O envio ainda substitui assets sequencialmente; recuperação transacional local e publicação remota atômica não integram este pacote inicial.
 
 ### 8.2 Depois do upload
 
 1. Verificar se os assets corretos subiram.
 2. Confirmar presença de `manifest.json`.
 3. Reabrir a aplicação e conferir o período máximo no diagnóstico operacional.
+4. Conferir a versão **em uso**: `principal` consolidado e `derived_metrics` podem continuar lendo o bundle versionado mesmo após um upload de runtime. Nesses casos a ativação depende da geração/deploy do bundle; reiniciar a sessão sozinho não troca essa precedência.
 
 ## 9) Resumo curto
 

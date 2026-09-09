@@ -45,9 +45,13 @@ Se a publicação falhar, o app pode continuar “aparentemente normal” quando
 | `data/cache/<cache>/` | downloads e extrações do processo em execução | ignorado |
 
 `BaseCache.arquivo_dados` resolve runtime primeiro e cai para o bundled quando
-não há cópia local; toda escrita (`salvar_local`, `limpar_local`) usa
-`arquivo_dados_runtime`. Assim uma execução do app não degrada mais o dado
-publicado no repositório.
+não há cópia local; `salvar_local` e `limpar_local` usam caminhos de runtime.
+Há leitores específicos: `principal.read_data_file` consolidado e
+`derived_metrics.read_data_file` preferem bundled; `critical_screens` tem
+bootstrap próprio por identidade. A materialização administrativa também pode
+promover `critical_screens` para bundled. Por isso o diagnóstico distingue o
+arquivo preparado do arquivo efetivamente em uso e a cópia de segurança precisa
+cobrir o conjunto de caminhos alterados por cada operação.
 
 Hoje estão em `data/bundled/`: `principal`, `capital`, `bloprudencial`,
 `critical_screens` e `derived_metrics`.
@@ -88,5 +92,6 @@ Hoje estão em `data/bundled/`: `principal`, `capital`, `bloprudencial`,
   - PAT clássico: escopo `repo`.
 - Rodar atualização dos caches críticos:
   - `principal`, `capital`, `dre`, `principal_individual`, `dre_individual`, `carteira_instrumentos`, `bloprudencial`, `taxas_juros`.
-- Habilitar “publicar automaticamente no GitHub ao concluir”.
-- Confirmar, ao final, a presença dos assets no release `v1.1-cache`.
+- Concluir bases, validar/materializar dependentes e publicar o pacote. A publicação automática permanece opcional e vem desmarcada.
+- Confirmar assets, manifesto e destino efetivo de cada fonte. O padrão global é `v1.1-cache`; SCR tem sua própria tag e ainda não faz parte do seletor de extração.
+- Confirmar separadamente a identidade em uso nas telas. Existência remota isolada não comprova que a versão preparada foi publicada ou ativada.

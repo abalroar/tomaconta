@@ -1,9 +1,12 @@
 import json
+from types import SimpleNamespace
 
 import pandas as pd
+import pytest
 
 from utils.ifdata_cache.diagnostics import (
     build_runtime_manifest,
+    collect_cache_diagnostics,
     count_placeholder_names,
     evaluate_alignment_gates,
     find_placeholder_rows,
@@ -102,3 +105,50 @@ def test_placeholder_helpers_identify_remaining_placeholders():
     assert count_placeholder_names(df) == 2
     placeholders = find_placeholder_rows(df)
     assert placeholders["Instituição"].tolist() == ["[IF 1234]", "[IF C999]"]
+
+
+@pytest.mark.parametrize("reference", [None, "", "202613", "000003", "inválido", "202601"])
+def test_gate_requires_valid_competence_for_every_existing_member(reference):
+    records = {
+        "principal": {"exists": True, "max_period_ref": "202603"},
+        "capital": {"exists": True, "max_period_ref": reference},
+    }
+    gate = evaluate_alignment_gates(records, gate_specs={
+        "test": {"caches": ["principal", "capital"], "periodicity": "quarterly"},
+    })["test"]
+    assert not gate["success"]
+    assert "capital" in gate["message"]
+
+
+def test_gate_rejects_invalid_expected_competence():
+    gate = evaluate_alignment_gates(
+        {"principal": {"exists": True, "max_period_ref": "202603"}},
+        gate_specs={"test": {"caches": ["principal"], "periodicity": "quarterly"}},
+        expected_periods={"test": "202613"},
+    )["test"]
+    assert not gate["success"]
+    assert "esperada inválida" in gate["message"]
+
+
+def test_monthly_gate_accepts_real_month_outside_quarter_end():
+    gate = evaluate_alignment_gates(
+        {"bloprudencial": {"exists": True, "max_period_ref": "202601"}},
+        gate_specs={"test": {"caches": ["bloprudencial"], "periodicity": "monthly"}},
+    )["test"]
+    assert gate["success"]
+
+
+def test_diagnostics_uses_source_specific_release_destination(tmp_path):
+    global_release = SimpleNamespace(repo="owner/global", tag="v2.0-cache")
+    scr = _FakeCache(tmp_path, "scr_data", {"periodos": ["202607"]})
+    scr.release_repo = "owner/scr"
+    scr.release_tag = "v1.1-cache"
+    principal = _FakeCache(tmp_path, "principal", {"periodos": ["1/2026"]})
+    diagnostics = collect_cache_diagnostics(
+        _FakeManager({"scr_data": scr, "principal": principal}), release_config=global_release,
+    )
+    assert diagnostics["scr_data"]["release_repo"] == "owner/scr"
+    assert diagnostics["scr_data"]["release_tag"] == "v1.1-cache"
+    assert diagnostics["scr_data"]["release_base_url"] == "https://github.com/owner/scr/releases/download/v1.1-cache"
+    assert diagnostics["principal"]["release_repo"] == "owner/global"
+    assert diagnostics["principal"]["release_tag"] == "v2.0-cache"
