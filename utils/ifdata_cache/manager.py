@@ -451,167 +451,244 @@ class CacheManager:
         callback_salvamento: Optional[Callable[[str], None]] = None,
         callback_erro: Optional[Callable[[str, str], None]] = None,
         dict_aliases: Optional[Dict[str, str]] = None,
+        callback_checkpoint: Optional[Callable[[Dict[str, Any]], None]] = None,
+        execution_periods: Optional[List[str]] = None,
         **kwargs
     ) -> CacheResult:
-        """Extrai dados de múltiplos períodos com salvamento parcial.
+        """Extrai e confirma apenas períodos validados e efetivamente persistidos.
 
-        Args:
-            tipo: Nome do tipo de cache
-            periodos: Lista de períodos "YYYYMM"
-            modo: "incremental"/"overwrite" substituem apenas os períodos extraídos,
-                preservando o histórico; "rebuild" descarta o dataset existente
-            intervalo_salvamento: Salvar a cada N períodos (default: 4)
-            callback_progresso: Função(i, total, periodo) chamada a cada período
-            callback_salvamento: Função(info) chamada a cada salvamento
-            dict_aliases: Dicionário de aliases para instituições
-            **kwargs: Argumentos extras para extração
-
-        Returns:
-            CacheResult com todos os dados
+        ``incremental`` e ``overwrite`` preservam períodos fora da atualização.
+        ``rebuild`` reconstrói o dataset. O checkpoint é notificado após a gravação;
+        sua falha interrompe a execução e impede uma conclusão bem-sucedida.
         """
+        from datetime import datetime
+
+        from .update_state import mutation_lock
+
+        requested = list(dict.fromkeys(str(periodo).strip() for periodo in periodos))
+        execution = list(dict.fromkeys(str(p).strip() for p in execution_periods)) if execution_periods is not None else requested
         cache = self._caches.get(tipo)
+        validation_error = None
         if cache is None:
+            validation_error = f"Tipo de cache desconhecido: {tipo}"
+        elif modo not in {"incremental", "overwrite", "rebuild"}:
+            validation_error = f"Modo de atualização inválido: {modo}"
+        elif not isinstance(intervalo_salvamento, int) or isinstance(intervalo_salvamento, bool) or intervalo_salvamento < 1:
+            validation_error = "Intervalo de salvamento deve ser um inteiro positivo"
+        elif not requested:
+            validation_error = "Nenhum período solicitado"
+        elif not set(requested).issubset(execution):
+            validation_error = "O lote contém competências fora do plano completo da execução"
+        else:
+            for periodo in execution:
+                try:
+                    if len(periodo) != 6 or not periodo.isascii() or not periodo.isdigit():
+                        raise ValueError("formato YYYYMM obrigatório")
+                    datetime(int(periodo[:4]), int(periodo[4:]), 1)
+                    if getattr(cache.config, "relatorio_tipo", None) and periodo[4:] not in {"03", "06", "09", "12"}:
+                        raise ValueError("relatório IFData exige competência trimestral")
+                except ValueError as exc:
+                    validation_error = f"Período inválido {periodo!r}: {exc}"
+                    break
+        if validation_error:
             return CacheResult(
-                sucesso=False,
-                mensagem=f"Tipo de cache desconhecido: {tipo}. Disponíveis: {self.listar_caches()}",
-                fonte="nenhum"
+                sucesso=False, mensagem=validation_error, fonte="nenhum",
+                metadata={
+                    "requested_periods": requested, "extracted_periods": [],
+                    "persisted_periods": [], "failed_periods": {},
+                    "pending_periods": requested, "status": "failed",
+                    "periodos_extraidos": 0, "periodos_total": len(requested),
+                    "total_registros": 0, "erros": [validation_error], "modo": modo,
+                },
+            )
+        with mutation_lock(self.base_dir):
+            return self._extrair_periodos_com_salvamento_locked(
+                cache, requested, modo, intervalo_salvamento,
+                callback_progresso, callback_salvamento, callback_erro,
+                callback_checkpoint, execution, **kwargs,
             )
 
-        logger.info(f"[CACHE:{tipo.upper()}] Iniciando extração de {len(periodos)} períodos, modo={modo}")
+    def _extrair_periodos_com_salvamento_locked(
+        self, cache, requested, modo, intervalo_salvamento,
+        callback_progresso, callback_salvamento, callback_erro,
+        callback_checkpoint, execution_periods, **kwargs,
+    ) -> CacheResult:
+        from .diagnostics import normalize_period_reference
+        from .update_state import load_cache_update_result, write_cache_update_result
 
-        # Carregar dados existentes se modo incremental
         dados_existentes = None
-        if modo == "incremental" and cache.existe():
-            resultado_existente = cache.carregar_local()
-            if resultado_existente.sucesso:
-                dados_existentes = resultado_existente.dados
-                logger.info(f"[CACHE:{tipo.upper()}] Carregados {len(dados_existentes)} registros existentes")
-
+        dados_persistidos = None
         dados_extraidos = []
+        extracted = []
+        persisted = []
+        failed = {}
         erros = []
-        periodos_desde_save = 0
+        operation_errors = {}
+        ledger_requested = list(execution_periods)
+        ledger_persisted = set()
+        ledger_extracted = set()
+        ledger_failures = {}
 
-        for i, periodo in enumerate(periodos):
-            # Callback de progresso
-            if callback_progresso:
-                callback_progresso(i, len(periodos), periodo)
+        def metadata():
+            complete = len(persisted) == len(requested) and not erros
+            return {
+                "requested_periods": list(requested),
+                "extracted_periods": list(extracted),
+                "persisted_periods": list(persisted),
+                "failed_periods": dict(failed),
+                "pending_periods": [p for p in requested if p not in persisted],
+                "status": "saved" if complete else "partial" if persisted else "failed",
+                "periodos_extraidos": len(extracted), "periodos_total": len(requested),
+                "total_registros": len(dados_persistidos) if dados_persistidos is not None else 0,
+                "erros": list(erros), "modo": modo,
+                **operation_errors,
+            }
 
+        def ledger_metadata(*, ongoing=False):
+            info = metadata()
+            confirmed = ledger_persisted | set(persisted)
+            failures = {**ledger_failures, **failed}
+            failures = {period: reason for period, reason in failures.items() if period not in confirmed}
+            pending = [period for period in ledger_requested if period not in confirmed]
+            complete = not pending and not failures and not erros
+            info.update({
+                "requested_periods": list(ledger_requested),
+                "extracted_periods": [p for p in ledger_requested if p in ledger_extracted or p in extracted],
+                "persisted_periods": [p for p in ledger_requested if p in confirmed],
+                "failed_periods": failures,
+                "pending_periods": pending,
+                # Somente finish conclui a operação. Uma interrupção nos callbacks
+                # ou na gravação final conserva um marcador que bloqueia publicação.
+                "status": "extracting" if ongoing else "saved" if complete else "partial" if confirmed else "failed",
+                "periodos_total": len(ledger_requested),
+            })
+            info["periodos_extraidos"] = len(info["extracted_periods"])
+            return info
+
+        def write_ledger(*, ongoing=False):
             try:
-                # Extrair período
-                _ = dict_aliases
-                resultado = cache.extrair_periodo(periodo, **kwargs)
+                write_cache_update_result(self.base_dir, cache.config.nome, ledger_metadata(ongoing=ongoing))
+            except Exception as exc:
+                operation_errors["checkpoint_error"] = str(exc)
+                erros.append(f"Falha ao registrar resultado persistido da fonte: {exc}")
+                return False
+            return True
 
-                if resultado.sucesso and resultado.dados is not None:
-                    dados_extraidos.append(resultado.dados)
-                    periodos_desde_save += 1
+        def finish(message=None, *, record_ledger=True):
+            if record_ledger:
+                write_ledger()
+            info = metadata()
+            return CacheResult(
+                sucesso=info["status"] == "saved",
+                mensagem=message or (
+                    f"Persistidos {len(persisted)}/{len(requested)} períodos"
+                    + (f". Falhas: {'; '.join(erros[:3])}" if erros else "")
+                ),
+                dados=dados_persistidos, metadata=info,
+                fonte="api" if persisted else "nenhum",
+            )
 
-                    # Salvamento parcial
-                    if periodos_desde_save >= intervalo_salvamento:
-                        self._salvar_parcial(
-                            cache=cache,
-                            dados_novos=dados_extraidos,
-                            dados_existentes=dados_existentes,
-                            modo=modo,
-                            info=f"Salvamento parcial até {periodo[4:6]}/{periodo[:4]}"
-                        )
-                        periodos_desde_save = 0
+        def fail(periodo, message):
+            failed[periodo] = message
+            erros.append(f"{periodo}: {message}")
+            logger.warning("[CACHE:%s] %s: %s", cache.config.nome, periodo, message)
+            if callback_erro:
+                callback_erro(periodo, message)
 
-                        if callback_salvamento:
-                            callback_salvamento(f"Salvos {len(dados_extraidos)} períodos")
-                else:
-                    erros.append(f"{periodo}: {resultado.mensagem}")
-                    logger.warning(f"[CACHE:{tipo.upper()}] Falha em {periodo}: {resultado.mensagem}")
-                    if callback_erro:
-                        callback_erro(periodo, resultado.mensagem)
+        try:
+            previous_ledger = load_cache_update_result(self.base_dir, cache.config.nome)
+        except Exception as exc:
+            operation_errors["checkpoint_error"] = str(exc)
+            erros.append(f"Resultado anterior da fonte ilegível: {exc}")
+            return finish(record_ledger=False)
+        if previous_ledger and (
+            previous_ledger.get("status") != "saved"
+            or previous_ledger.get("pending_periods")
+            or previous_ledger.get("failed_periods")
+            or previous_ledger.get("checkpoint_error")
+            or previous_ledger.get("persistence_error")
+        ):
+            ledger_requested = list(dict.fromkeys([
+                *previous_ledger.get("requested_periods", []), *execution_periods,
+            ]))
+            # Reprocessamento só confirma novamente após escrita real. Rebuild
+            # invalida a geração anterior inteira; suas pendências ficam visíveis.
+            if modo != "rebuild":
+                ledger_persisted = set(previous_ledger.get("persisted_periods", [])) - set(requested)
+            ledger_extracted = set(previous_ledger.get("extracted_periods", [])) - set(requested)
+            ledger_failures = dict(previous_ledger.get("failed_periods") or {})
+        if not write_ledger(ongoing=True):
+            return finish(record_ledger=False)
 
-                # Rate limiting
+        if modo != "rebuild" and cache.existe_leitura():
+            try:
+                previous = cache.carregar_local()
+            except Exception as exc:
+                previous = CacheResult(False, str(exc))
+            if not previous.sucesso or previous.dados is None:
+                erros.append(f"Base existente ilegível: {previous.mensagem}")
+                return finish(erros[-1])
+            dados_existentes = previous.dados
+
+        def persist():
+            nonlocal dados_persistidos
+            unsaved = [p for p in extracted if p not in persisted]
+            if not unsaved:
+                return True
+            try:
+                saved = self._salvar_parcial(
+                    cache=cache, dados_novos=dados_extraidos,
+                    dados_existentes=dados_existentes, modo=modo,
+                    info=f"Atualização: {len(extracted)}/{len(requested)} períodos extraídos",
+                )
+                if not saved.sucesso:
+                    raise RuntimeError(saved.mensagem)
+            except Exception as exc:
+                operation_errors["persistence_error"] = str(exc)
+                for periodo in unsaved:
+                    fail(periodo, f"Falha ao persistir: {exc}")
+                return False
+            persisted[:] = extracted
+            dados_persistidos = saved.dados
+            if not write_ledger(ongoing=True):
+                return False
+            if callback_checkpoint:
+                try:
+                    callback_checkpoint(metadata())
+                except Exception as exc:
+                    operation_errors["checkpoint_error"] = str(exc)
+                    erros.append(f"Falha ao registrar checkpoint após persistência: {exc}")
+                    return False
+            if callback_salvamento:
+                callback_salvamento(f"Salvos {len(persisted)} períodos")
+            return True
+
+        for i, periodo in enumerate(requested):
+            if callback_progresso:
+                callback_progresso(i, len(requested), periodo)
+            try:
+                result = cache.extrair_periodo(periodo, **kwargs)
+                if not result.sucesso or result.dados is None:
+                    raise ValueError(result.mensagem)
+                valid, message = cache._validar_dados(result.dados)
+                if not valid:
+                    raise ValueError(message)
+                period_column = "Período" if "Período" in result.dados.columns else "Periodo"
+                references = {normalize_period_reference(value) for value in result.dados[period_column]}
+                if references != {periodo}:
+                    raise ValueError(f"Competência extraída diverge da solicitada: {sorted(references)}")
+                dados_extraidos.append(result.dados)
+                extracted.append(periodo)
+            except Exception as exc:
+                fail(periodo, str(exc))
+            if len(extracted) - len(persisted) >= intervalo_salvamento and not persist():
+                return finish()
+            if i + 1 < len(requested):
                 time.sleep(1.5)
 
-            except Exception as e:
-                erros.append(f"{periodo}: {str(e)}")
-                logger.error(f"[CACHE:{tipo.upper()}] Erro em {periodo}: {e}")
-                if callback_erro:
-                    callback_erro(periodo, str(e))
-
-                # Salvamento de emergência
-                if dados_extraidos:
-                    try:
-                        self._salvar_parcial(
-                            cache=cache,
-                            dados_novos=dados_extraidos,
-                            dados_existentes=dados_existentes,
-                            modo=modo,
-                            info=f"Salvamento emergência após erro em {periodo}"
-                        )
-                        logger.info(f"[CACHE:{tipo.upper()}] Salvamento de emergência realizado")
-                    except Exception as save_error:
-                        erros.append(f"Erro no salvamento de emergência: {save_error}")
-
-        # Resultado final
-        if not dados_extraidos:
-            return CacheResult(
-                sucesso=False,
-                mensagem=f"Nenhum período extraído com sucesso. Erros: {'; '.join(erros[:3])}",
-                metadata={"erros": erros},
-                fonte="nenhum"
-            )
-
-        # Concatenar todos os dados extraídos
-        df_extraido = pd.concat(dados_extraidos, ignore_index=True)
-
-        # Salvamento final
-        resultado_save = self._salvar_parcial(
-            cache=cache,
-            dados_novos=dados_extraidos,
-            dados_existentes=dados_existentes,
-            modo=modo,
-            info=f"Salvamento final: {periodos[0][4:6]}/{periodos[0][:4]} até {periodos[-1][4:6]}/{periodos[-1][:4]}"
-        )
-
-        if callback_salvamento:
-            callback_salvamento(f"Salvos {len(dados_extraidos)} períodos (final)")
-
-        # Calcular total de registros
-        df_final = resultado_save.dados if resultado_save.dados is not None else df_extraido
-
-        if tipo in {"principal_individual", "dre_individual"}:
-            from .diagnostics import count_placeholder_names
-
-            placeholders = count_placeholder_names(df_final)
-            if placeholders:
-                return CacheResult(
-                    sucesso=False,
-                    mensagem=(
-                        f"Extração rejeitada: {placeholders} nome(s) de instituição não resolvido(s). "
-                        "O cache foi salvo para diagnóstico, mas não deve ser publicado."
-                    ),
-                    dados=df_final,
-                    metadata={
-                        "periodos_extraidos": len(dados_extraidos),
-                        "periodos_total": len(periodos),
-                        "total_registros": len(df_final),
-                        "placeholders": placeholders,
-                        "erros": erros,
-                        "modo": modo,
-                    },
-                    fonte="api",
-                )
-
-        logger.info(f"[CACHE:{tipo.upper()}] Extração concluída: {len(dados_extraidos)}/{len(periodos)} períodos, {len(df_final)} registros")
-
-        return CacheResult(
-            sucesso=True,
-            mensagem=f"Extraídos {len(dados_extraidos)}/{len(periodos)} períodos, {len(df_final)} registros",
-            dados=df_final,
-            metadata={
-                "periodos_extraidos": len(dados_extraidos),
-                "periodos_total": len(periodos),
-                "total_registros": len(df_final),
-                "erros": erros,
-                "modo": modo
-            },
-            fonte="api"
-        )
+        if not persist():
+            return finish()
+        return finish()
 
     def _salvar_parcial(
         self,
@@ -636,16 +713,22 @@ class CacheManager:
         # metadata passava a listar só aqueles períodos — degradação silenciosa que
         # sumia com períodos das abas. Rebuild total só via modo explícito "rebuild".
         if modo != "rebuild" and dados_existentes is not None:
+            from .diagnostics import normalize_period_reference
+
             # Encontrar coluna de período (verificar ambas as grafias)
             col_periodo_novos = "Período" if "Período" in df_novos.columns else "Periodo"
             col_periodo_exist = "Período" if "Período" in dados_existentes.columns else "Periodo"
 
             # Identificar períodos novos
-            periodos_novos = set(df_novos[col_periodo_novos].unique())
-            periodos_existentes = set(dados_existentes[col_periodo_exist].unique())
+            periodos_novos = set(df_novos[col_periodo_novos].map(normalize_period_reference))
+            periodos_existentes = set(dados_existentes[col_periodo_exist].map(normalize_period_reference))
 
             # Remover períodos que serão substituídos
-            df_manter = dados_existentes[~dados_existentes[col_periodo_exist].isin(periodos_novos)]
+            df_manter = dados_existentes[
+                ~dados_existentes[col_periodo_exist].map(normalize_period_reference).isin(periodos_novos)
+            ]
+            if col_periodo_exist != col_periodo_novos:
+                df_manter = df_manter.rename(columns={col_periodo_exist: col_periodo_novos})
 
             # Concatenar
             df_final = pd.concat([df_manter, df_novos], ignore_index=True)
@@ -658,9 +741,17 @@ class CacheManager:
 
             df_final = canonicalize_institution_history(df_final, base_dir=self.base_dir)
         elif cache.config.nome in {"principal_individual", "dre_individual"}:
+            from .diagnostics import count_placeholder_names
             from .institutions import stabilize_institution_names_by_code
 
             df_final = stabilize_institution_names_by_code(df_final)
+            placeholders = count_placeholder_names(df_final)
+            if placeholders:
+                return CacheResult(
+                    sucesso=False,
+                    mensagem=f"Extração rejeitada: {placeholders} nome(s) de instituição não resolvido(s)",
+                    fonte="nenhum",
+                )
 
         # Salvar
         return cache.salvar_local(df_final, fonte="api", info_extra={"operacao": info})
@@ -760,25 +851,11 @@ def gerar_periodos_trimestrais(
     Returns:
         Lista de períodos no formato YYYYMM
     """
-    periodos = []
-    ano_atual = ano_inicial
-    mes_atual = mes_inicial
-
-    while True:
-        periodo = f"{ano_atual}{mes_atual}"
-        periodos.append(periodo)
-
-        if ano_atual == ano_final and mes_atual == mes_final:
-            break
-
-        if mes_atual == '03':
-            mes_atual = '06'
-        elif mes_atual == '06':
-            mes_atual = '09'
-        elif mes_atual == '09':
-            mes_atual = '12'
-        elif mes_atual == '12':
-            mes_atual = '03'
-            ano_atual += 1
-
-    return periodos
+    meses = ('03', '06', '09', '12')
+    if mes_inicial not in meses or mes_final not in meses:
+        raise ValueError("Meses trimestrais devem ser 03, 06, 09 ou 12")
+    if not (1 <= ano_inicial <= 9999 and 1 <= ano_final <= 9999):
+        raise ValueError("Ano fora do calendário suportado")
+    inicio = ano_inicial * 4 + meses.index(mes_inicial)
+    fim = ano_final * 4 + meses.index(mes_final)
+    return [f"{indice // 4:04d}{meses[indice % 4]}" for indice in range(inicio, fim + 1)]

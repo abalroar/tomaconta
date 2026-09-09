@@ -19,7 +19,7 @@ import time
 import shutil
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Dict, Iterable, List
@@ -33,16 +33,18 @@ from utils.ifdata_cache import CacheManager, gerar_periodos_trimestrais
 from utils.ifdata_cache import (
     describe_support_window,
     filter_supported_periods,
-    materialize_critical_screens_cache,
 )
-from utils.ifdata_cache.derived_metrics import materialize_derived_metrics_cache
 from utils.ifdata_cache.diagnostics import (
     build_runtime_manifest,
     count_placeholder_names,
     find_placeholder_rows,
 )
 from utils.ifdata_cache.release_config import get_release_config
-from utils.ifdata_cache.release_ops import upload_release_assets
+from utils.ifdata_cache.release_ops import (
+    DERIVED_TARGET_SPECS, materialize_for_publication, prepare_release_publication,
+    upload_release_assets, validate_cache_quality,
+)
+from utils.ifdata_cache.update_state import mutation_lock
 
 DEFAULT_TIPOS = [
     "principal",
@@ -60,16 +62,7 @@ DEFAULT_TIPOS = [
 ]
 
 DERIVED_SPECS = [
-    {
-        "tipo": "derived_metrics",
-        "dre_cache_name": "dre",
-        "principal_cache_name": "principal",
-    },
-    {
-        "tipo": "derived_metrics_individual",
-        "dre_cache_name": "dre_individual",
-        "principal_cache_name": "principal_individual",
-    },
+    {"tipo": name, **spec["kwargs"]} for name, spec in DERIVED_TARGET_SPECS.items()
 ]
 
 PUBLISH_CACHE_NAMES = DEFAULT_TIPOS + [spec["tipo"] for spec in DERIVED_SPECS] + ["critical_screens"]
@@ -204,11 +197,13 @@ def _restore_snapshot(base_dir: Path, version: str, dry_run: bool = False) -> No
 
 
 def _gerar_periodos_mensais(inicio: str, fim: str) -> List[str]:
-    if len(inicio) != 6 or len(fim) != 6:
-        raise ValueError("mensal-inicio/mensal-fim devem ser YYYYMM")
+    if len(inicio) != 6 or len(fim) != 6 or not inicio.isdigit() or not fim.isdigit():
+        raise ValueError("mensal-inicio/mensal-fim devem ser YYYYMM válidos")
 
     ai, mi = int(inicio[:4]), int(inicio[4:6])
     af, mf = int(fim[:4]), int(fim[4:6])
+    date(ai, mi, 1)
+    date(af, mf, 1)
     if (ai, mi) > (af, mf):
         raise ValueError("mensal-inicio deve ser <= mensal-fim")
 
@@ -254,49 +249,15 @@ def _release_assets_for_cache(manager: CacheManager, cache_name: str) -> list[tu
 
 
 def _materialize_post_refresh_assets(base_dir: Path, manager: CacheManager) -> list[dict]:
-    detalhes: list[dict] = []
-
-    for spec in DERIVED_SPECS:
-        result = materialize_derived_metrics_cache(
-            base_dir=base_dir,
-            manager=manager,
-            derived_cache_name=spec["tipo"],
-            dre_cache_name=spec["dre_cache_name"],
-            principal_cache_name=spec["principal_cache_name"],
-            force=True,
-        )
-        detalhes.append(
-            {
-                "tipo": spec["tipo"],
-                "status": "ok" if result.sucesso else "erro",
-                "mensagem": result.mensagem,
-                "periodos": 0,
-                "periodos_ignorados": [],
-                "lotes": 1,
-                "lotes_ok": 1 if result.sucesso else 0,
-            }
-        )
-        if not result.sucesso:
-            return detalhes
-
-    result_curado = materialize_critical_screens_cache(
-        base_dir=base_dir,
-        manager=manager,
-        force=True,
-        save_bundled=True,
+    details = materialize_for_publication(
+        manager, base_dir=base_dir, cache_names=DEFAULT_TIPOS, force=True, save_bundled=True,
     )
-    detalhes.append(
-        {
-            "tipo": "critical_screens",
-            "status": "ok" if result_curado.sucesso else "erro",
-            "mensagem": result_curado.mensagem,
-            "periodos": 0,
-            "periodos_ignorados": [],
-            "lotes": 1,
-            "lotes_ok": 1 if result_curado.sucesso else 0,
-        }
-    )
-    return detalhes
+    return [
+        {**item, "tipo": item["cache"], "mensagem": item["message"],
+         "periodos": 0, "periodos_ignorados": [], "lotes": 1,
+         "lotes_ok": int(item["status"] == "ok")}
+        for item in details
+    ]
 
 
 def _placeholder_validations(manager: CacheManager) -> dict[str, dict]:
@@ -339,6 +300,18 @@ def _build_publish_runtime_manifest(
 
 
 def _run_refresh(args: argparse.Namespace, base_dir: Path) -> int:
+    start = date(args.ano_inicial, int(args.mes_inicial), 1)
+    end = date(args.ano_final, int(args.mes_final), 1)
+    if start > end or start.month not in (3, 6, 9, 12) or end.month not in (3, 6, 9, 12):
+        raise ValueError("intervalo trimestral inválido")
+    _gerar_periodos_mensais(args.mensal_inicio, args.mensal_fim)
+    if args.intervalo < 1 or args.batch_size < 0 or args.retry_max < 0 or args.retry_delay < 0:
+        raise ValueError("intervalo/lotes/retries inválidos")
+    with mutation_lock(base_dir):
+        return _run_refresh_locked(args, base_dir)
+
+
+def _run_refresh_locked(args: argparse.Namespace, base_dir: Path) -> int:
     pre_snapshot = _create_snapshot(
         base_dir=base_dir,
         label=args.snapshot_label,
@@ -596,6 +569,9 @@ def _run_refresh(args: argparse.Namespace, base_dir: Path) -> int:
             expected_periods={"quarterly": expected_periods["quarterly"]},
         )
         summary["placeholder_validations"] = _placeholder_validations(manager)
+        summary["quality_checks"] = validate_cache_quality(manager, PUBLISH_CACHE_NAMES)
+        if not all(check.get("success") for check in summary["quality_checks"].values()):
+            summary["status"] = "erro"
 
         gates_ok = all(gate.get("success") for gate in summary["runtime_manifest"].get("gates", {}).values())
         placeholders_ok = all(
@@ -627,10 +603,13 @@ def _run_refresh(args: argparse.Namespace, base_dir: Path) -> int:
                 publication["message"] = "token GitHub ausente para publicação"
             else:
                 try:
-                    assets: list[tuple[Path, str]] = []
-                    for cache_name in PUBLISH_CACHE_NAMES:
-                        assets.extend(_release_assets_for_cache(manager, cache_name))
-                    assets.append((global_manifest_path, "manifest.json"))
+                    publication_manifest, publication_payload, publishable, assets = prepare_release_publication(
+                        manager, base_dir=base_dir, selected_caches=DEFAULT_TIPOS,
+                        materialization_details=post_refresh_details,
+                        release_config=release_config, expected_periods=expected_periods, token=token,
+                    )
+                    summary["publication_manifest"] = str(publication_manifest)
+                    summary["published_caches"] = publishable
                     upload_result = upload_release_assets(
                         repo=release_config.repo,
                         tag=release_config.tag,
@@ -732,7 +711,8 @@ def main() -> int:
         return _list_snapshots(base_dir)
 
     if args.restore_snapshot:
-        _restore_snapshot(base_dir, args.restore_snapshot, dry_run=args.dry_run)
+        with mutation_lock(base_dir):
+            _restore_snapshot(base_dir, args.restore_snapshot, dry_run=args.dry_run)
         return 0
 
     if args.publish_only and not (args.publish or args.dry_run):
