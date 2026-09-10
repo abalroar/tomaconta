@@ -28,6 +28,13 @@ logger = logging.getLogger("ifdata_cache")
 
 # Informações dos caches para UI
 CACHES_INFO = {
+    "cosif_4010": {
+        "nome_exibicao": "COSIF 4010 (individual)",
+        "descricao": "Balancetes individuais - todos os grupos publicados pelo BCB",
+        "relatorio": None,
+        "todas_variaveis": True,
+        "periodicidade": "mensal",
+    },
     "principal": {
         "nome_exibicao": "Resumo (Relatório 1)",
         "descricao": "Dados gerais das instituições - variáveis selecionadas",
@@ -194,6 +201,7 @@ class CacheManager:
         from .critical_screens import CriticalScreensCache
         from .balancetes import BalancetesCache
         from .bloprudencial_cache import BloprudencialCache
+        from .cosif_4010 import Cosif4010Cache
         from .spb_meios_pagamento import SPBMeiosPagamentoCache
         from .scr_data import SCRDataCache
         from .sgs_credit import SGSCreditCache
@@ -223,6 +231,7 @@ class CacheManager:
         self.registrar(BalancetesCache(self.base_dir))
         # Cache BLOPRUDENCIAL mensal (arquivo estático BCB)
         self.registrar(BloprudencialCache(self.base_dir))
+        self.registrar(Cosif4010Cache(self.base_dir))
         # Cache de Meios de Pagamento SPB (API Olinda MPV_DadosAbertos)
         self.registrar(SPBMeiosPagamentoCache(self.base_dir))
         # Cache do SCR.data (ZIPs anuais do PDA/BCB, sem API)
