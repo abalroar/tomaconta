@@ -1880,7 +1880,7 @@ def _expected_periods_publicacao(
     if not periodo_final:
         return {}
 
-    if tipo_cache in {"bloprudencial", "mercado_credito_sgs"}:
+    if tipo_cache in {"bloprudencial", "cosif_4010", "mercado_credito_sgs"}:
         return {"monthly": str(periodo_final)}
     periodo_ref = str(periodo_final).replace("/", "")
     if len(periodo_ref) >= 6 and periodo_ref[-2:] in {"03", "06", "09", "12"}:
@@ -1912,6 +1912,12 @@ def _publicar_bundle_release(
         return False, "nenhum cache selecionado para publicação.", {}
 
     release_cfg = _release_config_app()
+    if selected == ["cosif_4010"]:
+        from dataclasses import replace
+        cache_4010 = cache_manager.get_cache("cosif_4010")
+        release_cfg = replace(release_cfg, tag=cache_4010.release_tag,
+                              release_base_url=cache_4010.config.github_url_base,
+                              tag_source="cosif_4010")
     ok_validacao, msg_validacao = _validar_token_release_github(release_cfg.repo, gh_token, tag=release_cfg.tag)
     if not ok_validacao:
         return False, msg_validacao, {}
@@ -1924,6 +1930,17 @@ def _publicar_bundle_release(
         materialization_details=materialization_details,
         include_hashes=True,
     )
+    if selected == ["cosif_4010"]:
+        from utils.ifdata_cache.cosif_4010 import merge_release_manifest
+        from utils.ifdata_cache.release_config import add_release_cache_buster
+        try:
+            response = requests.get(add_release_cache_buster(
+                f"{release_cfg.release_base_url}/manifest.json", "cosif_4010"), timeout=30)
+            response.raise_for_status()
+            manifest_payload = merge_release_manifest(response.json(), cache_4010)
+            manifest_path.write_text(json.dumps(manifest_payload, ensure_ascii=False, indent=2))
+        except Exception as exc:
+            return False, f"Não foi possível preservar o manifest remoto: {exc}", {}
     publishable_caches, skipped_targets = get_publishable_bundle(
         selected,
         materialization_details=materialization_details,
@@ -5981,6 +5998,21 @@ def _calcular_lucro_liquido_cosif_raw(resultado_credor: Any, resultado_devedor: 
     return credor - abs(devedor)
 
 
+def _get_cosif_4010_cache():
+    from utils.ifdata_cache.cosif_4010 import Cosif4010Cache
+    cache = Cosif4010Cache(APP_DIR)
+    manager = get_cache_manager()
+    if manager is not None and manager.get_cache("cosif_4010") is None:
+        manager.registrar(cache)
+    return cache
+
+
+@st.cache_data(ttl=3600, max_entries=4, show_spinner=False)
+def _cosif_4010_fgc_referencias(periodos: tuple[str, ...], cache_version: str) -> pd.DataFrame:
+    from utils.ifdata_cache.cosif_4010 import fgc_reference_frame
+    return fgc_reference_frame(_get_cosif_4010_cache(), periodos)
+
+
 def _modos_comuns_conta_bloprudencial(conta_cosif: Optional[str], periodos_referencia: Sequence[str]) -> list[tuple[str, str]]:
     periodos = [_validar_yyyymm_str(p) for p in periodos_referencia]
     periodos = [p for p in periodos if p]
@@ -6087,6 +6119,11 @@ def _carregar_bloprud_conta_por_periodos(
     conta_norm = re.sub(r"\D", "", str(conta_cosif or ""))
     documento_norm = _normalizar_documento_bloprudencial(documento_bloprudencial)
     colunas_saida = ["DATA_BASE", "DOCUMENTO", "Instituição", "CONTA", "NOME_CONTA", "VALOR_CONTA"]
+    if documento_norm == "4010" and periodos_yyyymm:
+        cache = _get_cosif_4010_cache()
+        data = cache.load_slice(periodos_yyyymm, contas=(conta_norm,) if conta_norm else None)
+        data["Instituição"] = data["NOME_INSTITUICAO"] + " [" + data["CNPJ"] + "]"
+        return data.rename(columns={"SALDO": "VALOR_CONTA"})[[*colunas_saida, "CNPJ"]]
     if not periodos_yyyymm:
         return pd.DataFrame(columns=colunas_saida)
 
@@ -6256,6 +6293,9 @@ def _catalogo_contas_bloprudencial(
 
     manager = get_cache_manager()
     cache_bloprud = manager.get_cache("bloprudencial") if manager else None
+    if documento_norm == "4010":
+        cache_bloprud = _get_cosif_4010_cache()
+        cache_bloprud.ensure_available()
     if cache_bloprud is not None and cache_bloprud.arquivo_dados.exists() and periodos_validos:
         try:
             df_catalogo_cache = load_bloprudencial_parquet_slice(
@@ -6567,34 +6607,73 @@ def _render_contas_cosif_unificado(periodos_yyyymm: Sequence[str]) -> None:
         {p for p in (_validar_yyyymm_str(v) for v in periodos_yyyymm) if p},
         reverse=True,
     )
-    if not periodos_yyyymm_desc:
-        st.warning("não foi possível identificar períodos BLOPRUDENCIAL disponíveis.")
-        return
-
-    col_ref, col_doc, col_topn = st.columns([1.8, 0.8, 0.8])
-    with col_ref:
-        periodos_referencia_raw = st.multiselect(
-            "período(s) de referência (yyyymm)",
-            periodos_yyyymm_desc,
-            default=_default_periodos_cosif(periodos_yyyymm_desc, quantidade=2),
-            format_func=_yyyymm_para_periodo_exibicao,
-            key="fgc_periodos_referencia",
-        )
+    col_doc, col_ref, col_topn = st.columns([1.2, 1.8, 0.8])
     with col_doc:
         documento_bloprudencial = st.selectbox(
-            "caderno",
-            ["4060", "4066"],
-            index=0,
+            "caderno", ["4060", "4066", "4010"], index=0,
             format_func=_label_documento_bloprudencial,
             key="fgc_documento_bloprudencial",
         )
+    individual_4010 = documento_bloprudencial == "4010"
+    cache_version = "unificado_v4"
+    if individual_4010:
+        try:
+            cache_4010 = _get_cosif_4010_cache()
+            periodos_yyyymm_desc = sorted(cache_4010.available_periods(), reverse=True)
+            cache_version = json.loads(cache_4010.arquivo_metadata.read_text()).get("sha256", cache_version)
+        except Exception as exc:
+            st.error(f"Não foi possível carregar o caderno 4010: {exc}")
+            return
+        st.caption("Perímetro individual • razão social e CNPJ-base do BCB • saldos em R$.")
+        st.caption(
+            "FGC: Ativo de Referência (AR) = 3822000003; Valor de Referência (VR) = 9822500002. "
+            "Captação de Referência (CR): N/D. A subconta 9.8.2.10.03.00-5 não consta "
+            "dos arquivos públicos, limitados ao quarto nível. A conta 9821000008 agrega Fundos Garantidores."
+        )
+    else:
+        st.caption("Perímetro: conglomerado prudencial • saldos em R$.")
+    if not periodos_yyyymm_desc:
+        st.warning("Não há períodos disponíveis para este caderno.")
+        return
+    with col_ref:
+        periodos_referencia_raw = st.multiselect(
+            "período(s) de referência (yyyymm)", periodos_yyyymm_desc,
+            default=_default_periodos_cosif(periodos_yyyymm_desc, quantidade=1 if individual_4010 else 2),
+            format_func=_yyyymm_para_periodo_exibicao,
+            key="cosif_4010_periodos" if individual_4010 else "fgc_periodos_referencia",
+        )
     with col_topn:
-        top_n = st.selectbox("top n", [10, 20, 50], index=0, key="fgc_top_n")
+        top_n = st.selectbox("top n", [10, 20, 50, "Todos"], index=0, key="fgc_top_n")
 
     periodos_referencia = _normalizar_periodos_cosif_selecionados(periodos_referencia_raw, periodos_yyyymm_desc)
     if not periodos_referencia:
         st.warning("selecione ao menos um período de referência.")
         return
+
+    if individual_4010:
+        with st.expander("FGC — AR, VR e cobertura de todas as instituições", expanded=False):
+            from utils.ifdata_cache.cosif_4010 import FGC_CR_NOTE, SOURCE_PAGE
+            referencias = _cosif_4010_fgc_referencias(tuple(sorted(periodos_referencia)), cache_version)
+            st.caption(
+                f"{referencias['CNPJ'].nunique():,} instituições na base selecionada. "
+                "Ausência de rubrica = N/D; contas de controle são exibidas separadamente."
+            )
+            st.caption(FGC_CR_NOTE)
+            referencias_display = referencias.rename(columns={
+                "NOME_INSTITUICAO": "Instituição", "CNPJ": "CNPJ-base",
+            }).copy()
+            for coluna in ("AR", "VR", "AR - controle", "VR - controle", "CR"):
+                referencias_display[coluna] = referencias_display[coluna].map(
+                    lambda valor: "N/D" if pd.isna(valor) else _to_ptbr_decimal(f"{valor:,.2f}")
+                )
+            st.dataframe(referencias_display, hide_index=True, width="stretch")
+            st.download_button(
+                "Download FGC — todas as instituições (CSV)",
+                referencias.to_csv(index=False, sep=";", decimal=",", na_rep="N/D").encode("utf-8-sig"),
+                file_name="cosif_4010_fgc_" + "_".join(periodos_referencia) + ".csv",
+                mime="text/csv", key="cosif_4010_fgc_csv",
+            )
+            st.caption(f"[Fonte BCB]({SOURCE_PAGE}) • Caderno 4010 • R$ • perímetro individual.")
 
     periodo_atual = periodos_referencia[0]
     periodo_anterior = periodos_referencia[1] if len(periodos_referencia) >= 2 else None
@@ -6603,7 +6682,7 @@ def _render_contas_cosif_unificado(periodos_yyyymm: Sequence[str]) -> None:
     catalogo_contas = _catalogo_contas_bloprudencial(
         tuple(sorted(periodos_referencia)),
         documento_bloprudencial=documento_bloprudencial,
-        loader_version="unificado_v3",
+        loader_version=cache_version,
     )
     if catalogo_contas.empty:
         periodos_txt = ", ".join(_yyyymm_para_periodo_exibicao(p) for p in periodos_referencia)
@@ -6621,10 +6700,12 @@ def _render_contas_cosif_unificado(periodos_yyyymm: Sequence[str]) -> None:
         )
 
     conta_options = catalogo_contas["CONTA"].astype(str).tolist()
-    conta_default = "8118500009" if "8118500009" in conta_options else conta_options[0]
+    preferred_account = "3822000003" if individual_4010 else "8118500009"
+    conta_default = preferred_account if preferred_account in conta_options else conta_options[0]
     conta_labels = dict(zip(catalogo_contas["CONTA"].astype(str), catalogo_contas["LABEL"].astype(str)))
-    if st.session_state.get("fgc_conta_cosif") not in conta_options:
-        st.session_state.pop("fgc_conta_cosif", None)
+    conta_widget_key = "cosif_4010_conta" if individual_4010 else "fgc_conta_cosif"
+    if st.session_state.get(conta_widget_key) not in conta_options:
+        st.session_state.pop(conta_widget_key, None)
 
     col_conta, col_modo = st.columns([2.2, 1.4])
     with col_conta:
@@ -6633,7 +6714,7 @@ def _render_contas_cosif_unificado(periodos_yyyymm: Sequence[str]) -> None:
             conta_options,
             index=conta_options.index(conta_default),
             format_func=lambda conta: conta_labels.get(str(conta), str(conta)),
-            key="fgc_conta_cosif",
+            key=conta_widget_key,
         )
 
     modos_disponiveis = _modos_comuns_conta_bloprudencial(conta_cosif, periodos_referencia)
@@ -6642,15 +6723,19 @@ def _render_contas_cosif_unificado(periodos_yyyymm: Sequence[str]) -> None:
         return
 
     modo_labels = [label for label, _ in modos_disponiveis]
-    if st.session_state.get("fgc_modo_calculo") not in modo_labels:
-        st.session_state.pop("fgc_modo_calculo", None)
+    modo_widget_key = (
+        "cosif_4010_modo_resultado" if _conta_bloprudencial_suporta_acumulacao(conta_cosif)
+        else "cosif_4010_modo_saldo"
+    ) if individual_4010 else "fgc_modo_calculo"
+    if st.session_state.get(modo_widget_key) not in modo_labels:
+        st.session_state.pop(modo_widget_key, None)
 
     with col_modo:
         modo_fgc_label = st.selectbox(
             "como mostrar",
             modo_labels,
             index=0,
-            key="fgc_modo_calculo",
+            key=modo_widget_key,
         )
     modo_fgc = dict(modos_disponiveis)[modo_fgc_label]
     st.caption(f"Conta selecionada: {conta_labels.get(str(conta_cosif), str(conta_cosif))}")
@@ -6680,14 +6765,14 @@ def _render_contas_cosif_unificado(periodos_yyyymm: Sequence[str]) -> None:
         df_fgc = _carregar_lucro_liquido_cosif_por_periodos(
             tuple(periodos_necessarios),
             documento_bloprudencial=documento_bloprudencial,
-            loader_version="unificado_v1",
+            loader_version=cache_version,
         )
     else:
         df_fgc = _carregar_bloprud_conta_por_periodos(
             tuple(periodos_necessarios),
             conta_cosif=str(conta_cosif),
             documento_bloprudencial=documento_bloprudencial,
-            loader_version="unificado_v3",
+            loader_version=cache_version,
         )
     if df_fgc.empty:
         st.warning(
@@ -6696,16 +6781,17 @@ def _render_contas_cosif_unificado(periodos_yyyymm: Sequence[str]) -> None:
         )
         return
 
-    df_fgc = _aplicar_aliases_df(df_fgc, st.session_state.get("dict_aliases", {}))
+    if not individual_4010:
+        df_fgc = _aplicar_aliases_df(df_fgc, st.session_state.get("dict_aliases", {}))
     bancos_todos = sorted(df_fgc["Instituição"].dropna().astype(str).unique().tolist())
     bancos_todos = ordenar_bancos_com_alias(bancos_todos, st.session_state.get("dict_aliases", {}))
-    default_bancos = _encontrar_bancos_default(bancos_todos)
+    default_bancos = [] if individual_4010 else _encontrar_bancos_default(bancos_todos)
     bancos_selecionados = st.multiselect(
         "selecionar instituições",
         bancos_todos,
         default=default_bancos,
-        key="fgc_bancos",
-        max_selections=60,
+        key=f"cosif_4010_bancos_{conta_cosif}" if individual_4010 else "fgc_bancos",
+        max_selections=None if individual_4010 else 60,
     )
 
     if bancos_selecionados:
@@ -6720,7 +6806,7 @@ def _render_contas_cosif_unificado(periodos_yyyymm: Sequence[str]) -> None:
             index="Instituição",
             columns="DATA_BASE",
             values="VALOR_CONTA",
-            aggfunc="sum",
+            aggfunc=lambda values: values.sum(min_count=1),
         ).reset_index()
     )
 
@@ -6785,7 +6871,7 @@ def _render_contas_cosif_unificado(periodos_yyyymm: Sequence[str]) -> None:
 
     col_abs_atual = f"Valor {periodo_atual} (abs)"
     df_rank = df_rank.sort_values(col_abs_atual, ascending=False)
-    df_top = df_rank.head(int(top_n)).copy()
+    df_top = df_rank.copy() if top_n == "Todos" else df_rank.head(int(top_n)).copy()
     total_exibido = float(df_top[col_abs_atual].sum())
     df_top["% do Total Exibido"] = (df_top[col_abs_atual] / total_exibido) * 100.0 if total_exibido > 0 else 0.0
     df_top["Ranking"] = range(1, len(df_top) + 1)
@@ -6851,7 +6937,10 @@ def _render_contas_cosif_unificado(periodos_yyyymm: Sequence[str]) -> None:
         font=dict(family="IBM Plex Sans"),
         margin=dict(r=160),
     )
-    st.plotly_chart(fig_fgc, width='stretch', config={'displayModeBar': False})
+    if len(df_top) <= 50:
+        st.plotly_chart(fig_fgc, width='stretch', config={'displayModeBar': False})
+    else:
+        st.caption(f"{len(df_top)} instituições na tabela e na exportação. Selecione até 50 para visualizar o gráfico.")
 
     colunas_show = ["Ranking", "Instituição"]
     rename_map = {}
@@ -6879,6 +6968,8 @@ def _render_contas_cosif_unificado(periodos_yyyymm: Sequence[str]) -> None:
 
     df_show = df_top[colunas_show].copy().rename(columns=rename_map)
     df_show.insert(2, "Caderno", str(documento_bloprudencial))
+    if individual_4010:
+        df_show.insert(2, "CNPJ-base", df_show["Instituição"].str.extract(r"\[(\d{8})\]$", expand=False))
 
     df_display = df_show.copy()
     for col in df_display.columns:
@@ -16143,7 +16234,7 @@ CACHE_DEPENDENCIAS_POR_ABA = {
     "Estatísticas Crédito BC": ["mercado_credito_sgs", "scr_data"],
     "Taxas de Juros por Produto": ["taxas_juros_historico"],
     "Meios de Pagamento (SPB)": ["spb_meios_pagamento"],
-    "Contas COSIF": ["bloprudencial"],
+    "Contas COSIF": ["bloprudencial", "cosif_4010"],
     "Atualizar Base": [
         "principal", "capital", "ativo", "passivo", "dre", "carteira_pf",
         "carteira_pj", "carteira_instrumentos", "bloprudencial", "taxas_juros_historico",
@@ -21600,14 +21691,14 @@ elif menu == "Rankings":
 
 elif menu == "Contas COSIF":
     st.markdown("### Contas COSIF")
-    st.caption("Ranking baseado no BLOPRUDENCIAL mensal, com conta COSIF selecionável e cálculo explícito por período de referência.")
+    st.caption("Balancetes individuais (4010) e conglomerados prudenciais (4060/4066), com conta COSIF e período selecionáveis.")
     with st.expander("Mini-glossário", expanded=False):
         st.dataframe(
             pd.DataFrame(
                 [
                     {
                         "Campo": "Fonte",
-                        "Descrição": "BLOPRUDENCIAL mensal do Banco Central, carregado por conta COSIF e competência.",
+                        "Descrição": "Arquivos COSIF do BCB: 4010 individual e BLOPRUDENCIAL 4060/4066. Saldos em R$, por conta e competência.",
                     },
                     {
                         "Campo": "Saldo do período",
@@ -26708,6 +26799,8 @@ elif menu == "Atualizar Base":
         st.session_state['cache_manager'] = CacheManager()
     cache_manager = st.session_state['cache_manager']
     _get_sgs_credit_cache(cache_manager)
+    if cache_manager.get_cache("cosif_4010") is None:
+        cache_manager.registrar(_get_cosif_4010_cache())
     release_cfg = _release_config_app()
     runtime_manifest = build_runtime_manifest(cache_manager, release_config=release_cfg)
     runtime_caches = runtime_manifest.get("caches", {})
@@ -26904,6 +26997,7 @@ elif menu == "Atualizar Base":
             "taxas_juros": "Taxas de Juros (API BCB) - TODOS produtos/instituições",
             "taxas_juros_historico": "Taxas de Juros Histórico (Batch) - ConsultaUnificada + cache publicado",
             "bloprudencial": "Conglomerados Prudenciais (BLOPRUDENCIAL) - CSV mensal",
+            "cosif_4010": "COSIF 4010 - todos os nomes (CSV mensal BCB)",
             "spb_meios_pagamento": "Meios de Pagamento (SPB/Olinda BCB) - 12 datasets",
             "mercado_credito_sgs": "Estatísticas Crédito BC (BCData/SGS) - séries mensais agregadas",
         }
@@ -26920,6 +27014,7 @@ elif menu == "Atualizar Base":
         is_taxas_juros = (cache_selecionado == "taxas_juros")
         is_taxas_juros_historico = (cache_selecionado == "taxas_juros_historico")
         is_bloprudencial = (cache_selecionado == "bloprudencial")
+        is_cosif_4010 = (cache_selecionado == "cosif_4010")
         is_spb_meios_pagamento = (cache_selecionado == "spb_meios_pagamento")
         is_mercado_credito_sgs = (cache_selecionado == "mercado_credito_sgs")
 
@@ -27112,15 +27207,15 @@ elif menu == "Atualizar Base":
             # Não precisa de periodos_extrair para taxas_juros
             periodos_extrair = None
 
-        elif is_bloprudencial:
-            st.caption("BLOPRUDENCIAL: extração mensal via GET estático no site do BCB")
+        elif is_bloprudencial or is_cosif_4010:
+            st.caption("COSIF: extração mensal dos arquivos estáticos no site do BCB")
             anos_mensais = list(range(2015, 2031))
             meses_mensais = [f"{m:02d}" for m in range(1, 13)]
             info_bloprudencial_local = cache_manager.info(cache_selecionado)
             periodos_bloprudencial = sorted(
                 {p for p in (_normalizar_periodo_cache(x) for x in info_bloprudencial_local.get("periodos", [])) if p}
             )
-            periodo_bloprudencial_default = periodos_bloprudencial[-1] if periodos_bloprudencial else "202512"
+            periodo_bloprudencial_default = periodos_bloprudencial[-1] if periodos_bloprudencial else ("202606" if is_cosif_4010 else "202512")
             ano_bloprudencial_default = int(periodo_bloprudencial_default[:4])
             mes_bloprudencial_default = periodo_bloprudencial_default[4:6]
             if ano_bloprudencial_default not in anos_mensais:
@@ -27332,7 +27427,7 @@ elif menu == "Atualizar Base":
 
         # A extração não depende mais de alias local.
         pode_extrair = True
-        if not is_taxas_juros and not is_taxas_juros_historico and not is_bloprudencial and not is_spb_meios_pagamento and not is_mercado_credito_sgs and not periodos_extrair:
+        if not is_taxas_juros and not is_taxas_juros_historico and not is_bloprudencial and not is_cosif_4010 and not is_spb_meios_pagamento and not is_mercado_credito_sgs and not periodos_extrair:
             st.error("nenhum período válido selecionado para extração.")
             pode_extrair = False
 
@@ -27396,7 +27491,7 @@ elif menu == "Atualizar Base":
                 st.stop()
 
             modo_lotes = False
-            if not is_taxas_juros and not is_taxas_juros_historico and not is_bloprudencial and periodos_extrair and len(periodos_extrair) > 12:
+            if not is_taxas_juros and not is_taxas_juros_historico and not is_bloprudencial and not is_cosif_4010 and periodos_extrair and len(periodos_extrair) > 12:
                 modo_lotes = st.checkbox(
                     "executar em lotes menores (recomendado para intervalos longos)",
                     value=True,
@@ -27428,7 +27523,7 @@ elif menu == "Atualizar Base":
                 erros_encontrados = []
                 logs_extracao = []
 
-                if not is_taxas_juros and not is_taxas_juros_historico and not is_bloprudencial and not is_spb_meios_pagamento and not is_mercado_credito_sgs:
+                if not is_taxas_juros and not is_taxas_juros_historico and not is_bloprudencial and not is_cosif_4010 and not is_spb_meios_pagamento and not is_mercado_credito_sgs:
                     periodos_totais = periodos_extrair
                     concluidos = set(checkpoint.get("concluidos") or [])
                     if retomar and checkpoint_pendentes:
@@ -27451,7 +27546,29 @@ elif menu == "Atualizar Base":
                 # =============================================================
                 # EXTRAÇÃO ESPECIAL PARA TAXAS DE JUROS
                 # =============================================================
-                if is_bloprudencial:
+                if is_cosif_4010:
+                    from scripts.ingest_cosif_4010 import ingest
+                    try:
+                        cache_4010 = cache_manager.get_cache("cosif_4010")
+                        if not periodos_extrair:
+                            raise ValueError("Selecione ao menos uma competência válida")
+                        status_text.text("Ingerindo todos os grupos do caderno 4010...")
+                        resultado = ingest(cache_4010, periodos_extrair,
+                                           refresh=(modo_atualizacao == "overwrite"))
+                        progress_bar.progress(1.0)
+                        status_text.empty()
+                        st.success(resultado.mensagem)
+                        st.json(resultado.metadata["cobertura"])
+                        _carregar_bloprud_conta_por_periodos.clear()
+                        _catalogo_contas_bloprudencial.clear()
+                        _cosif_4010_fgc_referencias.clear()
+                        if publicar_auto and gh_token_final and token_validado:
+                            ok_pub, msg_pub = upload_cache_github(cache_manager, "cosif_4010", gh_token_final)
+                            (st.success if ok_pub else st.error)(msg_pub)
+                    except Exception as exc:
+                        st.error(f"Falha na ingestão 4010: {exc}")
+
+                elif is_bloprudencial:
                     from utils.ifdata_cache import load_bloprudencial_df_cached, preload_bloprudencial
 
                     try:
@@ -28134,7 +28251,7 @@ elif menu == "Atualizar Base":
                                     st.session_state['dados_capital'] = dados_dict
 
                             extracao_completa = True
-                            if not is_taxas_juros and not is_bloprudencial:
+                            if not is_taxas_juros and not is_bloprudencial and not is_cosif_4010:
                                 concluidos.update(periodos_lote)
                                 pendentes_final = [p for p in periodos_totais if p not in concluidos]
                                 if periodos_restantes:

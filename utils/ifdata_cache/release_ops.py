@@ -56,6 +56,7 @@ PUBLISH_ORDER = [
     "carteira_pj",
     "carteira_instrumentos",
     "bloprudencial",
+    "cosif_4010",
     "mercado_credito_sgs",
     "derived_metrics",
     "derived_metrics_individual",
