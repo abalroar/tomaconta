@@ -9972,7 +9972,8 @@ def _resolve_dre_entry_values_period_aware(
 
     old_mask = df["ano"].fillna(0) <= 2024
     new_mask = df["ano"].fillna(0) >= 2025
-    q4_2025_mask = df["ano"].eq(2025) & df["mes"].eq(12)
+    # O layout introduzido em dez/2025 permanece nos arquivos de 2026.
+    q4_2025_mask = (df["ano"].eq(2025) & df["mes"].eq(12)) | df["ano"].ge(2026)
 
     if old_values is not None:
         valores.loc[old_mask] = old_values.loc[old_mask]
@@ -23044,81 +23045,7 @@ elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolid
             return {}
 
     def load_dre_mapping_individual():
-        caminho = Path("data/dre_mapping.json")
-        if not caminho.exists():
-            return []
-        try:
-            payload = json.loads(caminho.read_text(encoding="utf-8"))
-        except Exception:
-            return []
-
-        payload_map = {str(item.get("label") or "").strip(): item for item in payload if isinstance(item, dict)}
-        ordered_labels = [
-            "Resultado de Intermediação Financeira Bruto",
-            "Rec. Aplicações Interfinanceiras Liquidez",
-            "Rec. TVMs",
-            "Rec. Crédito",
-            "Rec. Arrendamento Financeiro",
-            "Rec. Outras Operações c/ Características de Crédito",
-            "Desp. PDD",
-            "Desp. Captação",
-            "Desp. Dívida Elegível a Capital",
-            "Res. Derivativos",
-            "Outros Res. Intermediação Financeira",
-            "Resultado Int. Financeira Líquido",
-            "Resultado Transações Pgto",
-            "Renda Tarifas Bancárias",
-            "Outras Prestações de Serviços",
-            "Desp. Pessoal",
-            "Desp. Adm",
-            "Desp. PDD Outras Operações",
-            "Desp. JSCP Cooperativas",
-            "Desp. Tributárias",
-            "Res. Participação Controladas",
-            "Outras Receitas",
-            "Outras Despesas",
-            "IR/CSLL",
-            "Res. Participação Lucro",
-            "Lucro Líquido Período Acumulado",
-        ]
-        child_labels = {
-            "Rec. Aplicações Interfinanceiras Liquidez",
-            "Rec. TVMs",
-            "Rec. Crédito",
-            "Rec. Arrendamento Financeiro",
-            "Rec. Outras Operações c/ Características de Crédito",
-        }
-        alias_lookup = {
-            "Lucro Líquido Período Acumulado": "Lucro Líquido Período",
-        }
-        entries = []
-        for label in ordered_labels:
-            lookup = alias_lookup.get(label, label)
-            base_item = payload_map.get(lookup, {})
-            sources = base_item.get("sources_new") or []
-            entries.append({
-                "label": label,
-                "sources": sources,
-                "concept": str(base_item.get("concept") or "").strip(),
-                "original_label": sources[0] if sources else lookup,
-                "is_child": label in child_labels,
-            })
-
-        entries.extend([
-            {
-                "label": "Desp PDD / Resultado Intermediação Fin. Bruto",
-                "derived_metric": "Desp PDD / Resultado Intermediação Fin. Bruto",
-                "format": "pct",
-                "concept": "Desp. PDD dividido pelo Resultado de Intermediação Financeira Bruto.",
-            },
-            {
-                "label": "Desp Captação / Captação",
-                "derived_metric": "Desp Captação / Captação",
-                "format": "pct",
-                "concept": "Desp. Captação anualizada dividida por Captações.",
-            },
-        ])
-        return entries
+        return _build_dre_consolidated_mapping_entries()
 
     def find_column(df, source_name: str):
         if source_name in df.columns:
@@ -23351,13 +23278,14 @@ elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolid
             colunas_necessarias.add(col_cod)
         fonte_para_coluna = {}
         for entry in mapping_entries:
-            for fonte in entry.get("sources", []):
-                if fonte in fonte_para_coluna:
-                    continue
-                col_encontrada = find_column(df_dre_raw, fonte)
-                if col_encontrada:
-                    fonte_para_coluna[fonte] = col_encontrada
-                    colunas_necessarias.add(col_encontrada)
+            for key in ("sources_old", "sources_new", "sources_new_q4"):
+                for fonte in _normalize_dre_sources(entry.get(key)):
+                    if fonte in fonte_para_coluna:
+                        continue
+                    col_encontrada = _find_dre_source_column(df_dre_raw, fonte)
+                    if col_encontrada:
+                        fonte_para_coluna[fonte] = col_encontrada
+                        colunas_necessarias.add(col_encontrada)
         colunas_necessarias = [c for c in df_dre_raw.columns if c in colunas_necessarias]
         df_base = df_dre_raw[colunas_necessarias].copy() if colunas_necessarias else df_dre_raw.copy()
         if col_inst is None:
@@ -23374,10 +23302,11 @@ elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolid
         for entry in mapping_entries:
             if entry.get("derived_metric"):
                 continue
-            colunas = [fonte_para_coluna[f] for f in normalize_sources(entry.get("sources", [])) if f in fonte_para_coluna]
-            if not colunas:
+            valores = _resolve_dre_entry_values_period_aware(
+                df_new, entry, numericas, fonte_para_coluna,
+            )
+            if valores.isna().all():
                 continue
-            valores = pd.concat([numericas[col] for col in colunas], axis=1).sum(axis=1, min_count=1)
             cols_saida = [c for c in ["CodInst", "Instituicao", "Periodo"] if c in df_new.columns]
             df_entry = df_new[cols_saida].copy()
             df_entry["Label"] = entry["label"]

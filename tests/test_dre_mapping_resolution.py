@@ -1,4 +1,5 @@
 import pandas as pd
+import pytest
 
 import app1
 
@@ -69,3 +70,32 @@ def test_resolve_dre_entry_values_period_aware_handles_2025_q4_shift_and_unavail
     assert jscp_values.iloc[0] == -7.0
     assert pd.isna(jscp_values.iloc[1])
     assert jscp_values.iloc[2] == -3.0
+
+
+def test_2026_keeps_layout_introduced_in_december_2025():
+    df = pd.DataFrame({"ano": [2026, 2026], "mes": [3, 6],
+                       "Despesas Tributárias (s)": [-999., -999.],
+                       "Despesas Tributárias (r)": [-100., 0.]})
+    entry = next(e for e in app1._build_dre_consolidated_mapping_entries() if e["label"] == "Desp. Tributárias")
+    sources = {c: c for c in df if c.startswith("Despesas")}
+    values = app1._resolve_dre_entry_values_period_aware(df, entry, {c: df[c] for c in sources}, sources)
+    assert values.tolist() == [-100., 0.]
+
+
+@pytest.mark.parametrize("cache", ["dre", "dre_individual"])
+def test_june_published_dre_exposes_reported_tax_and_net_income(cache):
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    df = pd.read_parquet(root / f"data/bundled/{cache}/dados.parquet")
+    df = df[df["Período"].eq("2/2026")].copy()
+    df["ano"], df["mes"] = 2026, 6
+    entries = {e["label"]: e for e in app1._build_dre_consolidated_mapping_entries()}
+    for label in ["Desp. Tributárias", "IR/CSLL", "Lucro Líquido Período Acumulado"]:
+        entry = entries[label]
+        sources = {s: app1._find_dre_source_column(df, s) for s in entry["sources_new_q4"]}
+        assert all(sources.values())
+        numeric = {col: pd.to_numeric(df[col], errors="coerce") for col in sources.values()}
+        actual = app1._resolve_dre_entry_values_period_aware(df, entry, numeric, sources)
+        expected = pd.concat(list(numeric.values()), axis=1).sum(axis=1, min_count=1)
+        assert expected.notna().sum() > 1000
+        pd.testing.assert_series_equal(actual, expected, check_names=False)
