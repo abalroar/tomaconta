@@ -116,3 +116,12 @@ O indicador voltou a ter dados em 1.010 instituições em junho.
 Os downloads reais do release foram comparados por SHA-256: 50 assets e o
 manifest, com recibo em `atualizacao_jun26_downloads.json`. O detalhe anual SCR
 de 2026 também foi baixado: 235.736 linhas, 33.953 de junho, preservando julho.
+
+Na validação pública da DRE prudencial, as rubricas finais ainda aplicavam o
+layout anterior em 2026. A seleção de layout agora mantém, desde dez/2025, as
+colunas de tributos `(r)`, IR/CSLL `(x)` e lucro líquido `(z)` publicadas nos
+arquivos de março e junho/2026. A DRE individual usa o mesmo resolvedor por período, mantendo o perímetro
+individual. A correção é de leitura; não altera os assets
+financeiros nem seus hashes. Testes cobrem o zero e as colunas reais de junho.
+Validação complementar da leitura DRE: 736 testes aprovados, 14 avisos existentes,
+pico RSS 796,8 MiB; dispatcher e diff sem erros.
