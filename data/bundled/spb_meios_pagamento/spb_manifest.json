@@ -1,0 +1,17 @@
+{
+  "finalized_at": "2026-09-10T22:21:59.913686",
+  "datasets": {
+    "nucleo_trimestral": 46,
+    "nucleo_mensal": 292,
+    "cartoes": 6131,
+    "intercambio": 662556,
+    "desconto": 13158,
+    "portador": 6857,
+    "atm": 51114,
+    "terminais": 2028,
+    "estabelecimentos_credenciados": 1452,
+    "infra_estabelecimentos": 2030,
+    "canais_servicos": 830,
+    "canais_transacoes": 6575
+  }
+}

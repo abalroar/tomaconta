@@ -1,0 +1,71 @@
+{
+  "timestamp_salvamento": "2026-09-10T22:39:19.783328",
+  "fonte": "derivado",
+  "total_registros": 140315,
+  "colunas": [
+    "Instituição",
+    "Período",
+    "Métrica",
+    "Valor",
+    "Unidade"
+  ],
+  "formato": "parquet",
+  "periodos": [
+    "1/2022",
+    "1/2023",
+    "1/2024",
+    "1/2025",
+    "1/2026",
+    "2/2022",
+    "2/2023",
+    "2/2024",
+    "2/2025",
+    "2/2026",
+    "3/2022",
+    "3/2023",
+    "3/2024",
+    "3/2025",
+    "4/2022",
+    "4/2023",
+    "4/2024",
+    "4/2025"
+  ],
+  "total_periodos": 18,
+  "extra": {
+    "denominador_zero_ou_nan": {
+      "Desp PDD / Resultado Intermediação Fin. Bruto": 18763,
+      "Desp Captação / Captação": 8162,
+      "Custo de Crédito (%)": 15496,
+      "Custo de Crédito / Receita de Crédito (%)": 21366,
+      "Ativos Problemáticos / Carteira Total": 23535
+    },
+    "period_type": "trimestral",
+    "periodos_detectados": [
+      "1/2022",
+      "1/2023",
+      "1/2024",
+      "1/2025",
+      "1/2026",
+      "2/2022",
+      "2/2023",
+      "2/2024",
+      "2/2025",
+      "2/2026",
+      "3/2022",
+      "3/2023",
+      "3/2024",
+      "3/2025",
+      "4/2022",
+      "4/2023",
+      "4/2024",
+      "4/2025"
+    ],
+    "cache_origem_dre": "dre_individual",
+    "cache_origem_principal": "principal_individual",
+    "cache_origem_ativo": "ativo",
+    "carteira_fonte": "relatorio_2_carteira_credito_bruta"
+  },
+  "publication_id": "tomaconta-jun26-20260911-v1",
+  "release_tag": "v1.1-cache",
+  "sha256": "632d8bff3d2b564af9e0cbbee2279e9b2c8ee3c5423491e53fb93dc584d410f9"
+}

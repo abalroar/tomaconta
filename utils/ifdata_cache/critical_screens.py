@@ -1187,6 +1187,14 @@ def _normalize_bloprud_frame(
 
 def _load_bloprud_cached(manager: "CacheManager", periodos_display: Sequence[str]) -> pd.DataFrame:
     try:
+        cache = manager.get_cache("bloprudencial") if hasattr(manager, "get_cache") else None
+        periods = [display_period_to_api(p) for p in periodos_display if display_period_to_api(p)]
+        parquet_path = getattr(cache, "arquivo_dados", None)
+        if parquet_path is not None and parquet_path.exists() and periods:
+            from .bloprudencial_cache import load_bloprudencial_parquet_slice
+            return _normalize_bloprud_frame(
+                load_bloprudencial_parquet_slice(cache, periodos_yyyymm=periods), periodos_display,
+            )
         resultado = manager.carregar("bloprudencial")
     except Exception as exc:
         logger.warning("[CACHE:CRITICAL_SCREENS] Falha ao carregar cache persistido BLOPRUDENCIAL: %s", exc)
@@ -1437,6 +1445,9 @@ def _build_dre_ratios_lookup(
 
     try:
         df_dre_base, colunas_dre = _prepare_base_dre(df_dre)
+        # O merge de captações cria RangeIndex; recortes históricos precisam
+        # usar o mesmo índice antes de alinhar numerador e denominador.
+        df_dre_base = df_dre_base.reset_index(drop=True)
         df_principal_base = _prepare_base_principal(df_principal)
     except Exception:
         return {}

@@ -408,6 +408,13 @@ class SPBMeiosPagamentoCache(BaseCache):
             paths[spec.key] = self.arquivo_dados_runtime if spec.key == _MAIN_KEY else self.cache_dir / f"{spec.key}.parquet"
         return paths
 
+    def read_dataset_paths(self) -> Dict[str, Path]:
+        prefer_bundle = self._prefer_publication_bundle()
+        return {key: (self.bundled_dir / path.name
+                      if (prefer_bundle or not path.exists()) and (self.bundled_dir / path.name).exists()
+                      else path)
+                for key, path in self.dataset_paths().items()}
+
     def _release_url_for(self, key: str) -> str:
         return f"{self.release_base_url}/{self.config.nome}_{key}.parquet"
 
@@ -530,11 +537,11 @@ class SPBMeiosPagamentoCache(BaseCache):
 
     def bootstrap_local_assets(self, *, force: bool = False) -> CacheResult:
         paths = self.dataset_paths()
-        if not force and all(path.exists() for path in paths.values()) and self.arquivo_metadata.exists():
+        if not force and all(path.exists() for path in self.read_dataset_paths().values()) and self.arquivo_metadata.exists():
             return CacheResult(sucesso=True, mensagem="Assets SPB já disponíveis localmente.", fonte="cache_local")
 
         self._garantir_diretorio()
-        urls: Dict[Path, str] = {self.arquivo_metadata: self.github_release_metadata_url}
+        urls: Dict[Path, str] = {self.arquivo_metadata_runtime: self.github_release_metadata_url}
         for spec in DATASETS:
             urls[paths[spec.key]] = (
                 self.github_release_parquet_url if spec.key == _MAIN_KEY else self._release_url_for(spec.key)
@@ -544,19 +551,19 @@ class SPBMeiosPagamentoCache(BaseCache):
             try:
                 response = requests.get(url, timeout=120)
             except requests.RequestException as exc:
-                if local_path == self.arquivo_dados:
+                if local_path == self.arquivo_dados_runtime:
                     return CacheResult(sucesso=False, mensagem=f"Erro de rede: {exc}", fonte="nenhum")
                 continue
 
             if response.status_code == 404:
-                if local_path == self.arquivo_dados:
+                if local_path == self.arquivo_dados_runtime:
                     return CacheResult(
                         sucesso=False, mensagem="Dataset núcleo trimestral não encontrado nos releases", fonte="nenhum"
                     )
                 continue
 
             if response.status_code != 200:
-                if local_path == self.arquivo_dados:
+                if local_path == self.arquivo_dados_runtime:
                     return CacheResult(
                         sucesso=False,
                         mensagem=f"Falha ao baixar asset principal ({response.status_code})",
@@ -586,6 +593,8 @@ class SPBMeiosPagamentoCache(BaseCache):
 
     def carregar(self, forcar_remoto: bool = False) -> CacheResult:
         if not forcar_remoto:
+            if self._publication_metadata():
+                return self.carregar_local()
             valido, _ = self.cache_valido()
             if valido:
                 resultado = self.carregar_local()
@@ -605,7 +614,7 @@ class SPBMeiosPagamentoCache(BaseCache):
         if key == _MAIN_KEY:
             return self.carregar(forcar_remoto=forcar_remoto)
 
-        path = self.dataset_paths()[key]
+        path = self.dataset_paths()[key] if forcar_remoto else self.read_dataset_paths()[key]
         if not forcar_remoto and path.exists():
             try:
                 return CacheResult(sucesso=True, mensagem=f"{key} carregado do cache local", dados=pd.read_parquet(path), fonte="cache_local")

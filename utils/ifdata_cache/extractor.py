@@ -278,6 +278,10 @@ def extrair_cadastro(periodo: str) -> pd.DataFrame:
     Returns:
         DataFrame com CodInst e NomeInstituicao
     """
+    import os
+    if os.getenv("TOMACONTA_IFDATA_SOURCE") == "web":
+        from .ifdata_web import get_web_source
+        return get_web_source(periodo).cadastro_frame()
     page_size = 5000
     skip = 0
     all_rows = []
@@ -327,6 +331,10 @@ def extrair_valores(
     Returns:
         DataFrame com CodInst, NomeColuna, Saldo
     """
+    import os
+    if os.getenv("TOMACONTA_IFDATA_SOURCE") == "web":
+        from .ifdata_web import get_web_source
+        return get_web_source(periodo).valores(relatorio, tipo_instituicao)
     url = (
         f"{BASE_URL}/IfDataValores("
         f"AnoMes={int(periodo)},"

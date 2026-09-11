@@ -213,5 +213,8 @@
     "202609"
   ],
   "total_periodos": 189,
-  "series": 130
+  "series": 130,
+  "publication_id": "tomaconta-jun26-20260911-v1",
+  "release_tag": "v1.1-cache",
+  "sha256": "272ab2f71e5bcc5dbc67f697fa57e3edec1260cd8d166c33a9a0ef5ebe45a38c"
 }
