@@ -131,3 +131,9 @@ caminho consumido pelo diagnóstico DRE existente. Assim, o diagnóstico compara
 junho com o artefato publicado mesmo sob configuração global legada. O token
 da tabela DRE inclui a revisão do layout para invalidar resultados calculados
 antes da correção, mesmo quando o parquet permanece idêntico.
+
+A abertura direta da DRE gerencial com runtime vazio selecionava o primeiro
+parquet encontrado, que era Taxas de Juros (2.764.031 linhas). A seleção padrão
+agora usa somente DRE, respeitando a precedência do bundle publicado sobre um
+runtime legado. Sem parquet DRE, a tela aguarda seleção explícita. Testes
+reproduzem o runtime vazio com Taxas presente e a convivência com DRE antiga.

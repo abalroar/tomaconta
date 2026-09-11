@@ -651,11 +651,11 @@ def render_streamlit_app() -> None:
         if not local_options:
             st.warning("Nenhum parquet local encontrado em `data/cache`.")
             return
-        default_paths = [p for p in local_options if str(p).endswith("data/cache/dre/dados.parquet")]
+        default_paths = [p for p in local_options if p.parent.name == "dre"][:1]
         selected_paths = st.multiselect(
             "Parquets locais",
             options=local_options,
-            default=default_paths or local_options[:1],
+            default=default_paths,
             format_func=lambda p: str(p),
             key="dre_schema_local_paths",
         )
@@ -797,17 +797,20 @@ except Exception:
 
 
 def _discover_local_parquet_options() -> list[Path]:
+    from utils.ifdata_cache import CacheManager
+
+    # Usa a mesma precedência de publicação das demais telas, inclusive quando
+    # o runtime está vazio ou contém um download legado anterior ao bundle.
+    manager = CacheManager(base_dir=Path.cwd())
     preferred = [
-        Path("data/cache/dre/dados.parquet"),
-        Path("data/cache/dre_individual/dados.parquet"),
-        Path("data/cache/principal/dados.parquet"),
-        Path("data/cache/principal_individual/dados.parquet"),
+        manager.get_cache(name).arquivo_dados
+        for name in ("dre", "dre_individual", "principal", "principal_individual")
     ]
     options = [p for p in preferred if p.exists()]
     # Artefatos versionados moveram-se para data/bundled/; data/cache/ é runtime.
     for raiz in ("data/cache", "data/bundled"):
         for path in sorted(Path(raiz).glob("*/dados.parquet")):
-            if path not in options:
+            if path.resolve() not in {option.resolve() for option in options}:
                 options.append(path)
     return options
 
