@@ -62,6 +62,8 @@ def result(key):
 cache = SimpleNamespace(carregar=lambda: result("nucleo_trimestral"), carregar_dataset=result)
 def get_cache_manager():
     return SimpleNamespace(get_cache=lambda key: cache)
+def _cache_version_token(key):
+    return "fixture-publication"
 """
     return AppTest.from_string(setup + "\n" + body, default_timeout=15).run()
 

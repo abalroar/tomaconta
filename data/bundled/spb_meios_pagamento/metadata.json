@@ -1,0 +1,165 @@
+{
+  "timestamp_salvamento": "2026-09-10T22:20:27.240150",
+  "fonte": "api",
+  "total_registros": 46,
+  "colunas": [
+    "trimestre",
+    "valor_pix",
+    "valor_ted",
+    "valor_tec",
+    "valor_cheque",
+    "valor_boleto",
+    "valor_doc",
+    "valor_cartao_credito",
+    "valor_cartao_debito",
+    "valor_cartao_pre_pago",
+    "valor_trans_intrabancaria",
+    "valor_convenios",
+    "valor_debito_direto",
+    "valor_saques",
+    "quantidade_pix",
+    "quantidade_ted",
+    "quantidade_tec",
+    "quantidade_cheque",
+    "quantidade_boleto",
+    "quantidade_doc",
+    "quantidade_cartao_credito",
+    "quantidade_cartao_debito",
+    "quantidade_cartao_pre_pago",
+    "quantidade_trans_intrabancaria",
+    "quantidade_convenios",
+    "quantidade_debito_direto",
+    "quantidade_saques"
+  ],
+  "formato": "parquet",
+  "extra": {
+    "dataset": "nucleo_trimestral",
+    "function_name": "MeiosdePagamentosTrimestralDA",
+    "datasets": {
+      "nucleo_trimestral": {
+        "rows": 46,
+        "latest_source_period": "2026-06-30",
+        "sha256": "3e20aaf3c768af51d13b20ed535ac8b1fff417826930771976b45e47cdc49265",
+        "url": "https://olinda.bcb.gov.br/olinda/servico/MPV_DadosAbertos/versao/v1/odata/MeiosdePagamentosTrimestralDA(trimestre=@trimestre)?@trimestre='19001'&$format=json"
+      },
+      "nucleo_mensal": {
+        "rows": 292,
+        "latest_source_period": "202607",
+        "sha256": "b667635b0567aa4e8d3d1a935ad69fc4e80fa8241d04b4c32c5a0dc2a6b0f90d",
+        "url": "https://olinda.bcb.gov.br/olinda/servico/MPV_DadosAbertos/versao/v1/odata/MeiosdePagamentosMensalDA(AnoMes=@AnoMes)?@AnoMes='190001'&$format=json"
+      },
+      "cartoes": {
+        "rows": 6131,
+        "latest_source_period": "20262",
+        "sha256": "a4423d1aa54834c0e47575de24d0b1a014e4d6defa938695d21a4ecbe052b134",
+        "url": "https://olinda.bcb.gov.br/olinda/servico/MPV_DadosAbertos/versao/v1/odata/Quantidadeetransacoesdecartoes(trimestre=@trimestre)?@trimestre='19001'&$format=json"
+      },
+      "intercambio": {
+        "rows": 662556,
+        "latest_source_period": "20261",
+        "sha256": "ec2b29542c2b3eca5dec006e695c34031623eac97cc1cd7892ea321caa4d3fec",
+        "url": "https://olinda.bcb.gov.br/olinda/servico/MPV_DadosAbertos/versao/v1/odata/INTERCAMDA(trimestre=@trimestre)?@trimestre='19001'&$format=json"
+      },
+      "desconto": {
+        "rows": 13158,
+        "latest_source_period": "20261",
+        "sha256": "b9064e12c3d5cafeda0494a738887a5a9930d00f0f3f5b65e5bd95119357cb19",
+        "url": "https://olinda.bcb.gov.br/olinda/servico/MPV_DadosAbertos/versao/v1/odata/DESCONTODA(trimestre=@trimestre)?@trimestre='19001'&$format=json"
+      },
+      "portador": {
+        "rows": 6857,
+        "latest_source_period": "20261",
+        "sha256": "c394d6ce3684dc469ace86f2bd93774aef5280d5a30b3e355c63343395f5996f",
+        "url": "https://olinda.bcb.gov.br/olinda/servico/MPV_DadosAbertos/versao/v1/odata/PORTADORDA(trimestre=@trimestre)?@trimestre='19001'&$format=json"
+      },
+      "atm": {
+        "rows": 51114,
+        "latest_source_period": "20261",
+        "sha256": "735c5530a25a370204d81d8fdd0df4bddca214590baf7b7acffae914db8b80a3",
+        "url": "https://olinda.bcb.gov.br/olinda/servico/MPV_DadosAbertos/versao/v1/odata/ESTATATMDA(trimestre=@trimestre)?@trimestre='19001'&$format=json"
+      },
+      "terminais": {
+        "rows": 2028,
+        "latest_source_period": "20261",
+        "sha256": "ebec5e9bf3437bdcff2940c5b4e9e38bfee9c5b60844326d640f475f74b3261d",
+        "url": "https://olinda.bcb.gov.br/olinda/servico/MPV_DadosAbertos/versao/v1/odata/INFRTERMDA(trimestre=@trimestre)?@trimestre='19001'&$format=json"
+      },
+      "estabelecimentos_credenciados": {
+        "rows": 1452,
+        "latest_source_period": "20261",
+        "sha256": "a6607bc533fa7bbf4e59028a4d1441e2bda9978557f8946ff1bf2706fa30bd16",
+        "url": "https://olinda.bcb.gov.br/olinda/servico/MPV_DadosAbertos/versao/v1/odata/EstabCredTransDA(trimestre=@trimestre)?@trimestre='19001'&$format=json"
+      },
+      "infra_estabelecimentos": {
+        "rows": 2030,
+        "latest_source_period": "20261",
+        "sha256": "0ece1ed10a203f39ac323aa3afab2eca63e7a99bcec8ecd0e9d636966c634e2b",
+        "url": "https://olinda.bcb.gov.br/olinda/servico/MPV_DadosAbertos/versao/v1/odata/INFRESTADA(trimestre=@trimestre)?@trimestre='19001'&$format=json"
+      },
+      "canais_servicos": {
+        "rows": 830,
+        "latest_source_period": "20261",
+        "sha256": "c1092e4d51e7e5cbf534e7bc2b9147a999baed2a95d9107622ae20e873ca170e",
+        "url": "https://olinda.bcb.gov.br/olinda/servico/MPV_DadosAbertos/versao/v1/odata/OPEINTRADA(trimestre=@trimestre)?@trimestre='19001'&$format=json"
+      },
+      "canais_transacoes": {
+        "rows": 6575,
+        "latest_source_period": "20261",
+        "sha256": "4df11ee711d34d7a58844d86952ef83171df5c1b6dbc3c02021cfad14fd10fd1",
+        "url": "https://olinda.bcb.gov.br/olinda/servico/MPV_DadosAbertos/versao/v1/odata/TRANSOPADA(trimestre=@trimestre)?@trimestre='19001'&$format=json"
+      }
+    }
+  },
+  "publication_id": "tomaconta-jun26-20260911-v1",
+  "sha256": "3e20aaf3c768af51d13b20ed535ac8b1fff417826930771976b45e47cdc49265",
+  "release_tag": "v1.1-cache",
+  "periodos": [
+    "201503",
+    "201506",
+    "201509",
+    "201512",
+    "201603",
+    "201606",
+    "201609",
+    "201612",
+    "201703",
+    "201706",
+    "201709",
+    "201712",
+    "201803",
+    "201806",
+    "201809",
+    "201812",
+    "201903",
+    "201906",
+    "201909",
+    "201912",
+    "202003",
+    "202006",
+    "202009",
+    "202012",
+    "202103",
+    "202106",
+    "202109",
+    "202112",
+    "202203",
+    "202206",
+    "202209",
+    "202212",
+    "202303",
+    "202306",
+    "202309",
+    "202312",
+    "202403",
+    "202406",
+    "202409",
+    "202412",
+    "202503",
+    "202506",
+    "202509",
+    "202512",
+    "202603",
+    "202606"
+  ],
+  "total_periodos": 46
+}

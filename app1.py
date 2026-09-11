@@ -6615,7 +6615,7 @@ def _render_contas_cosif_unificado(periodos_yyyymm: Sequence[str]) -> None:
             key="fgc_documento_bloprudencial",
         )
     individual_4010 = documento_bloprudencial == "4010"
-    cache_version = "unificado_v4"
+    cache_version = "unificado_v5_" + _cache_version_token("bloprudencial")
     if individual_4010:
         try:
             cache_4010 = _get_cosif_4010_cache()
@@ -21744,7 +21744,7 @@ elif menu == "DRE" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo ==
     DRE_MES_EXIBICAO_INICIAL = 3
 
     @st.cache_data(ttl=3600, show_spinner=False)
-    def load_dre_data():
+    def load_dre_data(cache_token: str):
         manager = get_cache_manager()
         resultado = manager.carregar("dre")
         if resultado.sucesso and resultado.dados is not None:
@@ -21752,7 +21752,7 @@ elif menu == "DRE" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo ==
         return None, resultado.mensagem
 
     @st.cache_data(ttl=3600, show_spinner=False)
-    def load_principal_captacoes_data():
+    def load_principal_captacoes_data(cache_token: str):
         manager = get_cache_manager()
         resultado = manager.carregar("principal")
         if not resultado.sucesso or resultado.dados is None:
@@ -21966,7 +21966,7 @@ elif menu == "DRE" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo ==
     def _build_dre_base(cache_token: str) -> tuple[pd.DataFrame, str, pd.DataFrame, pd.DataFrame]:
         """Pré-processa a base DRE uma vez por versão de cache para acelerar a aba."""
         _ = cache_token
-        df_dre, dre_msg = load_dre_data()
+        df_dre, dre_msg = load_dre_data(_cache_version_token("dre"))
         if df_dre is None or df_dre.empty:
             return pd.DataFrame(), dre_msg, pd.DataFrame(), pd.DataFrame()
 
@@ -22454,7 +22454,7 @@ elif menu == "DRE" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo ==
             instituicoes=[instituicao_selecionada_raw, instituicao_alias_selecionada],
             metricas=DERIVED_METRICS,
         )
-        df_principal_capt, _ = load_principal_captacoes_data()
+        df_principal_capt, _ = load_principal_captacoes_data(_cache_version_token("principal"))
         tempo_derived = _perf_end("dre_derived_load")
 
         tooltip_celula = {}
@@ -26223,7 +26223,7 @@ elif menu == "Meios de Pagamento (SPB)":
         return spb_format_ano_mes_label(value)
 
     @st.cache_data(ttl=1800, show_spinner="Carregando dados de Meios de Pagamento (Olinda/BCB)...")
-    def _spb_carregar_dataset(key: str) -> pd.DataFrame:
+    def _spb_carregar_dataset_cache(key: str, cache_token: str) -> pd.DataFrame:
         mgr = get_cache_manager()
         cache_spb = mgr.get_cache("spb_meios_pagamento") if mgr else None
         if cache_spb is None:
@@ -26235,6 +26235,9 @@ elif menu == "Meios de Pagamento (SPB)":
         if not resultado.sucesso or resultado.dados is None:
             return pd.DataFrame()
         return resultado.dados
+
+    def _spb_carregar_dataset(key: str) -> pd.DataFrame:
+        return _spb_carregar_dataset_cache(key, _cache_version_token("spb_meios_pagamento"))
 
     def _spb_melt_nucleo(df: pd.DataFrame, periodo_col: str) -> pd.DataFrame:
         periodicidade = "mensal" if periodo_col == "ano_mes" else "trimestral"

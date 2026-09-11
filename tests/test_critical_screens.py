@@ -1356,3 +1356,21 @@ def test_load_runtime_passivo_support_prefilters_selected_institutions_before_ca
     row = support.iloc[0]
     assert row["Instituição"] == "ITAU - PRUDENCIAL"
     assert row["Core Funding"] == 150.0
+
+
+def test_dre_ratios_align_filtered_indices_with_funding_denominator():
+    """Recortar trimestres do histórico não pode apagar ou trocar o denominador."""
+    from utils.ifdata_cache.critical_screens import _build_dre_ratios_lookup
+    dre = pd.DataFrame({
+        "Instituição": ["ITAU - PRUDENCIAL"] * 2,
+        "Período": ["1/2026", "2/2026"],
+        "Despesas de Captações (g)": [-10., -20.],
+    }, index=[103, 810])
+    principal = pd.DataFrame({
+        "Instituição": ["ITAU - PRUDENCIAL"] * 2,
+        "Período": ["1/2026", "2/2026"], "Captações": [100., 200.],
+    }, index=[7, 9])
+    lookup = _build_dre_ratios_lookup(dre, principal, {})
+    june = next(value for key, value in lookup.items() if key[1] == "2/2026")
+    assert june["Trace::Desp Captação::Captações Média YTD"] == 150.
+    assert abs(june["Desp Captação / Captação"] - (-40. / 150.)) < 1e-12

@@ -242,6 +242,8 @@ class BaseCache(ABC):
     def arquivo_dados(self) -> Path:
         """Parquet efetivo para leitura: runtime quando existir, senão o bundled."""
         runtime = self.arquivo_dados_runtime
+        if self._prefer_publication_bundle():
+            return self.bundled_dir / self.config.arquivo_dados
         if runtime.exists():
             return runtime
         bundled = self.bundled_dir / self.config.arquivo_dados
@@ -252,12 +254,38 @@ class BaseCache(ABC):
     @property
     def arquivo_metadata(self) -> Path:
         """Metadata efetivo para leitura, pareado com `arquivo_dados`."""
+        if self._prefer_publication_bundle():
+            return self.bundled_dir / self.config.arquivo_metadata
         if self.arquivo_dados_runtime.exists():
             return self.arquivo_metadata_runtime
         bundled = self.bundled_dir / self.config.arquivo_metadata
         if bundled.exists():
             return bundled
         return self.arquivo_metadata_runtime
+
+    def _publication_metadata(self) -> dict:
+        """Contrato opt-in de um conjunto publicado junto com o código."""
+        if not (self.bundled_dir / self.config.arquivo_dados).exists():
+            return {}
+        path = self.bundled_dir / self.config.arquivo_metadata
+        try:
+            metadata = json.loads(path.read_text())
+            return metadata if metadata.get("publication_id") else {}
+        except (OSError, ValueError):
+            return {}
+
+    def _prefer_publication_bundle(self) -> bool:
+        bundled = self._publication_metadata()
+        if not bundled:
+            return False
+        try:
+            runtime = json.loads(self.arquivo_metadata_runtime.read_text())
+            current = bundled["publication_id"] in (
+                runtime.get("publication_id"), runtime.get("baseline_publication_id"),
+            ) and set(runtime.get("periodos", [])).issuperset(bundled.get("periodos", []))
+            return not (self.arquivo_dados_runtime.exists() and current)
+        except (OSError, ValueError):
+            return True
 
     @property
     def arquivo_dados_pickle(self) -> Path:
@@ -325,6 +353,12 @@ class BaseCache(ABC):
             # Adicionar info extra
             if info_extra:
                 metadata["extra"] = info_extra
+
+            publication = self._publication_metadata()
+            # Só extrações sobre o conjunto atual podem preceder o bundle.
+            # Downloads de um release legado não recebem essa identidade.
+            if publication and fonte in {"api", "bcb_cosif", "ifdata_web", "materialized", "derivado", "BCData/SGS"}:
+                metadata["baseline_publication_id"] = publication["publication_id"]
 
             # Salvar metadata (sempre no runtime, pareado com o parquet gravado)
             with open(self.arquivo_metadata_runtime, "w") as f:
@@ -506,6 +540,10 @@ class BaseCache(ABC):
         """
         # Tentar cache local primeiro
         if not forcar_remoto:
+            if self._publication_metadata():
+                resultado = self.carregar_local()
+                if resultado.sucesso:
+                    return resultado
             valido, msg = self.cache_valido()
             if valido:
                 resultado = self.carregar_local()

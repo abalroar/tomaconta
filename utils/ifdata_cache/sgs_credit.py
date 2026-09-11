@@ -204,13 +204,13 @@ class SGSCreditCache(BaseCache):
                 "registry_size": len(SGS_SERIES),
             },
         )
-        if saved.sucesso and self.arquivo_metadata.exists():
+        if saved.sucesso and self.arquivo_metadata_runtime.exists():
             metadata = saved.metadata or {}
             periods = sorted(combined["data"].dt.strftime("%Y%m").unique().tolist())
             metadata["periodos"] = periods
             metadata["total_periodos"] = len(periods)
             metadata["series"] = int(combined["serie"].nunique())
-            self.arquivo_metadata.write_text(
+            self.arquivo_metadata_runtime.write_text(
                 json.dumps(metadata, ensure_ascii=False, indent=2),
                 encoding="utf-8",
             )

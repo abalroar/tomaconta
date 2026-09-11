@@ -1,7 +1,7 @@
 {
-  "timestamp_salvamento": "2026-06-22T15:14:08.289926",
-  "fonte": "api",
-  "total_registros": 1061577,
+  "timestamp_salvamento": "2026-09-10T22:28:47.741607",
+  "fonte": "bcb_bloprudencial",
+  "total_registros": 1244497,
   "colunas": [
     "DATA_BASE",
     "DOCUMENTO",
@@ -48,10 +48,44 @@
     "202512",
     "202601",
     "202602",
-    "202603"
+    "202603",
+    "202604",
+    "202605",
+    "202606"
   ],
-  "total_periodos": 31,
+  "total_periodos": 34,
   "extra": {
-    "operacao": "Salvamento final: 03/2026 até 03/2026"
-  }
+    "operacao": "Salvamento final: 03/2026 até 03/2026",
+    "atualizacao_202606": {
+      "coverage": {
+        "202604": {
+          "rows": 48715,
+          "documents": [
+            "4060"
+          ],
+          "conglomerates": 163
+        },
+        "202605": {
+          "rows": 49400,
+          "documents": [
+            "4060"
+          ],
+          "conglomerates": 166
+        },
+        "202606": {
+          "rows": 84805,
+          "documents": [
+            "4060",
+            "4066"
+          ],
+          "conglomerates": 165
+        }
+      },
+      "historico_preservado": true,
+      "persistencia": "pyarrow batches de 32768 linhas"
+    }
+  },
+  "sha256": "cf556a0bef881053bd38e23da8399090df6bfe2dac0d384689aa9934e244fb04",
+  "publication_id": "tomaconta-jun26-20260911-v1",
+  "release_tag": "v1.1-cache"
 }
