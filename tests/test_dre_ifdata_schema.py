@@ -1,4 +1,31 @@
 import pandas as pd
+import json
+
+
+def test_cold_local_discovery_prefers_published_dre_over_large_rates_cache(tmp_path, monkeypatch):
+    from tabs.dre_ifdata_schema import _discover_local_parquet_options
+
+    for relative in ("data/bundled/dre", "data/cache/taxas_juros_historico"):
+        folder = tmp_path / relative
+        folder.mkdir(parents=True)
+        pd.DataFrame({"Instituição": ["TESTE"], "Período": ["2/2026"]}).to_parquet(folder / "dados.parquet")
+    monkeypatch.chdir(tmp_path)
+    options = _discover_local_parquet_options()
+    assert options[0] == tmp_path / "data/bundled/dre/dados.parquet"
+    assert len({p.resolve() for p in options}) == len(options)
+
+
+def test_local_discovery_dre_respects_publication_over_stale_runtime(tmp_path, monkeypatch):
+    from tabs.dre_ifdata_schema import _discover_local_parquet_options
+
+    for relative in ("data/bundled/dre", "data/cache/dre"):
+        folder = tmp_path / relative
+        folder.mkdir(parents=True)
+        pd.DataFrame({"Período": ["2/2026"]}).to_parquet(folder / "dados.parquet")
+    (tmp_path / "data/bundled/dre/metadata.json").write_text(json.dumps({"publication_id": "jun26", "periodos": ["202606"]}))
+    monkeypatch.chdir(tmp_path)
+    options = _discover_local_parquet_options()
+    assert options[0] == tmp_path / "data/bundled/dre/dados.parquet"
 
 from tabs.dre_ifdata_schema import (
     STATUS_AMBIGUOUS,
