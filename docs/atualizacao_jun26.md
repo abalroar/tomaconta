@@ -125,3 +125,9 @@ individual. A correção é de leitura; não altera os assets
 financeiros nem seus hashes. Testes cobrem o zero e as colunas reais de junho.
 Validação complementar da leitura DRE: 736 testes aprovados, 14 avisos existentes,
 pico RSS 796,8 MiB; dispatcher e diff sem erros.
+
+O manifest oficial também acompanha o código em `data/cache/manifest.json`,
+caminho consumido pelo diagnóstico DRE existente. Assim, o diagnóstico compara
+junho com o artefato publicado mesmo sob configuração global legada. O token
+da tabela DRE inclui a revisão do layout para invalidar resultados calculados
+antes da correção, mesmo quando o parquet permanece idêntico.

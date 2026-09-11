@@ -15067,6 +15067,9 @@ def _cache_file_token(tipo_cache: str) -> str:
 def _cache_version_token(tipo_cache: str) -> str:
     """Token estável para invalidar caches processados quando arquivo base muda."""
     token = _cache_file_token(tipo_cache)
+    if tipo_cache in {"dre", "dre_individual"}:
+        # O layout mudou sem alterar o parquet; invalida tabelas já processadas.
+        token = f"{token}|layout-desde-202512-v1"
     if tipo_cache == "critical_screens":
         deps = (
             _cache_file_token("principal"),
