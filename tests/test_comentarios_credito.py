@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -65,7 +66,7 @@ def test_json_baixado_volta_a_carregar_no_mesmo_formato():
 
 
 def test_texto_e_marcado_como_desatualizado_quando_o_cache_avanca():
-    texto = comentario("concessoes")
+    texto = replace(comentario("concessoes"), data_base="2026-07")
     assert desatualizado(texto, "2026-08") is True
     assert desatualizado(texto, "2026-07") is False
     assert desatualizado(texto, None) is False
