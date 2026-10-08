@@ -1,6 +1,6 @@
 {
-  "run_id": "tomaconta-jun26-20260911-v1",
-  "generated_at_utc": "2026-09-11T01:51:26.009874+00:00",
+  "run_id": "tomaconta-credito-202608-20261008-v1",
+  "generated_at_utc": "2026-10-08T04:05:06.273038+00:00",
   "release": {
     "repo": "abalroar/tomaconta",
     "tag": "v1.1-cache",
@@ -259,17 +259,20 @@
       "cache": "mercado_credito_sgs",
       "exists": true,
       "source": "BCData/SGS",
-      "timestamp": "2026-09-02T16:12:37.947624",
+      "timestamp": "2026-10-08T01:02:39.752283",
       "max_period": "202609",
       "max_period_ref": "202609",
       "period_count": 189,
-      "record_count": 24042,
+      "record_count": 24170,
       "path": "data/cache/mercado_credito_sgs/dados.parquet",
       "metadata_path": "data/cache/mercado_credito_sgs/metadata.json",
-      "sha256": "272ab2f71e5bcc5dbc67f697fa57e3edec1260cd8d166c33a9a0ef5ebe45a38c",
+      "sha256": "62696daafde87b051aa09e37b54c525d105b79ddcae6994c8a82dc5a91381dfd",
       "release_repo": "abalroar/tomaconta",
       "release_tag": "v1.1-cache",
-      "release_base_url": "https://github.com/abalroar/tomaconta/releases/download/v1.1-cache"
+      "release_base_url": "https://github.com/abalroar/tomaconta/releases/download/v1.1-cache",
+      "credit_max_period_ref": "202608",
+      "household_max_period_ref": "202607",
+      "series_count": 130
     },
     "spb_meios_pagamento": {
       "cache": "spb_meios_pagamento",
@@ -302,6 +305,22 @@
       "release_repo": "abalroar/tomaconta",
       "release_tag": "v1.1-cache",
       "release_base_url": "https://github.com/abalroar/tomaconta/releases/download/v1.1-cache"
+    },
+    "scr_data": {
+      "cache": "scr_data",
+      "exists": true,
+      "source": "bcb_pda_scrdata_zip",
+      "timestamp": "2026-10-08T01:06:24.571602",
+      "max_period": "2026-07",
+      "max_period_ref": "202607",
+      "period_count": 169,
+      "record_count": 594299,
+      "path": "data/cache/scr_data/dados.parquet",
+      "metadata_path": "data/cache/scr_data/metadata.json",
+      "sha256": "2f671ed0d6b578b5c607f82cbf167bc13f36b3ef37490b304285314e0106c0c3",
+      "release_repo": "abalroar/tomaconta",
+      "release_tag": "v1.2-scr-cache",
+      "release_base_url": "https://github.com/abalroar/tomaconta/releases/download/v1.2-scr-cache"
     }
   },
   "gates": {
@@ -501,15 +520,17 @@
     }
   },
   "expected_periods_by_cache": {
-    "cosif_4010": "202606"
+    "cosif_4010": "202606",
+    "mercado_credito_sgs": "202608",
+    "scr_data": "202607"
   },
   "summary": {
-    "total_caches": 18,
-    "present_caches": 18,
+    "total_caches": 19,
+    "present_caches": 19,
     "successful_gates": 4,
     "total_gates": 4
   },
-  "publication_id": "tomaconta-jun26-20260911-v1",
+  "publication_id": "tomaconta-credito-202608-20261008-v1",
   "supplemental": {
     "spb": {
       "nucleo_trimestral": {
@@ -586,8 +607,251 @@
       }
     },
     "scr_release": "v1.2-scr-cache",
-    "scr_sha256": "05a63db303bd0bab78ec9fcc5ccb21f056a800ef7c4447cc63768bcb60c63b9f",
-    "scr_latest": "2026-07"
+    "scr_sha256": "2f671ed0d6b578b5c607f82cbf167bc13f36b3ef37490b304285314e0106c0c3",
+    "scr_latest": "2026-07",
+    "sgs_credit_refresh": {
+      "window_start": "2025-09",
+      "window_end": "2026-09",
+      "credit_latest": "2026-08",
+      "households_latest": "2026-07",
+      "series_count": 130,
+      "failures": [],
+      "latest_period_by_series": {
+        "cdi_aa": "2026-09",
+        "comprometimento_amortizacao": "2026-07",
+        "comprometimento_juros": "2026-07",
+        "comprometimento_servico_ex_habitacional": "2026-07",
+        "concessoes_direcionado_pf": "2026-08",
+        "concessoes_direcionado_pf_imobiliario": "2026-08",
+        "concessoes_direcionado_pj": "2026-08",
+        "concessoes_livre_pf": "2026-08",
+        "concessoes_livre_pf_cartao": "2026-08",
+        "concessoes_livre_pf_consignado": "2026-08",
+        "concessoes_livre_pf_nao_consignado": "2026-08",
+        "concessoes_livre_pf_veiculos": "2026-08",
+        "concessoes_livre_pj": "2026-08",
+        "concessoes_livre_pj_capital_giro": "2026-08",
+        "concessoes_sa_direcionado_pf": "2026-08",
+        "concessoes_sa_direcionado_pj": "2026-08",
+        "concessoes_sa_livre_pf": "2026-08",
+        "concessoes_sa_livre_pj": "2026-08",
+        "concessoes_sa_pf": "2026-08",
+        "concessoes_sa_pf_cartao_vista": "2026-08",
+        "concessoes_sa_pf_veiculos": "2026-08",
+        "concessoes_sa_pj": "2026-08",
+        "concessoes_sa_pj_capital_giro": "2026-08",
+        "concessoes_total": "2026-08",
+        "credito_ampliado_divida_externa": "2026-08",
+        "credito_ampliado_emprestimos": "2026-08",
+        "credito_ampliado_titulos": "2026-08",
+        "credito_ampliado_total": "2026-08",
+        "desocupacao": "2026-08",
+        "endividamento_renda": "2026-07",
+        "inad_direcionado_pf_imobiliario": "2026-08",
+        "inad_estrangeiro": "2026-08",
+        "inad_livre_pf": "2026-08",
+        "inad_livre_pf_cartao_parcelado": "2026-08",
+        "inad_livre_pf_cartao_rotativo": "2026-08",
+        "inad_livre_pf_cartao_total": "2026-08",
+        "inad_livre_pf_cheque": "2026-08",
+        "inad_livre_pf_consignado": "2026-08",
+        "inad_livre_pf_nao_consignado": "2026-08",
+        "inad_livre_pf_veiculos": "2026-08",
+        "inad_livre_pj": "2026-08",
+        "inad_livre_pj_capital_giro": "2026-08",
+        "inad_livre_pj_conta_garantida": "2026-08",
+        "inad_livre_pj_duplicatas": "2026-08",
+        "inad_livre_total": "2026-08",
+        "inad_privado_nacional": "2026-08",
+        "inad_publico": "2026-08",
+        "inad_total": "2026-08",
+        "ipca_mensal": "2026-08",
+        "prazo_direcionado_pf_imobiliario": "2026-08",
+        "prazo_direcionado_pj": "2026-08",
+        "prazo_livre_pf_cartao_parcelado": "2026-08",
+        "prazo_livre_pf_consignado": "2026-08",
+        "prazo_livre_pf_nao_consignado": "2026-08",
+        "prazo_livre_pf_veiculos": "2026-08",
+        "prazo_livre_pj": "2026-08",
+        "pre_inad_direcionado_pf_imobiliario": "2026-08",
+        "pre_inad_livre_pf": "2026-08",
+        "pre_inad_livre_pf_cartao_parcelado": "2026-08",
+        "pre_inad_livre_pf_cartao_rotativo": "2026-08",
+        "pre_inad_livre_pf_cartao_total": "2026-08",
+        "pre_inad_livre_pf_cheque": "2026-08",
+        "pre_inad_livre_pf_consignado": "2026-08",
+        "pre_inad_livre_pf_nao_consignado": "2026-08",
+        "pre_inad_livre_pf_veiculos": "2026-08",
+        "pre_inad_livre_pj": "2026-08",
+        "pre_inad_livre_pj_capital_giro": "2026-08",
+        "pre_inad_livre_pj_conta_garantida": "2026-08",
+        "pre_inad_livre_pj_duplicatas": "2026-08",
+        "pre_inad_livre_total": "2026-08",
+        "pre_inad_total": "2026-08",
+        "provisao_estrangeiro": "2026-08",
+        "provisao_privado_nacional": "2026-08",
+        "provisao_publico": "2026-08",
+        "provisao_sfn": "2026-08",
+        "saldo_controle_estrangeiro": "2026-08",
+        "saldo_controle_privado_nacional": "2026-08",
+        "saldo_controle_publico": "2026-08",
+        "saldo_direcionado_pf": "2026-08",
+        "saldo_direcionado_pf_bndes": "2026-08",
+        "saldo_direcionado_pf_imobiliario": "2026-08",
+        "saldo_direcionado_pf_microcredito": "2026-08",
+        "saldo_direcionado_pf_outros": "2026-08",
+        "saldo_direcionado_pf_rural": "2026-08",
+        "saldo_direcionado_pj": "2026-08",
+        "saldo_direcionado_pj_bndes": "2026-08",
+        "saldo_direcionado_pj_imobiliario": "2026-08",
+        "saldo_direcionado_pj_outros": "2026-08",
+        "saldo_direcionado_pj_rural": "2026-08",
+        "saldo_direcionado_total": "2026-08",
+        "saldo_livre_pf": "2026-08",
+        "saldo_livre_pf_cartao_parcelado": "2026-08",
+        "saldo_livre_pf_cartao_rotativo": "2026-08",
+        "saldo_livre_pf_cartao_total": "2026-08",
+        "saldo_livre_pf_cartao_vista": "2026-08",
+        "saldo_livre_pf_cheque": "2026-08",
+        "saldo_livre_pf_consignado": "2026-08",
+        "saldo_livre_pf_consignado_inss": "2026-08",
+        "saldo_livre_pf_consignado_privado": "2026-08",
+        "saldo_livre_pf_consignado_publico": "2026-08",
+        "saldo_livre_pf_pessoal_nao_consignado": "2026-08",
+        "saldo_livre_pf_veiculos": "2026-08",
+        "saldo_livre_pj": "2026-08",
+        "saldo_livre_pj_acc": "2026-08",
+        "saldo_livre_pj_aquisicao_bens": "2026-08",
+        "saldo_livre_pj_capital_giro": "2026-08",
+        "saldo_livre_pj_conta_garantida": "2026-08",
+        "saldo_livre_pj_duplicatas": "2026-08",
+        "saldo_livre_pj_exportacao": "2026-08",
+        "saldo_livre_total": "2026-08",
+        "saldo_pf_total": "2026-08",
+        "saldo_pj_grande": "2026-08",
+        "saldo_pj_mpme": "2026-08",
+        "saldo_pj_total": "2026-08",
+        "selic_aa": "2026-09",
+        "spread_pf_livre": "2026-08",
+        "spread_pj_livre": "2026-08",
+        "taxa_pf_cartao_parcelado": "2026-08",
+        "taxa_pf_cartao_rotativo": "2026-08",
+        "taxa_pf_cartao_total": "2026-08",
+        "taxa_pf_cheque": "2026-08",
+        "taxa_pf_consignado": "2026-08",
+        "taxa_pf_imobiliario": "2026-08",
+        "taxa_pf_livre": "2026-08",
+        "taxa_pf_nao_consignado": "2026-08",
+        "taxa_pf_veiculos": "2026-08",
+        "taxa_pj_capital_giro": "2026-08",
+        "taxa_pj_conta_garantida": "2026-08",
+        "taxa_pj_duplicatas": "2026-08",
+        "taxa_pj_livre": "2026-08"
+      }
+    },
+    "scr_refresh": {
+      "source": {
+        "page": "https://www.bcb.gov.br/estabilidadefinanceira/scrdata",
+        "zip_template": "https://www.bcb.gov.br/pda/desig/scrdata_{ano}.zip"
+      },
+      "revised_years": [
+        "2024",
+        "2025",
+        "2026"
+      ],
+      "schema_version": 2,
+      "failures": [],
+      "assets": {
+        "scr_data_dados.parquet": {
+          "sha256": "2f671ed0d6b578b5c607f82cbf167bc13f36b3ef37490b304285314e0106c0c3",
+          "bytes": 16956909
+        },
+        "scr_data_metadata.json": {
+          "sha256": "ecfb7c08bc30819c6ea79c1f272cd1f761818369517755f901740a96b6fb5797",
+          "bytes": 3329
+        },
+        "scr_data_dim_produto.parquet": {
+          "sha256": "41cf936ebd7a4a65b78dd5338383a08a34c91c3e393d56902043b62d771f063c",
+          "bytes": 6988
+        },
+        "scr_data_dim_porte.parquet": {
+          "sha256": "60487199ac18a930ccab895aa8fb5a5e9107867fb1f5e150475e061b1b9313e5",
+          "bytes": 8085
+        },
+        "scr_data_dim_geo.parquet": {
+          "sha256": "581c64f99e9dba4351d3e7711be51166fd4060a97970a681fae2c6c80e616ec5",
+          "bytes": 4002
+        },
+        "scr_data_dim_segmento.parquet": {
+          "sha256": "52bf4b94f7207b7593e3ea192e09b9b95b5b9d9cb0d3a7923f17064ad57662c4",
+          "bytes": 4614
+        },
+        "scr_data_manifest.json": {
+          "sha256": "ce0bc52d76af72f5bdacfad0d75df91a14ebb5d7c5b2a7f9a28bc64e01e1826e",
+          "bytes": 16520
+        },
+        "scr_data_ano_2012.parquet": {
+          "sha256": "2a0a70cb37333d1b81cf2ba8bc2c1f8415805956d79eda9a786466e440cbf57c",
+          "bytes": 4110836
+        },
+        "scr_data_ano_2013.parquet": {
+          "sha256": "c0aed1bab700e9e6621ef7691d884be9fcd84b96b2c7ac2727b0b1020b561de7",
+          "bytes": 8518832
+        },
+        "scr_data_ano_2014.parquet": {
+          "sha256": "5f335c02c984c8d8fb74950ef22e6bbbb4be38b8c8fdeca70585e8f1b50dcde7",
+          "bytes": 8739943
+        },
+        "scr_data_ano_2015.parquet": {
+          "sha256": "2d7fb859ba9e5c8a5332a9ab8ef89c77fb8d2fec87d0788e50dd8d8f9ab48e22",
+          "bytes": 8709440
+        },
+        "scr_data_ano_2016.parquet": {
+          "sha256": "ab0ad10a4750bb1296018b0bd3d416d9d797389555e6b6bf23ea8887da56b032",
+          "bytes": 8753359
+        },
+        "scr_data_ano_2017.parquet": {
+          "sha256": "4ec500dee4abdeca2554230f2b96c17db3cc37bec828e84a0fd38c9a610cd9a5",
+          "bytes": 8830375
+        },
+        "scr_data_ano_2018.parquet": {
+          "sha256": "9c6b60b0ee799dd98cd21225da2c8ac7694fc3869d26dff97acef816ab8e9ab8",
+          "bytes": 8938543
+        },
+        "scr_data_ano_2019.parquet": {
+          "sha256": "12491b0fc8cd5b3e2f367d4bacd6f1bf5462ec016c98011659957b15da04b408",
+          "bytes": 9894717
+        },
+        "scr_data_ano_2020.parquet": {
+          "sha256": "4c2c1747f822d7f30f2146f5c5edab262b8039ce31483df675b78c332f36b147",
+          "bytes": 10151806
+        },
+        "scr_data_ano_2021.parquet": {
+          "sha256": "e967ab455c818d89d1d636c3759f02f1ab57e2974fd3935fc5186efaba6285c9",
+          "bytes": 10317807
+        },
+        "scr_data_ano_2022.parquet": {
+          "sha256": "747ceae38225306c786ae2eac771887080050010b236b3361093b6f791a54ddf",
+          "bytes": 10956740
+        },
+        "scr_data_ano_2023.parquet": {
+          "sha256": "954b62acf8e49db2b05f30948abdc926c96374ace8245233886c5b53cc0180c1",
+          "bytes": 11598081
+        },
+        "scr_data_ano_2024.parquet": {
+          "sha256": "db8f1ac54b28db5bb92b7f48167e94bd077780e692048cfd59d6a9cb248e5b54",
+          "bytes": 11604473
+        },
+        "scr_data_ano_2025.parquet": {
+          "sha256": "dc0fdce8dd4e95f0855faa71d17c8d2f5ced752db7dbe1af6282db6bcf6fe7c1",
+          "bytes": 11463705
+        },
+        "scr_data_ano_2026.parquet": {
+          "sha256": "0f1542c203aaf6a5e10b2912ef039f53afca4c18efdf35bb51e8f791aa2504fb",
+          "bytes": 6977141
+        }
+      }
+    }
   },
   "published_assets": {
     "principal_dados.parquet": {
@@ -703,12 +967,12 @@
       "bytes": 1725
     },
     "mercado_credito_sgs_dados.parquet": {
-      "sha256": "272ab2f71e5bcc5dbc67f697fa57e3edec1260cd8d166c33a9a0ef5ebe45a38c",
-      "bytes": 135510
+      "sha256": "62696daafde87b051aa09e37b54c525d105b79ddcae6994c8a82dc5a91381dfd",
+      "bytes": 136131
     },
     "mercado_credito_sgs_metadata.json": {
-      "sha256": "d9d880ee35e42775fa1dece0a68f348bf1a8feb60b1e02fcc17e54e8a1683dd9",
-      "bytes": 3340
+      "sha256": "7542243221c6c7808807b7986216c142ac14498c163b671321d7b4bc8cf260a0",
+      "bytes": 9362
     },
     "spb_meios_pagamento_dados.parquet": {
       "sha256": "3e20aaf3c768af51d13b20ed535ac8b1fff417826930771976b45e47cdc49265",
