@@ -1,6 +1,6 @@
 {
-  "run_id": "tomaconta-credito-202608-20261008-v1",
-  "generated_at_utc": "2026-10-08T04:05:06.273038+00:00",
+  "run_id": "tomaconta-taxas-20260924-20261008-v1",
+  "generated_at_utc": "2026-10-08T20:22:46.579789+00:00",
   "release": {
     "repo": "abalroar/tomaconta",
     "tag": "v1.1-cache",
@@ -294,17 +294,18 @@
       "cache": "taxas_juros_historico",
       "exists": true,
       "source": "api_bcb_consulta_unificada",
-      "timestamp": "2026-08-14T11:02:36.276724",
-      "max_period": "2026-07-27",
-      "max_period_ref": "202607",
-      "period_count": 3656,
-      "record_count": 2764031,
+      "timestamp": "2026-10-08T17:22:16.693184",
+      "max_period": "2026-09-18",
+      "max_period_ref": "202609",
+      "period_count": 3694,
+      "record_count": 2793925,
       "path": "data/cache/taxas_juros_historico/dados.parquet",
       "metadata_path": "data/cache/taxas_juros_historico/metadata.json",
-      "sha256": "dcfdfc266669b08defbb95070fbeba9567766db4d5e45f4a4a84d0d35e5404a6",
+      "sha256": "a8307cd3b5f40ea55e70c514359a87d6c49d403c02664e6b673bb4c79c5eab79",
       "release_repo": "abalroar/tomaconta",
       "release_tag": "v1.1-cache",
-      "release_base_url": "https://github.com/abalroar/tomaconta/releases/download/v1.1-cache"
+      "release_base_url": "https://github.com/abalroar/tomaconta/releases/download/v1.1-cache",
+      "latest_window_end": "2026-09-24"
     },
     "scr_data": {
       "cache": "scr_data",
@@ -530,7 +531,7 @@
     "successful_gates": 4,
     "total_gates": 4
   },
-  "publication_id": "tomaconta-credito-202608-20261008-v1",
+  "publication_id": "tomaconta-taxas-20260924-20261008-v1",
   "supplemental": {
     "spb": {
       "nucleo_trimestral": {
@@ -1031,28 +1032,28 @@
       "bytes": 397
     },
     "taxas_juros_historico_dados.parquet": {
-      "sha256": "dcfdfc266669b08defbb95070fbeba9567766db4d5e45f4a4a84d0d35e5404a6",
-      "bytes": 18294496
+      "sha256": "a8307cd3b5f40ea55e70c514359a87d6c49d403c02664e6b673bb4c79c5eab79",
+      "bytes": 18536130
     },
     "taxas_juros_historico_metadata.json": {
-      "sha256": "cad9df03c5d9ffc2cf08915c9f2ae126fcd607f4350b707582339472b7a8e918",
-      "bytes": 68225
+      "sha256": "8b4f9c0e91588e9709c8cebf82bd7f1881148ba852bea1ca12c45f924a525772",
+      "bytes": 68891
     },
     "taxas_juros_historico_dim_parametros.parquet": {
-      "sha256": "6560ab9c805af8ae8d9052ca0b3c3c267e5e25c9eab071b61b268359c01926d9",
-      "bytes": 4735
+      "sha256": "70ee6dbbaac7041a12d7acfeb3bd841e6e573d6f3daa3d8a882683edc8642c3b",
+      "bytes": 4342
     },
     "taxas_juros_historico_dim_datas.parquet": {
-      "sha256": "1323e646638120eee355b3570ccc9ea35da81ff27f8eea68d8641d6406bd0efa",
-      "bytes": 67943
+      "sha256": "42604421d5f64f762100be75619178bc17fb5d0cc8b6ca2dbf977f632a46d639",
+      "bytes": 68615
     },
     "taxas_juros_historico_dim_instituicoes.parquet": {
-      "sha256": "734c14af128102b2bf18d597af2201208ccc97379198ee62d25397b2a04b4d11",
-      "bytes": 21380
+      "sha256": "0c5a867efbbb220bb6b2cf4d166a9b969450a3c84ecb70a57bf8c346e16221a8",
+      "bytes": 21483
     },
     "taxas_juros_historico_manifest.json": {
-      "sha256": "4832eb9681bef3ee043f477584a2bdaefb8f135d60bcfde56f89976969772598",
-      "bytes": 2327
+      "sha256": "ebb2910dfe63d44bde4cbe99441d9e5822746c4fcd2f3496ad81c917ee01840e",
+      "bytes": 2309
     }
   }
 }
