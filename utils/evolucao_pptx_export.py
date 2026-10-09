@@ -23,12 +23,16 @@ from .scr_pptx_export import (
     ORDEM_CHART_SPACE, ORDEM_DLBL, ORDEM_LEGENDA, _estilizar_eixos,
     _layout_do_rotulo, _mover_para_eixo_secundario, _ordenar_filhos,
     _rotular_apenas_ultimo_ponto, _sem_preenchimento_nem_contorno,
+    _texto_do_eixo,
 )
 
 
 PERIODS_PER_SLIDE = 8
 NUMBER_FORMAT = '[$-416]#,##0.0'
-PLOT_TOP, PLOT_HEIGHT, LABEL_GAP = .14, .72, .14
+CHART_TOP, CHART_HEIGHT = .94, 3.48
+PLOT_LEFT, PLOT_WIDTH, PLOT_TOP, PLOT_HEIGHT = .065, .865, .22, .64
+LABEL_GAP, LABEL_HEIGHT = .14, .12
+TABLE_TOP = 4.53
 
 
 def _text(slide, text, x, y, w, h, *, size=12, bold=False, color="222222"):
@@ -45,7 +49,7 @@ def _text(slide, text, x, y, w, h, *, size=12, bold=False, color="222222"):
     return shape
 
 
-def _manual_layout(parent, *, x, y, w=None, h=None):
+def _manual_layout(parent, *, x, y, w=None, h=None, inner=False):
     layout = parent.find(qn("c:layout"))
     if layout is None:
         layout = OxmlElement("c:layout")
@@ -54,6 +58,10 @@ def _manual_layout(parent, *, x, y, w=None, h=None):
         layout.clear()
     manual = OxmlElement("c:manualLayout")
     layout.append(manual)
+    if inner:
+        target = OxmlElement("c:layoutTarget")
+        target.set("val", "inner")
+        manual.append(target)
     for tag, value in (("xMode", "edge"), ("yMode", "edge"), ("wMode", "factor"), ("hMode", "factor"),
                        ("x", x), ("y", y), ("w", w), ("h", h)):
         if value is not None:
@@ -67,9 +75,9 @@ def _label_positions(points):
     ordered = sorted(points, key=lambda point: point[1])
     positions = []
     for _, target in ordered:
-        positions.append(max(target, positions[-1] + LABEL_GAP if positions else PLOT_TOP))
+        positions.append(max(target, positions[-1] + LABEL_GAP if positions else PLOT_TOP + .01))
     if positions:
-        shift = max(0, positions[-1] - (PLOT_TOP + PLOT_HEIGHT - .035))
+        shift = max(0, positions[-1] - (PLOT_TOP + PLOT_HEIGHT - LABEL_HEIGHT))
         positions = [position - shift for position in positions]
     return {index: position for (index, _), position in zip(ordered, positions)}
 
@@ -83,7 +91,7 @@ def _chart(slide, frame, periods):
         values[column] = [float(v) / 1e9 if pd.notna(v) and math.isfinite(float(v)) else None for v in numbers]
         data.add_series(name, values[column], number_format=NUMBER_FORMAT)
     chart = slide.shapes.add_chart(
-        XL_CHART_TYPE.COLUMN_CLUSTERED, Inches(.38), Inches(1.18), Inches(12.55), Inches(4.95), data,
+        XL_CHART_TYPE.COLUMN_CLUSTERED, Inches(.38), Inches(CHART_TOP), Inches(12.55), Inches(CHART_HEIGHT), data,
     ).chart
     chart.has_title = False
     # python-pptx's template uses signed axis IDs; OOXML requires unsigned IDs.
@@ -111,15 +119,19 @@ def _chart(slide, frame, periods):
         valid = [i for i, v in enumerate(values[column]) if v is not None]
         if valid:
             last = valid[-1]
-            _rotular_apenas_ultimo_ponto(series, last, NUMBER_FORMAT, com_nome=True)
+            _rotular_apenas_ultimo_ponto(series, last, NUMBER_FORMAT, com_nome=False)
             low, high = ranges[axis]
-            target = PLOT_TOP + (1 - (values[column][last] - low) / (high - low)) * PLOT_HEIGHT
+            target = PLOT_TOP + (1 - (values[column][last] - low) / (high - low)) * PLOT_HEIGHT - .08
             finals.append((index, target, last))
-    _mover_para_eixo_secundario(chart, [2, 3], NUMBER_FORMAT, escala=ranges["y2"])
+    _mover_para_eixo_secundario(chart, [2, 3], NUMBER_FORMAT, escala=ranges["y2"], cor=RGBColor.from_string("222222"))
     positions = _label_positions([(i, y) for i, y, _ in finals])
     for index, _, last in finals:
         label = chart.series[index].points[last].data_label
-        _layout_do_rotulo(label, .875, positions[index])
+        # Keep labels inside the plot near their actual last valid category.
+        # A small inset protects the right-axis ticks from long numeric labels.
+        point_x = PLOT_LEFT + PLOT_WIDTH * (last + .5) / len(periods)
+        label_x = min(PLOT_LEFT + PLOT_WIDTH - .115, max(PLOT_LEFT + .015, point_x - .045))
+        _layout_do_rotulo(label, label_x, positions[index])
         label.font.name, label.font.size, label.font.bold = "Calibri", Pt(12), True
         label.font.color.rgb = RGBColor.from_string(SERIES[index][2].lstrip("#"))
         # A series ending before the window end must identify its valid date.
@@ -127,14 +139,39 @@ def _chart(slide, frame, periods):
         separator = OxmlElement("c:separator")
         separator.text = "\n"
         label._dLbl.append(separator)
+        # A white backing keeps labels legible when a line passes behind them.
+        background = label._dLbl.find(qn("c:spPr"))
+        if background is None:
+            background = OxmlElement("c:spPr")
+            label._dLbl.append(background)
+        else:
+            background.clear()
+        fill = OxmlElement("a:solidFill")
+        color = OxmlElement("a:srgbClr")
+        color.set("val", "FFFFFF")
+        fill.append(color)
+        background.append(fill)
+        outline = OxmlElement("a:ln")
+        outline.append(OxmlElement("a:noFill"))
+        background.append(outline)
         _ordenar_filhos(label._dLbl, ORDEM_DLBL)
     chart.has_legend = True
     chart.legend.position = XL_LEGEND_POSITION.TOP
     chart.legend.include_in_layout = False
     chart.legend.font.name, chart.legend.font.size = "Calibri", Pt(12)
-    _manual_layout(chart.legend._element, x=.05, y=.005, w=.9, h=.09)
+    _manual_layout(chart.legend._element, x=.035, y=.005, w=.93, h=.095)
+    for index, (_, _, color, _, _) in enumerate(SERIES):
+        entry = OxmlElement("c:legendEntry")
+        idx = OxmlElement("c:idx")
+        idx.set("val", str(index))
+        entry.append(idx)
+        entry.append(_texto_do_eixo(RGBColor.from_string(color.lstrip("#"))))
+        chart.legend._element.append(entry)
     _ordenar_filhos(chart.legend._element, ORDEM_LEGENDA)
-    _manual_layout(chart._chartSpace.chart.plotArea, x=.06, y=PLOT_TOP, w=.67, h=PLOT_HEIGHT)
+    _manual_layout(chart._chartSpace.chart.plotArea, x=PLOT_LEFT, y=PLOT_TOP, w=PLOT_WIDTH, h=PLOT_HEIGHT, inner=True)
+    _text(slide, "Lucro e PL (R$ bi)", .38, 1.43, 5.9, .2, size=10, color="555555")
+    axis_caption = _text(slide, "Carteira e Core Funding (R$ bi)", 7.03, 1.43, 5.9, .2, size=10, color="222222")
+    axis_caption.text_frame.paragraphs[0].alignment = PP_ALIGN.RIGHT
     blanks = chart._chartSpace.chart.find(qn("c:dispBlanksAs"))
     if blanks is None:
         blanks = OxmlElement("c:dispBlanksAs")
@@ -155,11 +192,14 @@ def _chart(slide, frame, periods):
 
 def _table(slide, frame, periods):
     table = slide.shapes.add_table(
-        len(frame) + 1, len(periods) + 1, Inches(.38), Inches(1.35), Inches(12.55), Inches(.55 + .58 * len(frame)),
+        len(frame) + 1, len(periods) + 1, Inches(.38), Inches(TABLE_TOP), Inches(12.55), Inches(.34 + .32 * len(frame)),
     ).table
-    table.columns[0].width = Inches(3.75)
+    table.columns[0].width = Inches(3.5)
     for column in range(1, len(periods) + 1):
-        table.columns[column].width = Inches(8.8 / len(periods))
+        table.columns[column].width = Inches(9.05 / len(periods))
+    table.rows[0].height = Inches(.34)
+    for row in list(table.rows)[1:]:
+        row.height = Inches(.32)
     table.cell(0, 0).text = "Indicador"
     for c, period in enumerate(periods, 1):
         table.cell(0, c).text = period_label(period)
@@ -174,10 +214,10 @@ def _table(slide, frame, periods):
             cell.fill.solid()
             cell.fill.fore_color.rgb = RGBColor.from_string(HEADER_COLOR.lstrip("#") if r == 0 else "FFFFFF")
             cell.margin_left = cell.margin_right = Inches(.08)
-            cell.margin_top = cell.margin_bottom = Inches(.05)
+            cell.margin_top = cell.margin_bottom = Inches(.025)
             cell.vertical_anchor = MSO_ANCHOR.MIDDLE
             for paragraph in cell.text_frame.paragraphs:
-                paragraph.font.name, paragraph.font.size = "Calibri", Pt(13 if r == 0 else 12)
+                paragraph.font.name, paragraph.font.size = "Calibri", Pt(12)
                 paragraph.font.bold = r == 0 or (r > 0 and c == len(periods))
                 paragraph.font.color.rgb = RGBColor.from_string("FFFFFF" if r == 0 else "222222")
                 paragraph.alignment = PP_ALIGN.LEFT if c == 0 else PP_ALIGN.CENTER if r == 0 else PP_ALIGN.RIGHT
@@ -195,7 +235,7 @@ def _table(slide, frame, periods):
 
 
 def export_evolucao_powerpoint(*, df_graph, df_show, periods, institution, queried_at, status_rows=()):
-    """Two editable slides per block of up to eight displayed periods."""
+    """One slide with native chart and indicators per eight displayed periods."""
     periods = list(periods)
     if not periods or len(df_graph) != len(periods) or len(set(periods)) != len(periods):
         raise ValueError("A janela do gráfico e da tabela deve ter as mesmas competências, sem duplicatas.")
@@ -222,24 +262,21 @@ def export_evolucao_powerpoint(*, df_graph, df_show, periods, institution, queri
             dates = list(dict.fromkeys(period_label(row["Período"]) for row in block_status if row.get("Status analítico") == status))
             if dates:
                 caveats.append(description + ": " + ", ".join(dates) + ".")
-        for kind in ("Gráfico", "Indicadores"):
-            slide = prs.slides.add_slide(prs.slide_layouts[6])
-            slide.background.fill.solid()
-            slide.background.fill.fore_color.rgb = RGBColor(255, 255, 255)
-            _text(slide, "Evolução | " + kind, .38, .24, 12.55, .4, size=22, bold=True)
-            _text(slide, f"{institution} | {period_label(block[0])} a {period_label(block[-1])}", .38, .72, 12.55, .4, size=14)
-            if kind == "Gráfico":
-                _chart(slide, df_graph.iloc[start:start + len(block)], block)
-                note = "R$ bi. Colunas: lucro e PL, eixo esquerdo. Linhas: carteira e funding, eixo direito."
-                note += "\n* Carteira e Core Funding: mudança do layout IFData em 2025; componentes e origem nas notas."
-            else:
-                _table(slide, df_show, block)
-                note = "* Fallback analítico. † Indisponibilidade com causa identificada. Origem e cálculo nas notas."
-                if not any("*" in str(df_show[p].tolist()) or "†" in str(df_show[p].tolist()) for p in block):
-                    note = "ROE anualizado; Carteira / PL em vezes; índices de capital em %."
-            _text(slide, "\n".join([note, *caveats]), .38, 6.16, 12.55, .65, size=10, color="555555")
-            _text(slide, footer, .38, 6.94, 12.55, .4, size=9, color="555555")
-            slide.notes_slide.notes_text_frame.text = notes
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        slide.background.fill.solid()
+        slide.background.fill.fore_color.rgb = RGBColor(255, 255, 255)
+        _text(slide, "Evolução", .38, .2, 12.55, .35, size=22, bold=True)
+        _text(slide, f"{institution} | {period_label(block[0])} a {period_label(block[-1])}", .38, .63, 12.55, .25, size=13)
+        _chart(slide, df_graph.iloc[start:start + len(block)], block)
+        _table(slide, df_show, block)
+        note = "Lucro acumulado no ano. * Mudança do layout IFData em 2025 nas séries Carteira e Core Funding."
+        if any("*" in str(df_show[p].tolist()) for p in block):
+            note += " * Nos indicadores: fallback analítico."
+        if any("†" in str(df_show[p].tolist()) for p in block):
+            note += " † Indisponibilidade com causa identificada."
+        _text(slide, "\n".join([note, *caveats]), .38, 6.52, 12.55, .46, size=9, color="555555")
+        _text(slide, footer, .38, 7.03, 12.55, .32, size=8, color="555555")
+        slide.notes_slide.notes_text_frame.text = notes
     output = BytesIO()
     prs.save(output)
     return output.getvalue()
