@@ -15921,6 +15921,7 @@ MENU_PRINCIPAL = [
     "Snapshot",
     "Rankings",
     "Peers (Tabela)",
+    "Peers (Tabela Nova)",
     "Conselho e Diretoria",
     "Evolução",
     "Scatter Plot",
@@ -16062,7 +16063,8 @@ def _streamlit_headers_context() -> Mapping[str, str]:
 def _aplicar_navegacao_inicial_mobile() -> None:
     """Abre Snapshot automaticamente em mobile sem rerun explícito."""
     menu_query = _menu_query_param_inicial()
-    if menu_query:
+    if menu_query and not st.session_state.get("_menu_query_initialized"):
+        st.session_state["_menu_query_initialized"] = True
         st.session_state["menu_atual"] = menu_query
         st.session_state["_user_selected_menu"] = True
         st.session_state["_mobile_snapshot_autoroute_done"] = True
@@ -16231,6 +16233,7 @@ CACHE_DEPENDENCIAS_POR_ABA = {
     "Snapshot": ["critical_screens"],
     "Rankings": ["principal", "capital", "derived_metrics"],
     "Peers (Tabela)": ["critical_screens"],
+    "Peers (Tabela Nova)": ["critical_screens"],
     "Evolução": ["principal", "passivo", "ativo", "capital"],
     "Scatter Plot": ["principal", "capital", "derived_metrics"],
     "DRE (Ind. e Congl.)": ["dre", "principal", "dre_individual", "principal_individual"],
@@ -16438,7 +16441,7 @@ menu_timer_signature = None
 t0_menu_timer = None
 if (
     menu in MENU_PRINCIPAL + MENU_BCB
-    and menu not in {"Snapshot", "Peers (Tabela)", "DRE (Ind. e Congl.)", "Evolução", "Rankings"}
+    and menu not in {"Snapshot", "Peers (Tabela)", "Peers (Tabela Nova)", "DRE (Ind. e Congl.)", "Evolução", "Rankings"}
     and (
         menu != "Taxas de Juros por Produto"
         or st.session_state.get("modo_diagnostico")
@@ -16950,6 +16953,10 @@ Pausas longas tendem a indicar interrupção real; abaixo disso tratamos como co
 # neste bloco `if/elif` para evitar branches mortos e comportamento inesperado.
 elif menu == "Snapshot":
     pagina_snapshot()
+
+elif menu == "Peers (Tabela Nova)":
+    from tabs.peers_table import render as render_peers_table_new
+    render_peers_table_new(globals())
 
 elif menu == "Peers (Tabela)":
     # DIAG-WEB-1: inicializa buffer de timings visível na tela
