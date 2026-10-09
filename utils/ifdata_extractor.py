@@ -547,35 +547,9 @@ def _fetch_json(url: str, timeout: int, retries: int = 3, backoff: float = 2.0):
 
 
 def extrair_cadastro(ano_mes: str) -> pd.DataFrame:
-    """Extrai dados de cadastro das instituições financeiras.
-
-    Endpoint: IfDataCadastro
-    Retorna: DataFrame com CodInst, NomeInstituicao e outros campos de cadastro
-    """
-    url = f"{BASE_URL}/IfDataCadastro(AnoMes={int(ano_mes)})?$format=json&$top=5000"
-
-    logger.info(f"[EXTRAÇÃO] Extraindo cadastro para período {ano_mes}")
-
-    try:
-        data = _fetch_json(url, timeout=60, retries=3, backoff=2.0)
-        df = pd.DataFrame((data or {}).get("value", []))
-
-        if df.empty:
-            logger.warning(f"[EXTRAÇÃO] Cadastro vazio para período {ano_mes}")
-        else:
-            coluna_nome = obter_coluna_nome_instituicao(df)
-            logger.info(f"[EXTRAÇÃO] Cadastro {ano_mes}: {len(df)} registros, coluna_nome='{coluna_nome}'")
-
-            # Adicionar ao cache global de nomes
-            if coluna_nome and "CodInst" in df.columns:
-                for _, row in df.iterrows():
-                    _adicionar_ao_cache_nomes(row.get("CodInst"), row.get(coluna_nome))
-
-        return df
-
-    except requests.RequestException as e:
-        logger.error(f"[EXTRAÇÃO] Falha ao extrair cadastro {ano_mes}: {e}")
-        return pd.DataFrame()
+    """Usa o cadastro validado compartilhado entre todos os extratores."""
+    from .ifdata_cache.extractor import extrair_cadastro as shared_registry
+    return shared_registry(ano_mes)
 
 
 def extrair_valores(ano_mes: str) -> pd.DataFrame:
@@ -693,12 +667,10 @@ def processar_periodo(ano_mes: str, dict_aliases: dict) -> pd.DataFrame:
 
     Esta função:
     1. Extrai cadastro (para nomes) e valores (para métricas financeiras)
-    2. Resolve nomes de instituições usando múltiplas fontes
+    2. Resolve nomes pelo cadastro oficial da mesma competência e CodInst
     3. Calcula métricas derivadas (ROE, ratios, etc.)
-    4. Aplica aliases para nomes amigáveis
 
-    IMPORTANTE: Nunca usa CodInst como nome. Se não conseguir resolver,
-    usa placeholder "[IF {codigo}]" com logging para diagnóstico.
+    Uma identidade sem cobertura oficial interrompe a extração.
     """
     logger.info(f"[PROCESSAMENTO] Iniciando período {ano_mes}")
 
@@ -712,75 +684,6 @@ def processar_periodo(ano_mes: str, dict_aliases: dict) -> pd.DataFrame:
 
     if "NomeColuna" in df_valores.columns:
         df_valores["NomeColuna"] = df_valores["NomeColuna"].map(normalizar_nome_coluna)
-
-    # 2. Preparar dados de nomes
-    # Prioridade: cadastro > valores > cache global > placeholder
-
-    nome_col_valores = obter_coluna_nome_instituicao(df_valores)
-    if nome_col_valores:
-        df_nomes = df_valores[["CodInst", nome_col_valores]].drop_duplicates().rename(
-            columns={nome_col_valores: "NomeInstituicao"}
-        )
-        logger.debug(f"[PROCESSAMENTO] Nomes de valores: {len(df_nomes)} registros")
-    else:
-        df_nomes = pd.DataFrame()
-
-    # Construir DataFrame de cadastro com nomes
-    if df_cad.empty:
-        logger.warning(f"[PROCESSAMENTO] Cadastro vazio para {ano_mes}, usando fallbacks")
-        if not df_nomes.empty:
-            df_cad = df_nomes.copy()
-            logger.debug(f"[PROCESSAMENTO] Usando nomes de valores como fallback")
-        else:
-            # FALLBACK CRÍTICO: Não usar CodInst como nome!
-            # Criar DataFrame com CodInst e tentar resolver via cache
-            df_cad = df_valores[["CodInst"]].drop_duplicates().copy()
-            df_cad["NomeInstituicao"] = df_cad["CodInst"].apply(
-                lambda cod: resolver_nome_instituicao(cod, None, ano_mes)
-            )
-            logger.warning(f"[PROCESSAMENTO] Fallback: resolvendo {len(df_cad)} nomes via cache")
-
-    else:
-        # Cadastro OK, mas verificar se tem a coluna de nome
-        nome_col_cad = obter_coluna_nome_instituicao(df_cad)
-
-        if nome_col_cad:
-            # Renomear para NomeInstituicao se necessário
-            if nome_col_cad != "NomeInstituicao":
-                df_cad = df_cad.rename(columns={nome_col_cad: "NomeInstituicao"})
-
-            # Complementar com dados de valores onde cadastro está vazio
-            if not df_nomes.empty:
-                df_cad = df_cad.merge(
-                    df_nomes,
-                    on="CodInst",
-                    how="left",
-                    suffixes=("", "_valores")
-                )
-                # Preencher nomes faltantes
-                df_cad["NomeInstituicao"] = df_cad["NomeInstituicao"].fillna(
-                    df_cad.get("NomeInstituicao_valores")
-                )
-                df_cad = df_cad.drop(columns=["NomeInstituicao_valores"], errors="ignore")
-        else:
-            # Cadastro não tem coluna de nome - usar valores ou cache
-            if not df_nomes.empty:
-                df_cad = df_cad.merge(df_nomes, on="CodInst", how="left")
-            else:
-                df_cad["NomeInstituicao"] = df_cad["CodInst"].apply(
-                    lambda cod: resolver_nome_instituicao(cod, None, ano_mes)
-                )
-
-    # 3. Validar nomes - resolver qualquer código remanescente
-    if "NomeInstituicao" in df_cad.columns:
-        df_cad["NomeInstituicao"] = df_cad.apply(
-            lambda row: resolver_nome_instituicao(
-                row.get("CodInst"),
-                row.get("NomeInstituicao"),
-                ano_mes
-            ),
-            axis=1
-        )
 
     # 4. Extrair métricas financeiras
     # IMPORTANTE: "Lucro Líquido" é o nome da coluna na API do BC,
@@ -833,22 +736,9 @@ def processar_periodo(ano_mes: str, dict_aliases: dict) -> pd.DataFrame:
         df_pivot = df_pivot.rename(columns={"Lucro Líquido": "Lucro Líquido Acumulado YTD"})
     df_pivot = calcular_lucro_semestral(ano_mes, df_pivot)
 
-    # 7. Merge com nomes
-    df_merged = df_pivot.merge(
-        df_cad[["CodInst", "NomeInstituicao"]].drop_duplicates(),
-        on="CodInst",
-        how="left",
-    )
-
-    # Resolver nomes faltantes após o merge
-    df_merged["NomeInstituicao"] = df_merged.apply(
-        lambda row: resolver_nome_instituicao(
-            row.get("CodInst"),
-            row.get("NomeInstituicao"),
-            ano_mes
-        ),
-        axis=1
-    )
+    # 7. Resolver pelo CodInst exato, com cadastro da competência.
+    from .ifdata_cache.institution_registry import attach_institution_names
+    df_merged = attach_institution_names(df_pivot, df_cad, ano_mes, name_column="NomeInstituicao")
 
     # 8. Organizar colunas
     colunas_ordem = [

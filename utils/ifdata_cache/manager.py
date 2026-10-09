@@ -516,13 +516,15 @@ class CacheManager:
 
                     # Salvamento parcial
                     if periodos_desde_save >= intervalo_salvamento:
-                        self._salvar_parcial(
+                        parcial = self._salvar_parcial(
                             cache=cache,
                             dados_novos=dados_extraidos,
                             dados_existentes=dados_existentes,
                             modo=modo,
                             info=f"Salvamento parcial até {periodo[4:6]}/{periodo[:4]}"
                         )
+                        if not parcial.sucesso:
+                            return parcial
                         periodos_desde_save = 0
 
                         if callback_salvamento:
@@ -545,13 +547,15 @@ class CacheManager:
                 # Salvamento de emergência
                 if dados_extraidos:
                     try:
-                        self._salvar_parcial(
+                        emergencia = self._salvar_parcial(
                             cache=cache,
                             dados_novos=dados_extraidos,
                             dados_existentes=dados_existentes,
                             modo=modo,
                             info=f"Salvamento emergência após erro em {periodo}"
                         )
+                        if not emergencia.sucesso:
+                            return emergencia
                         logger.info(f"[CACHE:{tipo.upper()}] Salvamento de emergência realizado")
                     except Exception as save_error:
                         erros.append(f"Erro no salvamento de emergência: {save_error}")
@@ -576,6 +580,8 @@ class CacheManager:
             modo=modo,
             info=f"Salvamento final: {periodos[0][4:6]}/{periodos[0][:4]} até {periodos[-1][4:6]}/{periodos[-1][:4]}"
         )
+        if not resultado_save.sucesso:
+            return resultado_save
 
         if callback_salvamento:
             callback_salvamento(f"Salvos {len(dados_extraidos)} períodos (final)")
