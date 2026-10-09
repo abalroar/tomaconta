@@ -17066,6 +17066,35 @@ elif menu == "Evolução":
         # Impacto: apenas no fluxo de exportação da aba Evolução; dados exibidos e memória de cálculo preservados.
         # Testado em: render da aba Evolução via AppTest e py_compile do app.
         st.markdown("#### Exportar")
+        # Same selected values as the screen, generated only on download.
+        from utils.evolucao_pptx_export import export_evolucao_powerpoint
+
+        instituicao_arquivo_pptx = re.sub(r"[^\w\-.]+", "_", str(instituicao), flags=re.UNICODE).strip("_") or "instituicao"
+
+        def _download_evolucao_powerpoint():
+            return export_evolucao_powerpoint(
+                df_graph=df_graph,
+                df_show=df_show_visual,
+                periods=periodos_cols,
+                institution=instituicao,
+                queried_at=datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%d/%m/%Y %H:%M %Z"),
+                status_rows=_build_evolucao_export_status_rows(
+                    instituicao=instituicao,
+                    df_ano=df_ano,
+                    core_funding_trace_map=core_funding_trace_map,
+                    carteira_trace_map=carteira_trace_map,
+                ),
+            )
+
+        st.download_button(
+            "PowerPoint · gráfico e tabela",
+            data=_download_evolucao_powerpoint,
+            file_name=f"evolucao_{instituicao_arquivo_pptx}_{periodo_inicio.replace('/', '-')}_{periodo_final.replace('/', '-')}.pptx",
+            mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            key="evolucao_powerpoint",
+            on_click="ignore",
+            width="stretch",
+        )
         export_signature_key = "evolucao_export_signature"
         export_payload_key = "evolucao_export_payload"
         selection_signature = (
