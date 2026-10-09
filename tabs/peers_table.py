@@ -15,30 +15,27 @@ import streamlit as st
 from utils import peers_groups
 from utils.peers_table_model import BY_KEY, METRICS, DEFAULT_METRICS, INDIVIDUAL_METRICS, get_metric, BASELINES, SCALES, COLORS, build_query, required_periods, period_sort, period_label, short_bank, format_value, number, methodology_rows
 from utils.peers_table_exports import export_excel, export_powerpoint, export_png
-from utils.sgs_credit_analytics import ITAU_ORANGE, ITAU_ORANGE_DARK
+from utils.sgs_credit_analytics import ITAU_ORANGE
 
 
 TABLE_CSS = """
-.peers-grid {overflow:auto;max-height:640px; font-family:Calibri,Arial,sans-serif; color:white; background:__ORANGE_DARK__;}
-table {border-collapse:separate;border-spacing:0;width:100%;font-size:12pt;font-weight:700;}
-th,td {border-right:1px solid #ffffff55;border-bottom:1px solid #ffffff55;padding:7px 5px;text-align:right;white-space:nowrap;}
-tbody td {background:__ORANGE_DARK__;}
-thead th {position:sticky;top:0;z-index:2;background:__ORANGE__;text-align:center;font-size:14pt;font-weight:700;}
+.peers-grid {overflow:auto;max-height:640px; font-family:Calibri,Arial,sans-serif; color:#222; background:white;}
+table {border-collapse:separate;border-spacing:0;width:100%;font-size:13px;}
+th,td {border-right:1px solid #e2e2e2;border-bottom:1px solid #dedede;padding:7px 5px;text-align:right;white-space:nowrap;}
+thead th {position:sticky;top:0;z-index:2;background:#f4f4f4;text-align:center;font-weight:600;}
 thead tr:nth-child(2) th {top:var(--bank-header-height,32px);}
-thead tr:first-child th {border-top:1px solid #ffffff55;}
-th.row-label,td.row-label {position:sticky;left:0;text-align:left;min-width:160px;max-width:205px;white-space:normal;z-index:1;}
+thead tr:first-child th {border-top:1px solid #d1d1d1;background:__ORANGE__;color:white;font-size:14pt;font-weight:700;}
+th.row-label,td.row-label {position:sticky;left:0;text-align:left;background:white;min-width:160px;max-width:205px;white-space:normal;z-index:1;}
 thead th.row-label {background:__ORANGE__;z-index:3;}
-.section td {font-weight:700;padding:5px 8px;border-right:0;text-align:left;}
+.section td {background:#eceff1!important;font-weight:600;padding:5px 8px;border-right:0;text-align:left;}
 .metric {font:inherit;color:inherit;background:transparent;border:0;text-align:left;padding:0;cursor:pointer;}
-.metric:hover {text-decoration:underline;} .metric:focus-visible {outline:2px solid white;outline-offset:3px;}
-.selected td:first-child {box-shadow:inset 3px 0 white;}
+.metric:hover {text-decoration:underline;} .metric:focus-visible {outline:2px solid #174a7e;outline-offset:3px;}
+.selected td:first-child {background:#edf3f8;}
 .value {font-variant-numeric:tabular-nums;display:block;min-width:54px;}
-.delta {font-size:11px;display:inline-block;color:#4f4f4f;background:white;padding:1px 3px;border-radius:2px;margin-top:3px;font-variant-numeric:tabular-nums;white-space:normal;}
-.delta:empty {display:none;}
-.delta.up,.delta.down {white-space:nowrap;}
-.up {color:#16713b;} .down {color:#b32624;} .bank-start {border-left:1px solid #ffffffaa;}
+.delta {font-size:11px;display:block;color:#666;margin-top:2px;font-variant-numeric:tabular-nums;white-space:normal;}
+.up {color:#16713b;} .down {color:#b32624;} .bank-start {border-left:1px solid #b8b8b8;}
 @media(pointer:coarse) {.metric{min-height:38px;}}
-""".replace("__ORANGE_DARK__", ITAU_ORANGE_DARK).replace("__ORANGE__", ITAU_ORANGE)
+""".replace("__ORANGE__", ITAU_ORANGE)
 TABLE_JS = """
 export default function(component) {
  const {data,parentElement,setStateValue} = component;
