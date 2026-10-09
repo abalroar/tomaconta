@@ -241,7 +241,7 @@ def test_individual_definitions_and_funding_do_not_inherit_consolidated_formula(
     assert "Captações" in table_html(q)
 
 
-def test_deeplink_opens_once_and_allows_navigation_back_to_old_tab():
+def test_deeplink_opens_once_and_allows_navigation_to_other_tabs():
     tree = ast.parse(Path("app1.py").read_text())
     node = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "_aplicar_navegacao_inicial_mobile")
     state = {}
@@ -249,6 +249,84 @@ def test_deeplink_opens_once_and_allows_navigation_back_to_old_tab():
     exec(compile(ast.Module(body=[node], type_ignores=[]), "app1.py", "exec"), namespace)
     namespace["_aplicar_navegacao_inicial_mobile"]()
     assert state["menu_atual"] == "Peers (Tabela Nova)"
-    state["menu_atual"] = "Peers (Tabela)"
+    state["menu_atual"] = "Snapshot"
     namespace["_aplicar_navegacao_inicial_mobile"]()
-    assert state["menu_atual"] == "Peers (Tabela)"
+    assert state["menu_atual"] == "Snapshot"
+
+
+def test_legacy_menu_and_exclusive_helpers_are_removed_shared_apis_remain():
+    tree = ast.parse(Path("app1.py").read_text())
+    assignments = {
+        target.id: node.value
+        for node in tree.body if isinstance(node, ast.Assign)
+        for target in node.targets if isinstance(target, ast.Name)
+    }
+    assert "Peers (Tabela)" not in ast.literal_eval(assignments["MENU_PRINCIPAL"])
+    assert "Peers (Tabela Nova)" in ast.literal_eval(assignments["MENU_PRINCIPAL"])
+    dependencies = ast.literal_eval(assignments["CACHE_DEPENDENCIAS_POR_ABA"])
+    assert "Peers (Tabela)" not in dependencies
+    assert dependencies["Peers (Tabela Nova)"] == ["critical_screens"]
+    routes = [
+        value.value for node in ast.walk(tree)
+        if isinstance(node, ast.Compare) and isinstance(node.left, ast.Name) and node.left.id == "menu"
+        for value in node.comparators if isinstance(value, ast.Constant)
+    ]
+    assert "Peers (Tabela)" not in routes
+    assert routes.count("Peers (Tabela Nova)") == 1
+    functions = {node.name for node in tree.body if isinstance(node, ast.FunctionDef)}
+    assert not functions.intersection({
+        "_render_peers_table_html", "_gerar_imagem_peers_tabela",
+        "_gerar_excel_peers_tabela", "_gerar_excel_peers_dados_puros",
+        "_carregar_peer_groups_salvos", "_salvar_peer_groups_salvos",
+        "_filtrar_peer_group", "_peer_groups_disponiveis",
+        "_build_memoria_calculo_peers_tabela_metrica", "_metric_definition_html",
+        "_build_peers_visual_status_artifacts", "_merge_peers_analytical_tooltips",
+        "_decorate_peers_visual_value", "_normalizar_base_dre_peers",
+        "_ordenar_periodos_peers_saida", "_timer_begin_measurement",
+    })
+    assert {
+        "_build_peers_export_status_rows", "_build_peers_status_lookup",
+        "_montar_tabela_peers", "_preparar_metricas_extra_peers_from_slice",
+        "_get_peers_filters_context", "_get_peers_individual_filters_context",
+        "_apply_peers_individual_display_names", "_garantir_cache_telas_criticas",
+        "_gerar_excel_evolucao_dados_puros", "_build_memoria_calculo_curado_metrica",
+    }.issubset(functions)
+
+
+def test_shared_analytical_status_survives_query_and_native_excel_export():
+    import app1
+    bank, period = "TEST BANK - PRUDENCIAL", "4/2025"
+    df = pd.DataFrame([{
+        "Instituição": bank, "Período": period, "Ativo Total": None,
+        "Depósitos Totais": 106.0, "Core Funding": None,
+        "Trace::Depósitos Totais::Status": "fallback_components",
+        "Trace::Core Funding::Status": "missing_required_component",
+        "Trace::Core Funding::Campo Selecionado": "Captações (e) + Instrumentos de Dívida Elegíveis a Capital (h)",
+        "Trace::Core Funding::Captações (e)": 210.0,
+        "Trace::Core Funding::Instrumentos de Dívida Elegíveis a Capital (h)": None,
+    }])
+    metrics = ["Ativo Total", "Depósitos Totais", "Core Funding*"]
+    values = {(metric, bank, period): 106.0 if metric == "Depósitos Totais" else None for metric in metrics}
+    columns = {"Ativo Total": "Ativo Total", "Depósitos Totais": "Depósitos Totais", "Core Funding*": "Core Funding"}
+    status = app1._build_peers_status_lookup(
+        df_base=df, bancos=[bank], periodos=[period], valores=values, colunas_usadas=columns,
+    )
+    query = build_query(
+        df, [bank], [period], metrics, values, status,
+        base="Consolidada / Prudencial", cache_token="test", scale="R$ bilhões",
+        mode="year", queried_at="09/10/2026",
+    )
+    cells = {cell["metric"]: cell for cell in query["cells"]}
+    assert cells["Depósitos Totais"]["status"] == "fallback_components"
+    assert cells["Depósitos Totais"]["value"] == 106.0
+    assert cells["Ativo Total"]["status"] == "missing"
+    assert "sem valor disponível" in cells["Ativo Total"]["reason"].lower()
+    assert cells["Core Funding*"]["value"] is None
+    assert table_html(query).count('<span class="value">N/D</span>') == 2
+    ledger = load_workbook(BytesIO(export_excel(query)))["Dados e status"]
+    rows = {row[0].value: row for row in ledger.iter_rows(min_row=2)}
+    assert rows["Depósitos Totais"][3].value == 106.0
+    assert rows["Depósitos Totais"][7].value == "fallback_components"
+    assert rows["Ativo Total"][3].value is None
+    assert rows["Core Funding*"][3].value is None
+    assert rows["Ativo Total"][9].value == cells["Ativo Total"]["reason"]

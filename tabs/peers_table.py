@@ -22,11 +22,11 @@ TABLE_CSS = """
 .peers-grid {overflow:auto;max-height:640px; font-family:Calibri,Arial,sans-serif; color:#222; background:white;}
 table {border-collapse:separate;border-spacing:0;width:100%;font-size:14px;line-height:1.3;}
 th,td {border-right:1px solid #e2e2e2;border-bottom:1px solid #dedede;padding:6px 3px;text-align:right;white-space:nowrap;}
-thead th {position:sticky;top:0;z-index:2;background:#f4f4f4;text-align:center;font-weight:600;}
+thead th {position:sticky;top:0;z-index:2;background:__ORANGE__;color:white;text-align:center;font-size:12pt;font-weight:700;}
 thead tr:nth-child(2) th {top:var(--bank-header-height,32px);background:__ORANGE__;color:white;font-size:12pt;font-weight:700;}
 thead tr:first-child th {border-top:1px solid #d1d1d1;}
 th.row-label,td.row-label {position:sticky;left:0;text-align:left;background:white;min-width:140px;max-width:180px;white-space:normal;z-index:1;}
-thead th.row-label {background:#f4f4f4;z-index:3;}
+thead th.row-label {background:__ORANGE__;z-index:3;}
 .section td {background:#eceff1!important;font-weight:600;padding:5px 8px;border-right:0;text-align:left;}
 .metric {font:inherit;color:inherit;background:transparent;border:0;text-align:left;padding:0;cursor:pointer;}
 .metric:hover {text-decoration:underline;} .metric:focus-visible {outline:2px solid #174a7e;outline-offset:3px;}

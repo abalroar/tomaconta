@@ -1,12 +1,13 @@
 # Peers (Tabela Nova)
 
-A nova entrada fica ao lado de Peers (Tabela). A implementação antiga, a aba Evolução e os produtores dos caches permanecem disponíveis.
+Peers (Tabela Nova) é a única tabela de comparação de peers no menu. A tela antiga, seus exportadores e suas rotinas exclusivas de grupos foram removidos. A aba Evolução, os cálculos compartilhados e os produtores dos caches permanecem disponíveis.
 
 ## Consulta e interface
 
 - Grupo inicial de três bancos, com identidade e ordem explícitas por base: conglomerados prudenciais ou bancos comerciais individuais.
 - Até três competências, exibidas cronologicamente dentro de cada instituição.
 - Variação contra trimestre anterior, mesmo trimestre do ano anterior ou sem variação. Percentuais variam em pontos percentuais; valores monetários, em percentual; múltiplos, em x.
+- Cabeçalho completo (Indicador, instituições e competências): fundo laranja #EC7000 e texto branco. Corpo branco, fontes e espaçamentos compactos.
 - Verde representa aumento; vermelho representa queda. A cor descreve a direção, sem julgar o indicador.
 - Downloads sob os filtros. A geração ocorre no clique, sem etapa de preparar arquivos.
 - Clique no nome do indicador abre seu cálculo; outro clique troca a seleção ou fecha o cálculo. Componentes e metodologia ficam em expanders.
@@ -21,7 +22,7 @@ O catálogo está em `utils/peers_table_model.py`. A nova aba mantém a fonte e 
 - ROE é identificado como anualizado. Lucro YTD e ROE do segundo semestre exigem a base de junho para recomposição.
 - Ativos líquidos exigem os três componentes. Ausência de componente mantém N/D.
 - Lucro YTD não recebe variação contra o trimestre anterior, devido à diferença de janelas. Denominador monetário de referência não positivo mantém a variação indisponível.
-- Comparações de carteira ampliada, core funding e razões selecionadas que atravessam a mudança de definição de 2025 exibem “Quebra em 2025”.
+- Comparações de carteira ampliada, core funding e razões selecionadas que atravessam a mudança de definição de 2025 marcam os valores afetados com asterisco e apresentam o motivo na nota de rodapé.
 - Registros duplicados por instituição/competência são rejeitados.
 
 Essas regras afetam a consulta da nova aba; os arquivos analíticos existentes não são recalculados.
