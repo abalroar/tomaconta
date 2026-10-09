@@ -113,6 +113,7 @@ from utils.analytical_status_excel import (
     write_analytical_status_sheet as _write_analytical_status_sheet_impl,
 )
 from utils.snapshot_delta import compute_delta
+from utils.evolucao_visual import METRIC_LABELS, build_evolucao_chart, period_label, render_evolucao_table
 from utils.device_detection import detect_device_from_headers
 from utils.institution_search import search_institutions
 from tabs.carteira_4966 import (
@@ -8444,6 +8445,29 @@ def _apply_peers_individual_display_names(
     return out
 
 
+def _carregar_passivo_evolucao_slice(
+    cache_token: str, periodos: tuple, instituicao: str, codinsts: tuple,
+) -> Optional[pd.DataFrame]:
+    """Liga o Rel. 3 por código e mantém períodos legados sem CodInst."""
+    by_code = _carregar_cache_relatorio_slice(
+        "passivo", cache_token, periodos, (instituicao,), codinsts=codinsts,
+    )
+    if not codinsts:
+        return by_code
+    legacy = _carregar_cache_relatorio_slice(
+        "passivo", cache_token, periodos, (instituicao,),
+    )
+    if legacy is not None and not legacy.empty:
+        if "CodInst" in legacy.columns:
+            legacy = legacy[legacy["CodInst"].map(normalize_institution_code).eq("")]
+        frames = [frame for frame in (by_code, legacy) if frame is not None and not frame.empty]
+        if frames:
+            by_code = pd.concat(frames, ignore_index=True)
+    return _apply_peers_individual_display_names(
+        by_code, {codigo: instituicao for codigo in codinsts},
+    )
+
+
 def _critical_metric_lookup(df: Optional[pd.DataFrame]) -> dict:
     if df is None or df.empty:
         return {}
@@ -12616,22 +12640,27 @@ def _gerar_excel_evolucao_tabela_visual(
         "bold": True,
         "align": "left",
         "valign": "vcenter",
-        "bg_color": "#111111",
+        "bg_color": "#EC7000",
         "font_color": "white",
+        "font_name": "Calibri",
+        "font_size": 12,
         **border,
     })
     header_period_fmt = workbook.add_format({
         "bold": True,
         "align": "center",
         "valign": "vcenter",
-        "bg_color": "#6E6E6E",
+        "bg_color": "#EC7000",
         "font_color": "white",
+        "font_name": "Calibri",
+        "font_size": 12,
         **border,
     })
-    row_even_label = workbook.add_format({"align": "left", "valign": "vcenter", "bg_color": "#f8f9fa", **border})
+    row_even_label = workbook.add_format({"align": "left", "valign": "vcenter", "bg_color": "#ffffff", **border})
     row_odd_label = workbook.add_format({"align": "left", "valign": "vcenter", "bg_color": "#ffffff", **border})
-    row_even_val = workbook.add_format({"align": "right", "valign": "vcenter", "bg_color": "#f8f9fa", **border})
+    row_even_val = workbook.add_format({"align": "right", "valign": "vcenter", "bg_color": "#ffffff", **border})
     row_odd_val = workbook.add_format({"align": "right", "valign": "vcenter", "bg_color": "#ffffff", **border})
+    row_latest_val = workbook.add_format({"align": "right", "valign": "vcenter", "bg_color": "#ffffff", "bold": True, **border})
 
     worksheet.set_column(0, 0, 40)
     worksheet.set_column(1, max(1, n_cols - 1), 16)
@@ -12652,10 +12681,10 @@ def _gerar_excel_evolucao_tabela_visual(
     worksheet.merge_range(row_idx, 0, row_idx, n_cols - 1, nota, workbook.add_format({"font_size": 9, "font_color": "#666666"}))
     row_idx += 1
 
-    worksheet.write(row_idx, 0, "Métrica", header_first_fmt)
+    worksheet.write(row_idx, 0, "Indicador", header_first_fmt)
     col_idx = 1
     for periodo in periodos_cols:
-        worksheet.write(row_idx, col_idx, periodo, header_period_fmt)
+        worksheet.write(row_idx, col_idx, period_label(periodo), header_period_fmt)
         col_idx += 1
     row_idx += 1
 
@@ -12663,14 +12692,15 @@ def _gerar_excel_evolucao_tabela_visual(
         is_even = i % 2 == 0
         fmt_label = row_even_label if is_even else row_odd_label
         fmt_val = row_even_val if is_even else row_odd_val
-        worksheet.write(row_idx, 0, str(row.get("Métrica", "")), fmt_label)
+        metric_label = str(row.get("Métrica", ""))
+        worksheet.write(row_idx, 0, METRIC_LABELS.get(metric_label, metric_label), fmt_label)
         col_idx = 1
         for periodo in periodos_cols:
-            worksheet.write(row_idx, col_idx, str(row.get(periodo, "-")), fmt_val)
+            worksheet.write(row_idx, col_idx, str(row.get(periodo, "-")), row_latest_val if periodo == periodos_cols[-1] else fmt_val)
             col_idx += 1
         row_idx += 1
 
-    worksheet.freeze_panes(2, 1)
+    worksheet.freeze_panes(3, 1)
     if df_ano is not None and not df_ano.empty:
         status_rows = _build_evolucao_export_status_rows(
             instituicao=instituicao,
@@ -12696,6 +12726,8 @@ def _gerar_png_tabela_evolucao(
     df_disp = df_show.copy()
     cols = ["Métrica"] + periodos_cols
     df_disp = df_disp[cols]
+    df_disp["Métrica"] = df_disp["Métrica"].map(lambda label: METRIC_LABELS.get(label, label))
+    df_disp.columns = ["Indicador", *[period_label(period) for period in periodos_cols]]
     marker_presence = marker_presence or {"fallback": False, "unavailable": False}
 
     n_rows, n_cols = df_disp.shape
@@ -12715,6 +12747,7 @@ def _gerar_png_tabela_evolucao(
         colLabels=df_disp.columns,
         cellLoc="right",
         colLoc="center",
+        colWidths=[.34, *[.66 / (n_cols - 1)] * (n_cols - 1)] if n_cols > 1 else [1],
         loc="center",
     )
     table.auto_set_font_size(False)
@@ -12723,13 +12756,14 @@ def _gerar_png_tabela_evolucao(
 
     for (row, col), cell in table.get_celld().items():
         if row == 0:
-            cell.set_facecolor("#6E6E6E")
-            cell.set_text_props(color="white", weight="bold")
+            cell.set_facecolor("#EC7000")
+            cell.set_text_props(color="white", weight="bold", fontsize=12)
         else:
             if col == 0:
                 cell.set_text_props(ha="left")
-            if row % 2 == 0:
-                cell.set_facecolor("#f8f9fa")
+            cell.set_facecolor("white")
+            if col == n_cols - 1:
+                cell.set_text_props(weight="bold")
 
     if footer_lines:
         fig.subplots_adjust(bottom=min(0.18, 0.08 + 0.04 * len(footer_lines)))
@@ -16524,11 +16558,17 @@ elif menu == "Evolução":
         core_funding_fallback_reason = None
         try:
             periodos_evo = df_ano.get("Período", pd.Series(dtype="object")).dropna().unique().tolist()
-            cache_passivo = _carregar_cache_relatorio_slice(
-                "passivo",
+            # O Rel. 3 pode trazer [IF CodInst] no lugar do nome (Dez/25).
+            # Preserve a identidade da instituição selecionada antes do filtro do parquet.
+            codinsts_evo = tuple(sorted({
+                codigo for codigo in df_ev.get("CodInst", pd.Series(dtype="object")).map(normalize_institution_code)
+                if codigo
+            }))
+            cache_passivo = _carregar_passivo_evolucao_slice(
                 _cache_version_token("passivo"),
                 tuple(periodos_evo),
-                (instituicao,),
+                instituicao,
+                codinsts_evo,
             )
             cache_passivo = _aplicar_aliases_df(cache_passivo, st.session_state.get("dict_aliases", {}))
 
@@ -16552,7 +16592,6 @@ elif menu == "Evolução":
             )
             if col_capt or col_instr:
                 core_map = {}
-                lk_passivo = _build_peers_lookup(cache_passivo)
                 for periodo in periodos_evo:
                     df_cap_per = cache_passivo[
                         (cache_passivo.get("Instituição", pd.Series(dtype="object")).astype(str) == str(instituicao))
@@ -16928,93 +16967,13 @@ elif menu == "Evolução":
             except Exception:
                 return ""
 
-        fig_ev = go.Figure()
-        fig_ev.add_trace(
-            go.Bar(
-                x=ano_labels,
-                y=df_graph["Lucro Líquido"],
-                name="Lucro Líquido Acumulado",
-                marker_color="#111111",
-                yaxis="y",
-            )
+        fig_ev = build_evolucao_chart(
+            df_graph, ano_labels,
+            revision=f"evolucao:{instituicao}:{periodo_inicio}:{periodo_final}",
         )
-        fig_ev.add_trace(
-            go.Bar(
-                x=ano_labels,
-                y=df_graph["Patrimônio Líquido"],
-                name="Patrimônio Líquido",
-                marker_color="#6E6E6E",
-                yaxis="y",
-            )
-        )
-        fig_ev.add_trace(
-            go.Scatter(
-                x=ano_labels,
-                y=df_graph["Carteira de Crédito*"],
-                mode="lines+markers",
-                name="Carteira de Crédito*",
-                line=dict(color="#ff5a00", width=2, shape="spline", smoothing=1.15),
-                marker=dict(size=8, color="#ff5a00"),
-                connectgaps=False,
-                yaxis="y2",
-            )
-        )
-        fig_ev.add_trace(
-            go.Scatter(
-                x=ano_labels,
-                y=df_graph["Core Funding*"],
-                mode="lines+markers",
-                name="Core Funding*",
-                line=dict(color="#222222", width=2, shape="spline", smoothing=1.15),
-                marker=dict(size=8, color="#222222"),
-                connectgaps=False,
-                yaxis="y2",
-            )
-        )
-
-        annotations_ev = []
-
-        def _add_label_annotations(serie, yref, font_color, bg_color, yshift):
-            for idx, valor in enumerate(serie):
-                texto = _fmt_mm_plot(valor)
-                if not texto:
-                    continue
-                annotations_ev.append(
-                    dict(
-                        x=ano_labels[idx],
-                        y=valor,
-                        xref="x",
-                        yref=yref,
-                        text=texto,
-                        showarrow=False,
-                        yshift=yshift,
-                        font=dict(size=16, color=font_color),
-                        bgcolor=bg_color,
-                        bordercolor="rgba(0,0,0,0.08)",
-                        borderwidth=1,
-                        borderpad=3,
-                    )
-                )
-
-        _add_label_annotations(df_graph["Lucro Líquido"], "y", "#FFFFFF", "rgba(17,17,17,0.94)", 14)
-        _add_label_annotations(df_graph["Patrimônio Líquido"], "y", "#111111", "rgba(232,232,232,0.96)", 14)
-        _add_label_annotations(df_graph["Carteira de Crédito*"], "y2", "#ff5a00", "rgba(255,243,236,0.96)", 16)
-        _add_label_annotations(df_graph["Core Funding*"], "y2", "#FFFFFF", "rgba(34,34,34,0.94)", -22)
-
-        fig_ev.update_layout(
-            barmode="group",
-            height=480,
-            yaxis=dict(title="Lucro/PL (R$ mm)", rangemode="tozero"),
-                yaxis2=dict(title="Carteira* / Core Funding* (R$ mm)", overlaying="y", side="right", rangemode="tozero"),
-            xaxis_title="Ano",
-            xaxis=dict(type="category", categoryorder="array", categoryarray=ano_labels),
-            legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="left", x=0.0),
-            margin=dict(t=80, b=20),
-            plot_bgcolor="#f2f2f2",
-            paper_bgcolor="#f2f2f2",
-            annotations=annotations_ev,
-        )
-        st.plotly_chart(fig_ev, width='stretch', config={"displaylogo": False})
+        st.plotly_chart(fig_ev, key="evolucao_chart", width="stretch", config={"displaylogo": False})
+        label_note = " Rótulos nos últimos dados; histórico completo no hover." if len(ano_labels) > 8 else ""
+        st.caption("Valores em R$ bi · Lucro acumulado no ano · Fonte: BCB IFData." + label_note)
 
         df_metric = pd.DataFrame({
             "Métrica": [
@@ -17055,8 +17014,8 @@ elif menu == "Evolução":
                 return "-"
             try:
                 v_num = float(v)
-                v_pct = v_num * 100 if abs(v_num) <= 1 else v_num
-                return f"{v_pct:.2f}%".replace(".", ",")
+                v_pct = v_num * 100
+                return f"{v_pct:.1f}%".replace(".", ",")
             except Exception:
                 return "-"
 
@@ -17083,70 +17042,9 @@ elif menu == "Evolução":
             carteira_trace_map=carteira_trace_map,
         )
 
-        def _render_evolucao_table_html(
-            df_show_local: pd.DataFrame,
-            periodos_local: list,
-            cell_tooltips: Optional[dict[tuple[str, str], str]] = None,
-        ) -> str:
-            html = """
-            <style>
-            .evol-table-wrap { width: 100%; overflow-x: auto; margin-top: 10px; }
-            .evol-table { width: 100%; border-collapse: collapse; font-size: 14px; }
-            .evol-table th, .evol-table td { border: 1px solid #ddd; padding: 8px 10px; white-space: nowrap; }
-            .evol-table th { background-color: #6E6E6E; color: white; text-align: center; font-weight: 600; }
-            .evol-table th:first-child { background-color: #111111; text-align: left; }
-            .evol-table td:first-child { text-align: left; font-weight: 500; }
-            .evol-table td { text-align: right; }
-            .evol-zebra { background-color: #f8f9fa; }
-            .evol-table .metric-with-info { display: inline-flex; align-items: center; gap: 6px; }
-            .evol-table .metric-info {
-                display: inline-flex; width: 16px; height: 16px; border-radius: 50%;
-                justify-content: center; align-items: center; background: #eceff1;
-                color: #333; font-size: 11px; font-weight: 700; cursor: help; position: relative;
-            }
-            .evol-table .metric-info .tip-text {
-                display: none; position: absolute; top: 20px; left: 0;
-                background: #333; color: #fff; padding: 8px 10px; border-radius: 4px;
-                font-size: 11px; white-space: normal; z-index: 9999; min-width: 220px; max-width: 340px;
-                text-align: left; box-shadow: 0 2px 8px rgba(0,0,0,0.25); pointer-events: none; line-height: 1.5;
-            }
-            .evol-table .metric-info:hover .tip-text { display: block; }
-            .evol-table td.has-tip { cursor: help; }
-            </style>
-            <div class="evol-table-wrap"><table class="evol-table"><thead><tr><th>Métrica</th>
-            """
-            for p in periodos_local:
-                html += f"<th>{_html_mod.escape(str(p))}</th>"
-            html += "</tr></thead><tbody>"
-
-            for idx, row in df_show_local.iterrows():
-                zebra = "evol-zebra" if idx % 2 == 0 else ""
-                metrica_label = str(row["Métrica"])
-                label_html = _html_mod.escape(metrica_label)
-                gloss = evolucao_glossario.get(metrica_label)
-                if gloss:
-                    gloss_html = _html_mod.escape(gloss)
-                    label_html = (
-                        f'<span class="metric-with-info">{label_html}'
-                        f'<span class="metric-info" aria-label="Informação da métrica" role="img">i'
-                        f'<span class="tip-text tip-metric">{gloss_html}</span>'
-                        f'</span></span>'
-                    )
-                html += f'<tr class="{zebra}"><td>{label_html}</td>'
-                for p in periodos_local:
-                    tip = str((cell_tooltips or {}).get((metrica_label, str(p))) or "").strip()
-                    cell_value = _html_mod.escape(str(row[p]))
-                    if tip:
-                        tip_attr = _html_mod.escape(tip, quote=True).replace("\n", "&#10;")
-                        html += f'<td class="has-tip" title="{tip_attr}">{cell_value}</td>'
-                    else:
-                        html += f"<td>{cell_value}</td>"
-                html += "</tr>"
-
-            html += "</tbody></table></div>"
-            return html
-
-        tabela_html = _render_evolucao_table_html(df_show_visual, periodos_cols, evol_cell_tooltips)
+        tabela_html = render_evolucao_table(
+            df_show_visual, periodos_cols, evol_cell_tooltips, evolucao_glossario,
+        )
         st.markdown(tabela_html, unsafe_allow_html=True)
         if evol_marker_presence.get("fallback") or evol_marker_presence.get("unavailable"):
             notas_status = []
@@ -17155,6 +17053,114 @@ elif menu == "Evolução":
             if evol_marker_presence.get("unavailable"):
                 notas_status.append("† = indisponibilidade com causa identificada")
             st.caption(" | ".join(notas_status) + ". Passe o mouse sobre a célula para ver a origem/limitação.")
+
+        # [CHANGE] Data: 2026-04-05 | Aba: Evolução | Prioridade: P1
+        # Motivo: exportações Excel/PNG eram geradas em todo rerender e inflavam o tempo de troca de IF.
+        # Solução: geração lazy sob demanda com invalidação por seleção + tokens dos caches relevantes.
+        # Impacto: apenas no fluxo de exportação da aba Evolução; dados exibidos e memória de cálculo preservados.
+        # Testado em: render da aba Evolução via AppTest e py_compile do app.
+        st.markdown("#### Exportar")
+        export_signature_key = "evolucao_export_signature"
+        export_payload_key = "evolucao_export_payload"
+        selection_signature = (
+            instituicao,
+            periodo_inicio,
+            periodo_final,
+            tuple(periodos_cols),
+            "evolucao-visual-v2-codinst",
+            _cache_version_token("principal"),
+            _cache_version_token("ativo"),
+            _cache_version_token("passivo"),
+            _cache_version_token("capital"),
+        )
+        if st.session_state.get(export_signature_key) != selection_signature:
+            st.session_state.pop(export_payload_key, None)
+            st.session_state[export_signature_key] = selection_signature
+
+        if st.button("Preparar arquivos de exportação", key="evolucao_prepare_exports", width="stretch"):
+            with st.spinner("Preparando Excel e imagens..."):
+                buffer_excel_visual = _gerar_excel_evolucao_tabela_visual(
+                    df_show=df_show_visual,
+                    periodos_cols=periodos_cols,
+                    instituicao=instituicao,
+                    periodo_inicio=periodo_inicio,
+                    periodo_final=periodo_final,
+                    df_ano=df_ano,
+                    core_funding_trace_map=core_funding_trace_map,
+                    carteira_trace_map=carteira_trace_map,
+                    marker_presence=evol_marker_presence,
+                )
+                buffer_excel = _gerar_excel_evolucao_dados_puros(
+                    instituicao=instituicao,
+                    df_graph=df_graph,
+                    df_metric=df_metric,
+                    df_ano=df_ano,
+                    core_funding_trace_map=core_funding_trace_map,
+                    carteira_trace_map=carteira_trace_map,
+                )
+
+                st.session_state[export_payload_key] = {
+                    "excel_visual": buffer_excel_visual.getvalue(),
+                    "excel_raw": buffer_excel.getvalue(),
+                    "grafico_png": _plotly_fig_to_png_bytes(fig_ev),
+                    "tabela_png": _gerar_png_tabela_evolucao(df_show_visual, periodos_cols, marker_presence=evol_marker_presence),
+                }
+            st.rerun()
+
+        exports_payload = st.session_state.get(export_payload_key)
+        if exports_payload:
+            col_export1, col_export2, col_export3, col_export4 = st.columns(4)
+            instituicao_arquivo = re.sub(r"[^\w\-.]+", "_", str(instituicao), flags=re.UNICODE).strip("_") or "instituicao"
+
+            with col_export1:
+                st.download_button(
+                    label="Download Excel",
+                    data=exports_payload["excel_visual"],
+                    file_name=f"evolucao_tabela_visual_{instituicao_arquivo}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="evolucao_excel_visual",
+                    width="stretch",
+                    on_click="ignore",
+                )
+
+            with col_export2:
+                st.download_button(
+                    label="Download Dados Puros",
+                    data=exports_payload["excel_raw"],
+                    file_name=f"evolucao_{instituicao_arquivo}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="evolucao_excel",
+                    width="stretch",
+                    on_click="ignore",
+                )
+
+            with col_export3:
+                png_bytes = exports_payload.get("grafico_png")
+                if png_bytes:
+                    st.download_button(
+                        label="exportar gráfico PNG",
+                        data=png_bytes,
+                        file_name=f"evolucao_grafico_{instituicao_arquivo}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png",
+                        mime="image/png",
+                        key="evolucao_grafico_png",
+                        width="stretch",
+                        on_click="ignore",
+                    )
+
+            with col_export4:
+                tabela_png = exports_payload.get("tabela_png")
+                if tabela_png:
+                    st.download_button(
+                        label="exportar tabela PNG",
+                        data=tabela_png,
+                        file_name=f"evolucao_tabela_{instituicao_arquivo}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png",
+                        mime="image/png",
+                        key="evolucao_tabela_png",
+                        width="stretch",
+                        on_click="ignore",
+                    )
+        else:
+            st.caption("Exports são gerados sob demanda e não entram no tempo principal de renderização da aba.")
 
         # Memória de cálculo: componentes de cada variável exibida na Evolução (por período/IF selecionados).
         with st.expander("Memória de cálculo — Evolução", expanded=False):
@@ -17275,108 +17281,6 @@ elif menu == "Evolução":
                 st.dataframe(pd.DataFrame(memoria_rows), width="stretch", hide_index=True)
             else:
                 st.info("memória de cálculo indisponível para os filtros atuais.")
-
-        # [CHANGE] Data: 2026-04-05 | Aba: Evolução | Prioridade: P1
-        # Motivo: exportações Excel/PNG eram geradas em todo rerender e inflavam o tempo de troca de IF.
-        # Solução: geração lazy sob demanda com invalidação por seleção + tokens dos caches relevantes.
-        # Impacto: apenas no fluxo de exportação da aba Evolução; dados exibidos e memória de cálculo preservados.
-        # Testado em: render da aba Evolução via AppTest e py_compile do app.
-        st.markdown("#### Exportar")
-        export_signature_key = "evolucao_export_signature"
-        export_payload_key = "evolucao_export_payload"
-        selection_signature = (
-            instituicao,
-            periodo_inicio,
-            periodo_final,
-            tuple(periodos_cols),
-            _cache_version_token("principal"),
-            _cache_version_token("ativo"),
-            _cache_version_token("passivo"),
-            _cache_version_token("capital"),
-        )
-        if st.session_state.get(export_signature_key) != selection_signature:
-            st.session_state.pop(export_payload_key, None)
-            st.session_state[export_signature_key] = selection_signature
-
-        if st.button("Preparar arquivos de exportação", key="evolucao_prepare_exports", width="stretch"):
-            buffer_excel_visual = _gerar_excel_evolucao_tabela_visual(
-                df_show=df_show_visual,
-                periodos_cols=periodos_cols,
-                instituicao=instituicao,
-                periodo_inicio=periodo_inicio,
-                periodo_final=periodo_final,
-                df_ano=df_ano,
-                core_funding_trace_map=core_funding_trace_map,
-                carteira_trace_map=carteira_trace_map,
-                marker_presence=evol_marker_presence,
-            )
-            buffer_excel = _gerar_excel_evolucao_dados_puros(
-                instituicao=instituicao,
-                df_graph=df_graph,
-                df_metric=df_metric,
-                df_ano=df_ano,
-                core_funding_trace_map=core_funding_trace_map,
-                carteira_trace_map=carteira_trace_map,
-            )
-
-            st.session_state[export_payload_key] = {
-                "excel_visual": buffer_excel_visual.getvalue(),
-                "excel_raw": buffer_excel.getvalue(),
-                "grafico_png": _plotly_fig_to_png_bytes(fig_ev),
-                "tabela_png": _gerar_png_tabela_evolucao(df_show_visual, periodos_cols, marker_presence=evol_marker_presence),
-            }
-            st.rerun()
-
-        exports_payload = st.session_state.get(export_payload_key)
-        if exports_payload:
-            col_export1, col_export2, col_export3, col_export4 = st.columns(4)
-            instituicao_arquivo = re.sub(r"[^\w\-.]+", "_", str(instituicao), flags=re.UNICODE).strip("_") or "instituicao"
-
-            with col_export1:
-                st.download_button(
-                    label="Download Excel",
-                    data=exports_payload["excel_visual"],
-                    file_name=f"evolucao_tabela_visual_{instituicao_arquivo}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    key="evolucao_excel_visual",
-                    width="stretch",
-                )
-
-            with col_export2:
-                st.download_button(
-                    label="Download Dados Puros",
-                    data=exports_payload["excel_raw"],
-                    file_name=f"evolucao_{instituicao_arquivo}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    key="evolucao_excel",
-                    width="stretch",
-                )
-
-            with col_export3:
-                png_bytes = exports_payload.get("grafico_png")
-                if png_bytes:
-                    st.download_button(
-                        label="exportar gráfico PNG",
-                        data=png_bytes,
-                        file_name=f"evolucao_grafico_{instituicao_arquivo}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png",
-                        mime="image/png",
-                        key="evolucao_grafico_png",
-                        width="stretch",
-                    )
-
-            with col_export4:
-                tabela_png = exports_payload.get("tabela_png")
-                if tabela_png:
-                    st.download_button(
-                        label="exportar tabela PNG",
-                        data=tabela_png,
-                        file_name=f"evolucao_tabela_{instituicao_arquivo}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png",
-                        mime="image/png",
-                        key="evolucao_tabela_png",
-                        width="stretch",
-                    )
-        else:
-            st.caption("Exports são gerados sob demanda e não entram no tempo principal de renderização da aba.")
 
         # exportação PPT removida
         with st.expander("Mini-glossário", expanded=False):
