@@ -3,6 +3,7 @@ import base64
 import ast
 import json
 from pathlib import Path
+from dataclasses import replace
 from unittest.mock import Mock
 from types import SimpleNamespace
 from zipfile import ZipFile
@@ -16,7 +17,7 @@ from pptx import Presentation
 from utils.peers_table_model import BY_KEY, build_query, delta, reference, get_metric, methodology_rows
 from utils.peers_table_exports import export_excel, export_powerpoint
 from utils import peers_groups
-from tabs.peers_table import table_html, calculation_rows
+from tabs.peers_table import table_html, calculation_rows, table_row_label, table_footnote
 
 
 def sample(banks=("A", "B", "C"), periods=("4/2025", "1/2026", "2/2026"), metrics=("Ativo Total", "Custo de Crédito (%)", "Lucro Líquido Acumulado"), **overrides):
@@ -64,6 +65,51 @@ def test_profit_memory_uses_displayed_result_and_table_has_nine_columns():
     assert html.count('colspan="3"') == 3
     assert 'data-metric="Custo de Crédito (%)"' in html
     assert '<script>' not in table_html({**q, "banks": ["<script>alert(1)</script>"], "cells": [{**c, "bank": "<script>alert(1)</script>"} for c in q["cells"] if c["bank"] == "A"]})
+
+
+def test_table_embeds_units_and_formats_percentages_without_mutating_query():
+    q, _, _ = sample()
+    q["cells"][0]["value"] = 2739.22e9
+    cost = next(c for c in q["cells"] if c["metric"] == "Custo de Crédito (%)")
+    cost.update(value=.13333, display="13,33%")
+    q["cells"][0]["variation"] = "↑ +13,33 %"
+    before = json.dumps(q, sort_keys=True)
+    html = table_html(q)
+    table = etree.fromstring(html)
+    assert "Unidade" not in html
+    assert all(len(row) == 10 for row in table.findall("tbody/tr") if row.get("class") != "section")
+    assert all(row[0].get("colspan") == "10" for row in table.findall("tbody/tr") if row.get("class") == "section")
+    assert "Ativo total (R$ bi)" in html
+    assert "Custo de crédito (%)" in html
+    assert ">2.739,22<" in html
+    assert ">13,3%<" in html
+    assert "↑ +13,3%" in html
+    assert "13,33%" not in html
+    assert json.dumps(q, sort_keys=True) == before
+    assert table_row_label(BY_KEY["Ativo Total"], "R$ milhões") == "Ativo total (R$ mi)"
+    titled = replace(BY_KEY["Custo de Crédito (%)"], label="Custo de crédito (%)")
+    assert table_row_label(titled, q["scale"]) == titled.label
+
+
+def test_table_marks_series_break_values_and_gives_specific_footnote():
+    q, _, _ = sample(metrics=("Carteira de Crédito*", "Core Funding*"))
+    for cell in q["cells"]:
+        cell.update(value=1e9, display="1,00")
+    html = table_html(q)
+    assert "Quebra em 2025" not in html
+    assert html.count(">1,00*<") == 6
+    assert html.count(">1,00<") == 12
+    note = table_footnote(q)
+    assert note.startswith("* Quebra de série em 2025: ")
+    assert "e1 + f1 + g1 + h1" in note
+    assert "instrumentos elegíveis a capital" in note
+    funding = {**q, "cells": [c for c in q["cells"] if c["metric"] == "Core Funding*"]}
+    assert "carteira ampliada" not in table_footnote(funding)
+    for cell in q["cells"]:
+        cell.update(value=None, display="N/D")
+    assert "N/D*" not in table_html(q)
+    assert "N/D" in table_html(q)
+    assert table_footnote(q) == ""
 
 
 def test_excel_is_numeric_percentage_missing_and_metadata_are_preserved():

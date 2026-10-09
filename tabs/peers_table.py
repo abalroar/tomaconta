@@ -6,6 +6,7 @@ from html import escape
 import hmac
 import json
 from pathlib import Path
+import re
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -14,27 +15,30 @@ import streamlit as st
 from utils import peers_groups
 from utils.peers_table_model import BY_KEY, METRICS, DEFAULT_METRICS, INDIVIDUAL_METRICS, get_metric, BASELINES, SCALES, COLORS, build_query, required_periods, period_sort, period_label, short_bank, format_value, number, methodology_rows
 from utils.peers_table_exports import export_excel, export_powerpoint, export_png
+from utils.sgs_credit_analytics import ITAU_ORANGE, ITAU_ORANGE_DARK
 
 
 TABLE_CSS = """
-.peers-grid {overflow:auto;max-height:640px; font-family:Calibri,Arial,sans-serif; color:#222; background:white;}
-table {border-collapse:separate;border-spacing:0;width:100%;font-size:13px;}
-th,td {border-right:1px solid #e2e2e2;border-bottom:1px solid #dedede;padding:7px 5px;text-align:right;white-space:nowrap;}
-thead th {position:sticky;top:0;z-index:2;background:#f4f4f4;text-align:center;font-weight:600;}
+.peers-grid {overflow:auto;max-height:640px; font-family:Calibri,Arial,sans-serif; color:white; background:__ORANGE_DARK__;}
+table {border-collapse:separate;border-spacing:0;width:100%;font-size:12pt;font-weight:700;}
+th,td {border-right:1px solid #ffffff55;border-bottom:1px solid #ffffff55;padding:7px 5px;text-align:right;white-space:nowrap;}
+tbody td {background:__ORANGE_DARK__;}
+thead th {position:sticky;top:0;z-index:2;background:__ORANGE__;text-align:center;font-size:14pt;font-weight:700;}
 thead tr:nth-child(2) th {top:var(--bank-header-height,32px);}
-thead tr:first-child th {border-top:1px solid #d1d1d1;}
-th.row-label,td.row-label {position:sticky;left:0;text-align:left;background:white;min-width:160px;max-width:205px;white-space:normal;z-index:1;}
-thead th.row-label {background:#f4f4f4;z-index:3;}
-.section td {background:#eceff1!important;font-weight:600;padding:5px 8px;border-right:0;text-align:left;}
+thead tr:first-child th {border-top:1px solid #ffffff55;}
+th.row-label,td.row-label {position:sticky;left:0;text-align:left;min-width:160px;max-width:205px;white-space:normal;z-index:1;}
+thead th.row-label {background:__ORANGE__;z-index:3;}
+.section td {font-weight:700;padding:5px 8px;border-right:0;text-align:left;}
 .metric {font:inherit;color:inherit;background:transparent;border:0;text-align:left;padding:0;cursor:pointer;}
-.metric:hover {text-decoration:underline;} .metric:focus-visible {outline:2px solid #174a7e;outline-offset:3px;}
-.selected td:first-child {background:#edf3f8;}
-.unit {font-size:11px;color:#666;min-width:45px;text-align:center;}
+.metric:hover {text-decoration:underline;} .metric:focus-visible {outline:2px solid white;outline-offset:3px;}
+.selected td:first-child {box-shadow:inset 3px 0 white;}
 .value {font-variant-numeric:tabular-nums;display:block;min-width:54px;}
-.delta {font-size:11px;display:block;color:#666;margin-top:2px;font-variant-numeric:tabular-nums;white-space:normal;}
-.up {color:#16713b;} .down {color:#b32624;} .bank-start {border-left:1px solid #b8b8b8;}
+.delta {font-size:11px;display:inline-block;color:#4f4f4f;background:white;padding:1px 3px;border-radius:2px;margin-top:3px;font-variant-numeric:tabular-nums;white-space:normal;}
+.delta:empty {display:none;}
+.delta.up,.delta.down {white-space:nowrap;}
+.up {color:#16713b;} .down {color:#b32624;} .bank-start {border-left:1px solid #ffffffaa;}
 @media(pointer:coarse) {.metric{min-height:38px;}}
-"""
+""".replace("__ORANGE_DARK__", ITAU_ORANGE_DARK).replace("__ORANGE__", ITAU_ORANGE)
 TABLE_JS = """
 export default function(component) {
  const {data,parentElement,setStateValue} = component;
@@ -53,10 +57,39 @@ def _component():
     return st.components.v2.component("peers_comparison_grid", html='<div class="peers-grid"></div>', css=TABLE_CSS, js=TABLE_JS)
 
 
+def table_row_label(metric, scale):
+    unit = {"R$ milhões": "R$ mi", "R$ bilhões": "R$ bi"}.get(scale, scale) if metric.unit == "R$" else metric.unit
+    if (metric.unit == "R$" and "R$" in metric.label) or (metric.unit == "%" and "%" in metric.label) or f"({unit})" in metric.label:
+        return metric.label
+    return f"{metric.label} ({unit})"
+
+
+def table_value(value, metric, scale):
+    if metric.unit == "%" and number(value) is not None:
+        return f"{number(value)*100:,.1f}".replace(",", "~").replace(".", ",").replace("~", ".") + "%"
+    return format_value(value, metric, scale)
+
+
+def table_variation(variation):
+    return re.sub(r"(\d[\d.]*,\d+)\s*%", lambda match: f"{float(match[1].replace('.', '').replace(',', '.')):,.1f}".replace(",", "~").replace(".", ",").replace("~", ".") + "%", variation)
+
+
+def table_footnote(query):
+    affected = {cell["metric"] for cell in query["cells"] if cell["variation"] == "Quebra em 2025" and number(cell["value"]) is not None}
+    if not affected:
+        return ""
+    reasons = []
+    if affected - {"Core Funding*"}:
+        reasons.append("a carteira ampliada passa a usar os valores contábeis brutos de crédito, arrendamento, outras operações e pagamentos (e1 + f1 + g1 + h1)")
+    if "Core Funding*" in affected:
+        reasons.append("o core funding passa a incluir instrumentos elegíveis a capital, além das captações")
+    return "* Quebra de série em 2025: mudança do layout IFData; " + "; ".join(reasons) + "."
+
+
 def table_html(query, selected=None):
     cells = {(c["metric"], c["bank"], c["period"]): c for c in query["cells"]}
     count = len(query["periods"])
-    html = ['<table aria-label="Comparação de peers"><thead><tr><th class="row-label" rowspan="2">Indicador</th><th rowspan="2">Unidade</th>']
+    html = ['<table aria-label="Comparação de peers"><thead><tr><th class="row-label" rowspan="2">Indicador</th>']
     for bank in query["banks"]:
         html.append(f'<th class="bank-start" colspan="{count}" title="{escape(bank, quote=True)}">{escape(short_bank(bank))}</th>')
     html.append('</tr><tr>')
@@ -68,18 +101,21 @@ def table_html(query, selected=None):
     for key in query["metrics"]:
         metric = get_metric(key, query["base"])
         if metric.section != section:
-            html.append(f'<tr class="section"><td colspan="{2+len(query["banks"])*count}">{escape(metric.section)}</td></tr>')
+            html.append(f'<tr class="section"><td colspan="{1+len(query["banks"])*count}">{escape(metric.section)}</td></tr>')
             section = metric.section
-        html.append(f'<tr class="{"selected" if key == selected else ""}"><td class="row-label"><button type="button" class="metric" data-metric="{escape(key, quote=True)}" aria-label="Ver cálculo de {escape(metric.label, quote=True)}" aria-pressed="{str(key == selected).lower()}">{escape(metric.label)}</button></td><td class="unit">{escape(query["scale"] if metric.unit == "R$" else metric.unit)}</td>')
+        html.append(f'<tr class="{"selected" if key == selected else ""}"><td class="row-label"><button type="button" class="metric" data-metric="{escape(key, quote=True)}" aria-label="Ver cálculo de {escape(metric.label, quote=True)}" aria-pressed="{str(key == selected).lower()}">{escape(table_row_label(metric, query["scale"]))}</button></td>')
         for bank in query["banks"]:
             for i, p in enumerate(query["periods"]):
                 cell = cells[key, bank, p]
                 tooltip = f"{bank}; {period_label(p)}; {cell['source']}; {cell['status']}"
                 if cell["reference"]:
-                    tooltip += f"; base {period_label(cell['reference'])}: {format_value(cell['reference_value'], metric, query['scale'])}"
+                    tooltip += f"; base {period_label(cell['reference'])}: {table_value(cell['reference_value'], metric, query['scale'])}"
                 if cell["reason"]:
                     tooltip += "; " + cell["reason"]
-                html.append(f'<td class="{"bank-start" if i == 0 else ""}" title="{escape(tooltip, quote=True)}"><span class="value">{escape(cell["display"])}</span><span class="delta {cell["direction"] or ""}">{escape(cell["variation"])}</span></td>')
+                broken = cell["variation"] == "Quebra em 2025"
+                display = table_value(cell["value"], metric, query["scale"]) + ("*" if broken and number(cell["value"]) is not None else "")
+                variation = "" if broken else table_variation(cell["variation"])
+                html.append(f'<td class="{"bank-start" if i == 0 else ""}" title="{escape(tooltip, quote=True)}"><span class="value">{escape(display)}</span><span class="delta {cell["direction"] or ""}">{escape(variation)}</span></td>')
         html.append('</tr>')
     html.append('</tbody></table>')
     return ''.join(html)
@@ -320,6 +356,8 @@ def render(api):
     if st.session_state.get("peers_new_selected_metric") != selected:
         st.session_state["peers_new_selected_metric"] = selected
         st.rerun()
+    if footnote := table_footnote(query):
+        st.caption("\\" + footnote)
     st.caption(f"{len(banks)} instituições; {', '.join(period_label(p) for p in periods)}; {base}. Verde: aumento. Vermelho: queda. Direção da variação.")
     st.caption("Fonte: BCB IFData / Cadoc 4060 conforme indicador. Clique no indicador para abrir seu cálculo.")
     if selected:
