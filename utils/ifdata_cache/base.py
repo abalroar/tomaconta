@@ -312,6 +312,12 @@ class BaseCache(ABC):
                 fonte="nenhum"
             )
 
+        from .institution_registry import INSTITUTION_NAMED_CACHE_NAMES, validate_institution_names
+        if self.config.nome in INSTITUTION_NAMED_CACHE_NAMES:
+            valido, msg = validate_institution_names(dados)
+            if not valido:
+                return CacheResult(sucesso=False, mensagem=msg, fonte="nenhum")
+
         try:
             self._garantir_diretorio()
 
@@ -557,8 +563,10 @@ class BaseCache(ABC):
 
         if resultado.sucesso:
             # Salvar localmente
-            self.salvar_local(resultado.dados, fonte=resultado.fonte)
-            return resultado
+            salvo = self.salvar_local(resultado.dados, fonte=resultado.fonte)
+            if salvo.sucesso:
+                return resultado
+            self._log("warning", f"Fonte remota rejeitada: {salvo.mensagem}")
 
         # Tentar cache local mesmo expirado como fallback
         # Inclui o artefato bundled: sem rede, ele é a última linha de defesa.

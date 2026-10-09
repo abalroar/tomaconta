@@ -15,6 +15,7 @@ from .critical_screens import CRITICAL_SOURCE_TYPES, materialize_critical_screen
 from .derived_metrics import materialize_derived_metrics_cache
 from .diagnostics import build_runtime_manifest, count_placeholder_names
 from .release_config import ReleaseConfig, get_release_config
+from .institution_registry import INSTITUTION_NAMED_CACHE_NAMES, validate_institution_names
 
 
 DERIVED_TARGET_SPECS = {
@@ -124,7 +125,8 @@ def validate_cache_quality(manager, cache_names: Iterable[str]) -> dict[str, dic
     for cache_name in _sorted_cache_names(cache_names):
         spec = INDIVIDUAL_CACHE_QUALITY_SPECS.get(cache_name)
         frame_validator = CACHE_FRAME_QUALITY_VALIDATORS.get(cache_name)
-        if spec is None and frame_validator is None:
+        check_names = cache_name in INSTITUTION_NAMED_CACHE_NAMES
+        if spec is None and frame_validator is None and not check_names:
             continue
 
         cache = manager.get_cache(cache_name) if manager else None
@@ -148,8 +150,20 @@ def validate_cache_quality(manager, cache_names: Iterable[str]) -> dict[str, dic
             continue
 
         df = result.dados
+        if check_names:
+            names_valid, names_message = validate_institution_names(df)
+            if not names_valid and spec is None and frame_validator is None:
+                checks[cache_name] = {
+                    "success": False, "message": names_message,
+                    "record_count": len(df), "placeholder_count": count_placeholder_names(df),
+                }
+                continue
         if frame_validator is not None:
             checks[cache_name] = frame_validator(df)
+            continue
+
+        if spec is None:
+            checks[cache_name] = {"success": True, "message": "ok", "record_count": len(df)}
             continue
 
         if df.empty:
@@ -177,6 +191,8 @@ def validate_cache_quality(manager, cache_names: Iterable[str]) -> dict[str, dic
         )
         min_periods = int(spec["min_periods"])
         failures = []
+        if check_names and not names_valid:
+            failures.append(names_message)
         if missing:
             failures.append(f"colunas ausentes: {', '.join(missing)}")
         if period_count < min_periods:

@@ -26,10 +26,6 @@ from typing import Callable, Dict, List, Optional
 
 import pandas as pd
 import requests
-from utils.ifdata_extractor import (
-    construir_mapa_codinst_multiperiodo as _construir_mapa_codinst_multiperiodo_legado,
-    resolver_nome_instituicao as _resolver_nome_instituicao_legado,
-)
 
 # Configuração de logging
 logger = logging.getLogger("ifdata_extractor")
@@ -169,52 +165,6 @@ def _preparar_valores_relatorio_16(df_val: pd.DataFrame) -> pd.DataFrame:
     return prepared
 
 
-def _periodo_api_anterior(periodo: str) -> Optional[str]:
-    """Retorna o trimestre anterior no formato YYYYMM."""
-    texto = str(periodo or "").strip()
-    if len(texto) != 6 or not texto.isdigit():
-        return None
-
-    ano = int(texto[:4])
-    mes = int(texto[4:6])
-    mapa_anterior = {3: (ano - 1, 12), 6: (ano, 3), 9: (ano, 6), 12: (ano, 9)}
-    if mes not in mapa_anterior:
-        return None
-    ano_ant, mes_ant = mapa_anterior[mes]
-    return f"{ano_ant}{mes_ant:02d}"
-
-
-def _resolver_nomes_instituicoes(df_pivot: pd.DataFrame, periodo: str) -> pd.DataFrame:
-    """Resolve placeholders [IF ...] usando o resolvedor legado por CodInst."""
-    if df_pivot.empty or "CodInst" not in df_pivot.columns:
-        return df_pivot
-
-    df_out = df_pivot.copy()
-    if "Instituição" not in df_out.columns:
-        df_out["Instituição"] = pd.NA
-
-    serie_nomes = df_out["Instituição"].astype(str)
-    possui_placeholders = serie_nomes.str.match(r"^\[IF\s+[A-Za-z0-9]+\]$", na=False).any()
-    possui_faltantes = df_out["Instituição"].isna().any()
-
-    if possui_placeholders or possui_faltantes:
-        periodos_ref = [p for p in [_periodo_api_anterior(periodo), periodo] if p]
-        try:
-            _construir_mapa_codinst_multiperiodo_legado(periodos_ref)
-        except Exception as exc:
-            logger.debug("Falha ao reforçar mapa legado de nomes para %s: %s", periodo, exc)
-
-    df_out["Instituição"] = df_out.apply(
-        lambda row: _resolver_nome_instituicao_legado(
-            row.get("CodInst"),
-            row.get("Instituição"),
-            periodo,
-        ),
-        axis=1,
-    )
-    return df_out
-
-
 # =============================================================================
 # FUNÇÕES HTTP
 # =============================================================================
@@ -270,51 +220,9 @@ def _fetch_json(url: str, timeout: int = DEFAULT_TIMEOUT) -> Optional[dict]:
 # FUNÇÕES DE EXTRAÇÃO DA API
 # =============================================================================
 def extrair_cadastro(periodo: str) -> pd.DataFrame:
-    """Extrai cadastro de instituições para um período.
-
-    Args:
-        periodo: Período no formato YYYYMM (ex: "202312")
-
-    Returns:
-        DataFrame com CodInst e NomeInstituicao
-    """
-    import os
-    if os.getenv("TOMACONTA_IFDATA_SOURCE") == "web":
-        from .ifdata_web import get_web_source
-        return get_web_source(periodo).cadastro_frame()
-    page_size = 5000
-    skip = 0
-    all_rows = []
-
-    while True:
-        url = (
-            f"{BASE_URL}/IfDataCadastro(AnoMes={int(periodo)})"
-            f"?$format=json&$top={page_size}&$skip={skip}"
-        )
-
-        data = _fetch_json(url, timeout=60)
-        if not data or "value" not in data:
-            break
-
-        rows = data.get("value") or []
-        if not rows:
-            break
-
-        all_rows.extend(rows)
-
-        # Se retornou menos que o page_size, chegou ao fim
-        if len(rows) < page_size:
-            break
-
-        skip += page_size
-
-    if not all_rows:
-        logger.warning(f"Cadastro vazio para {periodo}")
-        return pd.DataFrame()
-
-    df = pd.DataFrame(all_rows)
-    logger.debug(f"Cadastro {periodo}: {len(df)} instituições")
-    return df
+    """Cadastro oficial compartilhado, completo e recuperável por competência."""
+    from .institution_registry import extract_registry
+    return extract_registry(periodo, _fetch_json)
 
 
 def extrair_valores(
@@ -454,29 +362,8 @@ def extrair_resumo(
     df_pivot.columns.name = None
 
     # 5. Adicionar nomes de instituições
-    if not df_cad.empty and "CodInst" in df_cad.columns:
-        # Encontrar coluna de nome
-        col_nome = None
-        for candidato in ["NomeInstituicao", "NomeInstituição"]:
-            if candidato in df_cad.columns:
-                col_nome = candidato
-                break
-
-        if col_nome:
-            df_nomes = df_cad[["CodInst", col_nome]].drop_duplicates()
-            df_pivot = df_pivot.merge(df_nomes, on="CodInst", how="left")
-            df_pivot = df_pivot.rename(columns={col_nome: "Instituição"})
-
-    # 6. Preencher nomes faltantes
-    if "Instituição" not in df_pivot.columns:
-        df_pivot["Instituição"] = df_pivot["CodInst"].apply(lambda x: f"[IF {x}]")
-    else:
-        df_pivot["Instituição"] = df_pivot.apply(
-            lambda row: row["Instituição"] if pd.notna(row["Instituição"])
-            else f"[IF {row['CodInst']}]",
-            axis=1
-        )
-    df_pivot = _resolver_nomes_instituicoes(df_pivot, periodo)
+    from .institution_registry import attach_institution_names
+    df_pivot = attach_institution_names(df_pivot, df_cad, periodo)
 
     # 7. Adicionar período no formato de exibição
     df_pivot["Período"] = periodo_api_para_exibicao(periodo)
@@ -502,6 +389,7 @@ def extrair_resumo(
 
     logger.info(f"Resumo {periodo}: {len(df_pivot)} instituições, {len(colunas_numericas)} variáveis")
     return df_pivot
+
 
 
 def _calcular_metricas_derivadas(df: pd.DataFrame, periodo: str) -> pd.DataFrame:
@@ -629,20 +517,8 @@ def extrair_capital(
     df_pivot = df_pivot.rename(columns=rename_map)
 
     # Adicionar nomes
-    if not df_cad.empty:
-        col_nome = None
-        for candidato in ["NomeInstituicao", "NomeInstituição"]:
-            if candidato in df_cad.columns:
-                col_nome = candidato
-                break
-        if col_nome:
-            df_nomes = df_cad[["CodInst", col_nome]].drop_duplicates()
-            df_pivot = df_pivot.merge(df_nomes, on="CodInst", how="left")
-            df_pivot = df_pivot.rename(columns={col_nome: "Instituição"})
-
-    if "Instituição" not in df_pivot.columns:
-        df_pivot["Instituição"] = df_pivot["CodInst"].apply(lambda x: f"[IF {x}]")
-    df_pivot = _resolver_nomes_instituicoes(df_pivot, periodo)
+    from .institution_registry import attach_institution_names
+    df_pivot = attach_institution_names(df_pivot, df_cad, periodo)
 
     # Adicionar período
     df_pivot["Período"] = periodo_api_para_exibicao(periodo)
@@ -671,6 +547,7 @@ def extrair_capital(
 
     logger.info(f"Capital {periodo}: {len(df_pivot)} instituições")
     return df_pivot
+
 
 
 # =============================================================================
@@ -729,20 +606,8 @@ def extrair_relatorio_completo(
     df_pivot.columns.name = None
 
     # Adicionar nomes
-    if not df_cad.empty:
-        col_nome = None
-        for candidato in ["NomeInstituicao", "NomeInstituição"]:
-            if candidato in df_cad.columns:
-                col_nome = candidato
-                break
-        if col_nome:
-            df_nomes = df_cad[["CodInst", col_nome]].drop_duplicates()
-            df_pivot = df_pivot.merge(df_nomes, on="CodInst", how="left")
-            df_pivot = df_pivot.rename(columns={col_nome: "Instituição"})
-
-    if "Instituição" not in df_pivot.columns:
-        df_pivot["Instituição"] = df_pivot["CodInst"].apply(lambda x: f"[IF {x}]")
-    df_pivot = _resolver_nomes_instituicoes(df_pivot, periodo)
+    from .institution_registry import attach_institution_names
+    df_pivot = attach_institution_names(df_pivot, df_cad, periodo)
 
     # Adicionar período
     df_pivot["Período"] = periodo_api_para_exibicao(periodo)
@@ -761,6 +626,7 @@ def extrair_relatorio_completo(
     n_vars = len([c for c in df_pivot.columns if c not in cols_inicio])
     logger.info(f"Relatório {relatorio} {periodo}: {len(df_pivot)} instituições, {n_vars} variáveis")
     return df_pivot
+
 
 
 # =============================================================================

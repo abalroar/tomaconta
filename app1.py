@@ -4395,6 +4395,11 @@ def _baixar_cache_release_base_cache(
         import io
 
         df = pd.read_parquet(io.BytesIO(response.content))
+        from utils.ifdata_cache.institution_registry import INSTITUTION_NAMED_CACHE_NAMES, validate_institution_names
+        if cache_name in INSTITUTION_NAMED_CACHE_NAMES:
+            valid, message = validate_institution_names(df)
+            if not valid:
+                return CacheResult(sucesso=False, mensagem=message, fonte="nenhum")
         return CacheResult(
             sucesso=True,
             mensagem=f"Baixado de fallback canônico: {len(df)} registros",
@@ -4417,8 +4422,9 @@ def _salvar_cache_fallback_local(manager, cache_name: str, result: CacheResult) 
     if cache is None:
         return result
     saved = cache.salvar_local(result.dados, fonte=result.fonte)
-    if saved.sucesso:
-        result.metadata = saved.metadata
+    if not saved.sucesso:
+        return saved
+    result.metadata = saved.metadata
     return result
 
 
@@ -13242,8 +13248,8 @@ def _peers_individual_cache_matches_release(
         return False
     if expected_record_count and len(df) != int(expected_record_count):
         return False
-    nomes = df["Instituição"].astype(str).str.strip()
-    return not bool(nomes.str.match(r"^\[IF\s+[^\]]+\]$", case=False, na=False).any())
+    from utils.ifdata_cache.institution_registry import validate_institution_names
+    return validate_institution_names(df)[0]
 
 
 def _download_peers_individual_curated_cache(

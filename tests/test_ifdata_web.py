@@ -83,6 +83,24 @@ def test_web_backend_requires_supported_period():
         IFDataWeb("202607", None)
 
 
+def test_web_registry_includes_financial_groups_without_merging_perimeters(tmp_path):
+    root = source_files(tmp_path)
+    filename = "cadastro202606_1005.json"
+    (root / filename).write_text(json.dumps([
+        {"c0": "10045", "c1": "202606", "c2": "GRUPO FINANCEIRO", "c33": "00010045", "c34": "5"},
+        {"c0": "7", "c1": "202606", "c2": "BANCO", "c33": "00000007", "c34": "1"},
+    ]))
+    path = root / "relatorios2025a2030.json"
+    catalog = json.loads(path.read_text())
+    catalog[0]["files"].append({"f": f"202606/{filename}"})
+    path.write_text(json.dumps(catalog))
+    source = IFDataWeb("202606", tmp_path)
+    names = source.cadastro_frame().set_index("CodInst")["NomeInstituicao"]
+    assert names.to_dict() == {"C0080075": "GRUPO", "00000007": "BANCO"}
+    financial = source.cadastro_frame(tipo=2).set_index("CodInst")["NomeInstituicao"]
+    assert financial.to_dict() == {"C0010045": "GRUPO FINANCEIRO", "00000007": "BANCO"}
+
+
 def test_extractor_web_backend_is_explicit(tmp_path, monkeypatch):
     source_files(tmp_path)
     from utils.ifdata_cache import extractor

@@ -127,9 +127,19 @@
       },
       "registros_periodo": 1342,
       "unidade": "R$; razões em decimal"
+    },
+    "institution_identity_repair": {
+      "periodo": "202512",
+      "names_repaired": 1406,
+      "registry_sha256": "1a0d1ec17cbe1b677a2dc28052ab58ceb138d27fde700665dfea129f63553b6a",
+      "source": "https://olinda.bcb.gov.br/olinda/servico/IFDATA/versao/v1/odata/IfDataCadastro(AnoMes=202512); https://www3.bcb.gov.br/ifdata/",
+      "before_sha256": "3bf105e5aba390385045c7ad3790b30657badee965b59d88631326c56cabe3c9",
+      "after_sha256": "e4d281074c43348d9a485235b97f422412d4db94ec0564c40f8e3d97ddbb9119",
+      "numeric_values_unchanged": true,
+      "repaired_at_utc": "20261009T194237Z"
     }
   },
-  "publication_id": "tomaconta-jun26-20260911-v1",
+  "publication_id": "tomaconta-jun26-20260911-v1.identity-202512-v1",
   "sha256": "3bf105e5aba390385045c7ad3790b30657badee965b59d88631326c56cabe3c9",
   "release_tag": "v1.1-cache"
 }

@@ -18,7 +18,7 @@ import pandas as pd
 import requests
 
 BASE_URL = "https://www3.bcb.gov.br/ifdata/rest"
-SELECTORS = {1: 1009, 3: 1006}
+SELECTORS = {1: 1009, 2: 1005, 3: 1006}
 REPORTS = {
     1: "Resumo", 2: "Ativo", 3: "Passivo", 4: "Demonstração de Resultado",
     5: "Informações de Capital",
@@ -87,10 +87,10 @@ class IFDataWeb:
             if not rows or any(str(row["c1"]) != self.periodo for row in rows):
                 raise ValueError("Cadastro vazio ou com competência divergente")
             for row in rows:
-                # Arquivos anteriores a jun/26 codificam o conglomerado sem C.
-                # c34=4 identifica o perímetro prudencial; c0 preserva a chave
+                # Arquivos históricos codificam o conglomerado sem C.
+                # c34=4/5 identifica o perímetro prudencial/financeiro; c0 preserva a chave
                 # interna de leitura dos valores e nunca é substituído.
-                if row.get("c34") == "4" and re.fullmatch(r"0\d{7}", row["c33"]):
+                if row.get("c34") in {"4", "5"} and re.fullmatch(r"0\d{7}", row["c33"]):
                     row["c33"] = "C" + row["c33"][1:]
             codes = [row["c33"] for row in rows]
             if len(set(codes)) != len(codes) or any(not re.fullmatch(r"(?:\d{8}|C\d{7})", code) for code in codes):
@@ -98,9 +98,15 @@ class IFDataWeb:
             self._cadastros[selector] = rows
         return self._cadastros[selector]
 
-    def cadastro_frame(self):
+    def cadastro_frame(self, tipo=None):
+        # O cadastro geral mantém o perímetro prudencial e o individual.
+        # O financeiro é consultado separadamente: pode compartilhar CodInst
+        # com o prudencial e apresentar outro nome oficial.
+        selectors = (1, 3) if tipo is None else (tipo,)
         rows = [{"CodInst": row["c33"], "NomeInstituicao": row["c2"]}
-                for tipo in SELECTORS for row in self.cadastro(tipo)]
+                for kind in selectors
+                if f"cadastro{self.periodo}_{SELECTORS[kind]}.json" in self.files
+                for row in self.cadastro(kind)]
         data = pd.DataFrame(rows).drop_duplicates()
         if data["CodInst"].duplicated().any():
             raise ValueError("Nomes conflitantes entre cadastros IF.data para o mesmo CodInst")

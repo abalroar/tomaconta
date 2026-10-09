@@ -1246,7 +1246,9 @@ def test_load_critical_screens_slice_supplements_missing_funding_from_passivo(tm
     assert principal_cache is not None
     assert passivo_cache is not None
     assert principal_cache.salvar_local(principal_df, fonte="test").sucesso
-    assert passivo_cache.salvar_local(passivo_df, fonte="test").sucesso
+    # Simula arquivo legado corrompido; gravações novas rejeitam placeholders.
+    passivo_cache.cache_dir.mkdir(parents=True, exist_ok=True)
+    passivo_df.to_parquet(passivo_cache.arquivo_dados_runtime, index=False)
     assert critical_cache.salvar_local(
         stale_critical_df,
         fonte="materialized",
@@ -1331,7 +1333,9 @@ def test_load_runtime_passivo_support_prefilters_selected_institutions_before_ca
     assert principal_cache is not None
     assert passivo_cache is not None
     assert principal_cache.salvar_local(principal_df, fonte="test").sucesso
-    assert passivo_cache.salvar_local(passivo_df, fonte="test").sucesso
+    # Simula arquivo legado corrompido; gravações novas rejeitam placeholders.
+    passivo_cache.cache_dir.mkdir(parents=True, exist_ok=True)
+    passivo_df.to_parquet(passivo_cache.arquivo_dados_runtime, index=False)
 
     import utils.ifdata_cache.critical_screens as critical_screens_module
 

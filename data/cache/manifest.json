@@ -90,10 +90,11 @@
       "record_count": 63403,
       "path": "data/cache/passivo/dados.parquet",
       "metadata_path": "data/cache/passivo/metadata.json",
-      "sha256": "3bf105e5aba390385045c7ad3790b30657badee965b59d88631326c56cabe3c9",
+      "sha256": "e4d281074c43348d9a485235b97f422412d4db94ec0564c40f8e3d97ddbb9119",
       "release_repo": "abalroar/tomaconta",
       "release_tag": "v1.1-cache",
-      "release_base_url": "https://github.com/abalroar/tomaconta/releases/download/v1.1-cache"
+      "release_base_url": "https://github.com/abalroar/tomaconta/releases/download/v1.1-cache",
+      "placeholder_count": 0
     },
     "dre": {
       "cache": "dre",
@@ -518,6 +519,13 @@
       "count": 0,
       "message": "ok",
       "examples": []
+    },
+    "passivo": {
+      "count": 0,
+      "verified_at_utc": "20261009T194237Z",
+      "success": true,
+      "message": "ok",
+      "examples": []
     }
   },
   "expected_periods_by_cache": {
@@ -852,6 +860,14 @@
           "bytes": 6977141
         }
       }
+    },
+    "institution_identity_repair": {
+      "periodo": "202512",
+      "names_repaired": 1406,
+      "registry_sha256": "1a0d1ec17cbe1b677a2dc28052ab58ceb138d27fde700665dfea129f63553b6a",
+      "before_sha256": "3bf105e5aba390385045c7ad3790b30657badee965b59d88631326c56cabe3c9",
+      "after_sha256": "e4d281074c43348d9a485235b97f422412d4db94ec0564c40f8e3d97ddbb9119",
+      "numeric_values_unchanged": true
     }
   },
   "published_assets": {
@@ -888,12 +904,12 @@
       "bytes": 4729
     },
     "passivo_dados.parquet": {
-      "sha256": "3bf105e5aba390385045c7ad3790b30657badee965b59d88631326c56cabe3c9",
-      "bytes": 5172177
+      "sha256": "e4d281074c43348d9a485235b97f422412d4db94ec0564c40f8e3d97ddbb9119",
+      "bytes": 5160555
     },
     "passivo_metadata.json": {
-      "sha256": "99fc289dddb39625e11b8003166a5fcb8c5862bb948db79a2f6757566bdd5d93",
-      "bytes": 4333
+      "sha256": "494bb71877069d05ea8f02a9c424c0e4c8c93422da4729753f2dc2b344300938",
+      "bytes": 4957
     },
     "dre_dados.parquet": {
       "sha256": "56ee4eab53f1d31a92cbee4325bbcd80f1d104c66dd1d8097eb49b22498ce560",
