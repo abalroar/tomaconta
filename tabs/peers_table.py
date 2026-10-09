@@ -23,7 +23,7 @@ th,td {border-right:1px solid #e2e2e2;border-bottom:1px solid #dedede;padding:7p
 thead th {position:sticky;top:0;z-index:2;background:#f4f4f4;text-align:center;font-weight:600;}
 thead tr:nth-child(2) th {top:var(--bank-header-height,32px);}
 thead tr:first-child th {border-top:1px solid #d1d1d1;}
-th.row-label,td.row-label {position:sticky;left:0;text-align:left;background:white;min-width:180px;max-width:205px;white-space:normal;z-index:1;}
+th.row-label,td.row-label {position:sticky;left:0;text-align:left;background:white;min-width:160px;max-width:205px;white-space:normal;z-index:1;}
 thead th.row-label {background:#f4f4f4;z-index:3;}
 .section td {background:#eceff1!important;font-weight:600;padding:5px 8px;border-right:0;text-align:left;}
 .metric {font:inherit;color:inherit;background:transparent;border:0;text-align:left;padding:0;cursor:pointer;}
