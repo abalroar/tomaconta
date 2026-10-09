@@ -111,7 +111,7 @@ METRIC_REGISTRY: Dict[str, MetricDefinition] = {
         ],
         source_label="BCB IFData Rel.5, visão prudencial",
         observations="A memória de cálculo deve indicar se o valor foi reconstruído ou publicado.",
-        tabs=["Snapshot", "Peers (Tabela)", "Evolução", "Rankings", "Scatter Plot", "Glossário"],
+        tabs=["Snapshot", "Peers (Tabela Nova)", "Evolução", "Rankings", "Scatter Plot", "Glossário"],
         interpretation="Capital regulatório total disponível para absorver riscos ponderados.",
         limitation=(
             "Diferença material entre o índice reconstruído e o publicado bloqueia a leitura até "
@@ -141,7 +141,7 @@ METRIC_REGISTRY: Dict[str, MetricDefinition] = {
         ),
         ifdata_fields=["Lucro Líquido Acumulado YTD", "Patrimônio Líquido"],
         source_label="BCB IFData Rel.1, visão prudencial",
-        tabs=["Snapshot", "Peers (Tabela)", "Evolução", "Rankings", "Scatter Plot", "Glossário"],
+        tabs=["Snapshot", "Peers (Tabela Nova)", "Evolução", "Rankings", "Scatter Plot", "Glossário"],
         interpretation="Rentabilidade anualizada do patrimônio com base no resultado acumulado.",
         limitation="Sensível à sazonalidade, ao PL médio aproximado e a eventos patrimoniais pontuais.",
         periodicity="Trimestral/YTD anualizado",
@@ -223,7 +223,7 @@ METRIC_REGISTRY: Dict[str, MetricDefinition] = {
             "Sem de-para COSIF de f3 no app; reversões e recuperações seguem o agregado IFData e "
             "não são desagregadas localmente."
         ),
-        tabs=["Rankings", "Peers (Tabela)", "Scatter Plot", "Glossário"],
+        tabs=["Rankings", "Peers (Tabela Nova)", "Scatter Plot", "Glossário"],
         interpretation="Fluxo anualizado de perda esperada de crédito em relação ao estoque de crédito.",
         limitation=(
             "Série inicia em Mar/25. Carteira zero/ausente, f3 ausente ou YTD não reconstruível "
@@ -278,7 +278,7 @@ METRIC_REGISTRY: Dict[str, MetricDefinition] = {
             "O denominador não inclui rendas de arrendamento (d), outras concessões de crédito (e) "
             "nem recuperação de créditos em campo separado."
         ),
-        tabs=["Rankings", "Peers (Tabela)", "Scatter Plot", "Glossário"],
+        tabs=["Rankings", "Peers (Tabela Nova)", "Scatter Plot", "Glossário"],
         interpretation="Parcela da receita contábil de operações de crédito consumida por f3.",
         limitation=(
             "Receita zero, negativa ou ausente, f3 ausente ou YTD sem junho resultam em N/D. "
@@ -309,7 +309,7 @@ METRIC_REGISTRY: Dict[str, MetricDefinition] = {
         ifdata_fields=["Rel.16: Ativos problemáticos", "Rel.16: Total Geral"],
         source_label="BCB IFData Rel.16, Res. 4.966, visão prudencial",
         observations="Numerador e denominador usam o mesmo relatório e o mesmo perímetro.",
-        tabs=["Rankings", "Peers (Tabela)", "Scatter Plot", "Glossário"],
+        tabs=["Rankings", "Peers (Tabela Nova)", "Scatter Plot", "Glossário"],
         interpretation="Peso da carteira classificada como problemática no Rel. 16.",
         limitation=(
             "Não equivale ao Estágio 3 do Cadoc 4060. Instituição sem Rel. 16 ou denominador válido "
@@ -358,7 +358,7 @@ METRIC_REGISTRY: Dict[str, MetricDefinition] = {
         ],
         source_label="BCB IFData Rel.2 (Ativo), visão prudencial",
         observations="TVM, fianças, avais e garantias prestadas não integram a fórmula.",
-        tabs=["Snapshot", "Peers (Tabela)", "Evolução", "Rankings", "Scatter Plot", "Glossário"],
+        tabs=["Snapshot", "Peers (Tabela Nova)", "Evolução", "Rankings", "Scatter Plot", "Glossário"],
         interpretation="Estoque contábil de operações de crédito e categorias correlatas cobertas pela regra local.",
         limitation="A série atravessa uma quebra em 2025; o trecho legado e o fallback não são integralmente brutos.",
     ),
@@ -405,7 +405,7 @@ METRIC_REGISTRY: Dict[str, MetricDefinition] = {
         ifdata_fields=["Rel.16: Inadimplência"],
         source_label="BCB IFData Rel.16, Res. 4.966, visão prudencial",
         observations="Conceito distinto de estágio 3, NPL amplo e default regulatório.",
-        tabs=["Peers (Tabela)", "Carteira 4.966", "Glossário"],
+        tabs=["Peers (Tabela Nova)", "Carteira 4.966", "Glossário"],
         interpretation="Estoque de crédito atingido pelo critério de atraso superior a 90 dias por arrasto.",
         limitation="Série disponível conforme publicação do Rel. 16 por instituição e período.",
     ),
@@ -428,7 +428,7 @@ METRIC_REGISTRY: Dict[str, MetricDefinition] = {
         ifdata_fields=["Rel.16: Inadimplência", "Rel.16: Total Geral"],
         source_label="BCB IFData Rel.16, Res. 4.966, visão prudencial",
         observations="Numerador e denominador usam o mesmo relatório e perímetro.",
-        tabs=["Peers (Tabela)", "Glossário"],
+        tabs=["Peers (Tabela Nova)", "Glossário"],
         interpretation="Percentual da carteira total atingido pelo critério de atraso >90 dias por arrasto.",
         limitation="Instituição sem Rel. 16 ou denominador válido permanece N/D.",
     ),

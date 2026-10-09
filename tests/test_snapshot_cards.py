@@ -163,18 +163,6 @@ def test_get_peers_filters_context_uses_lightweight_context_loader(monkeypatch):
     assert resultado == esperado
 
 
-def test_timer_begin_measurement_clears_stale_elapsed_for_same_signature():
-    app1.st.session_state["peers_tabela_timer_state"] = {
-        "signature": ("peers_tabela", ("ITAU - PRUDENCIAL",), ("4/2025",)),
-        "elapsed": 266.15,
-    }
-
-    app1._timer_begin_measurement(
-        "peers_tabela_timer_state",
-        ("peers_tabela", ("ITAU - PRUDENCIAL",), ("4/2025",)),
-    )
-
-    assert app1.st.session_state["peers_tabela_timer_state"]["elapsed"] is None
 
 
 def test_garantir_cache_telas_criticas_fails_fast_when_runtime_would_materialize(monkeypatch):
@@ -203,7 +191,7 @@ def test_garantir_cache_telas_criticas_fails_fast_when_runtime_would_materialize
 
     monkeypatch.setattr(app1, "materialize_critical_screens_cache", _fail_if_materialize)
 
-    ok = app1._garantir_cache_telas_criticas("Peers (Tabela)")
+    ok = app1._garantir_cache_telas_criticas("Peers (Tabela Nova)")
 
     assert ok is False
     assert any("indisponível para runtime" in texto.lower() for tipo, texto in mensagens if tipo == "error")

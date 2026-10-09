@@ -66,12 +66,6 @@ def _timer_reset_if_selection_changed(timer_key: str, selection_signature) -> No
         st.session_state[timer_key] = {"signature": selection_signature, "elapsed": None}
 
 
-def _timer_begin_measurement(timer_key: str, selection_signature) -> None:
-    """Marca início de nova medição para evitar exibir valor stale durante reruns."""
-    st.session_state[timer_key] = {
-        "signature": selection_signature,
-        "elapsed": None,
-    }
 
 
 def _timer_store_elapsed(timer_key: str, selection_signature, elapsed_seconds: float) -> None:
@@ -135,9 +129,6 @@ from tabs.carteira_4966 import (
 from tabs import rankings_data
 from tabs.peers_config import (
     PEERS_ALLOWANCE_RATIO_METRICS,
-    PEERS_BASE_CONSOLIDADA_LABEL,
-    PEERS_BASE_DRE_OPTIONS,
-    PEERS_BASE_INDIVIDUAL_LABEL,
     PEERS_GLOSSARIO_RESUMIDO,
     PEERS_PERCENT_DECIMALS,
     PEERS_RATIO_COMPONENTS,
@@ -1320,7 +1311,6 @@ st.markdown("""
 # Diretório base relativo ao app.py (funciona independente do nome do repo)
 APP_DIR = Path(__file__).parent.resolve()
 DATA_DIR = APP_DIR / "data"
-PEER_GROUPS_PATH = DATA_DIR / "peer_groups.json"
 
 
 def _resolver_aliases_path() -> Path:
@@ -1409,10 +1399,6 @@ VARS_MOEDAS = [
 VARS_CONTAGEM = ['Número de Agências', 'Número de Postos de Atendimento']
 
 
-def _normalizar_base_dre_peers(base: Optional[str]) -> str:
-    if str(base or "").strip() == PEERS_BASE_INDIVIDUAL_LABEL:
-        return PEERS_BASE_INDIVIDUAL_LABEL
-    return PEERS_BASE_CONSOLIDADA_LABEL
 
 
 # Variáveis disponíveis para ponderação (variáveis de tamanho/volume em valores absolutos)
@@ -5116,77 +5102,12 @@ def _encontrar_bancos_default(bancos_disponiveis: list, slugs=None) -> list:
     return resultado
 
 
-def _carregar_peer_groups_salvos(path: Path = PEER_GROUPS_PATH) -> dict[str, list[str]]:
-    if not path.exists():
-        return {}
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-    raw_groups = payload.get("groups") if isinstance(payload, dict) else payload
-    if not isinstance(raw_groups, dict):
-        return {}
-    groups: dict[str, list[str]] = {}
-    for nome, membros in raw_groups.items():
-        nome_str = str(nome or "").strip()
-        if not nome_str or not isinstance(membros, list):
-            continue
-        seen = set()
-        validos = []
-        for membro in membros:
-            membro_str = str(membro or "").strip()
-            if membro_str and membro_str not in seen:
-                validos.append(membro_str)
-                seen.add(membro_str)
-        if validos:
-            groups[nome_str] = validos
-    return groups
 
 
-def _salvar_peer_groups_salvos(groups: Mapping[str, Sequence[str]], path: Path = PEER_GROUPS_PATH) -> bool:
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        payload = {
-            "schema_version": 1,
-            "groups": {
-                str(nome): [str(membro) for membro in membros if str(membro).strip()]
-                for nome, membros in sorted((groups or {}).items(), key=lambda item: str(item[0]).lower())
-                if str(nome).strip()
-            },
-        }
-        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-        return True
-    except Exception:
-        return False
 
 
-def _filtrar_peer_group(membros: Sequence[str], bancos_disponiveis: Sequence[str]) -> list[str]:
-    disponiveis = [str(b) for b in bancos_disponiveis or [] if str(b).strip()]
-    if not membros or not disponiveis:
-        return []
-    por_nome = {b: b for b in disponiveis}
-    por_norm = {normalizar_nome_instituicao(b): b for b in disponiveis}
-    selecionados = []
-    seen = set()
-    for membro in membros:
-        membro_str = str(membro or "").strip()
-        candidato = por_nome.get(membro_str) or por_norm.get(normalizar_nome_instituicao(membro_str))
-        if candidato and candidato not in seen:
-            selecionados.append(candidato)
-            seen.add(candidato)
-    return selecionados
 
 
-def _peer_groups_disponiveis(bancos_disponiveis: Sequence[str]) -> dict[str, list[str]]:
-    grupos: dict[str, list[str]] = {}
-    default_itau = _encontrar_bancos_default(list(bancos_disponiveis or []), [("itau", "itaú")])
-    if default_itau:
-        grupos["Itaú"] = default_itau
-    for nome, membros in _carregar_peer_groups_salvos().items():
-        filtrados = _filtrar_peer_group(membros, bancos_disponiveis)
-        if filtrados:
-            grupos[nome] = filtrados
-    return grupos
 
 
 
@@ -8111,14 +8032,6 @@ def _scatter_metric_criteria(label_exibicao: str) -> str:
     return criterios.get(label_exibicao, "Definição específica não cadastrada; usa série da base principal conforme nome da variável.")
 
 
-def _metric_definition_html(label: str, *, long: bool = False) -> str:
-    """Renderiza com escape o texto canônico para blocos HTML legados."""
-    text = _ifdata_metric_registry.get_metric_ui_text(
-        label,
-        long=long,
-        include_source=True,
-    )
-    return _html_mod.escape(text).replace("\n", "<br>")
 
 
 
@@ -10345,181 +10258,8 @@ def _montar_tabela_peers(
     return valores, colunas_usadas, faltas, delta_flags, delta_context, tooltips
 
 
-def _ordenar_periodos_peers_saida(periodos: Sequence[str]) -> list[str]:
-    unicos = list(dict.fromkeys(str(periodo) for periodo in (periodos or []) if periodo))
-    return ordenar_periodos(unicos, reverso=False)
 
 
-def _render_peers_table_html(
-    bancos: list,
-    periodos: list,
-    valores: dict,
-    colunas_usadas: dict,
-    delta_flags: dict,
-    delta_context: Optional[dict] = None,
-    tooltips: Optional[dict] = None,
-    status_markers: Optional[dict] = None,
-):
-    periodos = _ordenar_periodos_peers_saida(periodos)
-    colunas_total = 1 + len(bancos) * len(periodos)
-    html = """
-    <style>
-    .peers-table-wrap {
-        width: 100%;
-        overflow-x: auto;
-        margin-top: 10px;
-    }
-    .peers-table {
-        width: max-content;
-        max-width: 100%;
-        border-collapse: collapse;
-        font-size: 14px;
-        margin: 0 auto;
-        table-layout: auto;
-    }
-    .peers-table th, .peers-table td {
-        border: 1px solid #ddd;
-        padding: 6px 10px;
-        text-align: right;
-        vertical-align: top;
-        white-space: nowrap;
-    }
-    .peers-table th {
-        background-color: #f5f5f5;
-        font-weight: 600;
-        text-align: center;
-        white-space: normal;
-    }
-    .peers-table td:first-child {
-        text-align: left;
-        font-weight: 500;
-        white-space: nowrap;
-        width: 1%;
-        padding-right: 8px;
-    }
-    .peers-table thead tr:first-child th {
-        background-color: #111111;
-        color: white;
-    }
-    .peers-table thead tr:nth-child(2) th {
-        background-color: #6E6E6E;
-        color: white;
-    }
-    .peer-section {
-        background-color: #ff5a00;
-        color: white;
-        font-weight: 600;
-        text-align: left !important;
-    }
-    .peer-item td:first-child {
-        padding-left: 18px;
-        font-weight: 400;
-    }
-    .peer-zebra {
-        background-color: #f8f9fa;
-    }
-    .delta-pos { color: #28a745; margin-left: 4px; }
-    .delta-neg { color: #dc3545; margin-left: 4px; }
-    .peers-table td.has-tip {
-        cursor: help;
-    }
-    .peers-table .status-mark {
-        margin-left: 3px;
-        font-size: 11px;
-        font-weight: 700;
-        vertical-align: super;
-    }
-    .peers-table .status-mark--fallback {
-        color: #6f4e37;
-    }
-    .peers-table .status-mark--unavailable {
-        color: #7a1f1f;
-    }
-    .peers-table .metric-with-info {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-    }
-    .peers-table .metric-info {
-        display: inline-flex;
-        width: 16px;
-        height: 16px;
-        border-radius: 50%;
-        justify-content: center;
-        align-items: center;
-        background: #eceff1;
-        color: #333;
-        font-size: 11px;
-        font-weight: 700;
-        cursor: help;
-    }
-    </style>
-    <div class="peers-table-wrap"><table class="peers-table">
-    <thead>
-    <tr>
-        <th rowspan="2">R$ (auto) e %</th>
-    """
-
-    for banco in bancos:
-        html += f'<th colspan="{len(periodos)}">{banco}</th>'
-    html += "</tr><tr>"
-
-    for _ in bancos:
-        for periodo in periodos:
-            html += f"<th>{periodo_para_exibicao(periodo)}</th>"
-    html += "</tr></thead><tbody>"
-
-    zebra_idx = 0
-    for section in PEERS_TABELA_LAYOUT:
-        html += f'<tr><td class="peer-section" colspan="{colunas_total}">{section["section"]}</td></tr>'
-        for row in section["rows"]:
-            zebra_class = "peer-zebra" if zebra_idx % 2 == 0 else ""
-            zebra_idx += 1
-            label = row["label"]
-            label_html = _html_mod.escape(label)
-            gloss = PEERS_GLOSSARIO_RESUMIDO.get(label)
-            if gloss:
-                gloss_attr = _html_mod.escape(gloss, quote=True).replace("\n", "&#10;")
-                label_html = (
-                    f'<span class="metric-with-info">{label_html}'
-                    f'<span class="metric-info" title="{gloss_attr}" aria-label="Informação da métrica" role="img">i</span>'
-                    f'</span>'
-                )
-            html += f'<tr class="peer-item {zebra_class}"><td>{label_html}</td>'
-
-            for banco in bancos:
-                for periodo in periodos:
-                    chave = (row["label"], banco, periodo)
-                    coluna = colunas_usadas.get(row["label"])
-                    valor = valores.get(chave)
-                    valor_fmt = _formatar_valor_peers(valor, row["format_key"], coluna_origem=coluna)
-
-                    delta_html = ""
-                    delta_flag = delta_flags.get(chave)
-                    delta_tip = (delta_context or {}).get(chave, "")
-                    if delta_flag == "up":
-                        delta_html = ' <span class="delta-pos" aria-label="Variação positiva">▲</span>'
-                    elif delta_flag == "down":
-                        delta_html = ' <span class="delta-neg" aria-label="Variação negativa">▼</span>'
-                    tip_base = (tooltips or {}).get(chave, "") if tooltips else ""
-                    tip = tip_base
-                    if delta_tip:
-                        tip = f"{tip_base}\n\n{delta_tip}".strip() if tip_base else delta_tip
-                    status_marker = (status_markers or {}).get(chave, "")
-                    marker_html = ""
-                    if status_marker:
-                        marker_class = "status-mark--fallback" if status_marker == "*" else "status-mark--unavailable"
-                        marker_html = f'<span class="status-mark {marker_class}" aria-label="Status analítico">{_html_mod.escape(status_marker)}</span>'
-                    if tip:
-                        tip_attr = _html_mod.escape(tip, quote=True).replace("\n", "&#10;")
-                        html += f'<td class="has-tip" title="{tip_attr}">{valor_fmt}{marker_html}{delta_html}</td>'
-                    else:
-                        html += f"<td>{valor_fmt}{marker_html}{delta_html}</td>"
-
-            html += "</tr>"
-
-    html += "</tbody></table></div>"
-    return html
 
 
 def _memoria_fmt_monetario(valor) -> str:
@@ -10905,15 +10645,6 @@ def _build_memoria_calculo_curado_metrica(
     return pd.DataFrame(rows).drop(columns=["Ordem"])
 
 
-def _build_memoria_calculo_peers_tabela_metrica(
-    df_base: pd.DataFrame,
-    banco: str,
-    periodos: list[str],
-    metrica: str,
-    valores: dict,
-) -> pd.DataFrame:
-    _ = valores
-    return _build_memoria_calculo_curado_metrica(df_base, banco, periodos, metrica)
 
 
 def _build_peers_export_status_rows(
@@ -11071,107 +10802,10 @@ def _build_peers_status_lookup(
     }
 
 
-def _merge_peers_analytical_tooltips(
-    *,
-    tooltips: dict,
-    status_lookup: Optional[dict[tuple[str, str, str], dict]] = None,
-) -> tuple[dict, dict, dict]:
-    merged = dict(tooltips or {})
-    status_markers: dict[tuple[str, str, str], str] = {}
-    marker_presence = {"fallback": False, "unavailable": False}
-    if not status_lookup:
-        return merged, status_markers, marker_presence
-
-    fallback_statuses = {"fallback_components", "fallback_net_components"}
-    unavailable_statuses = {
-        "missing",
-        "missing_required_component",
-        "source_structurally_unavailable",
-        "institution_match_missing",
-        "loss_source_unavailable",
-        "denominator_unavailable",
-    }
-    neutral_statuses = {
-        "curated_value",
-        "derived_from_curated",
-        "available",
-        "official_aggregate",
-        "official_legacy_components",
-        "official_vcb_components",
-        "official_captacoes",
-        "official_components",
-    }
-
-    for key, payload in status_lookup.items():
-        status = str(payload.get("Status analítico") or "").strip()
-        source = str(payload.get("Fonte analítica") or "").strip()
-        note = str(payload.get("Observação") or "").strip()
-        base_tip = str(merged.get(key) or "").strip()
-
-        marker = ""
-        if status in fallback_statuses:
-            marker = "*"
-            marker_presence["fallback"] = True
-        elif status in unavailable_statuses and note:
-            marker = "†"
-            marker_presence["unavailable"] = True
-
-        if marker:
-            status_markers[key] = marker
-
-        analytic_parts = []
-        if status and status not in neutral_statuses:
-            analytic_parts.append(f"Status analítico: {status}")
-        if source and (marker or status not in neutral_statuses):
-            analytic_parts.append(f"Fonte analítica: {source}")
-        if note:
-            analytic_parts.append(note)
-        analytic_tip = "\n".join(analytic_parts).strip()
-        if analytic_tip:
-            merged[key] = f"{analytic_tip}\n\n{base_tip}".strip() if base_tip else analytic_tip
-
-    return merged, status_markers, marker_presence
 
 
-def _build_peers_visual_status_artifacts(
-    *,
-    df_base: Optional[pd.DataFrame],
-    bancos: list[str],
-    periodos: list[str],
-    valores: dict,
-    colunas_usadas: dict,
-) -> tuple[dict[tuple[str, str, str], str], dict[str, bool]]:
-    if df_base is None or df_base.empty:
-        return {}, {"fallback": False, "unavailable": False}
-
-    status_lookup = _build_peers_status_lookup(
-        df_base=df_base,
-        bancos=bancos,
-        periodos=periodos,
-        valores=valores,
-        colunas_usadas=colunas_usadas,
-    )
-    _, status_markers, marker_presence = _merge_peers_analytical_tooltips(
-        tooltips={},
-        status_lookup=status_lookup,
-    )
-    return status_markers, marker_presence
 
 
-def _decorate_peers_visual_value(
-    valor_fmt: str,
-    *,
-    delta_flag: Optional[str] = None,
-    status_marker: str = "",
-) -> str:
-    decorated = str(valor_fmt)
-    if status_marker:
-        decorated = f"{decorated}{status_marker}"
-    if delta_flag == "up":
-        decorated = f"{decorated} ▲"
-    elif delta_flag == "down":
-        decorated = f"{decorated} ▼"
-    return decorated
 
 
 def _write_analytical_status_sheet(
@@ -12331,11 +11965,11 @@ def pagina_snapshot():
                 {"label": "Perda Esperada / Estágio 3", "format_key": "Perda Esperada / Estágio 3",
                  "higher_is_better": False, "is_pct": True, "comparison_basis": "trimestral",
                  "serie": perda_est3_map,
-                 "source": "Peers (Tabela): Perda Esperada (Rel. 2) ÷ Ativos Estágio 3 (Cadoc 4060)"},
+                 "source": "Peers (Tabela Nova): Perda Esperada (Rel. 2) ÷ Ativos Estágio 3 (Cadoc 4060)"},
                 {"label": "Perda Esperada / Carteira", "format_key": "Perda Esperada / Carteira de Crédito Bruta",
                  "higher_is_better": False, "is_pct": True, "comparison_basis": "trimestral",
                  "serie": perda_carteira_map,
-                 "source": "Peers (Tabela): Perda Esperada ÷ Carteira de Crédito Bruta"},
+                 "source": "Peers (Tabela Nova): Perda Esperada ÷ Carteira de Crédito Bruta"},
             ],
         },
         {
@@ -12452,398 +12086,10 @@ def pagina_snapshot():
     _timer_render_caption("snapshot_timer_state", timer_box, "Tempo de carregamento da aba Snapshot")
 
 
-def _gerar_imagem_peers_tabela(
-    bancos: list,
-    periodos: list,
-    valores: dict,
-    colunas_usadas: dict,
-    delta_flags: dict,
-    df_base: Optional[pd.DataFrame] = None,
-    scale: float = 1.0,
-):
-    """Gera imagem PNG da tabela peers para exportação."""
-    periodos = _ordenar_periodos_peers_saida(periodos)
-    status_markers, marker_presence = _build_peers_visual_status_artifacts(
-        df_base=df_base,
-        bancos=list(bancos),
-        periodos=list(periodos),
-        valores=valores,
-        colunas_usadas=colunas_usadas,
-    )
-    header_row_1 = ["R$ MM e %"]
-    for banco in bancos:
-        for idx in range(len(periodos)):
-            header_row_1.append(banco if idx == 0 else "")
-    header_row_2 = [""]
-    for _ in bancos:
-        for periodo in periodos:
-            header_row_2.append(periodo_para_exibicao(periodo))
-
-    rows = [header_row_1, header_row_2]
-    delta_flags_rows = []
-    row_styles = ["header", "subheader"]
-
-    for section in PEERS_TABELA_LAYOUT:
-        rows.append([section["section"]] + [""] * (len(bancos) * len(periodos)))
-        row_styles.append("section")
-        delta_flags_rows.append([None] * len(rows[-1]))
-
-        for row in section["rows"]:
-            linha = [row["label"]]
-            deltas = [None]
-            for banco in bancos:
-                for periodo in periodos:
-                    chave = (row["label"], banco, periodo)
-                    coluna = colunas_usadas.get(row["label"])
-                    valor = valores.get(chave)
-                    valor_fmt = _formatar_valor_peers(valor, row["format_key"], coluna_origem=coluna)
-                    delta_flag = delta_flags.get(chave)
-                    valor_fmt = _decorate_peers_visual_value(
-                        valor_fmt,
-                        delta_flag=delta_flag,
-                        status_marker=status_markers.get(chave, ""),
-                    )
-                    linha.append(valor_fmt)
-                    deltas.append(delta_flag)
-            rows.append(linha)
-            row_styles.append("data")
-            delta_flags_rows.append(deltas)
-
-    n_rows = len(rows)
-    n_cols = len(rows[0])
-
-    col_widths = []
-    for col_idx in range(n_cols):
-        max_len = max(len(str(row[col_idx])) for row in rows)
-        base = 0.16 if col_idx == 0 else 0.12
-        col_widths.append(max(base, min(0.35, max_len * 0.012)))
-
-    fig_width = max(10, sum(col_widths) * 10 * scale)
-    footer_lines = []
-    if marker_presence.get("fallback"):
-        footer_lines.append("* fallback analítico explícito")
-    if marker_presence.get("unavailable"):
-        footer_lines.append("† indisponibilidade com causa identificada")
-
-    footer_extra = 0.38 * scale * len(footer_lines) if footer_lines else 0.0
-    fig_height = max(3, n_rows * 0.32 * scale + footer_extra)
-    fig, ax = plt.subplots(figsize=(fig_width, fig_height))
-    ax.axis("off")
-
-    table = ax.table(
-        cellText=rows,
-        cellLoc="right",
-        colWidths=col_widths,
-        loc="upper left",
-    )
-    table.auto_set_font_size(False)
-    table.set_fontsize(10 * scale)
-    table.scale(1, 1.2 * scale)
-
-    for (row_idx, col_idx), cell in table.get_celld().items():
-        cell.set_edgecolor("#dddddd")
-        if row_idx == 0:
-            cell.set_facecolor("#111111")
-            cell.get_text().set_color("white")
-            cell.get_text().set_fontweight("bold")
-            cell.get_text().set_ha("center")
-        elif row_idx == 1:
-            cell.set_facecolor("#6E6E6E")
-            cell.get_text().set_color("white")
-            cell.get_text().set_fontweight("bold")
-            cell.get_text().set_ha("center")
-        else:
-            style = row_styles[row_idx]
-            if style == "section":
-                cell.set_facecolor("#4a90e2")
-                cell.get_text().set_color("white")
-                cell.get_text().set_fontweight("bold")
-                if col_idx == 0:
-                    cell.get_text().set_ha("left")
-                else:
-                    cell.get_text().set_text("")
-            else:
-                cell.set_facecolor("#ffffff" if row_idx % 2 == 0 else "#f8f9fa")
-                if col_idx == 0:
-                    cell.get_text().set_ha("left")
-                delta_flag = delta_flags_rows[row_idx - 2][col_idx] if row_idx >= 2 else None
-                if delta_flag == "up":
-                    cell.get_text().set_color("#28a745")
-                elif delta_flag == "down":
-                    cell.get_text().set_color("#dc3545")
-
-    if footer_lines:
-        fig.subplots_adjust(bottom=min(0.18, 0.08 + 0.04 * len(footer_lines)))
-        fig.text(
-            0.01,
-            0.01,
-            " | ".join(footer_lines) + ". Consulte o export analítico para a origem detalhada.",
-            ha="left",
-            va="bottom",
-            fontsize=max(8.0, 8.5 * scale),
-            color="#444444",
-        )
-
-    buffer = BytesIO()
-    fig.savefig(buffer, format="png", dpi=int(180 * scale), bbox_inches="tight")
-    plt.close(fig)
-    buffer.seek(0)
-    return buffer
 
 
-def _gerar_excel_peers_tabela(
-    bancos: list,
-    periodos: list,
-    valores: dict,
-    colunas_usadas: dict,
-    delta_flags: dict,
-    df_base: Optional[pd.DataFrame] = None,
-) -> BytesIO:
-    periodos = _ordenar_periodos_peers_saida(periodos)
-    output = BytesIO()
-    workbook = xlsxwriter.Workbook(output, {"in_memory": True})
-    worksheet = workbook.add_worksheet("peers_tabela")
-    status_markers, marker_presence = _build_peers_visual_status_artifacts(
-        df_base=df_base,
-        bancos=list(bancos),
-        periodos=list(periodos),
-        valores=valores,
-        colunas_usadas=colunas_usadas,
-    )
-
-    n_cols = 1 + len(bancos) * len(periodos)
-    border = {"border": 1, "border_color": "#dddddd"}
-    header_fmt = workbook.add_format(
-        {"bold": True, "align": "center", "valign": "vcenter", "bg_color": "#111111", "font_color": "white", "font_size": 11, **border}
-    )
-    subheader_fmt = workbook.add_format(
-        {"bold": True, "align": "center", "valign": "vcenter", "bg_color": "#6E6E6E", "font_color": "white", "font_size": 10, **border}
-    )
-    section_fmt = workbook.add_format(
-        {"bold": True, "align": "left", "valign": "vcenter", "bg_color": "#ff5a00", "font_color": "white", "font_size": 10, **border}
-    )
-    row_even = workbook.add_format({"align": "right", "valign": "vcenter", "bg_color": "#f8f9fa", "font_size": 10, **border})
-    row_odd = workbook.add_format({"align": "right", "valign": "vcenter", "bg_color": "#ffffff", "font_size": 10, **border})
-    row_even_label = workbook.add_format({"align": "left", "valign": "vcenter", "bg_color": "#f8f9fa", "font_size": 10, **border})
-    row_odd_label = workbook.add_format({"align": "left", "valign": "vcenter", "bg_color": "#ffffff", "font_size": 10, **border})
-    row_even_up = workbook.add_format(
-        {"align": "right", "valign": "vcenter", "bg_color": "#f8f9fa", "font_color": "#28a745", "font_size": 10, **border}
-    )
-    row_even_down = workbook.add_format(
-        {"align": "right", "valign": "vcenter", "bg_color": "#f8f9fa", "font_color": "#dc3545", "font_size": 10, **border}
-    )
-    row_odd_up = workbook.add_format(
-        {"align": "right", "valign": "vcenter", "bg_color": "#ffffff", "font_color": "#28a745", "font_size": 10, **border}
-    )
-    row_odd_down = workbook.add_format(
-        {"align": "right", "valign": "vcenter", "bg_color": "#ffffff", "font_color": "#dc3545", "font_size": 10, **border}
-    )
-
-    worksheet.set_column(0, 0, 38)
-    worksheet.set_column(1, max(1, n_cols - 1), 16)
-
-    row_idx = 0
-    worksheet.write(row_idx, 0, "R$ MM e %", header_fmt)
-    col_idx = 1
-    for banco in bancos:
-        start_col = col_idx
-        end_col = col_idx + len(periodos) - 1
-        if start_col <= end_col:
-            if start_col == end_col:
-                worksheet.write(row_idx, start_col, banco, header_fmt)
-            else:
-                worksheet.merge_range(row_idx, start_col, row_idx, end_col, banco, header_fmt)
-        col_idx = end_col + 1
-    row_idx += 1
-
-    worksheet.write(row_idx, 0, "", subheader_fmt)
-    col_idx = 1
-    for _ in bancos:
-        for periodo in periodos:
-            worksheet.write(row_idx, col_idx, periodo_para_exibicao(periodo), subheader_fmt)
-            col_idx += 1
-    row_idx += 1
-
-    nota = "* Carteira de Crédito: 2000–2024 = Crédito Bruta + Arrendamento Bruta + Outros Créditos Líquidos de Provisão (base líquida, sem detalhamento — comparação imprecisa). 2025+ = VCB (e1+f1+g1+h1), onde e = Crédito, f = Arrendamento, g = Outras Ops., h = Transações de Pgto.; se a regra canônica do período ficar incompleta, o fallback líquido e+f+g+h aparece explicitamente no status analítico. | Core Funding*: até 2024 = Captações (e); 2025+ = Captações (e) + Instrumentos de Dívida Elegíveis a Capital (h). Captações (e) = (a) + (b) + (c) + (d). Componente ausente pós-2025 não é tratado como zero."
-    visual_legends = []
-    if marker_presence.get("fallback"):
-        visual_legends.append("* fallback analítico explícito")
-    if marker_presence.get("unavailable"):
-        visual_legends.append("† indisponibilidade com causa identificada")
-    if visual_legends:
-        nota += " | Símbolos visuais: " + "; ".join(visual_legends) + ". Ver aba status_analitico."
-    worksheet.merge_range(row_idx, 0, row_idx, n_cols - 1, nota, workbook.add_format({"font_size": 9, "font_color": "#666666"}))
-    row_idx += 1
-
-    zebra_idx = 0
-    for section in PEERS_TABELA_LAYOUT:
-        worksheet.merge_range(row_idx, 0, row_idx, n_cols - 1, section["section"], section_fmt)
-        row_idx += 1
-        for row in section["rows"]:
-            is_even = zebra_idx % 2 == 0
-            label_fmt = row_even_label if is_even else row_odd_label
-            base_fmt = row_even if is_even else row_odd
-            base_fmt_up = row_even_up if is_even else row_odd_up
-            base_fmt_down = row_even_down if is_even else row_odd_down
-
-            worksheet.write(row_idx, 0, row["label"], label_fmt)
-            col_idx = 1
-            for banco in bancos:
-                for periodo in periodos:
-                    chave = (row["label"], banco, periodo)
-                    coluna = colunas_usadas.get(row["label"])
-                    valor = valores.get(chave)
-                    valor_fmt = _formatar_valor_peers(valor, row["format_key"], coluna_origem=coluna)
-                    delta_flag = delta_flags.get(chave)
-                    cell_fmt = base_fmt
-                    if delta_flag == "up":
-                        cell_fmt = base_fmt_up
-                    elif delta_flag == "down":
-                        cell_fmt = base_fmt_down
-                    valor_fmt = _decorate_peers_visual_value(
-                        valor_fmt,
-                        delta_flag=delta_flag,
-                        status_marker=status_markers.get(chave, ""),
-                    )
-                    worksheet.write(row_idx, col_idx, valor_fmt, cell_fmt)
-                    col_idx += 1
-            row_idx += 1
-            zebra_idx += 1
-
-    # congelar cabeçalho e primeira coluna
-    worksheet.freeze_panes(4, 1)
-
-    if df_base is not None and not df_base.empty:
-        status_rows = _build_peers_export_status_rows(
-            df_base=df_base,
-            bancos=bancos,
-            periodos=periodos,
-            valores=valores,
-            colunas_usadas=colunas_usadas,
-        )
-        _write_analytical_status_sheet(workbook, rows=status_rows, sheet_name="status_analitico")
-
-    workbook.close()
-    output.seek(0)
-    return output
 
 
-def _gerar_excel_peers_dados_puros(
-    bancos: list,
-    periodos: list,
-    valores: dict,
-    colunas_usadas: dict,
-    delta_flags: dict,
-    df_base: Optional[pd.DataFrame] = None,
-) -> BytesIO:
-    """Exporta tabela Peers com valores numéricos, sem layout visual."""
-    periodos = _ordenar_periodos_peers_saida(periodos)
-    output = BytesIO()
-    workbook = xlsxwriter.Workbook(output, {"in_memory": True})
-    worksheet = workbook.add_worksheet("dados_numericos")
-
-    n_cols = 1 + len(bancos) * len(periodos)
-    border = {"border": 1, "border_color": "#dddddd"}
-    header_fmt = workbook.add_format(
-        {"bold": True, "align": "center", "valign": "vcenter", "bg_color": "#111111", "font_color": "white", "font_size": 11, **border}
-    )
-    subheader_fmt = workbook.add_format(
-        {"bold": True, "align": "center", "valign": "vcenter", "bg_color": "#6E6E6E", "font_color": "white", "font_size": 10, **border}
-    )
-    section_fmt = workbook.add_format(
-        {"bold": True, "align": "left", "valign": "vcenter", "bg_color": "#ff5a00", "font_color": "white", "font_size": 10, **border}
-    )
-    label_fmt = workbook.add_format({"align": "left", "valign": "vcenter", **border})
-    empty_fmt = workbook.add_format({"align": "right", "valign": "vcenter", **border})
-    number_formats = {
-        "money": workbook.add_format({"align": "right", "valign": "vcenter", "num_format": "#,##0.00", **border}),
-        "percent_1": workbook.add_format({"align": "right", "valign": "vcenter", "num_format": "0.0%", **border}),
-        "percent_2": workbook.add_format({"align": "right", "valign": "vcenter", "num_format": "0.00%", **border}),
-        "multiple": workbook.add_format({"align": "right", "valign": "vcenter", "num_format": "0.00x", **border}),
-    }
-
-    def _raw_format_key(format_key: str):
-        if format_key in PEERS_PERCENT_DECIMALS:
-            dec = PEERS_PERCENT_DECIMALS[format_key]
-            return number_formats["percent_1" if dec == 1 else "percent_2"]
-        if _is_variavel_percentual(format_key):
-            return number_formats["percent_2"]
-        if format_key in ("Ativo/PL", "Crédito/PL (%)", "Carteira de Crédito Bruta / PL"):
-            return number_formats["multiple"]
-        return number_formats["money"]
-
-    worksheet.set_column(0, 0, 38)
-    worksheet.set_column(1, max(1, n_cols - 1), 18)
-
-    # Cabeçalho: bancos
-    row_idx = 0
-    worksheet.write(row_idx, 0, "Dados Numéricos", header_fmt)
-    col_idx = 1
-    for banco in bancos:
-        start_col = col_idx
-        end_col = col_idx + len(periodos) - 1
-        if start_col <= end_col:
-            if start_col == end_col:
-                worksheet.write(row_idx, start_col, banco, header_fmt)
-            else:
-                worksheet.merge_range(row_idx, start_col, row_idx, end_col, banco, header_fmt)
-        col_idx = end_col + 1
-    row_idx += 1
-
-    # Sub-cabeçalho: períodos
-    worksheet.write(row_idx, 0, "", subheader_fmt)
-    col_idx = 1
-    for _ in bancos:
-        for periodo in periodos:
-            worksheet.write(row_idx, col_idx, periodo_para_exibicao(periodo), subheader_fmt)
-            col_idx += 1
-    row_idx += 1
-
-    # Dados por seção/indicador
-    for section in PEERS_TABELA_LAYOUT:
-        worksheet.merge_range(row_idx, 0, row_idx, n_cols - 1, section["section"], section_fmt)
-        row_idx += 1
-        for row in section["rows"]:
-            worksheet.write(row_idx, 0, row["label"], label_fmt)
-            col_idx = 1
-            for banco in bancos:
-                for periodo in periodos:
-                    chave = (row["label"], banco, periodo)
-                    valor = valores.get(chave)
-                    valor_num = _coerce_numeric_value(valor)
-                    if valor_num is None or pd.isna(valor_num):
-                        worksheet.write_blank(row_idx, col_idx, None, empty_fmt)
-                    else:
-                        worksheet.write_number(row_idx, col_idx, float(valor_num), _raw_format_key(row["format_key"]))
-                    col_idx += 1
-            row_idx += 1
-
-    # congelar cabeçalho e primeira coluna
-    worksheet.freeze_panes(2, 1)
-
-    nota_ws = workbook.add_worksheet("nota")
-    nota_ws.write(0, 0, "Esta planilha exporta valores numéricos, sem setas, badges ou layout visual.")
-    nota_ws.write(1, 0, "Valores monetários permanecem em R$ absolutos; percentuais estão em escala decimal com formatação percentual do Excel; razões em x usam formato numérico.")
-    nota_ws.write(2, 0, "Carteira de Crédito: 2000–2024 = Crédito Bruta + Arrendamento Bruta + Outros Créditos Líquidos de Provisão (base líquida, sem detalhamento — comparação imprecisa).")
-    nota_ws.write(3, 0, "2025+ = Valor Contábil Bruto (e1+f1+g1+h1), onde: e = Operações de Crédito; f = Arrendamento; g = Outras Ops.; h = Transações de Pagamentos.")
-    nota_ws.write(4, 0, "Core Funding*: até 2024 = Captações (e); 2025+ = Captações (e) + Instrumentos de Dívida Elegíveis a Capital (h) no Relatório de Passivo (Rel. 3). Captações (e) = (a) + (b) + (c) + (d). Componente ausente pós-2025 não é tratado como zero.")
-    nota_ws.write(5, 0, "Depósitos Totais: prioriza a linha agregada oficial por instituição/período; só usa soma a1..a6 quando não houver agregado oficial preenchido.")
-    nota_ws.write(6, 0, "A aba `status_analitico` lista a origem e o status dos indicadores quando houver fallback, indisponibilidade ou derivação relevante.")
-    nota_ws.write(7, 0, "As setas de variação continuam disponíveis apenas no arquivo visual da tabela.")
-
-    if df_base is not None and not df_base.empty:
-        status_rows = _build_peers_export_status_rows(
-            df_base=df_base,
-            bancos=bancos,
-            periodos=periodos,
-            valores=valores,
-            colunas_usadas=colunas_usadas,
-        )
-        _write_analytical_status_sheet(workbook, rows=status_rows, sheet_name="status_analitico")
-
-    workbook.close()
-    output.seek(0)
-    return output
 
 
 def _build_evolucao_export_status_rows(
@@ -15920,7 +15166,7 @@ def _normalizar_rotulo_menu(valor):
 MENU_PRINCIPAL = [
     "Snapshot",
     "Rankings",
-    "Peers (Tabela)",
+    "Peers (Tabela Nova)",
     "Conselho e Diretoria",
     "Evolução",
     "Scatter Plot",
@@ -16062,7 +15308,8 @@ def _streamlit_headers_context() -> Mapping[str, str]:
 def _aplicar_navegacao_inicial_mobile() -> None:
     """Abre Snapshot automaticamente em mobile sem rerun explícito."""
     menu_query = _menu_query_param_inicial()
-    if menu_query:
+    if menu_query and not st.session_state.get("_menu_query_initialized"):
+        st.session_state["_menu_query_initialized"] = True
         st.session_state["menu_atual"] = menu_query
         st.session_state["_user_selected_menu"] = True
         st.session_state["_mobile_snapshot_autoroute_done"] = True
@@ -16230,7 +15477,7 @@ st.markdown("---")
 CACHE_DEPENDENCIAS_POR_ABA = {
     "Snapshot": ["critical_screens"],
     "Rankings": ["principal", "capital", "derived_metrics"],
-    "Peers (Tabela)": ["critical_screens"],
+    "Peers (Tabela Nova)": ["critical_screens"],
     "Evolução": ["principal", "passivo", "ativo", "capital"],
     "Scatter Plot": ["principal", "capital", "derived_metrics"],
     "DRE (Ind. e Congl.)": ["dre", "principal", "dre_individual", "principal_individual"],
@@ -16438,7 +15685,7 @@ menu_timer_signature = None
 t0_menu_timer = None
 if (
     menu in MENU_PRINCIPAL + MENU_BCB
-    and menu not in {"Snapshot", "Peers (Tabela)", "DRE (Ind. e Congl.)", "Evolução", "Rankings"}
+    and menu not in {"Snapshot", "Peers (Tabela Nova)", "DRE (Ind. e Congl.)", "Evolução", "Rankings"}
     and (
         menu != "Taxas de Juros por Produto"
         or st.session_state.get("modo_diagnostico")
@@ -16951,519 +16198,10 @@ Pausas longas tendem a indicar interrupção real; abaixo disso tratamos como co
 elif menu == "Snapshot":
     pagina_snapshot()
 
-elif menu == "Peers (Tabela)":
-    # DIAG-WEB-1: inicializa buffer de timings visível na tela
-    if "peers_timing_log" not in st.session_state:
-        st.session_state["peers_timing_log"] = []
-    st.session_state["peers_timing_log"] = []  # limpa a cada render
+elif menu == "Peers (Tabela Nova)":
+    from tabs.peers_table import render as render_peers_table_new
+    render_peers_table_new(globals())
 
-    def _log_timing(label: str, elapsed: float):
-        """Acumula timing no session_state para exibição na tela."""
-        entry = f"{label}: {elapsed:.3f}s"
-        st.session_state["peers_timing_log"].append(entry)
-
-    _t_total_peers = time.perf_counter()
-    _t = time.perf_counter()
-    _cache_critico_ok = _garantir_cache_telas_criticas("Peers (Tabela)")
-    _elapsed = time.perf_counter() - _t
-    _log_timing("0_garantir_cache_telas_criticas", _elapsed)
-    print(f"[PEERS_TIMING] 0_garantir_cache_telas_criticas: {_elapsed:.3f}s")
-    if _cache_critico_ok:
-        peers_perf = {}
-
-        _t = time.perf_counter()
-        t_dados = time.perf_counter()
-        peers_ctx_consolidado = _get_peers_filters_context(
-            _cache_version_token("critical_screens"),
-        )
-        peers_individual_manifest = _carregar_manifest_release_cache(
-            f"{_PEERS_INDIVIDUAL_RELEASE_BASE_URL}/manifest.json"
-        )
-        peers_individual_quality = (
-            (peers_individual_manifest.get("quality_checks") or {}).get("principal_individual") or {}
-        )
-        peers_individual_cache_info = (
-            (peers_individual_manifest.get("caches") or {}).get("principal_individual") or {}
-        )
-        peers_ctx_individual = _get_peers_individual_filters_context(
-            _cache_version_token("principal_individual"),
-            _manifest_generated_token_cache(peers_individual_manifest),
-            int(peers_individual_quality.get("period_count") or 0),
-            int(peers_individual_cache_info.get("record_count") or 0),
-        )
-        _elapsed = time.perf_counter() - _t
-        _log_timing("1_get_peers_context_curado", _elapsed)
-        print(f"[PEERS_TIMING] 1_get_peers_context_curado: {_elapsed:.3f}s")
-        _perf_peers_stage(peers_perf, "a_leitura_dados_brutos", t_dados)
-
-        bancos_consolidados = peers_ctx_consolidado.get("bancos_todos", []) or []
-        periodos_consolidados = peers_ctx_consolidado.get("periodos_disponiveis", []) or []
-        bancos_individuais = peers_ctx_individual.get("bancos_todos", []) or []
-        periodos_individuais = peers_ctx_individual.get("periodos_disponiveis", []) or []
-        nome_para_codinsts_individual = peers_ctx_individual.get("nome_para_codinsts", {}) or {}
-        codinst_para_nome_individual = peers_ctx_individual.get("codinst_para_nome", {}) or {}
-        if (bancos_consolidados and periodos_consolidados) or (bancos_individuais and periodos_individuais):
-            st.markdown("### Peers (Tabela)")
-            st.caption("comparativo multi-bancos com períodos sincronizados.")
-
-            if st.session_state.get("peers_tabela_base_dre") not in PEERS_BASE_DRE_OPTIONS:
-                st.session_state["peers_tabela_base_dre"] = _normalizar_base_dre_peers(
-                    st.session_state.get("peers_tabela_base_dre")
-                )
-            base_dre_peers = st.segmented_control(
-                "base das demonstrações",
-                options=PEERS_BASE_DRE_OPTIONS,
-                key="peers_tabela_base_dre",
-            )
-            base_dre_peers = _normalizar_base_dre_peers(base_dre_peers)
-            usando_base_individual_peers = base_dre_peers == PEERS_BASE_INDIVIDUAL_LABEL
-            bancos_todos = bancos_individuais if usando_base_individual_peers else bancos_consolidados
-            periodos_ctx = periodos_individuais if usando_base_individual_peers else periodos_consolidados
-
-            _t = time.perf_counter()
-            bancos_disponiveis = ordenar_bancos_com_alias(bancos_todos, {})
-            periodos_disponiveis = ordenar_periodos(list(periodos_ctx))
-            periodos_dropdown = ordenar_periodos(list(periodos_ctx), reverso=True)
-            _elapsed = time.perf_counter() - _t
-            _log_timing("2_build_dropdowns", _elapsed)
-            print(f"[PEERS_TIMING] 2_build_dropdowns: {_elapsed:.3f}s")
-
-            if usando_base_individual_peers and not (bancos_disponiveis and periodos_disponiveis):
-                st.warning(
-                    "Base Individual selecionada, mas o cache `principal_individual` ainda não está disponível "
-                    "para montar instituições e períodos nesta aba."
-                )
-                if peers_ctx_individual.get("erro"):
-                    st.code(str(peers_ctx_individual["erro"]), language=None)
-                st.caption("Atualize/publique `principal_individual` ou aguarde o carregamento automático e recarregue a página.")
-            elif bancos_disponiveis and periodos_disponiveis:
-                _default_peers_bancos = _encontrar_bancos_default(
-                    bancos_disponiveis, [("itau", "itaú")]
-                )
-                if not _default_peers_bancos:
-                    _default_peers_bancos = bancos_disponiveis[:1]
-
-                _default_peers_periodos = _periodos_mais_recentes(periodos_dropdown, 3)
-                peer_groups = _peer_groups_disponiveis(bancos_disponiveis)
-                peer_group_options = ["Seleção manual"] + list(peer_groups.keys())
-                if st.session_state.get("peers_tabela_peer_group") not in peer_group_options:
-                    st.session_state["peers_tabela_peer_group"] = peer_group_options[1] if len(peer_group_options) > 1 else "Seleção manual"
-
-                col_grupo, col_bancos, col_periodos = st.columns([1.4, 2, 2])
-                with col_grupo:
-                    grupo_peers_selecionado = st.selectbox(
-                        "grupo de peers",
-                        options=peer_group_options,
-                        key="peers_tabela_peer_group",
-                    )
-                if (
-                    grupo_peers_selecionado != "Seleção manual"
-                    and st.session_state.get("peers_tabela_peer_group_applied") != grupo_peers_selecionado
-                ):
-                    st.session_state["peers_tabela_bancos"] = peer_groups.get(grupo_peers_selecionado, [])
-                    st.session_state["peers_tabela_peer_group_applied"] = grupo_peers_selecionado
-                elif grupo_peers_selecionado == "Seleção manual":
-                    st.session_state["peers_tabela_peer_group_applied"] = "Seleção manual"
-
-                _default_bancos_widget = _filtrar_peer_group(
-                    st.session_state.get("peers_tabela_bancos", _default_peers_bancos),
-                    bancos_disponiveis,
-                ) or _default_peers_bancos
-                if st.session_state.get("peers_tabela_bancos") != _default_bancos_widget:
-                    st.session_state["peers_tabela_bancos"] = _default_bancos_widget
-                with col_bancos:
-                    bancos_selecionados = st.multiselect(
-                        "selecionar instituições",
-                        bancos_disponiveis,
-                        default=_default_bancos_widget,
-                        key="peers_tabela_bancos",
-                    )
-                with col_periodos:
-                    periodos_selecionados = st.multiselect(
-                        "selecionar períodos (até 3)",
-                        periodos_dropdown,
-                        default=_default_peers_periodos,
-                        max_selections=3,
-                        key="peers_tabela_periodos",
-                        format_func=periodo_para_exibicao,
-                    )
-
-                with st.expander("Grupos de peers", expanded=False):
-                    nome_grupo_peers = st.text_input(
-                        "Nome do grupo",
-                        key="peers_tabela_nome_grupo",
-                    )
-                    col_salvar_grupo, col_remover_grupo = st.columns([1, 1])
-                    with col_salvar_grupo:
-                        if st.button("Salvar grupo", key="peers_tabela_salvar_grupo", disabled=not bancos_selecionados):
-                            nome_limpo = str(nome_grupo_peers or "").strip()
-                            if not nome_limpo:
-                                st.warning("Informe um nome para salvar o grupo.")
-                            else:
-                                grupos_salvos = _carregar_peer_groups_salvos()
-                                grupos_salvos[nome_limpo] = list(bancos_selecionados)
-                                if _salvar_peer_groups_salvos(grupos_salvos):
-                                    st.success(f"Grupo '{nome_limpo}' salvo.")
-                                    st.rerun()
-                                else:
-                                    st.error("Não foi possível salvar o grupo.")
-                    with col_remover_grupo:
-                        grupos_salvos = _carregar_peer_groups_salvos()
-                        pode_remover_grupo = grupo_peers_selecionado in grupos_salvos
-                        if st.button("Remover grupo", key="peers_tabela_remover_grupo", disabled=not pode_remover_grupo):
-                            grupos_salvos.pop(grupo_peers_selecionado, None)
-                            if _salvar_peer_groups_salvos(grupos_salvos):
-                                st.success(f"Grupo '{grupo_peers_selecionado}' removido.")
-                                st.rerun()
-                            else:
-                                st.error("Não foi possível remover o grupo.")
-
-                if bancos_selecionados and periodos_selecionados:
-                    timer_box_peers = st.empty()
-                    peers_signature = (
-                        "peers_tabela",
-                        base_dre_peers,
-                        tuple(sorted(bancos_selecionados)),
-                        tuple(sorted(periodos_selecionados)),
-                    )
-                    _timer_reset_if_selection_changed("peers_tabela_timer_state", peers_signature)
-                    _timer_begin_measurement("peers_tabela_timer_state", peers_signature)
-                    _timer_render_caption(
-                        "peers_tabela_timer_state",
-                        timer_box_peers,
-                        "Tempo de carregamento da aba Peers (Tabela)",
-                    )
-                    periodos_selecionados = ordenar_periodos(periodos_selecionados, reverso=False)
-                    periodos_base_peers = {_periodo_ano_anterior(p) for p in periodos_selecionados}
-                    periodos_dez_roe = {
-                        _periodo_dez_ano_anterior(p)
-                        for p in list(periodos_selecionados) + list(periodos_base_peers)
-                    }
-                    periodos_ext_peers = tuple(sorted({
-                        p for p in (
-                            list(periodos_selecionados)
-                            + sorted(periodos_base_peers)
-                            + sorted(periodos_dez_roe)
-                        ) if p
-                    }))
-                    bancos_tuple = tuple(bancos_selecionados)
-                    instituicoes_slice_tuple = tuple(sorted(i for i in bancos_selecionados if i))
-                    codinsts_slice_tuple = tuple()
-                    if usando_base_individual_peers:
-                        codinsts_slice_tuple = tuple(sorted({
-                            normalize_institution_code(codigo)
-                            for nome in bancos_selecionados
-                            for codigo in nome_para_codinsts_individual.get(str(nome), ())
-                            if normalize_institution_code(codigo)
-                        }))
-                    cache_tabela_peers = "principal_individual" if usando_base_individual_peers else "critical_screens"
-                    _t = time.perf_counter()
-                    df = _carregar_cache_relatorio_slice(
-                        cache_tabela_peers,
-                        _cache_version_token(cache_tabela_peers),
-                        periodos_ext_peers,
-                        instituicoes_slice_tuple,
-                        codinsts_slice_tuple,
-                    )
-                    if usando_base_individual_peers:
-                        df = _apply_peers_individual_display_names(df, codinst_para_nome_individual)
-                    _elapsed = time.perf_counter() - _t
-                    _log_timing(f"3_load_{cache_tabela_peers}_slice", _elapsed)
-                    print(f"[PEERS_TIMING] 3_load_{cache_tabela_peers}_slice: {_elapsed:.3f}s")
-
-                    _t = time.perf_counter()
-                    if usando_base_individual_peers:
-                        _extra_values = _preparar_metricas_extra_peers_individual_from_slice(
-                            df,
-                            list(bancos_tuple),
-                            list(periodos_ext_peers),
-                        )
-                    else:
-                        _extra_values = _preparar_metricas_extra_peers_from_slice(
-                            df,
-                            list(bancos_tuple),
-                            list(periodos_ext_peers),
-                        )
-                    _elapsed = time.perf_counter() - _t
-                    _log_timing("4_metricas_extra_from_slice", _elapsed)
-                    print(f"[PEERS_TIMING] 4_metricas_extra_from_slice: {_elapsed:.3f}s")
-
-                    _t = time.perf_counter()
-                    valores, colunas_usadas, faltas, delta_flags, delta_context, tooltips = _montar_tabela_peers(
-                        df,
-                        bancos_selecionados,
-                        periodos_selecionados,
-                        perf=peers_perf,
-                        extra_values_precomputed=_extra_values,
-                        allow_capital_fallback=not usando_base_individual_peers,
-                    )
-                    _elapsed = time.perf_counter() - _t
-                    _log_timing("5_montar_tabela_peers", _elapsed)
-                    print(f"[PEERS_TIMING] 5_montar_tabela_peers: {_elapsed:.3f}s")
-
-                    _t = time.perf_counter()
-                    t_format = time.perf_counter()
-                    status_lookup = _build_peers_status_lookup(
-                        df_base=df,
-                        bancos=bancos_selecionados,
-                        periodos=periodos_selecionados,
-                        valores=valores,
-                        colunas_usadas=colunas_usadas,
-                    )
-                    tooltips_ui, status_markers, marker_presence = _merge_peers_analytical_tooltips(
-                        tooltips=tooltips,
-                        status_lookup=status_lookup,
-                    )
-                    html_tabela = _render_peers_table_html(
-                        bancos_selecionados,
-                        periodos_selecionados,
-                        valores,
-                        colunas_usadas,
-                        delta_flags,
-                        delta_context,
-                        tooltips_ui,
-                        status_markers,
-                    )
-                    _elapsed = time.perf_counter() - _t
-                    _log_timing("6_render_html", _elapsed)
-                    print(f"[PEERS_TIMING] 6_render_html: {_elapsed:.3f}s")
-                    _perf_peers_stage(peers_perf, "e_formatacao", t_format)
-
-                    t_render = time.perf_counter()
-                    st.markdown(html_tabela, unsafe_allow_html=True)
-                    st.caption(
-                        "Definições e fontes — use o ícone de informação de cada métrica. "
-                        "Os textos vêm do Glossário Central e preservam N/D quando a fonte ou o denominador não sustentam o cálculo."
-                    )
-                    _elapsed = time.perf_counter() - t_render
-                    _log_timing("7_dispatch_html_streamlit", _elapsed)
-                    print(f"[PEERS_TIMING] 7_dispatch_html_streamlit: {_elapsed:.3f}s")
-                    _perf_peers_stage(peers_perf, "f_render_tabela", t_render)
-                    if marker_presence.get("fallback") or marker_presence.get("unavailable"):
-                        notas_status = []
-                        if marker_presence.get("fallback"):
-                            notas_status.append("* = valor com fallback analítico explícito")
-                        if marker_presence.get("unavailable"):
-                            notas_status.append("† = indisponibilidade com causa identificada")
-                        st.caption(" | ".join(notas_status) + ". Passe o mouse sobre a célula para ver a origem/limitação.")
-
-                    t_ui_aux_peers = time.perf_counter()
-                    st.markdown("#### Exportar")
-                    export_signature_key = "peers_tabela_export_signature"
-                    export_payload_key = "peers_tabela_export_payload"
-                    selection_signature = (
-                        base_dre_peers,
-                        tuple(sorted(bancos_selecionados)),
-                        tuple(periodos_selecionados),
-                    )
-                    if st.session_state.get(export_signature_key) != selection_signature:
-                        st.session_state.pop(export_payload_key, None)
-                        st.session_state[export_signature_key] = selection_signature
-
-                    if st.button("Preparar arquivos de exportação", key="peers_prepare_exports", width="stretch"):
-                        payload = {}
-                        t_export_fmt = time.perf_counter()
-                        payload["excel_tabela"] = _gerar_excel_peers_tabela(
-                            bancos_selecionados,
-                            periodos_selecionados,
-                            valores,
-                            colunas_usadas,
-                            delta_flags,
-                            df_base=df,
-                        )
-                        _perf_peers_stage(peers_perf, "g_preparo_export", t_export_fmt)
-                        _log_timing("8_export_excel_tabela", time.perf_counter() - t_export_fmt)
-
-                        t_export_raw = time.perf_counter()
-                        payload["excel_raw"] = _gerar_excel_peers_dados_puros(
-                            bancos_selecionados,
-                            periodos_selecionados,
-                            valores,
-                            colunas_usadas,
-                            delta_flags,
-                            df_base=df,
-                        )
-                        _perf_peers_stage(peers_perf, "g_preparo_export", t_export_raw)
-                        _log_timing("9_export_dados_puros", time.perf_counter() - t_export_raw)
-
-                        t_export_png = time.perf_counter()
-                        payload["png"] = _gerar_imagem_peers_tabela(
-                            bancos_selecionados,
-                            periodos_selecionados,
-                            valores,
-                            colunas_usadas,
-                            delta_flags,
-                            df_base=df,
-                        )
-                        _perf_peers_stage(peers_perf, "g_preparo_export", t_export_png)
-                        _log_timing("10_export_png", time.perf_counter() - t_export_png)
-
-                        st.session_state[export_payload_key] = payload
-                        st.rerun()
-
-                    exports_payload = st.session_state.get(export_payload_key)
-                    if exports_payload:
-                        col_exp1, col_exp2, col_exp3 = st.columns(3)
-                        with col_exp1:
-                            st.caption("Tabela formatada (layout visual)")
-                            st.download_button(
-                                label="Download Excel",
-                                data=exports_payload["excel_tabela"],
-                                file_name=f"peers_tabela_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                key="peers_tabela_excel",
-                                width="stretch",
-                            )
-                        with col_exp2:
-                            st.caption("Dados numéricos (sem layout visual)")
-                            st.download_button(
-                                label="Download Dados Numéricos",
-                                data=exports_payload["excel_raw"],
-                                file_name=f"peers_dados_puros_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                key="peers_dados_puros_excel",
-                                width="stretch",
-                            )
-                        with col_exp3:
-                            st.caption("Imagem da tabela")
-                            st.download_button(
-                                label="Download PNG",
-                                data=exports_payload["png"].getvalue(),
-                                file_name=f"peers_tabela_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png",
-                                mime="image/png",
-                                key="peers_tabela_png",
-                                width="stretch",
-                            )
-                    else:
-                        st.caption("Exports são gerados sob demanda e não entram no tempo interativo da aba.")
-
-                    # DIAG-WEB-2: painel de timings visível apenas em modo diagnóstico.
-                    _timing_log = st.session_state.get("peers_timing_log", [])
-                    if _timing_log and st.session_state.get("modo_diagnostico"):
-                        with st.expander("⏱ Diagnóstico de performance (Peers)", expanded=True):
-                            st.markdown("**Timings desta execução:**")
-                            for _entry in _timing_log:
-                                _secs = 0.0
-                                try:
-                                    _secs = float(_entry.split(":")[-1].replace("s", "").strip())
-                                except Exception:
-                                    pass
-                                if _secs > 5.0:
-                                    st.markdown(f"🔴 `{_entry}`")
-                                elif _secs > 2.0:
-                                    st.markdown(f"🟡 `{_entry}`")
-                                else:
-                                    st.markdown(f"🟢 `{_entry}`")
-                            st.caption("🔴 > 5s  |  🟡 > 2s  |  🟢 ≤ 2s")
-
-                    with st.expander("Memória de cálculo — Peers (Tabela)", expanded=False):
-                        carregar_memoria_peers = st.toggle(
-                            "Carregar memória de cálculo detalhada",
-                            value=False,
-                            key="peers_memoria_toggle",
-                            help="Evita montar as tabelas auxiliares de memória de cálculo enquanto você não precisar delas.",
-                        )
-                        if not carregar_memoria_peers:
-                            st.caption("Ative a memória de cálculo detalhada somente quando precisar auditar uma métrica específica.")
-                        else:
-                            formatos_metrica = {
-                                row["label"]: row["format_key"]
-                                for section in PEERS_TABELA_LAYOUT
-                                for row in section["rows"]
-                            }
-                            metricas_memoria = list(formatos_metrica.keys())
-
-
-                            tabs_mem_peers = st.tabs(bancos_selecionados)
-                            for tab_mem, banco_mem in zip(tabs_mem_peers, bancos_selecionados):
-                                with tab_mem:
-                                    metrica_sel = st.selectbox(
-                                        "Métrica",
-                                        metricas_memoria,
-                                        key=f"peers_memoria_metrica_{banco_mem}",
-                                    )
-                                    df_metrica = _build_memoria_calculo_peers_tabela_metrica(
-                                        df_base=df,
-                                        banco=banco_mem,
-                                        periodos=periodos_selecionados,
-                                        metrica=metrica_sel,
-                                        valores=valores,
-                                    )
-                                    if df_metrica.empty:
-                                        st.caption("sem memória de cálculo para esta métrica nos períodos selecionados.")
-                                        continue
-                                    st.dataframe(df_metrica, width="stretch", hide_index=True)
-
-                    with st.expander("Mini-glossário", expanded=False):
-                        st.markdown(
-                            f"""
-                        <div style="font-size: 12px; color: #666; margin-top: 8px;">
-                            <em>Balanço</em><br>
-                            <strong>Ativo Total</strong> = Ativo Total do balanço principal (Rel. 1, IFData).<br>
-                            <strong>Ativos Líquidos</strong> = Disponibilidades (a) + Aplicações Interfinanceiras de Liquidez (b) + Títulos e Valores Mobiliários (c), no relatório de Ativo (Rel. 2).<br>
-                            <strong>Carteira de Crédito*</strong> = {_metric_definition_html("Carteira de Crédito*", long=True)}<br>
-                            e = Operações de Crédito; f = Operações de Arrendamento Financeiro; g = Outras Operações com Características de Concessão de Crédito; h = Valores a Receber de Transações de Pagamentos - Usuários Finais (Pós-pago).<br>
-                            <em>Nota:</em> Para 2000–2024, usamos Carteira de Crédito Bruta + Carteira de Arrendamento Bruta + Outros Créditos Líquidos de Provisão (Rel. 2). A partir de 2025, usamos Valor Contábil Bruto (e1+f1+g1+h1).<br>
-                            <strong>Carteira de Crédito Classificada</strong> = Total da Carteira de Pessoa Física (Rel. 11) + Total da Carteira de Pessoa Jurídica (Rel. 13).<br>
-                            <strong>Depósitos Totais</strong> = prioriza a linha agregada oficial disponível por instituição/período no relatório de Passivo (Rel. 3). Só usa a soma de Depósitos à Vista (a1) + Poupança (a2) + Interfinanceiros (a3) + a Prazo (a4) + Outros (a5/a6) quando nenhum agregado oficial estiver preenchido na linha.<br>
-                            <strong>Core Funding*</strong> = Captações (e) no Relatório Passivo; a partir de 2025, exige-se Captações (e) + Instrumentos de Dívida Elegíveis a Capital (h). Captações (e) = (a) + (b) + (c) + (d), onde:<br>
-                            (a) Depósitos (inclui À Vista, Poupança, DI, Dep. a Prazo, Contas de Pagamento Pré-Paga e Outros); (b) Obrigações por Operações Compromissadas; (c) Recursos de Aceite e Emissão de Títulos (inclui LCIs, LCAs, LFs e TVMs no Exterior); (d) Obrigações por Empréstimos e Repasses; (h) Instrumentos de Dívida Elegíveis a Capital.<br>
-                            <strong>Patrimônio Líquido (PL)</strong> = Patrimônio Líquido do balanço principal (Rel. 1).<br>
-                            <br>
-                            <em>Qualidade Carteira</em><br>
-                            <strong>Perda Esperada</strong> = Soma das linhas Perda Esperada (e2), Hedge de Valor Justo (e3), Ajuste a Valor Justo (e4), Perda Esperada (f2), Hedge de Valor Justo (f3), Perda Esperada (g2), Hedge de Valor Justo (g3), Ajuste a Valor Justo (g4) e Perda Esperada (h2), no relatório de Ativo (Rel. 2).<br>
-                            Base (e,f,g,h) refere-se a Operações de Crédito, Operações de Arrendamento Financeiro, Outras Operações com Características de Concessão de Crédito e Valores a Receber de Transações de Pagamentos - Usuários Finais (Pós-pago).<br>
-                            <strong>Perda Esperada / Carteira de Crédito*</strong> = |Perda Esperada| ÷ Carteira de Crédito*.<br>
-                            <strong>Custo de Crédito (%)</strong> = {_metric_definition_html("Custo de Crédito (%)", long=True)}<br>
-                            <strong>Custo de Crédito / Receita de Crédito (%)</strong> = {_metric_definition_html("Custo de Crédito / Receita de Crédito (%)", long=True)}<br>
-                            <strong>Ativos Problemáticos / Carteira Total</strong> = {_metric_definition_html("Ativos Problemáticos / Carteira Total", long=True)}<br>
-                            <strong>Inadimplência / Carteira Total</strong> = {_metric_definition_html("Inadimplência / Carteira Total", long=True)}<br>
-                            <strong>Ativos Estágio 2</strong> = Saldo da conta 3312000001 (Cadoc 4060) no mês/período selecionado, quando a fonte mensal publicar o estágio e houver match prudencial confiável.<br>
-                            <strong>Ativos Estágio 3</strong> = Saldo da conta 3313000000 (Cadoc 4060) no mês/período selecionado, quando a fonte mensal publicar o estágio e houver match prudencial confiável.<br>
-                            <strong>Ativos Estágio 3 / Carteira de Crédito</strong> = Ativos Estágio 3 (Cadoc 4060) ÷ Carteira de Crédito*.<br>
-                            <strong>Inadimplência</strong> = {_metric_definition_html("Inadimplência", long=True)}<br>
-                            <strong>Inadimplência / Carteira de Crédito</strong> = Inadimplência (Rel. 16) ÷ Carteira de Crédito*.<br>
-                            <strong>Perda Esperada / Estágio 3</strong> = |Perda Esperada| (Rel. 2) ÷ Ativos Estágio 3 (Cadoc 4060) do mesmo período, apenas quando numerador e denominador estiverem disponíveis.<br>
-                            <strong>Perda Esperada / Est2+3</strong> = |Perda Esperada| (Rel. 2) ÷ (Ativos Estágio 2 + Ativos Estágio 3) do mesmo período, apenas com cobertura prudencial válida.<br>
-                            <br>
-                            <em>Alavancagem</em><br>
-                            <strong>Ativo Total / PL</strong> = Ativo Total ÷ Patrimônio Líquido.<br>
-                            <strong>Carteira de Crédito* / PL</strong> = Carteira de Crédito* (Rel. 2) ÷ Patrimônio Líquido (Rel. 1).<br>
-                            <strong>Índice de Capital Principal (CET1)</strong> = Capital Principal ÷ RWA Total, extraído do relatório de Informações de Capital (Rel. 5).<br>
-                            <strong>Índice de Basileia Total</strong> = {_metric_definition_html("Índice de Basileia Total (%)", long=True)}<br>
-                            <br>
-                            <em>Desempenho</em><br>
-                            <strong>Lucro Líquido Acumulado</strong> = Lucro Líquido acumulado no ano (YTD) até o fim do período (Rel. 1).<br>
-                            <strong>ROE Ac. Anualizado (%)</strong> = {_metric_definition_html("ROE Ac. Anualizado (%)", long=True)}<br>
-                            <br>
-                            <strong>Δ (▲/▼)</strong> = Variação vs. mesmo período do ano anterior.
-                        </div>
-                            """,
-                            unsafe_allow_html=True,
-                        )
-
-                    _elapsed = time.perf_counter() - t_ui_aux_peers
-                    _log_timing("8_ui_auxiliar_peers", _elapsed)
-                    print(f"[PEERS_TIMING] 8_ui_auxiliar_peers: {_elapsed:.3f}s")
-                    print("[PEERS_PERF]", {k: round(v, 3) for k, v in sorted(peers_perf.items())})
-                    tempo_total_peers = time.perf_counter() - _t_total_peers
-                    _timer_store_elapsed("peers_tabela_timer_state", peers_signature, tempo_total_peers)
-                    _timer_render_caption(
-                        "peers_tabela_timer_state",
-                        timer_box_peers,
-                        "Tempo de carregamento da aba Peers (Tabela)",
-                    )
-                    _log_timing("9_total_aba_peers", tempo_total_peers)
-                    print(f"[PEERS_TIMING] TOTAL_aba_peers: {tempo_total_peers:.3f}s")
-                else:
-                    st.info("selecione instituições e períodos para visualizar a tabela.")
-            else:
-                st.warning("nenhuma instituição ou período disponível nos dados.")
-        else:
-            st.warning("dados incompletos ou vazios.")
-    else:
-        st.info("carregando dados automaticamente do github...")
-        st.markdown("por favor, aguarde alguns segundos e recarregue a página")
 
 elif menu == "Conselho e Diretoria":
     st.markdown("### Conselho e Diretoria")
@@ -28400,7 +27138,7 @@ elif menu == "Glossário":
             st.dataframe(frame, width="stretch", hide_index=True)
 
     _render_secao_glossario("1) Capital e Regulação", [
-        {"Indicador": "Índice de Capital Principal (CET1)", "Aba(s)": "Snapshot, Peers (Tabela), Evolução, Rankings, Glossário", "Fonte": "IFData Rel.5", "Fórmula": "Capital Principal ÷ RWA Total", "Unidade": "%", "Interpretação": "Folga de capital de maior qualidade frente ao risco ponderado.", "Limitação": "Pode variar por mudanças regulatórias/metodológicas.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Índice de Capital Principal (CET1)", "Aba(s)": "Snapshot, Peers (Tabela Nova), Evolução, Rankings, Glossário", "Fonte": "IFData Rel.5", "Fórmula": "Capital Principal ÷ RWA Total", "Unidade": "%", "Interpretação": "Folga de capital de maior qualidade frente ao risco ponderado.", "Limitação": "Pode variar por mudanças regulatórias/metodológicas.", "Periodicidade": "Trimestral"},
         {"Indicador": "Índice de Capital Nível I", "Aba(s)": "Glossário", "Fonte": "IFData Rel.5", "Fórmula": "PR Nível I ÷ RWA Total", "Unidade": "%", "Interpretação": "Cobertura de risco por capital Nível I.", "Limitação": "Não resume liquidez nem concentração de risco.", "Periodicidade": "Trimestral"},
         _ifdata_metric_registry.get_metric_glossary_row("Índice de Basileia"),
         {"Indicador": "Razão de Alavancagem", "Aba(s)": "Glossário", "Fonte": "IFData Rel.5", "Fórmula": "PR Nível I ÷ Exposição Total", "Unidade": "%", "Interpretação": "Capital Nível I sobre exposição não ponderada.", "Limitação": "Não pondera risco dos ativos.", "Periodicidade": "Trimestral"},
@@ -28409,18 +27147,18 @@ elif menu == "Glossário":
     ])
 
     _render_secao_glossario("2) Balanço e Funding", [
-        {"Indicador": "Ativo Total", "Aba(s)": "Snapshot, Peers (Tabela), Evolução, Glossário", "Fonte": "IFData Rel.1", "Fórmula": "Valor reportado", "Unidade": "R$", "Interpretação": "Tamanho total do balanço.", "Limitação": "Tamanho não implica qualidade dos ativos.", "Periodicidade": "Trimestral"},
-        {"Indicador": "Ativos Líquidos", "Aba(s)": "Snapshot, Peers (Tabela), Glossário", "Fonte": "IFData Rel.2", "Fórmula": "Disponibilidades (a) + AIL (b) + TVM (c)", "Unidade": "R$", "Interpretação": "Aproximação de ativos de maior liquidez.", "Limitação": "Não substitui métricas regulatórias de liquidez.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Ativo Total", "Aba(s)": "Snapshot, Peers (Tabela Nova), Evolução, Glossário", "Fonte": "IFData Rel.1", "Fórmula": "Valor reportado", "Unidade": "R$", "Interpretação": "Tamanho total do balanço.", "Limitação": "Tamanho não implica qualidade dos ativos.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Ativos Líquidos", "Aba(s)": "Snapshot, Peers (Tabela Nova), Glossário", "Fonte": "IFData Rel.2", "Fórmula": "Disponibilidades (a) + AIL (b) + TVM (c)", "Unidade": "R$", "Interpretação": "Aproximação de ativos de maior liquidez.", "Limitação": "Não substitui métricas regulatórias de liquidez.", "Periodicidade": "Trimestral"},
         _ifdata_metric_registry.get_metric_glossary_row("Carteira de Crédito*"),
-        {"Indicador": "Depósitos Totais", "Aba(s)": "Snapshot, Peers (Tabela), Glossário", "Fonte": "IFData Rel.3", "Fórmula": "Prioriza linha agregada oficial por linha; fallback para soma a1..a6 só sem agregado oficial", "Unidade": "R$", "Interpretação": "Principal bloco de funding bancário tradicional.", "Limitação": "Rótulo do agregado muda ao longo da série; fallback não equivale a dado oficial publicado.", "Periodicidade": "Trimestral"},
-        {"Indicador": "Core Funding", "Aba(s)": "Snapshot, Peers (Tabela), Evolução, Glossário", "Fonte": "IFData Rel.3", "Fórmula": "Até 2024: Captações (e); 2025+: (e)+(h)", "Unidade": "R$", "Interpretação": "Base estrutural de captação para métricas de funding.", "Limitação": "Mudança de escopo em 2025; após essa data, o indicador só é exibido quando Captações (e) e Instrumentos (h) estiverem disponíveis.", "Periodicidade": "Trimestral"},
-        {"Indicador": "Patrimônio Líquido (PL)", "Aba(s)": "Snapshot, Peers (Tabela), Evolução, DRE (Ind. e Congl.), Glossário", "Fonte": "IFData Rel.1", "Fórmula": "Valor reportado", "Unidade": "R$", "Interpretação": "Base patrimonial para rentabilidade e alavancagem.", "Limitação": "Pode refletir eventos contábeis pontuais.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Depósitos Totais", "Aba(s)": "Snapshot, Peers (Tabela Nova), Glossário", "Fonte": "IFData Rel.3", "Fórmula": "Prioriza linha agregada oficial por linha; fallback para soma a1..a6 só sem agregado oficial", "Unidade": "R$", "Interpretação": "Principal bloco de funding bancário tradicional.", "Limitação": "Rótulo do agregado muda ao longo da série; fallback não equivale a dado oficial publicado.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Core Funding", "Aba(s)": "Snapshot, Peers (Tabela Nova), Evolução, Glossário", "Fonte": "IFData Rel.3", "Fórmula": "Até 2024: Captações (e); 2025+: (e)+(h)", "Unidade": "R$", "Interpretação": "Base estrutural de captação para métricas de funding.", "Limitação": "Mudança de escopo em 2025; após essa data, o indicador só é exibido quando Captações (e) e Instrumentos (h) estiverem disponíveis.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Patrimônio Líquido (PL)", "Aba(s)": "Snapshot, Peers (Tabela Nova), Evolução, DRE (Ind. e Congl.), Glossário", "Fonte": "IFData Rel.1", "Fórmula": "Valor reportado", "Unidade": "R$", "Interpretação": "Base patrimonial para rentabilidade e alavancagem.", "Limitação": "Pode refletir eventos contábeis pontuais.", "Periodicidade": "Trimestral"},
     ])
 
     _render_secao_glossario("3) Rentabilidade e Eficiência", [
         _ifdata_metric_registry.get_metric_glossary_row("ROE Ac. Anualizado (%)"),
         _ifdata_metric_registry.get_metric_glossary_row("ROE Trim. Anualizado (%)"),
-        {"Indicador": "Lucro Líquido Acumulado YTD", "Aba(s)": "Snapshot, Peers (Tabela), Evolução, Glossário", "Fonte": "IFData Rel.1/4", "Fórmula": "Resultado líquido acumulado no ano", "Unidade": "R$", "Interpretação": "Contribuição de resultado até a data-base.", "Limitação": "Não é lucro run-rate do trimestre isolado.", "Periodicidade": "Trimestral (acumulado)"},
+        {"Indicador": "Lucro Líquido Acumulado YTD", "Aba(s)": "Snapshot, Peers (Tabela Nova), Evolução, Glossário", "Fonte": "IFData Rel.1/4", "Fórmula": "Resultado líquido acumulado no ano", "Unidade": "R$", "Interpretação": "Contribuição de resultado até a data-base.", "Limitação": "Não é lucro run-rate do trimestre isolado.", "Periodicidade": "Trimestral (acumulado)"},
         {"Indicador": "Desp PDD / Resultado Intermediação Fin. Bruto (%)", "Aba(s)": "DRE (Ind. e Congl.), Glossário", "Fonte": "IFData Rel.4", "Fórmula": "Desp. PDD ÷ Resultado Interm. Fin. Bruto", "Unidade": "%", "Interpretação": "Pressão de provisões sobre resultado de intermediação.", "Limitação": "Pode distorcer com denominador muito baixo.", "Periodicidade": "Trimestral/YTD"},
         _ifdata_metric_registry.get_metric_glossary_row("Receita de Crédito"),
         _ifdata_metric_registry.get_metric_glossary_row("Custo de Crédito (%)"),
@@ -28429,23 +27167,23 @@ elif menu == "Glossário":
     ])
 
     _render_secao_glossario("4) Qualidade de Carteira", [
-        {"Indicador": "Perda Esperada", "Aba(s)": "Snapshot, Peers (Tabela), Glossário", "Fonte": "IFData Rel.2", "Fórmula": "Soma das parcelas de perda esperada/ajustes e,f,g,h", "Unidade": "R$", "Interpretação": "Montante contábil de perdas esperadas no recorte.", "Limitação": "Depende de premissas/modelos contábeis.", "Periodicidade": "Trimestral"},
-        {"Indicador": "Ativos Estágio 2", "Aba(s)": "Snapshot, Peers (Tabela), Glossário", "Fonte": "Cadoc 4060", "Fórmula": "Conta 3312000001", "Unidade": "R$", "Interpretação": "Estoque de ativos em estágio 2.", "Limitação": "Pode ficar estruturalmente indisponível em parte da série mensal ou sem match prudencial confiável.", "Periodicidade": "Mensal/Trimestral"},
-        {"Indicador": "Ativos Estágio 3", "Aba(s)": "Snapshot, Peers (Tabela), Glossário", "Fonte": "Cadoc 4060", "Fórmula": "Conta 3313000000", "Unidade": "R$", "Interpretação": "Estoque de ativos em estágio 3.", "Limitação": "Pode ficar estruturalmente indisponível em parte da série mensal ou sem match prudencial confiável.", "Periodicidade": "Mensal/Trimestral"},
-        {"Indicador": "Ativos Estágio 3 / Carteira de Crédito (%)", "Aba(s)": "Peers (Tabela), Glossário", "Fonte": "Cadoc 4060 + IFData Rel.2", "Fórmula": "Ativos Estágio 3 ÷ Carteira de Crédito Bruta", "Unidade": "%", "Interpretação": "Peso dos ativos em estágio 3 sobre a carteira.", "Limitação": "Exige estágio 3 publicado e match prudencial confiável.", "Periodicidade": "Mensal/Trimestral"},
+        {"Indicador": "Perda Esperada", "Aba(s)": "Snapshot, Peers (Tabela Nova), Glossário", "Fonte": "IFData Rel.2", "Fórmula": "Soma das parcelas de perda esperada/ajustes e,f,g,h", "Unidade": "R$", "Interpretação": "Montante contábil de perdas esperadas no recorte.", "Limitação": "Depende de premissas/modelos contábeis.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Ativos Estágio 2", "Aba(s)": "Snapshot, Peers (Tabela Nova), Glossário", "Fonte": "Cadoc 4060", "Fórmula": "Conta 3312000001", "Unidade": "R$", "Interpretação": "Estoque de ativos em estágio 2.", "Limitação": "Pode ficar estruturalmente indisponível em parte da série mensal ou sem match prudencial confiável.", "Periodicidade": "Mensal/Trimestral"},
+        {"Indicador": "Ativos Estágio 3", "Aba(s)": "Snapshot, Peers (Tabela Nova), Glossário", "Fonte": "Cadoc 4060", "Fórmula": "Conta 3313000000", "Unidade": "R$", "Interpretação": "Estoque de ativos em estágio 3.", "Limitação": "Pode ficar estruturalmente indisponível em parte da série mensal ou sem match prudencial confiável.", "Periodicidade": "Mensal/Trimestral"},
+        {"Indicador": "Ativos Estágio 3 / Carteira de Crédito (%)", "Aba(s)": "Peers (Tabela Nova), Glossário", "Fonte": "Cadoc 4060 + IFData Rel.2", "Fórmula": "Ativos Estágio 3 ÷ Carteira de Crédito Bruta", "Unidade": "%", "Interpretação": "Peso dos ativos em estágio 3 sobre a carteira.", "Limitação": "Exige estágio 3 publicado e match prudencial confiável.", "Periodicidade": "Mensal/Trimestral"},
         _ifdata_metric_registry.get_metric_glossary_row("Inadimplência"),
         _ifdata_metric_registry.get_metric_glossary_row("Ativos Problemáticos / Carteira Total"),
         _ifdata_metric_registry.get_metric_glossary_row("Inadimplência / Carteira Total"),
-        {"Indicador": "Inadimplência / Carteira de Crédito (%)", "Aba(s)": "Peers (Tabela), Glossário", "Fonte": "IFData Rel.16 + Rel.2", "Fórmula": "Inadimplência ÷ Carteira de Crédito Bruta", "Unidade": "%", "Interpretação": "Inadimplência relativa ao estoque de crédito.", "Limitação": "Combina carteira do Rel.2 com inadimplência do Rel.16.", "Periodicidade": "Trimestral"},
-        {"Indicador": "Perda Esperada / Estágio 3 (%)", "Aba(s)": "Peers (Tabela), Glossário", "Fonte": "IFData Rel.2 + Cadoc 4060", "Fórmula": "|Perda Esperada| ÷ Ativos Estágio 3", "Unidade": "%", "Interpretação": "Proxy de cobertura da perda esperada sobre estágio 3.", "Limitação": "Não deve ser exibido como comparável quando o 4060 estiver estruturalmente ausente ou sem match prudencial confiável.", "Periodicidade": "Mensal/Trimestral"},
-        {"Indicador": "Perda Esperada / Est2+3 (%)", "Aba(s)": "Peers (Tabela), Glossário", "Fonte": "IFData Rel.2 + Cadoc 4060", "Fórmula": "|Perda Esperada| ÷ (Ativos Estágio 2 + Ativos Estágio 3)", "Unidade": "%", "Interpretação": "Proxy de cobertura da perda esperada sobre estágios 2 e 3 combinados.", "Limitação": "Exige Estágio 2 e Estágio 3 publicados no mesmo período e match prudencial confiável.", "Periodicidade": "Mensal/Trimestral"},
+        {"Indicador": "Inadimplência / Carteira de Crédito (%)", "Aba(s)": "Peers (Tabela Nova), Glossário", "Fonte": "IFData Rel.16 + Rel.2", "Fórmula": "Inadimplência ÷ Carteira de Crédito Bruta", "Unidade": "%", "Interpretação": "Inadimplência relativa ao estoque de crédito.", "Limitação": "Combina carteira do Rel.2 com inadimplência do Rel.16.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Perda Esperada / Estágio 3 (%)", "Aba(s)": "Peers (Tabela Nova), Glossário", "Fonte": "IFData Rel.2 + Cadoc 4060", "Fórmula": "|Perda Esperada| ÷ Ativos Estágio 3", "Unidade": "%", "Interpretação": "Proxy de cobertura da perda esperada sobre estágio 3.", "Limitação": "Não deve ser exibido como comparável quando o 4060 estiver estruturalmente ausente ou sem match prudencial confiável.", "Periodicidade": "Mensal/Trimestral"},
+        {"Indicador": "Perda Esperada / Est2+3 (%)", "Aba(s)": "Peers (Tabela Nova), Glossário", "Fonte": "IFData Rel.2 + Cadoc 4060", "Fórmula": "|Perda Esperada| ÷ (Ativos Estágio 2 + Ativos Estágio 3)", "Unidade": "%", "Interpretação": "Proxy de cobertura da perda esperada sobre estágios 2 e 3 combinados.", "Limitação": "Exige Estágio 2 e Estágio 3 publicados no mesmo período e match prudencial confiável.", "Periodicidade": "Mensal/Trimestral"},
     ])
 
     _render_secao_glossario("5) Alavancagem e Relações de Estrutura", [
-        {"Indicador": "Ativo Total / PL", "Aba(s)": "Snapshot, Peers (Tabela), Glossário", "Fonte": "IFData Rel.1", "Fórmula": "Ativo Total ÷ Patrimônio Líquido", "Unidade": "x", "Interpretação": "Grau de alavancagem contábil do balanço.", "Limitação": "Não pondera o risco dos ativos.", "Periodicidade": "Trimestral"},
-        {"Indicador": "Carteira de Crédito Bruta / PL", "Aba(s)": "Snapshot, Peers (Tabela), Evolução, Glossário", "Fonte": "IFData Rel.2 + Rel.1", "Fórmula": "Carteira de Crédito Bruta ÷ PL", "Unidade": "x", "Interpretação": "Intensidade de crédito sobre base patrimonial.", "Limitação": "Comparabilidade histórica afetada pela mudança de base em 2025.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Ativo Total / PL", "Aba(s)": "Snapshot, Peers (Tabela Nova), Glossário", "Fonte": "IFData Rel.1", "Fórmula": "Ativo Total ÷ Patrimônio Líquido", "Unidade": "x", "Interpretação": "Grau de alavancagem contábil do balanço.", "Limitação": "Não pondera o risco dos ativos.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Carteira de Crédito Bruta / PL", "Aba(s)": "Snapshot, Peers (Tabela Nova), Evolução, Glossário", "Fonte": "IFData Rel.2 + Rel.1", "Fórmula": "Carteira de Crédito Bruta ÷ PL", "Unidade": "x", "Interpretação": "Intensidade de crédito sobre base patrimonial.", "Limitação": "Comparabilidade histórica afetada pela mudança de base em 2025.", "Periodicidade": "Trimestral"},
         {"Indicador": "Crédito / Captações (%)", "Aba(s)": "Snapshot, Evolução, Glossário", "Fonte": "IFData Rel.2 + Rel.3", "Fórmula": "Carteira de Crédito Bruta ÷ Core Funding", "Unidade": "%", "Interpretação": "Pressão do crédito sobre a base estrutural de funding.", "Limitação": "Sensível à mudança de escopo do Core Funding em 2025 e fica indisponível quando o funding pós-2025 estiver incompleto. Na Snapshot, QoQ e YoY comparam o valor trimestral de fechamento, não um acumulado YTD.", "Periodicidade": "Trimestral (point-in-time)"},
-        {"Indicador": "Perda Esperada / Carteira de Crédito Bruta (%)", "Aba(s)": "Snapshot, Peers (Tabela), Glossário", "Fonte": "IFData Rel.2", "Fórmula": "Perda Esperada ÷ Carteira de Crédito Bruta", "Unidade": "%", "Interpretação": "Nível relativo de perdas esperadas sobre o estoque de crédito.", "Limitação": "Não captura composição por segmento/produto.", "Periodicidade": "Trimestral"},
+        {"Indicador": "Perda Esperada / Carteira de Crédito Bruta (%)", "Aba(s)": "Snapshot, Peers (Tabela Nova), Glossário", "Fonte": "IFData Rel.2", "Fórmula": "Perda Esperada ÷ Carteira de Crédito Bruta", "Unidade": "%", "Interpretação": "Nível relativo de perdas esperadas sobre o estoque de crédito.", "Limitação": "Não captura composição por segmento/produto.", "Periodicidade": "Trimestral"},
     ])
 
     _render_secao_glossario("6) Juros, COSIF e Módulos Experimentais", [
