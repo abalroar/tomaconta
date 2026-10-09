@@ -7,7 +7,8 @@ from lxml import etree
 from openpyxl import load_workbook
 from pptx import Presentation
 
-from utils.evolucao_pptx_export import export_evolucao_powerpoint
+from utils.evolucao_pptx_export import (CHART_HEIGHT, LABEL_HEIGHT, PLOT_HEIGHT,
+                                      PLOT_LEFT, PLOT_TOP, PLOT_WIDTH, export_evolucao_powerpoint)
 from utils.evolucao_visual import METRIC_LABELS, SERIES
 
 
@@ -28,12 +29,17 @@ def sample(n=6):
 def test_native_combination_table_metadata_and_fonts():
     blob = export_evolucao_powerpoint(**sample())
     prs = Presentation(BytesIO(blob))
-    assert len(prs.slides) == 2
-    chart = next(s.chart for s in prs.slides[0].shapes if s.has_chart)
+    assert len(prs.slides) == 1
+    chart_shape = next(s for s in prs.slides[0].shapes if s.has_chart)
+    table_shape = next(s for s in prs.slides[0].shapes if s.has_table)
+    assert chart_shape.left == table_shape.left
+    assert chart_shape.width == table_shape.width
+    assert chart_shape.top + chart_shape.height < table_shape.top
+    chart = chart_shape.chart
     assert len(chart.plots) == 2
     assert [s.name for s in chart.series] == [s[1] for s in SERIES]
     assert chart.has_legend
-    table = next(s.table for s in prs.slides[1].shapes if s.has_table)
+    table = table_shape.table
     assert len(table.rows) == 6 and len(table.columns) == 7
     assert [table.cell(r, 0).text for r in range(1, 6)] == list(METRIC_LABELS.values())
     assert table.cell(0, 1).text == "Dez/20"
@@ -56,6 +62,9 @@ def test_native_combination_table_metadata_and_fonts():
         assert len(xml.xpath(".//c:barChart/c:ser", namespaces=NS)) == 2
         assert len(xml.xpath(".//c:lineChart/c:ser", namespaces=NS)) == 2
         assert len(xml.xpath(".//c:valAx", namespaces=NS)) == 2
+        assert float(xml.xpath(".//c:plotArea/c:layout/c:manualLayout/c:w/@val", namespaces=NS)[0]) >= .86
+        assert xml.xpath(".//c:plotArea/c:layout/c:manualLayout/c:layoutTarget/@val", namespaces=NS) == ["inner"]
+        assert xml.xpath(".//c:legend/c:legendEntry/c:txPr//a:srgbClr/@val", namespaces=NS) == [s[2].lstrip("#").upper() for s in SERIES]
         assert all(0 <= int(value) < 2 ** 31 for value in xml.xpath(".//c:axId/@val | .//c:crossAx/@val", namespaces=NS))
         assert len(xml.xpath(".//c:dispBlanksAs[@val='gap']", namespaces=NS)) == 1
         assert all(node.get("typeface") == "Calibri" for node in xml.xpath(".//a:latin", namespaces=NS))
@@ -78,11 +87,16 @@ def test_last_valid_labels_are_dynamic_bold_colored_and_separated_with_gaps():
             label = labels[0]
             assert label.xpath("c:idx/@val", namespaces=NS) == ["4" if i == 3 else "5"]
             assert label.xpath("c:showVal/@val", namespaces=NS) == ["1"]
-            assert label.xpath("c:showSerName/@val", namespaces=NS) == ["1"]
+            assert label.xpath("c:showSerName/@val", namespaces=NS) == ["0"]
+            assert len(label.xpath("c:spPr", namespaces=NS)) == 1
             assert label.xpath(".//a:defRPr[@b='1']", namespaces=NS)
             assert SERIES[i][2].lstrip("#").upper() in label.xpath(".//a:srgbClr/@val", namespaces=NS)
             positions.append(float(label.xpath("c:layout/c:manualLayout/c:y/@val", namespaces=NS)[0]))
+            x = float(label.xpath("c:layout/c:manualLayout/c:x/@val", namespaces=NS)[0])
+            assert PLOT_LEFT < x < PLOT_LEFT + PLOT_WIDTH - .1
         assert min(b - a for a, b in zip(sorted(positions), sorted(positions)[1:])) >= .139
+        assert min(positions) >= PLOT_TOP
+        assert max(positions) + LABEL_HEIGHT <= PLOT_TOP + PLOT_HEIGHT + .0001
         assert labels[0].xpath("c:showCatName/@val", namespaces=NS) == ["1"]
         workbook_name = next(n for n in archive.namelist() if n.startswith("ppt/embeddings/"))
         sheet = load_workbook(BytesIO(archive.read(workbook_name)), data_only=True).active
@@ -98,17 +112,32 @@ def test_long_windows_keep_every_period_and_source_limitations_visible():
     args["status_rows"] = [{"Período": "dez-28", "Indicador": "Core Funding*",
                             "Status analítico": "fallback_capitacoes_view", "Fonte analítica": "Captações"}]
     prs = Presentation(BytesIO(export_evolucao_powerpoint(**args)))
-    assert len(prs.slides) == 4
+    assert len(prs.slides) == 2
     categories = []
-    for slide in (prs.slides[0], prs.slides[2]):
+    for slide in prs.slides:
         chart = next(s.chart for s in slide.shapes if s.has_chart)
         categories.extend(c.label for c in chart.plots[0].categories)
     assert categories == [f"Dez/{20 + i}" for i in range(11)]
     assert not any("fallback para Captações" in s.text for s in prs.slides[0].shapes if s.has_text_frame)
-    assert any("fallback para Captações: Dez/28" in s.text for s in prs.slides[2].shapes if s.has_text_frame)
-    table = next(s.table for s in prs.slides[3].shapes if s.has_table)
+    assert any("fallback para Captações: Dez/28" in s.text for s in prs.slides[1].shapes if s.has_text_frame)
+    table = next(s.table for s in prs.slides[1].shapes if s.has_table)
     assert table.cell(3, 1).text == "N/D†"
-    assert "Captações" in prs.slides[3].notes_slide.notes_text_frame.text
+    assert "Captações" in prs.slides[1].notes_slide.notes_text_frame.text
+
+
+@pytest.mark.parametrize("value", [0, -1e9, 1e9])
+def test_coincident_labels_leave_room_for_dates_and_axes(value):
+    args = sample(8)
+    args["df_graph"].iloc[:, :] = value
+    args["df_graph"].iloc[-1, :] = None
+    chart = next(s.chart for s in Presentation(BytesIO(export_evolucao_powerpoint(**args))).slides[0].shapes if s.has_chart)
+    labels = chart._chartSpace.xpath(".//c:dLbl")
+    positions = sorted(float(label.xpath("./c:layout/c:manualLayout/c:y/@val")[0]) for label in labels)
+    assert all(label.xpath("./c:showCatName/@val") == ["1"] for label in labels)
+    # Two lines (value + valid date) at 12 pt, with at least 0.05 in of air.
+    assert min(b - a for a, b in zip(positions, positions[1:])) * CHART_HEIGHT >= 24 / 72 + .05
+    assert positions[0] >= PLOT_TOP
+    assert positions[-1] + LABEL_HEIGHT <= PLOT_TOP + PLOT_HEIGHT + .0001
 
 
 def test_zero_negative_and_all_missing_series_preserve_numeric_meaning():
