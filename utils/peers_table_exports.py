@@ -10,7 +10,7 @@ import pandas as pd
 
 from .comparison_table_style import HEADER_BACKGROUND, SECTION_BACKGROUND
 
-from .peers_table_model import BY_KEY, get_metric, SCALES, BASELINES, COLORS, period_label, period_sort, short_bank, methodology_rows
+from .peers_table_model import BY_KEY, get_metric, SCALES, BASELINES, COLORS, period_label, period_sort, short_bank, methodology_rows, comparison_label, period_comparison_label
 
 
 def _lookup(query):
@@ -25,7 +25,7 @@ def footer(query, banks=None, metric_keys=None):
     source = "BCB IFData Rel. " + ", ".join(map(str, reports)) if reports else "BCB"
     if any("4060" in s for s in sources):
         source += " / Cadoc 4060"
-    note = "Variações: taxas em bps (100 bps = 1 p.p.); valores monetários em %; múltiplos em x."
+    note = "Variações: taxas em bps (100 bps = 1 p.p.); valores monetários em % com base positiva; múltiplos em x. Valores sem arredondamento no cálculo."
     if any(c["status"] in {"warning", "critical"} for c in query["cells"]):
         note += " † Alerta de qualidade; consulte Dados e status e a memória de cálculo."
     return f"{source}. {query['base']}. {n} instituições. {dates}.\n{query['query_type']}. Consulta: {query['queried_at']}.\n{note}"
@@ -57,7 +57,8 @@ def export_excel(query):
             else:
                 sheet.write_string(2, first, bank, header)
             for p, period in enumerate(query["periods"]):
-                sheet.write_string(3, first + p, period_label(period), header)
+                sheet.write_string(3, first + p, period_label(period) + "\n" + period_comparison_label(period, query["mode"]), header)
+        sheet.set_row(3, 32 if query["mode"] != "none" else 20)
         cells = _lookup(query)
         row, current = 4, None
         for key in query["metrics"]:
@@ -93,8 +94,8 @@ def export_excel(query):
         sheet.fit_to_pages(1, 0)
         sheet.repeat_rows(2, 3)
         numeric = workbook.add_worksheet("Dados e status")
-        fields = ["metric", "bank", "period", "value", "reference", "reference_value", "variation", "status", "source", "reason"]
-        titles = ["Indicador", "Instituição", "Período", "Valor (R$, decimal ou x)", "Referência", "Valor referência", "Variação", "Status", "Fonte", "Motivo"]
+        fields = ["metric", "bank", "period", "value", "reference", "reference_value", "variation", "status", "source", "reason", "delta_value", "delta_unit"]
+        titles = ["Indicador", "Instituição", "Período", "Valor (R$, decimal ou x)", "Referência", "Valor referência", "Variação", "Status", "Fonte", "Motivo", "Delta numérico", "Unidade delta"]
         for col, title in enumerate(titles):
             numeric.write_string(0, col, title, header)
         for row, cell in enumerate(query["cells"], 1):
@@ -107,7 +108,7 @@ def export_excel(query):
         numeric.freeze_panes(1, 3)
         numeric.autofilter(0, 0, len(query["cells"]), len(fields) - 1)
         numeric.set_column(0, 2, 32)
-        numeric.set_column(3, 9, 25)
+        numeric.set_column(3, 11, 25)
         for name, rows in (("Metodologia", methodology_rows(query)), ("Consulta", [{"Campo": k, "Valor": str(v)} for k, v in query.items() if k != "cells"])):
             page = workbook.add_worksheet(name)
             fields = list(rows[0])
@@ -237,7 +238,7 @@ def export_powerpoint(query, *, charts=False, chart_metrics=(), colors=None, cha
                         table.cell(0, first).merge(table.cell(0, first + len(query["periods"]) - 1))
                     table.cell(0, first).text = bank
                     for p, period in enumerate(query["periods"]):
-                        table.cell(1, first + p).text = period_label(period)
+                        table.cell(1, first + p).text = period_label(period) + "\n" + period_comparison_label(period, query["mode"])
                 table.cell(0, 0).text = "Indicador"
                 table.cell(0, 0).merge(table.cell(1, 0))
                 for r, key in enumerate(keys, 2):
@@ -286,7 +287,7 @@ def export_png(query):
     if font_path.exists():
         font_manager.fontManager.addfont(str(font_path))
     cells = _lookup(query)
-    headers = ["Indicador"] + [short_bank(bank) + "\n" + period_label(p) for bank in query["banks"] for p in query["periods"]]
+    headers = ["Indicador"] + [short_bank(bank) + "\n" + period_label(p) + "\n" + period_comparison_label(p, query["mode"]) for bank in query["banks"] for p in query["periods"]]
     data, directions = [], {}
     for key in query["metrics"]:
         m = get_metric(key, query["base"])
@@ -311,6 +312,7 @@ def export_png(query):
         cell.set_facecolor(HEADER_BACKGROUND if r == 0 else "white")
         cell.get_text().set_fontfamily("Calibri" if font_path.exists() else "DejaVu Sans")
         if r == 0:
+            cell.set_height(cell.get_height() * 1.5)
             cell.get_text().set_weight("bold")
             cell.get_text().set_color("white")
         if c == 0:

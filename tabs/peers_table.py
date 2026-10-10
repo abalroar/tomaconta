@@ -6,14 +6,13 @@ from html import escape
 import hmac
 import json
 from pathlib import Path
-import re
 from zoneinfo import ZoneInfo
 
 import pandas as pd
 import streamlit as st
 
 from utils import peers_groups
-from utils.peers_table_model import BY_KEY, METRICS, DEFAULT_METRICS, INDIVIDUAL_METRICS, get_metric, BASELINES, SCALES, COLORS, build_query, required_periods, period_sort, period_label, short_bank, format_value, number, methodology_rows, ARRASTO_ROWS
+from utils.peers_table_model import BY_KEY, METRICS, DEFAULT_METRICS, INDIVIDUAL_METRICS, get_metric, BASELINES, SCALES, COLORS, build_query, required_periods, period_sort, period_label, short_bank, format_value, number, methodology_rows, ARRASTO_ROWS, comparison_label, period_comparison_label
 from utils.peers_table_exports import export_excel, export_powerpoint, export_png
 from utils.comparison_table_style import HEADER_BACKGROUND, SECTION_BACKGROUND, FONT_FAMILY
 
@@ -34,6 +33,7 @@ thead th.row-label {background:__ORANGE__;z-index:3;}
 .value {font-variant-numeric:tabular-nums;display:block;min-width:54px;}
 .delta {font-size:11px;display:block;color:#666;margin-top:2px;font-variant-numeric:tabular-nums;white-space:normal;}
 .delta.up,.delta.down,.delta.flat {white-space:nowrap;}
+.reference {display:block;font-size:10px;font-weight:400;margin-top:3px;}
 .up {color:#16713b;} .down {color:#b32624;} .bank-start {border-left:1px solid #b8b8b8;}
 @media(pointer:coarse) {.metric{min-height:38px;}}
 """.replace("__ORANGE__", HEADER_BACKGROUND).replace("__SECTION__", SECTION_BACKGROUND).replace("__FONT__", FONT_FAMILY)
@@ -63,13 +63,11 @@ def table_row_label(metric, scale):
 
 
 def table_value(value, metric, scale):
-    if metric.unit == "%" and number(value) is not None:
-        return f"{number(value)*100:,.1f}".replace(",", "~").replace(".", ",").replace("~", ".") + "%"
     return format_value(value, metric, scale)
 
 
 def table_variation(variation):
-    return re.sub(r"(\d[\d.]*,\d+)\s*%", lambda match: f"{float(match[1].replace('.', '').replace(',', '.')):,.1f}".replace(",", "~").replace(".", ",").replace("~", ".") + "%", variation)
+    return variation.replace(" %", "%")
 
 
 def table_footnote(query):
@@ -93,7 +91,8 @@ def table_html(query, selected=None):
     html.append('</tr><tr>')
     for bank in query["banks"]:
         for i, p in enumerate(query["periods"]):
-            html.append(f'<th class="{"bank-start" if i == 0 else ""}">{period_label(p)}</th>')
+            ref = period_comparison_label(p, query["mode"])
+            html.append(f'<th class="{"bank-start" if i == 0 else ""}">{period_label(p)}<span class="reference">{escape(ref)}</span></th>')
     html.append('</tr></thead><tbody>')
     section = None
     for key in query["metrics"]:
@@ -110,6 +109,8 @@ def table_html(query, selected=None):
                     tooltip += "; N/D: dado ou cálculo indisponível"
                 if cell["reference"]:
                     tooltip += f"; base {period_label(cell['reference'])}: {table_value(cell['reference_value'], metric, query['scale'])}"
+                    tooltip += f"; {comparison_label(query['mode'])}: {cell['variation']}"
+                    tooltip += "; diferença entre taxas em bps" if metric.unit == "%" else "; diferença em x" if metric.unit == "x" else "; variação relativa em %; requer base positiva"
                 if cell["reason"]:
                     tooltip += "; " + cell["reason"]
                 broken = cell["variation"] == "Quebra em 2025"
@@ -219,6 +220,30 @@ def calculation_rows(query, df, key, bank):
         if cell["reason"]:
             result.append({"Período": period_label(p), "Campo": "Motivo de indisponibilidade" if cell["value"] is None else "Nota de qualidade", "Valor": cell["reason"], "Unidade": ""})
     return pd.DataFrame(result)
+
+
+def variation_rows(query, key, bank):
+    """Referência e operação do delta efetivamente exibido, sem arredondar insumos."""
+    metric = get_metric(key, query["base"])
+    records = []
+    for cell in query["cells"]:
+        if cell["metric"] != key or cell["bank"] != bank or not cell["reference"]:
+            continue
+        a, b = number(cell["value"]), number(cell["reference_value"])
+        formula = "N/D"
+        if a is not None and b is not None:
+            if metric.unit == "%":
+                formula = f"({a * 100:.4f}% − {b * 100:.4f}%) × 100 = {cell['variation']}"
+            elif metric.unit == "x":
+                formula = f"{a:.4f}x − {b:.4f}x = {cell['variation']}"
+            elif b > 0:
+                formula = f"(atual − base) ÷ base × 100 = {cell['variation']}"
+            else:
+                formula = "Variação relativa N/D: base ≤ 0; confira a diferença em valor."
+        if cell.get("delta_value") is None:
+            formula = cell["variation"] + ("; " + formula if formula != "N/D" else "")
+        records.append({"Competência": period_label(cell["period"]), "Comparação": comparison_label(query["mode"]), "Referência": period_label(cell["reference"]), "Valor atual": format_value(a, metric, query["scale"]), "Valor de referência": format_value(b, metric, query["scale"]), "Variação": cell["variation"], "Cálculo": formula.replace(".", ","), "Diferença em valor": format_value(a-b, metric, query["scale"]) if metric.unit != "%" and a is not None and b is not None else ""})
+    return pd.DataFrame(records)
 
 
 def _groups_editor(api, base, banks, identities, shared, shared_sha, remote_error):
@@ -362,6 +387,8 @@ def render(api):
     selected = st.session_state.get("peers_new_selected_metric")
     if selected not in metrics:
         selected = None
+    if mode != "none":
+        st.caption(f"{comparison_label(mode)}: cada competência é comparada com {'o trimestre imediatamente anterior' if mode == 'quarter' else 'o mesmo trimestre do ano anterior'}. A referência aparece no cabeçalho de cada coluna. Deltas usam os valores sem arredondamento.")
     result = _component()(data={"html": table_html(query, selected), "selected": selected}, default={"metric": None}, on_metric_change=lambda: None, key="peers_new_grid")
     clicked = getattr(result, "metric", None)
     if clicked in metrics:
@@ -390,6 +417,10 @@ def render(api):
             bank = st.selectbox("Instituição para memória de cálculo", banks, format_func=short_bank, key="peers_new_calculation_bank")
             memo = calculation_rows(query, df, selected, bank)
             st.dataframe(memo[memo["Campo"] == "Resultado na tabela"][["Período", "Valor", "Unidade"]], hide_index=True, width="stretch")
+            variations = variation_rows(query, selected, bank)
+            if not variations.empty:
+                st.markdown("**Variações e referência**")
+                st.dataframe(variations, hide_index=True, width="stretch")
             with st.expander("Componentes e fonte", expanded=False):
                 st.caption("Fonte dos componentes: " + metric.source + ".")
                 st.dataframe(memo[memo["Campo"] != "Resultado na tabela"], hide_index=True, width="stretch")

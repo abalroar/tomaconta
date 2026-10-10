@@ -571,13 +571,13 @@ TERMS = (
         "Algumas séries de canal incluem serviços financeiros e não financeiros. "
         "Confira a atividade contada antes de comparar com transações de um instrumento específico.",
         ("payments",), (PAYMENTS,), aliases=("ATM", "POS", "PDV", "celular", "internet banking", "terminais")),
-    GlossaryTerm("qoq_yoy", "QoQ, YoY e pontos percentuais", "Comparações e leitura",
+    GlossaryTerm("qoq_yoy", "QoQ, YoY, pontos percentuais e bps", "Comparações e leitura",
         "QoQ compara com o trimestre anterior. YoY compara com o mesmo período do ano anterior. "
-        "Pontos percentuais medem a diferença direta entre duas taxas.",
+        "Pontos percentuais medem a diferença direta entre duas taxas. Um ponto-base (bp) equivale a 0,01 ponto percentual; 100 bps = 1 p.p.",
         "Confira se a variação usa um saldo, um fluxo do trimestre ou YTD. "
-        "Taxas e valores próximos de zero ou negativos precisam de leitura própria.",
-        modules=REPORTS, example="Uma taxa de 10% para 12% subiu 2 pontos percentuais, ou 20% em termos relativos.",
-        aliases=("p.p.", "delta", "variação", "trimestre contra trimestre", "ano contra ano")),
+        "Deltas usam os valores sem arredondamento. Crescimento relativo é (atual − base) ÷ base e requer base positiva nas comparações financeiras do app.",
+        modules=REPORTS, example="De 2,18% para 2,25%: +0,07 p.p. = +7 bps. De 15,18% para 14,77%: −0,41 p.p. = −41 bps. Uma taxa de 10% para 12% subiu 200 bps; seu crescimento relativo foi 20%.",
+        aliases=("p.p.", "bps", "basis points", "pontos-base", "delta", "variação", "trimestre contra trimestre", "ano contra ano")),
     GlossaryTerm("peers", "Peers e comparação entre instituições", "Comparações e leitura",
         "Peers são instituições escolhidas como referências para comparação. "
         "A escolha deve considerar porte, negócio, composição da carteira e fonte de recursos.",
