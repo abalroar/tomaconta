@@ -14,17 +14,6 @@ WORKSPACE_CSS = """
 .header-brand-author {font-size:.78rem!important; color:#647180!important; margin-bottom:.2rem!important;}
 div[data-testid="stVerticalBlock"]:has(> [data-testid="stElementContainer"] .header-logo) {gap:.15rem;}
 
-/* Os blocos Markdown do menu contêm apenas os wrappers decorativos antigos.
-   Eles não envolvem os widgets e criavam seis intervalos vazios. */
-.st-key-header_navigation [data-testid="stElementContainer"]:has([data-testid="stMarkdown"]) {display:none;}
-.st-key-header_navigation,
-.st-key-header_navigation [data-testid="stVerticalBlock"] {gap:.4rem;}
-.st-key-header_navigation [data-testid="stButtonGroup"] {margin:0;}
-.st-key-header_navigation button {min-height:34px; font-size:.84rem;}
-.st-key-header_navigation button p {font-weight:400!important;}
-.st-key-header_navigation [data-testid="stBaseButton-segmented_controlActive"] {background:#eaf2f8; border-color:#1f77b4;}
-.st-key-header_navigation [data-testid="stBaseButton-segmented_controlActive"] p {font-weight:500!important;}
-
 .stMain [data-testid="stHeadingWithActionElements"] h2 {font-size:1.8rem; line-height:1.25;}
 .stMain [data-testid="stHeadingWithActionElements"] h3 {font-size:1.5rem; line-height:1.3;}
 .stMain [data-testid="stHeadingWithActionElements"] h4 {font-size:1.15rem; line-height:1.35;}
@@ -75,13 +64,11 @@ div[data-testid="stVerticalBlock"]:has(> [data-testid="stElementContainer"] .hea
 
 @media (hover:hover) and (pointer:fine) {
   .stMain [data-testid="stExpander"] summary:hover {background:#f2f6f9;}
-  .st-key-header_navigation [data-testid="stBaseButton-segmented_control"]:hover {background:#f2f6f9;}
 }
 @media (max-width:700px) {
   .header-logo img {width:84px;}
   .header-brand-title {font-size:1.85rem!important;}
   .header-brand-subtitle {font-size:.9rem!important;}
-  .st-key-header_navigation button {min-height:40px;}
   .stMain [data-testid="stMetricValue"] {font-size:1.5rem;}
 }
 </style>
