@@ -284,7 +284,7 @@ def render_scr_inadimplencia(get_cache_manager) -> None:
     from tabs.comentario_credito import render_comentario
 
     st.markdown(f"#### {scr_spec.TITLE}")
-    st.caption("Inadimplência e ativo problemático por modalidade, renda e região.")
+    st.caption("SCR.data mensal · Agregados de operações no país por modalidade, perfil do tomador e região. Cada taxa usa a carteira ativa do próprio recorte.")
 
     @st.cache_resource(show_spinner=False)
     def _cache():
@@ -331,7 +331,9 @@ def render_scr_inadimplencia(get_cache_manager) -> None:
             "ativa do recorte), nunca média de percentuais entre UFs.\n"
             "- **Modalidade:** agregação conforme a equivalência oficial do painel "
             "SCR.data do Banco Central.\n"
-            "- As definições completas estão em **Glossário > SCR.data**."
+            "- **Fonte e frequência:** SCR.data mensal; operações cursadas no país, com escopo próprio em relação ao IFData e ao balanço COSIF.\n"
+            "- **Ativo problemático:** o critério mudou em jan/2025. Desde essa data, usa a classificação informada pela instituição.\n"
+            "- Consulte **SCR e SCR.data**, **Carteira ativa do SCR** e **Taxas de inadimplência no SCR.data** na aba Glossário."
         )
 
     def _card_header(painel) -> None:

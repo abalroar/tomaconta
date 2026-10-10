@@ -113,6 +113,10 @@ from utils.analytical_status_excel import (
     write_analytical_status_sheet as _write_analytical_status_sheet_impl,
 )
 from utils.snapshot_delta import compute_delta
+from utils.ui_help import (
+    COMPARISON_HELP, COSIF_BASE_HELP, COSIF_CALCULATION_HELP, PAYMENT_FREQUENCY_HELP,
+    PERIOD_HELP, RATE_HELP, get_help_text, render_module_help,
+)
 from utils.evolucao_visual import METRIC_LABELS, build_evolucao_chart, period_label, render_evolucao_table
 from utils.device_detection import detect_device_from_headers
 from utils.institution_search import search_institutions
@@ -2957,9 +2961,7 @@ def _render_cdsfn_hierarchy_table(
 
 def render_tab_cdsfn() -> None:
     st.markdown("### Balanço, DRE e DMPL (Ind.)")
-    st.caption(
-        "Documento 9011 ao vivo do Banco Central, com comparação entre até 2 períodos."
-    )
+    render_module_help("Balanço, DRE e DMPL (Ind.)")
     with st.expander("Mini-glossário", expanded=False):
         st.dataframe(
             pd.DataFrame(
@@ -2970,11 +2972,11 @@ def render_tab_cdsfn() -> None:
                     },
                     {
                         "Item": "Blocos exibidos",
-                        "Descrição": "A aba mostra apenas os blocos presentes no documento 9011, como BP, DRE, DRA, DFC e DMPL, sem inventar estrutura ausente.",
+                        "Descrição": "BP: balanço; DRE: resultado; DRA: resultado abrangente; DFC: fluxo de caixa; DMPL: mutações do patrimônio líquido. A aba exibe os blocos presentes no documento.",
                     },
                     {
                         "Item": "Ref. Info Contábil",
-                        "Descrição": "A = acumulado; S = semestre. A seleção filtra apenas os períodos internos efetivamente disponíveis no JSON retornado.",
+                        "Descrição": "A = acumulado; S = semestre. São referências internas do documento. Na DRE, S06 cobre janeiro a junho e S12 cobre julho a dezembro; confira a janela antes de comparar.",
                     },
                     {
                         "Item": "Períodos comparados",
@@ -2982,7 +2984,7 @@ def render_tab_cdsfn() -> None:
                     },
                     {
                         "Item": "Exportação",
-                        "Descrição": "O Excel gera um pacote único de aprovação de crédito com BP, DRE, DRA, DFC e DMPL quando disponível, cada um em sua própria planilha editável.",
+                        "Descrição": "O Excel reúne as demonstrações disponíveis em planilhas editáveis, preservando a unidade informada pela instituição e as lacunas do documento.",
                     },
                 ]
             ),
@@ -3039,7 +3041,7 @@ def render_tab_cdsfn() -> None:
             options=opcoes_periodo_documento,
             index=idx_periodo_principal_default,
             key="cdsfn_live_periodo_documento_principal",
-            help="Competência principal do documento 9011 a carregar.",
+            help="Data-base do documento 9011 individual. As demonstrações e referências internas dependem do que a instituição publicou.",
         )
     with col_periodo2:
         periodo_documento_comparativo = st.selectbox(
@@ -3047,7 +3049,7 @@ def render_tab_cdsfn() -> None:
             options=["(nenhum)"] + opcoes_periodo_documento,
             index=0,
             key="cdsfn_live_periodo_documento_comparativo",
-            help="Documento adicional opcional para consolidar e justapor na mesma visualização.",
+            help="Documento individual adicional para comparar as demonstrações lado a lado. Confira unidades e janelas de mesma duração; blocos ausentes permanecem como lacunas.",
         )
 
     inst_row = mapa_instituicoes.get(instituicao_sel)
@@ -6188,7 +6190,7 @@ def _render_contas_cosif_unificado(periodos_yyyymm: Sequence[str]) -> None:
     col_doc, col_ref = st.columns([1.4, 2])
     with col_doc:
         documento_bloprudencial = st.selectbox("Base", ["4060", "4066", "4010"],
-            format_func=base_labels.get, key="fgc_documento_bloprudencial")
+            format_func=base_labels.get, key="fgc_documento_bloprudencial", help=COSIF_BASE_HELP)
     individual_4010 = documento_bloprudencial == "4010"
     cache_version = "unificado_v6_" + _cache_version_token("bloprudencial")
     if individual_4010:
@@ -6206,7 +6208,7 @@ def _render_contas_cosif_unificado(periodos_yyyymm: Sequence[str]) -> None:
         periodos_referencia_raw = st.multiselect("Períodos", periodos_yyyymm_desc,
             default=_default_periodos_cosif(periodos_yyyymm_desc, quantidade=1 if individual_4010 else 2),
             format_func=period_label,
-            key="cosif_4010_periodos" if individual_4010 else "fgc_periodos_referencia")
+            key="cosif_4010_periodos" if individual_4010 else "fgc_periodos_referencia", help=PERIOD_HELP)
     periodos_referencia = _normalizar_periodos_cosif_selecionados(periodos_referencia_raw, periodos_yyyymm_desc)
     if not periodos_referencia:
         st.info("Selecione ao menos um período.")
@@ -6231,7 +6233,7 @@ def _render_contas_cosif_unificado(periodos_yyyymm: Sequence[str]) -> None:
     with col_conta:
         conta_cosif = st.selectbox("Conta", conta_options, index=conta_options.index(conta_default),
             format_func=lambda conta: account_label(str(conta), conta_labels.get(str(conta), str(conta))),
-            key=conta_widget_key, help="Busque pelo nome ou pelo código COSIF.")
+            key=conta_widget_key, help="Busque pelo nome ou código COSIF. Contas sintéticas incluem suas subcontas; somá-las duplica valores. O plano de contas mudou em 2025.")
     modos_disponiveis = _modos_comuns_conta_bloprudencial(conta_cosif, periodos_referencia)
     if not modos_disponiveis:
         st.info("Selecione períodos com uma regra de apuração comum para esta conta.")
@@ -6244,7 +6246,7 @@ def _render_contas_cosif_unificado(periodos_yyyymm: Sequence[str]) -> None:
     if st.session_state.get(modo_widget_key) not in modo_labels:
         st.session_state.pop(modo_widget_key, None)
     with col_modo:
-        modo_fgc_label = st.selectbox("Apuração", modo_labels, format_func=modo_display.get, key=modo_widget_key)
+        modo_fgc_label = st.selectbox("Apuração", modo_labels, format_func=modo_display.get, key=modo_widget_key, help=COSIF_CALCULATION_HELP)
     modo_fgc = dict(modos_disponiveis)[modo_fgc_label]
     periodos_necessarios_por_ref, formulas_por_ref, erros_periodos = {}, {}, []
     for periodo_ref in periodos_referencia:
@@ -7563,7 +7565,7 @@ def _scatter_compor_texto_label(
 
 
 def _scatter_metric_criteria(label_exibicao: str) -> str:
-    central = _ifdata_metric_registry.get_metric_ui_text(
+    central = get_help_text(
         label_exibicao,
         long=True,
         include_source=True,
@@ -10847,12 +10849,13 @@ def _render_snap_card(
 
     # Info tooltip
     info_html = ""
-    tooltip_parts = [part for part in [source, status_note] if part]
+    definition = get_help_text(metric_cfg.get("format_key", label)) or get_help_text(label)
+    tooltip_parts = [part for part in [definition or source, status_note] if part]
     if tooltip_parts:
-        safe_source = "\n\n".join(tooltip_parts).replace('"', '&quot;').replace("'", "&#39;")
+        safe_source = _html_mod.escape("\n\n".join(tooltip_parts))
         info_html = (
-            f'<span class="snap-card__info">i'
-            f'<span class="snap-tip">{safe_source}</span></span>'
+            f'<span class="snap-card__info" tabindex="0" aria-label="Ajuda: {_html_mod.escape(label, quote=True)}">i'
+            f'<span class="snap-tip" role="tooltip">{safe_source}</span></span>'
         )
     value_marker_html = ""
     if status_marker:
@@ -10880,19 +10883,19 @@ def _render_snap_grid(cards_html: list, grid_class: str) -> str:
 
 
 _SNAPSHOT_PROVENANCE = [
-    ("Ativo Total", "BCB IFData Rel. 1 — Balanço Patrimonial", "Valor direto", "↑ = melhora (maior porte)"),
-    ("Carteira de Crédito", "BCB IFData Rel. 2 — Ativo Detalhado", "Até 2024: Crédito Bruta + Arrendamento Bruta + Outros Créditos Líquidos de Provisão; 2025+: Valor Contábil Bruto (e1+f1+g1+h1). Se a regra canônica do período ficar incompleta, o fallback líquido e+f+g+h é explicitamente sinalizado.", "↑ = melhora (maior carteira)"),
-    ("Patrimônio Líquido", "BCB IFData Rel. 1 — Balanço Patrimonial", "Valor direto", "↑ = melhora (maior solidez)"),
-    ("Índice de Basileia", "BCB IFData Rel. 5 — Patrimônio de Referência", "(CP + CC + N2) ÷ RWA Total", "↑ = melhora (maior folga de capital)"),
-    ("Lucro Líquido Trimestral", "BCB IFData Rel. 1 + decomposição semestral", "LL_YTD(t) − LL_YTD(t−1) conforme regime Bacen", "↑ = melhora"),
-    ("Lucro Líquido Acum. YTD", "BCB IFData Rel. 1", "Acumulado no ano normalizado", "↑ = melhora"),
-    ("ROE trim. anualizado", "Calculado", "(LL_Trimestral × 4) ÷ PL Médio × 100", "↑ = melhora (maior retorno)"),
-    ("ROE Ac. Anualizado", "Calculado", "(LL_YTD × Fator Anualização) ÷ PL Médio × 100", "↑ = melhora (maior retorno)"),
-    ("Crédito / Captações", "BCB IFData Rel. 2 ÷ Rel. 3", "Carteira de Crédito Bruta ÷ Core Funding. Na Snapshot, QoQ e YoY comparam o valor trimestral de fechamento, não acumulado YTD.", "↓ = melhora (menor alavancagem)"),
-    ("Desp. Anualizada Captação / Volume Captação", "Métricas derivadas (DRE ÷ Passivo)", "Despesa de captação anualizada ÷ captações médias YTD", "↓ = melhora (menor custo de funding)"),
-    ("Perda Esperada / Estágio 3", "BCB IFData Rel. 2 + Cadoc 4060", "|Perda Esperada| ÷ Ativos Estágio 3", "↓ = melhora (menor pressão de perda)"),
-    ("Perda Esperada / Carteira", "BCB IFData Rel. 2", "|Perda Esperada| ÷ Carteira de Crédito Bruta", "↓ = melhora (menor pressão de perda)"),
-    ("CET1", "BCB IFData Rel. 5 — Patrimônio de Referência", "Capital Principal ÷ RWA Total", "↑ = melhora (maior folga de capital)"),
+    ("Ativo Total", "BCB IFData Rel. 1 — Balanço Patrimonial", "Valor direto", "Mostra porte contábil; a qualidade depende da composição e do risco dos ativos."),
+    ("Carteira de Crédito", "BCB IFData Rel. 2 — Ativo Detalhado", "Até 2024: Crédito Bruta + Arrendamento Bruta + Outros Créditos Líquidos de Provisão; 2025+: Valor Contábil Bruto (e1+f1+g1+h1). Se a regra canônica do período ficar incompleta, o fallback líquido e+f+g+h é explicitamente sinalizado.", "Aumento do saldo contábil; composição, risco e mudanças de base em 2025 afetam a leitura."),
+    ("Patrimônio Líquido", "BCB IFData Rel. 1 — Balanço Patrimonial", "Valor direto", "Aportes, dividendos e ajustes contábeis também alteram o patrimônio."),
+    ("Índice de Basileia", "BCB IFData Rel. 5 — Patrimônio de Referência", "(CP + CC + N2) ÷ RWA Total", "Maior capital por risco ponderado; a folga depende dos requisitos aplicáveis à instituição."),
+    ("Lucro Líquido Trimestral", "BCB IFData Rel. 1 + decomposição semestral", "LL_YTD(t) − LL_YTD(t−1) conforme regime Bacen", "Resultado de três meses, sujeito a sazonalidade e itens extraordinários."),
+    ("Lucro Líquido Acum. YTD", "BCB IFData Rel. 1", "Acumulado no ano normalizado", "Compare com o mesmo número de meses do ano anterior."),
+    ("ROE trim. anualizado", "Calculado", "(LL_Trimestral × 4) ÷ PL Médio × 100", "Maior retorno anualizado; sujeito a sazonalidade, itens extraordinários e variações de PL."),
+    ("ROE Ac. Anualizado", "Calculado", "(LL_YTD × Fator Anualização) ÷ PL Médio × 100", "Maior retorno anualizado; sujeito a sazonalidade, itens extraordinários e variações de PL."),
+    ("Crédito / Captações", "BCB IFData Rel. 2 ÷ Rel. 3", "Carteira de Crédito* ÷ Core Funding; saldos de fechamento", "Confira a composição, os prazos e as demais fontes de financiamento. As bases mudaram em 2025."),
+    ("Desp. Anualizada Captação / Volume Captação", "Métricas derivadas (DRE ÷ base de captação)", "Despesa de captação anualizada ÷ saldo de captação indicado na memória", "Custo contábil: depende da composição das captações e do sinal da despesa."),
+    ("Perda Esperada / Estágio 3", "BCB IFData Rel. 2 + Cadoc 4060", "|Perda Esperada| ÷ Ativos Estágio 3", "Cobertura aproximada por perdas e ajustes. O numerador pode abranger ativos fora do estágio 3."),
+    ("Perda Esperada / Carteira", "BCB IFData Rel. 2", "|Perda Esperada| ÷ Carteira de Crédito*", "Peso do agregado de perdas e ajustes na carteira contábil; examine os componentes antes de interpretar uma queda."),
+    ("CET1", "BCB IFData Rel. 5 — Patrimônio de Referência", "Capital Principal ÷ RWA Total", "Maior capital por risco ponderado; a folga depende dos requisitos aplicáveis à instituição."),
 ]
 
 
@@ -11062,14 +11065,14 @@ _SNAPSHOT_V2_CSS = """
     transform: translateX(-50%);
     background: #333;
     color: #fff;
-    font-size: 11px;
+    font-size: 12px;
     padding: 6px 10px;
     border-radius: 6px;
     white-space: normal;
     min-width: 200px;
     max-width: 280px;
     z-index: 1000;
-    font-weight: 300;
+    font-weight: 400;
     text-transform: none;
     letter-spacing: normal;
     line-height: 1.4;
@@ -11242,7 +11245,7 @@ def pagina_snapshot():
         return
 
     st.markdown("### Snapshot")
-    st.caption("briefing executivo rápido com os principais indicadores da instituição.")
+    render_module_help("Snapshot")
 
     critical_token = _cache_version_token("critical_screens")
     snapshot_ctx = _get_peers_filters_context(critical_token)
@@ -11590,6 +11593,7 @@ def pagina_snapshot():
 
     if any(str(cfg.get("status_marker") or "").strip() for cfg in (hero_metrics + profit_metrics + [row for sec in supporting_sections for row in sec["rows"]])):
         st.caption("† = indicador indisponível com causa identificada. Passe o mouse no ícone `i` do card para ver a limitação/fonte.")
+    st.caption("As variações mostram direção e intensidade da mudança. Crescimento de porte, carteira ou cobertura exige leitura da composição, do risco e da base de comparação.")
 
     todas_metricas_snapshot = hero_metrics + profit_metrics + [row for sec in supporting_sections for row in sec["rows"]]
     anomalias_delta_snapshot = _audit_deltas_snapshot(
@@ -15259,7 +15263,7 @@ if dre_consolidada_tipo not in DRE_VISUALIZACOES:
     st.session_state["dre_consolidada_tipo_visualizacao"] = "DRE Gerencial"
 if menu == "DRE (Ind. e Congl.)":
     st.markdown("### DRE (Ind. e Congl.)")
-    st.caption("Resultados por instituição e período · Fonte: Banco Central / IFData.")
+    render_module_help("DRE (Ind. e Congl.)")
     dre_consolidada_tipo = st.segmented_control(
         "Tipo de visualização",
         options=DRE_VISUALIZACOES,
@@ -15303,6 +15307,7 @@ elif menu == "Peers (Tabela Nova)":
 
 elif menu == "Conselho e Diretoria":
     st.markdown("### Conselho e Diretoria")
+    render_module_help("Conselho e Diretoria")
 
     try:
         dados_conglomerados = carregar_conglomerados()
@@ -15486,7 +15491,7 @@ elif menu == "Conselho e Diretoria":
 elif menu == "Evolução":
     if _garantir_dados_principais("Evolução"):
         st.markdown("### Evolução")
-        # descrição removida a pedido
+        render_module_help("Evolução")
 
         # Diagnóstico raiz: CET1 na Evolução vinha vazio quando `dados_capital`
         # ainda não estava carregado nesta aba.
@@ -15535,6 +15540,7 @@ elif menu == "Evolução":
                 periodos_dez,
                 index=idx_inicio_padrao,
                 format_func=periodo_para_exibicao,
+                help=PERIOD_HELP,
             )
 
         idx_inicio_ordenado = periodos_validos.index[periodos_validos["Período"] == periodo_inicio][0]
@@ -15547,6 +15553,7 @@ elif menu == "Evolução":
                 periodos_finais_validos,
                 index=idx_fim_padrao,
                 format_func=periodo_para_exibicao,
+                help=PERIOD_HELP,
             )
 
         info_inicio = periodos_validos[periodos_validos["Período"] == periodo_inicio].iloc[0]
@@ -16048,13 +16055,13 @@ elif menu == "Evolução":
                 "Índice de Basileia Total (%)",
             ]
         })
-        evolucao_glossario = {
-            "ROE Ac. Anualizado (%)": "Retorno sobre PL: (Lucro Líquido Acumulado YTD × fator de anualização) ÷ PL médio.",
-            "Carteira de Crédito* / PL": "Carteira de Crédito Bruta ÷ Patrimônio Líquido. Se a carteira vier de fallback líquido e+f+g+h, a célula é marcada explicitamente.",
-            "Índice de Capital Principal (CET1)": "Capital Principal ÷ RWA Total (Rel. 5).",
-            "Índice de Capital T1 (%)": "(Capital Principal + Capital Complementar) ÷ RWA Total (Rel. 5).",
-            "Índice de Basileia Total (%)": "(Capital Principal + Capital Complementar + Capital Nível II) ÷ RWA Total (Rel. 5).",
-        }
+        evolucao_glossario = {label: get_help_text(label) for label in (
+            "ROE Ac. Anualizado (%)",
+            "Carteira de Crédito* / PL",
+            "Índice de Capital Principal (CET1)",
+            "Índice de Capital T1 (%)",
+            "Índice de Basileia Total (%)",
+        )}
         for _, row in df_ano.iterrows():
             periodo_label = row.get("LabelPeriodo", str(int(row["Ano"])))
             df_metric[periodo_label] = [
@@ -16375,23 +16382,12 @@ elif menu == "Evolução":
             else:
                 st.info("memória de cálculo indisponível para os filtros atuais.")
 
-        # exportação PPT removida
         with st.expander("Mini-glossário", expanded=False):
-            st.markdown(
-                """
-                <div style="font-size: 12px; color: #666; margin-top: 6px;">
-                    <strong>Core Funding*:</strong> Captações (e) no Relatório Passivo; a partir de 2025, exige-se Captações (e) + Instrumentos de Dívida Elegíveis a Capital (h). Captações (e) = (a) + (b) + (c) + (d), onde: (a) Depósitos — inclui À Vista, Poupança, DI, Dep. a Prazo, Contas de Pagamento Pré-Paga e Outros; (b) Obrigações por Operações Compromissadas; (c) Recursos de Aceite e Emissão de Títulos — inclui LCIs, LCAs, LFs e TVMs no Exterior; (d) Obrigações por Empréstimos e Repasses; (h) Instrumentos de Dívida Elegíveis a Capital. Se o Rel. 3 não estiver íntegro para a instituição/período, a aba cai defensivamente para Captações e sinaliza isso acima; ausência de um componente pós-2025 não é tratada como zero.<br>
-                    <strong>Carteira de Crédito*:</strong> Até 2024, Crédito Bruta + Arrendamento Bruta + Outros Créditos Líquidos de Provisão; em 2025+, soma do Valor Contábil Bruto (e1+f1+g1+h1) no Relatório de Ativo (Rel. 2). Se a regra canônica do período ficar incompleta, o fallback líquido e+f+g+h aparece explicitamente no status analítico.<br>
-                    <em>Nota:</em> Para 2000–2024, usamos Carteira de Crédito Bruta + Carteira de Arrendamento Bruta + Outros Créditos Líquidos de Provisão (Rel. 2). Isso significa que, em “Outros Créditos”, a base é líquida de provisão e não há detalhamento — logo, a comparação é imprecisa. A partir de 2025, usamos Valor Contábil Bruto (e1+f1+g1+h1).<br>
-                    <br>
-                    <strong>ROE Ac. Anualizado (%):</strong> Retorno sobre o patrimônio líquido. (Lucro Líquido acumulado no ano × fator de anualização) ÷ PL Médio, onde PL Médio = (PL no período + PL em Dez do ano anterior) / 2. Fator: Mar=4, Jun=2, Set=12/9, Dez=1. Se PL médio ≤ 0 ou dado faltante: N/A.<br>
-                    <strong>Carteira de Crédito* / PL:</strong> Carteira de Crédito* (Rel. 2) ÷ Patrimônio Líquido (Rel. 1).<br>
-                    <strong>Índice de Basileia Total (%):</strong> (Capital Principal + Capital Complementar + Capital Nível II) ÷ RWA Total (Rel. 5). Equivale à soma CET1 + AT1 + T2.<br>
-                    <strong>Índice de Capital Principal (CET1):</strong> Capital Principal ÷ RWA Total, extraído do relatório de Informações de Capital (Rel. 5).<br>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+            for label in ("Core Funding*", "Carteira de Crédito*", "ROE Ac. Anualizado (%)",
+                          "Carteira de Crédito* / PL", "Índice de Basileia Total (%)",
+                          "Índice de Capital Principal (CET1)"):
+                st.markdown(f"**{label}**")
+                st.write(get_help_text(label))
         tempo_total_evolucao = time.perf_counter() - t0_evolucao
         _timer_store_elapsed("evolucao_timer_state", evolucao_signature, tempo_total_evolucao)
         _timer_render_caption("evolucao_timer_state", timer_box_evolucao, "Tempo de carregamento da aba Evolução")
@@ -16401,6 +16397,7 @@ elif menu == "Evolução":
 
 
 elif menu == "Scatter Plot":
+    render_module_help("Scatter Plot")
     if _garantir_dados_principais("Scatter Plot"):
         t0_scatter_total = time.perf_counter()
         scatter_diag_tempos = {}
@@ -16442,6 +16439,7 @@ elif menu == "Scatter Plot":
                 periodos,
                 index=_indice_periodo_mais_recente(periodos),
                 format_func=periodo_para_exibicao,
+                help=PERIOD_HELP,
             )
         with col5:
             mostrar_labels_scatter = st.toggle("data labels", value=False, key="scatter_labels_t1")
@@ -16698,7 +16696,7 @@ elif menu == "Scatter Plot":
 
         st.plotly_chart(fig_scatter, width='stretch')
         _scatter_footers = [
-            _ifdata_metric_registry.get_metric_footer(label)
+            get_help_text(label)
             for label in (var_x_ui, var_y_ui, var_size_ui)
             if label != "Tamanho Fixo"
         ]
@@ -16757,7 +16755,8 @@ elif menu == "Scatter Plot":
                 periodos,
                 index=_idx_ini_n2,
                 key="periodo_inicial_n2",
-                format_func=periodo_para_exibicao
+                format_func=periodo_para_exibicao,
+                help=PERIOD_HELP,
             )
         with col_p4:
             _idx_sub_n2 = _indice_periodo_mais_recente(periodos)
@@ -16766,7 +16765,8 @@ elif menu == "Scatter Plot":
                 periodos,
                 index=_idx_sub_n2,
                 key="periodo_subseq_n2",
-                format_func=periodo_para_exibicao
+                format_func=periodo_para_exibicao,
+                help=PERIOD_HELP,
             )
 
         var_x_n2 = scatter_display_to_internal.get(var_x_n2, var_x_n2)
@@ -17058,7 +17058,7 @@ elif menu == "Scatter Plot":
                 st.plotly_chart(fig_scatter_n2, width='stretch')
 
                 _scatter_n2_footers = [
-                    _ifdata_metric_registry.get_metric_footer(label)
+                    get_help_text(label)
                     for label in (
                         scatter_internal_to_display.get(var_x_n2, var_x_n2),
                         scatter_internal_to_display.get(var_y_n2, var_y_n2),
@@ -17102,6 +17102,7 @@ elif menu == "Rankings":
         _rankings_periodos_raw = list(_rankings_ctx.get("periodos_disponiveis", []))
 
         st.markdown("### Rankings")
+        render_module_help("Rankings")
         opcoes_grafico = ["Ranking (barras)", "Deltas (barras)", "Tabela"]
         if st.session_state.get("grafico_rankings_toggle_v2") not in opcoes_grafico:
             st.session_state["grafico_rankings_toggle_v2"] = opcoes_grafico[0]
@@ -17165,36 +17166,22 @@ elif menu == "Rankings":
             indicadores_ordenados.extend(indicadores_restantes)
 
             # Mini-glossário para popovers inline nos Rankings
-            _RANKINGS_GLOSSARIO = {
-                'Ativo Total': 'Padrão COSIF. Soma de todos os ativos do conglomerado prudencial.',
-                'Carteira de Crédito*': _ifdata_metric_registry.get_metric_ui_text(
-                    'Carteira de Crédito*', long=True, include_source=True
-                ),
-                METRIC_CUSTO_CREDITO: _ifdata_metric_registry.get_metric_ui_text(
-                    METRIC_CUSTO_CREDITO, long=True, include_source=True
-                ),
-                METRIC_CUSTO_CREDITO_RECEITA: _ifdata_metric_registry.get_metric_ui_text(
-                    METRIC_CUSTO_CREDITO_RECEITA, long=True, include_source=True
-                ),
-                METRIC_ATIVOS_PROBLEMATICOS_CARTEIRA: _ifdata_metric_registry.get_metric_ui_text(
-                    METRIC_ATIVOS_PROBLEMATICOS_CARTEIRA, long=True, include_source=True
-                ),
-                'Core Funding*': 'Até 2024: Captações (e). 2025+: Captações (e) + Instrumentos de Dívida Elegíveis a Capital (h) no Rel. 3, sem imputar zero para componente ausente.',
-                'Patrimônio Líquido': 'Padrão COSIF.',
-                'Índice de Capital Principal (CET1)': 'Capital Principal ÷ RWA Total. Indicador de solidez patrimonial regulatório (mínimo exigido: 4,5% + ACPs).',
-                'Índice de Capital T1 (%)': 'Patrimônio de Referência Nível I ÷ RWA Total. Equivale a (CET1 + AT1) ÷ RWA Total.',
-                'Índice de Basileia Total (%)': _ifdata_metric_registry.get_metric_ui_text(
-                    'Índice de Basileia Total (%)', long=True, include_source=True
-                ),
-                'Lucro Líquido Acumulado YTD': 'Lucro líquido acumulado no ano-calendário até o final do período (Jan–Set, Jan–Jun etc.).',
-                'Lucro Líquido Trimestral': 'Lucro líquido do trimestre de referência (isolado).',
-                'ROE Trim. Anualizado (%)': _ifdata_metric_registry.get_metric_ui_text(
-                    'ROE Trim. Anualizado (%)', long=True, include_source=True
-                ),
-                'ROE Ac. Anualizado (%)': _ifdata_metric_registry.get_metric_ui_text(
-                    'ROE Ac. Anualizado (%)', long=True, include_source=True
-                ),
-            }
+            _RANKINGS_GLOSSARIO = {label: get_help_text(label) for label in (
+                'Ativo Total',
+                'Carteira de Crédito*',
+                METRIC_CUSTO_CREDITO,
+                METRIC_CUSTO_CREDITO_RECEITA,
+                METRIC_ATIVOS_PROBLEMATICOS_CARTEIRA,
+                'Core Funding*',
+                'Patrimônio Líquido',
+                'Índice de Capital Principal (CET1)',
+                'Índice de Capital T1 (%)',
+                'Índice de Basileia Total (%)',
+                'Lucro Líquido Acumulado YTD',
+                'Lucro Líquido Trimestral',
+                'ROE Trim. Anualizado (%)',
+                'ROE Ac. Anualizado (%)',
+            )}
 
             col_periodo, col_indicador = st.columns([1.2, 1.9])
             with col_periodo:
@@ -17204,7 +17191,8 @@ elif menu == "Rankings":
                     periodos,
                     default=[periodo_default_rank] if periodo_default_rank else [],
                     key="periodos_resumo_v2",
-                    format_func=periodo_para_exibicao
+                    format_func=periodo_para_exibicao,
+                    help=PERIOD_HELP,
                 )
                 if not periodo_resumo:
                     periodo_resumo = [periodo_default_rank] if periodo_default_rank else []
@@ -17220,7 +17208,7 @@ elif menu == "Rankings":
             # Evita regressão de parsing em deploy: manter ajuda inline (sem st.popover neste bloco).
             _def = _RANKINGS_GLOSSARIO.get(indicador_label)
             if _def:
-                st.caption(f"info — {indicador_label}: {_def}")
+                st.caption(f"{indicador_label}: {_def}")
             else:
                 st.caption("info — definição não disponível; consulte o Glossário.")
             with st.expander("Mini-glossário", expanded=False):
@@ -17230,7 +17218,7 @@ elif menu == "Rankings":
                             f"**{indicador_label}**: {_def or 'Definição não disponível.'}",
                             "",
                             "**Média seleção**: média aritmética simples das instituições atualmente selecionadas.",
-                            "**Média SFN**: média aritmética simples de todas as instituições disponíveis no dataset do período.",
+                            "**Média SFN**: média simples das instituições com dados na base e no período. Cada instituição tem o mesmo peso; o resultado pode diferir de uma razão calculada sobre os saldos agregados do sistema.",
                         ]
                     )
                 )
@@ -18489,7 +18477,7 @@ elif menu == "Rankings":
                                 _RANKINGS_GLOSSARIO,
                             )
                             _renderizar_memoria_roe_rankings(df, bancos_selecionados, periodo_resumo, indicador_label)
-                            _ranking_footer = _ifdata_metric_registry.get_metric_footer(indicador_label)
+                            _ranking_footer = get_help_text(indicador_label)
                             if _ranking_footer:
                                 st.caption(f"Definição e fonte — {_ranking_footer}")
                         else:
@@ -18728,7 +18716,7 @@ elif menu == "Rankings":
                                 _RANKINGS_GLOSSARIO,
                             )
                             _renderizar_memoria_roe_rankings(df, bancos_selecionados, periodo_resumo, indicador_label)
-                            _ranking_footer = _ifdata_metric_registry.get_metric_footer(indicador_label)
+                            _ranking_footer = get_help_text(indicador_label)
                             if _ranking_footer:
                                 st.caption(f"Definição e fonte — {_ranking_footer}")
 
@@ -18736,7 +18724,7 @@ elif menu == "Rankings":
                                 "**Nota metodológica:**\n\n"
                                 "**Média seleção:** média aritmética simples dos valores das instituições "
                                 "atualmente selecionadas no filtro, para a variável e período exibidos.\n\n"
-                                "**Média SFN:** média aritmética simples dos valores de todas as instituições "
+                                "**Média SFN:** média simples dos valores das instituições com dados, com o mesmo peso para cada uma. Abrange as instituições "
                                 "disponíveis no dataset para a variável e período exibidos. Não considera "
                                 "ponderação por ativo total ou qualquer outro critério de escala."
                             )
@@ -19226,6 +19214,7 @@ elif menu == "Rankings":
                         index=_indice_periodo_mais_recente(periodos),
                         key="periodo_tabela_v1",
                         format_func=periodo_para_exibicao,
+                        help=PERIOD_HELP,
                     )
 
                 with col_tab_pool:
@@ -19422,7 +19411,7 @@ elif menu == "Rankings":
 
 elif menu == "Contas COSIF":
     st.markdown("### Contas COSIF")
-    st.caption("Saldos contábeis por instituição e competência · Fonte: Banco Central.")
+    render_module_help("Contas COSIF")
     periodos_yyyymm = _listar_periodos_bloprudencial_disponiveis(_cache_version_token("bloprudencial"))
     _render_contas_cosif_unificado(periodos_yyyymm)
 
@@ -20056,8 +20045,12 @@ elif menu == "DRE" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo ==
             fontes = [fonte_original] if fonte_original else entry.get("sources", [])
             fontes_fmt = ", ".join([f for f in fontes if f])
             tooltip_parts = []
-            if entry.get("concept"):
+            shared_help = get_help_text(entry["label"], include_source=False)
+            if shared_help:
+                tooltip_parts.append(shared_help)
+            elif entry.get("concept"):
                 tooltip_parts.append(entry["concept"])
+            tooltip_parts.append("Fonte: BCB IFData Rel. 4 · trimestral · conglomerado prudencial. Nesta visão, resultados acumulados no ano são recompostos com junho no segundo semestre.")
             if entry.get("derived_metric"):
                 formula = DERIVED_METRICS_FORMULAS.get(entry["label"])
                 if formula:
@@ -20607,7 +20600,7 @@ elif menu == "DRE" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo ==
                     <strong>Base BC (Rel. 4):</strong> o Banco Central divulga o DRE de forma semestral acumulada; nesta aba exibimos o acumulado no ano (YTD) por período.<br>
                     <strong>Memória de cálculo por conceito:</strong> passe o cursor no ícone ⓘ de cada linha para ver conceito, fórmula e fontes usadas.<br>
                     <strong>Cobertura COSIF atual:</strong> {len(dre_cosif_map)} linha(s) com mapeamento explícito no arquivo versionado.<br>
-                    <strong>Etapa 0 (mapeamento COSIF):</strong> o tooltip ⓘ exibe o de-para IFData ↔ COSIF (conta e descrição) para as linhas já reconciliadas no arquivo <code>data/dre_cosif_mapping.json</code>, com enriquecimento de descrições pela base oficial <code>completo_contas.pdf</code> quando disponível em cache.<br>
+                    <strong>Contas COSIF:</strong> a ajuda apresenta contas e descrições quando há correspondência documentada com a linha do IFData. Uma linha sem correspondência validada mantém essa lacuna.<br>
                     <strong>Marcadores ▲/▼:</strong> indicam crescimento ou queda em relação ao mesmo período acumulado do ano imediatamente anterior.<br>
                     <strong>Set/Dez:</strong> quando necessário, o acumulado considera a composição semestral publicada pelo BC para manter comparabilidade anual.<br>
                 </div>
@@ -21317,8 +21310,11 @@ elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolid
         fonte_original = entry.get("original_label")
         fontes = [fonte_original] if fonte_original else entry.get("sources", [])
         fontes_fmt = ", ".join([f for f in fontes if f])
-        tooltip_parts = []
-        if entry.get("concept"):
+        tooltip_parts = ["Fonte: BCB IFData Rel. 4 individual · trimestral · resultados acumulados no ano, recompostos com junho no segundo semestre."]
+        shared_help = get_help_text(entry["label"], base="Individual", include_source=False)
+        if shared_help:
+            tooltip_parts.append(shared_help)
+        elif entry.get("concept"):
             tooltip_parts.append(entry["concept"])
         if entry.get("derived_metric"):
             formula = DERIVED_METRICS_FORMULAS.get(entry["label"])
@@ -21642,7 +21638,7 @@ elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolid
             <div style="font-size: 12px; color: #666; margin-top: 6px;">
                 <strong>Base BC (Rel. 4 individual):</strong> a visão de instituições individuais também é tratada aqui em acumulado do ano (YTD), recompondo set/dez com a base de junho quando necessário.<br>
                 <strong>Seleção de instituições:</strong> a seleção superior usa diretamente as instituições disponíveis no cache individual, identificadas por nome exibido e CodInst.<br>
-                <strong>Soma das Partes:</strong> a visão agregada soma as instituições individuais selecionadas antes do cálculo de YTD/YoY e das métricas derivadas.<br>
+                <strong>Soma das Partes:</strong> soma as instituições individuais selecionadas antes dos cálculos. Operações internas entre elas permanecem nessa soma; o resultado pode diferir do conglomerado prudencial consolidado.<br>
                 <strong>Cobertura COSIF atual:</strong> {len(dre_cosif_map)} linha(s) com mapeamento explícito no arquivo versionado.<br>
             </div>
             """,
@@ -21710,10 +21706,11 @@ elif menu == "Carteira 4.966":
 
         if instituicoes and periodos_disponiveis:
             st.markdown(f"### {CARTEIRA_4966_TITLE}")
+            render_module_help("Carteira 4.966")
             periodo_mais_antigo = ordenar_periodos(periodos_disponiveis, reverso=False)[0]
             periodo_mais_recente = ordenar_periodos(periodos_disponiveis, reverso=True)[0]
             st.caption(
-                "Classificação por risco de crédito conforme a Resolução 4.966. "
+                    "Carteiras C1 a C5 por tipo de instrumento e garantia, distintas dos estágios contábeis. "
                 f"Cobertura disponível: {periodo_para_exibicao(periodo_mais_antigo)} a "
                 f"{periodo_para_exibicao(periodo_mais_recente)}."
             )
@@ -21814,14 +21811,9 @@ elif menu == "Carteira 4.966":
                     "QoQ compara a carteira total com o trimestre imediatamente anterior."
                 )
                 st.caption(
-                    "Cross-check automático do PDD: atenção acima de 55% da Carteira Total; "
-                    "dado sinalizado como não confiável quando supera a carteira além da tolerância "
-                    "equivalente ao maior entre R$ 1 e 0,1% da Carteira Total, quando a carteira "
-                    "é negativa ou quando está zerada com PDD positiva. Células com * exigem "
-                    "validação por fonte incompleta, sinal atípico, denominador inválido ou regra "
-                    "de sanidade acionada; o valor permanece visível sempre que puder ser calculado. "
-                    "A Inadimplência também é sinalizada quando ausente, negativa ou superior à "
-                    "Carteira Total do mesmo período."
+                    "Células com * exigem validação; consulte o diagnóstico da célula e os alertas. "
+                    "N/D preserva informações ou cálculos indisponíveis. Os limites de atenção "
+                    "são verificações de consistência do app, descritas no mini-glossário."
                 )
 
                 critical_quality_issues = [
@@ -22997,11 +22989,13 @@ elif menu == "Taxas de Juros por Produto":
         """
         <div class="tj-page-header">
             <h1 class="tj-page-title">Taxas de juros por produto</h1>
-            <p class="tj-page-subtitle">Compare taxas mensais e anuais publicadas pelo Banco Central.</p>
+            <p class="tj-page-subtitle">Compare taxas médias por instituição, produto e janela de contratação.</p>
         </div>
         """,
         unsafe_allow_html=True,
     )
+
+    render_module_help("Taxas de Juros por Produto", caption=False)
 
     filtros_taxas_beta = st.container(
         key="tj_product_rates_filters",
@@ -23022,6 +23016,7 @@ elif menu == "Taxas de Juros por Produto":
                 "Taxa",
                 TIPOS_TAXA_BETA,
                 key="tj_beta_tipo_taxa",
+                help=RATE_HELP,
                 on_change=_normalizar_escolha_taxas_beta,
                 args=("tj_beta_tipo_taxa", TIPOS_TAXA_BETA),
                 width="stretch",
@@ -23166,9 +23161,9 @@ elif menu == "Taxas de Juros por Produto":
                         width="stretch",
                     ):
                         st.markdown(
-                            "Fonte: Banco Central do Brasil (BCB). "
-                            "A visão mensal usa a última observação disponível de cada mês. "
-                            "Escolha início e fim em cada série. Os padrões são os últimos 12 meses na mensal "
+                            "Fonte: BCB, taxas médias das operações por instituição e produto, ponderadas pelos valores contratados. "
+                            "A visão mensal usa a última observação disponível de cada mês, sem calcular uma média mensal adicional. Confira a janela oficial de cada ponto. "
+                            "Mensal (%) e anual (%) são unidades da taxa. As condições oferecidas ao cliente dependem de cadastro, garantias e encargos. Escolha início e fim em cada série. Os padrões são os últimos 12 meses na mensal "
                             "e os últimos 60 dias na diária, até a última data disponível. Lacunas oficiais são preservadas."
                         )
                         st.caption(f"Produtos disponíveis neste segmento: {len(produtos_beta)}.")
@@ -23235,7 +23230,7 @@ elif menu == "Taxas de Juros por Produto":
                                 options=bancos_ordenados_beta,
                                 max_selections=12,
                                 key="tj_beta_bancos",
-                                help="A seleção inicial reúne as instituições mais bem posicionadas na data mais recente.",
+                                help="A seleção inicial reúne as menores taxas publicadas na data mais recente. Bancos sem informação na modalidade ou janela ficam fora dessa comparação.",
                             )
                     with col_cores_beta:
                         if bancos_sel_beta:
@@ -23801,10 +23796,7 @@ elif menu == "Meios de Pagamento (SPB)":
     # `spb_meios_pagamento`. Esta aba apenas lê os parquets já materializados.
     # =========================================================================
     st.markdown("### Meios de Pagamento (SPB)")
-    st.caption(
-        "Estatísticas de Meios de Pagamentos do BCB (Olinda/MPV_DadosAbertos) — "
-        "Pix, TED, boleto, cartões, intercâmbio, desconto (MDR) e canais de acesso."
-    )
+    render_module_help("Meios de Pagamento (SPB)")
 
     SPB_INSTRUMENTOS_LABEL = {
         "pix": "Pix",
@@ -23911,12 +23903,13 @@ elif menu == "Meios de Pagamento (SPB)":
                 options=["Trimestral", "Mensal"],
                 default="Trimestral",
                 key="spb_nucleo_periodicidade",
+                help=PAYMENT_FREQUENCY_HELP,
             ) or "Trimestral"
 
             if periodicidade_spb == "Mensal":
                 df_nucleo_raw = _spb_carregar_dataset("nucleo_mensal")
                 long_nucleo = _spb_melt_nucleo(df_nucleo_raw, "ano_mes")
-                st.caption("Dados Mensais: conjunto restrito de 6 instrumentos (Pix, Boleto, DOC, TEC, Cheque, TED).")
+                st.caption("Base mensal: Pix, boleto, DOC, TEC, cheque e TED. A participação considera apenas os instrumentos selecionados; cartões entram na base trimestral.")
             else:
                 df_nucleo_raw = _spb_carregar_dataset("nucleo_trimestral")
                 long_nucleo = _spb_melt_nucleo(df_nucleo_raw, "trimestre")
@@ -24157,7 +24150,7 @@ elif menu == "Meios de Pagamento (SPB)":
                     )
                     style_spb_figure(fig_int, title="Tarifa de Intercâmbio por Função", yaxis_title="%", series_order=tarifas_order, period_order=agg_int.sort_values("trimestre")["periodo_label"].drop_duplicates().tolist())
                     st.plotly_chart(fig_int, width="stretch", config=spb_plot_config)
-                    st.caption("Média simples por trimestre/função entre as combinações de produto/bandeira/forma de captura reportadas pelo BCB.")
+                    st.caption("Intercâmbio é a tarifa entre os participantes do arranjo de cartão. O app calcula uma média simples das taxas publicadas por produto, bandeira e captura; cada combinação tem o mesmo peso, sem nova ponderação pelo volume de transações.")
             with col_desc:
                 if df_desconto.empty:
                     st.warning("Dataset 'desconto' (DESCONTODA) ainda não materializado localmente.")
@@ -24175,7 +24168,7 @@ elif menu == "Meios de Pagamento (SPB)":
                     )
                     style_spb_figure(fig_desc, title="Taxa de Desconto (MDR) por Função", yaxis_title="%", series_order=tarifas_order, period_order=agg_desc.sort_values("trimestre")["periodo_label"].drop_duplicates().tolist())
                     st.plotly_chart(fig_desc, width="stretch", config=spb_plot_config)
-                    st.caption("Média simples por trimestre/função entre as combinações de bandeira/forma de captura/parcelas reportadas pelo BCB.")
+                    st.caption("MDR é a taxa de desconto cobrada do estabelecimento. O app calcula uma média simples das taxas publicadas por bandeira, captura e parcelas; cada combinação tem o mesmo peso, sem nova ponderação pelo volume de transações.")
 
         with tab_canais:
             df_canais_serv = _spb_carregar_dataset("canais_servicos")
@@ -24415,7 +24408,7 @@ elif menu == "Estatísticas Crédito BC":
 
 elif menu == "Atualizar Base":
     st.markdown("## Atualização Base")
-    st.markdown("painel unificado para extração e publicação dos dados do IFData/BCB")
+    render_module_help("Atualizar Base")
     st.markdown("---")
 
     # Importar o gerenciador de cache unificado

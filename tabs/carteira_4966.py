@@ -164,7 +164,7 @@ ROW_SPECS = (
             column.lower(),
             "base_total",
             "Carteira total do período-base",
-            help_text=f"{column} do Relatório 16 dividido pela base comum da carteira total.",
+            help_text=f"Carteira {column} do Relatório 16, classificada por tipo de instrumento e garantia. C1 a C5 são categorias distintas dos estágios contábeis. O percentual usa a carteira total do período-base comum. Fonte: IFData trimestral, visão prudencial.",
         )
         for column in CLASSIFICATION_COLUMNS
     ),
@@ -211,8 +211,9 @@ ROW_SPECS = (
         "provision",
         emphasis=True,
         help_text=(
-            "Magnitude da soma das colunas Perda Esperada e2, f2, g2 e h2 "
-            "da tabela Ativo, visão Conglomerado Prudencial."
+            "Saldo de provisão para perdas estimadas: soma das parcelas de Perda Esperada "
+            "e2, f2, g2 e h2, exibida sem o sinal contábil. Usa somente essas parcelas; "
+            "hedge e ajustes de valor justo ficam fora. Fonte: IFData Rel. 2, trimestral, visão prudencial."
         ),
     ),
     RowSpec(
@@ -225,7 +226,7 @@ ROW_SPECS = (
         "Carteira total do mesmo período",
         emphasis=True,
         percent_decimals=2,
-        help_text="Provisão total dividida pela carteira total do mesmo período.",
+        help_text="PDD do Relatório 2 dividida pelo Total Geral do Relatório 16, no mesmo trimestre e perímetro prudencial. O denominador difere da carteira contábil usada em outras abas; confira os alertas do cruzamento.",
     ),
     RowSpec(
         "provision_over_c5",
@@ -235,7 +236,7 @@ ROW_SPECS = (
         "provision",
         "c5",
         "C5 do mesmo período",
-        help_text="Provisão total dividida por C5 no mesmo período.",
+        help_text="PDD total dividida pela carteira C5 do mesmo trimestre. A PDD também cobre ativos de outras categorias; o percentual é uma aproximação de cobertura e depende da composição.",
     ),
     RowSpec(
         "provision_over_delinquency",
@@ -245,7 +246,7 @@ ROW_SPECS = (
         "provision",
         "delinquency",
         "Vencidos acima de 90 dias do mesmo período",
-        help_text="Provisão total dividida pelos vencidos acima de 90 dias no mesmo período.",
+        help_text="PDD total dividida pelo saldo integral das operações com alguma parcela vencida há mais de 90 dias (arrasto), no mesmo trimestre. A provisão também pode cobrir ativos fora desse denominador.",
     ),
 )
 
@@ -286,7 +287,7 @@ GLOSSARY_ROWS = (
     {
         "Variável": "PDD (Perda Esperada)",
         "Definição": (
-            "Magnitude da soma de Perda Esperada (e2), (f2), (g2) e (h2). "
+            "Valor sem o sinal contábil da soma de Perda Esperada (e2), (f2), (g2) e (h2). "
             "Não inclui Hedge de Valor Justo nem Ajuste a Valor Justo."
         ),
         "Fonte": "BCB IFData, Relatório 2 Ativo, Conglomerado Prudencial",

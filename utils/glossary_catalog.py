@@ -281,7 +281,8 @@ TERMS = (
         ("ifdata",), REPORTS, formula="Março × 4; junho × 2; setembro × 12/9; dezembro × 1, para fluxos YTD.",
         aliases=("anualizado", "run rate", "projeção")),
     GlossaryTerm("roe_ytd", "ROE Ac. Anualizado (%)", "Resultado e rentabilidade", "",
-        "O PL médio é aproximado pela média entre dezembro anterior e a data-base. "
+        "Na visão prudencial, o PL médio é aproximado pela média entre dezembro anterior e a data-base. "
+        "Em Peers individual, o cálculo usa o PL atual da pessoa jurídica. "
         "Aportes, dividendos, sazonalidade e lucro extraordinário podem alterar bastante a leitura.",
         ("ifdata",), REPORTS, example="Lucro de 10 em seis meses e PL médio de 100 resultam em ROE anualizado de 20%.",
         aliases=("retorno sobre patrimônio", "ROE acumulado YTD", "rentabilidade"), metric_key="roe_ac_ytd_an"),
@@ -396,13 +397,14 @@ TERMS = (
         "A mudança da carteira em 2025 também afeta a comparação histórica.",
         ("ifdata",), REPORTS, formula="Carteira de Crédito* ÷ Patrimônio Líquido", aliases=("Crédito/PL", "alavancagem de crédito")),
     GlossaryTerm("credit_loss_cost", "Custo de Crédito (%)", "Carteira e perdas", "",
-        "É um fluxo da DRE dividido por um estoque do balanço. A magnitude usada pelo app "
-        "retira o sinal do resultado com perdas; consulte a DRE para distinguir despesa e reversão. "
+        "É um fluxo da DRE dividido por um estoque do balanço. Snapshot e Rankings usam o valor sem o sinal; "
+        "a tabela Peers preserva a distinção entre despesa positiva e reversão negativa ao inverter o sinal da DRE. "
         "O cálculo depende da linha específica de operações de crédito disponível desde 2025.",
         ("ifdata",), REPORTS, aliases=("cost of risk", "f3", "custo do risco"), metric_key="custo_credito"),
     GlossaryTerm("credit_loss_revenue", "Custo de Crédito / Receita de Crédito (%)", "Carteira e perdas", "",
         "Ambos os valores usam a mesma janela acumulada. A receita deve ser positiva e "
-        "as rubricas precisam estar disponíveis. O valor absoluto do numerador exige conferir seu sinal na DRE.",
+        "as rubricas precisam estar disponíveis. Confira o sinal na DRE: Peers apresenta despesa positiva "
+        "e reversão negativa, enquanto os indicadores que usam valor absoluto retiram essa distinção.",
         ("ifdata",), REPORTS, metric_key="custo_credito_receita"),
     GlossaryTerm("provision_income", "Despesa com perdas / Resultado de intermediação bruto", "Carteira e perdas",
         "Compara o resultado com perdas esperadas às rendas financeiras agregadas usadas pelo app. "

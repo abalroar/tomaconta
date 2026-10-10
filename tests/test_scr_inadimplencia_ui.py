@@ -357,7 +357,7 @@ def test_rodape_reporta_supressao_e_notas(fato_multiperiodo):
     assert rodape["primeira_data_base_disponivel"] == S.PRIMEIRA_DATA_BASE
     assert "supressao" in rodape
     assert any("CEP" in nota for nota in rodape["notas"])
-    assert any("IF.data" in nota for nota in rodape["notas"])
+    assert any("IFData" in nota for nota in rodape["notas"])
     assert all(fonte["url"].startswith("https://") for fonte in rodape["fontes"])
 
 

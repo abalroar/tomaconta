@@ -187,7 +187,7 @@ def test_taxas_replaces_operational_cards_with_compact_base_context():
         for call in _calls(widget_name)
     }
 
-    assert "Compare taxas mensais e anuais publicadas pelo Banco Central." in source
+    assert "Compare taxas médias por instituição, produto e janela de contratação." in source
     assert "Fonte" in source
     assert "BCB" in source
     assert "Base até" in source
