@@ -410,6 +410,7 @@ def canonicalize_institution_dataframe(
     out = df.copy()
     code_to_name = build_code_to_name_map(out, *list(extra_frames))
     code_columns = [col for col in ("CodInst", "COD_INST", "cod_inst", "CODINST") if col in out.columns]
+    canonical_by_name: Dict[str, str] = {}
 
     def _resolve_name(row: pd.Series) -> str:
         raw_name = str(row.get(name_column) or "").strip()
@@ -426,7 +427,11 @@ def canonicalize_institution_dataframe(
         if (is_placeholder_institution_name(raw_name) or parece_codigo_instituicao(raw_name)) and code_key:
             nome_base = code_to_name.get(code_key) or resolver_nome_instituicao(code_key, raw_name)
 
-        return canonicalize_institution_name(nome_base, catalog_map=catalog, base_dir=base_dir)
+        if nome_base not in canonical_by_name:
+            canonical_by_name[nome_base] = canonicalize_institution_name(
+                nome_base, catalog_map=catalog, base_dir=base_dir
+            )
+        return canonical_by_name[nome_base]
 
     out[name_column] = out.apply(_resolve_name, axis=1)
     return out
