@@ -155,6 +155,59 @@ def test_original_asset_bytes_are_preserved_after_metadata_serialization(cache, 
     assert ensure_individual_release_cache(cache, info, RELEASE).read_bytes() == raw
     assert ensure_individual_release_cache(cache, info, RELEASE).read_bytes() == raw
     assert get.call_count == 1
+    loaded = cache.carregar_local()
+    assert loaded.sucesso, loaded.mensagem
+    integrity = json.loads(cache.arquivo_metadata_runtime.read_text())["integridade"]
+    assert integrity["sha256"] == sha256(raw).hexdigest()
+    assert integrity["tamanho_bytes"] == len(raw)
+
+
+@pytest.mark.parametrize("manifest_publication_id", [None, "release-new"])
+def test_verified_release_replaces_protected_old_bundle(cache, monkeypatch, manifest_publication_id):
+    old_frame = frame_for(cache, 1.0)
+    cache.bundled_dir.mkdir(parents=True, exist_ok=True)
+    old_frame.to_parquet(cache.bundled_dir / cache.config.arquivo_dados, index=False)
+    (cache.bundled_dir / cache.config.arquivo_metadata).write_text(json.dumps({
+        "publication_id": "bundled-old", "periodos": ["2/2026"],
+        "total_registros": 1, "colunas": list(old_frame.columns), "formato": "parquet",
+    }))
+    seed(cache, 0.5)
+    assert cache.read_data_file.parent == cache.bundled_dir
+    raw = released_bytes(frame_for(cache, 2.0))
+    get = mocked_download(monkeypatch, raw)
+    info = manifest(cache, raw, publication_id=manifest_publication_id)
+
+    activated = ensure_individual_release_cache(cache, info, RELEASE)
+
+    assert activated == cache.arquivo_dados_runtime
+    assert activated.read_bytes() == raw
+    metadata = json.loads(cache.arquivo_metadata_runtime.read_text())
+    assert metadata.get("publication_id") == manifest_publication_id
+    assert metadata["baseline_publication_id"] == "bundled-old"
+    assert metadata["integridade"]["sha256"] == sha256(raw).hexdigest()
+    assert metadata["extra"]["release_asset_sha256"] == sha256(raw).hexdigest()
+    loaded = cache.carregar_local()
+    assert loaded.sucesso, loaded.mensagem
+    value_column = "Ativo Total" if cache.config.nome == "principal_individual" else "Valor"
+    assert loaded.dados[value_column].tolist() == [2.0]
+    assert ensure_individual_release_cache(cache, info, RELEASE) == activated
+    get.assert_called_once()
+
+
+def test_verified_release_missing_bundled_period_never_promotes(cache, monkeypatch):
+    original = seed(cache)
+    cache.bundled_dir.mkdir(parents=True, exist_ok=True)
+    older_frame = frame_for(cache)
+    older_frame["Período"] = "1/2026"
+    older_frame.to_parquet(cache.bundled_dir / cache.config.arquivo_dados, index=False)
+    (cache.bundled_dir / cache.config.arquivo_metadata).write_text(json.dumps({
+        "publication_id": "bundled-old", "periodos": ["1/2026", "2/2026"],
+    }))
+    raw = released_bytes(frame_for(cache, 2.0))
+    mocked_download(monkeypatch, raw)
+    with pytest.raises(ValueError, match="não cobre os períodos"):
+        ensure_individual_release_cache(cache, manifest(cache, raw), RELEASE)
+    assert_unchanged(cache, original)
 
 
 def test_missing_hash_or_wrong_cache_identity_blocks_before_network(cache, monkeypatch):

@@ -94,20 +94,23 @@ class PrincipalCache(BaseCache):
 
     @property
     def read_data_file(self) -> Path:
-        """Artefato canônico de leitura do consolidado publicado.
+        """Geração de leitura selecionada pelo contrato de publicação.
 
-        O cache individual continua usando o runtime porque não possui bundle
-        versionado. Escritas permanecem em ``arquivo_dados_runtime``.
+        Bundles legados conservam a precedência. Um runtime salvo sobre a
+        publicação atual usa a seleção coerente de dados/metadata do BaseCache.
+        O cache individual mantém o comportamento de runtime existente.
         """
-        if self.repo_prefix == "principal" and self.bundled_data_file.exists():
+        if (self.repo_prefix == "principal" and self.bundled_data_file.exists()
+                and not self._publication_metadata()):
             return self.bundled_data_file
-        return self.arquivo_dados
+        return self.coherent_read_paths()[0]
 
     @property
     def read_metadata_file(self) -> Path:
-        if self.repo_prefix == "principal" and self.bundled_metadata_file.exists():
+        if (self.repo_prefix == "principal" and self.bundled_data_file.exists()
+                and not self._publication_metadata()):
             return self.bundled_metadata_file
-        return self.arquivo_metadata
+        return self.coherent_read_paths()[1]
 
     def baixar_remoto(self) -> CacheResult:
         """Baixa dados do GitHub (tenta múltiplas fontes em ordem de prioridade)."""

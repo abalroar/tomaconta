@@ -151,15 +151,17 @@ class DerivedMetricsCache(BaseCache):
 
     @property
     def read_data_file(self) -> Path:
-        if self.config.nome == "derived_metrics" and self.bundled_data_file.exists():
+        if (self.config.nome == "derived_metrics" and self.bundled_data_file.exists()
+                and not self._publication_metadata()):
             return self.bundled_data_file
-        return self.arquivo_dados
+        return self.coherent_read_paths()[0]
 
     @property
     def read_metadata_file(self) -> Path:
-        if self.config.nome == "derived_metrics" and self.bundled_metadata_file.exists():
+        if (self.config.nome == "derived_metrics" and self.bundled_data_file.exists()
+                and not self._publication_metadata()):
             return self.bundled_metadata_file
-        return self.arquivo_metadata
+        return self.coherent_read_paths()[1]
 
     def baixar_remoto(self):
         asset_url = add_release_cache_buster(

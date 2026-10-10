@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+import json
+import tempfile
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
@@ -22,6 +24,7 @@ import pandas as pd
 import requests
 
 from .base import BaseCache, CacheConfig, CacheResult
+from .update_state import locked_cache_update
 from .release_config import get_release_config
 from .taxas_juros_historico import REQUEST_TIMEOUT, _escape_odata_literal, _request_json
 
@@ -436,12 +439,14 @@ class SPBMeiosPagamentoCache(BaseCache):
             callback(mensagem)
         self._log(nivel, mensagem)
 
+    def _runtime_paths(self) -> List[Path]:
+        return list(dict.fromkeys([*super()._runtime_paths(), *self.dataset_paths().values(), self.manifest_path]))
+
     def _save_json(self, path: Path, payload: Dict[str, Any]) -> None:
-        import json
-
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+        self._write_json_atomic(path, payload)
 
+    @locked_cache_update
     def materialize_history(
         self,
         *,
@@ -452,132 +457,95 @@ class SPBMeiosPagamentoCache(BaseCache):
         log_callback: Optional[Callable[[str], None]] = None,
     ) -> CacheResult:
         self._garantir_diretorio()
-        selecionados = [spec for spec in DATASETS if not datasets or spec.key in set(datasets)]
-        if not selecionados:
-            return CacheResult(sucesso=False, mensagem="Nenhum dataset SPB selecionado.", fonte="nenhum")
-
+        selected = [spec for spec in DATASETS if not datasets or spec.key in set(datasets)]
+        if not selected:
+            return CacheResult(False, "Nenhum dataset SPB selecionado.", fonte="nenhum")
+        import pyarrow.parquet as pq
         paths = self.dataset_paths()
-        total = len(selecionados)
-        falhas: List[Dict[str, str]] = []
-        resumo: Dict[str, int] = {}
-
-        with requests.Session() as session:
-            for idx, spec in enumerate(selecionados, start=1):
-                path = paths[spec.key]
-                if not overwrite and path.exists():
-                    self._log_local("info", f"{spec.key}: já materializado, pulando (overwrite=False).", log_callback)
+        failures = []
+        with tempfile.TemporaryDirectory(prefix="spb-candidate-", dir=self.cache_dir) as directory:
+            candidates = {}
+            main_metadata = None
+            with requests.Session() as session:
+                for index, spec in enumerate(selected, start=1):
+                    path = paths[spec.key]
+                    if not overwrite and path.exists():
+                        try:
+                            parquet = pq.ParquetFile(path)
+                            if not parquet.metadata.num_rows:
+                                raise ValueError("Parquet vazio")
+                            for _ in parquet.iter_batches(batch_size=50_000):
+                                pass
+                            if progress_callback:
+                                progress_callback(index / len(selected), f"{spec.key}: já existe, pulado")
+                            continue
+                        except Exception as exc:
+                            self._log_local("warning", f"{spec.key}: cache inválido, refazendo: {exc}", log_callback)
                     if progress_callback:
-                        progress_callback(idx / total, f"{spec.key}: já existe, pulado")
-                    continue
+                        progress_callback((index - 1) / len(selected), f"Baixando {spec.key} ({index}/{len(selected)})...")
+                    try:
+                        data = _fetch_dataset_history(spec, session=session, timeout=timeout)
+                        if data.empty:
+                            raise RuntimeError("API retornou conjunto vazio")
+                        candidate = Path(directory) / path.name
+                        data.to_parquet(candidate, index=False)
+                        candidates[path] = candidate
+                        if spec.key == _MAIN_KEY:
+                            main_metadata = self._build_local_metadata(
+                                data, "api", "parquet", {"dataset": spec.key, "function_name": spec.function_name},
+                            )
+                            publication = self._publication_metadata()
+                            if publication:
+                                main_metadata["baseline_publication_id"] = publication["publication_id"]
+                        self._log_local("info", f"{spec.key}: {len(data):,} linhas preparadas.", log_callback)
+                    except Exception as exc:
+                        failures.append({"dataset": spec.key, "erro": str(exc)})
+                        self._log_local("error", f"Falha em {spec.key}: {exc}", log_callback)
+                    if progress_callback:
+                        progress_callback(index / len(selected), f"{spec.key}: concluído")
+            if failures:
+                return CacheResult(False, f"{len(failures)} dataset(s) falharam; versão anterior preservada",
+                                   metadata={"failures": failures}, fonte="nenhum")
+            if not candidates:
+                return CacheResult(True, "Nenhum dataset novo processado (todos já materializados).",
+                                   metadata={"datasets": {}}, fonte="cache_local")
+            main_candidate = candidates.get(self.arquivo_dados_runtime, self.arquivo_dados)
+            if main_candidate.exists() and main_metadata is None:
+                main_metadata = json.loads(self.arquivo_metadata.read_text()) if self.arquivo_metadata.exists() else {
+                    "total_registros": pq.ParquetFile(main_candidate).metadata.num_rows,
+                }
+            summary = {}
+            for key, path in self.read_dataset_paths().items():
+                candidate = candidates.get(paths[key], path)
+                if candidate.exists():
+                    summary[key] = int(pq.ParquetFile(candidate).metadata.num_rows)
+                    # Cada dataset declarado terá os mesmos bytes em runtime.
+                    # O promotor copia/valida o bundle junto aos novos candidatos.
+                    if candidate != paths[key]:
+                        candidates.setdefault(paths[key], candidate)
+            manifest = {"finalized_at": datetime.now().isoformat(), "datasets": summary}
+            manifest_candidate = Path(directory) / self.manifest_path.name
+            self._save_json(manifest_candidate, manifest)
+            extras = {target: source for target, source in candidates.items() if target != self.arquivo_dados_runtime}
+            extras[self.manifest_path] = manifest_candidate
+            saved = (self.salvar_arquivo_local(main_candidate, main_metadata, extras)
+                     if main_candidate.exists() else self.salvar_arquivos_auxiliares(extras))
+            if not saved.sucesso:
+                return saved
+            return CacheResult(True, f"Histórico SPB consolidado: {sum(summary.values()):,} linhas em {len(summary)} dataset(s).",
+                               metadata=manifest, fonte="api")
 
-                if progress_callback:
-                    progress_callback((idx - 1) / total, f"Baixando {spec.key} ({idx}/{total})...")
-                self._log_local(
-                    "info",
-                    f"Baixando histórico completo de {spec.key} ({spec.function_name})...",
-                    log_callback,
-                )
-                try:
-                    df = _fetch_dataset_history(spec, session=session, timeout=timeout)
-                    if df.empty:
-                        raise RuntimeError("API retornou conjunto vazio")
-
-                    if spec.key == _MAIN_KEY:
-                        resultado = self.salvar_local(
-                            df,
-                            fonte="api",
-                            info_extra={"dataset": spec.key, "function_name": spec.function_name},
-                        )
-                        if not resultado.sucesso:
-                            raise RuntimeError(resultado.mensagem)
-                    else:
-                        tmp_path = path.with_suffix(".parquet.tmp")
-                        df.to_parquet(tmp_path, index=False)
-                        tmp_path.replace(path)
-
-                    resumo[spec.key] = int(len(df))
-                    self._log_local("info", f"{spec.key}: {len(df):,} linhas materializadas.", log_callback)
-                except Exception as exc:
-                    falhas.append({"dataset": spec.key, "erro": str(exc)})
-                    self._log_local("error", f"Falha em {spec.key}: {exc}", log_callback)
-
-                if progress_callback:
-                    progress_callback(idx / total, f"{spec.key}: concluído")
-
-        if falhas:
-            return CacheResult(
-                sucesso=False,
-                mensagem=f"{len(falhas)} dataset(s) falharam: {', '.join(item['dataset'] for item in falhas)}",
-                metadata={"failures": falhas, "summary": resumo},
-                fonte="nenhum",
-            )
-
-        metadata = {
-            "finalized_at": datetime.now().isoformat(),
-            "datasets": resumo,
-        }
-        self._save_json(self.manifest_path, metadata)
-
-        if not resumo:
-            return CacheResult(
-                sucesso=True,
-                mensagem="Nenhum dataset novo processado (todos já materializados).",
-                metadata=metadata,
-                fonte="cache_local",
-            )
-
-        return CacheResult(
-            sucesso=True,
-            mensagem=(
-                f"Histórico SPB consolidado: {sum(resumo.values()):,} linhas em {len(resumo)} dataset(s)."
-            ),
-            metadata=metadata,
-            fonte="api",
-        )
-
+    @locked_cache_update
     def bootstrap_local_assets(self, *, force: bool = False) -> CacheResult:
         paths = self.dataset_paths()
         if not force and all(path.exists() for path in self.read_dataset_paths().values()) and self.arquivo_metadata.exists():
             return CacheResult(sucesso=True, mensagem="Assets SPB já disponíveis localmente.", fonte="cache_local")
 
-        self._garantir_diretorio()
-        urls: Dict[Path, str] = {self.arquivo_metadata_runtime: self.github_release_metadata_url}
+        urls: Dict[Path, str] = {self.arquivo_metadata_runtime: self.github_release_metadata_url,
+                                 self.manifest_path: f"{self.release_base_url}/{self.config.nome}_manifest.json"}
         for spec in DATASETS:
-            urls[paths[spec.key]] = (
-                self.github_release_parquet_url if spec.key == _MAIN_KEY else self._release_url_for(spec.key)
-            )
-
-        for local_path, url in urls.items():
-            try:
-                response = requests.get(url, timeout=120)
-            except requests.RequestException as exc:
-                if local_path == self.arquivo_dados_runtime:
-                    return CacheResult(sucesso=False, mensagem=f"Erro de rede: {exc}", fonte="nenhum")
-                continue
-
-            if response.status_code == 404:
-                if local_path == self.arquivo_dados_runtime:
-                    return CacheResult(
-                        sucesso=False, mensagem="Dataset núcleo trimestral não encontrado nos releases", fonte="nenhum"
-                    )
-                continue
-
-            if response.status_code != 200:
-                if local_path == self.arquivo_dados_runtime:
-                    return CacheResult(
-                        sucesso=False,
-                        mensagem=f"Falha ao baixar asset principal ({response.status_code})",
-                        fonte="nenhum",
-                    )
-                continue
-
-            local_path.parent.mkdir(parents=True, exist_ok=True)
-            if local_path.suffix == ".json":
-                local_path.write_text(response.text, encoding="utf-8")
-            else:
-                local_path.write_bytes(response.content)
-
-        return CacheResult(sucesso=True, mensagem="Assets SPB baixados dos releases.", fonte="github_releases")
+            urls[paths[spec.key]] = self.github_release_parquet_url if spec.key == _MAIN_KEY else self._release_url_for(spec.key)
+        return self.baixar_arquivos_local(urls)
 
     def baixar_remoto(self) -> CacheResult:
         bootstrap = self.bootstrap_local_assets(force=True)
@@ -626,6 +594,7 @@ class SPBMeiosPagamentoCache(BaseCache):
             return CacheResult(sucesso=False, mensagem=f"Dataset {key} indisponível: {bootstrap.mensagem}", fonte="nenhum")
         return CacheResult(sucesso=True, mensagem=f"{key} baixado dos releases", dados=pd.read_parquet(path), fonte="github_releases")
 
+    @locked_cache_update
     def extrair_periodo(self, periodo: str, **kwargs) -> CacheResult:
         """Refaz a extração completa de UM dataset (`periodo` = chave do dataset)."""
         spec = _spec_by_key(periodo)
@@ -639,6 +608,7 @@ class SPBMeiosPagamentoCache(BaseCache):
             fonte="api",
         )
 
+    @locked_cache_update
     def limpar_local(self) -> CacheResult:
         resultado = super().limpar_local()
         extras_removidos: List[str] = []

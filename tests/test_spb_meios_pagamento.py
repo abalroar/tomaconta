@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -110,7 +111,10 @@ def test_materialize_history_downloads_only_selected_datasets(monkeypatch, tmp_p
 def test_materialize_history_skips_already_materialized_dataset_unless_overwrite(monkeypatch, tmp_path):
     cache = SPBMeiosPagamentoCache(tmp_path)
     cache._garantir_diretorio()
-    (cache.cache_dir / "intercambio.parquet").write_bytes(b"")
+    # O skip confirma um parquet legível; arquivo truncado deve ser reextraído.
+    pd.DataFrame({"trimestre": ["20241"], "tarifa_intercambio_ponderada": [1.0]}).to_parquet(
+        cache.cache_dir / "intercambio.parquet", index=False,
+    )
 
     calls = []
 
@@ -150,7 +154,73 @@ def test_materialize_history_reports_failures_without_raising(monkeypatch, tmp_p
 
     assert resultado.sucesso is False
     assert resultado.metadata["failures"] == [{"dataset": "desconto", "erro": "falha de rede simulada"}]
-    assert cache.arquivo_dados.exists() is True
+    # Nenhum dataset do pacote parcial deve tornar-se a versão ativa.
+    assert cache.arquivo_dados.exists() is False
+
+
+def _seed_complete_spb_bundle(cache):
+    cache.bundled_dir.mkdir(parents=True, exist_ok=True)
+    bundled_bytes = {}
+    for spec in DATASETS:
+        data = pd.DataFrame({
+            spec.period_column: ["202401" if spec.period_column == "ano_mes" else "20241"],
+            "valor_preservado": [1.0],
+        })
+        path = cache.bundled_dir / cache.dataset_paths()[spec.key].name
+        data.to_parquet(path, index=False)
+        bundled_bytes[spec.key] = path.read_bytes()
+    (cache.bundled_dir / cache.config.arquivo_metadata).write_text(
+        json.dumps({"total_registros": 1, "colunas": ["trimestre", "valor_preservado"]}),
+        encoding="utf-8",
+    )
+    return bundled_bytes
+
+
+def test_materialize_subset_promotes_all_declared_bundled_datasets_without_changing_bytes(monkeypatch, tmp_path):
+    cache = SPBMeiosPagamentoCache(tmp_path)
+    bundled_bytes = _seed_complete_spb_bundle(cache)
+    updated = pd.DataFrame({"trimestre": ["20242"], "tarifa_intercambio_ponderada": [1.5]})
+    calls = []
+
+    def fake_fetch(spec, *, session=None, timeout=120):
+        calls.append(spec.key)
+        assert spec.key == "intercambio"
+        return updated.copy()
+
+    monkeypatch.setattr("utils.ifdata_cache.spb_meios_pagamento._fetch_dataset_history", fake_fetch)
+    result = cache.materialize_history(datasets=["intercambio"])
+
+    assert result.sucesso
+    assert calls == ["intercambio"]
+    manifest = json.loads(cache.manifest_path.read_text(encoding="utf-8"))
+    assert set(manifest["datasets"]) == {spec.key for spec in DATASETS}
+    for key in manifest["datasets"]:
+        path = cache.dataset_paths()[key]
+        assert path.exists()
+        assert len(pd.read_parquet(path)) == manifest["datasets"][key]
+        assert (cache.bundled_dir / path.name).read_bytes() == bundled_bytes[key]
+        if key != "intercambio":
+            assert path.read_bytes() == bundled_bytes[key]
+    pd.testing.assert_frame_equal(pd.read_parquet(cache.dataset_paths()["intercambio"]), updated)
+
+
+def test_materialize_subset_failure_preserves_complete_bundled_generation(monkeypatch, tmp_path):
+    cache = SPBMeiosPagamentoCache(tmp_path)
+    bundled_bytes = _seed_complete_spb_bundle(cache)
+
+    def fake_fetch(spec, *, session=None, timeout=120):
+        if spec.key == "desconto":
+            raise RuntimeError("falha de rede simulada")
+        return pd.DataFrame({"trimestre": ["20242"], "tarifa_intercambio_ponderada": [1.5]})
+
+    monkeypatch.setattr("utils.ifdata_cache.spb_meios_pagamento._fetch_dataset_history", fake_fetch)
+    result = cache.materialize_history(datasets=["intercambio", "desconto"])
+
+    assert not result.sucesso
+    assert not cache.manifest_path.exists()
+    for key, runtime_path in cache.dataset_paths().items():
+        assert not runtime_path.exists()
+        assert cache.read_dataset_paths()[key].read_bytes() == bundled_bytes[key]
 
 
 def test_materialize_history_unknown_dataset_key_is_silently_ignored(tmp_path):

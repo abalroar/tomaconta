@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import shutil
+import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,6 +23,7 @@ import requests
 
 from .base import BaseCache, CacheConfig, CacheResult
 from .release_config import get_release_config
+from .update_state import locked_cache_update
 
 logger = logging.getLogger("ifdata_cache")
 
@@ -895,6 +897,9 @@ class TaxasJurosHistoricoCache(BaseCache):
             "instituicoes": self.cache_dir / "dim_instituicoes.parquet",
         }
 
+    def _runtime_paths(self) -> List[Path]:
+        return [*super()._runtime_paths(), *self.dimension_paths().values(), self.manifest_path]
+
     def extra_release_assets(self) -> List[Tuple[Path, str]]:
         extras: List[Tuple[Path, str]] = []
         dim_paths = self.dimension_paths()
@@ -923,7 +928,28 @@ class TaxasJurosHistoricoCache(BaseCache):
 
     def _save_json(self, path: Path, payload: Dict[str, Any]) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+        self._write_json_atomic(path, payload)
+
+    def _seed_windows_from_current(self) -> None:
+        """Recupera staging a partir do histórico legível, preservando o recorte externo."""
+        if not self.arquivo_dados.exists():
+            return
+        import pyarrow.parquet as pq
+        existing = set(self._list_window_dates())
+        fragments: Dict[str, List[Path]] = {}
+        with tempfile.TemporaryDirectory(prefix="seed-windows-", dir=self.staging_dir) as directory:
+            root = Path(directory)
+            for index, batch in enumerate(pq.ParquetFile(self.arquivo_dados).iter_batches(batch_size=50_000)):
+                data = batch.to_pandas()
+                for window, group in data.groupby("inicio_periodo", observed=True):
+                    key = pd.Timestamp(window).strftime("%Y-%m-%d")
+                    if key in existing:
+                        continue
+                    fragment = root / f"{key}-{index}.parquet"
+                    group.to_parquet(fragment, index=False)
+                    fragments.setdefault(key, []).append(fragment)
+            for key, files in fragments.items():
+                self._write_window_file(key, pd.concat([pd.read_parquet(path) for path in files], ignore_index=True))
 
     def _window_path(self, inicio_periodo: str) -> Path:
         ano = str(inicio_periodo)[:4]
@@ -1135,11 +1161,14 @@ class TaxasJurosHistoricoCache(BaseCache):
         df_parametros: pd.DataFrame,
         df_datas: pd.DataFrame,
         df_instituicoes: pd.DataFrame,
-    ) -> None:
+    ) -> Dict[Path, Path]:
         dim_paths = self.dimension_paths()
-        df_parametros.to_parquet(dim_paths["parametros"], index=False)
-        df_datas.to_parquet(dim_paths["datas"], index=False)
-        df_instituicoes.to_parquet(dim_paths["instituicoes"], index=False)
+        candidates = {}
+        for key, data in (("parametros", df_parametros), ("datas", df_datas), ("instituicoes", df_instituicoes)):
+            candidate = dim_paths[key].with_suffix(".parquet.tmp")
+            data.to_parquet(candidate, index=False)
+            candidates[dim_paths[key]] = candidate
+        return candidates
 
     def _write_final_dataset(self, annual_paths: Sequence[Path]) -> int:
         tmp_path = self.cache_dir / "dados.parquet.tmp"
@@ -1174,7 +1203,6 @@ class TaxasJurosHistoricoCache(BaseCache):
             total_rows = int(len(final_df))
             final_df.to_parquet(tmp_path, index=False)
 
-        tmp_path.replace(self.arquivo_dados)
         return total_rows
 
     def _build_metadata(
@@ -1248,7 +1276,7 @@ class TaxasJurosHistoricoCache(BaseCache):
         total_rows = self._write_final_dataset(annual_paths)
         self._log_local("info", "Construindo dimensões auxiliares...", log_callback)
         df_instituicoes = self._build_instituicoes_dimension(annual_paths)
-        self._write_dimensions(
+        candidates = self._write_dimensions(
             df_parametros=df_parametros.reset_index(drop=True),
             df_datas=df_datas.reset_index(drop=True),
             df_instituicoes=df_instituicoes.reset_index(drop=True),
@@ -1263,9 +1291,9 @@ class TaxasJurosHistoricoCache(BaseCache):
             finalized_at=finalized_at,
             reconciliation_stats=reconciliation_stats,
         )
-        self._save_json(self.arquivo_metadata, metadata)
+        manifest_candidate = self.manifest_path.with_suffix(".json.tmp")
         self._save_json(
-            self.manifest_path,
+            manifest_candidate,
             {
                 "finalized_at": finalized_at,
                 "total_rows": total_rows,
@@ -1276,7 +1304,13 @@ class TaxasJurosHistoricoCache(BaseCache):
                 "reconciled_windows": reconciled_windows,
             },
         )
-        return metadata
+        candidates[self.manifest_path] = manifest_candidate
+        saved = self.salvar_arquivo_local(self.cache_dir / "dados.parquet.tmp", metadata, candidates)
+        if not saved.sucesso:
+            raise RuntimeError(saved.mensagem)
+        for candidate in [self.cache_dir / "dados.parquet.tmp", *candidates.values()]:
+            candidate.unlink(missing_ok=True)
+        return saved.metadata
 
     def _write_materialized_artifacts(
         self,
@@ -1296,6 +1330,7 @@ class TaxasJurosHistoricoCache(BaseCache):
             log_callback=log_callback,
         )
 
+    @locked_cache_update
     def materialize_history(
         self,
         *,
@@ -1309,11 +1344,7 @@ class TaxasJurosHistoricoCache(BaseCache):
         log_callback: Optional[Callable[[str], None]] = None,
     ) -> CacheResult:
         self._garantir_estrutura()
-        if overwrite:
-            self.limpar_local()
-            if self.staging_dir.exists():
-                shutil.rmtree(self.staging_dir, ignore_errors=True)
-            self._garantir_estrutura()
+        self._seed_windows_from_current()
 
         with requests.Session() as session:
             df_datas_disponiveis = fetch_taxas_juros_datas_disponiveis(session=session)
@@ -1340,11 +1371,21 @@ class TaxasJurosHistoricoCache(BaseCache):
             tail_windows = target_windows[-tail_window_count:] if existing_windows and tail_window_count else []
             windows_to_process = []
             seen = set()
-            for item in missing_windows + tail_windows:
+            for item in (target_windows if overwrite else missing_windows + tail_windows):
                 if item not in seen:
                     seen.add(item)
                     windows_to_process.append(item)
 
+            previous_checkpoint = json.loads(self.checkpoint_path.read_text()) if self.checkpoint_path.exists() else {}
+            resume = (
+                not previous_checkpoint.get("finalized", False)
+                and previous_checkpoint.get("target_windows") == target_windows
+                and previous_checkpoint.get("overwrite") == overwrite
+                and previous_checkpoint.get("reprocess_tail_windows") == int(reprocess_tail_windows)
+            )
+            completed_before = set(previous_checkpoint.get("completed_windows", [])) if resume else set()
+            required_windows = previous_checkpoint.get("required_windows", windows_to_process) if resume else windows_to_process
+            windows_to_process = [item for item in required_windows if item not in completed_before]
             if max_windows_per_run is not None:
                 windows_to_process = windows_to_process[: max(int(max_windows_per_run), 0)]
 
@@ -1352,23 +1393,31 @@ class TaxasJurosHistoricoCache(BaseCache):
             checkpoint = {
                 "run_id": run_id,
                 "target_windows_total": len(target_windows),
+                "target_windows": target_windows,
+                "required_windows": required_windows,
                 "requested_windows_this_run": len(windows_to_process),
                 "data_inicio": data_inicio,
                 "data_fim": data_fim,
                 "overwrite": overwrite,
                 "reprocess_tail_windows": int(reprocess_tail_windows),
                 "started_at": datetime.now().isoformat(),
-                "completed_windows": [],
+                "completed_windows": [item for item in target_windows if item in completed_before],
                 "failed_windows": [],
             }
             self._save_json(self.checkpoint_path, checkpoint)
 
             if not windows_to_process:
+                pending = set(required_windows).difference(completed_before) | set(target_windows).difference(existing_windows)
+                if pending:
+                    return CacheResult(True, "Nenhuma janela processada; há janelas pendentes em staging.",
+                                       metadata={"remaining_windows": len(pending), "finalized": False}, fonte="cache_local")
                 metadata = self._write_materialized_artifacts(
                     df_parametros=df_parametros,
                     df_datas_disponiveis=df_datas_disponiveis,
                     log_callback=log_callback,
                 )
+                checkpoint["finalized"] = True
+                self._save_json(self.checkpoint_path, checkpoint)
                 return CacheResult(
                     sucesso=True,
                     mensagem="Nenhuma janela nova pendente; artefatos consolidados novamente.",
@@ -1377,6 +1426,7 @@ class TaxasJurosHistoricoCache(BaseCache):
                 )
 
             failures: List[Dict[str, str]] = []
+            completed_this_run = 0
             total_this_run = len(windows_to_process)
             for idx, inicio_periodo in enumerate(windows_to_process, start=1):
                 if progress_callback:
@@ -1405,6 +1455,7 @@ class TaxasJurosHistoricoCache(BaseCache):
                     )
                     self._write_window_file(inicio_periodo, fact_df)
                     checkpoint["completed_windows"].append(inicio_periodo)
+                    completed_this_run += 1
                     self._save_json(self.checkpoint_path, checkpoint)
                 except Exception as exc:
                     failures.append({"inicio_periodo": inicio_periodo, "erro": str(exc)})
@@ -1413,7 +1464,10 @@ class TaxasJurosHistoricoCache(BaseCache):
                     self._log_local("error", f"Falha na janela {inicio_periodo}: {exc}", log_callback)
 
             processed_after_run = set(self._list_window_dates())
-            remaining_windows = [item for item in target_windows if item not in processed_after_run]
+            remaining_windows = sorted(
+                set(target_windows).difference(processed_after_run)
+                | set(required_windows).difference(checkpoint["completed_windows"])
+            )
 
             if failures:
                 return CacheResult(
@@ -1421,7 +1475,7 @@ class TaxasJurosHistoricoCache(BaseCache):
                     mensagem=f"{len(failures)} janela(s) falharam; progresso salvo em staging.",
                     metadata={
                         "run_id": run_id,
-                        "processed_this_run": len(checkpoint["completed_windows"]),
+                        "processed_this_run": completed_this_run,
                         "remaining_windows": len(remaining_windows),
                         "failures": failures,
                         "finalized": False,
@@ -1433,12 +1487,12 @@ class TaxasJurosHistoricoCache(BaseCache):
                 return CacheResult(
                     sucesso=True,
                     mensagem=(
-                        f"Chunk concluído: {len(checkpoint['completed_windows'])} janela(s) processada(s), "
+                        f"Chunk concluído: {completed_this_run} janela(s) processada(s), "
                         f"{len(remaining_windows)} pendente(s)."
                     ),
                     metadata={
                         "run_id": run_id,
-                        "processed_this_run": len(checkpoint["completed_windows"]),
+                        "processed_this_run": completed_this_run,
                         "remaining_windows": len(remaining_windows),
                         "finalized": False,
                     },
@@ -1464,6 +1518,7 @@ class TaxasJurosHistoricoCache(BaseCache):
                 fonte="api",
             )
 
+    @locked_cache_update
     def bootstrap_local_assets(self, *, force: bool = False) -> CacheResult:
         if (
             not force
@@ -1478,49 +1533,15 @@ class TaxasJurosHistoricoCache(BaseCache):
             )
 
         urls = {
-            self.arquivo_dados: self.github_release_parquet_url,
-            self.arquivo_metadata: self.github_release_metadata_url,
+            self.arquivo_dados_runtime: self.github_release_parquet_url,
+            self.arquivo_metadata_runtime: self.github_release_metadata_url,
             self.dimension_paths()["parametros"]: self.github_release_dim_parametros_url,
             self.dimension_paths()["datas"]: self.github_release_dim_datas_url,
             self.dimension_paths()["instituicoes"]: self.github_release_dim_instituicoes_url,
             self.manifest_path: self.github_release_manifest_url,
         }
 
-        self._garantir_diretorio()
-
-        for local_path, url in urls.items():
-            try:
-                response = requests.get(url, timeout=120)
-            except requests.RequestException as exc:
-                if local_path == self.arquivo_dados:
-                    return CacheResult(sucesso=False, mensagem=f"Erro de rede: {exc}", fonte="nenhum")
-                continue
-
-            if response.status_code == 404:
-                if local_path == self.arquivo_dados:
-                    return CacheResult(sucesso=False, mensagem="Parquet histórico não encontrado nos releases", fonte="nenhum")
-                continue
-
-            if response.status_code != 200:
-                if local_path == self.arquivo_dados:
-                    return CacheResult(
-                        sucesso=False,
-                        mensagem=f"Falha ao baixar asset principal ({response.status_code})",
-                        fonte="nenhum",
-                    )
-                continue
-
-            local_path.parent.mkdir(parents=True, exist_ok=True)
-            if local_path.suffix == ".json":
-                local_path.write_text(response.text, encoding="utf-8")
-            else:
-                local_path.write_bytes(response.content)
-
-        return CacheResult(
-            sucesso=True,
-            mensagem="Assets históricos baixados dos releases.",
-            fonte="github_releases",
-        )
+        return self.baixar_arquivos_local(urls)
 
     def baixar_remoto(self) -> CacheResult:
         """Baixa e valida o asset sem materializá-lo em pandas.
@@ -1561,6 +1582,7 @@ class TaxasJurosHistoricoCache(BaseCache):
             return resultado
         return self.carregar_local()
 
+    @locked_cache_update
     def extrair_periodo(self, periodo: str, **kwargs) -> CacheResult:
         with requests.Session() as session:
             df_datas = fetch_taxas_juros_datas_disponiveis(session=session)
@@ -1599,6 +1621,7 @@ class TaxasJurosHistoricoCache(BaseCache):
                 return False, f"Coluna obrigatória ausente: {col}"
         return True, "OK"
 
+    @locked_cache_update
     def limpar_local(self) -> CacheResult:
         resultado = super().limpar_local()
         dim_paths = self.dimension_paths()

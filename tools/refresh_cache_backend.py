@@ -19,10 +19,11 @@ import time
 import shutil
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Dict, Iterable, List
+from uuid import uuid4
 
 import pandas as pd
 
@@ -33,16 +34,20 @@ from utils.ifdata_cache import CacheManager, gerar_periodos_trimestrais
 from utils.ifdata_cache import (
     describe_support_window,
     filter_supported_periods,
-    materialize_critical_screens_cache,
 )
-from utils.ifdata_cache.derived_metrics import materialize_derived_metrics_cache
 from utils.ifdata_cache.diagnostics import (
     build_runtime_manifest,
     count_placeholder_names,
     find_placeholder_rows,
 )
 from utils.ifdata_cache.release_config import get_release_config
-from utils.ifdata_cache.release_ops import upload_release_assets
+from utils.ifdata_cache.release_ops import (
+    DERIVED_TARGET_SPECS, materialize_for_publication, prepare_release_publication,
+    upload_release_assets,
+)
+from utils.ifdata_cache.base import CacheResult
+from utils.ifdata_cache.update_state import UpdateRunStore, mutation_lock
+from tools.update_caches_cli import _materialize_with_receipt
 
 DEFAULT_TIPOS = [
     "principal",
@@ -60,16 +65,8 @@ DEFAULT_TIPOS = [
 ]
 
 DERIVED_SPECS = [
-    {
-        "tipo": "derived_metrics",
-        "dre_cache_name": "dre",
-        "principal_cache_name": "principal",
-    },
-    {
-        "tipo": "derived_metrics_individual",
-        "dre_cache_name": "dre_individual",
-        "principal_cache_name": "principal_individual",
-    },
+    {"tipo": name, **spec["kwargs"]}
+    for name, spec in DERIVED_TARGET_SPECS.items()
 ]
 
 PUBLISH_CACHE_NAMES = DEFAULT_TIPOS + [spec["tipo"] for spec in DERIVED_SPECS] + ["critical_screens"]
@@ -156,7 +153,8 @@ def _is_expected_no_data_error(message: str | None) -> bool:
 
 def _create_snapshot(base_dir: Path, label: str, reason: str, dry_run: bool = False) -> Path:
     cache_dir, versions_dir = _cache_paths(base_dir)
-    versions_dir.mkdir(parents=True, exist_ok=True)
+    if not dry_run:
+        versions_dir.mkdir(parents=True, exist_ok=True)
     version = _version_name(label)
     target = versions_dir / version
 
@@ -186,29 +184,58 @@ def _create_snapshot(base_dir: Path, label: str, reason: str, dry_run: bool = Fa
 
 def _restore_snapshot(base_dir: Path, version: str, dry_run: bool = False) -> None:
     cache_dir, versions_dir = _cache_paths(base_dir)
+    if not version or Path(version).name != version:
+        raise ValueError("Identificador de snapshot inválido")
     source = versions_dir / version
 
     if not source.exists():
         raise FileNotFoundError(f"Snapshot não encontrado: {source}")
 
     rollback_label = f"before-restore-{version}"
-    _create_snapshot(base_dir, rollback_label, reason=f"auto-backup before restore {version}", dry_run=dry_run)
+    backup = _create_snapshot(base_dir, rollback_label, reason=f"auto-backup before restore {version}", dry_run=dry_run)
 
     _print(f"[RESTORE] restaurando snapshot {version} para {cache_dir}")
     if not dry_run:
-        if cache_dir.exists():
-            shutil.rmtree(cache_dir)
-        shutil.copytree(source, cache_dir)
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        legacy_sidecars = {"update_checkpoint.json", "update_job_status.json"}
+        protected = {".update.lock", "update_runs", "update_results", *legacy_sidecars}
+        for child in cache_dir.iterdir():
+            if child.name in protected:
+                continue
+            if child.is_dir():
+                shutil.rmtree(child)
+            else:
+                child.unlink()
+        for child in source.iterdir():
+            if child.name in protected:
+                continue
+            target = cache_dir / child.name
+            if child.is_dir():
+                shutil.copytree(child, target)
+            else:
+                shutil.copy2(child, target)
+        for filename in legacy_sidecars:
+            (cache_dir / filename).unlink(missing_ok=True)
+        restore_event = {
+            "schema_version": 1, "event": "restore", "snapshot_id": version,
+            "restored_at_utc": datetime.now(timezone.utc).isoformat(),
+            "backup_path": str(backup), "cache_path": str(cache_dir),
+            "receipts_preserved": True,
+        }
+        event_name = f"{_now_tag()}-{uuid4().hex[:8]}.json"
+        _save_manifest(versions_dir / "restores" / event_name, restore_event)
 
     _print("[RESTORE] concluído")
 
 
 def _gerar_periodos_mensais(inicio: str, fim: str) -> List[str]:
-    if len(inicio) != 6 or len(fim) != 6:
+    if len(inicio) != 6 or len(fim) != 6 or not inicio.isascii() or not fim.isascii() or not inicio.isdigit() or not fim.isdigit():
         raise ValueError("mensal-inicio/mensal-fim devem ser YYYYMM")
 
     ai, mi = int(inicio[:4]), int(inicio[4:6])
     af, mf = int(fim[:4]), int(fim[4:6])
+    date(ai, mi, 1)
+    date(af, mf, 1)
     if (ai, mi) > (af, mf):
         raise ValueError("mensal-inicio deve ser <= mensal-fim")
 
@@ -254,49 +281,16 @@ def _release_assets_for_cache(manager: CacheManager, cache_name: str) -> list[tu
 
 
 def _materialize_post_refresh_assets(base_dir: Path, manager: CacheManager) -> list[dict]:
-    detalhes: list[dict] = []
-
-    for spec in DERIVED_SPECS:
-        result = materialize_derived_metrics_cache(
-            base_dir=base_dir,
-            manager=manager,
-            derived_cache_name=spec["tipo"],
-            dre_cache_name=spec["dre_cache_name"],
-            principal_cache_name=spec["principal_cache_name"],
-            force=True,
-        )
-        detalhes.append(
-            {
-                "tipo": spec["tipo"],
-                "status": "ok" if result.sucesso else "erro",
-                "mensagem": result.mensagem,
-                "periodos": 0,
-                "periodos_ignorados": [],
-                "lotes": 1,
-                "lotes_ok": 1 if result.sucesso else 0,
-            }
-        )
-        if not result.sucesso:
-            return detalhes
-
-    result_curado = materialize_critical_screens_cache(
-        base_dir=base_dir,
-        manager=manager,
-        force=True,
-        save_bundled=True,
+    details = materialize_for_publication(
+        manager, cache_names=DEFAULT_TIPOS, base_dir=base_dir,
+        force=True, save_bundled=False,
     )
-    detalhes.append(
-        {
-            "tipo": "critical_screens",
-            "status": "ok" if result_curado.sucesso else "erro",
-            "mensagem": result_curado.mensagem,
-            "periodos": 0,
-            "periodos_ignorados": [],
-            "lotes": 1,
-            "lotes_ok": 1 if result_curado.sucesso else 0,
-        }
-    )
-    return detalhes
+    return [{
+        **item, "tipo": item["cache"], "status": item["status"], "mensagem": item["message"],
+        "periodos": 0, "periodos_ignorados": [], "lotes": 1,
+        "lotes_ok": int(item["status"] == "ok"),
+        "stage": item.get("stage"),
+    } for item in details]
 
 
 def _placeholder_validations(manager: CacheManager) -> dict[str, dict]:
@@ -338,7 +332,28 @@ def _build_publish_runtime_manifest(
     )
 
 
+def _validate_refresh_args(args) -> None:
+    if args.intervalo < 1 or args.batch_size < 0 or args.retry_max < 0:
+        raise ValueError("intervalo positivo, batch-size e retry-max não negativos são obrigatórios")
+    if not 0 <= args.retry_delay <= 60:
+        raise ValueError("retry-delay deve estar entre 0 e 60 segundos")
+    if getattr(args, "modo", "overwrite") not in {"incremental", "overwrite", "rebuild"}:
+        raise ValueError("modo de atualização inválido")
+    periods = gerar_periodos_trimestrais(args.ano_inicial, args.mes_inicial, args.ano_final, args.mes_final)
+    if not periods:
+        raise ValueError("intervalo trimestral invertido")
+    _gerar_periodos_mensais(args.mensal_inicio, args.mensal_fim)
+
+
 def _run_refresh(args: argparse.Namespace, base_dir: Path) -> int:
+    _validate_refresh_args(args)
+    if args.dry_run:
+        return _run_refresh_locked(args, base_dir)
+    with mutation_lock(base_dir, owner={"label": "refresh CLI"}):
+        return _run_refresh_locked(args, base_dir)
+
+
+def _run_refresh_locked(args: argparse.Namespace, base_dir: Path) -> int:
     pre_snapshot = _create_snapshot(
         base_dir=base_dir,
         label=args.snapshot_label,
@@ -409,14 +424,14 @@ def _run_refresh(args: argparse.Namespace, base_dir: Path) -> int:
         if tipo == "mercado_credito_sgs":
             cache_sgs = manager.get_cache(tipo)
             try:
-                resultado_sgs = cache_sgs.materialize_history(
+                resultado_sgs = _materialize_with_receipt(manager, tipo, getattr(args, "modo", "overwrite"), lambda: cache_sgs.materialize_history(
                     start=f"{args.mensal_inicio[:4]}-{args.mensal_inicio[4:6]}-01",
                     end=pd.Period(args.mensal_fim, freq="M").end_time.date(),
-                    overwrite=True,
+                    overwrite=(getattr(args, "modo", "overwrite") in {"overwrite", "rebuild"}),
                     progress_callback=lambda progress, message: _print(
                         f"[SGS {progress:.0%}] {message}"
                     ),
-                )
+                ))
             except Exception as exc:
                 resultado_sgs = SimpleNamespace(sucesso=False, mensagem=str(exc), dados=None)
             detalhes.append(
@@ -463,7 +478,15 @@ def _run_refresh(args: argparse.Namespace, base_dir: Path) -> int:
         lotes_ok = 0
         lotes_skip = 0
         lotes_skip_detalhes = []
-        modo_lote = "overwrite"
+        modo_lote = getattr(args, "modo", "overwrite")
+        store = UpdateRunStore(base_dir)
+        cache_run = store.create(tipo, periodos, modo_lote, {"intervalo_salvamento": args.intervalo,
+                                                           "batch_size": args.batch_size})
+        cache_run = store.finish(cache_run, "extracting")
+
+        def checkpoint(metadata):
+            nonlocal cache_run
+            cache_run = store.record_result(cache_run, metadata)
         erro_fatal = None
         for periodos_lote in _chunked(periodos, args.batch_size):
             total_lotes += 1
@@ -474,17 +497,24 @@ def _run_refresh(args: argparse.Namespace, base_dir: Path) -> int:
                     f"[LOTE] {tipo} {total_lotes}: períodos {periodos_lote[0]}..{periodos_lote[-1]} "
                     f"(tentativa {tentativa}/{tentativas}, modo={modo_lote})"
                 )
-                result = manager.extrair_periodos_com_salvamento(
-                    tipo=tipo,
-                    periodos=periodos_lote,
-                    modo=modo_lote,
-                    intervalo_salvamento=args.intervalo,
-                    **kwargs,
-                )
+                pending_batch = [p for p in periodos_lote if p in cache_run["pending_periods"]]
+                # Uma falha ao fechar o ledger pode ocorrer após o último checkpoint.
+                # Reprocessar o lote recompõe os comprovantes sem perder histórico.
+                attempted = pending_batch or list(periodos_lote)
+                try:
+                    result = manager.extrair_periodos_com_salvamento(
+                        tipo=tipo, periodos=attempted, modo=modo_lote,
+                        intervalo_salvamento=args.intervalo,
+                        execution_periods=cache_run["periods"], run_id=cache_run["run_id"],
+                        callback_checkpoint=checkpoint, **kwargs,
+                    )
+                    cache_run = store.record_result(cache_run, result.metadata)
+                except Exception as exc:
+                    cache_run = store.finish(store.load(cache_run["run_id"]), "failed", error=str(exc))
+                    result = CacheResult(False, str(exc), fonte="nenhum")
 
                 if result.sucesso:
                     lotes_ok += 1
-                    modo_lote = "incremental"
                     erro_lote = None
                     break
 
@@ -495,26 +525,16 @@ def _run_refresh(args: argparse.Namespace, base_dir: Path) -> int:
                     time.sleep(args.retry_delay)
 
             if erro_lote:
-                if _is_expected_no_data_error(erro_lote):
-                    lotes_skip += 1
-                    lotes_skip_detalhes.append(
-                        {
-                            "lote": total_lotes,
-                            "periodos": list(periodos_lote),
-                            "mensagem": erro_lote,
-                        }
-                    )
-                    _print(
-                        f"[SKIP] lote {tipo} {total_lotes}: sem dados publicados para "
-                        f"{periodos_lote[0]}..{periodos_lote[-1]}"
-                    )
-                    continue
                 erro_fatal = erro_lote
                 break
 
         if erro_fatal:
             status_tipo = "erro"
             mensagem_tipo = erro_fatal
+        elif cache_run["pending_periods"] or cache_run.get("error"):
+            status_tipo = "erro"
+            mensagem_tipo = "A execução mantém períodos sem confirmação"
+            erro_fatal = mensagem_tipo
         elif lotes_ok == 0:
             status_tipo = "skip"
             mensagem_tipo = "todos os lotes retornaram sem dados publicados"
@@ -533,6 +553,8 @@ def _run_refresh(args: argparse.Namespace, base_dir: Path) -> int:
                 "lotes_ok": lotes_ok,
                 "lotes_skip": lotes_skip,
                 "lotes_skip_detalhes": lotes_skip_detalhes,
+                "update_run_id": cache_run["run_id"],
+                "pending_periods": cache_run["pending_periods"],
             }
         )
 
@@ -556,7 +578,7 @@ def _run_refresh(args: argparse.Namespace, base_dir: Path) -> int:
         "run_id": run_id,
         "executed_at_utc": datetime.now(timezone.utc).isoformat(),
         "git_head": _git_head(base_dir),
-        "modo": "publish-only" if args.publish_only else "overwrite",
+        "modo": "publish-only" if args.publish_only else getattr(args, "modo", "overwrite"),
         "snapshot_pre": pre_snapshot.name,
         "snapshot_post": None,
         "tipos_extraidos": [] if args.publish_only else DEFAULT_TIPOS,
@@ -627,15 +649,18 @@ def _run_refresh(args: argparse.Namespace, base_dir: Path) -> int:
                 publication["message"] = "token GitHub ausente para publicação"
             else:
                 try:
-                    assets: list[tuple[Path, str]] = []
-                    for cache_name in PUBLISH_CACHE_NAMES:
-                        assets.extend(_release_assets_for_cache(manager, cache_name))
-                    assets.append((global_manifest_path, "manifest.json"))
+                    publication_manifest, publication_payload, publishable, assets = prepare_release_publication(
+                        manager, base_dir=base_dir, selected_caches=DEFAULT_TIPOS,
+                        materialization_details=post_refresh_details,
+                        release_config=release_config, expected_periods=expected_periods, token=token,
+                    )
+                    summary["publication_manifest"] = str(publication_manifest)
+                    summary["published_caches"] = publishable
                     upload_result = upload_release_assets(
-                        repo=release_config.repo,
-                        tag=release_config.tag,
-                        assets=assets,
-                        token=token,
+                        repo=release_config.repo, tag=release_config.tag,
+                        assets=assets, token=token, base_dir=base_dir,
+                        expected_sha256={item["name"]: item["sha256"]
+                                         for item in publication_payload["publication_assets"]},
                     )
                     publication["status"] = "ok"
                     publication["token_source"] = token_source
@@ -685,6 +710,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mensal-inicio", help="YYYYMM")
     parser.add_argument("--mensal-fim", help="YYYYMM")
 
+    parser.add_argument("--modo", choices=["incremental", "overwrite", "rebuild"], default="overwrite")
     parser.add_argument("--intervalo", type=int, default=4, help="salvar a cada N períodos")
     parser.add_argument(
         "--batch-size",
@@ -732,7 +758,11 @@ def main() -> int:
         return _list_snapshots(base_dir)
 
     if args.restore_snapshot:
-        _restore_snapshot(base_dir, args.restore_snapshot, dry_run=args.dry_run)
+        if args.dry_run:
+            _restore_snapshot(base_dir, args.restore_snapshot, dry_run=True)
+        else:
+            with mutation_lock(base_dir, owner={"label": "restore CLI"}):
+                _restore_snapshot(base_dir, args.restore_snapshot)
         return 0
 
     if args.publish_only and not (args.publish or args.dry_run):

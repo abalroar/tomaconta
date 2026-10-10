@@ -1,0 +1,209 @@
+{
+  "base_commit": "8ed36f5435e203d267acdefb9e69cb52bc6f70db",
+  "date": "2026-10-10",
+  "unique_collected_cases": 1418,
+  "covered_test_files": 92,
+  "all_test_files_covered_by_passing_runs": true,
+  "external_network_blocked": true,
+  "memory_limit_mib": 768,
+  "maximum_observed_final_peak_rss_mib": 753.7,
+  "unchanged_update_ui_controls": 51,
+  "runs": [
+    {
+      "group": "final1",
+      "passed": 137,
+      "peak_rss_mib": 350.2,
+      "files": [
+        "tests/test_about_page.py",
+        "tests/test_analytical_status_excel.py",
+        "tests/test_artifact_identity.py",
+        "tests/test_availability.py",
+        "tests/test_cache_atomic_persistence.py",
+        "tests/test_carteira_4966.py",
+        "tests/test_carteira_4966_delinquency_quality.py",
+        "tests/test_carteira_4966_model.py",
+        "tests/test_carteira_4966_quality_gate.py",
+        "tests/test_carteira_4966_variations.py",
+        "tests/test_cdsfn_live.py"
+      ]
+    },
+    {
+      "group": "final2repair1",
+      "passed": 111,
+      "peak_rss_mib": 753.7,
+      "files": [
+        "tests/test_comentarios_credito.py",
+        "tests/test_cosif_4010.py",
+        "tests/test_cosif_view.py",
+        "tests/test_credito_bc_legibilidade.py",
+        "tests/test_critical_screens.py",
+        "tests/test_custo_credito.py"
+      ]
+    },
+    {
+      "group": "final2repair2",
+      "passed": 72,
+      "peak_rss_mib": 257.6,
+      "files": [
+        "tests/test_custo_credito_receita_e_problematicos.py",
+        "tests/test_derived_bundle_precedence.py",
+        "tests/test_derived_metrics.py",
+        "tests/test_development_hours.py",
+        "tests/test_device_detection.py",
+        "tests/test_dre_bcb_source.py"
+      ]
+    },
+    {
+      "group": "final3",
+      "passed": 74,
+      "peak_rss_mib": 403.5,
+      "files": [
+        "tests/test_dre_ifdata_schema.py",
+        "tests/test_dre_individual_periods.py",
+        "tests/test_dre_mapping_resolution.py",
+        "tests/test_dre_ytd.py",
+        "tests/test_evolucao_core_funding.py",
+        "tests/test_evolucao_exports.py",
+        "tests/test_evolucao_flow.py",
+        "tests/test_evolucao_pptx_export.py",
+        "tests/test_evolucao_visual.py",
+        "tests/test_fgc_contribuicoes.py",
+        "tests/test_fidc_mc3_model.py"
+      ]
+    },
+    {
+      "group": "final4",
+      "passed": 171,
+      "peak_rss_mib": 403.5,
+      "files": [
+        "tests/test_glossary.py",
+        "tests/test_header_navigation.py",
+        "tests/test_ifdata_values_dedup.py",
+        "tests/test_ifdata_web.py",
+        "tests/test_individual_release_cache.py",
+        "tests/test_institution_registry.py",
+        "tests/test_institution_search.py",
+        "tests/test_institutions.py",
+        "tests/test_institutions_resolution.py",
+        "tests/test_managed_bundle_readers.py",
+        "tests/test_memory_safe_slices.py",
+        "tests/test_metric_definitions_ui.py"
+      ]
+    },
+    {
+      "group": "final5",
+      "passed": 185,
+      "peak_rss_mib": 526.0,
+      "files": [
+        "tests/test_metric_registry.py",
+        "tests/test_peers_exports.py",
+        "tests/test_peers_table_new.py",
+        "tests/test_pessoas_juridicas_api.py",
+        "tests/test_principal_cache.py",
+        "tests/test_publication_preflight.py",
+        "tests/test_published_cache_precedence.py",
+        "tests/test_rankings_data.py",
+        "tests/test_rankings_derived_fast_path.py",
+        "tests/test_rankings_exports.py",
+        "tests/test_rankings_formatting.py"
+      ]
+    },
+    {
+      "group": "final6",
+      "passed": 257,
+      "peak_rss_mib": 397.9,
+      "files": [
+        "tests/test_rankings_periodos.py",
+        "tests/test_refresh_cache_backend.py",
+        "tests/test_relatorio_16_extractor.py",
+        "tests/test_release_config.py",
+        "tests/test_release_ops.py",
+        "tests/test_runtime_diagnostics.py",
+        "tests/test_scatter_performance.py",
+        "tests/test_scr_data_cache.py",
+        "tests/test_scr_data_query.py",
+        "tests/test_scr_inadimplencia_ui.py",
+        "tests/test_scr_pptx_export.py",
+        "tests/test_sgs_credit.py"
+      ]
+    },
+    {
+      "group": "final7",
+      "passed": 198,
+      "peak_rss_mib": 431.7,
+      "files": [
+        "tests/test_snapshot_cards.py",
+        "tests/test_snapshot_data.py",
+        "tests/test_snapshot_delta.py",
+        "tests/test_snapshot_export_data.py",
+        "tests/test_snapshot_pptx_export.py",
+        "tests/test_spb_meios_pagamento.py",
+        "tests/test_spb_meios_pagamento_viz.py",
+        "tests/test_spb_ui.py",
+        "tests/test_taxas_juros_beta.py",
+        "tests/test_taxas_juros_historico.py",
+        "tests/test_taxas_juros_ui.py"
+      ]
+    },
+    {
+      "group": "final8",
+      "passed": 147,
+      "peak_rss_mib": 475.0,
+      "files": [
+        "tests/test_taxas_periodos.py",
+        "tests/test_taxas_pptx_export.py",
+        "tests/test_taxas_presentation.py",
+        "tests/test_taxas_update_boundaries.py",
+        "tests/test_ui_help.py",
+        "tests/test_ui_polish.py",
+        "tests/test_update_cli_reliability.py",
+        "tests/test_update_end_to_end.py",
+        "tests/test_update_manager.py",
+        "tests/test_update_service.py",
+        "tests/test_update_state.py",
+        "utils/ifdata_cache/test_cache.py"
+      ]
+    },
+    {
+      "group": "final_deck",
+      "passed": 38,
+      "peak_rss_mib": 297.0,
+      "files": [
+        "tests/test_deck_credito_bc.py"
+      ]
+    },
+    {
+      "group": "final_adjustments",
+      "passed": 280,
+      "peak_rss_mib": 430.4,
+      "files": [
+        "tests/test_individual_release_cache.py",
+        "tests/test_publication_preflight.py",
+        "tests/test_release_ops.py",
+        "tests/test_update_end_to_end.py",
+        "tests/test_update_service.py",
+        "tests/test_update_cli_reliability.py",
+        "tests/test_cache_atomic_persistence.py",
+        "tests/test_refresh_cache_backend.py",
+        "tests/test_managed_bundle_readers.py",
+        "tests/test_runtime_diagnostics.py",
+        "tests/test_update_state.py",
+        "tests/test_update_manager.py"
+      ]
+    },
+    {
+      "group": "final_publication",
+      "passed": 180,
+      "peak_rss_mib": 317.4,
+      "files": [
+        "tests/test_publication_preflight.py",
+        "tests/test_release_ops.py",
+        "tests/test_spb_meios_pagamento.py",
+        "tests/test_update_end_to_end.py",
+        "tests/test_update_cli_reliability.py",
+        "tests/test_individual_release_cache.py",
+        "tests/test_managed_bundle_readers.py"
+      ]
+    }
+  ]
+}

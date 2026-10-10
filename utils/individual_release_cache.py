@@ -5,7 +5,7 @@ from collections.abc import Mapping
 from copy import copy
 from hashlib import sha256
 from io import BytesIO
-import os
+import json
 from pathlib import Path
 import re
 from tempfile import TemporaryDirectory
@@ -14,6 +14,7 @@ import pandas as pd
 import requests
 
 from .ifdata_cache.release_config import add_release_cache_buster
+from .ifdata_cache.update_state import mutation_lock
 
 
 INDIVIDUAL_CACHES = {"principal_individual", "derived_metrics_individual"}
@@ -72,6 +73,12 @@ def ensure_individual_release_cache(cache, info: Mapping, release_base_url: str)
     Falhas de rede, assinatura, leitura ou validação deixam a fonte anterior
     intacta e propagam erro; o consumidor deve bloquear esse recorte.
     """
+    with mutation_lock(cache.base_dir, owner={"cache_type": cache.config.nome}):
+        cache._recover_local_transaction()
+        return _ensure_individual_release_cache_locked(cache, info, release_base_url)
+
+
+def _ensure_individual_release_cache_locked(cache, info: Mapping, release_base_url: str) -> Path:
     if not isinstance(info, Mapping):
         raise ValueError("Manifesto do cache individual ausente.")
     asset, expected, expected_size = _release_descriptor(cache, info)
@@ -105,10 +112,29 @@ def ensure_individual_release_cache(cache, info: Mapping, release_base_url: str)
             info_extra={"release_asset_sha256": expected, "release_asset_url": url})
         if not result.sucesso:
             raise ValueError(f"{cache.config.nome}: cache do release inválido: {result.mensagem}")
-        staged_data = Path(staged.arquivo_dados_runtime)
-        staged_data.write_bytes(raw)
-        os.replace(staged.arquivo_metadata_runtime, cache.arquivo_metadata_runtime)
-        os.replace(staged_data, target)
+        metadata = json.loads(staged.arquivo_metadata_runtime.read_text(encoding="utf-8"))
+        # A validação em staging usa o serializer local; a promoção conserva
+        # os bytes assinados e gera a integridade correspondente ao asset original.
+        metadata.pop("integridade", None)
+        metadata["sha256"] = expected
+        metadata["colunas"] = list(frame.columns)
+        metadata["total_registros"] = len(frame)
+        publication_id = info.get("publication_id")
+        if publication_id:
+            metadata["publication_id"] = str(publication_id)
+        # O asset conferido substitui a revisão bundled que está instalada.
+        # A identidade dessa base vem do bundle local, e a cobertura precisa
+        # permanecer completa para que a precedência selecione o novo runtime.
+        bundled_publication = cache._publication_metadata()
+        if bundled_publication:
+            if not set(metadata.get("periodos", [])).issuperset(bundled_publication.get("periodos", [])):
+                raise ValueError(f"{cache.config.nome}: release não cobre os períodos da base publicada; fonte anterior preservada.")
+            metadata["baseline_publication_id"] = bundled_publication["publication_id"]
+        candidate = Path(directory) / "release-original.parquet"
+        candidate.write_bytes(raw)
+        promoted = cache.salvar_arquivo_local(candidate, metadata)
+        if not promoted.sucesso:
+            raise ValueError(f"{cache.config.nome}: cache do release não foi ativado: {promoted.mensagem}")
 
     verified = Path(cache.read_data_file)
     if _file_sha256(verified) != expected:

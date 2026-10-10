@@ -134,6 +134,8 @@ def test_get_postprocess_targets_maps_base_caches():
     assert get_postprocess_targets(["principal"]) == ["derived_metrics", "critical_screens"]
     assert get_postprocess_targets(["dre_individual"]) == ["derived_metrics_individual"]
     assert get_postprocess_targets(["bloprudencial"]) == ["critical_screens"]
+    assert get_postprocess_targets(["carteira_instrumentos"]) == ["derived_metrics", "critical_screens"]
+    assert get_postprocess_targets(["ativo"]) == ["derived_metrics", "critical_screens"]
 
 
 def test_get_publishable_bundle_skips_failed_gate_targets():
@@ -250,6 +252,14 @@ def test_hydrate_source_caches_falls_back_to_remote_when_local_missing():
     assert manager.calls == [("capital", True)]
     assert details[0]["source"] == "github_releases"
     assert details[0]["forced_remote"] is True
+
+
+def test_hydrate_selected_source_never_replaces_missing_local_with_old_remote():
+    manager = _HydrateManager({"principal": _HydrateCache(name="principal", exists=False)})
+    details, failures = _hydrate_source_caches(manager, ["principal"], local_first=["principal"])
+    assert failures
+    assert details[0]["status"] == "erro"
+    assert manager.calls == []
 
 
 def test_write_manifest_and_collect_assets(tmp_path: Path, monkeypatch):

@@ -240,6 +240,9 @@ def test_legacy_and_unified_extractors_preserve_digit_names(monkeypatch):
     for module in (legacy, unified):
         monkeypatch.setattr(module, "extrair_cadastro", lambda _: names.copy())
         monkeypatch.setattr(module, "extrair_valores", lambda *a: values.copy())
+    monkeypatch.setattr(legacy, "extrair_lucro_periodo", lambda _: pd.DataFrame(
+        columns=["CodInst", "Lucro Líquido Acumulado YTD"],
+    ))
     assert legacy.processar_periodo("202512", {})["Instituição"].item() == "BS2"
     result = unified.processar_periodo("202512", 1)
     assert result.sucesso, result.mensagem

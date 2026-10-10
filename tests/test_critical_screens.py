@@ -1,3 +1,4 @@
+import hashlib
 import json
 from pathlib import Path
 
@@ -1160,6 +1161,11 @@ def test_runtime_replaces_same_period_local_when_content_hash_differs(tmp_path: 
 
     cache.bundled_dir.mkdir(parents=True, exist_ok=True)
     bundled_df.to_parquet(cache.bundled_data_file, index=False)
+    # O bundle representa outra geração completa, com integridade dos próprios bytes.
+    runtime_metadata["integridade"]["sha256"] = hashlib.sha256(
+        cache.bundled_data_file.read_bytes()
+    ).hexdigest()
+    runtime_metadata["integridade"]["tamanho_bytes"] = cache.bundled_data_file.stat().st_size
     cache.bundled_metadata_file.write_text(
         json.dumps(runtime_metadata, ensure_ascii=False),
         encoding="utf-8",
