@@ -236,8 +236,8 @@ def variation_tone(metric, direction, status="available", *, reference_status=No
 
 
 def variation_definition(metric):
-    return {"bps": "diferença entre percentuais × 100; bps arredondados ao inteiro",
-            "pp": "percentual atual − percentual de referência; diferença em p.p.",
+    return {"bps": "(razão decimal atual − razão decimal de referência) × 10.000; bps arredondados ao inteiro",
+            "pp": "(razão decimal atual − razão decimal de referência) × 100; diferença em p.p.",
             "absolute": "múltiplo atual − múltiplo de referência; diferença em x",
             "pct": "(saldo atual − saldo de referência) ÷ saldo de referência × 100; requer base positiva"}[metric.delta_kind]
 

@@ -39,10 +39,12 @@ def test_percent_deltas_subtract_and_coverage_uses_pp_with_credit_colors():
     assert risk.value == pytest.approx(7)
     assert risk.display == "↑ +7 bps"
     assert risk.tone == "attention"
+    assert risk.method == "(razão decimal atual − razão decimal de referência) × 10.000"
     coverage = cell_delta(result, ROW_BY_KEY["provision_over_delinquency"], "1/2026")
     assert coverage.value == pytest.approx(.4)
     assert coverage.display == "↑ +0,40 p.p."
     assert coverage.tone == "favorable"
+    assert coverage.method == "(razão decimal atual − razão decimal de referência) × 100"
     result.cells["provision_over_delinquency"]["1/2026"] = MetricCell(1.9)
     falling = cell_delta(result, ROW_BY_KEY["provision_over_delinquency"], "1/2026")
     assert falling.display == "↓ −3,10 p.p."
@@ -151,6 +153,8 @@ def test_html_and_both_excel_exports_share_units_numbers_and_colors():
         assert coverage[8].font.color.rgb == "FF16713B"
         assert risk[4].value == pytest.approx(.0225)
         assert risk[4].number_format == "0.00%"
+        assert risk[10].value == "(razão decimal atual − razão decimal de referência) × 10.000"
+        assert coverage[10].value == "(razão decimal atual − razão decimal de referência) × 100"
     visual = openpyxl.load_workbook(BytesIO(build_carteira_4966_excel(result)))["Modelo 4966"]
     risk_row = next(row[0].row for row in visual if row[0].value == ROW_BY_KEY["delinquency"].label)
     assert visual.cell(risk_row + 1, 3).value == "↑ +7 bps"
