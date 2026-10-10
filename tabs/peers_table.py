@@ -115,12 +115,14 @@ def table_html(query, selected=None):
                     tooltip += "; " + variation_definition(metric)
                 if cell["reason"]:
                     tooltip += "; " + cell["reason"]
+                if cell.get("reference_status") in {"warning", "critical"}:
+                    tooltip += "; referência com alerta: " + (cell.get("reference_reason") or cell["reference_status"])
                 broken = cell["variation"] == "Quebra em 2025"
                 display = table_value(cell["value"], metric, query["scale"]) + ("*" if broken and number(cell["value"]) is not None else "")
                 if cell["status"] in {"warning", "critical"}:
                     display += "†"
                 variation = "" if broken else table_variation(cell["variation"])
-                tone = variation_tone(metric, cell["direction"], cell["status"])
+                tone = variation_tone(metric, cell["direction"], cell["status"], reference_status=cell.get("reference_status"))
                 html.append(f'<td class="{"bank-start" if i == 0 and b else ""}" title="{escape(tooltip, quote=True)}"><span class="value">{escape(display)}</span><span class="delta {cell["direction"] or ""} {tone}">{escape(variation)}</span></td>')
         html.append('</tr>')
     html.append('</tbody></table>')
@@ -166,6 +168,12 @@ def _load_context(api, individual):
         manifest = api["_carregar_manifest_release_cache"](f"{api['_PEERS_INDIVIDUAL_RELEASE_BASE_URL']}/manifest.json")
         quality = (manifest.get("quality_checks") or {}).get("principal_individual") or {}
         info = (manifest.get("caches") or {}).get("principal_individual") or {}
+        from utils.individual_release_cache import ensure_individual_release_cache
+        try:
+            ensure_individual_release_cache(api["get_cache_manager"]().get_cache("principal_individual"), info, api["_PEERS_INDIVIDUAL_RELEASE_BASE_URL"])
+        except Exception as exc:
+            st.error(f"Base Individual indisponível: não foi possível validar a versão publicada. {exc}")
+            return {}, {}
         context = api["_get_peers_individual_filters_context"](api["_cache_version_token"]("principal_individual"), api["_manifest_generated_token_cache"](manifest), int(quality.get("period_count") or 0), int(info.get("record_count") or 0))
         identities = {name: codes[0] for name, codes in context.get("nome_para_codinsts", {}).items() if len(codes) == 1}
     return context, identities
@@ -377,6 +385,8 @@ def render(api):
     df = api["_carregar_cache_relatorio_slice"](cache_name, cache_token, extended, tuple(sorted(banks)), tuple(sorted(codes)))
     if individual:
         df = api["_apply_peers_individual_display_names"](df, context.get("codinst_para_nome", {}))
+        from utils.snapshot_data import individual_snapshot_frame
+        df = pd.concat([individual_snapshot_frame(df, bank, codes=(identities[bank],) if bank in identities else ()) for bank in banks], ignore_index=True)
     prepare = api["_preparar_metricas_extra_peers_individual_from_slice" if individual else "_preparar_metricas_extra_peers_from_slice"]
     extra = prepare(df, banks, extended)
     values, columns, _, _, _, _ = api["_montar_tabela_peers"](df, banks, list(extended), extra_values_precomputed=extra, allow_capital_fallback=not individual)

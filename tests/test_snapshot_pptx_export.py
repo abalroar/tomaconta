@@ -93,6 +93,14 @@ def test_office_chart_and_table_properties_follow_ooxml_child_order():
                 ])
                 for axis in root.xpath(".//c:catAx | .//c:valAx", namespaces=ns):
                     assert [etree.QName(child).localname for child in axis][:4] == ["axId", "scaling", "delete", "axPos"]
+                for point in root.xpath(".//c:dPt", namespaces=ns):
+                    assert_schema_order(point, [
+                        "idx", "invertIfNegative", "marker", "bubble3D", "explosion",
+                        "spPr", "pictureOptions", "extLst",
+                    ])
+                for marker in root.xpath(".//c:marker", namespaces=ns):
+                    if len(marker):
+                        assert_schema_order(marker, ["symbol", "size", "spPr", "extLst"])
                 plot_area = chart.find("c:plotArea", ns)
                 assert_schema_order(plot_area, ["layout", "lineChart", "barChart", "catAx", "valAx", "dTable", "spPr", "extLst"])
             if path.startswith("ppt/slides/slide") and path.endswith(".xml"):
@@ -170,7 +178,7 @@ def test_real_snapshot_missing_funding_remains_nd_and_zero_is_editable_numeric_d
     table = next(shape.table for shape in support.shapes if shape.has_table)
     assert table.cell(1, 1).text == "0,00%"
     assert table.cell(2, 1).text == "N/D†"
-    assert table.cell(2, 4).text == "—"
+    assert table.cell(2, 4).text == "N/D"
     charts = [shape.chart for shape in support.shapes if shape.has_chart]
     assert len(charts) == 4  # O histórico integralmente ausente não cria gráfico.
     assert charts[0].series[0].values == (None, 0.0, 0.0)
@@ -192,7 +200,7 @@ def test_4966_uses_shared_difference_units_and_credit_colors_in_native_table():
     assert str(risk.cells[len(risk.cells) - 1].text_frame.paragraphs[1].font.color.rgb) == "B32624"
     coverage = next(row for row in table.rows if row.cells[0].text == "PDD / Créditos vencidos acima de 90 dias (%)")
     assert "193,50%" in coverage.cells[len(coverage.cells) - 2].text
-    assert "↑ +0,4 p.p." in coverage.cells[len(coverage.cells) - 2].text
+    assert "↑ +0,40 p.p." in coverage.cells[len(coverage.cells) - 2].text
     assert str(coverage.cells[len(coverage.cells) - 2].text_frame.paragraphs[1].font.color.rgb) == "16713B"
     assert "bps inteiros" in visible_text(prs.slides[-1])
 
@@ -222,3 +230,90 @@ def test_history_mismatched_periods_raise_a_clear_input_error():
     payload["cards"][0]["history"]["periods"].pop()
     with pytest.raises(ValueError, match="um rótulo por valor"):
         export_snapshot_powerpoint(payload)
+
+
+@pytest.mark.parametrize("kind", ["line", "bars"])
+@pytest.mark.parametrize("tone,color", [("favorable", "16713B"), ("attention", "B32624")])
+def test_history_uses_credit_tone_at_native_endpoint_without_changing_editable_values(kind, tone, color):
+    payload = snapshot()
+    payload["cards"][0]["qoq"]["tone"] = tone
+    payload["cards"][0]["history"] = {
+        "periods": ["Set/25", "Dez/25", "Mar/26"],
+        "values": [None, 2.18, 2.25], "kind": kind,
+    }
+    chart = next(shape.chart for shape in Presentation(BytesIO(export_snapshot_powerpoint(payload))).slides[0].shapes if shape.has_chart)
+    assert len(chart.series) == 1
+    assert chart.series[0].values == (None, 2.18, 2.25)
+    point = chart._chartSpace.xpath(".//c:dPt")[0]
+    assert point.xpath("string(c:idx/@val)") == "2"
+    assert point.xpath(".//a:srgbClr/@val") == [color]
+    workbook = load_workbook(BytesIO(chart.part.chart_workbook.xlsx_part.blob), data_only=True)
+    assert list(workbook.active.values)[1:] == [("Set/25", None), ("Dez/25", 2.18), ("Mar/26", 2.25)]
+
+
+@pytest.mark.parametrize("values,tone", [
+    ([1, 2, None], "attention"), ([1, None, 3], "favorable"),
+    ([1, 2, 2], "favorable"), ([1, 2, 3], "neutral"),
+])
+def test_history_does_not_imply_a_credit_move_when_latest_delta_is_absent_flat_or_contextual(values, tone):
+    payload = snapshot()
+    payload["cards"][0]["qoq"]["tone"] = tone
+    payload["cards"][0]["history"] = {"periods": ["Set/25", "Dez/25", "Mar/26"], "values": values}
+    chart = next(shape.chart for shape in Presentation(BytesIO(export_snapshot_powerpoint(payload))).slides[0].shapes if shape.has_chart)
+    assert not chart._chartSpace.xpath(".//c:dPt")
+    assert chart.series[0].values == tuple(values)
+
+
+def test_individual_snapshot_keeps_two_slides_new_npl_rows_and_explicit_unavailable_scope():
+    payload = snapshot()
+    payload["base"] = "Individual"
+    for card in payload["cards"]:
+        card["scope"] = "Individual"
+        card["source"] = "IFData Rel. 1"
+    for key, label in [("npl", "NPL >90 dias · arrasto"), ("coverage", "Cobertura PDD / NPL >90 dias")]:
+        payload["cards"].append({
+            "key": key, "label": label, "value": "N/D", "group": "support",
+            "subtitle": "Arrasto · % da carteira" if key == "npl" else "PDD / vencidos por arrasto",
+            "scope": "Individual", "source": "IFData Rel. 16 indisponível",
+            "qoq": {"display": "N/D", "tone": "neutral"},
+            "yoy": {"display": "N/D", "tone": "neutral"},
+            "history": {"periods": ["Set/25", "Dez/25", "Mar/26"], "values": [None, None, None]},
+        })
+    payload["source_notes"] = "NPL e PDD: sem fonte individual validada; ausência preservada como N/D."
+    prs = Presentation(BytesIO(export_snapshot_powerpoint(payload)))
+    support = prs.slides[1]
+    table_shape = next(shape for shape in support.shapes if shape.has_table)
+    table = table_shape.table
+    assert len(table.rows) == 8
+    for row in list(table.rows)[-2:]:
+        assert "Individual" in row.cells[0].text
+        assert "Rel. 16 indisponível" in row.cells[0].text
+        assert row.cells[1].text == row.cells[4].text == "N/D"
+    assert "Arrasto · % da carteira" in list(table.rows)[-2].cells[0].text
+    assert "PDD / vencidos por arrasto" in list(table.rows)[-1].cells[0].text
+    assert sum(shape.has_chart for shape in support.shapes) == 5
+    assert "IFData individual: trimestral" in visible_text(support)
+    assert "sem fonte individual validada" in visible_text(support)
+    assert table_shape.top + table_shape.height < next(shape.top for shape in support.shapes if shape.has_text_frame and "sem fonte individual" in shape.text)
+    notes = json.loads(support.notes_slide.notes_text_frame.text)
+    assert notes["snapshot"]["base"] == "Individual"
+    assert notes["cards"][-1]["scope"] == "Individual"
+
+
+def test_peers_native_table_preserves_delta_but_keeps_unreliable_reference_neutral():
+    query = peers()
+    key = "Inadimplência / Carteira Total"
+    query["metrics"] = [key]
+    query["cells"] = [cell for cell in query["cells"] if cell["metric"] == key]
+    latest = next(cell for cell in query["cells"] if cell["period"] == "1/2026")
+    latest.update(value=2.25, display="2,25%", variation="↑ +7 bps", direction="up",
+                  status="available", reference_status="warning",
+                  reference_reason="Componente incompleto no trimestre de referência.")
+    prs = Presentation(BytesIO(export_snapshot_powerpoint(snapshot(), query)))
+    table = next(shape.table for shape in prs.slides[2].shapes if shape.has_table)
+    row = next(row for row in table.rows if "Vencidos >90 dias" in row.cells[0].text)
+    target = row.cells[len(row.cells) - 1]
+    assert target.text == "2,25%\n↑ +7 bps"
+    assert str(target.text_frame.paragraphs[1].font.color.rgb) == "666666"
+    notes = json.loads(prs.slides[2].notes_slide.notes_text_frame.text)
+    assert notes["cells"][-1]["reference_reason"] == latest["reference_reason"]

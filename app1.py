@@ -10477,6 +10477,8 @@ def _snapshot_metric_status_note(
     carteira_status_map: Optional[dict[str, str]] = None,
     perda_esperada_map: Optional[dict[str, object]] = None,
 ) -> tuple[str, str]:
+    if label in {"Carteira de Crédito", "Crédito / Captações", "Perda Esperada / Carteira"} and (carteira_status_map or {}).get(periodo_ref) == "fallback_net_components":
+        return "‡", "Carteira em base líquida por ausência dos componentes brutos do Rel. 2: e+f+g+h. A comparação exige conferir o mesmo conceito nas duas datas; cor mantida neutra."
     if valor_atual is not None and not pd.isna(valor_atual):
         return "", ""
 
@@ -10565,7 +10567,10 @@ SNAPSHOT_METRICS = {
     "Desp. Anualizada Captação / Volume Captação":       {"tipo_delta": "bps",  "escala": "dec"},
     "Desp. Anualizada Captações / Volume Captações":     {"tipo_delta": "bps",  "escala": "dec"},
     "Perda Esperada / Estágio 3":                        {"tipo_delta": "pp",  "escala": "dec"},
-    "Perda Esperada / Carteira":                         {"tipo_delta": "bps",  "escala": "dec"},
+    "Perda Esperada / Carteira":                         {"tipo_delta": "pp",  "escala": "dec"},
+    "Custo anualizado de captação":                      {"tipo_delta": "bps", "escala": "dec"},
+    "Inadimplência >90 dias":                            {"tipo_delta": "bps", "escala": "dec"},
+    "Cobertura dos vencidos >90 dias":                   {"tipo_delta": "pp", "escala": "dec"},
     "CET1":                                              {"tipo_delta": "bps", "escala": "dec"},
 }
 
@@ -10575,7 +10580,7 @@ def _snap_metric_delta_meta(metric_cfg: dict) -> tuple[str, str]:
     label = metric_cfg.get("label", "")
     meta = SNAPSHOT_METRICS.get(label, {})
     if metric_cfg.get("is_pct", False):
-        default_tipo = "bps"
+        default_tipo = "pp"
         default_escala = "dec"
     else:
         default_tipo = "pct"
@@ -10604,7 +10609,8 @@ def _snap_sparkline_svg(
     values: list,
     width: int = 80,
     height: int = 24,
-    color: str = "#1f77b4",
+    color: str = "#8A98A6",
+    accent: Optional[str] = None,
 ) -> str:
     """Gera SVG inline de sparkline a partir de uma lista de valores numéricos."""
     nums = []
@@ -10645,11 +10651,12 @@ def _snap_sparkline_svg(
                 f'stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>'
             )
     last_x, last_y = last_point.split(",")
+    endpoint_color = accent if accent and nums[-1] is not None else color
     return (
         f'<svg class="snap-sparkline" width="{width}" height="{height}" '
         f'viewBox="0 0 {width} {height}" aria-hidden="true" focusable="false" style="vertical-align:middle">'
         f'{"".join(paths)}'
-        f'<circle cx="{last_x}" cy="{last_y}" r="2" fill="{color}"/>'
+        f'<circle cx="{last_x}" cy="{last_y}" r="2.5" fill="{endpoint_color}"/>'
         f"</svg>"
     )
 
@@ -10658,7 +10665,8 @@ def _snap_sparkbars_svg(
     values: list,
     width: int = 80,
     height: int = 24,
-    color: str = "#1f77b4",
+    color: str = "#8A98A6",
+    accent: Optional[str] = None,
 ) -> str:
     """Gera mini barras SVG para cards de rentabilidade/capital."""
     nums = []
@@ -10685,7 +10693,7 @@ def _snap_sparkbars_svg(
         y = height - h
         rects.append(
             f'<rect x="{x:.1f}" y="{y:.1f}" width="{bar_w:.1f}" height="{h:.1f}" '
-            f'rx="1.2" ry="1.2" fill="{color}" opacity="0.72" />'
+            f'rx="1.2" ry="1.2" fill="{accent if accent and i == len(nums) - 1 else color}" opacity="0.82" />'
         )
     return (
         f'<svg class="snap-sparkline" width="{width}" height="{height}" '
@@ -10751,7 +10759,7 @@ def _snap_delta_calc(
     if delta_kind == "bps":
         payload["suffix"] = formatar_delta_br(diff, "bps", casas=0)
     elif delta_kind == "pp":
-        payload["suffix"] = formatar_delta_br(diff, "p.p.", casas=1)
+        payload["suffix"] = formatar_delta_br(diff, "p.p.", casas=2)
     else:
         payload["suffix"] = formatar_numero_br(diff, casas=2, sufixo="%", com_sinal=True)
 
@@ -10770,6 +10778,7 @@ def _snap_delta_presentation(
     *,
     favorable_direction: Optional[str] = "auto",
     reliable: bool = True,
+    normalize_negative_risk: bool = True,
 ) -> dict:
     """Texto e leitura do delta compartilhados entre card e PowerPoint."""
     calc = _snap_delta_calc(valor_atual, valor_base, delta_kind=delta_kind, scale=scale)
@@ -10796,7 +10805,7 @@ def _snap_delta_presentation(
         else False if favorable_direction == "down"
         else None
     )
-    a_cmp, b_cmp = _snapshot_normalize_cmp_values(a, b, resolved_higher)
+    a_cmp, b_cmp = _snapshot_normalize_cmp_values(a, b, resolved_higher) if normalize_negative_risk else (a, b)
     direction = "up" if a > b else "down" if a < b else "flat"
     arrow = "↑" if direction == "up" else "↓" if direction == "down" else "—"
     if direction != "flat" and resolved_higher is not None and reliable:
@@ -10859,6 +10868,9 @@ def _snap_metric_favorable_direction(metric_cfg: dict) -> Optional[str]:
         "Desp. Anualizada Captações / Volume Captações": "down",
         "Crédito / Captações": None,
         "Perda Esperada / Carteira": None,
+        "Custo anualizado de captação": "down",
+        "Inadimplência >90 dias": "down",
+        "Cobertura dos vencidos >90 dias": "up",
     }
     label = str(metric_cfg.get("label") or "")
     if label in policies:
@@ -10878,12 +10890,18 @@ def _snapshot_card_delta(
     """Comparação canônica do Snapshot, com a mesma ressalva de base dos Peers."""
     series = metric_cfg.get("serie") or {}
     delta_kind, scale = _snap_metric_delta_meta(metric_cfg)
+    quality = metric_cfg.get("quality_by_period") or {}
+    checked = [quality[p] for p in (current_period, reference_period) if p in quality]
+    reliable = bool(metric_cfg.get("variation_reliable", not metric_cfg.get("status_marker"))) and all(q.get("reliable", True) for q in checked)
     payload = _snap_delta_presentation(
         series.get(current_period), series.get(reference_period) if reference_period else None,
         label, metric_cfg.get("higher_is_better", True), delta_kind, scale,
         favorable_direction=_snap_metric_favorable_direction(metric_cfg),
-        reliable=bool(metric_cfg.get("variation_reliable", not metric_cfg.get("status_marker"))),
+        reliable=reliable,
+        normalize_negative_risk=bool(metric_cfg.get("normalize_negative_risk", True)),
     )
+    if not reliable:
+        payload["reason"] = " ".join(dict.fromkeys(q.get("reason", "") for q in checked if q.get("reason"))) or str(metric_cfg.get("status_note") or "Comparação com alerta de qualidade na fonte.")
     current_year = _periodo_ano_int(current_period)
     reference_year = _periodo_ano_int(reference_period) if reference_period else None
     basis_change_metrics = {"Carteira de Crédito", "Crédito / Captações", "Perda Esperada / Carteira"}
@@ -10964,15 +10982,17 @@ def _render_snap_card(
 
     # Sparkline
     spark_html = ""
+    spark_delta = _snapshot_card_delta(metric_cfg, periodo_atual, periodo_base_qoq, qoq_label)
+    spark_accent = {"favorable": "#16713B", "attention": "#B32624"}.get(spark_delta["tone"])
     if sparkline_values:
         if sparkline_type == "bars":
-            spark_html = _snap_sparkbars_svg(sparkline_values, width=80, height=24)
+            spark_html = _snap_sparkbars_svg(sparkline_values, width=80, height=24, accent=spark_accent)
         else:
-            spark_html = _snap_sparkline_svg(sparkline_values, width=80, height=24)
+            spark_html = _snap_sparkline_svg(sparkline_values, width=80, height=24, accent=spark_accent)
 
     # Info tooltip
     info_html = ""
-    definition = get_help_text(metric_cfg.get("format_key", label)) or get_help_text(label)
+    definition = metric_cfg.get("definition") or get_help_text(metric_cfg.get("format_key", label)) or get_help_text(label)
     tooltip_parts = [part for part in [definition, source, status_note] if part]
     tooltip_parts = list(dict.fromkeys(tooltip_parts))
     if tooltip_parts:
@@ -10989,10 +11009,13 @@ def _render_snap_card(
         marker_class = "snap-card__status-mark--unavailable" if status_marker == "†" else "snap-card__status-mark--fallback"
         value_marker_html = f'<span class="snap-card__status-mark {marker_class}">{_html_mod.escape(status_marker)}</span>'
 
+    meta_text = str(metric_cfg.get("subtitle") or metric_cfg.get("source_label") or "").strip()
+    meta_html = f'<div class="snap-card__meta">{_html_mod.escape(meta_text)}</div>' if meta_text else ""
     return f"""<div class="snap-card {hero_cls}">
   <div class="snap-card__header">
     <span class="snap-card__label">{label}</span>{info_html}
   </div>
+  {meta_html}
   <div class="snap-card__spark-row">
     <span class="snap-card__value">{valor_fmt}{value_marker_html}</span>
     {spark_html}
@@ -11026,10 +11049,16 @@ _SNAPSHOT_PROVENANCE = [
 ]
 
 
-def _build_provenance_html() -> str:
+def _build_provenance_html(metricas: Optional[list[dict]] = None) -> str:
     """Gera tabela HTML com origem dos dados e critérios de cálculo."""
     rows = ""
-    for label, fonte, formula, interpretacao in _SNAPSHOT_PROVENANCE:
+    entries = _SNAPSHOT_PROVENANCE if metricas is None else [
+        (cfg["label"], f"{cfg.get('scope', '')} · {cfg.get('source_label', '')}",
+         cfg.get("source", ""), cfg.get("definition") or get_help_text(cfg.get("format_key", cfg["label"])) or "")
+        for cfg in metricas
+    ]
+    for label, fonte, formula, interpretacao in entries:
+        label, fonte, formula, interpretacao = (_html_mod.escape(str(value)) for value in (label, fonte, formula, interpretacao))
         rows += (
             f"<tr>"
             f"<td style='font-weight:500;white-space:nowrap;padding:6px 10px;border-bottom:1px solid #eee'>{label}</td>"
@@ -11039,7 +11068,7 @@ def _build_provenance_html() -> str:
             f"</tr>"
         )
     return (
-        "<table style='width:100%;border-collapse:collapse;font-family:IBM Plex Sans,sans-serif;font-size:0.85rem'>"
+        "<div style='overflow-x:auto'><table style='width:100%;border-collapse:collapse;font-family:IBM Plex Sans,sans-serif;font-size:0.85rem'>"
         "<thead><tr style='border-bottom:2px solid #1f77b4'>"
         "<th style='text-align:left;padding:6px 10px;color:#1f77b4'>Indicador</th>"
         "<th style='text-align:left;padding:6px 10px;color:#1f77b4'>Fonte</th>"
@@ -11047,7 +11076,7 @@ def _build_provenance_html() -> str:
         "<th style='text-align:left;padding:6px 10px;color:#1f77b4'>Interpretação</th>"
         "</tr></thead><tbody>"
         f"{rows}"
-        "</tbody></table>"
+        "</tbody></table></div>"
     )
 
 
@@ -11099,6 +11128,14 @@ _SNAPSHOT_V2_CSS = """
     line-height: 1.4;
 }
 
+.snap-card__meta {
+    color: #777d85;
+    font-size: 0.7rem;
+    line-height: 1.35;
+    margin: -2px 0 8px;
+    overflow-wrap: anywhere;
+}
+
 .snap-card__value {
     font-size: 1.5rem;
     font-weight: 500;
@@ -11136,7 +11173,7 @@ _SNAPSHOT_V2_CSS = """
 }
 
 .snap-sparkline {
-    opacity: 0.65;
+    opacity: 0.9;
     flex-shrink: 0;
 }
 
@@ -11366,11 +11403,80 @@ def _build_memoria_calculo_snapshot(
     periodo_atual: str,
     periodo_anterior_qoq: Optional[str],
     periodo_anterior_yoy: Optional[str],
+    *,
+    metric_cfg: Optional[dict] = None,
+    base: str = "Consolidada / Prudencial",
 ) -> pd.DataFrame:
     """Monta memória de cálculo detalhada da Snapshot a partir do cache curado."""
     periodos = [p for p in [periodo_atual, periodo_anterior_qoq, periodo_anterior_yoy] if p]
     periodos = list(dict.fromkeys(periodos))
+    special = {"Inadimplência >90 dias", "Cobertura dos vencidos >90 dias", "Custo anualizado de captação"}
+    if metric_cfg is not None and (base == "Individual" or metrica in special):
+        lookup = _critical_metric_lookup(df_curado)
+        rows = []
+        for periodo in periodos:
+            row = lookup.get((banco, periodo), {})
+            components = []
+            if metrica in special - {"Custo anualizado de captação"} and base != "Individual":
+                components = [("Inadimplência 4.966", "IFData Rel. 16", "Saldo integral dos vencidos por arrasto")]
+                if metrica == "Inadimplência >90 dias":
+                    components.append(("Carteira Total 4.966", "IFData Rel. 16", "Carteira total da mesma competência"))
+                else:
+                    from tabs.carteira_4966 import EXPECTED_LOSS_COLUMNS
+                    components += [(f"Trace::Perda Esperada::{c}", "IFData Rel. 2", "Soma dos quatro componentes; módulo após a soma") for c in EXPECTED_LOSS_COLUMNS]
+            elif metrica == "Custo anualizado de captação":
+                components = [("Desp Captação / Captação", "Derivado individual" if base == "Individual" else "Cache curado", "Razão contábil publicada no cache; sinal invertido para custo econômico")]
+            elif base == "Individual":
+                if metrica.startswith("ROE"):
+                    components = [("Lucro Líquido Trimestral" if "trim." in metrica else "Lucro Líquido Acumulado YTD", "IFData Rel. 1 individual", "Numerador normalizado"), ("Patrimônio Líquido", "IFData Rel. 1 individual", "PL atual, sem média de conglomerado")]
+                elif metrica == "Crédito / Captações":
+                    components = [("Carteira de Crédito Bruta", "IFData Rel. 1 individual", "Carteira selecionada"), ("Captações", "IFData Rel. 1 individual", "Denominador positivo")]
+                elif metrica.startswith("Lucro"):
+                    components = [("Trace::Lucro Líquido::Valor Reportado", "IFData Rel. 1 individual", "Valor semestral reportado; trimestre isolado por subtração, YTD recomposto com junho")]
+            for column, source, transformation in components:
+                _append_memoria_linha(rows, periodo=periodo, etapa="Componente", fonte=source, campo=column,
+                    filtro=f"{banco}; {base}; {periodo_para_exibicao(periodo)}", transformacao=transformation,
+                    valor_fmt=_formatar_valor_snapshot({"format_key": "Desp Captação / Captação", "is_pct": True}, row.get(column)) if column == "Desp Captação / Captação" else _memoria_fmt_monetario(row.get(column)), ordem=len(rows)+1)
+            _append_memoria_linha(rows, periodo=periodo, etapa="Resultado renderizado", fonte=metric_cfg.get("source_label", ""), campo=metrica,
+                filtro=f"{banco}; {base}; {periodo_para_exibicao(periodo)}", transformacao=metric_cfg.get("source", ""),
+                valor_fmt=_formatar_valor_snapshot(metric_cfg, (metric_cfg.get("serie") or {}).get(periodo)), ordem=len(rows)+1)
+        return pd.DataFrame(rows)
     return _build_memoria_calculo_curado_metrica(df_curado, banco, periodos, metrica)
+
+
+def _snapshot_scope_metadata(cfg: dict, base: str) -> dict:
+    """Expõe o perímetro e a fonte de cada card, sem preencher lacunas do grupo."""
+    out = dict(cfg)
+    out["scope"] = base
+    label = out["label"]
+    unavailable = {"Índice de Basileia", "CET1", "Perda Esperada / Estágio 3", "Perda Esperada / Carteira", "Inadimplência >90 dias", "Cobertura dos vencidos >90 dias"}
+    if base == "Individual":
+        if label in unavailable:
+            from utils.snapshot_data import INDIVIDUAL_RISK_NOTE
+            out.update(source=INDIVIDUAL_RISK_NOTE, source_label="Individual · fonte indisponível", definition=INDIVIDUAL_RISK_NOTE)
+        elif label == "Custo anualizado de captação":
+            out.update(source="IFData Rel. 4 e Rel. 1 individuais, trimestrais. Sinal da despesa invertido para apresentar custo; valores negativos podem refletir receitas ou reversões.", source_label="Individual · Rel. 4 / Rel. 1", definition="Custo contábil anualizado dividido pelas captações médias. Depende da composição do funding e de receitas ou reversões na despesa.")
+        elif label.startswith("ROE"):
+            out.update(source="Calculado com lucro individual e PL atual do Rel. 1; periodicidade trimestral. O ROE acumulado usa lucro de janeiro até a data-base, anualizado.", source_label="Individual · cálculo sobre Rel. 1", definition="Retorno do lucro individual sobre o patrimônio líquido atual da pessoa jurídica, anualizado. A janela trimestral usa três meses; a acumulada usa o resultado desde janeiro. A anualização não projeta lucros futuros.")
+        elif label == "Carteira de Crédito":
+            from utils.snapshot_data import INDIVIDUAL_CARTEIRA_NOTE
+            out.update(source=INDIVIDUAL_CARTEIRA_NOTE + " Periodicidade trimestral; valores de fechamento da pessoa jurídica.", source_label="Individual · Rel. 1", definition=INDIVIDUAL_CARTEIRA_NOTE)
+        elif label == "Crédito / Captações":
+            out.update(source="Carteira de crédito ÷ captações do Rel. 1 individual; fechamento trimestral. O denominador individual não é o core funding do grupo.", source_label="Individual · Rel. 1", definition="Parcela das captações individuais representada pela carteira de crédito da mesma pessoa jurídica e competência. Prazos, composição e outras fontes de financiamento afetam a leitura.")
+        else:
+            out.update(source="IFData Rel. 1 individual; periodicidade trimestral. Lucro do segundo semestre é recomposto com junho para obter o acumulado anual; o trimestre é isolado por subtração quando há os componentes necessários.", source_label="Individual · Rel. 1", definition="Informação da pessoa jurídica selecionada no IFData individual. Ativo e patrimônio são saldos de fechamento; lucro trimestral cobre três meses e lucro YTD cobre janeiro até a data-base.")
+    else:
+        sources = {
+            "Ativo Total": "IFData Rel. 1", "Patrimônio Líquido": "IFData Rel. 1",
+            "Carteira de Crédito": "IFData Rel. 2", "Índice de Basileia": "IFData Rel. 5", "CET1": "IFData Rel. 5",
+            "Lucro Líquido Trimestral": "IFData Rel. 1", "Lucro Líquido Acum. YTD": "IFData Rel. 1",
+            "ROE trim. anualizado": "Cálculo sobre Rel. 1", "ROE Ac. Anualizado": "Cálculo sobre Rel. 1",
+            "Crédito / Captações": "IFData Rel. 2 / Rel. 3", "Custo anualizado de captação": "IFData Rel. 4 / Rel. 1",
+            "Perda Esperada / Estágio 3": "Rel. 2 / Cadoc 4060", "Perda Esperada / Carteira": "IFData Rel. 2",
+            "Inadimplência >90 dias": "IFData Rel. 16", "Cobertura dos vencidos >90 dias": "IFData Rel. 2 / Rel. 16",
+        }
+        out["source_label"] = sources.get(label, "BCB IFData")
+    return out
 
 
 def _audit_deltas_snapshot(
@@ -11386,7 +11492,7 @@ def _audit_deltas_snapshot(
         label = cfg.get("label", "Métrica")
         delta_kind, delta_scale = _snap_metric_delta_meta(cfg)
         qoq_label, yoy_label = _snapshot_comparison_labels(cfg)
-        tolerancia = 0.50000001 if delta_kind == "bps" else 0.05000001 if delta_kind == "pp" else 0.0051
+        tolerancia = 0.50000001 if delta_kind == "bps" else 0.00500001 if delta_kind == "pp" else 0.0051
         comparacoes = [
             (qoq_label, periodo_anterior_qoq),
             (yoy_label, periodo_anterior_yoy),
@@ -11406,8 +11512,8 @@ def _audit_deltas_snapshot(
             match = re.search(r"[+−-]?\d[\d.,]*", calc_payload.get("suffix", ""))
             expected_unit = {"bps": "bps", "pp": "p.p.", "pct": "%"}[delta_kind]
             suffix = calc_payload.get("suffix", "")
-            threshold = 0.5 if delta_kind == "bps" else 0.05 if delta_kind == "pp" else 0
-            if "<" in suffix and delta_calc is not None and 0 < abs(delta_calc) < threshold and suffix == formatar_delta_br(delta_calc, "bps" if delta_kind == "bps" else "p.p.", casas=0 if delta_kind == "bps" else 1):
+            threshold = 0.5 if delta_kind == "bps" else 0.005 if delta_kind == "pp" else 0
+            if "<" in suffix and delta_calc is not None and 0 < abs(delta_calc) < threshold and suffix == formatar_delta_br(delta_calc, "bps" if delta_kind == "bps" else "p.p.", casas=0 if delta_kind == "bps" else 2):
                 exibido = delta_calc
             elif match is None or expected_unit not in suffix or not calc_payload.get("valido"):
                 exibido = float("inf")
@@ -11434,14 +11540,21 @@ def pagina_snapshot():
     st.markdown(_SNAPSHOT_V2_CSS, unsafe_allow_html=True)
 
     t0 = time.perf_counter()
-    if not _garantir_cache_telas_criticas("Snapshot"):
-        return
-
     st.markdown("### Snapshot")
+    base = st.segmented_control("Base das demonstrações", options=["Consolidada / Prudencial", "Individual"], default="Consolidada / Prudencial", key="snapshot_base", help="Individual: pessoa jurídica selecionada. Consolidada / Prudencial: conglomerado ou instituição independente. Cada card identifica seu escopo; fontes sem cobertura individual permanecem N/D.") or "Consolidada / Prudencial"
     render_module_help("Snapshot")
-
-    critical_token = _cache_version_token("critical_screens")
-    snapshot_ctx = _get_peers_filters_context(critical_token)
+    if base == "Individual":
+        from tabs.peers_table import _load_context
+        snapshot_ctx, identities = _load_context(globals(), True)
+        cache_name = "principal_individual"
+        st.caption("Individual: dados da pessoa jurídica selecionada. Capital regulatório, estágios, PDD e arrasto ficam N/D quando falta fonte no mesmo perímetro.")
+    else:
+        if not _garantir_cache_telas_criticas("Snapshot"):
+            return
+        cache_name = "critical_screens"
+        snapshot_ctx = _get_peers_filters_context(_cache_version_token(cache_name))
+        identities = {}
+    critical_token = _cache_version_token(cache_name)
     bancos_ctx = snapshot_ctx.get("bancos_todos", []) or []
     if not bancos_ctx:
         st.warning("cache curado indisponível para Snapshot.")
@@ -11453,15 +11566,29 @@ def pagina_snapshot():
         st.warning("sem instituições disponíveis para Snapshot.")
         return
     timer_box = st.empty()
-    snapshot_signature = ("snapshot", banco)
+    snapshot_signature = ("snapshot", base, banco)
     _timer_reset_if_selection_changed("snapshot_timer_state", snapshot_signature)
     _timer_render_caption("snapshot_timer_state", timer_box, "Tempo de carregamento da aba Snapshot")
 
     df_bank_all = _carregar_cache_relatorio_slice(
-        "critical_screens",
+        cache_name,
         critical_token,
         instituicoes=(banco,),
+        codinsts=(identities[banco],) if banco in identities else (),
     )
+    if base == "Individual":
+        from utils.snapshot_data import individual_snapshot_frame
+        df_bank_all = _apply_peers_individual_display_names(df_bank_all, snapshot_ctx.get("codinst_para_nome", {}))
+        derived_cache = get_cache_manager().get_cache("derived_metrics_individual")
+        from utils.individual_release_cache import ensure_individual_release_cache
+        individual_manifest = _carregar_manifest_release_cache(f"{_PEERS_INDIVIDUAL_RELEASE_BASE_URL}/manifest.json")
+        try:
+            ensure_individual_release_cache(derived_cache, (individual_manifest.get("caches") or {}).get("derived_metrics_individual") or {}, _PEERS_INDIVIDUAL_RELEASE_BASE_URL)
+            derived = _carregar_cache_relatorio_slice("derived_metrics_individual", _cache_version_token("derived_metrics_individual"), instituicoes=(banco,), codinsts=(identities[banco],) if banco in identities else ())
+        except Exception as exc:
+            derived = pd.DataFrame()
+            st.caption(f"Custo de captação N/D: fonte individual derivada sem versão validada. {exc}")
+        df_bank_all = individual_snapshot_frame(df_bank_all, banco, derived, codes=(identities[banco],) if banco in identities else ())
     if df_bank_all is None or df_bank_all.empty or "Período" not in df_bank_all.columns:
         st.warning("cache curado sem períodos disponíveis para a instituição selecionada.")
         return
@@ -11501,7 +11628,7 @@ def pagina_snapshot():
     cache_snapshot = df_bank_all[df_bank_all["Período"].astype(str).isin(periodos_snapshot)].copy()
     critical_lookup = _critical_metric_lookup(cache_snapshot)
 
-    label_desp_captacao = "Desp. Anualizada Captação / Volume Captação"
+    label_desp_captacao = "Custo anualizado de captação"
     ativo_map = _critical_metric_map(cache_snapshot, banco, periodos_snapshot, "Ativo Total")
     carteira_map = _critical_metric_map(cache_snapshot, banco, periodos_snapshot, "Carteira de Crédito Bruta")
     pl_map = _critical_metric_map(cache_snapshot, banco, periodos_snapshot, "Patrimônio Líquido")
@@ -11511,11 +11638,16 @@ def pagina_snapshot():
     roe_ac_map = _critical_metric_map(cache_snapshot, banco, periodos_snapshot, "ROE Ac. Anualizado (%)")
     credito_capt_map = _critical_metric_map(cache_snapshot, banco, periodos_snapshot, "Crédito / Captações")
     desp_capt_map = _critical_metric_map(cache_snapshot, banco, periodos_snapshot, "Desp Captação / Captação")
+    # Despesa contábil tem sinal negativo; custo econômico inverte esse sinal.
+    desp_capt_map = {p: -v if v is not None else None for p, v in desp_capt_map.items()}
     cet1_map = _critical_metric_map(cache_snapshot, banco, periodos_snapshot, "Índice de Capital Principal (CET1)")
     bas_map = _critical_metric_map(cache_snapshot, banco, periodos_snapshot, "Índice de Basileia Total (%)")
     perda_est3_map = _critical_metric_map(cache_snapshot, banco, periodos_snapshot, "Perda Esperada / Estágio 3")
     perda_carteira_map = _critical_metric_map(cache_snapshot, banco, periodos_snapshot, "Perda Esperada / Carteira de Crédito*")
     perda_esperada_map = _critical_metric_map(cache_snapshot, banco, periodos_snapshot, "Perda Esperada")
+    from utils.snapshot_data import snapshot_risk_maps
+    risk_maps = snapshot_risk_maps(cache_snapshot, banco, periodos_snapshot, base)
+    npl90_map, coverage90_map = risk_maps["npl90"], risk_maps["coverage90"]
     carteira_status_map = {
         p: str(_critical_metric_value(critical_lookup, banco, p, "Trace::Carteira::Status") or "").strip()
         for p in periodos_status_snapshot
@@ -11549,6 +11681,8 @@ def pagina_snapshot():
     dependencias_snapshot_incompletas = set()
 
     def _add_diagnostico_snapshot(dependencia: str, mensagem: str) -> None:
+        if base == "Individual":
+            return  # Ausência de fonte prudencial é esperada neste perímetro.
         dependencias_snapshot_incompletas.add(dependencia)
         diagnostico_snapshot.append(mensagem)
 
@@ -11603,7 +11737,19 @@ def pagina_snapshot():
         )
 
     def _snapshot_apply_status(cfg: dict) -> dict:
-        cfg_out = dict(cfg)
+        cfg_out = _snapshot_scope_metadata(cfg, base)
+        risk_key = {"Inadimplência >90 dias": "npl90", "Cobertura dos vencidos >90 dias": "coverage90"}.get(cfg["label"])
+        if risk_key:
+            quality = risk_maps["status"][risk_key][periodo_atual]
+            cfg_out.update(status_marker="†" if quality["status"] in {"missing", "warning", "critical"} else "", status_note=quality["reason"], variation_reliable=quality["reliable"], quality_by_period=risk_maps["status"][risk_key])
+            return cfg_out
+        if base == "Individual":
+            value = _coerce_numeric_value((cfg.get("serie") or {}).get(periodo_atual))
+            note = cfg_out["source"] if value is None else ""
+            if value is None and cfg["label"] not in {"Índice de Basileia", "CET1", "Perda Esperada / Estágio 3", "Perda Esperada / Carteira"}:
+                note = "N/D: informação ou componente necessário não disponível para a pessoa jurídica e competência selecionadas. " + cfg_out["source"]
+            cfg_out.update(status_marker="†" if value is None else "", status_note=note)
+            return cfg_out
         marker, note = _snapshot_metric_status_note(
             label=str(cfg.get("label") or ""),
             periodo_ref=periodo_atual,
@@ -11616,6 +11762,22 @@ def pagina_snapshot():
         )
         cfg_out["status_marker"] = marker
         cfg_out["status_note"] = note
+        if marker == "‡":
+            cfg_out["source"] = {
+                "Carteira de Crédito": "IFData Rel. 2: soma dos componentes líquidos e+f+g+h; componentes brutos indisponíveis na competência.",
+                "Crédito / Captações": "Carteira líquida e+f+g+h do Rel. 2 ÷ Core Funding do Rel. 3, na mesma competência.",
+                "Perda Esperada / Carteira": "|Perdas e ajustes do Rel. 2| ÷ carteira líquida e+f+g+h; componentes brutos indisponíveis na competência.",
+            }[cfg["label"]]
+        quality = {}
+        for period in periodos_status_snapshot:
+            period_marker, period_note = _snapshot_metric_status_note(
+                label=cfg["label"], periodo_ref=period, valor_atual=(cfg.get("serie") or {}).get(period),
+                capital_disp_map=capital_disp_map, qual_status_map=qual_status_map,
+                core_status_map=core_status_map, carteira_status_map=carteira_status_map,
+                perda_esperada_map=perda_esperada_map,
+            )
+            quality[period] = {"reliable": not bool(period_marker), "reason": period_note}
+        cfg_out["quality_by_period"] = quality
         return cfg_out
 
     # --- Sparkline data (last 8 quarters) ---
@@ -11658,6 +11820,8 @@ def pagina_snapshot():
     spark_perda_carteira = _spark_from_map({p: perda_carteira_map.get(p) for p in periodos_sparkline})
     spark_cet1 = _spark_from_map(cet1_map)
     spark_basileia = _spark_from_map(bas_map)
+    spark_npl90 = _spark_from_map(npl90_map)
+    spark_coverage90 = _spark_from_map(coverage90_map)
 
     # ===================================================================
     # TIER 1: Hero KPIs
@@ -11728,12 +11892,21 @@ def pagina_snapshot():
                  "source": "Carteira Bruta ÷ Core Funding (Rel. 2 / Rel. 3). QoQ e YoY usam o valor trimestral de fechamento, não acumulado YTD."},
                 {"label": label_desp_captacao, "format_key": "Desp Captação / Captação",
                  "higher_is_better": False, "serie": desp_capt_map, "is_pct": True, "comparison_basis": "trimestral",
-                 "source": "DRE (Rel. 4) ÷ Passivo (Rel. 3)"},
+                 "normalize_negative_risk": False,
+                 "source": "Despesa anualizada de captação (Rel. 4) com sinal invertido ÷ captações médias. Custo negativo pode refletir receitas ou reversões; fechamento trimestral."},
             ],
         },
         {
             "section": "Qualidade de Carteira",
             "rows": [
+                {"label": "Inadimplência >90 dias", "subtitle": "Arrasto · % da carteira", "format_key": "Inadimplência / Carteira Total",
+                 "higher_is_better": False, "favorable_direction": "down", "is_pct": True, "comparison_basis": "trimestral", "serie": npl90_map,
+                 "definition": "Percentual da carteira do Rel. 16 formado pelo saldo integral de operações com alguma parcela vencida há mais de 90 dias. O conceito de arrasto inclui parcelas a vencer. Dados trimestrais desde mar/2025.",
+                 "source": "BCB IFData Rel. 16: vencidos >90 dias por arrasto ÷ Total Geral, na mesma competência e perímetro."},
+                {"label": "Cobertura dos vencidos >90 dias", "subtitle": "PDD / vencidos por arrasto", "format_key": "PDD / Inadimplência (arrasto)",
+                 "higher_is_better": True, "favorable_direction": "up", "is_pct": True, "comparison_basis": "trimestral", "serie": coverage90_map,
+                 "definition": "PDD dividida pelo saldo integral dos vencidos acima de 90 dias por arrasto. É uma aproximação de cobertura: a provisão inclui outros ativos. Leia o movimento junto com PDD e inadimplência; dados trimestrais desde mar/2025.",
+                 "source": "BCB IFData Rel. 2: |e2 + f2 + g2 + h2| ÷ vencidos por arrasto do Rel. 16, na mesma competência e perímetro."},
                 {"label": "Perda Esperada / Estágio 3", "format_key": "Perda Esperada / Estágio 3",
                  "higher_is_better": True, "is_pct": True, "comparison_basis": "trimestral",
                  "serie": perda_est3_map,
@@ -11763,7 +11936,7 @@ def pagina_snapshot():
 
     section_sparklines = {
         "Funding": [spark_credito_capt, spark_desp_capt],
-        "Qualidade de Carteira": [spark_perda_est3, spark_perda_carteira],
+        "Qualidade de Carteira": [spark_npl90, spark_coverage90, spark_perda_est3, spark_perda_carteira],
         "Capital": [spark_cet1],
     }
     section_spark_types = {
@@ -11789,7 +11962,7 @@ def pagina_snapshot():
 
     if any(str(cfg.get("status_marker") or "").strip() for cfg in (hero_metrics + profit_metrics + [row for sec in supporting_sections for row in sec["rows"]])):
         st.caption("† = indicador indisponível com causa identificada. Toque ou clique no ícone `i` do card para ver a limitação e a fonte.")
-    st.caption("As variações mostram direção e intensidade da mudança. Crescimento de porte, carteira ou cobertura exige leitura da composição, do risco e da base de comparação.")
+    st.caption("O detalhe no último ponto acompanha a leitura de crédito da variação trimestral: verde, direção usualmente favorável; vermelho, atenção. Inadimplência e estágios maiores pedem atenção. Saldos, comparações indisponíveis e janelas YTD permanecem neutros. Coberturas exigem leitura conjunta do numerador e do denominador.")
 
     todas_metricas_snapshot = hero_metrics + profit_metrics + [row for sec in supporting_sections for row in sec["rows"]]
     from utils.snapshot_export_data import snapshot_payload, export_snapshot_package
@@ -11810,19 +11983,19 @@ def pagina_snapshot():
         banco, periodo_atual, periodo_anterior_qoq, periodo_yoy_existente,
         [("hero", hero_metrics), ("profit", profit_metrics),
          ("support", [row for sec in supporting_sections for row in sec["rows"]])],
-        export_histories, globals(),
+        export_histories, globals(), base=base,
     )
     with snapshot_export_container:
         bank_filename = re.sub(r"[^\w\-.]+", "_", str(banco), flags=re.UNICODE).strip("_")
         st.download_button(
             "Resumo em PowerPoint",
             data=lambda: export_snapshot_package(snapshot_for_export, df_bank_all, globals()),
-            file_name=f"Resumo_{bank_filename}_{periodo_atual.replace('/', '-')}.pptx",
+            file_name=f"Resumo_{bank_filename}_{'Individual_' if base == 'Individual' else ''}{periodo_atual.replace('/', '-')}.pptx",
             mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
             key="snapshot_download_powerpoint", on_click="ignore", type="primary",
             width="stretch",
         )
-        st.caption("Snapshot e três competências mais recentes de Peers e Carteira 4.966, quando disponíveis, para esta instituição.")
+        st.caption(f"Snapshot e três competências mais recentes de Peers na base {base}. Carteira 4.966 incluída quando há fonte no mesmo escopo; ausências permanecem N/D.")
     anomalias_delta_snapshot = _audit_deltas_snapshot(
         todas_metricas_snapshot,
         periodo_atual,
@@ -11843,6 +12016,8 @@ def pagina_snapshot():
             periodo_atual,
             periodo_anterior_qoq,
             periodo_yoy_existente,
+            metric_cfg=next(cfg for cfg in todas_metricas_snapshot if cfg["label"] == metrica_snapshot_sel),
+            base=base,
         )
         if df_memoria_snapshot.empty:
             st.info("memória de cálculo indisponível para os filtros atuais.")
@@ -11864,7 +12039,7 @@ def pagina_snapshot():
     # Origem dos dados
     # ===================================================================
     with st.expander("Origem dos dados e critérios de cálculo", expanded=False):
-        st.markdown(_build_provenance_html(), unsafe_allow_html=True)
+        st.markdown(_build_provenance_html(todas_metricas_snapshot), unsafe_allow_html=True)
 
     if diagnostico_snapshot:
         dependencias_txt = ", ".join(sorted(dependencias_snapshot_incompletas))
@@ -15343,6 +15518,8 @@ def _render_cache_status_por_aba(menu_nome: str) -> None:
     ):
         return
     caches = CACHE_DEPENDENCIAS_POR_ABA.get(menu_nome)
+    if menu_nome == "Snapshot" and st.session_state.get("snapshot_base") == "Individual":
+        caches = ["principal_individual", "derived_metrics_individual"]
     if not caches:
         return
     # Observabilidade: sem a cobertura real em disco é impossível distinguir

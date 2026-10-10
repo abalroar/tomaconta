@@ -41,12 +41,28 @@ def test_percent_deltas_subtract_and_coverage_uses_pp_with_credit_colors():
     assert risk.tone == "attention"
     coverage = cell_delta(result, ROW_BY_KEY["provision_over_delinquency"], "1/2026")
     assert coverage.value == pytest.approx(.4)
-    assert coverage.display == "↑ +0,4 p.p."
+    assert coverage.display == "↑ +0,40 p.p."
     assert coverage.tone == "favorable"
     result.cells["provision_over_delinquency"]["1/2026"] = MetricCell(1.9)
     falling = cell_delta(result, ROW_BY_KEY["provision_over_delinquency"], "1/2026")
-    assert falling.display == "↓ −3,1 p.p."
+    assert falling.display == "↓ −3,10 p.p."
     assert falling.tone == "attention"
+
+
+def test_provision_portfolio_is_percentage_point_difference_and_npl_volume_is_credit_risk():
+    result = model()
+    result.reference_cells["provision_over_portfolio"]["4/2025"] = MetricCell(.0218)
+    result.cells["provision_over_portfolio"]["1/2026"] = MetricCell(.0225)
+    provision_ratio = cell_delta(result, ROW_BY_KEY["provision_over_portfolio"], "1/2026")
+    assert provision_ratio.value == pytest.approx(.07)
+    assert provision_ratio.unit == "p.p."
+    assert provision_ratio.display == "↑ +0,07 p.p."
+    assert provision_ratio.tone == "neutral"
+    volume = cell_delta(result, ROW_BY_KEY["delinquency"], "1/2026")
+    assert volume.tone == "attention"
+    result.cells["delinquency"]["1/2026"] = MetricCell(1e6, .01)
+    assert cell_delta(result, ROW_BY_KEY["delinquency"], "1/2026").tone == "favorable"
+    assert cell_delta(result, ROW_BY_KEY["delinquency"], "1/2026", secondary=True).tone == "favorable"
 
 
 @pytest.mark.parametrize("spec", ROW_SPECS, ids=lambda row: row.key)
@@ -57,10 +73,10 @@ def test_every_row_uses_exact_reference_and_appropriate_operation(spec):
         assert delta.reference_period == "4/2025"
         assert delta.reference is not None
         percent = secondary or spec.layout == "percent_span"
-        factor = 10000 if percent and spec.key in {"delinquency", "provision_over_portfolio"} else 100
+        factor = 10000 if percent and spec.key == "delinquency" else 100
         expected = (delta.current - delta.reference) * factor if percent else (delta.current - delta.reference) / delta.reference * 100
         assert delta.value == pytest.approx(expected)
-        if not percent or spec.group == "classification" or spec.key == "provision_over_portfolio":
+        if (not percent and spec.key != "delinquency") or spec.group == "classification" or spec.key == "provision_over_portfolio":
             assert delta.tone == "neutral"
 
 
@@ -117,7 +133,7 @@ def test_html_and_both_excel_exports_share_units_numbers_and_colors():
     assert 'class="tc-4966-delta attention"' in html
     assert 'class="tc-4966-delta favorable"' in html
     assert "↑ +7 bps" in html
-    assert "↑ +0,4 p.p." in html
+    assert "↑ +0,40 p.p." in html
     portfolio, loss = sources()
     for payload in (build_carteira_4966_excel(result), build_carteira_4966_raw_excel(result, portfolio, loss)):
         workbook = openpyxl.load_workbook(BytesIO(payload))
@@ -130,6 +146,7 @@ def test_html_and_both_excel_exports_share_units_numbers_and_colors():
         assert risk[8].value == "↑ +7 bps"
         assert risk[8].font.color.rgb == "FFB32624"
         assert coverage[6].value == pytest.approx(.4)
+        assert coverage[6].number_format == "0.00"
         assert coverage[7].value == "p.p."
         assert coverage[8].font.color.rgb == "FF16713B"
         assert risk[4].value == pytest.approx(.0225)

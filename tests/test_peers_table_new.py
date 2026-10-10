@@ -50,32 +50,84 @@ def test_delta_baseline_units_rounding_and_ytd_guard():
 def test_every_percentage_metric_uses_subtraction_in_the_declared_unit(metric):
     for mode in ("quarter", "year"):
         if metric.delta_unit == "p.p.":
-            assert delta(.0225,.0218,metric,mode) == ("up", "↑ +0,1 p.p.")
-            assert delta(.1477,.1518,metric,mode) == ("down", "↓ −0,4 p.p.")
-            assert delta(1.8741,1.9354,metric,mode) == ("down", "↓ −6,1 p.p.")
+            assert delta(.0225,.0218,metric,mode) == ("up", "↑ +0,07 p.p.")
+            assert delta(.1477,.1518,metric,mode) == ("down", "↓ −0,41 p.p.")
+            assert delta(1.8741,1.9354,metric,mode) == ("down", "↓ −6,13 p.p.")
         else:
             assert delta(.0225,.0218,metric,mode) == ("up", "↑ +7 bps")
             assert delta(.1477,.1518,metric,mode) == ("down", "↓ −41 bps")
             assert delta(1.8741,1.9354,metric,mode) == ("down", "↓ −613 bps")
 
 
-@pytest.mark.parametrize("key", ["PDD / Inadimplência (arrasto)", "Perda Esperada / Estágio 3", "Perda Esperada / Est2+3", "Custo de Crédito / Receita de Crédito (%)"])
+@pytest.mark.parametrize("key", ["PDD / Inadimplência (arrasto)", "Perda Esperada / Estágio 3", "Perda Esperada / Est2+3", "Custo de Crédito / Receita de Crédito (%)", "Perda Esperada / Carteira de Crédito*"])
 def test_coverage_and_expense_shares_use_percentage_point_differences(key):
     metric = BY_KEY[key]
     assert metric.delta_unit == "p.p."
-    assert delta(1.935, 1.931, metric, "quarter") == ("up", "↑ +0,4 p.p.")
-    assert delta(1.935, 1.971, metric, "year") == ("down", "↓ −3,6 p.p.")
+    assert delta(1.935, 1.931, metric, "quarter") == ("up", "↑ +0,40 p.p.")
+    assert delta(1.935, 1.971, metric, "year") == ("down", "↓ −3,60 p.p.")
 
 
 def test_color_depends_on_credit_meaning_and_data_quality():
     assert variation_tone(BY_KEY["Ativo Total"], "up") == "neutral"
-    assert variation_tone(BY_KEY["Inadimplência"], "down") == "neutral"
+    assert variation_tone(BY_KEY["Inadimplência"], "down") == "favorable"
     assert variation_tone(BY_KEY["Custo de Crédito (%)"], "up") == "attention"
     assert variation_tone(BY_KEY["Inadimplência / Carteira Total"], "down") == "favorable"
     assert variation_tone(BY_KEY["Índice de Basileia Total (%)"], "down") == "attention"
     assert variation_tone(BY_KEY["Índice de Basileia Total (%)"], "down", "curated_value") == "attention"
     assert variation_tone(BY_KEY["PDD / Inadimplência (arrasto)"], "up") == "favorable"
     assert variation_tone(BY_KEY["PDD / Inadimplência (arrasto)"], "up", "warning") == "neutral"
+
+
+ECONOMIC_DELTA_CASES = {
+    # Saldos de balanço e resultados precisam de contexto; crescer não implica menor risco.
+    **{key: (110, 100, "↑ +10,00 %", "neutral") for key in (
+        "Ativo Total", "Ativos Líquidos", "Carteira de Crédito*", "Perda Esperada",
+        "Depósitos Totais", "Core Funding*", "Patrimônio Líquido (PL)", "Lucro Líquido Acumulado",
+    )},
+    # Maior estoque de crédito deteriorado merece atenção, mesmo com carteira crescente.
+    **{key: (110, 100, "↑ +10,00 %", "attention") for key in (
+        "Inadimplência", "Ativos Estágio 2", "Ativos Estágio 3",
+    )},
+    **{key: (.0225, .0218, "↑ +7 bps", "attention") for key in (
+        "Custo de Crédito (%)", "Ativos Problemáticos / Carteira Total",
+        "Inadimplência / Carteira Total", "Ativos Estágio 3 / Carteira de Crédito",
+        "Inadimplência / Carteira de Crédito",
+    )},
+    **{key: (.1477, .1518, "↓ −41 bps", "attention") for key in (
+        "Índice de Capital Principal (CET1)", "Índice de Basileia Total (%)", "ROE Acumulado YTD (%)",
+    )},
+    **{key: (1.935, 1.931, "↑ +0,40 p.p.", "favorable") for key in (
+        "PDD / Inadimplência (arrasto)", "Perda Esperada / Estágio 3", "Perda Esperada / Est2+3",
+    )},
+    "Custo de Crédito / Receita de Crédito (%)": (.2533, .2762, "↓ −2,29 p.p.", "favorable"),
+    "Perda Esperada / Carteira de Crédito*": (.0225, .0218, "↑ +0,07 p.p.", "neutral"),
+    "Ativo Total / PL": (11.34, 10.22, "↑ +1,12 x", "attention"),
+    "Carteira de Crédito* / PL": (11.34, 10.22, "↑ +1,12 x", "attention"),
+}
+
+
+def test_economic_review_covers_the_entire_metric_catalog():
+    assert set(ECONOMIC_DELTA_CASES) == set(BY_KEY)
+
+
+@pytest.mark.parametrize("key", ECONOMIC_DELTA_CASES)
+def test_economic_case_has_expected_operation_precision_and_credit_interpretation(key):
+    current, old, expected, tone = ECONOMIC_DELTA_CASES[key]
+    metric = BY_KEY[key]
+    direction, display = delta(current, old, metric, "year")
+    assert display == expected
+    assert variation_tone(metric, direction) == tone
+    reversed_direction, _ = delta(old, current, metric, "year")
+    assert variation_tone(metric, reversed_direction) == ({"attention": "favorable", "favorable": "attention"}.get(tone, tone))
+    assert delta(None, old, metric, "year") == (None, "Base N/D")
+    assert delta(current, None, metric, "year") == (None, "Base N/D")
+
+
+@pytest.mark.parametrize("key", [key for key in ECONOMIC_DELTA_CASES if BY_KEY[key].unit == "%"])
+def test_zero_percent_reference_is_valid_for_subtraction_and_does_not_mean_missing(key):
+    direction, display = delta(.0225, 0, BY_KEY[key], "quarter")
+    assert direction == "up"
+    assert display == ("↑ +225 bps" if BY_KEY[key].delta_unit == "bps" else "↑ +2,25 p.p.")
 
 
 def test_reference_and_numeric_delta_are_auditable_in_ui_and_excel():
@@ -98,6 +150,49 @@ def test_reference_and_numeric_delta_are_auditable_in_ui_and_excel():
     records=list(ws.values); headers=records[0]
     assert records[1][headers.index("Delta numérico")] == pytest.approx(-41)
     assert records[1][headers.index("Unidade delta")] == "bps"
+
+
+@pytest.mark.parametrize("reference_status", ["warning", "critical"])
+def test_reference_quality_alert_preserves_subtraction_and_neutralizes_all_rendered_colors(reference_status):
+    key, bank = "Índice de Basileia Total (%)", "A"
+    frame = pd.DataFrame([{"Instituição": bank, "Período": "4/2025"}, {"Instituição": bank, "Período": "1/2026"}])
+    values = {(key, bank, "4/2025"): .1518, (key, bank, "1/2026"): .1477}
+    statuses = {(key, bank, "4/2025"): {"Status analítico": reference_status, "Observação": "RWA da referência requer validação"}}
+    query = build_query(frame, [bank], ["1/2026"], [key], values, statuses,
+                        base="Consolidada / Prudencial", cache_token="test", scale="R$ bilhões",
+                        mode="quarter", queried_at="10/10/2026")
+    cell = query["cells"][0]
+    assert cell["status"] == "available"
+    assert cell["reference_status"] == reference_status
+    assert cell["delta_value"] == pytest.approx(-41)
+    assert cell["variation"] == "↓ −41 bps"
+    rendered = table_html(query)
+    assert 'class="delta down neutral"' in rendered
+    assert "referência com alerta: RWA da referência requer validação" in rendered
+    workbook = load_workbook(BytesIO(export_excel(query)))
+    assert workbook["Comparativo"].cell(7, 3).font.color.rgb == "FF666666"
+    rows = list(workbook["Dados e status"].values)
+    assert rows[1][rows[0].index("Status referência")] == reference_status
+    assert rows[1][rows[0].index("Delta numérico")] == pytest.approx(-41)
+    deck = Presentation(BytesIO(export_powerpoint(query)))
+    table = next(shape.table for shape in deck.slides[0].shapes if shape.has_table)
+    assert str(table.cell(2, 1).text_frame.paragraphs[1].font.color.rgb) == "666666"
+
+
+def test_missing_reference_remains_nd_despite_an_older_available_value():
+    key, bank = "Índice de Basileia Total (%)", "A"
+    frame = pd.DataFrame([{"Instituição": bank, "Período": p} for p in ["3/2025", "4/2025", "1/2026"]])
+    values = {(key, bank, "3/2025"): .16, (key, bank, "4/2025"): None, (key, bank, "1/2026"): .1477}
+    query = build_query(frame, [bank], ["1/2026"], [key], values, {},
+                        base="Consolidada / Prudencial", cache_token="test", scale="R$ bilhões",
+                        mode="quarter", queried_at="10/10/2026")
+    cell = query["cells"][0]
+    assert cell["value"] == .1477
+    assert cell["reference_value"] is None
+    assert cell["reference_status"] == "missing"
+    assert cell["delta_value"] is None
+    assert cell["variation"] == "Base N/D"
+    assert 'class="delta  neutral"' in table_html(query)
 
 
 def test_query_preserves_sign_missing_components_order_and_effective_revision():
@@ -424,16 +519,16 @@ def test_arrasto_uses_rel16_total_and_only_four_expected_losses_from_2025():
     assert cells["Inadimplência / Carteira Total"]["value"] == .02
     assert cells["PDD / Inadimplência (arrasto)"]["value"] == 1
     assert cells["Inadimplência / Carteira Total"]["variation"] == "↑ +100 bps"
-    assert cells["PDD / Inadimplência (arrasto)"]["variation"] == "↓ −100,0 p.p."
+    assert cells["PDD / Inadimplência (arrasto)"]["variation"] == "↓ −100,00 p.p."
     html = table_html(q)
-    assert "↓ −100,0 p.p." in html and "percentual atual − percentual de referência" in html
+    assert "↓ −100,00 p.p." in html and "percentual atual − percentual de referência" in html
     variations = variation_rows(q, "PDD / Inadimplência (arrasto)", "A")
     assert "100,0000% − 200,0000% = −100,0000 p.p." in variations.iloc[-1]["Cálculo"]
     assert "× 100" not in variations.iloc[-1]["Cálculo"]
     sheet = load_workbook(BytesIO(export_excel(q)))["Comparativo"]
     coverage_row = next(row for row in range(1, sheet.max_row + 1) if sheet.cell(row, 1).value == "PDD / vencidos >90 dias (arrasto)")
     assert sheet.cell(coverage_row, 4).number_format == "0.00%"
-    assert sheet.cell(coverage_row + 1, 4).value == "↓ −100,0 p.p."
+    assert sheet.cell(coverage_row + 1, 4).value == "↓ −100,00 p.p."
     assert all(c["value"] is None and "mar/2025" in c["reason"] for c in q["cells"] if c["period"] == "4/2024")
     memo = calculation_rows(q, df, "PDD / Inadimplência (arrasto)", "A")
     assert not memo.Campo.str.contains("Hedge|Ajuste a Valor Justo|Carteira de Crédito Bruta").any()

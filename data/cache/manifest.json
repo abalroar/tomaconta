@@ -1,6 +1,6 @@
 {
-  "run_id": "tomaconta-taxas-20260924-20261008-v1",
-  "generated_at_utc": "2026-10-08T20:22:46.579789+00:00",
+  "run_id": "tomaconta-individual-set25-dedup-20261010-v1",
+  "generated_at_utc": "2026-10-10T20:26:16.191169+00:00",
   "release": {
     "repo": "abalroar/tomaconta",
     "tag": "v1.1-cache",
@@ -35,14 +35,14 @@
       "cache": "principal_individual",
       "exists": true,
       "source": "ifdata_web",
-      "timestamp": "2026-09-10T22:25:57.797105",
+      "timestamp": "2026-10-10T20:26:16.191169+00:00",
       "max_period": "2/2026",
       "max_period_ref": "202606",
       "period_count": 18,
       "record_count": 28114,
       "path": "data/cache/principal_individual/dados.parquet",
       "metadata_path": "data/cache/principal_individual/metadata.json",
-      "sha256": "474954cc8873d703125cce3523c05907a5596ca229c80907a2d2a91ed6e63a19",
+      "sha256": "1f46c2bca56ccde4531f09aa6235e164b152a26fa1da76e7d6aa053234868724",
       "release_repo": "abalroar/tomaconta",
       "release_tag": "v1.1-cache",
       "release_base_url": "https://github.com/abalroar/tomaconta/releases/download/v1.1-cache"
@@ -116,14 +116,14 @@
       "cache": "dre_individual",
       "exists": true,
       "source": "ifdata_web",
-      "timestamp": "2026-09-10T22:26:06.584080",
+      "timestamp": "2026-10-10T20:26:16.191169+00:00",
       "max_period": "2/2026",
       "max_period_ref": "202606",
       "period_count": 18,
       "record_count": 28063,
       "path": "data/cache/dre_individual/dados.parquet",
       "metadata_path": "data/cache/dre_individual/metadata.json",
-      "sha256": "664f306e62e57744ca9bb6f04ac0e93cca6fcd4192ce0eb87e5729f7e80e750b",
+      "sha256": "9091635d6663da6164305f7d2d7647008e17221d2992259f9e98c31bab0c28f0",
       "release_repo": "abalroar/tomaconta",
       "release_tag": "v1.1-cache",
       "release_base_url": "https://github.com/abalroar/tomaconta/releases/download/v1.1-cache"
@@ -212,14 +212,14 @@
       "cache": "derived_metrics_individual",
       "exists": true,
       "source": "derivado",
-      "timestamp": "2026-09-10T22:39:19.783328",
+      "timestamp": "2026-10-10T20:26:16.191169+00:00",
       "max_period": "2/2026",
       "max_period_ref": "202606",
       "period_count": 18,
       "record_count": 140315,
       "path": "data/cache/derived_metrics_individual/dados.parquet",
       "metadata_path": "data/cache/derived_metrics_individual/metadata.json",
-      "sha256": "632d8bff3d2b564af9e0cbbee2279e9b2c8ee3c5423491e53fb93dc584d410f9",
+      "sha256": "9200c89260d552f52cb52133bbd8ff51b572ae4a8119d9ee6cf4ecd82b1b8591",
       "release_repo": "abalroar/tomaconta",
       "release_tag": "v1.1-cache",
       "release_base_url": "https://github.com/abalroar/tomaconta/releases/download/v1.1-cache"
@@ -521,9 +521,8 @@
       "examples": []
     },
     "passivo": {
-      "count": 0,
-      "verified_at_utc": "20261009T194237Z",
       "success": true,
+      "count": 0,
       "message": "ok",
       "examples": []
     }
@@ -862,12 +861,46 @@
       }
     },
     "institution_identity_repair": {
-      "periodo": "202512",
-      "names_repaired": 1406,
-      "registry_sha256": "1a0d1ec17cbe1b677a2dc28052ab58ceb138d27fde700665dfea129f63553b6a",
-      "before_sha256": "3bf105e5aba390385045c7ad3790b30657badee965b59d88631326c56cabe3c9",
-      "after_sha256": "e4d281074c43348d9a485235b97f422412d4db94ec0564c40f8e3d97ddbb9119",
-      "numeric_values_unchanged": true
+      "verified_at_utc": "2026-10-09T20:06:48.845407+00:00",
+      "numeric_values_unchanged": true,
+      "repairs": [
+        {
+          "cache": "passivo",
+          "periodo": "202512",
+          "names_repaired": 1406,
+          "registry_sha256": "1a0d1ec17cbe1b677a2dc28052ab58ceb138d27fde700665dfea129f63553b6a",
+          "source": "https://olinda.bcb.gov.br/olinda/servico/IFDATA/versao/v1/odata/IfDataCadastro(AnoMes=202512); https://www3.bcb.gov.br/ifdata/",
+          "before_sha256": "3bf105e5aba390385045c7ad3790b30657badee965b59d88631326c56cabe3c9",
+          "after_sha256": "e4d281074c43348d9a485235b97f422412d4db94ec0564c40f8e3d97ddbb9119",
+          "numeric_values_unchanged": true,
+          "repaired_at_utc": "20261009T194237Z"
+        }
+      ]
+    },
+    "individual_set25_dedup": {
+      "period": "3/2025",
+      "operation": "unique_official_cells_before_pivot",
+      "verified_at_utc": "2026-10-10T20:26:16.191169+00:00",
+      "sources": {
+        "principal_individual": {
+          "url": "https://olinda.bcb.gov.br/olinda/servico/IFDATA/versao/v1/odata/IfDataValores(AnoMes=202509,TipoInstituicao=3,Relatorio='1')?$format=json&$top=500000",
+          "sha256": "8a10681afde214e0b9f7933e4855e605f866cd8d5c0f64e85fa83204b1c1dce4",
+          "bytes": 8617089,
+          "raw_records": 33684,
+          "unique_records": 11228,
+          "exact_duplicate_records": 22456
+        },
+        "dre_individual": {
+          "url": "https://olinda.bcb.gov.br/olinda/servico/IFDATA/versao/v1/odata/IfDataValores(AnoMes=202509,TipoInstituicao=3,Relatorio='4')?$format=json&$top=500000",
+          "sha256": "1bc09beff7f8826740dbccff908e5707e2a973f7cc05ba1b5d628a7ff0ecae67",
+          "bytes": 102915510,
+          "raw_records": 250224,
+          "unique_records": 83408,
+          "exact_duplicate_records": 166816
+        }
+      },
+      "individual_identity": "CodInst",
+      "individual_scope": "Rel. 1 + Rel. 4; sem Rel. 2/16 prudencial"
     }
   },
   "published_assets": {
@@ -880,12 +913,12 @@
       "bytes": 3577
     },
     "principal_individual_dados.parquet": {
-      "sha256": "474954cc8873d703125cce3523c05907a5596ca229c80907a2d2a91ed6e63a19",
-      "bytes": 2211988
+      "sha256": "1f46c2bca56ccde4531f09aa6235e164b152a26fa1da76e7d6aa053234868724",
+      "bytes": 2208395
     },
     "principal_individual_metadata.json": {
-      "sha256": "5323c0218b3b087df6b277ddf0d6e0f658ffb9da39d12876c9f387f219e5a6b8",
-      "bytes": 3059
+      "sha256": "19f38b3e39c663b116d239424466a8871417ad233e5341b3cc3d67604829eabe",
+      "bytes": 4286
     },
     "capital_dados.parquet": {
       "sha256": "8a14bd1857328b99ad309cffd2a60ab888a39a77ef3b630f2f6013a60671d5f4",
@@ -920,12 +953,12 @@
       "bytes": 8187
     },
     "dre_individual_dados.parquet": {
-      "sha256": "664f306e62e57744ca9bb6f04ac0e93cca6fcd4192ce0eb87e5729f7e80e750b",
-      "bytes": 5491993
+      "sha256": "9091635d6663da6164305f7d2d7647008e17221d2992259f9e98c31bab0c28f0",
+      "bytes": 5483995
     },
     "dre_individual_metadata.json": {
-      "sha256": "46cc33afe5044c0a12e4004e8063a82832ae16207a5698a9f281f5451f6d232f",
-      "bytes": 7251
+      "sha256": "684f4fffcce8a83d2133e8831660c72d1adcf9c19c09bd5d74e1e2dd58e948ae",
+      "bytes": 8478
     },
     "carteira_pf_dados.parquet": {
       "sha256": "81c5286a908d1fec685c4fad8a8be6579f8553aefaae793633a6d018595503b4",
@@ -960,12 +993,12 @@
       "bytes": 2375
     },
     "derived_metrics_individual_dados.parquet": {
-      "sha256": "632d8bff3d2b564af9e0cbbee2279e9b2c8ee3c5423491e53fb93dc584d410f9",
-      "bytes": 398433
+      "sha256": "9200c89260d552f52cb52133bbd8ff51b572ae4a8119d9ee6cf4ecd82b1b8591",
+      "bytes": 593195
     },
     "derived_metrics_individual_metadata.json": {
-      "sha256": "1b7fec3003bd7efd791adc286b0bae7e8a17d1692a1ff96303cda30d5d19998c",
-      "bytes": 1557
+      "sha256": "0b2ff13c5b6ae0f71adc19ec3be419927b4e31ba7a544b597c4b6757047d64ed",
+      "bytes": 2845
     },
     "critical_screens_dados.parquet": {
       "sha256": "e702aca3bf2d537be00cb45a2e48c93e3d82faa1587dd220a6a5b10b23b1f419",
