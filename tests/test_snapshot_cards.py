@@ -469,9 +469,19 @@ def test_snapshot_sparkline_preserves_missing_quarters_without_drawing_a_bridge(
     assert len(lines) == 2
     first_x = [float(point.split(",")[0]) for point in lines[0].get("points").split()]
     second_x = [float(point.split(",")[0]) for point in lines[1].get("points").split()]
-    assert first_x == [0, 20]
-    assert second_x == [60, 80]
+    assert first_x == [3, 21.5]
+    assert second_x == [58.5, 77]
     assert not app1._snap_sparkline_svg([None, 100, float("nan")])
+
+
+@pytest.mark.parametrize("values", [[1, 2], [2, 1], [1, 1], [1, None, 2], [1, 2, None]])
+def test_snapshot_sparkline_endpoint_fits_inside_its_viewbox(values):
+    svg = ElementTree.fromstring(app1._snap_sparkline_svg(values, accent="#B32624"))
+    _, _, width, height = map(float, svg.get("viewBox").split())
+    for circle in svg.findall("circle"):
+        x, y, radius = (float(circle.get(attr)) for attr in ["cx", "cy", "r"])
+        assert radius <= x <= width - radius
+        assert radius <= y <= height - radius
 
 
 def test_snapshot_sparkbars_preserves_an_empty_quarter_slot():
