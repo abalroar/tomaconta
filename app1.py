@@ -127,6 +127,10 @@ from tabs.carteira_4966 import (
     build_carteira_4966_excel,
     build_carteira_4966_model,
     build_carteira_4966_raw_excel,
+    comparison_source_periods as carteira_4966_source_periods,
+    variation_dataframe as carteira_4966_variation_dataframe,
+    VARIATION_NOTE as CARTEIRA_4966_VARIATION_NOTE,
+    COLOR_NOTE as CARTEIRA_4966_COLOR_NOTE,
     model_to_audit_dataframe as carteira_4966_audit_dataframe,
     quality_issue_message as carteira_4966_quality_issue_message,
     quality_issues_dataframe as carteira_4966_quality_dataframe,
@@ -21759,6 +21763,7 @@ elif menu == "Carteira 4.966":
 
             if periodos_selecionados:
                 periodos_ordenados = ordenar_periodos(periodos_selecionados, reverso=False)
+                periodos_fontes = carteira_4966_source_periods(periodos_ordenados)
                 df_ativo_inst = pd.DataFrame()
                 ativo_load_error = ""
                 ativo_load_warning = ""
@@ -21771,7 +21776,7 @@ elif menu == "Carteira 4.966":
                         df_ativo_periodos, ativo_cache_status = load_carteira_4966_ativo_periods(
                             carteira_4966_release_token,
                             carteira_4966_manifest_payload,
-                            tuple(periodos_ordenados),
+                            periodos_fontes,
                         )
                         if not ativo_cache_status.get("valid"):
                             ativo_load_error = str(
@@ -21821,8 +21826,10 @@ elif menu == "Carteira 4.966":
                 st.caption(
                     "Valores em R$ milhões. "
                     f"Base comum do empilhamento: carteira total de {base_label} = 100%. "
-                    "QoQ compara a carteira total com o trimestre imediatamente anterior."
+                    "Classificação: % da base comum; vencidos: % da carteira do mesmo período."
                 )
+                st.caption(CARTEIRA_4966_VARIATION_NOTE)
+                st.caption(CARTEIRA_4966_COLOR_NOTE)
                 st.caption(
                     "Células com * exigem validação; consulte o diagnóstico da célula e os alertas. "
                     "N/D preserva informações ou cálculos indisponíveis. Os limites de atenção "
@@ -21924,6 +21931,8 @@ elif menu == "Carteira 4.966":
                         hide_index=True,
                         width="stretch",
                     )
+                    st.markdown("**Variações e referências**")
+                    st.dataframe(carteira_4966_variation_dataframe(modelo_4966), hide_index=True, width="stretch")
 
                 st.markdown("---")
                 col_btn1, col_btn2 = st.columns(2)
@@ -21955,7 +21964,7 @@ elif menu == "Carteira 4.966":
                         label="Download Dados Puros",
                         data=build_carteira_4966_raw_excel(
                             modelo_4966,
-                            df_inst[df_inst[col_periodo].isin(periodos_ordenados)],
+                            df_inst[df_inst[col_periodo].isin(periodos_fontes)],
                             df_ativo_inst,
                         ),
                         file_name=(

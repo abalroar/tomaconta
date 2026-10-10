@@ -13,6 +13,7 @@ from tabs.peers_config import PEERS_TABELA_LAYOUT, PEERS_GLOSSARIO_RESUMIDO
 from utils.ui_help import get_help_text
 from utils.snapshot_delta import compute_delta
 from utils.formatting import formatar_delta_br
+from utils.comparison_table_style import VARIATION_COLORS, credit_variation_tone
 
 
 @dataclass(frozen=True)
@@ -223,13 +224,11 @@ def delta(value, old, metric, mode):
 
 VARIATION_NOTE = "Variações: capital, retorno e taxas de risco em bps inteiros; coberturas e custo/receita em p.p.; saldos em %; alavancagem em x. Razões e múltiplos usam subtração."
 COLOR_NOTE = "Verde: direção usualmente favorável no indicador. Vermelho: direção de atenção. Saldos e indicadores sem leitura unívoca usam cor neutra. As setas indicam alta ou queda."
-VARIATION_COLORS = {"favorable": "#16713B", "attention": "#B32624", "neutral": "#666666"}
 
 
 def variation_tone(metric, direction, status="available"):
-    if direction not in {"up", "down"} or metric.favorable_direction is None or status not in {"available", "curated_value", "derived_from_curated"}:
-        return "neutral"
-    return "favorable" if direction == metric.favorable_direction else "attention"
+    return credit_variation_tone(direction, metric.favorable_direction,
+                                 reliable=status in {"available", "curated_value", "derived_from_curated"})
 
 
 def variation_definition(metric):
