@@ -596,6 +596,7 @@ def export_to_excel(
     mapping_df: pd.DataFrame,
     alerts_df: pd.DataFrame,
     schema_df: Optional[pd.DataFrame] = None,
+    source_metadata: Optional[Mapping[str, Any]] = None,
 ) -> bytes:
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
@@ -605,168 +606,179 @@ def export_to_excel(
         alerts_df.to_excel(writer, index=False, sheet_name="Alertas")
         if schema_df is not None and not schema_df.empty:
             schema_df.to_excel(writer, index=False, sheet_name="Schema")
+        if source_metadata:
+            pd.DataFrame([
+                {"Campo": key, "Informação": json.dumps(value, ensure_ascii=False) if isinstance(value, (dict, list)) else value}
+                for key, value in source_metadata.items()
+            ]).to_excel(writer, index=False, sheet_name="Fonte")
     return output.getvalue()
 
 
 def execution_plan_markdown() -> str:
     return """
-1. Leitura: o app aceita upload de um ou mais parquets ou usa caches locais, concatena as bases e preserva arquivo/linha de origem.
-2. Diagnóstico: cada coluna é inspecionada por posição, nome normalizado, tipo, cobertura, amostras, estatísticas e distribuição de sinais.
-3. Mapeamento: o JSON `data/dre_gerencial_mapping.json` define hipóteses iniciais por aliases, letras, famílias de layout e regras de período; o parquet real sempre prevalece.
-4. Validação: subtotais são comparados com componentes quando alvo e componentes existem, com tolerância para arredondamento; ausência, conflito e ambiguidade são estados explícitos.
-5. Montagem: a DRE usa valores publicados quando reconciliáveis e só deriva subtotais quando a fonte direta está ausente ou não testável.
-6. Interface: a aba mostra schema, de-para, DRE, validações, alertas, gráficos e exportação Excel sem fórmulas de planilha.
-7. Hipóteses pendentes: escala original tratada como R$ mil para exibição em R$ MM; sinais não são invertidos automaticamente; linhas sem fonte clara permanecem vazias.
+1. Consulta automática ao IFData do Banco Central por competência e perímetro.
+2. Identidade resolvida pelo cadastro oficial e CodInst; ausências permanecem N/D.
+3. Conversão explícita de reais da fonte para R$ mil no motor e R$ milhões na exibição.
+4. Mapeamento e conciliação dos subtotais disponíveis em Fonte e metodologia e Validações.
+5. Nova consulta pelo botão Atualizar do BC; recuperação validada da mesma competência e perímetro se o BC estiver indisponível.
 """
+
+
+def _dre_bcb_periods(kind: int, root: str) -> list[str]:
+    from utils.dre_bcb_source import available_periods
+    return available_periods(kind, Path(root))
+
+
+def _dre_bcb_consult(period: str, kind: int, root: str, refresh_token: str):
+    from utils.dre_bcb_source import consult_dre
+    return consult_dre(period, kind, Path(root), refresh=bool(refresh_token))
+
+
+def _dre_bcb_history(kind: int, root: str) -> pd.DataFrame:
+    from utils.dre_bcb_source import published_history
+    return published_history(kind, Path(root))
+
+
+try:
+    import streamlit as _st_bcb
+    _dre_bcb_periods = _st_bcb.cache_data(ttl=3600, show_spinner=False)(_dre_bcb_periods)
+    _dre_bcb_consult = _st_bcb.cache_data(ttl=21600, max_entries=12, show_spinner=False)(_dre_bcb_consult)
+    _dre_bcb_history = _st_bcb.cache_data(ttl=3600, show_spinner=False)(_dre_bcb_history)
+except ImportError:
+    pass
 
 
 def render_streamlit_app() -> None:
     import streamlit as st
+    from utils.dre_bcb_source import SOURCE_PAGE, period_label
 
-    st.markdown("### DRE gerencial rastreável")
-    st.caption("A camada abaixo diagnostica o parquet antes de montar a DRE. Nenhum sinal é invertido e nenhuma linha sem fonte clara recebe valor.")
-
+    root = str(Path(__file__).resolve().parents[1])
     config = load_mapping_config()
-    with st.expander("Plano de execução", expanded=False):
-        st.markdown(execution_plan_markdown())
-
-    source_mode = st.radio(
-        "Fonte dos dados",
-        ["Cache local", "Upload parquet"],
-        horizontal=True,
-        key="dre_schema_source_mode",
-    )
-
-    files_or_paths: list[Any] = []
-    if source_mode == "Upload parquet":
-        uploaded_files = st.file_uploader(
-            "Arquivos parquet do IFData",
-            type=["parquet"],
-            accept_multiple_files=True,
-            key="dre_schema_upload",
-        )
-        files_or_paths = list(uploaded_files or [])
-    else:
-        local_options = _discover_local_parquet_options()
-        if not local_options:
-            st.warning("Nenhum parquet local encontrado em `data/cache`.")
-            return
-        default_paths = [p for p in local_options if p.parent.name == "dre"][:1]
-        selected_paths = st.multiselect(
-            "Parquets locais",
-            options=local_options,
-            default=default_paths,
-            format_func=lambda p: str(p),
-            key="dre_schema_local_paths",
-        )
-        files_or_paths = list(selected_paths)
-
-    if not files_or_paths:
-        st.info("Selecione pelo menos um arquivo parquet.")
+    col_base, col_period, col_refresh = st.columns([1.5, 1, 1])
+    with col_base:
+        kind = st.selectbox("Perímetro", [1, 3],
+                            format_func=lambda k: "Conglomerado prudencial" if k == 1 else "Instituição individual",
+                            key="dre_bcb_kind")
+    periods = _dre_bcb_periods(kind, root)
+    if not periods:
+        st.info("Nenhuma competência disponível no Banco Central ou na base publicada.")
         return
-
+    with col_period:
+        period = st.selectbox("Período", periods, format_func=period_label, key=f"dre_bcb_period_{kind}")
+    refresh_key = f"dre_bcb_refresh_{kind}_{period}"
+    with col_refresh:
+        st.markdown("<div style='height:1.7rem'></div>", unsafe_allow_html=True)
+        if st.button("Atualizar do BC", key="dre_bcb_refresh", use_container_width=True,
+                     help="Consulta novamente a API do Banco Central para esta competência e perímetro."):
+            from uuid import uuid4
+            st.session_state[refresh_key] = uuid4().hex
     try:
-        df = _load_parquets_for_ui(files_or_paths)
+        with st.spinner("Consultando DRE no Banco Central…"):
+            df, provenance = _dre_bcb_consult(period, kind, root, st.session_state.get(refresh_key, ""))
     except Exception as exc:
         st.error(str(exc))
         return
-    if df.empty:
-        st.warning("Os parquets carregados não possuem linhas.")
-        return
+    if provenance.get("fallback"):
+        st.warning("Banco Central indisponível nesta consulta. Exibindo a última base validada para o período e perímetro selecionados.")
 
-    schema_df = inspect_schema(df)
     mapping_result = build_mapping_candidates(df, config)
-    mapping_df = mapping_result["candidate_table"]
-    global_validation = validate_mapping(df, mapping_result, config)
     id_matches = mapping_result.get("identifier_matches", {})
     inst_col = (id_matches.get("institution") or {}).get("column")
     period_col = (id_matches.get("period") or {}).get("column")
-
-    top_metrics = st.columns(4)
-    top_metrics[0].metric("Linhas", f"{len(df):,}".replace(",", "."))
-    top_metrics[1].metric("Colunas", f"{len(df.columns):,}".replace(",", "."))
-    top_metrics[2].metric("Rubricas mapeadas", int((mapping_df["status_mapeamento"] != STATUS_NO_SOURCE).sum()) if not mapping_df.empty else 0)
-    top_metrics[3].metric("Alertas globais", int((global_validation.get("status", pd.Series(dtype=str)) != STATUS_OK).sum()) if not global_validation.empty else 0)
-
-    tab_schema, tab_mapping, tab_dre, tab_validation, tab_charts, tab_export = st.tabs(
-        ["Schema", "De-para", "DRE", "Validações", "Gráficos", "Exportação"]
-    )
-
-    with tab_schema:
-        st.markdown("#### Diagnóstico do schema encontrado")
-        st.dataframe(schema_df, hide_index=True, use_container_width=True)
-        st.markdown("#### Identificadores inferidos")
-        st.dataframe(pd.DataFrame(_identifier_rows(id_matches)), hide_index=True, use_container_width=True)
-
-    with tab_mapping:
-        st.markdown("#### De-para e hipóteses de mapeamento")
-        st.dataframe(mapping_df, hide_index=True, use_container_width=True)
-        unmapped = mapping_result.get("unmapped_relevant")
-        if isinstance(unmapped, pd.DataFrame) and not unmapped.empty:
-            st.markdown("#### Colunas não mapeadas possivelmente relevantes")
-            st.dataframe(unmapped, hide_index=True, use_container_width=True)
-        else:
-            st.caption("Nenhuma coluna não mapeada relevante foi detectada pelos heurísticos simples.")
-
     if not inst_col or not period_col:
-        with tab_dre:
-            st.error("Não foi possível identificar claramente colunas de instituição e período. Revise o de-para antes de montar a DRE.")
-        with tab_validation:
-            st.dataframe(global_validation, hide_index=True, use_container_width=True)
+        st.error("A resposta do Banco Central não identifica instituição e período com segurança.")
         return
-
-    selected_row = _render_selection_controls(st, df, inst_col, period_col)
-    if selected_row is None:
+    rows = df.sort_values(inst_col).reset_index(drop=True)
+    from utils.ifdata_cache.institutions import normalize_institution_code
+    rows["__entity_key"] = rows["CodInst"].map(normalize_institution_code)
+    rows.loc[rows["__entity_key"].eq(""), "__entity_key"] = "nome:" + rows.loc[rows["__entity_key"].eq(""), inst_col].astype(str)
+    if rows["__entity_key"].duplicated().any():
+        st.error("A fonte contém registros duplicados para a mesma instituição. Consulte a validação da base.")
         return
+    labels = rows[inst_col].astype(str).tolist()
+    duplicate_names = rows[inst_col].duplicated(keep=False)
+    options = rows["__entity_key"].tolist()
+    institution_key = f"dre_bcb_institution_{kind}"
+    if st.session_state.get(institution_key) not in options:
+        st.session_state.pop(institution_key, None)
+    display_names = {key: labels[i] + (f" · {rows.loc[i, 'CodInst']}" if duplicate_names.iloc[i] else "")
+                     for i, key in enumerate(options)}
+    preferred_code = "C0080099" if kind == 1 else "60701190"
+    default_index = options.index(preferred_code) if preferred_code in options else _default_institution_index(labels)
+    entity_key = st.selectbox("Instituição", options,
+        index=default_index,
+        format_func=display_names.get, key=institution_key)
+    selected_row = rows.loc[rows["__entity_key"].eq(entity_key)].iloc[0]
+    queried = provenance.get("queried_at_utc")
+    if queried:
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        query_label = datetime.fromisoformat(queried).astimezone(ZoneInfo("America/Sao_Paulo")).strftime("%d/%m/%Y %H:%M")
+        freshness = f"Consulta: {query_label}"
+    else:
+        freshness = "Base publicada · data da consulta indisponível"
+    st.caption(f"Fonte: Banco Central / IFData · {period_label(period)} · Acumulado do semestre · Valores em R$ milhões · {freshness}")
 
     dre_df, validation_df, alerts_df = calculate_dre(selected_row, mapping_result, config)
-    display_dre = _prepare_dre_display(dre_df)
-
+    mapping_df = mapping_result["candidate_table"]
+    schema_df = inspect_schema(df)
+    export_metadata = {"Instituição": selected_row[inst_col], "CodInst": selected_row.get("CodInst"),
+                       "Período": period_label(period), "Perímetro": "Prudencial" if kind == 1 else "Individual",
+                       **provenance}
+    excel_bytes = export_to_excel(dre_df, validation_df, mapping_df, alerts_df, schema_df, export_metadata)
+    inst_label = _safe_filename(str(selected_row.get(inst_col, "instituicao")))
+    file_label = f"dre_gerencial_{inst_label}_{period}"
+    tab_dre, tab_charts, tab_validation = st.tabs(["DRE", "Gráficos", "Validações"])
     with tab_dre:
-        st.markdown("#### DRE gerencial")
-        _render_context_caption(st, selected_row, inst_col, period_col)
         _render_key_metrics(st, dre_df)
-        negative_red = st.toggle("Destacar negativos em vermelho", value=True, key="dre_schema_negative_red")
-        styled = display_dre.style
-        if negative_red and "valor_r_mm" in display_dre.columns:
-            styled = styled.map(_negative_red_style, subset=["valor_r_mm"])
-        st.dataframe(styled, hide_index=True, use_container_width=True)
-        with st.expander("Valores numéricos e auditoria completa", expanded=False):
+        simple = _prepare_dre_display(dre_df)[["rubrica", "valor_formatado"]].rename(
+            columns={"rubrica": "Rubrica", "valor_formatado": "Valor (R$ milhões)"})
+        def row_style(row):
+            source = dre_df.iloc[row.name]
+            weight = "font-weight: 600;" if source["tipo_linha"] in {"subtotal", "total"} else ""
+            color = _negative_red_style(source["valor_r_mil"])
+            return [weight, weight + color]
+        st.dataframe(simple.style.apply(row_style, axis=1), hide_index=True,
+                     use_container_width=True, height=700)
+        col_excel, col_csv, _ = st.columns([1, 1, 2])
+        with col_excel:
+            st.download_button("Baixar Excel", excel_bytes, file_name=file_label + ".xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dre_schema_download_excel",
+                use_container_width=True)
+        with col_csv:
+            st.download_button("Baixar CSV", dre_df.to_csv(index=False, sep=";", decimal=",", na_rep="N/D").encode("utf-8-sig"),
+                file_name=file_label + ".csv", mime="text/csv", key="dre_schema_download_csv", use_container_width=True)
+    with tab_charts:
+        try:
+            history = _dre_bcb_history(kind, root)
+        except (ValueError, OSError):
+            history = pd.DataFrame()
+            st.caption("Série histórica de apoio indisponível. Os gráficos abaixo usam a competência consultada no BC.")
+        if not history.empty:
+            history = history[history[period_col].astype(str).ne(str(selected_row[period_col]))].copy()
+            names = df.set_index("CodInst")[inst_col].to_dict()
+            history[inst_col] = history["CodInst"].map(names).fillna(history[inst_col])
+            chart_df = pd.concat([history, df], ignore_index=True, sort=False)
+        else:
+            chart_df = df
+        _render_charts(st, chart_df, build_mapping_candidates(chart_df, config), config, selected_row, inst_col, period_col)
+    with tab_validation:
+        st.caption("Conciliação dos subtotais com as rubricas publicadas. N/D indica ausência de fonte ou valor.")
+        st.dataframe(validation_df, hide_index=True, use_container_width=True)
+        if not alerts_df.empty:
+            st.dataframe(alerts_df, hide_index=True, use_container_width=True)
+        with st.expander("Memória de cálculo", expanded=False):
             st.dataframe(dre_df, hide_index=True, use_container_width=True)
 
-    with tab_validation:
-        st.markdown("#### Validação da DRE selecionada")
-        st.dataframe(validation_df, hide_index=True, use_container_width=True)
-        st.markdown("#### Inconsistências e alertas")
-        if alerts_df.empty:
-            st.success("Nenhum alerta material na DRE selecionada.")
-        else:
-            st.dataframe(alerts_df, hide_index=True, use_container_width=True)
-        st.markdown("#### Validação global amostral do mapeamento")
-        st.dataframe(global_validation, hide_index=True, use_container_width=True)
-
-    with tab_charts:
-        _render_charts(st, df, mapping_result, config, selected_row, inst_col, period_col)
-
-    with tab_export:
-        st.markdown("#### Exportar")
-        excel_bytes = export_to_excel(dre_df, validation_df, mapping_df, alerts_df, schema_df)
-        inst_label = _safe_filename(str(selected_row.get(inst_col, "instituicao")))
-        period_label = _safe_filename(str(selected_row.get(period_col, "periodo")))
-        st.download_button(
-            "Baixar DRE em Excel",
-            data=excel_bytes,
-            file_name=f"dre_gerencial_{inst_label}_{period_label}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key="dre_schema_download_excel",
-        )
-        st.download_button(
-            "Baixar DRE em CSV",
-            data=dre_df.to_csv(index=False).encode("utf-8"),
-            file_name=f"dre_gerencial_{inst_label}_{period_label}.csv",
-            mime="text/csv",
-            key="dre_schema_download_csv",
-        )
+    with st.expander("Fonte e metodologia", expanded=False):
+        st.markdown(f"[IFData — Banco Central]({SOURCE_PAGE}) · {provenance['api']}")
+        st.caption("DRE: relatório 4. Ativo total: relatório 1, quando disponível. Saldos da DRE acumulados no semestre; no segundo semestre a acumulação reinicia. Conversão da fonte em R$ para R$ mil no cálculo e R$ milhões na exibição. Ausências permanecem N/D.")
+        st.caption("Consultas são reutilizadas por até 6 horas. Atualizar do BC força nova consulta. A recuperação usa apenas a mesma competência e perímetro.")
+        st.json(provenance, expanded=False)
+        with st.expander("Mapeamento das rubricas", expanded=False):
+            st.dataframe(mapping_df, hide_index=True, use_container_width=True)
+        with st.expander("Estrutura da resposta", expanded=False):
+            st.dataframe(schema_df, hide_index=True, use_container_width=True)
 
 
 def _load_parquets_for_ui(files_or_paths: Sequence[Any]) -> pd.DataFrame:
@@ -884,7 +896,7 @@ def _render_key_metrics(st, dre_df: pd.DataFrame) -> None:
     for col, (label, canonical) in zip(cols, metrics):
         row = lookup.get(canonical)
         value = row.get("valor_r_mil") if row is not None else None
-        col.metric(label, format_currency(value, scale="mm"))
+        col.metric(label, format_currency(value, scale="mm") or "N/D")
 
 
 def _render_charts(st, df: pd.DataFrame, mapping_result: Mapping[str, Any], config: Mapping[str, Any], selected_row: pd.Series, inst_col: str, period_col: str) -> None:
@@ -1044,7 +1056,7 @@ def _waterfall_figure(canonical_lookup: Mapping[str, Mapping[str, Any]]) -> Opti
 def _prepare_dre_display(dre_df: pd.DataFrame) -> pd.DataFrame:
     out = dre_df.copy()
     out["valor_r_mm"] = pd.to_numeric(out["valor_r_mil"], errors="coerce") / 1000.0
-    out["valor_formatado"] = out["valor_r_mil"].apply(lambda v: format_currency(v, scale="mm", parentheses=True))
+    out["valor_formatado"] = out["valor_r_mil"].apply(lambda v: format_currency(v, scale="mm", parentheses=True) or "N/D")
     columns = [
         "grupo",
         "rubrica",

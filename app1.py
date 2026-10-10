@@ -6179,102 +6179,47 @@ def _comparar_valores_conta_bloprudencial(
 
 
 def _render_contas_cosif_unificado(periodos_yyyymm: Sequence[str]) -> None:
-    periodos_yyyymm_desc = sorted(
-        {p for p in (_validar_yyyymm_str(v) for v in periodos_yyyymm) if p},
-        reverse=True,
-    )
-    col_doc, col_ref, col_topn = st.columns([1.2, 1.8, 0.8])
+    from utils.cosif_view import account_label, compact_table, period_label
+
+    periodos_yyyymm_desc = sorted({p for p in (_validar_yyyymm_str(v) for v in periodos_yyyymm) if p}, reverse=True)
+    base_labels = {"4060": "Conglomerado prudencial · 4060", "4066": "Balanço prudencial · 4066", "4010": "Instituição individual · 4010"}
+    modo_display = {"acumulado semestral cru": "Acumulado do semestre", "acumulado anual": "Acumulado no ano",
+                    "valor do trimestre": "Trimestre", "saldo do período": "Saldo do período"}
+    col_doc, col_ref = st.columns([1.4, 2])
     with col_doc:
-        documento_bloprudencial = st.selectbox(
-            "caderno", ["4060", "4066", "4010"], index=0,
-            format_func=_label_documento_bloprudencial,
-            key="fgc_documento_bloprudencial",
-        )
+        documento_bloprudencial = st.selectbox("Base", ["4060", "4066", "4010"],
+            format_func=base_labels.get, key="fgc_documento_bloprudencial")
     individual_4010 = documento_bloprudencial == "4010"
-    cache_version = "unificado_v5_" + _cache_version_token("bloprudencial")
+    cache_version = "unificado_v6_" + _cache_version_token("bloprudencial")
     if individual_4010:
         try:
             cache_4010 = _get_cosif_4010_cache()
             periodos_yyyymm_desc = sorted(cache_4010.available_periods(), reverse=True)
             cache_version = json.loads(cache_4010.arquivo_metadata.read_text()).get("sha256", cache_version)
         except Exception as exc:
-            st.error(f"Não foi possível carregar o caderno 4010: {exc}")
+            st.error(f"Não foi possível consultar a base individual: {exc}")
             return
-        st.caption("Perímetro individual • razão social e CNPJ-base do BCB • saldos em R$.")
-        st.caption(
-            "FGC: Ativo de Referência (AR) = 3822000003; Valor de Referência (VR) = 9822500002. "
-            "Captação de Referência (CR): N/D. A subconta 9.8.2.10.03.00-5 não consta "
-            "dos arquivos públicos, limitados ao quarto nível. A conta 9821000008 agrega Fundos Garantidores."
-        )
-    else:
-        st.caption("Perímetro: conglomerado prudencial • saldos em R$.")
     if not periodos_yyyymm_desc:
-        st.warning("Não há períodos disponíveis para este caderno.")
+        st.info("Nenhum período disponível para esta base.")
         return
     with col_ref:
-        periodos_referencia_raw = st.multiselect(
-            "período(s) de referência (yyyymm)", periodos_yyyymm_desc,
+        periodos_referencia_raw = st.multiselect("Períodos", periodos_yyyymm_desc,
             default=_default_periodos_cosif(periodos_yyyymm_desc, quantidade=1 if individual_4010 else 2),
-            format_func=_yyyymm_para_periodo_exibicao,
-            key="cosif_4010_periodos" if individual_4010 else "fgc_periodos_referencia",
-        )
-    with col_topn:
-        top_n = st.selectbox("top n", [10, 20, 50, "Todos"], index=0, key="fgc_top_n")
-
+            format_func=period_label,
+            key="cosif_4010_periodos" if individual_4010 else "fgc_periodos_referencia")
     periodos_referencia = _normalizar_periodos_cosif_selecionados(periodos_referencia_raw, periodos_yyyymm_desc)
     if not periodos_referencia:
-        st.warning("selecione ao menos um período de referência.")
+        st.info("Selecione ao menos um período.")
         return
-
-    if individual_4010:
-        with st.expander("FGC — AR, VR e cobertura de todas as instituições", expanded=False):
-            from utils.ifdata_cache.cosif_4010 import FGC_CR_NOTE, SOURCE_PAGE
-            referencias = _cosif_4010_fgc_referencias(tuple(sorted(periodos_referencia)), cache_version)
-            st.caption(
-                f"{referencias['CNPJ'].nunique():,} instituições na base selecionada. "
-                "Ausência de rubrica = N/D; contas de controle são exibidas separadamente."
-            )
-            st.caption(FGC_CR_NOTE)
-            referencias_display = referencias.rename(columns={
-                "NOME_INSTITUICAO": "Instituição", "CNPJ": "CNPJ-base",
-            }).copy()
-            for coluna in ("AR", "VR", "AR - controle", "VR - controle", "CR"):
-                referencias_display[coluna] = referencias_display[coluna].map(
-                    lambda valor: "N/D" if pd.isna(valor) else _to_ptbr_decimal(f"{valor:,.2f}")
-                )
-            st.dataframe(referencias_display, hide_index=True, width="stretch")
-            st.download_button(
-                "Download FGC — todas as instituições (CSV)",
-                referencias.to_csv(index=False, sep=";", decimal=",", na_rep="N/D").encode("utf-8-sig"),
-                file_name="cosif_4010_fgc_" + "_".join(periodos_referencia) + ".csv",
-                mime="text/csv", key="cosif_4010_fgc_csv",
-            )
-            st.caption(f"[Fonte BCB]({SOURCE_PAGE}) • Caderno 4010 • R$ • perímetro individual.")
-
     periodo_atual = periodos_referencia[0]
     periodo_anterior = periodos_referencia[1] if len(periodos_referencia) >= 2 else None
     comparando_periodos = len(periodos_referencia) >= 2
-
-    catalogo_contas = _catalogo_contas_bloprudencial(
-        tuple(sorted(periodos_referencia)),
-        documento_bloprudencial=documento_bloprudencial,
-        loader_version=cache_version,
-    )
+    catalogo_contas = _catalogo_contas_bloprudencial(tuple(sorted(periodos_referencia)),
+        documento_bloprudencial=documento_bloprudencial, loader_version=cache_version)
     if catalogo_contas.empty:
-        periodos_txt = ", ".join(_yyyymm_para_periodo_exibicao(p) for p in periodos_referencia)
-        st.warning(
-            f"sem contas BLOPRUDENCIAL disponíveis para {periodos_txt} no "
-            f"{_label_documento_bloprudencial(documento_bloprudencial)}."
-        )
+        st.info("Nenhuma conta disponível para a base e os períodos selecionados.")
         return
-
     contas_divergentes = catalogo_contas[catalogo_contas["VARIANTES_NOME"].map(len) > 1]
-    if not contas_divergentes.empty:
-        st.warning(
-            "há divergência de nomenclatura em algumas contas BLOPRUDENCIAL para o período de referência. "
-            "O dropdown exibirá o primeiro nome encontrado para cada código."
-        )
-
     conta_options = catalogo_contas["CONTA"].astype(str).tolist()
     preferred_account = "3822000003" if individual_4010 else "8118500009"
     conta_default = preferred_account if preferred_account in conta_options else conta_options[0]
@@ -6282,22 +6227,15 @@ def _render_contas_cosif_unificado(periodos_yyyymm: Sequence[str]) -> None:
     conta_widget_key = "cosif_4010_conta" if individual_4010 else "fgc_conta_cosif"
     if st.session_state.get(conta_widget_key) not in conta_options:
         st.session_state.pop(conta_widget_key, None)
-
-    col_conta, col_modo = st.columns([2.2, 1.4])
+    col_conta, col_modo = st.columns([2.2, 1.2])
     with col_conta:
-        conta_cosif = st.selectbox(
-            "conta COSIF",
-            conta_options,
-            index=conta_options.index(conta_default),
-            format_func=lambda conta: conta_labels.get(str(conta), str(conta)),
-            key=conta_widget_key,
-        )
-
+        conta_cosif = st.selectbox("Conta", conta_options, index=conta_options.index(conta_default),
+            format_func=lambda conta: account_label(str(conta), conta_labels.get(str(conta), str(conta))),
+            key=conta_widget_key, help="Busque pelo nome ou pelo código COSIF.")
     modos_disponiveis = _modos_comuns_conta_bloprudencial(conta_cosif, periodos_referencia)
     if not modos_disponiveis:
-        st.error("não há modo de exibição comum para a conta e os períodos selecionados.")
+        st.info("Selecione períodos com uma regra de apuração comum para esta conta.")
         return
-
     modo_labels = [label for label, _ in modos_disponiveis]
     modo_widget_key = (
         "cosif_4010_modo_resultado" if _conta_bloprudencial_suporta_acumulacao(conta_cosif)
@@ -6305,76 +6243,45 @@ def _render_contas_cosif_unificado(periodos_yyyymm: Sequence[str]) -> None:
     ) if individual_4010 else "fgc_modo_calculo"
     if st.session_state.get(modo_widget_key) not in modo_labels:
         st.session_state.pop(modo_widget_key, None)
-
     with col_modo:
-        modo_fgc_label = st.selectbox(
-            "como mostrar",
-            modo_labels,
-            index=0,
-            key=modo_widget_key,
-        )
+        modo_fgc_label = st.selectbox("Apuração", modo_labels, format_func=modo_display.get, key=modo_widget_key)
     modo_fgc = dict(modos_disponiveis)[modo_fgc_label]
-    st.caption(f"Conta selecionada: {conta_labels.get(str(conta_cosif), str(conta_cosif))}")
-
-    periodos_necessarios_por_ref: dict[str, list[str]] = {}
-    formulas_por_ref: dict[str, str] = {}
-    erros_periodos: list[str] = []
+    periodos_necessarios_por_ref, formulas_por_ref, erros_periodos = {}, {}, []
     for periodo_ref in periodos_referencia:
         req, formula, erro_req = _periodos_requeridos_fgc(periodo_ref, modo_fgc)
         if erro_req:
-            erros_periodos.append(f"{periodo_ref}: {erro_req}")
-        periodos_necessarios_por_ref[periodo_ref] = req
-        formulas_por_ref[periodo_ref] = formula
-
+            erros_periodos.append(f"{period_label(periodo_ref)}: {erro_req}")
+        periodos_necessarios_por_ref[periodo_ref], formulas_por_ref[periodo_ref] = req, formula
     if erros_periodos:
         st.error("; ".join(erros_periodos))
         return
-
     periodos_necessarios = sorted({p for req in periodos_necessarios_por_ref.values() for p in req})
-    st.caption(
-        f"{_label_documento_bloprudencial(documento_bloprudencial)}. Regra aplicada: "
-        + " | ".join(formulas_por_ref[p] for p in periodos_referencia)
-        + f". Meses carregados: {', '.join(periodos_necessarios)}."
-    )
-
     if _conta_cosif_lucro_liquido_sintetico(conta_cosif):
-        df_fgc = _carregar_lucro_liquido_cosif_por_periodos(
-            tuple(periodos_necessarios),
-            documento_bloprudencial=documento_bloprudencial,
-            loader_version=cache_version,
-        )
+        df_fgc = _carregar_lucro_liquido_cosif_por_periodos(tuple(periodos_necessarios),
+            documento_bloprudencial=documento_bloprudencial, loader_version=cache_version)
     else:
-        df_fgc = _carregar_bloprud_conta_por_periodos(
-            tuple(periodos_necessarios),
-            conta_cosif=str(conta_cosif),
-            documento_bloprudencial=documento_bloprudencial,
-            loader_version=cache_version,
-        )
+        df_fgc = _carregar_bloprud_conta_por_periodos(tuple(periodos_necessarios), conta_cosif=str(conta_cosif),
+            documento_bloprudencial=documento_bloprudencial, loader_version=cache_version)
     if df_fgc.empty:
-        st.warning(
-            f"sem dados da conta {conta_cosif} para os períodos necessários no "
-            f"{_label_documento_bloprudencial(documento_bloprudencial)}: {', '.join(periodos_necessarios)}."
-        )
+        st.info("Nenhum saldo disponível para esta conta e apuração.")
         return
-
     if not individual_4010:
         df_fgc = _aplicar_aliases_df(df_fgc, st.session_state.get("dict_aliases", {}))
-    bancos_todos = sorted(df_fgc["Instituição"].dropna().astype(str).unique().tolist())
-    bancos_todos = ordenar_bancos_com_alias(bancos_todos, st.session_state.get("dict_aliases", {}))
-    default_bancos = [] if individual_4010 else _encontrar_bancos_default(bancos_todos)
-    bancos_selecionados = st.multiselect(
-        "selecionar instituições",
-        bancos_todos,
-        default=default_bancos,
-        key=f"cosif_4010_bancos_{conta_cosif}" if individual_4010 else "fgc_bancos",
-        max_selections=None if individual_4010 else 60,
-    )
-
+    bancos_todos = ordenar_bancos_com_alias(sorted(df_fgc["Instituição"].dropna().astype(str).unique().tolist()), st.session_state.get("dict_aliases", {}))
+    col_bancos, col_topn = st.columns([2.6, 0.8])
+    with col_bancos:
+        bancos_selecionados = st.multiselect("Instituições", bancos_todos,
+            default=[] if individual_4010 else _encontrar_bancos_default(bancos_todos),
+            key=f"cosif_4010_bancos_{conta_cosif}" if individual_4010 else "fgc_bancos",
+            max_selections=None if individual_4010 else 60, placeholder="Todas as instituições",
+            help="Deixe vazio para considerar todas as instituições.")
+    with col_topn:
+        top_n = st.selectbox("Exibir", [10, 20, 50, "Todos"],
+            format_func=lambda n: "Todas" if n == "Todos" else f"Top {n}", key="fgc_top_n")
     if bancos_selecionados:
         df_fgc = df_fgc[df_fgc["Instituição"].isin(bancos_selecionados)].copy()
-
     if df_fgc.empty:
-        st.info("selecione instituições para visualizar o ranking.")
+        st.info("Nenhum saldo para as instituições selecionadas.")
         return
 
     piv = (
@@ -6426,19 +6333,7 @@ def _render_contas_cosif_unificado(periodos_yyyymm: Sequence[str]) -> None:
         linhas.append(linha)
 
     if faltas:
-        df_faltas = pd.DataFrame(faltas)
-        resumo_faltas = (
-            df_faltas.assign(MotivoPeriodo=lambda df: df["Período"].astype(str) + " - " + df["Motivo"].astype(str))
-            .groupby("MotivoPeriodo", dropna=False)["Instituição"]
-            .agg(list)
-            .reset_index()
-        )
-        for _, row_falta in resumo_faltas.iterrows():
-            exemplos = ", ".join(sorted(set(row_falta["Instituição"]))[:6])
-            st.warning(
-                f"{len(row_falta['Instituição'])} instituição(ões) excluída(s): {row_falta['MotivoPeriodo']}. "
-                f"Exemplos: {exemplos}"
-            )
+        st.warning(f"{len({item['Instituição'] for item in faltas})} instituições sem base suficiente para a apuração. Veja os detalhes em Memória de cálculo.")
 
     df_rank = pd.DataFrame(linhas)
     if df_rank.empty:
@@ -6451,77 +6346,6 @@ def _render_contas_cosif_unificado(periodos_yyyymm: Sequence[str]) -> None:
     total_exibido = float(df_top[col_abs_atual].sum())
     df_top["% do Total Exibido"] = (df_top[col_abs_atual] / total_exibido) * 100.0 if total_exibido > 0 else 0.0
     df_top["Ranking"] = range(1, len(df_top) + 1)
-
-    conta_label = conta_labels.get(str(conta_cosif), str(conta_cosif))
-    titulo_periodos = " x ".join(_yyyymm_para_periodo_exibicao(p) for p in periodos_referencia)
-    titulo = (
-        f"{conta_label} - {_label_documento_bloprudencial(documento_bloprudencial)} - "
-        f"{modo_fgc_label} - {titulo_periodos}"
-    )
-
-    if comparando_periodos:
-        ordem_inst = df_top.sort_values(col_abs_atual, ascending=True)["Instituição"].tolist()
-        partes_plot = []
-        for periodo_ref in periodos_referencia:
-            col_abs_periodo = f"Valor {periodo_ref} (abs)"
-            partes_plot.append(
-                df_top[["Instituição", col_abs_periodo]]
-                .rename(columns={col_abs_periodo: "Valor Calculado (abs)"})
-                .assign(Período=_yyyymm_para_periodo_exibicao(periodo_ref))
-            )
-        df_plot = pd.concat(partes_plot, ignore_index=True)
-        labels_periodos = [_yyyymm_para_periodo_exibicao(p) for p in periodos_referencia]
-        palette = ["#FF6200", "#6B7280", "#2563EB", "#10B981", "#8B5CF6", "#F59E0B", "#EF4444", "#14B8A6"]
-        color_map = {label: palette[i % len(palette)] for i, label in enumerate(labels_periodos)}
-        fig_fgc = px.bar(
-            df_plot,
-            x="Valor Calculado (abs)",
-            y="Instituição",
-            color="Período",
-            orientation="h",
-            barmode="group",
-            text="Valor Calculado (abs)",
-            title=titulo,
-            color_discrete_map=color_map,
-            category_orders={"Período": labels_periodos},
-        )
-        fig_fgc.update_yaxes(categoryorder="array", categoryarray=ordem_inst)
-    else:
-        df_plot = df_top.sort_values(col_abs_atual, ascending=True)
-        fig_fgc = px.bar(
-            df_plot,
-            x=col_abs_atual,
-            y="Instituição",
-            orientation="h",
-            text=col_abs_atual,
-            title=titulo,
-        )
-        fig_fgc.update_traces(marker_color="#FF6200")
-
-    fig_fgc.update_traces(
-        texttemplate="%{text:,.0f}",
-        textposition="outside",
-        textfont=dict(size=16),
-        cliponaxis=False,
-    )
-    # Reserva espaço para o valor da maior barra antes da legenda lateral.
-    coluna_plot = "Valor Calculado (abs)" if comparando_periodos else col_abs_atual
-    maior_barra = df_plot[coluna_plot].max()
-    if pd.notna(maior_barra) and maior_barra > 0:
-        fig_fgc.update_xaxes(range=[0, float(maior_barra) * 1.22])
-    fig_fgc.update_layout(
-        xaxis_title=f"{modo_fgc_label} (abs)",
-        yaxis_title="Instituição",
-        height=max(420, min(980, 34 * len(df_top) + 220)),
-        plot_bgcolor="#f8f9fa",
-        paper_bgcolor="white",
-        font=dict(family="IBM Plex Sans"),
-        margin=dict(r=160),
-    )
-    if len(df_top) <= 50:
-        st.plotly_chart(fig_fgc, width='stretch', config={'displayModeBar': False})
-    else:
-        st.caption(f"{len(df_top)} instituições na tabela e na exportação. Selecione até 50 para visualizar o gráfico.")
 
     colunas_show = ["Ranking", "Instituição"]
     rename_map = {}
@@ -6552,72 +6376,138 @@ def _render_contas_cosif_unificado(periodos_yyyymm: Sequence[str]) -> None:
     if individual_4010:
         df_show.insert(2, "CNPJ-base", df_show["Instituição"].str.extract(r"\[(\d{8})\]$", expand=False))
 
-    df_display = df_show.copy()
-    for col in df_display.columns:
-        if "%" in str(col):
-            df_display[col] = df_display[col].apply(lambda v: formatar_percentual_br(v, casas=2) if pd.notna(v) else "N/D")
-        elif pd.api.types.is_numeric_dtype(df_display[col]) and col != "Ranking":
-            df_display[col] = df_display[col].apply(lambda v: formatar_numero_br(v, casas=2) if pd.notna(v) else "N/D")
-    st.dataframe(df_display, hide_index=True, use_container_width=True)
-
-    st.markdown("#### validação rápida")
-    amostra = df_top.iloc[0]
-    base_txt = (
-        f"{amostra[f'Período Base {periodo_atual}']}={amostra[f'Componente Base {periodo_atual}']:.2f}"
-        if pd.notna(amostra[f"Componente Base {periodo_atual}"]) and amostra[f"Período Base {periodo_atual}"]
-        else "sem componente base"
-    )
-    st.caption(
-        f"Instituição amostra: {amostra['Instituição']} | "
-        f"Ref={amostra[f'Componente Referência {periodo_atual}']:.2f} | "
-        f"{base_txt} | "
-        f"Resultado={amostra[f'Valor {periodo_atual}']:.2f} | "
-        f"abs={amostra[col_abs_atual]:.2f}"
-    )
-
-    buffer_excel = BytesIO()
-    with pd.ExcelWriter(buffer_excel, engine='xlsxwriter') as writer:
-        sheet_name = "cosif_comparacao" if comparando_periodos else "cosif_ranking"
-        df_show.to_excel(writer, index=False, sheet_name=sheet_name)
-        workbook = writer.book
-        worksheet = writer.sheets[sheet_name]
-
-        fmt_header = workbook.add_format({
-            'bold': True,
-            'bg_color': '#F2F2F2',
-            'border': 1,
-            'align': 'center',
-            'valign': 'vcenter'
-        })
-        fmt_num = workbook.add_format({'num_format': '#,##0.00'})
-        fmt_pct = workbook.add_format({'num_format': '0.00"%"'})
-        fmt_text = workbook.add_format({'align': 'left'})
-
-        for col_idx, col_name in enumerate(df_show.columns):
-            worksheet.write(0, col_idx, col_name, fmt_header)
-            tamanho_base = max(len(str(col_name)), 12)
-            if col_name == "Instituição" or "Período Base" in str(col_name):
-                largura = max(tamanho_base, int(df_show[col_name].astype(str).str.len().max()) + 2)
-                worksheet.set_column(col_idx, col_idx, min(largura, 48), fmt_text)
-            elif "%" in str(col_name):
-                worksheet.set_column(col_idx, col_idx, max(tamanho_base, 18), fmt_pct)
-            elif pd.api.types.is_numeric_dtype(df_show[col_name]) and col_name != "Ranking":
-                worksheet.set_column(col_idx, col_idx, max(tamanho_base, 18), fmt_num)
+    summary_slot, export_slot = st.columns([3, 1])
+    with summary_slot:
+        st.caption(f"{len(df_top)} instituições · {', '.join(period_label(p) for p in periodos_referencia)} · {modo_display[modo_fgc_label]} · Valores em R$ milhões")
+    tab_graph, tab_table = st.tabs(["Gráfico", "Tabela"])
+    with tab_graph:
+        st.caption("Barras e ranking por valor absoluto. A tabela preserva os sinais dos saldos.")
+        if len(df_top) <= 50:
+            if comparando_periodos:
+                ordem_inst = df_top.sort_values(col_abs_atual, ascending=True)["Instituição"].tolist()
+                df_plot = pd.concat([df_top[["Instituição", f"Valor {p} (abs)"]]
+                    .rename(columns={f"Valor {p} (abs)": "Valor (R$ mi)"}).assign(Período=period_label(p))
+                    for p in periodos_referencia], ignore_index=True)
+                df_plot["Valor (R$ mi)"] /= 1_000_000
+                palette = ["#FF6200", "#6B7280", "#2563EB", "#10B981", "#8B5CF6", "#F59E0B", "#EF4444", "#14B8A6"]
+                labels = [period_label(p) for p in periodos_referencia]
+                fig = px.bar(df_plot, x="Valor (R$ mi)", y="Instituição", color="Período", orientation="h", barmode="group",
+                    color_discrete_map={label: palette[i % len(palette)] for i, label in enumerate(labels)}, category_orders={"Período": labels})
+                fig.update_yaxes(categoryorder="array", categoryarray=ordem_inst)
             else:
-                worksheet.set_column(col_idx, col_idx, min(max(tamanho_base, 14), 42), fmt_text)
+                df_plot = df_top.sort_values(col_abs_atual, ascending=True).assign(**{"Valor (R$ mi)": lambda d: d[col_abs_atual] / 1_000_000})
+                fig = px.bar(df_plot, x="Valor (R$ mi)", y="Instituição", orientation="h")
+                fig.update_traces(marker_color="#FF6200")
+            for trace in fig.data:
+                trace.text = [formatar_numero_br(v, casas=1) for v in trace.x]
+                trace.texttemplate = "%{text}"
+                trace.hovertemplate = "%{y}<br>R$ %{text} milhões<extra>%{fullData.name}</extra>"
+            fig.update_traces(textposition="outside", textfont=dict(size=14), cliponaxis=False)
+            maior = df_plot["Valor (R$ mi)"].max()
+            if pd.notna(maior) and maior > 0:
+                fig.update_xaxes(range=[0, float(maior) * 1.22])
+            chart_height = max(400, 24 * len(periodos_referencia) * len(df_top) + 160)
+            fig.update_layout(xaxis_title="R$ milhões · valor absoluto", yaxis_title=None,
+                separators=",.", height=chart_height,
+                plot_bgcolor="white", paper_bgcolor="white", font=dict(family="IBM Plex Sans"),
+                legend=dict(orientation="h", y=1.04, x=0), margin=dict(l=10, r=35, t=55, b=45))
+            if chart_height > 800:
+                with st.container(height=720, border=False):
+                    st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
+            else:
+                st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
+        else:
+            st.info("Selecione até 50 instituições para visualizar o gráfico. Todas estão disponíveis na tabela e no Excel.")
+    with tab_table:
+        st.dataframe(compact_table(df_top, periodos_referencia), hide_index=True, width="stretch")
+        if comparando_periodos:
+            st.caption(f"Variação: {period_label(periodo_atual)} em relação a {period_label(periodo_anterior)}. Percentual sobre o módulo do saldo anterior; base zero = N/D.")
+        st.caption("Participação sobre a soma dos valores absolutos das instituições exibidas.")
+    with st.expander("Memória de cálculo", expanded=False):
+        st.caption("O Excel inclui os saldos em reais, valores absolutos e todos os componentes abaixo.")
+        for periodo_ref in periodos_referencia:
+            st.caption(f"{period_label(periodo_ref)} · {formulas_por_ref[periodo_ref]}")
+        st.dataframe(df_show, hide_index=True, width="stretch")
+        if faltas:
+            st.markdown("**Instituições sem base suficiente**")
+            st.dataframe(pd.DataFrame(faltas), hide_index=True, width="stretch")
+    with st.expander("Fonte e critérios", expanded=False):
+        st.markdown("[Banco Central — balancetes e balanços COSIF](https://www.bcb.gov.br/estabilidadefinanceira/balancetesbalancospatrimoniais)")
+        st.caption(f"{base_labels[documento_bloprudencial]}. Arquivos oficiais consultados pelo site; nenhuma importação de arquivo é necessária. Meses usados: {', '.join(period_label(p) for p in periodos_necessarios)}.")
+        st.caption("Saldo: valor publicado. Contas de resultado: acumulado do semestre; acumulado no ano soma junho à referência no segundo semestre. Trimestre: junho menos março ou dezembro menos setembro; março e setembro usam o saldo publicado.")
+        st.caption("Ranking e participação usam valores absolutos. A tabela e o Excel mantêm os sinais. Ausência de um componente exclui a instituição da apuração e aparece na memória de cálculo.")
+        if not contas_divergentes.empty:
+            st.caption("Nomenclaturas diferentes entre períodos para o mesmo código:")
+            st.dataframe(contas_divergentes[["CONTA", "VARIANTES_NOME"]], hide_index=True, width="stretch")
+    if individual_4010:
+        with st.expander("FGC — AR, VR e cobertura de todas as instituições", expanded=False):
+            from utils.ifdata_cache.cosif_4010 import FGC_CR_NOTE, SOURCE_PAGE
+            referencias = _cosif_4010_fgc_referencias(tuple(sorted(periodos_referencia)), cache_version)
+            st.caption(
+                f"{referencias['CNPJ'].nunique():,} instituições na base selecionada. "
+                "Ausência de rubrica = N/D; contas de controle são exibidas separadamente."
+            )
+            st.caption(FGC_CR_NOTE)
+            referencias_display = referencias.rename(columns={
+                "NOME_INSTITUICAO": "Instituição", "CNPJ": "CNPJ-base",
+            }).copy()
+            for coluna in ("AR", "VR", "AR - controle", "VR - controle", "CR"):
+                referencias_display[coluna] = referencias_display[coluna].map(
+                    lambda valor: "N/D" if pd.isna(valor) else _to_ptbr_decimal(f"{valor:,.2f}")
+                )
+            st.dataframe(referencias_display, hide_index=True, width="stretch")
+            st.download_button(
+                "Download FGC — todas as instituições (CSV)",
+                referencias.to_csv(index=False, sep=";", decimal=",", na_rep="N/D").encode("utf-8-sig"),
+                file_name="cosif_4010_fgc_" + "_".join(periodos_referencia) + ".csv",
+                mime="text/csv", key="cosif_4010_fgc_csv",
+            )
+            st.caption(f"[Fonte BCB]({SOURCE_PAGE}) • Caderno 4010 • R$ • perímetro individual.")
 
-        worksheet.freeze_panes(1, 0)
-        worksheet.autofilter(0, 0, len(df_show), len(df_show.columns) - 1)
-    buffer_excel.seek(0)
-    sufixo_periodos = "_".join(periodos_referencia)
-    st.download_button(
-        label="Download Excel",
-        data=buffer_excel,
-        file_name=f"cosif_{documento_bloprudencial}_{conta_cosif}_{modo_fgc}_{sufixo_periodos}.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        key="exportar_fgc_excel",
-        use_container_width=True,
-    )
+    with export_slot:
+        buffer_excel = BytesIO()
+        with pd.ExcelWriter(buffer_excel, engine='xlsxwriter') as writer:
+            sheet_name = "cosif_comparacao" if comparando_periodos else "cosif_ranking"
+            df_show.to_excel(writer, index=False, sheet_name=sheet_name)
+            workbook = writer.book
+            worksheet = writer.sheets[sheet_name]
+
+            fmt_header = workbook.add_format({
+                'bold': True,
+                'bg_color': '#F2F2F2',
+                'border': 1,
+                'align': 'center',
+                'valign': 'vcenter'
+            })
+            fmt_num = workbook.add_format({'num_format': '#,##0.00'})
+            fmt_pct = workbook.add_format({'num_format': '0.00"%"'})
+            fmt_text = workbook.add_format({'align': 'left'})
+
+            for col_idx, col_name in enumerate(df_show.columns):
+                worksheet.write(0, col_idx, col_name, fmt_header)
+                tamanho_base = max(len(str(col_name)), 12)
+                if col_name == "Instituição" or "Período Base" in str(col_name):
+                    largura = max(tamanho_base, int(df_show[col_name].astype(str).str.len().max()) + 2)
+                    worksheet.set_column(col_idx, col_idx, min(largura, 48), fmt_text)
+                elif "%" in str(col_name):
+                    worksheet.set_column(col_idx, col_idx, max(tamanho_base, 18), fmt_pct)
+                elif pd.api.types.is_numeric_dtype(df_show[col_name]) and col_name != "Ranking":
+                    worksheet.set_column(col_idx, col_idx, max(tamanho_base, 18), fmt_num)
+                else:
+                    worksheet.set_column(col_idx, col_idx, min(max(tamanho_base, 14), 42), fmt_text)
+
+            worksheet.freeze_panes(1, 0)
+            worksheet.autofilter(0, 0, len(df_show), len(df_show.columns) - 1)
+        buffer_excel.seek(0)
+        sufixo_periodos = "_".join(periodos_referencia)
+        st.download_button(
+            label="Baixar Excel",
+            data=buffer_excel,
+            file_name=f"cosif_{documento_bloprudencial}_{conta_cosif}_{modo_fgc}_{sufixo_periodos}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="exportar_fgc_excel",
+            use_container_width=True,
+        )
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -15257,7 +15147,8 @@ def _render_cache_status_por_aba(menu_nome: str) -> None:
             st.caption("Métricas derivadas não possuem extração direta no BCB.")
 
 
-_render_cache_status_por_aba(menu)
+if menu not in {"Contas COSIF", "DRE (Ind. e Congl.)"}:
+    _render_cache_status_por_aba(menu)
 
 # Sidebar apenas para informações básicas
 with st.sidebar:
@@ -15368,7 +15259,7 @@ if dre_consolidada_tipo not in DRE_VISUALIZACOES:
     st.session_state["dre_consolidada_tipo_visualizacao"] = "DRE Gerencial"
 if menu == "DRE (Ind. e Congl.)":
     st.markdown("### DRE (Ind. e Congl.)")
-    st.caption("A DRE Gerencial diagnostica o parquet antes do cálculo. As visualizações legadas continuam disponíveis abaixo.")
+    st.caption("Resultados por instituição e período · Fonte: Banco Central / IFData.")
     dre_consolidada_tipo = st.segmented_control(
         "Tipo de visualização",
         options=DRE_VISUALIZACOES,
@@ -15384,7 +15275,7 @@ if (
     menu in MENU_PRINCIPAL + MENU_BCB
     and menu not in {"Snapshot", "Peers (Tabela Nova)", "DRE (Ind. e Congl.)", "Evolução", "Rankings"}
     and (
-        menu != "Taxas de Juros por Produto"
+        menu not in {"Taxas de Juros por Produto", "Contas COSIF"}
         or st.session_state.get("modo_diagnostico")
     )
 ):
@@ -19531,42 +19422,7 @@ elif menu == "Rankings":
 
 elif menu == "Contas COSIF":
     st.markdown("### Contas COSIF")
-    st.caption("Balancetes individuais (4010) e conglomerados prudenciais (4060/4066), com conta COSIF e período selecionáveis.")
-    with st.expander("Mini-glossário", expanded=False):
-        st.dataframe(
-            pd.DataFrame(
-                [
-                    {
-                        "Campo": "Fonte",
-                        "Descrição": "Arquivos COSIF do BCB: 4010 individual e BLOPRUDENCIAL 4060/4066. Saldos em R$, por conta e competência.",
-                    },
-                    {
-                        "Campo": "Saldo do período",
-                        "Descrição": "Usa diretamente o valor publicado para a competência de referência.",
-                    },
-                    {
-                        "Campo": "Acumulado semestral",
-                        "Descrição": "Para contas 7/8 e Lucro Líquido COSIF, usa o acumulado publicado; no 2º semestre, recompõe com referência + junho do mesmo ano.",
-                    },
-                    {
-                        "Campo": "Valor do trimestre",
-                        "Descrição": "Quando aplicável, isola o trimestre a partir do acumulado semestral: junho menos março ou dezembro menos setembro.",
-                    },
-                    {
-                        "Campo": "Valor Calculado (abs)",
-                        "Descrição": "Módulo do valor calculado, usado apenas para ordenar e dimensionar o ranking comparativo.",
-                    },
-                    {
-                        "Campo": "% do Total Exibido",
-                        "Descrição": "Participação de cada instituição sobre o total absoluto apenas das linhas exibidas no ranking atual.",
-                    },
-                ]
-            ),
-            hide_index=True,
-            use_container_width=True,
-        )
-        st.caption("Instituições sem base suficiente para a regra escolhida são excluídas do cálculo e informadas como ausência de dados.")
-
+    st.caption("Saldos contábeis por instituição e competência · Fonte: Banco Central.")
     periodos_yyyymm = _listar_periodos_bloprudencial_disponiveis(_cache_version_token("bloprudencial"))
     _render_contas_cosif_unificado(periodos_yyyymm)
 
@@ -26327,6 +26183,9 @@ elif menu == "Glossário":
         - **[LEGADO] Passivo Exigível** = valor reportado do passivo exigível (Rel. 3).  
         - **[LEGADO] TVM** = valor reportado/agrupado de Títulos e Valores Mobiliários (Rel. 2).  
         """)
+
+if menu in {"Contas COSIF", "DRE (Ind. e Congl.)"}:
+    _render_cache_status_por_aba(menu)
 
 if timer_box_menu is not None and menu_timer_state_key and menu_timer_signature and t0_menu_timer is not None:
     tempo_total_menu = time.perf_counter() - t0_menu_timer
