@@ -65,6 +65,45 @@ def visible_text(slide):
     return "\n".join(pieces)
 
 
+def assert_schema_order(parent, sequence):
+    """Verifica a sequência OOXML, que um ZIP bem formado não valida."""
+    names = [etree.QName(child).localname for child in parent]
+    assert all(name in sequence for name in names), names
+    positions = [sequence.index(name) for name in names]
+    assert positions == sorted(positions), names
+    assert len(names) == len(set(names)), names
+
+
+def test_office_chart_and_table_properties_follow_ooxml_child_order():
+    # A ordem inválida de spPr levou o PowerPoint a remover os slides 1 e 2.
+    # Bordas após solidFill também violam a sequência de tcPr.
+    with ZipFile(BytesIO(export_snapshot_powerpoint(snapshot(), peers(), carteira()))) as archive:
+        for path in archive.namelist():
+            if path.startswith("ppt/charts/chart") and path.endswith(".xml"):
+                root = etree.fromstring(archive.read(path))
+                assert_schema_order(root, [
+                    "date1904", "lang", "roundedCorners", "style", "clrMapOvr", "pivotSource",
+                    "protection", "chart", "spPr", "txPr", "externalData", "printSettings", "userShapes", "extLst",
+                ])
+                ns = {"c": "http://schemas.openxmlformats.org/drawingml/2006/chart"}
+                chart = root.find("c:chart", ns)
+                assert_schema_order(chart, [
+                    "title", "autoTitleDeleted", "pivotFmts", "view3D", "floor", "sideWall", "backWall",
+                    "plotArea", "legend", "plotVisOnly", "dispBlanksAs", "showDLblsOverMax", "extLst",
+                ])
+                for axis in root.xpath(".//c:catAx | .//c:valAx", namespaces=ns):
+                    assert [etree.QName(child).localname for child in axis][:4] == ["axId", "scaling", "delete", "axPos"]
+                plot_area = chart.find("c:plotArea", ns)
+                assert_schema_order(plot_area, ["layout", "lineChart", "barChart", "catAx", "valAx", "dTable", "spPr", "extLst"])
+            if path.startswith("ppt/slides/slide") and path.endswith(".xml"):
+                root = etree.fromstring(archive.read(path))
+                for props in root.xpath(".//a:tcPr", namespaces={"a": "http://schemas.openxmlformats.org/drawingml/2006/main"}):
+                    assert_schema_order(props, [
+                        "lnL", "lnR", "lnT", "lnB", "lnTlToBr", "lnBlToTr", "cell3D",
+                        "noFill", "solidFill", "gradFill", "blipFill", "pattFill", "grpFill", "headers", "extLst",
+                    ])
+
+
 def test_first_two_slides_preserve_snapshot_and_have_native_editable_history_with_gaps():
     payload = snapshot()
     result = export_snapshot_powerpoint(payload, peers(), carteira())
@@ -94,7 +133,8 @@ def test_first_two_slides_preserve_snapshot_and_have_native_editable_history_wit
                 continue
             chart_xml = etree.fromstring(archive.read(path))
             identifiers = chart_xml.xpath(".//c:axId/@val | .//c:crossAx/@val", namespaces=namespace)
-            assert all(0 <= int(identifier) <= 0xFFFFFFFF for identifier in identifiers)
+            # IDs UInt32 acima de Int32 causam reparo no PowerPoint Mac.
+            assert all(0 < int(identifier) <= 0x7FFFFFFF for identifier in identifiers)
             axes = chart_xml.xpath(".//c:catAx | .//c:valAx", namespaces=namespace)
             axis_ids = [axis.xpath("string(c:axId/@val)", namespaces=namespace) for axis in axes]
             assert len(axis_ids) == len(set(axis_ids)) == 2
