@@ -107,6 +107,7 @@ from utils.ifdata_cache.carteira_4966_quality import (
 from utils.formatting import (
     formatar_monetario_br_auto_reais,
     formatar_numero_br,
+    formatar_delta_br,
     formatar_percentual_br,
 )
 from utils.analytical_status_excel import (
@@ -10554,10 +10555,10 @@ SNAPSHOT_METRICS = {
     "Índice de Basileia":                                {"tipo_delta": "bps", "escala": "dec"},
     "ROE trim. anualizado":                              {"tipo_delta": "bps",  "escala": "dec"},
     "ROE Ac. Anualizado":                                {"tipo_delta": "bps",  "escala": "dec"},
-    "Crédito / Captações":                               {"tipo_delta": "bps",  "escala": "dec"},
+    "Crédito / Captações":                               {"tipo_delta": "pp",  "escala": "dec"},
     "Desp. Anualizada Captação / Volume Captação":       {"tipo_delta": "bps",  "escala": "dec"},
     "Desp. Anualizada Captações / Volume Captações":     {"tipo_delta": "bps",  "escala": "dec"},
-    "Perda Esperada / Estágio 3":                        {"tipo_delta": "bps",  "escala": "dec"},
+    "Perda Esperada / Estágio 3":                        {"tipo_delta": "pp",  "escala": "dec"},
     "Perda Esperada / Carteira":                         {"tipo_delta": "bps",  "escala": "dec"},
     "CET1":                                              {"tipo_delta": "bps", "escala": "dec"},
 }
@@ -10723,9 +10724,9 @@ def _snap_delta_calc(
     if diff is None:
         return payload
     if delta_kind == "bps":
-        payload["suffix"] = formatar_numero_br(diff, casas=2, sufixo=" bps", com_sinal=True)
+        payload["suffix"] = formatar_delta_br(diff, "bps", casas=0)
     elif delta_kind == "pp":
-        payload["suffix"] = formatar_numero_br(diff, casas=2, sufixo=" p.p.", com_sinal=True)
+        payload["suffix"] = formatar_delta_br(diff, "p.p.", casas=1)
     else:
         payload["suffix"] = formatar_numero_br(diff, casas=2, sufixo="%", com_sinal=True)
 
@@ -11197,7 +11198,7 @@ def _audit_deltas_snapshot(
         label = cfg.get("label", "Métrica")
         delta_kind, delta_scale = _snap_metric_delta_meta(cfg)
         qoq_label, yoy_label = _snapshot_comparison_labels(cfg)
-        tolerancia = 0.0051
+        tolerancia = 0.50000001 if delta_kind == "bps" else 0.05000001 if delta_kind == "pp" else 0.0051
         comparacoes = [
             (qoq_label, periodo_anterior_qoq),
             (yoy_label, periodo_anterior_yoy),
@@ -11216,7 +11217,11 @@ def _audit_deltas_snapshot(
             # Lê o texto realmente renderizado; evita comparar a fórmula consigo mesma.
             match = re.search(r"[+−-]?\d[\d.,]*", calc_payload.get("suffix", ""))
             expected_unit = {"bps": "bps", "pp": "p.p.", "pct": "%"}[delta_kind]
-            if match is None or expected_unit not in calc_payload.get("suffix", "") or not calc_payload.get("valido"):
+            suffix = calc_payload.get("suffix", "")
+            threshold = 0.5 if delta_kind == "bps" else 0.05 if delta_kind == "pp" else 0
+            if "<" in suffix and delta_calc is not None and 0 < abs(delta_calc) < threshold and suffix == formatar_delta_br(delta_calc, "bps" if delta_kind == "bps" else "p.p.", casas=0 if delta_kind == "bps" else 1):
+                exibido = delta_calc
+            elif match is None or expected_unit not in suffix or not calc_payload.get("valido"):
                 exibido = float("inf")
             else:
                 exibido = float(match.group().replace("−", "-").replace(".", "").replace(",", "."))
@@ -11539,7 +11544,7 @@ def pagina_snapshot():
             "section": "Qualidade de Carteira",
             "rows": [
                 {"label": "Perda Esperada / Estágio 3", "format_key": "Perda Esperada / Estágio 3",
-                 "higher_is_better": False, "is_pct": True, "comparison_basis": "trimestral",
+                 "higher_is_better": True, "is_pct": True, "comparison_basis": "trimestral",
                  "serie": perda_est3_map,
                  "source": "Tabela de Peers: Perda Esperada (Rel. 2) ÷ Ativos Estágio 3 (Cadoc 4060)"},
                 {"label": "Perda Esperada / Carteira", "format_key": "Perda Esperada / Carteira de Crédito Bruta",
@@ -18909,7 +18914,7 @@ elif menu == "Rankings":
                                 continue
 
                             if _is_variavel_percentual(coluna_variavel):
-                                delta_texto = formatar_numero_br(delta_absoluto * 10_000, casas=2, sufixo=" bps", com_sinal=True)
+                                delta_texto = formatar_delta_br(delta_absoluto * 10_000, "bps", casas=0)
                             elif coluna_variavel in VARS_MOEDAS:
                                 delta_texto = f"R$ {delta_absoluto/1e6:+,.0f}MM".replace(",", ".")
                             else:
@@ -18994,7 +18999,7 @@ elif menu == "Rankings":
                         cores_barras = ['#2E7D32' if d['delta'] > 0 else '#7B1E3A' for d in dados_grafico]
 
                         if tipo_variacao == "Δ %" and _is_variavel_percentual(coluna_variavel):
-                            eixo_tickformat = '.2f'
+                            eixo_tickformat = '.0f'
                             eixo_ticksuffix = ' bps'
                             eixo_titulo = "Δ (bps)"
                         elif tipo_variacao == "Δ %":
@@ -19002,7 +19007,7 @@ elif menu == "Rankings":
                             eixo_ticksuffix = '%'
                             eixo_titulo = "Δ %"
                         elif _is_variavel_percentual(coluna_variavel):
-                            eixo_tickformat = '.2f'
+                            eixo_tickformat = '.0f'
                             eixo_ticksuffix = ' bps'
                             eixo_titulo = "Δ absoluto (bps)"
                         else:

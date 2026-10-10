@@ -10,7 +10,7 @@ import pandas as pd
 
 from .comparison_table_style import HEADER_BACKGROUND, SECTION_BACKGROUND
 
-from .peers_table_model import BY_KEY, get_metric, SCALES, BASELINES, COLORS, period_label, period_sort, short_bank, methodology_rows, comparison_label, period_comparison_label
+from .peers_table_model import BY_KEY, get_metric, SCALES, BASELINES, COLORS, period_label, period_sort, short_bank, methodology_rows, comparison_label, period_comparison_label, variation_tone, VARIATION_COLORS
 
 
 def _lookup(query):
@@ -25,7 +25,7 @@ def footer(query, banks=None, metric_keys=None):
     source = "BCB IFData Rel. " + ", ".join(map(str, reports)) if reports else "BCB"
     if any("4060" in s for s in sources):
         source += " / Cadoc 4060"
-    note = "Variações: taxas em bps (100 bps = 1 p.p.); valores monetários em % com base positiva; múltiplos em x. Valores sem arredondamento no cálculo."
+    note = "Variações: taxas em bps inteiros; coberturas e custo/receita em p.p.; saldos em %; múltiplos em x. Cálculo sem arredondar os insumos.\nVerde: direção favorável; vermelho: atenção; cinza: leitura contextual. Setas: alta/queda."
     if any(c["status"] in {"warning", "critical"} for c in query["cells"]):
         note += " † Alerta de qualidade; consulte Dados e status e a memória de cálculo."
     return f"{source}. {query['base']}. {n} instituições. {dates}.\n{query['query_type']}. Consulta: {query['queried_at']}.\n{note}"
@@ -39,8 +39,12 @@ def export_excel(query):
         header = workbook.add_format({**base, "bold": True, "bg_color": HEADER_BACKGROUND, "font_color": "#FFFFFF", "border": 1, "border_color": "#D9D9D9", "align": "center", "text_wrap": True})
         text = workbook.add_format(base)
         section = workbook.add_format({**base, "bold": True, "bg_color": SECTION_BACKGROUND})
-        variations = {direction: workbook.add_format({**base, "font_size": 9, "font_color": color, "align": "center"}) for direction, color in (("up", "#16713B"), ("down", "#B32624"), (None, "#666666"), ("flat", "#666666"))}
-        formats = {unit: workbook.add_format({**base, "num_format": "0.00%" if unit == "%" else '0.00"x"' if unit == "x" else '#,##0.00', "align": "center"}) for unit in ("%", "x", "R$")}
+        variations = {tone: workbook.add_format({**base, "font_size": 9, "font_color": color, "align": "center"}) for tone, color in VARIATION_COLORS.items()}
+        formats = {}
+        for key in query["metrics"]:
+            metric = get_metric(key, query["base"])
+            numeric_format = "0." + "0" * metric.value_decimals
+            formats[key] = workbook.add_format({**base, "num_format": numeric_format + "%" if metric.unit == "%" else numeric_format + '"x"' if metric.unit == "x" else "#,##" + numeric_format, "align": "center"})
         sheet = workbook.add_worksheet("Comparativo")
         sheet.freeze_panes(4, 2)
         sheet.set_column(0, 0, 39)
@@ -75,19 +79,20 @@ def export_excel(query):
                     value = cell["value"]
                     col = 2 + b * len(query["periods"]) + p
                     if value is None:
-                        sheet.write_blank(row, col, None, formats[metric.unit])
+                        sheet.write_blank(row, col, None, formats[key])
                     else:
-                        sheet.write_number(row, col, value / SCALES[query["scale"]] if metric.unit == "R$" else value, formats[metric.unit])
+                        sheet.write_number(row, col, value / SCALES[query["scale"]] if metric.unit == "R$" else value, formats[key])
                     comment = "\n".join(filter(None, [cell["variation"], cell["source"], cell["reason"], f"Status: {cell['status']}"]))
                     sheet.write_comment(row, col, comment)
             row += 1
             if query["mode"] != "none":
-                sheet.write_string(row, 0, "Variação", variations[None])
+                sheet.write_string(row, 0, "Variação", variations["neutral"])
+                sheet.write_string(row, 1, metric.delta_unit, variations["neutral"])
                 sheet.set_row(row, 14)
                 for b, bank in enumerate(query["banks"]):
                     for p, period in enumerate(query["periods"]):
                         cell = cells[key, bank, period]
-                        sheet.write_string(row, 2 + b * len(query["periods"]) + p, cell["variation"], variations[cell["direction"]])
+                        sheet.write_string(row, 2 + b * len(query["periods"]) + p, cell["variation"], variations[variation_tone(metric, cell["direction"], cell["status"])])
                 row += 1
         sheet.write_string(row + 1, 0, footer(query), text)
         sheet.set_landscape()
@@ -253,7 +258,7 @@ def export_powerpoint(query, *, charts=False, chart_metrics=(), colors=None, cha
                                 paragraph = target.text_frame.add_paragraph()
                                 paragraph.text = cell["variation"]
                                 paragraph.font.size = Pt(9)
-                                paragraph.font.color.rgb = RGBColor.from_string("16713B" if cell["direction"] == "up" else "B32624" if cell["direction"] == "down" else "666666")
+                                paragraph.font.color.rgb = RGBColor.from_string(VARIATION_COLORS[variation_tone(metric, cell["direction"], cell["status"])].lstrip("#"))
                 for r, row in enumerate(table.rows):
                     for c, cell in enumerate(row.cells):
                         cell.fill.solid()
@@ -271,7 +276,7 @@ def export_powerpoint(query, *, charts=False, chart_metrics=(), colors=None, cha
                             if i == 0:
                                 paragraph.font.color.rgb = RGBColor.from_string("FFFFFF" if r < 2 else "222222")
                             paragraph.alignment = PP_ALIGN.LEFT if c == 0 else PP_ALIGN.CENTER
-                _text(slide, .38, 6.7, 12.55, .6, footer(query, banks, keys) + "\nVerde: aumento. Vermelho: queda. Direção da variação.", 9, color="555555")
+                _text(slide, .38, 6.55, 12.55, .75, footer(query, banks, keys), 9, color="555555")
                 slide.notes_slide.notes_text_frame.text = str(methodology_rows({**query, "metrics": keys})) + "\n" + str({k: v for k, v in query.items() if k != "cells"}) + "\n" + str([c for c in query["cells"] if c["metric"] in keys and c["bank"] in banks and c["reason"]])
     buffer = BytesIO()
     prs.save(buffer)
@@ -295,7 +300,8 @@ def export_png(query):
         if query["mode"] != "none":
             data.append(["Variação"] + [cells[key, b, p]["variation"] for b in query["banks"] for p in query["periods"]])
             for c, (b, p) in enumerate(((b, p) for b in query["banks"] for p in query["periods"]), 1):
-                directions[len(data), c] = cells[key, b, p]["direction"]
+                cell = cells[key, b, p]
+                directions[len(data), c] = variation_tone(m, cell["direction"], cell["status"])
     footer_text = footer(query) + "\n" + BASELINES[query["mode"]]
     height = 2.2 + len(data) * .35
     table_bottom = max(.12, .22 * (footer_text.count("\n") + 2) / height)
@@ -319,7 +325,7 @@ def export_png(query):
             cell.get_text().set_horizontalalignment("left")
         if (r, c) in directions:
             cell.get_text().set_fontsize(9)
-            cell.get_text().set_color("#16713B" if directions[r,c] == "up" else "#B32624" if directions[r,c] == "down" else "#666666")
+            cell.get_text().set_color(VARIATION_COLORS[directions[r,c]])
     family = "Calibri" if font_path.exists() else "DejaVu Sans"
     fig.text(.02, .95, "Tabela de Peers", fontsize=18, fontweight="bold", fontfamily=family)
     fig.text(.02, .025, footer_text, fontsize=9, fontfamily=family)

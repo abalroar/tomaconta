@@ -12,7 +12,7 @@ import pandas as pd
 import streamlit as st
 
 from utils import peers_groups
-from utils.peers_table_model import BY_KEY, METRICS, DEFAULT_METRICS, INDIVIDUAL_METRICS, get_metric, BASELINES, SCALES, COLORS, build_query, required_periods, period_sort, period_label, short_bank, format_value, number, methodology_rows, ARRASTO_ROWS, comparison_label, period_comparison_label
+from utils.peers_table_model import BY_KEY, METRICS, DEFAULT_METRICS, INDIVIDUAL_METRICS, get_metric, BASELINES, SCALES, COLORS, build_query, required_periods, period_sort, period_label, short_bank, format_value, number, methodology_rows, ARRASTO_ROWS, comparison_label, period_comparison_label, variation_tone, variation_definition, VARIATION_NOTE, COLOR_NOTE
 from utils.peers_table_exports import export_excel, export_powerpoint, export_png
 from utils.comparison_table_style import HEADER_BACKGROUND, SECTION_BACKGROUND, FONT_FAMILY
 
@@ -20,7 +20,7 @@ from utils.comparison_table_style import HEADER_BACKGROUND, SECTION_BACKGROUND, 
 TABLE_CSS = """
 .peers-grid {overflow:auto;max-height:640px; font-family:__FONT__; color:#222; background:white;}
 table {border-collapse:separate;border-spacing:0;width:100%;font-size:14px;line-height:1.3;}
-th,td {border-right:1px solid #e2e2e2;border-bottom:1px solid #dedede;padding:6px 3px;text-align:center;white-space:nowrap;}
+th,td {border-right:1px solid #e2e2e2;border-bottom:1px solid #dedede;padding:7px 5px;text-align:center;white-space:nowrap;}
 thead th {position:sticky;top:0;z-index:2;background:__ORANGE__;color:white;text-align:center;font-size:12pt;font-weight:700;}
 thead tr:nth-child(2) th {top:var(--bank-header-height,32px);background:__ORANGE__;color:white;font-size:12pt;font-weight:700;}
 thead tr:first-child th {border-top:1px solid #d1d1d1;}
@@ -30,11 +30,11 @@ thead th.row-label {background:__ORANGE__;z-index:3;}
 .metric {font:inherit;color:inherit;background:transparent;border:0;text-align:left;padding:0;cursor:pointer;}
 .metric:hover {text-decoration:underline;} .metric:focus-visible {outline:2px solid #174a7e;outline-offset:3px;}
 .selected td:first-child {background:#edf3f8;}
-.value {font-variant-numeric:tabular-nums;display:block;min-width:54px;}
-.delta {font-size:11px;display:block;color:#666;margin-top:2px;font-variant-numeric:tabular-nums;white-space:normal;}
+.value {font-variant-numeric:tabular-nums;display:block;min-width:54px;font-weight:600;}
+.delta {font-size:12px;display:block;color:#666;margin-top:3px;font-variant-numeric:tabular-nums;white-space:normal;}
 .delta.up,.delta.down,.delta.flat {white-space:nowrap;}
 .reference {display:block;font-size:10px;font-weight:400;margin-top:3px;}
-.up {color:#16713b;} .down {color:#b32624;} .bank-start {border-left:1px solid #b8b8b8;}
+.delta.favorable {color:#16713b;} .delta.attention {color:#b32624;} .delta.neutral {color:#666;} .bank-start {border-left:2px solid #b8b8b8;}
 @media(pointer:coarse) {.metric{min-height:38px;}}
 """.replace("__ORANGE__", HEADER_BACKGROUND).replace("__SECTION__", SECTION_BACKGROUND).replace("__FONT__", FONT_FAMILY)
 TABLE_JS = """
@@ -87,7 +87,7 @@ def table_html(query, selected=None):
     count = len(query["periods"])
     html = ['<table aria-label="Comparação de peers"><thead><tr><th class="row-label" rowspan="2">Indicador</th>']
     for bank in query["banks"]:
-        html.append(f'<th class="bank-start" colspan="{count}" title="{escape(bank, quote=True)}">{escape(short_bank(bank))}</th>')
+        html.append(f'<th scope="colgroup" class="bank-start" colspan="{count}" title="{escape(bank, quote=True)}">{escape(short_bank(bank))}</th>')
     html.append('</tr><tr>')
     for bank in query["banks"]:
         for i, p in enumerate(query["periods"]):
@@ -110,7 +110,7 @@ def table_html(query, selected=None):
                 if cell["reference"]:
                     tooltip += f"; base {period_label(cell['reference'])}: {table_value(cell['reference_value'], metric, query['scale'])}"
                     tooltip += f"; {comparison_label(query['mode'])}: {cell['variation']}"
-                    tooltip += "; diferença entre taxas em bps" if metric.unit == "%" else "; diferença em x" if metric.unit == "x" else "; variação relativa em %; requer base positiva"
+                    tooltip += "; " + variation_definition(metric)
                 if cell["reason"]:
                     tooltip += "; " + cell["reason"]
                 broken = cell["variation"] == "Quebra em 2025"
@@ -118,7 +118,8 @@ def table_html(query, selected=None):
                 if cell["status"] in {"warning", "critical"}:
                     display += "†"
                 variation = "" if broken else table_variation(cell["variation"])
-                html.append(f'<td class="{"bank-start" if i == 0 else ""}" title="{escape(tooltip, quote=True)}"><span class="value">{escape(display)}</span><span class="delta {cell["direction"] or ""}">{escape(variation)}</span></td>')
+                tone = variation_tone(metric, cell["direction"], cell["status"])
+                html.append(f'<td class="{"bank-start" if i == 0 else ""}" title="{escape(tooltip, quote=True)}"><span class="value">{escape(display)}</span><span class="delta {cell["direction"] or ""} {tone}">{escape(variation)}</span></td>')
         html.append('</tr>')
     html.append('</tbody></table>')
     return ''.join(html)
@@ -232,17 +233,22 @@ def variation_rows(query, key, bank):
         a, b = number(cell["value"]), number(cell["reference_value"])
         formula = "N/D"
         if a is not None and b is not None:
+            def precise(value):
+                return f"{value:.4f}".replace(".", ",").replace("-", "−")
             if metric.unit == "%":
-                formula = f"({a * 100:.4f}% − {b * 100:.4f}%) × 100 = {cell['variation']}"
+                subtraction = f"{precise(a * 100)}% − {precise(b * 100)}%"
+                formula = f"({subtraction}) × 100" if metric.delta_kind == "bps" else subtraction
             elif metric.unit == "x":
-                formula = f"{a:.4f}x − {b:.4f}x = {cell['variation']}"
+                formula = f"{precise(a)}x − {precise(b)}x"
             elif b > 0:
-                formula = f"(atual − base) ÷ base × 100 = {cell['variation']}"
+                formula = "(atual − base) ÷ base × 100"
             else:
                 formula = "Variação relativa N/D: base ≤ 0; confira a diferença em valor."
+            if cell.get("delta_value") is not None:
+                formula += f" = {precise(cell['delta_value'])} {metric.delta_unit}"
         if cell.get("delta_value") is None:
             formula = cell["variation"] + ("; " + formula if formula != "N/D" else "")
-        records.append({"Competência": period_label(cell["period"]), "Comparação": comparison_label(query["mode"]), "Referência": period_label(cell["reference"]), "Valor atual": format_value(a, metric, query["scale"]), "Valor de referência": format_value(b, metric, query["scale"]), "Variação": cell["variation"], "Cálculo": formula.replace(".", ","), "Diferença em valor": format_value(a-b, metric, query["scale"]) if metric.unit != "%" and a is not None and b is not None else ""})
+        records.append({"Competência": period_label(cell["period"]), "Comparação": comparison_label(query["mode"]), "Referência": period_label(cell["reference"]), "Valor atual": format_value(a, metric, query["scale"]), "Valor de referência": format_value(b, metric, query["scale"]), "Variação": cell["variation"], "Cálculo": formula, "Diferença em valor": format_value(a-b, metric, query["scale"]) if metric.unit != "%" and a is not None and b is not None else ""})
     return pd.DataFrame(records)
 
 
@@ -400,8 +406,8 @@ def render(api):
         st.rerun()
     if footnote := table_footnote(query):
         st.caption("\\" + footnote)
-    st.caption(f"{len(banks)} instituições; {', '.join(period_label(p) for p in periods)}; {base}. Verde: aumento. Vermelho: queda. Direção da variação.")
-    st.caption("Variações: indicadores percentuais em bps (100 bps = 1 ponto percentual); valores monetários em %; múltiplos em x.")
+    st.caption(f"{len(banks)} instituições; {', '.join(period_label(p) for p in periods)}; {base}. " + COLOR_NOTE)
+    st.caption(VARIATION_NOTE)
     if not individual:
         st.caption("Vencidos >90 dias usam o saldo integral por arrasto e o Total Geral do Rel. 16. PDD: perdas esperadas e2 + f2 + g2 + h2 do Rel. 2; aproximação de cobertura, pois a provisão abrange outros ativos. Dados desde mar/2025.")
     if any(c["status"] in {"warning", "critical"} for c in query["cells"]):

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import pandas as pd
+from decimal import Decimal, ROUND_HALF_UP
+import math
 
 
 def _ptbr(texto: str) -> str:
@@ -34,6 +36,23 @@ def formatar_numero_br(valor: float, casas: int = 2, sufixo: str = "", com_sinal
     else:
         texto = f"{v:,.{casas}f}"
     return f"{_ptbr(texto)}{sufixo}"
+
+
+def formatar_delta_br(valor: float, unidade: str, casas: int = 2, com_seta: bool = False) -> str:
+    """Arredonda somente a exibição e preserva o sinal de movimentos pequenos."""
+    if valor is None or not math.isfinite(float(valor)):
+        return "N/D"
+    value = float(valor)
+    # Remove o ruído binário da subtração em floats antes de arredondar a exibição.
+    rounded = Decimal(f"{value:.12g}").quantize(Decimal(1).scaleb(-casas), rounding=ROUND_HALF_UP)
+    arrow = "↑ " if value > 0 else "↓ " if value < 0 else "= "
+    sign = "+" if value > 0 else "−" if value < 0 else ""
+    if not rounded and value:
+        threshold_unit = "bp" if unidade == "bps" else unidade
+        threshold = _ptbr(f"{10 ** -casas:.{casas}f}")
+        return f"{arrow if com_seta else sign}<{threshold} {threshold_unit}"
+    text = _ptbr(f"{abs(rounded):,.{casas}f}")
+    return f"{arrow if com_seta else ''}{sign}{text} {unidade}".rstrip()
 
 
 def formatar_monetario_br_auto_reais(valor_reais: float) -> str:

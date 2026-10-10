@@ -575,8 +575,9 @@ TERMS = (
         "QoQ compara com o trimestre anterior. YoY compara com o mesmo período do ano anterior. "
         "Pontos percentuais medem a diferença direta entre duas taxas. Um ponto-base (bp) equivale a 0,01 ponto percentual; 100 bps = 1 p.p.",
         "Confira se a variação usa um saldo, um fluxo do trimestre ou YTD. "
-        "Deltas usam os valores sem arredondamento. Crescimento relativo é (atual − base) ÷ base e requer base positiva nas comparações financeiras do app.",
-        modules=REPORTS, example="De 2,18% para 2,25%: +0,07 p.p. = +7 bps. De 15,18% para 14,77%: −0,41 p.p. = −41 bps. Uma taxa de 10% para 12% subiu 200 bps; seu crescimento relativo foi 20%.",
+        "Deltas usam os valores sem arredondamento. Em Peers, taxas de capital, retorno e risco usam bps inteiros; coberturas e custo/receita usam p.p. "
+        "Movimentos pequenos preservam a direção com <1 bp. Crescimento relativo é (atual − base) ÷ base e requer base positiva nas comparações financeiras do app.",
+        modules=REPORTS, example="De 2,18% para 2,25%: +7 bps. De 15,18% para 14,77%: −41 bps. Cobertura de 193,1% para 193,5%: +0,4 p.p. Uma taxa de 10% para 12% subiu 2 p.p.; seu crescimento relativo foi 20%.",
         aliases=("p.p.", "bps", "basis points", "pontos-base", "delta", "variação", "trimestre contra trimestre", "ano contra ano")),
     GlossaryTerm("peers", "Peers e comparação entre instituições", "Comparações e leitura",
         "Peers são instituições escolhidas como referências para comparação. "
