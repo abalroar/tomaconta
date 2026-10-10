@@ -10437,11 +10437,17 @@ def _periodo_trimestre_anterior(periodo: Optional[str], periodos_disponiveis: li
 
 
 def _formatar_valor_snapshot(metrica_cfg: dict, valor) -> str:
-    if valor is None or pd.isna(valor):
-        return "—"
+    try:
+        valor_num = float(valor)
+    except (TypeError, ValueError, OverflowError):
+        return "N/D"
+    if not math.isfinite(valor_num):
+        return "N/D"
 
     format_key = metrica_cfg.get("format_key", "")
     coluna_origem = metrica_cfg.get("coluna_origem")
+    if metrica_cfg.get("is_pct"):
+        return _formatar_percentual(valor_num, decimais=PEERS_PERCENT_DECIMALS.get(format_key, 2))
     monetarios_auto = {
         "Ativo Total",
         "Carteira de Crédito Bruta",
@@ -10450,16 +10456,12 @@ def _formatar_valor_snapshot(metrica_cfg: dict, valor) -> str:
         "Lucro Líquido Acumulado YTD",
     }
     if format_key in monetarios_auto:
-        try:
-            v = float(valor)
-            v_mm = v / 1e6
-            if abs(v_mm) >= 1000:
-                txt = f"R$ {v / 1e9:,.1f} bi"
-            else:
-                txt = f"R$ {v_mm:,.0f}MM"
-            return txt.replace(",", "X").replace(".", ",").replace("X", ".")
-        except (TypeError, ValueError):
-            return "—"
+        v_mm = valor_num / 1e6
+        if abs(v_mm) >= 1000:
+            txt = f"R$ {valor_num / 1e9:,.1f} bi"
+        else:
+            txt = f"R$ {v_mm:,.0f}MM"
+        return txt.replace(",", "X").replace(".", ",").replace("X", ".")
 
     return _formatar_valor_peers(valor, format_key, coluna_origem=coluna_origem)
 

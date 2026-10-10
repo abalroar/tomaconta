@@ -4,6 +4,32 @@ import pytest
 from xml.etree import ElementTree
 
 
+@pytest.mark.parametrize("value", [None, float("nan"), float("inf"), float("-inf"), pd.NA, "sem dado"])
+def test_snapshot_formats_missing_or_invalid_values_as_nd(value):
+    for cfg in ({"format_key": "Ativo Total"}, {"format_key": "Desp Captação / Captação", "is_pct": True}):
+        assert app1._formatar_valor_snapshot(cfg, value) == "N/D"
+
+
+@pytest.mark.parametrize("label,key", [
+    ("Crédito / Captações", "Carteira de Crédito/Core Funding (%)"),
+    ("Desp. Anualizada Captação / Volume Captação", "Desp Captação / Captação"),
+])
+def test_snapshot_funding_zero_is_a_value_and_missing_data_keeps_its_marker(label, key):
+    cfg = {"label": label, "format_key": key, "is_pct": True, "serie": {"2/2026": 0.0}}
+    assert app1._formatar_valor_snapshot(cfg, 0.0) == "0,00%"
+    marker, _ = app1._snapshot_metric_status_note(label=label, periodo_ref="2/2026", valor_atual=0.0)
+    assert marker == ""
+    zero_html = app1._render_snap_card(cfg, "2/2026", None, None)
+    assert 'snap-card__value">0,00%</span>' in zero_html
+    assert "snap-card__status-mark" not in zero_html
+
+    cfg.update(serie={"2/2026": None}, status_marker="†", status_note="Fonte indisponível.")
+    missing_html = app1._render_snap_card(cfg, "2/2026", None, None)
+    assert 'snap-card__value">N/D<span class="snap-card__status-mark' in missing_html
+    assert "†</span>" in missing_html
+    assert app1._formatar_valor_snapshot({"format_key": "Carteira de Crédito Bruta"}, 0.0) == "R$ 0MM"
+
+
 def test_snapshot_metric_status_note_identifies_prudential_and_capital_unavailability():
     marker_basileia, note_basileia = app1._snapshot_metric_status_note(
         label="Índice de Basileia",

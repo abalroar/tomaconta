@@ -150,6 +150,38 @@ def test_first_two_slides_preserve_snapshot_and_have_native_editable_history_wit
     assert "Carteira 4.966" in texts[-1]
 
 
+@pytest.mark.parametrize("missing", [None, float("nan")])
+def test_real_snapshot_missing_funding_remains_nd_and_zero_is_editable_numeric_data(missing):
+    import app1
+    from utils.snapshot_export_data import snapshot_payload
+
+    zero = {"label": "Crédito / Captações", "format_key": "Carteira de Crédito/Core Funding (%)",
+            "is_pct": True, "serie": {"2/2026": 0.0}}
+    absent = {"label": "Desp. Anualizada Captação / Volume Captação", "format_key": "Desp Captação / Captação",
+              "is_pct": True, "serie": {"2/2026": missing}, "status_marker": "†", "status_note": "Fonte indisponível."}
+    histories = {zero["label"]: {"periods": ["Dez/25", "Mar/26", "Jun/26"], "values": [None, 0.0, 0.0]},
+                 absent["label"]: {"periods": ["Dez/25", "Mar/26", "Jun/26"], "values": [None, missing, None]}}
+    cards = snapshot_payload("SBXPAY IP - PRUDENCIAL", "2/2026", None, None,
+                             [("support", [zero, absent])], histories, vars(app1))["cards"]
+    payload = snapshot()
+    payload["cards"][8:10] = cards
+    prs = Presentation(BytesIO(export_snapshot_powerpoint(payload)))
+    support = prs.slides[1]
+    table = next(shape.table for shape in support.shapes if shape.has_table)
+    assert table.cell(1, 1).text == "0,00%"
+    assert table.cell(2, 1).text == "N/D†"
+    assert table.cell(2, 4).text == "—"
+    charts = [shape.chart for shape in support.shapes if shape.has_chart]
+    assert len(charts) == 4  # O histórico integralmente ausente não cria gráfico.
+    assert charts[0].series[0].values == (None, 0.0, 0.0)
+    workbook = load_workbook(BytesIO(charts[0].part.chart_workbook.xlsx_part.blob), data_only=True)
+    assert list(workbook.active.values)[1:] == [("Dez/25", None), ("Mar/26", 0), ("Jun/26", 0)]
+    notes = json.loads(support.notes_slide.notes_text_frame.text)
+    assert notes["cards"][0]["raw_value"] == 0.0
+    assert pd.isna(notes["cards"][1]["raw_value"])
+    assert notes["cards"][1]["status"] == "Fonte indisponível."
+
+
 def test_4966_uses_shared_difference_units_and_credit_colors_in_native_table():
     prs = Presentation(BytesIO(export_snapshot_powerpoint(snapshot(), peers(), carteira())))
     table = next(shape.table for shape in prs.slides[-1].shapes if shape.has_table)
