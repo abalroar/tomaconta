@@ -467,8 +467,8 @@ def cell_delta(model: Carteira4966Model, spec: RowSpec, period: str, *, secondar
     kind = ("bps" if spec.key == "delinquency" else "pp") if percent else "pct"
     unit = {"bps": "bps", "pp": "p.p.", "pct": "%"}[kind]
     method = {
-        "bps": "(percentual atual − percentual de referência) × 100",
-        "pp": "percentual atual − percentual de referência",
+        "bps": "(razão decimal atual − razão decimal de referência) × 10.000",
+        "pp": "(razão decimal atual − razão decimal de referência) × 100",
         "pct": "(saldo atual − saldo de referência) ÷ saldo de referência × 100; base positiva",
     }[kind]
     previous = _previous_period(period)

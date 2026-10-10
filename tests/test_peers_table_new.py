@@ -150,6 +150,7 @@ def test_reference_and_numeric_delta_are_auditable_in_ui_and_excel():
     records=list(ws.values); headers=records[0]
     assert records[1][headers.index("Delta numérico")] == pytest.approx(-41)
     assert records[1][headers.index("Unidade delta")] == "bps"
+    assert methodology_rows(q)[0]["Variação"] == "(razão decimal atual − razão decimal de referência) × 10.000; bps arredondados ao inteiro"
 
 
 @pytest.mark.parametrize("reference_status", ["warning", "critical"])
@@ -521,7 +522,7 @@ def test_arrasto_uses_rel16_total_and_only_four_expected_losses_from_2025():
     assert cells["Inadimplência / Carteira Total"]["variation"] == "↑ +100 bps"
     assert cells["PDD / Inadimplência (arrasto)"]["variation"] == "↓ −100,00 p.p."
     html = table_html(q)
-    assert "↓ −100,00 p.p." in html and "percentual atual − percentual de referência" in html
+    assert "↓ −100,00 p.p." in html and "(razão decimal atual − razão decimal de referência) × 100" in html
     variations = variation_rows(q, "PDD / Inadimplência (arrasto)", "A")
     assert "100,0000% − 200,0000% = −100,0000 p.p." in variations.iloc[-1]["Cálculo"]
     assert "× 100" not in variations.iloc[-1]["Cálculo"]
