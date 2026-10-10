@@ -10625,6 +10625,8 @@ def _snap_sparkline_svg(
         return ""
     min_v, max_v = min(available), max(available)
     rng = max_v - min_v or 1
+    # Keep the full endpoint circle inside the SVG at either extreme.
+    padding = 3
     segments = []
     points = []
     last_point = None
@@ -10634,8 +10636,8 @@ def _snap_sparkline_svg(
                 segments.append(points)
                 points = []
             continue
-        x = i / (len(nums) - 1) * width
-        y = height - ((v - min_v) / rng * (height - 4) + 2)
+        x = padding + i / (len(nums) - 1) * (width - 2 * padding)
+        y = height - padding - (v - min_v) / rng * (height - 2 * padding)
         last_point = f"{x:.1f},{y:.1f}"
         points.append(last_point)
     if points:
@@ -10996,7 +10998,7 @@ def _render_snap_card(
     tooltip_parts = [part for part in [definition, source, status_note] if part]
     tooltip_parts = list(dict.fromkeys(tooltip_parts))
     if tooltip_parts:
-        safe_source = _html_mod.escape("\n\n".join(tooltip_parts))
+        safe_source = _html_mod.escape("\n\n".join(tooltip_parts)).replace("\n", "<br>")
         help_id = "snap-help-" + hashlib.sha256(label.encode("utf-8")).hexdigest()[:12]
         info_html = (
             f'<details class="snap-card__info">'
@@ -11011,19 +11013,16 @@ def _render_snap_card(
 
     meta_text = str(metric_cfg.get("subtitle") or metric_cfg.get("source_label") or "").strip()
     meta_html = f'<div class="snap-card__meta">{_html_mod.escape(meta_text)}</div>' if meta_text else ""
-    return f"""<div class="snap-card {hero_cls}">
-  <div class="snap-card__header">
-    <span class="snap-card__label">{label}</span>{info_html}
-  </div>
-  {meta_html}
-  <div class="snap-card__spark-row">
-    <span class="snap-card__value">{valor_fmt}{value_marker_html}</span>
-    {spark_html}
-  </div>
-  <div class="snap-card__comparisons">
-    {delta_1}{delta_2}
-  </div>
-</div>"""
+    # A single HTML block avoids Markdown inserting empty paragraphs beside
+    # <details>, which would become extra items in the flex header.
+    return (
+        f'<div class="snap-card {hero_cls}">'
+        f'<div class="snap-card__header">'
+        f'<span class="snap-card__label">{_html_mod.escape(label)}</span>{info_html}</div>'
+        f'{meta_html}<div class="snap-card__spark-row">'
+        f'<span class="snap-card__value">{valor_fmt}{value_marker_html}</span>{spark_html}</div>'
+        f'<div class="snap-card__comparisons">{delta_1}{delta_2}</div></div>'
+    )
 
 
 def _render_snap_grid(cards_html: list, grid_class: str) -> str:
@@ -11114,6 +11113,7 @@ _SNAPSHOT_V2_CSS = """
 }
 
 .snap-card__header {
+    position: relative;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -11122,6 +11122,8 @@ _SNAPSHOT_V2_CSS = """
 }
 
 .snap-card__label {
+    flex: 1;
+    min-width: 0;
     font-size: 0.82rem;
     font-weight: 500;
     color: #555b63;
@@ -11209,7 +11211,8 @@ _SNAPSHOT_V2_CSS = """
 
 .snap-card__info {
     position: static;
-    flex-shrink: 0;
+    flex: 0 0 28px;
+    width: 28px;
 }
 
 .snap-card__info summary {
@@ -11252,9 +11255,9 @@ _SNAPSHOT_V2_CSS = """
 .snap-card__info .snap-tip {
     display: none;
     position: absolute;
-    top: 48px;
-    left: 12px;
-    right: 12px;
+    top: calc(100% + 6px);
+    left: 0;
+    right: 0;
     background: #ffffff;
     color: #333333;
     font-size: 0.82rem;
@@ -11357,12 +11360,13 @@ div[class*="st-key-snapshot_bank_match_"] button {
         font-size: 0.78rem;
         gap: 8px 14px;
     }
+    .snap-card__info {
+        flex-basis: 44px;
+        width: 44px;
+    }
     .snap-card__info summary {
         width: 44px;
         height: 44px;
-    }
-    .snap-card__info .snap-tip {
-        top: 62px;
     }
     div[class*="st-key-snapshot_bank_match_"] button {
         min-height: 46px;
