@@ -432,7 +432,7 @@ def test_arrasto_uses_rel16_total_and_only_four_expected_losses_from_2025():
     assert "× 100" not in variations.iloc[-1]["Cálculo"]
     sheet = load_workbook(BytesIO(export_excel(q)))["Comparativo"]
     coverage_row = next(row for row in range(1, sheet.max_row + 1) if sheet.cell(row, 1).value == "PDD / vencidos >90 dias (arrasto)")
-    assert sheet.cell(coverage_row, 4).number_format == "0.0%"
+    assert sheet.cell(coverage_row, 4).number_format == "0.00%"
     assert sheet.cell(coverage_row + 1, 4).value == "↓ −100,0 p.p."
     assert all(c["value"] is None and "mar/2025" in c["reason"] for c in q["cells"] if c["period"] == "4/2024")
     memo = calculation_rows(q, df, "PDD / Inadimplência (arrasto)", "A")

@@ -84,7 +84,7 @@ def _with_variation_policy(metric):
         kind, favorable = _PERCENTAGE_POLICIES[metric.key]
         return replace(metric, delta_kind=kind, delta_unit="p.p." if kind == "pp" else "bps",
                        delta_decimals=1 if kind == "pp" else 0,
-                       value_decimals=1 if kind == "pp" else 2,
+                       value_decimals=2,
                        favorable_direction=favorable)
     if metric.unit == "x":
         return replace(metric, delta_kind="absolute", delta_unit="x", favorable_direction="down")
