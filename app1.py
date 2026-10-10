@@ -10609,26 +10609,44 @@ def _snap_sparkline_svg(
     for v in values:
         try:
             f = float(v)
-            if not pd.isna(f):
-                nums.append(f)
+            nums.append(f if math.isfinite(f) else None)
         except (TypeError, ValueError):
-            continue
-    if len(nums) < 2:
+            nums.append(None)
+    available = [v for v in nums if v is not None]
+    if len(available) < 2:
         return ""
-    min_v, max_v = min(nums), max(nums)
+    min_v, max_v = min(available), max(available)
     rng = max_v - min_v or 1
+    segments = []
     points = []
+    last_point = None
     for i, v in enumerate(nums):
+        if v is None:
+            if points:
+                segments.append(points)
+                points = []
+            continue
         x = i / (len(nums) - 1) * width
         y = height - ((v - min_v) / rng * (height - 4) + 2)
-        points.append(f"{x:.1f},{y:.1f}")
-    polyline = " ".join(points)
-    last_x, last_y = points[-1].split(",")
+        last_point = f"{x:.1f},{y:.1f}"
+        points.append(last_point)
+    if points:
+        segments.append(points)
+    paths = []
+    for segment in segments:
+        if len(segment) == 1:
+            x, y = segment[0].split(",")
+            paths.append(f'<circle cx="{x}" cy="{y}" r="1.5" fill="{color}"/>')
+        else:
+            paths.append(
+                f'<polyline points="{" ".join(segment)}" fill="none" stroke="{color}" '
+                f'stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>'
+            )
+    last_x, last_y = last_point.split(",")
     return (
         f'<svg class="snap-sparkline" width="{width}" height="{height}" '
-        f'viewBox="0 0 {width} {height}" style="vertical-align:middle">'
-        f'<polyline points="{polyline}" fill="none" stroke="{color}" '
-        f'stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>'
+        f'viewBox="0 0 {width} {height}" aria-hidden="true" focusable="false" style="vertical-align:middle">'
+        f'{"".join(paths)}'
         f'<circle cx="{last_x}" cy="{last_y}" r="2" fill="{color}"/>'
         f"</svg>"
     )
@@ -10645,30 +10663,31 @@ def _snap_sparkbars_svg(
     for v in values:
         try:
             f = float(v)
-            if not pd.isna(f):
-                nums.append(f)
+            nums.append(f if math.isfinite(f) else None)
         except (TypeError, ValueError):
-            continue
-    if len(nums) < 2:
+            nums.append(None)
+    available = [v for v in nums if v is not None]
+    if len(available) < 2:
         return ""
 
-    min_v, max_v = min(nums), max(nums)
+    min_v, max_v = min(available), max(available)
     rng = max_v - min_v or 1
     bar_gap = 2
     bar_w = max((width - (len(nums) - 1) * bar_gap) / len(nums), 2)
-    x = 0.0
     rects = []
-    for v in nums:
+    for i, v in enumerate(nums):
+        if v is None:
+            continue
+        x = i * (bar_w + bar_gap)
         h = ((v - min_v) / rng) * (height - 4) + 2
         y = height - h
         rects.append(
             f'<rect x="{x:.1f}" y="{y:.1f}" width="{bar_w:.1f}" height="{h:.1f}" '
             f'rx="1.2" ry="1.2" fill="{color}" opacity="0.72" />'
         )
-        x += bar_w + bar_gap
     return (
         f'<svg class="snap-sparkline" width="{width}" height="{height}" '
-        f'viewBox="0 0 {width} {height}" style="vertical-align:middle">'
+        f'viewBox="0 0 {width} {height}" aria-hidden="true" focusable="false" style="vertical-align:middle">'
         f'{"".join(rects)}'
         f"</svg>"
     )
@@ -10715,7 +10734,7 @@ def _snap_delta_calc(
     except (TypeError, ValueError):
         return payload
 
-    if pd.isna(a) or pd.isna(b):
+    if not math.isfinite(a) or not math.isfinite(b):
         return payload
 
     payload["a"] = a
@@ -10739,49 +10758,152 @@ def _snap_delta_calc(
     return payload
 
 
+def _snap_delta_presentation(
+    valor_atual,
+    valor_base,
+    label: str,
+    higher_is_better: Optional[bool] = True,
+    delta_kind: str = "pct",
+    scale: str = "pct",
+    *,
+    favorable_direction: Optional[str] = "auto",
+    reliable: bool = True,
+) -> dict:
+    """Texto e leitura do delta compartilhados entre card e PowerPoint."""
+    calc = _snap_delta_calc(valor_atual, valor_base, delta_kind=delta_kind, scale=scale)
+    a, b = calc.get("a"), calc.get("b")
+    suffix = calc.get("suffix", "—")
+    payload = {
+        "label": str(label),
+        "display": "—",
+        "suffix": suffix,
+        "tone": "neutral",
+        "reason": calc.get("motivo", ""),
+        "direction": None,
+        "valido": bool(calc.get("valido")),
+        "current": a,
+        "reference": b,
+    }
+
+    if not calc.get("valido") or a is None or b is None:
+        return payload
+
+    resolved_higher = (
+        higher_is_better if favorable_direction == "auto"
+        else True if favorable_direction == "up"
+        else False if favorable_direction == "down"
+        else None
+    )
+    a_cmp, b_cmp = _snapshot_normalize_cmp_values(a, b, resolved_higher)
+    direction = "up" if a > b else "down" if a < b else "flat"
+    arrow = "↑" if direction == "up" else "↓" if direction == "down" else "—"
+    if direction != "flat" and resolved_higher is not None and reliable:
+        improved = (a_cmp > b_cmp and resolved_higher) or (
+            a_cmp < b_cmp and resolved_higher is False
+        )
+        payload["tone"] = "favorable" if improved else "attention"
+    payload["direction"] = direction
+    payload["display"] = f"{arrow} {suffix}"
+    return payload
+
+
 def _snap_delta_html(
     valor_atual,
     valor_base,
     label: str,
-    higher_is_better: bool = True,
+    higher_is_better: Optional[bool] = True,
     delta_kind: str = "pct",
     scale: str = "pct",
+    *,
+    favorable_direction: Optional[str] = "auto",
+    reliable: bool = True,
 ) -> str:
-    """Gera HTML de um delta (QoQ ou YoY) para o card V2."""
-    calc = _snap_delta_calc(valor_atual, valor_base, delta_kind=delta_kind, scale=scale)
-    a, b = calc.get("a"), calc.get("b")
-    suffix = calc.get("suffix", "—")
+    """Renderiza o mesmo delta e a mesma cor entregues na exportação."""
+    payload = _snap_delta_presentation(
+        valor_atual, valor_base, label, higher_is_better, delta_kind, scale,
+        favorable_direction=favorable_direction, reliable=reliable,
+    )
+    return _snap_delta_payload_html(payload)
 
-    if not calc.get("valido") or a is None or b is None:
-        return (
-            f'<span class="snap-card__delta snap-card__delta--neutral" title="{_html_mod.escape(calc["motivo"], quote=True)}">'
-            f'<span class="snap-card__delta-label">{label}</span> —</span>'
-        )
 
-    a_cmp, b_cmp = _snapshot_normalize_cmp_values(a, b, higher_is_better)
-    if a > b:
-        direcao = "up"
-    elif a < b:
-        direcao = "down"
-    else:
-        direcao = "neutral"
-
-    if direcao == "neutral":
-        css_mod = "snap-card__delta--neutral"
-        arrow = "—"
-    else:
-        melhorou = (a_cmp > b_cmp and higher_is_better) or (a_cmp < b_cmp and not higher_is_better)
-        css_mod = "snap-card__delta--positive" if melhorou else "snap-card__delta--negative"
-        arrow = "↑" if direcao == "up" else "↓"
+def _snap_delta_payload_html(payload: dict) -> str:
+    """Renderiza o payload fechado, sem recalcular a comparação."""
+    css_mod = {
+        "favorable": "snap-card__delta--positive",
+        "attention": "snap-card__delta--negative",
+        "neutral": "snap-card__delta--neutral",
+    }[payload["tone"]]
+    title = _html_mod.escape(payload["reason"], quote=True)
 
     return (
-        f'<span class="snap-card__delta {css_mod}">'
-        f'{arrow} <span class="snap-card__delta-label">{label}</span> {suffix}</span>'
+        f'<span class="snap-card__delta {css_mod}" title="{title}">'
+        f'<span class="snap-card__delta-label">{_html_mod.escape(payload["label"])}</span>'
+        f'<span class="snap-card__movement">{_html_mod.escape(payload["display"])}</span></span>'
     )
 
 
+def _snap_metric_favorable_direction(metric_cfg: dict) -> Optional[str]:
+    """Direção usual de crédito, coerente com a política da Tabela de Peers."""
+    if "favorable_direction" in metric_cfg:
+        override = metric_cfg["favorable_direction"]
+        return override if override in {"up", "down"} else None
+    policies = {
+        "Índice de Basileia": "up",
+        "CET1": "up",
+        "ROE trim. anualizado": "up",
+        "ROE Ac. Anualizado": "up",
+        "Perda Esperada / Estágio 3": "up",
+        "Desp. Anualizada Captação / Volume Captação": "down",
+        "Desp. Anualizada Captações / Volume Captações": "down",
+        "Crédito / Captações": None,
+        "Perda Esperada / Carteira": None,
+    }
+    label = str(metric_cfg.get("label") or "")
+    if label in policies:
+        return policies[label]
+    if not metric_cfg.get("is_pct", False):
+        return None  # Saldos e resultados monetários exigem contexto de crédito.
+    favorable = metric_cfg.get("favorable_direction")
+    return favorable if favorable in {"up", "down"} else None
+
+
+def _snapshot_card_delta(
+    metric_cfg: dict,
+    current_period: str,
+    reference_period: Optional[str],
+    label: str,
+) -> dict:
+    """Comparação canônica do Snapshot, com a mesma ressalva de base dos Peers."""
+    series = metric_cfg.get("serie") or {}
+    delta_kind, scale = _snap_metric_delta_meta(metric_cfg)
+    payload = _snap_delta_presentation(
+        series.get(current_period), series.get(reference_period) if reference_period else None,
+        label, metric_cfg.get("higher_is_better", True), delta_kind, scale,
+        favorable_direction=_snap_metric_favorable_direction(metric_cfg),
+        reliable=bool(metric_cfg.get("variation_reliable", not metric_cfg.get("status_marker"))),
+    )
+    current_year = _periodo_ano_int(current_period)
+    reference_year = _periodo_ano_int(reference_period) if reference_period else None
+    basis_change_metrics = {"Carteira de Crédito", "Crédito / Captações", "Perda Esperada / Carteira"}
+    if (
+        current_year is not None and reference_year is not None
+        and current_year >= 2025 > reference_year
+        and metric_cfg.get("label") in basis_change_metrics
+    ):
+        payload.update(
+            display="Quebra em 2025", suffix="—", tone="neutral", direction=None, valido=False,
+            reason="O formato e a base contábil do IFData mudaram em 2025; a comparação cruza essa mudança.",
+        )
+    if metric_cfg.get("comparison_basis") == "ytd" and str(label).startswith("QoQ"):
+        payload.update(
+            display="Janelas YTD diferentes", suffix="—", tone="neutral", direction=None, valido=False,
+            reason="Acumulados no ano têm janelas de duração diferente. Compare o mesmo trimestre do ano anterior.",
+        )
+    return payload
+
+
 def _snap_card_status(valor_atual, valor_base, higher_is_better: bool) -> str:
-    """Retorna classe CSS para borda esquerda do card hero."""
+    """Mantém metadado legado de direção para consumidores do Snapshot."""
     if valor_atual is None or valor_base is None:
         return ""
     try:
@@ -10809,10 +10931,8 @@ def _render_snap_card(
     """Monta HTML completo de um card Snapshot V2."""
     serie = metric_cfg.get("serie", {})
     label = metric_cfg.get("label", "Métrica")
-    higher_is_better = metric_cfg.get("higher_is_better", True)
     source = metric_cfg.get("source", "")
     comparison = metric_cfg.get("comparison", "qoq")
-    delta_kind, delta_scale = _snap_metric_delta_meta(metric_cfg)
     qoq_label, yoy_label = _snapshot_comparison_labels(metric_cfg)
     status_note = str(metric_cfg.get("status_note") or "").strip()
     status_marker = str(metric_cfg.get("status_marker") or "").strip()
@@ -10824,20 +10944,20 @@ def _render_snap_card(
     periodo_base_qoq = periodo_qoq
     periodo_base_yoy = periodo_yoy
 
-    valor_qoq = serie.get(periodo_base_qoq) if periodo_base_qoq else None
-    valor_yoy = serie.get(periodo_base_yoy) if periodo_base_yoy else None
-
     # Para métricas YTD, QoQ não faz sentido; comparação principal é YoY
     if comparison == "yoy":
-        delta_1 = _snap_delta_html(valor_atual, valor_yoy, yoy_label, higher_is_better, delta_kind, delta_scale)
+        delta_1 = _snap_delta_payload_html(
+            _snapshot_card_delta(metric_cfg, periodo_atual, periodo_base_yoy, yoy_label)
+        )
         delta_2 = ""
     else:
-        delta_1 = _snap_delta_html(valor_atual, valor_qoq, qoq_label, higher_is_better, delta_kind, delta_scale)
-        delta_2 = _snap_delta_html(valor_atual, valor_yoy, yoy_label, higher_is_better, delta_kind, delta_scale)
+        delta_1 = _snap_delta_payload_html(
+            _snapshot_card_delta(metric_cfg, periodo_atual, periodo_base_qoq, qoq_label)
+        )
+        delta_2 = _snap_delta_payload_html(
+            _snapshot_card_delta(metric_cfg, periodo_atual, periodo_base_yoy, yoy_label)
+        )
 
-    # Borda esquerda (status) — usa QoQ como base primária
-    base_for_status = valor_yoy if comparison == "yoy" else valor_qoq
-    status_cls = _snap_card_status(valor_atual, base_for_status, higher_is_better)
     hero_cls = "snap-card--hero" if is_hero else ""
 
     # Sparkline
@@ -10851,19 +10971,23 @@ def _render_snap_card(
     # Info tooltip
     info_html = ""
     definition = get_help_text(metric_cfg.get("format_key", label)) or get_help_text(label)
-    tooltip_parts = [part for part in [definition or source, status_note] if part]
+    tooltip_parts = [part for part in [definition, source, status_note] if part]
+    tooltip_parts = list(dict.fromkeys(tooltip_parts))
     if tooltip_parts:
         safe_source = _html_mod.escape("\n\n".join(tooltip_parts))
+        help_id = "snap-help-" + hashlib.sha256(label.encode("utf-8")).hexdigest()[:12]
         info_html = (
-            f'<span class="snap-card__info" tabindex="0" aria-label="Ajuda: {_html_mod.escape(label, quote=True)}">i'
-            f'<span class="snap-tip" role="tooltip">{safe_source}</span></span>'
+            f'<details class="snap-card__info">'
+            f'<summary aria-label="Ajuda: {_html_mod.escape(label, quote=True)}" aria-controls="{help_id}">'
+            f'<span aria-hidden="true">i</span></summary>'
+            f'<div class="snap-tip" id="{help_id}">{safe_source}</div></details>'
         )
     value_marker_html = ""
     if status_marker:
         marker_class = "snap-card__status-mark--unavailable" if status_marker == "†" else "snap-card__status-mark--fallback"
         value_marker_html = f'<span class="snap-card__status-mark {marker_class}">{_html_mod.escape(status_marker)}</span>'
 
-    return f"""<div class="snap-card {status_cls} {hero_cls}">
+    return f"""<div class="snap-card {hero_cls}">
   <div class="snap-card__header">
     <span class="snap-card__label">{label}</span>{info_html}
   </div>
@@ -10940,49 +11064,46 @@ _SNAPSHOT_V2_CSS = """
 }
 
 .snap-grid--hero {
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .snap-grid--profit,
 .snap-grid--supporting {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .snap-card {
     background: #ffffff;
-    border: 1px solid #e9ecef;
+    border: 1px solid #e5e7eb;
     border-radius: 10px;
     padding: 16px;
-    border-left: 3px solid #e9ecef;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
     position: relative;
     font-family: 'IBM Plex Sans', sans-serif;
+    min-width: 0;
 }
-
-.snap-card--improved { border-left-color: #28a745; }
-.snap-card--worsened { border-left-color: #dc3545; }
 
 .snap-card__header {
     display: flex;
     align-items: center;
-    gap: 4px;
-    margin-bottom: 4px;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 6px;
 }
 
 .snap-card__label {
-    font-size: 0.7rem;
+    font-size: 0.82rem;
     font-weight: 500;
-    color: #6c757d;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    line-height: 1.2;
+    color: #555b63;
+    line-height: 1.4;
 }
 
 .snap-card__value {
     font-size: 1.5rem;
-    font-weight: 400;
+    font-weight: 500;
     color: #212529;
-    line-height: 1.1;
+    line-height: 1.2;
+    font-variant-numeric: tabular-nums;
+    overflow-wrap: anywhere;
 }
 
 .snap-card__status-mark {
@@ -11008,88 +11129,120 @@ _SNAPSHOT_V2_CSS = """
     display: flex;
     justify-content: space-between;
     align-items: flex-end;
+    gap: 12px;
     margin: 6px 0 10px 0;
 }
 
 .snap-sparkline {
-    opacity: 0.7;
+    opacity: 0.65;
     flex-shrink: 0;
 }
 
 .snap-card__comparisons {
     display: flex;
-    gap: 14px;
+    gap: 8px 16px;
     flex-wrap: wrap;
 }
 
 .snap-card__delta {
-    font-size: 0.78rem;
+    font-size: 0.8rem;
     font-weight: 400;
     display: inline-flex;
     align-items: center;
-    gap: 3px;
+    gap: 6px;
+    line-height: 1.5;
+    white-space: nowrap;
 }
 
-.snap-card__delta--positive { color: #28a745; }
-.snap-card__delta--negative { color: #dc3545; }
-.snap-card__delta--neutral { color: #adb5bd; }
+.snap-card__delta--positive { color: #16713B; }
+.snap-card__delta--negative { color: #B32624; }
+.snap-card__delta--neutral { color: #666666; }
+
+.snap-card__movement {
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+}
 
 .snap-card__delta-label {
-    color: #adb5bd;
-    font-size: 0.65rem;
-    font-weight: 500;
-    text-transform: uppercase;
-    margin-right: 2px;
+    color: #6b7077;
+    font-size: 0.73rem;
 }
 
 .snap-card__info {
+    position: static;
+    flex-shrink: 0;
+}
+
+.snap-card__info summary {
+    display: flex;
+    width: 28px;
+    height: 28px;
+    list-style: none;
+    justify-content: center;
+    align-items: center;
+    cursor: pointer;
+    border-radius: 6px;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.snap-card__info summary::-webkit-details-marker { display: none; }
+
+.snap-card__info summary span {
     display: inline-flex;
-    width: 14px;
-    height: 14px;
+    width: 18px;
+    height: 18px;
     border-radius: 50%;
     justify-content: center;
     align-items: center;
-    font-size: 9px;
+    font-size: 11px;
     font-weight: 600;
-    color: #adb5bd;
+    color: #666666;
     border: 1px solid #dee2e6;
-    cursor: help;
-    position: relative;
-    flex-shrink: 0;
+}
+
+.snap-card__info summary:focus-visible {
+    outline: 2px solid #EC7000;
+    outline-offset: 2px;
+}
+
+.snap-card__info summary:active,
+.snap-card__info[open] summary {
+    background: #f3f4f5;
 }
 
 .snap-card__info .snap-tip {
     display: none;
     position: absolute;
-    bottom: 120%;
-    left: 50%;
-    transform: translateX(-50%);
-    background: #333;
-    color: #fff;
-    font-size: 12px;
-    padding: 6px 10px;
-    border-radius: 6px;
-    white-space: normal;
-    min-width: 200px;
-    max-width: 280px;
+    top: 48px;
+    left: 12px;
+    right: 12px;
+    background: #ffffff;
+    color: #333333;
+    font-size: 0.82rem;
+    padding: 12px;
+    border: 1px solid #dfe2e5;
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.10);
+    white-space: pre-line;
+    max-height: min(320px, 45vh);
+    overflow: auto;
+    overflow-wrap: anywhere;
+    overscroll-behavior: contain;
     z-index: 1000;
     font-weight: 400;
     text-transform: none;
     letter-spacing: normal;
-    line-height: 1.4;
+    line-height: 1.5;
 }
 
-.snap-card__info:hover .snap-tip,
-.snap-card__info:focus .snap-tip {
+.snap-card__info[open] .snap-tip {
     display: block;
 }
 
 .snap-section {
-    color: #1f77b4;
-    font-size: 0.7rem;
-    font-weight: 500;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
+    color: #3c4249;
+    font-size: 0.92rem;
+    font-weight: 600;
     margin: 1.5rem 0 0.35rem 0;
     padding-bottom: 0.35rem;
     border-bottom: 1px solid #e9ecef;
@@ -11102,12 +11255,10 @@ _SNAPSHOT_V2_CSS = """
     flex-wrap: wrap;
     font-family: 'IBM Plex Sans', sans-serif;
     font-size: 0.78rem;
-    color: #6c757d;
+    color: #666666;
     margin-bottom: 0.75rem;
-    padding: 8px 12px;
-    background: #f8f9fa;
-    border-radius: 8px;
-    border-left: 3px solid #1f77b4;
+    padding: 8px 0 12px;
+    border-bottom: 1px solid #e9ecef;
 }
 
 .snap-period-bar span {
@@ -11129,7 +11280,17 @@ div[class*="st-key-snapshot_bank_match_"] button {
     text-align: left;
 }
 
+.stMain .st-key-snapshot_export [data-testid="stDownloadButton"] {
+    max-width: 320px;
+}
+
 /* ===== MOBILE / TABLET ===== */
+@media (max-width: 1100px) {
+    .snap-grid--hero {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
 @media (max-width: 768px) {
     .snap-grid--hero {
         grid-template-columns: 1fr;
@@ -11139,36 +11300,57 @@ div[class*="st-key-snapshot_bank_match_"] button {
         grid-template-columns: 1fr;
     }
     .snap-card {
-        padding: 12px;
+        padding: 12px 14px;
     }
     .snap-card__value {
-        font-size: 1.3rem !important;
+        font-size: 1.45rem;
     }
     .snap-card--hero .snap-card__value {
-        font-size: 1.5rem !important;
+        font-size: 1.65rem;
     }
     .snap-card__label {
-        min-height: 44px;
-        display: flex;
-        align-items: center;
+        font-size: 0.85rem;
     }
     .snap-card__comparisons {
-        gap: 10px;
+        gap: 8px 14px;
     }
     .snap-period-bar {
-        font-size: 0.72rem;
-        gap: 10px;
-        padding: 6px 10px;
+        font-size: 0.78rem;
+        gap: 8px 14px;
+    }
+    .snap-card__info summary {
+        width: 44px;
+        height: 44px;
+    }
+    .snap-card__info .snap-tip {
+        top: 62px;
     }
     div[class*="st-key-snapshot_bank_match_"] button {
         min-height: 46px;
+    }
+    .stMain .st-key-snapshot_export [data-testid="stDownloadButton"] button {
+        min-height: 44px;
+        width: 100%;
+    }
+    .stMain .st-key-snapshot_export [data-testid="stDownloadButton"] {
+        max-width: none;
     }
 }
 
 /* iPhone SE / small screens */
 @media (max-width: 375px) {
-    .snap-card--hero .snap-card__value {
-        font-size: 1.6rem !important;
+    .snap-sparkline {
+        width: 56px;
+    }
+    .snap-card__delta {
+        white-space: normal;
+        flex-wrap: wrap;
+    }
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .snap-card__info summary:hover {
+        background: #f3f4f5;
     }
 }
 </style>
@@ -11307,9 +11489,12 @@ def pagina_snapshot():
         f'</div>',
         unsafe_allow_html=True,
     )
+    snapshot_export_container = st.container(key="snapshot_export")
 
     periodos_snapshot = [p for p in [periodo_atual, periodo_anterior_qoq, periodo_yoy_existente] if p]
-    periodos_snapshot = list(dict.fromkeys(periodos_snapshot))
+    periodos_status_snapshot = list(dict.fromkeys(periodos_snapshot))
+    # Os históricos e o PPTX usam os mesmos oito pontos, inclusive lacunas.
+    periodos_snapshot = list(dict.fromkeys(periodos_snapshot + periodos_banco[:8]))
 
     cache_snapshot = df_bank_all[df_bank_all["Período"].astype(str).isin(periodos_snapshot)].copy()
     critical_lookup = _critical_metric_lookup(cache_snapshot)
@@ -11331,31 +11516,31 @@ def pagina_snapshot():
     perda_esperada_map = _critical_metric_map(cache_snapshot, banco, periodos_snapshot, "Perda Esperada")
     carteira_status_map = {
         p: str(_critical_metric_value(critical_lookup, banco, p, "Trace::Carteira::Status") or "").strip()
-        for p in periodos_snapshot
+        for p in periodos_status_snapshot
     }
     core_status_map = {
         p: str(_critical_metric_value(critical_lookup, banco, p, "Trace::Core Funding::Status") or "").strip()
-        for p in periodos_snapshot
+        for p in periodos_status_snapshot
     }
     blop_disp_map = {
         p: bool(_critical_metric_value(critical_lookup, banco, p, "BloprudencialDisponivel"))
-        for p in periodos_snapshot
+        for p in periodos_status_snapshot
     }
     blop_status_map = {
         p: str(_critical_metric_value(critical_lookup, banco, p, "Trace::Bloprudencial::Status") or "").strip()
-        for p in periodos_snapshot
+        for p in periodos_status_snapshot
     }
     capital_disp_map = {
         p: bool(_critical_metric_value(critical_lookup, banco, p, "CapitalDisponivel"))
-        for p in periodos_snapshot
+        for p in periodos_status_snapshot
     }
     qual_disp_map = {
         p: bool(_critical_metric_value(critical_lookup, banco, p, "QualidadeCarteiraDisponivel"))
-        for p in periodos_snapshot
+        for p in periodos_status_snapshot
     }
     qual_status_map = {
         p: str(_critical_metric_value(critical_lookup, banco, p, "Trace::Qualidade Carteira::Status") or "").strip()
-        for p in periodos_snapshot
+        for p in periodos_status_snapshot
     }
 
     diagnostico_snapshot = []
@@ -11601,10 +11786,41 @@ def pagina_snapshot():
         st.markdown(_render_snap_grid(cards, "snap-grid--supporting"), unsafe_allow_html=True)
 
     if any(str(cfg.get("status_marker") or "").strip() for cfg in (hero_metrics + profit_metrics + [row for sec in supporting_sections for row in sec["rows"]])):
-        st.caption("† = indicador indisponível com causa identificada. Passe o mouse no ícone `i` do card para ver a limitação/fonte.")
+        st.caption("† = indicador indisponível com causa identificada. Toque ou clique no ícone `i` do card para ver a limitação e a fonte.")
     st.caption("As variações mostram direção e intensidade da mudança. Crescimento de porte, carteira ou cobertura exige leitura da composição, do risco e da base de comparação.")
 
     todas_metricas_snapshot = hero_metrics + profit_metrics + [row for sec in supporting_sections for row in sec["rows"]]
+    from utils.snapshot_export_data import snapshot_payload, export_snapshot_package
+
+    history_periods = [periodo_para_exibicao(p) for p in ordenar_periodos(periodos_sparkline, reverso=False)]
+    export_histories = {
+        cfg["label"]: {"periods": history_periods, "values": values, "kind": kind}
+        for configs, series_list, kind in (
+            (hero_metrics, hero_sparklines, "line"),
+            (profit_metrics, profit_sparklines, "bars"),
+        )
+        for cfg, values in zip(configs, series_list)
+    }
+    for sec in supporting_sections:
+        for cfg, values in zip(sec["rows"], section_sparklines[sec["section"]]):
+            export_histories[cfg["label"]] = {"periods": history_periods, "values": values, "kind": section_spark_types[sec["section"]]}
+    snapshot_for_export = snapshot_payload(
+        banco, periodo_atual, periodo_anterior_qoq, periodo_yoy_existente,
+        [("hero", hero_metrics), ("profit", profit_metrics),
+         ("support", [row for sec in supporting_sections for row in sec["rows"]])],
+        export_histories, globals(),
+    )
+    with snapshot_export_container:
+        bank_filename = re.sub(r"[^\w\-.]+", "_", str(banco), flags=re.UNICODE).strip("_")
+        st.download_button(
+            "Resumo em PowerPoint",
+            data=lambda: export_snapshot_package(snapshot_for_export, df_bank_all, globals()),
+            file_name=f"Resumo_{bank_filename}_{periodo_atual.replace('/', '-')}.pptx",
+            mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            key="snapshot_download_powerpoint", on_click="ignore", type="primary",
+            width="stretch",
+        )
+        st.caption("Snapshot e três competências mais recentes de Peers e Carteira 4.966, quando disponíveis, para esta instituição.")
     anomalias_delta_snapshot = _audit_deltas_snapshot(
         todas_metricas_snapshot,
         periodo_atual,

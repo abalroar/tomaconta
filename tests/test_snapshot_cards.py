@@ -1,6 +1,7 @@
 import app1
 import pandas as pd
 import pytest
+from xml.etree import ElementTree
 
 
 def test_snapshot_metric_status_note_identifies_prudential_and_capital_unavailability():
@@ -123,6 +124,98 @@ def test_snapshot_rates_use_bps_and_negative_monetary_base_is_not_growth():
 
 def test_small_monetary_delta_keeps_visible_sign_and_precision():
     assert app1._snap_delta_calc(100.04,100)["suffix"] == "+0,04%"
+
+
+@pytest.mark.parametrize("label,is_pct", [
+    ("Ativo Total", False),
+    ("Carteira de Crédito", False),
+    ("Patrimônio Líquido", False),
+    ("Lucro Líquido Trimestral", False),
+    ("Crédito / Captações", True),
+    ("Perda Esperada / Carteira", True),
+])
+def test_snapshot_contextual_movements_keep_direction_without_credit_judgment(label, is_pct):
+    cfg = {
+        "label": label, "is_pct": is_pct, "higher_is_better": True,
+        "serie": {"2/2026": 1.1, "1/2026": 1.0},
+    }
+    result = app1._snapshot_card_delta(cfg, "2/2026", "1/2026", "QoQ")
+    assert result["tone"] == "neutral"
+    assert result["direction"] == "up"
+    assert result["display"].startswith("↑ +")
+
+
+@pytest.mark.parametrize("label,current,reference,display,tone", [
+    ("Índice de Basileia", .1477, .1518, "↓ −41 bps", "attention"),
+    ("ROE trim. anualizado", .1518, .1477, "↑ +41 bps", "favorable"),
+    ("Perda Esperada / Estágio 3", 1.935, 1.971, "↓ −3,6 p.p.", "attention"),
+    ("Desp. Anualizada Captação / Volume Captação", -.01, -.02, "↑ +100 bps", "favorable"),
+])
+def test_snapshot_credit_tones_and_units_are_shared_with_export_payload(label, current, reference, display, tone):
+    cfg = {"label": label, "is_pct": True, "serie": {"2/2026": current, "1/2026": reference}}
+    result = app1._snapshot_card_delta(cfg, "2/2026", "1/2026", "QoQ")
+    assert result["display"] == display
+    assert result["tone"] == tone
+    assert result["current"] == current
+    assert result["reference"] == reference
+
+
+def test_snapshot_delta_presentation_can_explicitly_neutralize_an_alerted_comparison():
+    neutral = app1._snap_delta_presentation(.16, .15, "QoQ", delta_kind="bps", scale="dec", favorable_direction=None)
+    alerted = app1._snap_delta_presentation(.16, .15, "QoQ", delta_kind="bps", scale="dec", favorable_direction="up", reliable=False)
+    assert neutral["display"] == alerted["display"] == "↑ +100 bps"
+    assert neutral["tone"] == alerted["tone"] == "neutral"
+    invalid = app1._snap_delta_presentation(.16, None, "QoQ", delta_kind="bps", scale="dec")
+    assert invalid["display"] == "—"
+    assert invalid["reason"] == "período anterior sem dado"
+    assert not invalid["valido"]
+
+
+@pytest.mark.parametrize("label", ["Carteira de Crédito", "Crédito / Captações", "Perda Esperada / Carteira"])
+def test_snapshot_blocks_deltas_that_cross_the_2025_accounting_basis_change(label):
+    cfg = {"label": label, "is_pct": label != "Carteira de Crédito", "serie": {"1/2025": 1.1, "4/2024": 1.0}}
+    result = app1._snapshot_card_delta(cfg, "1/2025", "4/2024", "QoQ")
+    assert result["display"] == "Quebra em 2025"
+    assert result["tone"] == "neutral"
+    assert result["direction"] is None
+    assert not result["valido"]
+    assert "2025" in result["reason"]
+    html = app1._render_snap_card(cfg, "1/2025", "4/2024", None)
+    assert "Quebra em 2025" in html
+
+
+def test_snapshot_card_help_opens_by_touch_or_keyboard_and_retains_its_source():
+    html = app1._render_snap_card(
+        {"label": "Ativo Total", "format_key": "Ativo Total", "serie": {"2/2026": 1200},
+         "source": "BCB IFData Rel. 1 — Balanço Patrimonial"},
+        "2/2026", None, None,
+    )
+    assert '<details class="snap-card__info">' in html
+    assert '<summary aria-label="Ajuda: Ativo Total"' in html
+    assert "aria-controls=" in html
+    assert "BCB IFData Rel. 1 — Balanço Patrimonial" in html
+    assert "snap-card--improved" not in html
+    assert "snap-card--worsened" not in html
+
+
+def test_snapshot_sparkline_preserves_missing_quarters_without_drawing_a_bridge():
+    svg = ElementTree.fromstring(app1._snap_sparkline_svg([100, 200, None, 300, 400]))
+    lines = svg.findall("polyline")
+    assert len(lines) == 2
+    first_x = [float(point.split(",")[0]) for point in lines[0].get("points").split()]
+    second_x = [float(point.split(",")[0]) for point in lines[1].get("points").split()]
+    assert first_x == [0, 20]
+    assert second_x == [60, 80]
+    assert not app1._snap_sparkline_svg([None, 100, float("nan")])
+
+
+def test_snapshot_sparkbars_preserves_an_empty_quarter_slot():
+    svg = ElementTree.fromstring(app1._snap_sparkbars_svg([100, None, 200]))
+    bars = svg.findall("rect")
+    assert len(bars) == 2
+    assert float(bars[0].get("x")) == 0
+    assert float(bars[1].get("x")) > 40
+    assert not app1._snap_sparkbars_svg([100, float("inf"), None])
 
 
 def test_snapshot_rounding_and_small_rate_changes_are_not_audit_errors():
