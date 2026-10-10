@@ -25938,7 +25938,11 @@ elif menu == "Atualizar Base":
                                     })
                                 def callback_progresso_bg(i, total, periodo):
                                     status_bg(f"{periodo[4:6]}/{periodo[:4]}", (i + 1) / max(total, 1))
+                                def materialize_bg(kind):
+                                    status_bg("dados salvos; recalculando dependências", 1.0)
+                                    return _materializar_dependencias_publicacao(cache_manager, tipo_cache=kind)
                                 def publish_bg(record, details):
+                                    status_bg("publicando pacote consistente", 1.0)
                                     return _publicar_bundle_release(
                                         cache_manager, caches_selecionados=[cache_tipo_bg], gh_token=gh_token_bg,
                                         expected_periods=_expected_periods_publicacao(cache_manager, cache_tipo_bg, record["periods"]),
@@ -25952,7 +25956,7 @@ elif menu == "Atualizar Base":
                                             progress_callback=callback_progresso_bg,
                                             save_callback=lambda info: status_bg("salvando"),
                                             checkpoint_callback=_salvar_checkpoint_atualizacao,
-                                            materialize=lambda kind: _materializar_dependencias_publicacao(cache_manager, tipo_cache=kind),
+                                            materialize=materialize_bg,
                                             publish=publish_bg if publicar_auto_bg and gh_token_bg else None,
                                         )
                                         publication = completed.get("publication") or {}
@@ -25983,10 +25987,12 @@ elif menu == "Atualizar Base":
                         cycle_details = []
                         cycle_publication = []
                         def materialize_cycle(kind):
+                            status_text.text("dados salvos; recalculando dependências...")
                             details = _materializar_dependencias_publicacao(cache_manager, tipo_cache=kind)
                             cycle_details.extend(details)
                             return details
                         def publish_cycle(record, details):
+                            status_text.text("publicando pacote consistente no GitHub...")
                             publication = _publicar_bundle_release(
                                 cache_manager, caches_selecionados=[cache_selecionado], gh_token=gh_token_final,
                                 expected_periods=_expected_periods_publicacao(cache_manager, cache_selecionado, record["periods"]),

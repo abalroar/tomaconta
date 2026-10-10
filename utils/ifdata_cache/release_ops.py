@@ -15,6 +15,7 @@ from uuid import uuid4
 import requests
 
 from .carteira_4966_quality import validate_carteira_4966_quality
+from .base import CacheResult
 from .critical_screens import CRITICAL_SOURCE_TYPES, materialize_critical_screens_cache
 from .derived_metrics import materialize_derived_metrics_cache
 from .diagnostics import (
@@ -266,11 +267,24 @@ def _hydrate_source_caches(
         cache = manager.get_cache(cache_name) if manager else None
         forced_remote = False
 
-        # Para materialização/publicação consistente, sempre preferimos a fonte
-        # local quando ela já existe. Isso evita misturar um cache recém-atualizado
-        # com dependências antigas baixadas do release remoto.
-        if cache is not None and cache.existe():
+        # A fonte selecionada precisa estar salva no runtime. Dependências podem
+        # usar o bundle publicado, validado pela mesma leitura de dados/metadata.
+        selected = cache_name in prefer_local
+        runtime_exists = cache is not None and cache.existe()
+        readable_exists = runtime_exists or (
+            cache is not None and not selected
+            and getattr(cache, "existe_leitura", cache.existe)()
+        )
+        if readable_exists:
             result = cache.carregar_local()
+            resolve_paths = getattr(cache, "coherent_read_paths", None)
+            if selected and result.sucesso and callable(resolve_paths):
+                try:
+                    data_path, _ = resolve_paths()
+                    if data_path not in {cache.arquivo_dados_runtime, cache.arquivo_dados_pickle}:
+                        raise ValueError("fonte atualizada não seleciona a geração de runtime")
+                except (OSError, ValueError) as exc:
+                    result = CacheResult(False, f"Fonte atualizada local indisponível: {exc}", fonte="nenhum")
             if not result.sucesso and cache_name not in prefer_local:
                 forced_remote = True
                 result = manager.carregar(cache_name, forcar_remoto=True)

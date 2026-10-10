@@ -2148,7 +2148,7 @@ def _load_source_cache(
     if allow_remote_source_download:
         resultado = manager.carregar(cache_name)
     else:
-        if not cache.existe():
+        if not getattr(cache, "existe_leitura", cache.existe)():
             raise RuntimeError(
                 f"{cache_name}: cache local ausente; rematerialização exige fontes locais "
                 "preparadas previamente ou allow_remote_source_download=True"

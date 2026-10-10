@@ -25,6 +25,12 @@ O limite aplicado aos processos de testes foi 768 MiB. Os avisos remanescentes s
 
 O registro estruturado com a lista de arquivos de cada grupo está em [atualizacao_bases_etapa_1_validacao.json](atualizacao_bases_etapa_1_validacao.json).
 
+### Complemento após a publicação do PR #330
+
+A conferência no site identificou espera por downloads de fontes de apoio que já estavam no bundle. O ajuste permite sua leitura validada no primeiro uso, conserva a exigência de runtime para a fonte atualizada e informa as fases de recálculo/publicação no progresso existente. Os gates e a conferência de hashes remotos permanecem iguais.
+
+Foram aprovados 225 casos nos grupos afetados, executados sequencialmente e sem rede: hidratação (15), execução e critical_screens (62), preflight/publicação individual/leitores/CLIs (148). Cinco casos novos verificam bundle frio, ausência da fonte atualizada, integridade inválida, runtime antigo que resolveria bundle e runtime vigente. O pico de memória foi 292,9 MiB, dentro do limite de 768 MiB. A comparação estrutural das telas e do código financeiro e `git diff --check` passaram novamente.
+
 ## Contratos verificados
 
 - Histórico preservado fora da janela, tanto em runtime quanto vindo de bundle; extrações vazias, divergentes ou truncadas recusadas.
