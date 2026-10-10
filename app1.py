@@ -750,9 +750,9 @@ st.markdown("""
         }, 180);
     }
 
-    /* Detecta cliques apenas nos segmented controls de navegação */
+    /* Detecta a seleção de abas nos menus de navegação */
     document.addEventListener('click', function (e) {
-        if (!e.target.closest('.st-key-header_navigation [data-testid="stSegmentedControl"]')) return;
+        if (!e.target.closest('[class*="st-key-header_navigation_menu_"] [data-testid="stButton"] button')) return;
         showBar();
 
         /* Observa mudanças no DOM da área principal para saber quando
@@ -15074,63 +15074,6 @@ print(_perf_log("init_total"))
 if 'menu_atual' not in st.session_state:
     st.session_state['menu_atual'] = "Sobre"
 
-# Header e menu centralizados
-st.markdown("""
-<style>
-    /* Remove padding extra do topo */
-    .main .block-container {
-        padding-top: 1rem !important;
-    }
-
-    .header-nav {
-        display: flex;
-        justify-content: center;
-        width: 100%;
-    }
-
-    .header-nav [data-testid="stSegmentedControl"] > div {
-        justify-content: center;
-    }
-
-    .header-logo {
-        display: flex;
-        justify-content: center;
-        width: 100%;
-        margin-top: 0.5rem;
-    }
-
-    .header-logo img {
-        width: 200px;
-        height: auto;
-        image-rendering: auto;
-    }
-</style>
-""", unsafe_allow_html=True)
-
-# Header usando colunas Streamlit para garantir centralização
-_, col_header, _ = st.columns([1, 3, 1])
-with col_header:
-    # OTIMIZAÇÃO: Usar função cacheada para processamento do logo
-    logo_base64 = _carregar_logo_base64(LOGO_PATH, target_width=200)
-    if logo_base64:
-        st.markdown(
-            f"""
-            <div class="header-logo">
-                <img src="data:image/png;base64,{logo_base64}" alt="toma.conta logo" />
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
-    # Título e subtítulos centralizados via HTML
-    st.markdown("""
-        <div class="header-brand-copy" style="text-align: center; margin-top: -0.5rem;">
-            <p class="header-brand-title" style="font-size: 3.6rem; font-weight: 700; color: #1f77b4; margin-bottom: 0.2rem;">toma.conta</p>
-            <p class="header-brand-subtitle" style="font-size: 1.6rem; color: #666; margin-bottom: 0.1rem;">análise de instituições financeiras brasileiras</p>
-            <p class="header-brand-author" style="font-size: 0.9rem; color: #888; margin-bottom: 0.5rem;">por matheus prates, cfa</p>
-        </div>
-    """, unsafe_allow_html=True)
-
 
 def _normalizar_rotulo_menu(valor):
     if valor is None:
@@ -15360,34 +15303,6 @@ def _garantir_dados_principais(menu_nome: str) -> bool:
             _status.update(label="falha ao carregar dados", state="error", expanded=True)
     return ok
 
-# Callbacks para navegação entre menus (evita conflito)
-def _on_main_menu_change():
-    """Callback quando menu principal é clicado."""
-    sel = st.session_state.get('nav_main')
-    if sel is not None and sel in MENU_PRINCIPAL:
-        st.session_state['_user_selected_menu'] = True
-        st.session_state['menu_atual'] = sel
-        st.session_state['nav_bcb'] = None
-        st.session_state['nav_sec'] = None
-
-def _on_bcb_menu_change():
-    """Callback quando o menu de estatísticas do BCB é clicado."""
-    sel = st.session_state.get('nav_bcb')
-    if sel is not None and sel in MENU_BCB:
-        st.session_state['_user_selected_menu'] = True
-        st.session_state['menu_atual'] = sel
-        st.session_state['nav_main'] = None
-        st.session_state['nav_sec'] = None
-
-def _on_sec_menu_change():
-    """Callback quando menu secundário é clicado."""
-    sel = st.session_state.get('nav_sec')
-    if sel is not None and sel in MENU_SECUNDARIO:
-        st.session_state['_user_selected_menu'] = True
-        st.session_state['menu_atual'] = sel
-        st.session_state['nav_main'] = None
-        st.session_state['nav_bcb'] = None
-
 def _nav_para_menu(dest: str):
     """Callback de navegação direta: atualiza menu_atual sem st.rerun() explícito.
 
@@ -15396,6 +15311,7 @@ def _nav_para_menu(dest: str):
     """
     st.session_state['_user_selected_menu'] = True
     st.session_state['menu_atual'] = dest
+    st.session_state['_header_nav_revision'] = st.session_state.get('_header_nav_revision', 0) + 1
     if dest in MENU_PRINCIPAL:
         st.session_state['nav_main'] = dest
         st.session_state['nav_bcb'] = None
@@ -15430,38 +15346,15 @@ else:
     st.session_state['nav_bcb'] = None
     st.session_state['nav_sec'] = menu_atual
 
-# Menus em um container identificável para que o feedback de navegação
-# não seja acionado por segmented controls internos das abas.
-with st.container(key="header_navigation"):
-    st.markdown('<div class="header-nav">', unsafe_allow_html=True)
-    st.segmented_control(
-        "menu principal",
-        MENU_PRINCIPAL,
-        label_visibility="collapsed",
-        key="nav_main",
-        on_change=_on_main_menu_change
-    )
-    st.markdown('</div>', unsafe_allow_html=True)
+# Quatro grupos no desktop e lista vertical em telas estreitas.
+from utils.header_navigation import render_header_navigation
 
-    st.markdown('<div class="header-nav">', unsafe_allow_html=True)
-    st.segmented_control(
-        "estatísticas do banco central",
-        MENU_BCB,
-        label_visibility="collapsed",
-        key="nav_bcb",
-        on_change=_on_bcb_menu_change
-    )
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    st.markdown('<div class="header-nav">', unsafe_allow_html=True)
-    st.segmented_control(
-        "menu secundário",
-        MENU_SECUNDARIO,
-        label_visibility="collapsed",
-        key="nav_sec",
-        on_change=_on_sec_menu_change
-    )
-    st.markdown('</div>', unsafe_allow_html=True)
+render_header_navigation(
+    menu_atual,
+    _carregar_logo_base64(LOGO_PATH, target_width=48),
+    _nav_para_menu,
+    revision=st.session_state.get("_header_nav_revision", 0),
+)
 
 # Usar menu_atual (já atualizado pelos callbacks)
 menu = st.session_state['menu_atual']
@@ -15471,8 +15364,6 @@ st.session_state['_menu_prev_rendered'] = menu
 if menu != "Sobre":
     from utils.ui_polish import WORKSPACE_CSS
     st.html(WORKSPACE_CSS)
-
-st.markdown("---")
 
 CACHE_DEPENDENCIAS_POR_ABA = {
     "Snapshot": ["critical_screens"],
