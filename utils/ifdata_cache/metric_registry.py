@@ -94,8 +94,8 @@ METRIC_REGISTRY: Dict[str, MetricDefinition] = {
         display_format="pct",
         source_tables=["principal", "capital"],
         short_definition=(
-            "Capital regulatório total sobre RWA. O app usa componentes do Rel. 5 quando completos "
-            "e mantém o índice publicado como fallback identificado."
+            "Mede o capital disponível para absorver perdas em relação aos riscos assumidos, "
+            "ponderados pelo regulador (RWA). Um índice maior indica maior cobertura desses riscos."
         ),
         long_definition=(
             "Índice de adequação de capital do conglomerado prudencial. A camada curada reconstrói "
@@ -133,7 +133,10 @@ METRIC_REGISTRY: Dict[str, MetricDefinition] = {
             notes="Usa PL médio entre período t e dezembro do ano anterior.",
         ),
         source_tables=["principal"],
-        short_definition="Lucro líquido YTD anualizado ÷ média entre o PL atual e o PL de dezembro anterior.",
+        short_definition=(
+            "Mostra o retorno sobre o patrimônio usando o lucro desde janeiro, convertido para "
+            "uma taxa anual. A conversão permite comparar períodos com durações diferentes."
+        ),
         long_definition=(
             "ROE acumulado anualizado: (Lucro Líquido YTD × fator do período) ÷ "
             "((PL do período + PL de dezembro do ano anterior) ÷ 2). Fatores: Mar=4, Jun=2, "
@@ -204,8 +207,8 @@ METRIC_REGISTRY: Dict[str, MetricDefinition] = {
         ),
         source_tables=["dre", "ativo", "principal", "derived_metrics"],
         short_definition=(
-            "Magnitude do Resultado com Perda Esperada de Operações de Crédito (f3) YTD anualizado "
-            "÷ Carteira de Crédito*."
+            "Relaciona o resultado contábil com perdas esperadas das operações de crédito ao "
+            "tamanho da carteira. O app usa o valor sem o sinal e o converte para um ano."
         ),
         long_definition=(
             "Numerador: magnitude de f3 no Rel. 4, com YTD reconstruído e anualização "
@@ -262,7 +265,8 @@ METRIC_REGISTRY: Dict[str, MetricDefinition] = {
         ),
         source_tables=["dre", "derived_metrics"],
         short_definition=(
-            "Magnitude de f3 YTD ÷ Rendas de Operações de Crédito (c) YTD, ambos do Rel. 4."
+            "Compara o valor sem o sinal do resultado com perdas esperadas à receita das operações "
+            "de crédito, ambos acumulados na mesma janela. Ajuda a avaliar o peso das perdas na receita."
         ),
         long_definition=(
             "Razão entre a magnitude do Resultado com Perda Esperada de Operações de Crédito (f3) "
@@ -300,7 +304,10 @@ METRIC_REGISTRY: Dict[str, MetricDefinition] = {
             "não publicar o relatório no período"
         ),
         source_tables=["carteira_instrumentos", "derived_metrics", "critical_screens"],
-        short_definition="Ativos problemáticos ÷ Total Geral, ambos no IFData Rel. 16.",
+        short_definition=(
+            "Parcela da carteira com atraso relevante ou sinais de que o devedor poderá não "
+            "pagar integralmente. Usa a carteira total do mesmo relatório de crédito."
+        ),
         long_definition=(
             "Participação dos ativos problemáticos na carteira de crédito ativa do Rel. 16. "
             "O conceito inclui atraso relevante acima de 90 dias e liquidação integral improvável "
@@ -343,8 +350,8 @@ METRIC_REGISTRY: Dict[str, MetricDefinition] = {
         null_policy="N/D quando algum componente obrigatório da regra aplicável estiver ausente",
         source_tables=["ativo", "principal", "critical_screens"],
         short_definition=(
-            "Estoque de crédito do Rel. 2 com regra histórica explícita; o asterisco sinaliza quebra "
-            "metodológica e possível fallback líquido."
+            "Saldo contábil de crédito e categorias correlatas usado pelo app. O asterisco "
+            "chama atenção para a mudança de composição em 2025 e para eventual uso de saldo líquido."
         ),
         long_definition=(
             "Até 2024: Operações de Crédito brutas (d1) + Arrendamento a Receber bruto (e1) + "
@@ -372,7 +379,10 @@ METRIC_REGISTRY: Dict[str, MetricDefinition] = {
         internal_scale="currency_brl",
         display_format="currency",
         source_tables=["dre", "critical_screens"],
-        short_definition="Rendas de Operações de Crédito (c), no Rel. 4, em YTD reconstruído.",
+        short_definition=(
+            "Receita contábil das operações de crédito acumulada desde janeiro. É a receita "
+            "da linha de crédito da DRE; outras receitas do grupo têm rubricas próprias."
+        ),
         long_definition=(
             "Fluxo contábil da linha Rendas de Operações de Crédito (c). Setembro e dezembro somam "
             "o valor de junho ao fluxo do segundo semestre para formar o YTD."
@@ -397,7 +407,10 @@ METRIC_REGISTRY: Dict[str, MetricDefinition] = {
         internal_scale="currency_brl",
         display_format="currency",
         source_tables=["carteira_instrumentos", "critical_screens"],
-        short_definition="Operações com alguma parcela vencida há mais de 90 dias, pelo conceito de arrasto do Rel. 16.",
+        short_definition=(
+            "Saldo inteiro das operações com alguma parcela vencida há mais de 90 dias. "
+            "Esse critério, chamado arrasto, inclui as parcelas que ainda vão vencer."
+        ),
         long_definition=(
             "Estoque de operações a vencer e vencidas que possuem alguma parcela vencida há mais de "
             "90 dias, conforme o conceito de arrasto publicado no Rel. 16."
@@ -420,7 +433,10 @@ METRIC_REGISTRY: Dict[str, MetricDefinition] = {
         display_format="pct",
         null_policy="N/D quando o Rel. 16 ou o Total Geral estiver ausente/zerado",
         source_tables=["carteira_instrumentos", "critical_screens"],
-        short_definition="Inadimplência por arrasto >90 dias ÷ Total Geral, ambos no Rel. 16.",
+        short_definition=(
+            "Parcela da carteira total formada por operações com atraso superior a 90 dias. "
+            "O cálculo inclui o saldo inteiro de cada operação atingida pelo critério de arrasto."
+        ),
         long_definition=(
             "Participação das operações com alguma parcela vencida há mais de 90 dias sobre o "
             "Total Geral da carteira de crédito ativa do mesmo Rel. 16."
@@ -442,7 +458,10 @@ METRIC_REGISTRY: Dict[str, MetricDefinition] = {
         internal_scale="decimal_0_1",
         display_format="pct",
         source_tables=["principal", "critical_screens"],
-        short_definition="Lucro líquido do trimestre ×4 ÷ média entre o PL atual e o PL de dezembro anterior.",
+        short_definition=(
+            "Mostra o retorno sobre o patrimônio usando somente o lucro do trimestre, "
+            "multiplicado por quatro para expressá-lo como taxa anual."
+        ),
         long_definition=(
             "ROE do trimestre isolado anualizado: (Lucro Líquido Trimestral ×4) ÷ "
             "((PL do período + PL de dezembro do ano anterior) ÷2)."
