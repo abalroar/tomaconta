@@ -20,7 +20,7 @@ from utils.comparison_table_style import HEADER_BACKGROUND, SECTION_BACKGROUND, 
 TABLE_CSS = """
 .peers-grid {overflow:auto;max-height:640px; font-family:__FONT__; color:#222; background:white;}
 table {border-collapse:separate;border-spacing:0;width:100%;font-size:14px;line-height:1.3;}
-th,td {border-right:1px solid #e2e2e2;border-bottom:1px solid #dedede;padding:7px 5px;text-align:center;white-space:nowrap;}
+th,td {border-right:1px solid #ece8e4;border-bottom:1px solid #e5e3e0;padding:7px 5px;text-align:center;white-space:nowrap;}
 thead th {position:sticky;top:0;z-index:2;background:__ORANGE__;color:white;text-align:center;font-size:12pt;font-weight:700;}
 thead tr:nth-child(2) th {top:var(--bank-header-height,32px);background:__ORANGE__;color:white;font-size:12pt;font-weight:700;}
 thead tr:first-child th {border-top:1px solid #d1d1d1;}
@@ -34,7 +34,9 @@ thead th.row-label {background:__ORANGE__;z-index:3;}
 .delta {font-size:12px;display:block;color:#666;margin-top:3px;font-variant-numeric:tabular-nums;white-space:normal;}
 .delta.up,.delta.down,.delta.flat {white-space:nowrap;}
 .reference {display:block;font-size:10px;font-weight:400;margin-top:3px;}
-.delta.favorable {color:#16713b;} .delta.attention {color:#b32624;} .delta.neutral {color:#666;} .bank-start {border-left:2px solid #b8b8b8;}
+.delta.favorable {color:#16713b;} .delta.attention {color:#b32624;} .delta.neutral {color:#666;}
+.bank-start {border-left:5px solid #fff;}
+thead .bank-name {border-radius:4px 4px 0 0;border-top:0;}
 @media(pointer:coarse) {.metric{min-height:38px;}}
 """.replace("__ORANGE__", HEADER_BACKGROUND).replace("__SECTION__", SECTION_BACKGROUND).replace("__FONT__", FONT_FAMILY)
 TABLE_JS = """
@@ -86,13 +88,13 @@ def table_html(query, selected=None):
     cells = {(c["metric"], c["bank"], c["period"]): c for c in query["cells"]}
     count = len(query["periods"])
     html = ['<table aria-label="Comparação de peers"><thead><tr><th class="row-label" rowspan="2">Indicador</th>']
-    for bank in query["banks"]:
-        html.append(f'<th scope="colgroup" class="bank-start" colspan="{count}" title="{escape(bank, quote=True)}">{escape(short_bank(bank))}</th>')
+    for b, bank in enumerate(query["banks"]):
+        html.append(f'<th scope="colgroup" class="bank-name {"bank-start" if b else ""}" colspan="{count}" title="{escape(bank, quote=True)}">{escape(short_bank(bank))}</th>')
     html.append('</tr><tr>')
-    for bank in query["banks"]:
+    for b, bank in enumerate(query["banks"]):
         for i, p in enumerate(query["periods"]):
             ref = period_comparison_label(p, query["mode"])
-            html.append(f'<th class="{"bank-start" if i == 0 else ""}">{period_label(p)}<span class="reference">{escape(ref)}</span></th>')
+            html.append(f'<th class="{"bank-start" if i == 0 and b else ""}">{period_label(p)}<span class="reference">{escape(ref)}</span></th>')
     html.append('</tr></thead><tbody>')
     section = None
     for key in query["metrics"]:
@@ -101,7 +103,7 @@ def table_html(query, selected=None):
             html.append(f'<tr class="section"><td colspan="{1+len(query["banks"])*count}">{escape(metric.section)}</td></tr>')
             section = metric.section
         html.append(f'<tr class="{"selected" if key == selected else ""}"><td class="row-label"><button type="button" class="metric" data-metric="{escape(key, quote=True)}" title="{escape(metric.note, quote=True)}" aria-label="Ver cálculo de {escape(metric.label, quote=True)}" aria-pressed="{str(key == selected).lower()}">{escape(table_row_label(metric, query["scale"]))}</button></td>')
-        for bank in query["banks"]:
+        for b, bank in enumerate(query["banks"]):
             for i, p in enumerate(query["periods"]):
                 cell = cells[key, bank, p]
                 tooltip = f"{bank}; data-base {period_label(p)}; {query['base']}; fonte: {cell['source']}"
@@ -119,7 +121,7 @@ def table_html(query, selected=None):
                     display += "†"
                 variation = "" if broken else table_variation(cell["variation"])
                 tone = variation_tone(metric, cell["direction"], cell["status"])
-                html.append(f'<td class="{"bank-start" if i == 0 else ""}" title="{escape(tooltip, quote=True)}"><span class="value">{escape(display)}</span><span class="delta {cell["direction"] or ""} {tone}">{escape(variation)}</span></td>')
+                html.append(f'<td class="{"bank-start" if i == 0 and b else ""}" title="{escape(tooltip, quote=True)}"><span class="value">{escape(display)}</span><span class="delta {cell["direction"] or ""} {tone}">{escape(variation)}</span></td>')
         html.append('</tr>')
     html.append('</tbody></table>')
     return ''.join(html)
