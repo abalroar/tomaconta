@@ -13,21 +13,21 @@ import pandas as pd
 import streamlit as st
 
 from utils import peers_groups
-from utils.peers_table_model import BY_KEY, METRICS, DEFAULT_METRICS, INDIVIDUAL_METRICS, get_metric, BASELINES, SCALES, COLORS, build_query, required_periods, period_sort, period_label, short_bank, format_value, number, methodology_rows
+from utils.peers_table_model import BY_KEY, METRICS, DEFAULT_METRICS, INDIVIDUAL_METRICS, get_metric, BASELINES, SCALES, COLORS, build_query, required_periods, period_sort, period_label, short_bank, format_value, number, methodology_rows, ARRASTO_ROWS
 from utils.peers_table_exports import export_excel, export_powerpoint, export_png
-from utils.sgs_credit_analytics import ITAU_ORANGE
+from utils.comparison_table_style import HEADER_BACKGROUND, SECTION_BACKGROUND, FONT_FAMILY
 
 
 TABLE_CSS = """
-.peers-grid {overflow:auto;max-height:640px; font-family:Calibri,Arial,sans-serif; color:#222; background:white;}
+.peers-grid {overflow:auto;max-height:640px; font-family:__FONT__; color:#222; background:white;}
 table {border-collapse:separate;border-spacing:0;width:100%;font-size:14px;line-height:1.3;}
-th,td {border-right:1px solid #e2e2e2;border-bottom:1px solid #dedede;padding:6px 3px;text-align:right;white-space:nowrap;}
+th,td {border-right:1px solid #e2e2e2;border-bottom:1px solid #dedede;padding:6px 3px;text-align:center;white-space:nowrap;}
 thead th {position:sticky;top:0;z-index:2;background:__ORANGE__;color:white;text-align:center;font-size:12pt;font-weight:700;}
 thead tr:nth-child(2) th {top:var(--bank-header-height,32px);background:__ORANGE__;color:white;font-size:12pt;font-weight:700;}
 thead tr:first-child th {border-top:1px solid #d1d1d1;}
 th.row-label,td.row-label {position:sticky;left:0;text-align:left;background:white;min-width:140px;max-width:180px;white-space:normal;z-index:1;}
 thead th.row-label {background:__ORANGE__;z-index:3;}
-.section td {background:#eceff1!important;font-weight:600;padding:5px 8px;border-right:0;text-align:left;}
+.section td {background:__SECTION__!important;font-weight:600;padding:5px 8px;border-right:0;text-align:left;}
 .metric {font:inherit;color:inherit;background:transparent;border:0;text-align:left;padding:0;cursor:pointer;}
 .metric:hover {text-decoration:underline;} .metric:focus-visible {outline:2px solid #174a7e;outline-offset:3px;}
 .selected td:first-child {background:#edf3f8;}
@@ -36,7 +36,7 @@ thead th.row-label {background:__ORANGE__;z-index:3;}
 .delta.up,.delta.down,.delta.flat {white-space:nowrap;}
 .up {color:#16713b;} .down {color:#b32624;} .bank-start {border-left:1px solid #b8b8b8;}
 @media(pointer:coarse) {.metric{min-height:38px;}}
-""".replace("__ORANGE__", ITAU_ORANGE)
+""".replace("__ORANGE__", HEADER_BACKGROUND).replace("__SECTION__", SECTION_BACKGROUND).replace("__FONT__", FONT_FAMILY)
 TABLE_JS = """
 export default function(component) {
  const {data,parentElement,setStateValue} = component;
@@ -114,6 +114,8 @@ def table_html(query, selected=None):
                     tooltip += "; " + cell["reason"]
                 broken = cell["variation"] == "Quebra em 2025"
                 display = table_value(cell["value"], metric, query["scale"]) + ("*" if broken and number(cell["value"]) is not None else "")
+                if cell["status"] in {"warning", "critical"}:
+                    display += "†"
                 variation = "" if broken else table_variation(cell["variation"])
                 html.append(f'<td class="{"bank-start" if i == 0 else ""}" title="{escape(tooltip, quote=True)}"><span class="value">{escape(display)}</span><span class="delta {cell["direction"] or ""}">{escape(variation)}</span></td>')
         html.append('</tr>')
@@ -150,7 +152,7 @@ def _identities(path, token):
 
 def _load_context(api, individual):
     if not individual:
-        if not api["_garantir_cache_telas_criticas"]("Peers (Tabela Nova)"):
+        if not api["_garantir_cache_telas_criticas"]("Tabela de peers"):
             return {}, {}
         context = api["_get_peers_filters_context"](api["_cache_version_token"]("critical_screens"))
         manager = api["get_cache_manager"]()
@@ -182,6 +184,13 @@ def calculation_rows(query, df, key, bank):
     for col in PEERS_RATIO_COMPONENTS.get(key, ()):
         if col in df and col not in columns:
             columns.append(col)
+    loss_columns = []
+    if key in ARRASTO_ROWS:
+        columns = ["Inadimplência 4.966", "Carteira Total 4.966"]
+        if key == "PDD / Inadimplência (arrasto)":
+            from tabs.carteira_4966 import EXPECTED_LOSS_COLUMNS
+            loss_columns = [f"Trace::Perda Esperada::{c}" for c in EXPECTED_LOSS_COLUMNS]
+            columns = loss_columns + columns
     if "ROE" in key and "Lucro Líquido Acumulado YTD" in df and "Lucro Líquido Acumulado YTD" not in columns:
         columns.append("Lucro Líquido Acumulado YTD")
     result = []
@@ -195,6 +204,10 @@ def calculation_rows(query, df, key, bank):
             else:
                 display = "N/D" if value is None or pd.isna(value) else str(value)
             result.append({"Período": period_label(p), "Campo": col.removeprefix("Trace::"), "Valor": display, "Unidade": query["scale"] if col != source_columns.get(key, key) or metric.unit == "R$" else metric.unit})
+        if loss_columns:
+            components = [number(row.get(c)) for c in loss_columns]
+            total = abs(sum(components)) if all(c is not None for c in components) else None
+            result.append({"Período": period_label(p), "Campo": "PDD (soma das quatro perdas esperadas)", "Valor": format_value(total, BY_KEY["Ativo Total"], query["scale"]), "Unidade": query["scale"]})
         cell = next(c for c in query["cells"] if c["metric"] == key and c["bank"] == bank and c["period"] == p)
         if "ROE" in key and query["base"] != "Individual":
             year, quarter = period_sort(p)
@@ -204,7 +217,7 @@ def calculation_rows(query, df, key, bank):
             result.append({"Período": period_label(p), "Campo": "Fator de anualização", "Valor": f"{4/quarter:.4g}", "Unidade": "x"})
         result.append({"Período": period_label(p), "Campo": "Resultado na tabela", "Valor": cell["display"], "Unidade": query["scale"] if metric.unit == "R$" else metric.unit})
         if cell["reason"]:
-            result.append({"Período": period_label(p), "Campo": "Motivo de indisponibilidade", "Valor": cell["reason"], "Unidade": ""})
+            result.append({"Período": period_label(p), "Campo": "Motivo de indisponibilidade" if cell["value"] is None else "Nota de qualidade", "Valor": cell["reason"], "Unidade": ""})
     return pd.DataFrame(result)
 
 
@@ -259,11 +272,11 @@ def _groups_editor(api, base, banks, identities, shared, shared_sha, remote_erro
 
 
 def render(api):
-    st.markdown("### Peers (Tabela Nova)")
-    from utils.ui_help import COMPARISON_HELP, PERIOD_HELP, PERIMETER_HELP, render_module_help
+    st.markdown("### Tabela de peers")
+    from utils.ui_help import PEERS_COMPARISON_HELP, PERIOD_HELP, PERIMETER_HELP, render_module_help
     base = st.segmented_control("Base das demonstrações", ["Consolidada / Prudencial", "Individual"], default="Consolidada / Prudencial", key="peers_new_base", help=PERIMETER_HELP) or "Consolidada / Prudencial"
     individual = base == "Individual"
-    render_module_help("Peers (Tabela Nova)", base=base)
+    render_module_help("Tabela de peers", base=base)
     context, identities = _load_context(api, individual)
     available = list(context.get("bancos_todos", ()))
     available_periods = sorted(context.get("periodos_disponiveis", ()), key=period_sort, reverse=True)
@@ -300,7 +313,7 @@ def render(api):
     with pcol:
         periods = st.multiselect("Competências (até 3)", available_periods, key=periods_key, max_selections=3, format_func=period_label, help=PERIOD_HELP)
     with dcol:
-        mode = st.selectbox("Variação em relação a", list(BASELINES), format_func=BASELINES.get, key="peers_new_baseline", help=COMPARISON_HELP)
+        mode = st.selectbox("Variação em relação a", list(BASELINES), format_func=BASELINES.get, key="peers_new_baseline", help=PEERS_COMPARISON_HELP)
     with ucol:
         scale = st.selectbox("Valores monetários", list(SCALES), index=1, key="peers_new_scale")
     # A posição dos downloads permanece imediatamente abaixo dos filtros.
@@ -361,6 +374,11 @@ def render(api):
     if footnote := table_footnote(query):
         st.caption("\\" + footnote)
     st.caption(f"{len(banks)} instituições; {', '.join(period_label(p) for p in periods)}; {base}. Verde: aumento. Vermelho: queda. Direção da variação.")
+    st.caption("Variações: indicadores percentuais em bps (100 bps = 1 ponto percentual); valores monetários em %; múltiplos em x.")
+    if not individual:
+        st.caption("Vencidos >90 dias usam o saldo integral por arrasto e o Total Geral do Rel. 16. PDD: perdas esperadas e2 + f2 + g2 + h2 do Rel. 2; aproximação de cobertura, pois a provisão abrange outros ativos. Dados desde mar/2025.")
+    if any(c["status"] in {"warning", "critical"} for c in query["cells"]):
+        st.caption("† Alerta de qualidade: consulte a célula e a memória de cálculo para conhecer a ressalva.")
     st.caption("Clique no indicador para consultar a definição e o cálculo. N/D preserva a ausência de fonte, componente ou denominador válido.")
     if selected:
         metric = get_metric(selected, query["base"])

@@ -8,6 +8,8 @@ from types import SimpleNamespace
 
 import pandas as pd
 
+from .comparison_table_style import HEADER_BACKGROUND, SECTION_BACKGROUND
+
 from .peers_table_model import BY_KEY, get_metric, SCALES, BASELINES, COLORS, period_label, period_sort, short_bank, methodology_rows
 
 
@@ -23,7 +25,10 @@ def footer(query, banks=None, metric_keys=None):
     source = "BCB IFData Rel. " + ", ".join(map(str, reports)) if reports else "BCB"
     if any("4060" in s for s in sources):
         source += " / Cadoc 4060"
-    return f"{source}. {query['base']}. {n} instituições. {dates}.\n{query['query_type']}. Consulta: {query['queried_at']}."
+    note = "Variações: taxas em bps (100 bps = 1 p.p.); valores monetários em %; múltiplos em x."
+    if any(c["status"] in {"warning", "critical"} for c in query["cells"]):
+        note += " † Alerta de qualidade; consulte Dados e status e a memória de cálculo."
+    return f"{source}. {query['base']}. {n} instituições. {dates}.\n{query['query_type']}. Consulta: {query['queried_at']}.\n{note}"
 
 
 def export_excel(query):
@@ -31,17 +36,17 @@ def export_excel(query):
     buffer = BytesIO()
     with xlsxwriter.Workbook(buffer, {"in_memory": True, "strings_to_formulas": False, "strings_to_urls": False}) as workbook:
         base = {"font_name": "Calibri", "font_size": 11, "valign": "vcenter"}
-        header = workbook.add_format({**base, "bold": True, "bg_color": "#F2F2F2", "border": 1, "border_color": "#D9D9D9", "align": "center", "text_wrap": True})
+        header = workbook.add_format({**base, "bold": True, "bg_color": HEADER_BACKGROUND, "font_color": "#FFFFFF", "border": 1, "border_color": "#D9D9D9", "align": "center", "text_wrap": True})
         text = workbook.add_format(base)
-        section = workbook.add_format({**base, "bold": True, "bg_color": "#F2F2F2"})
-        variations = {direction: workbook.add_format({**base, "font_size": 9, "font_color": color, "align": "right"}) for direction, color in (("up", "#16713B"), ("down", "#B32624"), (None, "#666666"), ("flat", "#666666"))}
-        formats = {unit: workbook.add_format({**base, "num_format": "0.00%" if unit == "%" else '0.00"x"' if unit == "x" else '#,##0.00', "align": "right"}) for unit in ("%", "x", "R$")}
+        section = workbook.add_format({**base, "bold": True, "bg_color": SECTION_BACKGROUND})
+        variations = {direction: workbook.add_format({**base, "font_size": 9, "font_color": color, "align": "center"}) for direction, color in (("up", "#16713B"), ("down", "#B32624"), (None, "#666666"), ("flat", "#666666"))}
+        formats = {unit: workbook.add_format({**base, "num_format": "0.00%" if unit == "%" else '0.00"x"' if unit == "x" else '#,##0.00', "align": "center"}) for unit in ("%", "x", "R$")}
         sheet = workbook.add_worksheet("Comparativo")
         sheet.freeze_panes(4, 2)
         sheet.set_column(0, 0, 39)
         sheet.set_column(1, 1, 14)
         sheet.set_column(2, 1 + len(query["banks"]) * len(query["periods"]), 14)
-        sheet.write_string(0, 0, "Peers (Tabela Nova)", header)
+        sheet.write_string(0, 0, "Tabela de peers", header)
         sheet.write_string(1, 0, query["base"] + " / " + BASELINES[query["mode"]], text)
         sheet.merge_range(2, 0, 3, 0, "Indicador", header)
         sheet.merge_range(2, 1, 3, 1, "Unidade", header)
@@ -219,7 +224,7 @@ def export_powerpoint(query, *, charts=False, chart_metrics=(), colors=None, cha
                 slide = prs.slides.add_slide(prs.slide_layouts[6])
                 slide.background.fill.solid()
                 slide.background.fill.fore_color.rgb = RGBColor(255, 255, 255)
-                _text(slide, .38, .22, 12.55, .45, "Peers", 22, True)
+                _text(slide, .38, .22, 12.55, .45, "Tabela de peers", 22, True)
                 _text(slide, .38, .75, 12.55, .4, query["base"] + "; " + BASELINES[query["mode"]] + "; " + query["scale"], 11)
                 columns = 1 + len(banks) * len(query["periods"])
                 table = slide.shapes.add_table(len(keys) + 2, columns, Inches(.38), Inches(1.3), Inches(12.55), Inches(.72 + .46 * len(keys))).table
@@ -251,7 +256,7 @@ def export_powerpoint(query, *, charts=False, chart_metrics=(), colors=None, cha
                 for r, row in enumerate(table.rows):
                     for c, cell in enumerate(row.cells):
                         cell.fill.solid()
-                        cell.fill.fore_color.rgb = RGBColor.from_string("F2F2F2" if r < 2 else "FFFFFF")
+                        cell.fill.fore_color.rgb = RGBColor.from_string(HEADER_BACKGROUND.lstrip("#") if r < 2 else "FFFFFF")
                         cell.margin_left = cell.margin_right = Inches(.07)
                         cell.margin_top = cell.margin_bottom = Inches(.03)
                         cell.vertical_anchor = MSO_ANCHOR.MIDDLE
@@ -263,10 +268,10 @@ def export_powerpoint(query, *, charts=False, chart_metrics=(), colors=None, cha
                             if c == 0 and i > 0:
                                 paragraph.font.color.rgb = RGBColor.from_string("666666")
                             if i == 0:
-                                paragraph.font.color.rgb = RGBColor.from_string("222222")
-                            paragraph.alignment = PP_ALIGN.LEFT if c == 0 else PP_ALIGN.CENTER if r < 2 else PP_ALIGN.RIGHT
+                                paragraph.font.color.rgb = RGBColor.from_string("FFFFFF" if r < 2 else "222222")
+                            paragraph.alignment = PP_ALIGN.LEFT if c == 0 else PP_ALIGN.CENTER
                 _text(slide, .38, 6.7, 12.55, .6, footer(query, banks, keys) + "\nVerde: aumento. Vermelho: queda. Direção da variação.", 9, color="555555")
-                slide.notes_slide.notes_text_frame.text = str(methodology_rows({**query, "metrics": keys})) + "\n" + str({k: v for k, v in query.items() if k != "cells"})
+                slide.notes_slide.notes_text_frame.text = str(methodology_rows({**query, "metrics": keys})) + "\n" + str({k: v for k, v in query.items() if k != "cells"}) + "\n" + str([c for c in query["cells"] if c["metric"] in keys and c["bank"] in banks and c["reason"]])
     buffer = BytesIO()
     prs.save(buffer)
     return buffer.getvalue()
@@ -290,28 +295,32 @@ def export_png(query):
             data.append(["Variação"] + [cells[key, b, p]["variation"] for b in query["banks"] for p in query["periods"]])
             for c, (b, p) in enumerate(((b, p) for b in query["banks"] for p in query["periods"]), 1):
                 directions[len(data), c] = cells[key, b, p]["direction"]
-    fig = Figure(figsize=(max(13, 3 + len(headers) * 1.25), 2.2 + len(data) * .35), facecolor="white")
+    footer_text = footer(query) + "\n" + BASELINES[query["mode"]]
+    height = 2.2 + len(data) * .35
+    table_bottom = max(.12, .22 * (footer_text.count("\n") + 2) / height)
+    fig = Figure(figsize=(max(13, 3 + len(headers) * 1.25), height), facecolor="white")
     FigureCanvasAgg(fig)
-    ax = fig.add_axes([.02, .12, .96, .78])
+    ax = fig.add_axes([.02, table_bottom, .96, .9 - table_bottom])
     ax.set_axis_off()
-    table = ax.table(cellText=data, colLabels=headers, cellLoc="right", colWidths=[.25] + [.75 / (len(headers) - 1)] * (len(headers) - 1), bbox=[0, 0, 1, 1])
+    table = ax.table(cellText=data, colLabels=headers, cellLoc="center", colWidths=[.25] + [.75 / (len(headers) - 1)] * (len(headers) - 1), bbox=[0, 0, 1, 1])
     table.auto_set_font_size(False)
     table.set_fontsize(10)
     for (r, c), cell in table.get_celld().items():
         cell.set_edgecolor("#D9D9D9")
         cell.set_linewidth(.5)
-        cell.set_facecolor("#F2F2F2" if r == 0 else "white")
+        cell.set_facecolor(HEADER_BACKGROUND if r == 0 else "white")
         cell.get_text().set_fontfamily("Calibri" if font_path.exists() else "DejaVu Sans")
         if r == 0:
             cell.get_text().set_weight("bold")
+            cell.get_text().set_color("white")
         if c == 0:
             cell.get_text().set_horizontalalignment("left")
         if (r, c) in directions:
             cell.get_text().set_fontsize(9)
             cell.get_text().set_color("#16713B" if directions[r,c] == "up" else "#B32624" if directions[r,c] == "down" else "#666666")
     family = "Calibri" if font_path.exists() else "DejaVu Sans"
-    fig.text(.02, .95, "Peers", fontsize=18, fontweight="bold", fontfamily=family)
-    fig.text(.02, .025, footer(query) + "\n" + BASELINES[query["mode"]], fontsize=9, fontfamily=family)
+    fig.text(.02, .95, "Tabela de peers", fontsize=18, fontweight="bold", fontfamily=family)
+    fig.text(.02, .025, footer_text, fontsize=9, fontfamily=family)
     output = BytesIO()
     fig.savefig(output, format="png", dpi=180)
     return output.getvalue()
