@@ -39,18 +39,18 @@ SCR_SECTIONS = (('##### Conceitos oficiais do SCR.data',
   'documento, cobertura, tolerância de remessa e tratamento de agregações com poucas operações. '
   'Para dados consolidados de crédito, o BCB orienta consultar a Nota para a Imprensa e o SGS.'))
 
-SCR_SOURCES = '**Fontes oficiais:** [SCR.data](https://www.bcb.gov.br/estabilidadefinanceira/scrdata) · [Metodologia](https://www.bcb.gov.br/content/estabilidadefinanceira/scr/scr.data/scr_data_metodologia.pdf) · [Documento 3040](https://www.bcb.gov.br/estabilidadefinanceira/scrdoc3040)'
+SCR_SOURCES = '**Fontes oficiais:** [SCR.data](https://www.bcb.gov.br/estabilidadefinanceira/scrdata) · [Metodologia, versão 2](https://www.bcb.gov.br/pda/desig/metodologia_versao2.pdf) · [Documento 3040](https://www.bcb.gov.br/estabilidadefinanceira/scrdoc3040)'
 
-SGS_READING = '- **Cores:** a paleta de linhas tem cinco cores, todas com pelo menos 3:1 de contraste sobre o branco e distância perceptual (ΔE) acima de 27 entre si. Da sexta série em diante a cor repete e o **traço tracejado** passa a distinguir.\n- **Espessura:** linha grossa é a série em foco, tracejada é o agregado, fina é contexto.\n- **Rótulos:** tamanho único de 12 px, sempre na horizontal. Fatia de barra que não comporta o rótulo nesse tamanho fica sem rótulo — o valor continua no tooltip — em vez de receber um texto encolhido ou deitado.\n- **Competência:** o rodapé de cada card informa a última competência que aquele card efetivamente alcança, que nem sempre é a do seletor.'
+SGS_READING = '- **Linhas:** a linha mais grossa destaca a série em foco; as demais ajudam a comparar. Use a legenda para identificar as séries e seus traços.\n- **Valores:** passe o cursor para consultar valores e datas, inclusive nas barras sem rótulo. Confira a unidade: reais, percentual ou pontos percentuais.\n- **Competência:** o rodapé informa a última data-base com dados naquele gráfico, que pode ser anterior ao período selecionado. SGS e SCR.data seguem calendários próprios.'
 
 
 def texto_criterios(latest_label: str, source: str) -> str:
     return (
         f"- **SGS:** Banco Central do Brasil · última observação no cache: "
         f"**{latest_label}** · origem do cache: **{source}**.\n"
-        "- **SCR.data:** dados do documento 3040, operação a operação; "
-        "podem divergir do IF.data e dos balancetes COSIF. Tem calendário de "
-        "publicação próprio e costuma ficar um mês atrás do SGS.\n"
+        "- **SCR.data:** agregados públicos das operações informadas no documento 3040. "
+        "Podem divergir do IFData e dos balancetes COSIF por cobertura e critérios de apuração. "
+        "A fonte é mensal e tem calendário próprio; confira a última competência de cada gráfico.\n"
         "- **Localização SCR:** a UF vem do CEP do tomador.\n"
         "- **Porte SCR:** PF usa faixa de renda; PJ usa faturamento. Os critérios "
         "não devem ser combinados no mesmo eixo.\n"

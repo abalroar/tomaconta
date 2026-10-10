@@ -37,6 +37,7 @@ from utils.sgs_credit_analytics import (
 )
 from tabs.comentario_credito import render_comentario
 from utils.sgs_credit_registry import SGS_SERIES
+from utils.ui_help import render_module_help
 from utils.credito_bc_glossario import (
     SGS_ROWS, SGS_READING, SCR_SECTIONS, SCR_SOURCES,
     secoes_glossario_deck, texto_criterios,
@@ -161,8 +162,14 @@ def _chart(fig: go.Figure, key: str) -> None:
                         st.markdown(f"- **SGS {spec.code}**: [{name}]({spec.metadata_url})")
                     else:
                         st.markdown(f"- **{spec.label}**: {name}")
+                    unit = {"brl_million": "R$ milhões", "pct": "%", "pct_month": "% ao mês", "pct_year": "% ao ano", "pp": "pontos percentuais", "months": "meses"}.get(spec.unit, spec.unit)
+                    frequency = {"monthly": "mensal", "quarterly": "trimestral", "daily": "diária"}.get(spec.frequency, spec.frequency)
+                    st.caption(f"Unidade: {unit} · Frequência da fonte: {frequency}.")
+                    if spec.note:
+                        st.caption(spec.note)
             else:
                 st.caption("Indicador derivado das séries exibidas no card.")
+            st.caption("O rodapé informa a última competência deste gráfico. Consulte o conceito da série antes de cruzá-la com IFData ou SCR.data.")
     if not fig.data:
         st.info("Séries deste card ainda não estão disponíveis no cache.")
         return
@@ -1361,7 +1368,7 @@ def _aviso_de_defasagem(wide: pd.DataFrame) -> None:
 def render_mercado_credito(cache, *, get_cache_manager=None) -> None:
     st.markdown(_ESTILO_SECAO, unsafe_allow_html=True)
     st.markdown(f"### {TITLE}")
-    st.caption(SUBTITLE)
+    render_module_help(TITLE)
     if cache is None:
         st.error("Cache `mercado_credito_sgs` não registrado.")
         return

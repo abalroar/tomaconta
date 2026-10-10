@@ -170,7 +170,7 @@ def render(api):
             for title, items in METRIC_GROUPS
         )
         st.markdown(f'<div class="metrics-panel"><div class="metrics-title">Indicadores e métricas disponíveis</div><div class="metrics-grid">{metric_cards}</div></div>', unsafe_allow_html=True)
-        st.caption("A disponibilidade varia por instituição, competência, documento e perímetro. Os módulos indicam a unidade, a fonte e os limites da consulta.")
+        st.caption("A disponibilidade varia por instituição, data-base, documento e perímetro. IFData é trimestral; SCR.data e séries de crédito SGS são mensais; COSIF, demonstrações e pagamentos seguem o calendário de cada documento. Consulte o Glossário e Fontes e leitura nas abas para escolher a base adequada.")
         ops_cards = "".join(f'<div class="ops-card"><div class="ops-title">{escape(title)}</div><div class="ops-desc">{escape(description)}</div></div>' for title, description in OPERATIONS)
         st.markdown(f'<div class="ops-panel"><div class="metrics-title">Recursos operacionais</div><div class="ops-grid">{ops_cards}</div></div>', unsafe_allow_html=True)
         render_investment(token=api["_obter_token_github"]()[0])

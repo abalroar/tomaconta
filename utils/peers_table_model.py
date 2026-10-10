@@ -10,6 +10,7 @@ from typing import Mapping
 import pandas as pd
 
 from tabs.peers_config import PEERS_TABELA_LAYOUT, PEERS_GLOSSARIO_RESUMIDO
+from utils.ui_help import get_help_text
 
 
 @dataclass(frozen=True)
@@ -64,13 +65,7 @@ def _catalog():
                 section = "Qualidade da carteira" if "4060" not in section else "Detalhamento e cobertura"
             if section == "Alavancagem":
                 section = "Capital e alavancagem"
-            note = PEERS_GLOSSARIO_RESUMIDO[key]
-            if key == "Custo de Crédito (%)":
-                note = "Despesa líquida tem sinal positivo; resultado líquido positivo em f3 tem sinal negativo. Denominador ampliado: proxy. Fator anual Mar=4, Jun=2, Set=12/9, Dez=1."
-            elif key == "Custo de Crédito / Receita de Crédito (%)":
-                note = "−resultado f3 YTD ÷ receita de crédito YTD. Despesa líquida tem sinal positivo. Receita ausente ou não positiva mantém N/D."
-            if key.startswith("Perda Esperada"):
-                note = "Agregado histórico de perdas e ajustes do Rel. 2. A composição inclui hedge e valor justo; não representa provisão pura."
+            note = get_help_text(key, context="Peers") or PEERS_GLOSSARIO_RESUMIDO[key]
             result.append(Metric(key, label, section, unit, formula, source, note, key == "Lucro Líquido Acumulado"))
     return tuple(result)
 
@@ -95,8 +90,10 @@ def get_metric(key, base):
         "ROE Acumulado YTD (%)": dict(formula="Lucro YTD × fator anual ÷ PL atual", note="ROE do cache individual usa o PL atual. Fator Mar=4, Jun=2, Set=12/9, Dez=1."),
     }
     supported = key in INDIVIDUAL_METRICS or key in {"Ativo Total / PL", "Carteira de Crédito* / PL"}
-    return replace(metric, source="IFData Rel. 1 individual" if supported else metric.source,
-                   **overrides.get(key, {}))
+    result = replace(metric, source="IFData Rel. 1 individual" if supported else metric.source,
+                     **overrides.get(key, {}))
+    return replace(result, note=get_help_text(key, base="Individual", context="Peers") if supported
+                   else "Indicador indisponível na base individual desta aba. O valor permanece N/D.")
 
 
 def number(value):

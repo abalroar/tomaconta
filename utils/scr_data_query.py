@@ -67,9 +67,9 @@ METRICAS: Dict[str, Metrica] = {
         denominador="carteira_ativa",
         formato="percentual",
         descricao=(
-            "Saldo total das operações com alguma parcela vencida há mais de 90 "
-            "dias, dividido pela carteira ativa. O numerador é o saldo inteiro "
-            "da operação contaminada, não só a parcela vencida."
+            "Saldo integral das operações com alguma parcela vencida há mais de 90 "
+            "dias, dividido pela carteira ativa do mesmo recorte. Inclui valores a "
+            "vencer e vencidos dessas operações (conceito de arrasto). Fonte: SCR.data mensal."
         ),
     ),
     "ativo_problematico": Metrica(
@@ -79,9 +79,10 @@ METRICAS: Dict[str, Metrica] = {
         denominador="carteira_ativa",
         formato="percentual",
         descricao=(
-            "Operações em atraso acima de 90 dias somadas às que têm indício de "
-            "não pagamento integral. Até dez/2024 usava a régua de risco E–H; "
-            "a partir de jan/2025 vale a marcação da própria instituição."
+            "Carteira das operações problemáticas dividida pela carteira ativa do recorte. "
+            "Até dez/2024, o critério reunia atraso acima de 90 dias e indícios de não pagamento, "
+            "incluindo reestruturações com risco E–H. Desde jan/2025, usa a classificação "
+            "informada pela instituição na característica especial 19. Fonte: SCR.data mensal."
         ),
     ),
     "atraso_15_90": Metrica(
@@ -102,8 +103,9 @@ METRICAS: Dict[str, Metrica] = {
         denominador="carteira_ativa",
         formato="percentual",
         descricao=(
-            "Apenas a parcela efetivamente vencida há mais de 90 dias. Sempre "
-            "menor que a inadimplência, que carrega o saldo inteiro da operação."
+            "Parcelas efetivamente vencidas há mais de 90 dias divididas pela carteira ativa "
+            "do recorte. A inadimplência por arrasto considera o saldo integral das operações "
+            "afetadas e pode ser maior. Fonte: SCR.data mensal."
         ),
     ),
     "carteira_ativa": Metrica(
@@ -112,7 +114,7 @@ METRICAS: Dict[str, Metrica] = {
         numerador="carteira_ativa",
         denominador=None,
         formato="monetario",
-        descricao="Soma dos valores a vencer e vencidos.",
+        descricao="Soma dos valores a vencer e vencidos das operações abrangidas pelo SCR.data, no recorte selecionado. Fonte mensal; operações cursadas no país, sem saldos de controladas no exterior.",
     ),
     "numero_de_operacoes": Metrica(
         chave="numero_de_operacoes",

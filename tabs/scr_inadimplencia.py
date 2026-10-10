@@ -142,9 +142,9 @@ NOTA_UF_CEP = (
 )
 
 NOTA_DIVERGENCIA = (
-    "Os números divergem do IF.data e dos balancetes COSIF por construção: o "
-    "SCR.data é montado a partir do documento 3040, operação a operação, e o "
-    "próprio BCB declara margem de tolerância contra os demonstrativos contábeis."
+    "SCR.data divulga agregados públicos das operações do documento 3040. "
+    "Os números podem diferir do IFData e dos balanços COSIF por cobertura, "
+    "critérios de apuração, tolerância de remessa e revisões. Confira a mesma data-base antes de comparar."
 )
 
 NOTA_PORTE_COMPARTILHADO = (

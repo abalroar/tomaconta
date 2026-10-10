@@ -101,11 +101,13 @@ def table_html(query, selected=None):
         if metric.section != section:
             html.append(f'<tr class="section"><td colspan="{1+len(query["banks"])*count}">{escape(metric.section)}</td></tr>')
             section = metric.section
-        html.append(f'<tr class="{"selected" if key == selected else ""}"><td class="row-label"><button type="button" class="metric" data-metric="{escape(key, quote=True)}" aria-label="Ver cálculo de {escape(metric.label, quote=True)}" aria-pressed="{str(key == selected).lower()}">{escape(table_row_label(metric, query["scale"]))}</button></td>')
+        html.append(f'<tr class="{"selected" if key == selected else ""}"><td class="row-label"><button type="button" class="metric" data-metric="{escape(key, quote=True)}" title="{escape(metric.note, quote=True)}" aria-label="Ver cálculo de {escape(metric.label, quote=True)}" aria-pressed="{str(key == selected).lower()}">{escape(table_row_label(metric, query["scale"]))}</button></td>')
         for bank in query["banks"]:
             for i, p in enumerate(query["periods"]):
                 cell = cells[key, bank, p]
-                tooltip = f"{bank}; {period_label(p)}; {cell['source']}; {cell['status']}"
+                tooltip = f"{bank}; data-base {period_label(p)}; {query['base']}; fonte: {cell['source']}"
+                if cell['value'] is None:
+                    tooltip += "; N/D: dado ou cálculo indisponível"
                 if cell["reference"]:
                     tooltip += f"; base {period_label(cell['reference'])}: {table_value(cell['reference_value'], metric, query['scale'])}"
                 if cell["reason"]:
@@ -258,8 +260,10 @@ def _groups_editor(api, base, banks, identities, shared, shared_sha, remote_erro
 
 def render(api):
     st.markdown("### Peers (Tabela Nova)")
-    base = st.segmented_control("Base das demonstrações", ["Consolidada / Prudencial", "Individual"], default="Consolidada / Prudencial", key="peers_new_base") or "Consolidada / Prudencial"
+    from utils.ui_help import COMPARISON_HELP, PERIOD_HELP, PERIMETER_HELP, render_module_help
+    base = st.segmented_control("Base das demonstrações", ["Consolidada / Prudencial", "Individual"], default="Consolidada / Prudencial", key="peers_new_base", help=PERIMETER_HELP) or "Consolidada / Prudencial"
     individual = base == "Individual"
+    render_module_help("Peers (Tabela Nova)", base=base)
     context, identities = _load_context(api, individual)
     available = list(context.get("bancos_todos", ()))
     available_periods = sorted(context.get("periodos_disponiveis", ()), key=period_sort, reverse=True)
@@ -294,9 +298,9 @@ def render(api):
     periods_key = "peers_new_periods_" + base
     st.session_state[periods_key] = [p for p in st.session_state.get(periods_key, available_periods[:3]) if p in available_periods]
     with pcol:
-        periods = st.multiselect("Competências (até 3)", available_periods, key=periods_key, max_selections=3, format_func=period_label)
+        periods = st.multiselect("Competências (até 3)", available_periods, key=periods_key, max_selections=3, format_func=period_label, help=PERIOD_HELP)
     with dcol:
-        mode = st.selectbox("Variação em relação a", list(BASELINES), format_func=BASELINES.get, key="peers_new_baseline")
+        mode = st.selectbox("Variação em relação a", list(BASELINES), format_func=BASELINES.get, key="peers_new_baseline", help=COMPARISON_HELP)
     with ucol:
         scale = st.selectbox("Valores monetários", list(SCALES), index=1, key="peers_new_scale")
     # A posição dos downloads permanece imediatamente abaixo dos filtros.
@@ -357,10 +361,11 @@ def render(api):
     if footnote := table_footnote(query):
         st.caption("\\" + footnote)
     st.caption(f"{len(banks)} instituições; {', '.join(period_label(p) for p in periods)}; {base}. Verde: aumento. Vermelho: queda. Direção da variação.")
-    st.caption("Fonte: BCB IFData / Cadoc 4060 conforme indicador. Clique no indicador para abrir seu cálculo.")
+    st.caption("Clique no indicador para consultar a definição e o cálculo. N/D preserva a ausência de fonte, componente ou denominador válido.")
     if selected:
         metric = get_metric(selected, query["base"])
         with st.expander("Cálculo: " + metric.label, expanded=True):
+            st.write(metric.note)
             st.write(metric.formula)
             if st.session_state.get("peers_new_calculation_bank") not in banks:
                 st.session_state["peers_new_calculation_bank"] = banks[0]
@@ -368,7 +373,7 @@ def render(api):
             memo = calculation_rows(query, df, selected, bank)
             st.dataframe(memo[memo["Campo"] == "Resultado na tabela"][["Período", "Valor", "Unidade"]], hide_index=True, width="stretch")
             with st.expander("Componentes e fonte", expanded=False):
-                st.caption(metric.source + ". " + metric.note)
+                st.caption("Fonte dos componentes: " + metric.source + ".")
                 st.dataframe(memo[memo["Campo"] != "Resultado na tabela"], hide_index=True, width="stretch")
     with st.expander("Metodologia e cobertura", expanded=False):
         st.dataframe(pd.DataFrame(methodology_rows(query)), hide_index=True, width="stretch")

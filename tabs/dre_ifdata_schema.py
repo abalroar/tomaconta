@@ -649,6 +649,7 @@ except ImportError:
 
 
 def render_streamlit_app() -> None:
+    from utils.ui_help import PERIOD_HELP, PERIMETER_HELP
     import streamlit as st
     from utils.dre_bcb_source import SOURCE_PAGE, period_label
 
@@ -658,13 +659,13 @@ def render_streamlit_app() -> None:
     with col_base:
         kind = st.selectbox("Perímetro", [1, 3],
                             format_func=lambda k: "Conglomerado prudencial" if k == 1 else "Instituição individual",
-                            key="dre_bcb_kind")
+                            key="dre_bcb_kind", help=PERIMETER_HELP)
     periods = _dre_bcb_periods(kind, root)
     if not periods:
         st.info("Nenhuma competência disponível no Banco Central ou na base publicada.")
         return
     with col_period:
-        period = st.selectbox("Período", periods, format_func=period_label, key=f"dre_bcb_period_{kind}")
+        period = st.selectbox("Período", periods, format_func=period_label, key=f"dre_bcb_period_{kind}", help=PERIOD_HELP)
     refresh_key = f"dre_bcb_refresh_{kind}_{period}"
     with col_refresh:
         st.markdown("<div style='height:1.7rem'></div>", unsafe_allow_html=True)
@@ -772,7 +773,7 @@ def render_streamlit_app() -> None:
 
     with st.expander("Fonte e metodologia", expanded=False):
         st.markdown(f"[IFData — Banco Central]({SOURCE_PAGE}) · {provenance['api']}")
-        st.caption("DRE: relatório 4. Ativo total: relatório 1, quando disponível. Saldos da DRE acumulados no semestre; no segundo semestre a acumulação reinicia. Conversão da fonte em R$ para R$ mil no cálculo e R$ milhões na exibição. Ausências permanecem N/D.")
+        st.caption("Fonte: IFData trimestral, no perímetro escolhido. A DRE (Rel. 4) acumula janeiro a junho e julho a dezembro separadamente. Compare janelas de mesma duração. A estrutura mudou em 2025; o mapeamento segue a competência consultada. Ativo total: Rel. 1, quando disponível. Valores exibidos em R$ milhões; ausências permanecem N/D.")
         st.caption("Consultas são reutilizadas por até 6 horas. Atualizar do BC força nova consulta. A recuperação usa apenas a mesma competência e perímetro.")
         st.json(provenance, expanded=False)
         with st.expander("Mapeamento das rubricas", expanded=False):
@@ -885,6 +886,7 @@ def _render_context_caption(st, row: pd.Series, inst_col: str, period_col: str) 
 
 
 def _render_key_metrics(st, dre_df: pd.DataFrame) -> None:
+    from utils.ui_help import get_help_text
     lookup = {str(r["nome_canônico"]): r for _, r in dre_df.iterrows()}
     metrics = [
         ("Resultado intermediação", "intermediation_result"),
@@ -896,7 +898,11 @@ def _render_key_metrics(st, dre_df: pd.DataFrame) -> None:
     for col, (label, canonical) in zip(cols, metrics):
         row = lookup.get(canonical)
         value = row.get("valor_r_mil") if row is not None else None
-        col.metric(label, format_currency(value, scale="mm") or "N/D")
+        definition = get_help_text(label, context="DRE", include_source=False)
+        if canonical == "pretax_result":
+            definition = "Resultado do período antes dos tributos sobre o lucro e das participações apresentadas na DRE."
+        window = "Saldo na data-base." if canonical == "asset_total" else "Nesta DRE, o valor é acumulado no semestre selecionado. Compare janelas de mesma duração."
+        col.metric(label, format_currency(value, scale="mm") or "N/D", help=f"{definition} {window} Fonte: IFData trimestral, no perímetro selecionado.")
 
 
 def _render_charts(st, df: pd.DataFrame, mapping_result: Mapping[str, Any], config: Mapping[str, Any], selected_row: pd.Series, inst_col: str, period_col: str) -> None:

@@ -29,9 +29,10 @@ from types import SimpleNamespace
 class _SpbTestStreamlit:
     def __getattr__(self, name):
         return getattr(_streamlit, name)
-    def segmented_control(self, label, options, default, key):
-        return _streamlit.radio(label, options, index=options.index(default), key=key)
+    def segmented_control(self, label, options, default, key, **kwargs):
+        return _streamlit.radio(label, options, index=options.index(default), key=key, **kwargs)
 st = _SpbTestStreamlit()
+from utils.ui_help import PAYMENT_FREQUENCY_HELP, render_module_help
 from utils.spb_meios_pagamento_viz import *
 from utils.spb_meios_pagamento_viz import (
     ITAU_BBA_PALETTE as SPB_ITAU_BBA_PALETTE,
