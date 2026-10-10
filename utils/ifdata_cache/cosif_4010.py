@@ -18,6 +18,7 @@ import pandas as pd
 import requests
 
 from .base import BaseCache, CacheConfig, CacheResult
+from .update_state import locked_cache_update
 from .bloprudencial import _file_sha256, _guess_encoding, _validate_yyyymm
 from .bloprudencial_cache import load_bloprudencial_parquet_slice
 from .release_config import add_release_cache_buster, build_release_base_url, resolve_release_repo
@@ -135,19 +136,22 @@ class Cosif4010Cache(BaseCache):
 
     def _use_runtime(self) -> bool:
         """Só uma extração sobre a versão publicada pode preceder o bundle."""
-        if not self.arquivo_dados_runtime.exists():
+        return self._use_runtime_paths(self.arquivo_dados_runtime, self.arquivo_metadata_runtime)
+
+    def _use_runtime_paths(self, data_path: Path, metadata_path: Path) -> bool:
+        if not data_path.exists():
             return False
         bundled_meta = self.bundled_dir / "metadata.json"
         if not (self.bundled_dir / "dados.parquet").exists():
             return True
         try:
-            runtime = json.loads(self.arquivo_metadata_runtime.read_text())
+            runtime = json.loads(metadata_path.read_text())
             bundled = json.loads(bundled_meta.read_text())
             return (
                 runtime.get("schema_version") == LOADER_VERSION
                 and set(runtime.get("periodos", ())).issuperset(bundled["periodos"])
                 and bundled["sha256"] in (runtime.get("sha256"), runtime.get("baseline_sha256"))
-                and runtime.get("sha256") == _file_sha256(self.arquivo_dados_runtime)
+                and runtime.get("sha256") == _file_sha256(data_path)
             )
         except (OSError, ValueError, KeyError):
             return False
@@ -163,6 +167,16 @@ class Cosif4010Cache(BaseCache):
             return self.bundled_dir / self.config.arquivo_metadata
         return self.arquivo_metadata_runtime
 
+    def _read_paths(self, runtime_paths=None):
+        if runtime_paths is None:
+            return super()._read_paths()
+        data = runtime_paths[self.arquivo_dados_runtime.name]
+        metadata = runtime_paths[self.arquivo_metadata_runtime.name]
+        bundled = self.bundled_dir / self.config.arquivo_dados
+        if not self._use_runtime_paths(data, metadata) and bundled.exists():
+            return bundled, self.bundled_dir / self.config.arquivo_metadata, runtime_paths[self.arquivo_dados_pickle.name]
+        return data, metadata, runtime_paths[self.arquivo_dados_pickle.name]
+
     def _validar_dados(self, dados):
         try:
             validate_frame(dados)
@@ -172,13 +186,18 @@ class Cosif4010Cache(BaseCache):
 
     def get_info(self):
         info = super().get_info()
-        if self.arquivo_dados.exists() and self.arquivo_metadata.exists():
-            metadata = json.loads(self.arquivo_metadata.read_text())
-            info.update({key: metadata.get(key) for key in (
-                "timestamp_salvamento", "fonte", "total_registros", "total_periodos", "periodos",
-            )})
-            info.update(existe=True, tamanho_bytes=self.arquivo_dados.stat().st_size,
-                        release_tag=self.release_tag, sha256=metadata.get("sha256"))
+        if "erro_metadata" in info:
+            return info
+        try:
+            data = Path(info.get("arquivo_dados", self.arquivo_dados))
+            path = data.parent / self.config.arquivo_metadata
+            if data.exists() and path.exists():
+                metadata = json.loads(path.read_text())
+                if metadata.get("sha256") != _file_sha256(data):
+                    raise ValueError("Dados 4010 divergem da metadata")
+                info.update(existe=True, release_tag=self.release_tag, sha256=metadata.get("sha256"))
+        except (OSError, ValueError) as exc:
+            info["erro_metadata"] = str(exc)
         return info
 
     def carregar(self, forcar_remoto=False) -> CacheResult:
@@ -193,6 +212,7 @@ class Cosif4010Cache(BaseCache):
         except Exception as exc:
             return CacheResult(False, str(exc))
 
+    @locked_cache_update
     def extrair_periodo(self, periodo: str, **kwargs) -> CacheResult:
         try:
             periodo = _validate_yyyymm(periodo)
@@ -221,19 +241,15 @@ class Cosif4010Cache(BaseCache):
         except Exception as exc:
             return CacheResult(False, f"Extração 4010 falhou: {exc}")
 
+    @locked_cache_update
     def salvar_local(self, dados, fonte="bcb_cosif", info_extra=None):
         bundled_meta = self.bundled_dir / "metadata.json"
         baseline = json.loads(bundled_meta.read_text()).get("sha256") if bundled_meta.exists() else None
-        result = super().salvar_local(dados, fonte, info_extra)
-        if result.sucesso:
-            result.metadata.update({
-                "schema_version": LOADER_VERSION, "documento": "4010", "perimetro": "individual",
-                "unidade": "R$", "release_tag": self.release_tag,
-                "sha256": _file_sha256(self.arquivo_dados_runtime), "cobertura": coverage(dados),
-                "baseline_sha256": baseline,
-            })
-            self.arquivo_metadata_runtime.write_text(json.dumps(result.metadata, ensure_ascii=False, indent=2)+"\n")
-        return result
+        return super().salvar_local(dados, fonte, info_extra, metadata_extra={
+            "schema_version": LOADER_VERSION, "documento": "4010", "perimetro": "individual",
+            "unidade": "R$", "release_tag": self.release_tag, "cobertura": coverage(dados),
+            "baseline_sha256": baseline, "sha256": None,
+        })
 
     def baixar_remoto(self) -> CacheResult:
         try:

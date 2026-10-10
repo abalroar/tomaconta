@@ -17,6 +17,7 @@ import requests
 from ..sgs_credit_providers import SeriesProvider, default_providers
 from ..sgs_credit_registry import SGS_SERIES, SeriesSpec, bcb_series, get_series
 from .base import BaseCache, CacheConfig, CacheResult
+from .update_state import locked_cache_update, mutation_lock
 from .release_config import add_release_cache_buster, build_release_asset_url, get_release_config
 
 
@@ -132,6 +133,7 @@ class SGSCreditCache(BaseCache):
             return _decorate(pd.DataFrame(columns=["data", "valor"]), spec)
         return _decorate(pd.concat(non_empty, ignore_index=True), spec)
 
+    @locked_cache_update
     def materialize_history(
         self,
         *,
@@ -149,10 +151,11 @@ class SGSCreditCache(BaseCache):
 
         specs = [get_series(alias) for alias in aliases] if aliases else list(bcb_series())
         previous = pd.DataFrame()
-        if not overwrite and self.existe():
+        if self.existe_leitura():
             loaded = self.carregar_local()
-            if loaded.sucesso and loaded.dados is not None:
-                previous = loaded.dados
+            if not loaded.sucesso:
+                return CacheResult(False, f"Histórico existente não pôde ser preservado: {loaded.mensagem}", fonte="nenhum")
+            previous = loaded.dados
 
         frames: list[pd.DataFrame] = []
         failures: list[dict[str, str]] = []
@@ -186,9 +189,16 @@ class SGSCreditCache(BaseCache):
         combined["codigo"] = pd.to_numeric(combined["codigo"], errors="coerce").astype("Int32")
         combined["valor"] = pd.to_numeric(combined["valor"], errors="coerce").astype("Float64")
 
+        if failures:
+            return CacheResult(False, f"{len(failures)} série(s) falharam; base anterior preservada",
+                               metadata={"falhas": failures}, fonte="nenhum")
+
+        periods = sorted(combined["data"].dt.strftime("%Y%m").unique().tolist())
         saved = self.salvar_local(
             combined,
             fonte="BCData/SGS",
+            metadata_extra={"periodos": periods, "total_periodos": len(periods),
+                            "series": int(combined["serie"].nunique())},
             info_extra={
                 "inicio_solicitado": start_date.isoformat(),
                 "fim_solicitado": end_date.isoformat(),
@@ -204,17 +214,6 @@ class SGSCreditCache(BaseCache):
                 "registry_size": len(SGS_SERIES),
             },
         )
-        if saved.sucesso and self.arquivo_metadata_runtime.exists():
-            metadata = saved.metadata or {}
-            periods = sorted(combined["data"].dt.strftime("%Y%m").unique().tolist())
-            metadata["periodos"] = periods
-            metadata["total_periodos"] = len(periods)
-            metadata["series"] = int(combined["serie"].nunique())
-            self.arquivo_metadata_runtime.write_text(
-                json.dumps(metadata, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
-            saved.metadata = metadata
         saved.sucesso = saved.sucesso and not failures
         saved.mensagem = (
             f"{combined['serie'].nunique()} séries e {len(combined)} observações materializadas"
@@ -256,10 +255,13 @@ class SGSCreditCache(BaseCache):
     def carregar(self, forcar_remoto: bool = False) -> CacheResult:
         result = super().carregar(forcar_remoto=forcar_remoto)
         if result.sucesso and result.fonte == "github_releases" and result.metadata:
-            self.arquivo_metadata_runtime.write_text(
-                json.dumps(result.metadata, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
+            with mutation_lock(self.base_dir):
+                local = json.loads(self.arquivo_metadata_runtime.read_text(encoding="utf-8"))
+                metadata = {**result.metadata, **{key: local[key] for key in (
+                    "integridade", "total_registros", "colunas", "formato",
+                )}}
+                self._write_json_atomic(self.arquivo_metadata_runtime, metadata)
+                result.metadata = metadata
         return result
 
     def extrair_periodo(self, periodo: str, **kwargs) -> CacheResult:

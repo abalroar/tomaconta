@@ -10,6 +10,7 @@ Exemplos:
 from __future__ import annotations
 
 import argparse
+from datetime import date
 import sys
 from pathlib import Path
 from typing import List, Optional
@@ -21,10 +22,15 @@ from utils.ifdata_cache import CacheManager, gerar_periodos_trimestrais
 from utils.ifdata_cache import (
     describe_support_window,
     filter_supported_periods,
-    materialize_critical_screens_cache,
 )
-from utils.ifdata_cache.derived_metrics import materialize_derived_metrics_cache
+from utils.ifdata_cache.release_ops import materialize_for_publication
+from utils.ifdata_cache.base import CacheResult
+from utils.ifdata_cache.update_state import (
+    UpdateRunStore, mutation_lock,
+)
+from utils.ifdata_cache.update_service import run_adapter_update
 from utils.ifdata_cache.scr_data import PRIMEIRO_ANO as SCR_PRIMEIRO_ANO
+from utils.ifdata_cache.spb_meios_pagamento import DATASETS as SPB_DATASETS
 
 
 DEFAULT_TIPOS = [
@@ -55,12 +61,14 @@ def _parse_periodos_list(raw: Optional[str]) -> List[str]:
 
 
 def _gerar_periodos_mensais(inicio: str, fim: str) -> List[str]:
-    if len(inicio) != 6 or len(fim) != 6:
-        raise ValueError("mensal-inicio/mensal-fim devem ser YYYYMM")
+    if len(inicio) != 6 or len(fim) != 6 or not inicio.isascii() or not fim.isascii() or not inicio.isdigit() or not fim.isdigit():
+        raise ValueError("mensal-inicio/mensal-fim devem ser YYYYMM válidos")
     ano_i = int(inicio[:4])
     mes_i = int(inicio[4:6])
     ano_f = int(fim[:4])
     mes_f = int(fim[4:6])
+    date(ano_i, mes_i, 1)
+    date(ano_f, mes_f, 1)
     if (ano_i, mes_i) > (ano_f, mes_f):
         raise ValueError("mensal-inicio deve ser <= mensal-fim")
 
@@ -88,7 +96,7 @@ def main() -> int:
     parser.add_argument("--all", action="store_true", help="atualizar tipos padrão")
     parser.add_argument("--list", action="store_true", help="listar caches disponíveis")
 
-    parser.add_argument("--modo", choices=["incremental", "overwrite"], default="incremental")
+    parser.add_argument("--modo", choices=["incremental", "overwrite", "rebuild"], default="incremental")
     parser.add_argument("--intervalo", type=int, default=4, help="salvar a cada N períodos")
 
     parser.add_argument("--periodos", help="lista de períodos YYYYMM separados por vírgula")
@@ -121,12 +129,120 @@ def main() -> int:
     )
 
     args = parser.parse_args()
+    try:
+        _validate_cli_inputs(args)
+    except ValueError as exc:
+        parser.error(str(exc))
 
     manager = CacheManager()
+    try:
+        _validate_cli_inputs(args, manager)
+    except ValueError as exc:
+        parser.error(str(exc))
     if args.list:
         _listar_caches(manager)
         return 0
 
+    with mutation_lock(manager.base_dir):
+        return _execute(args, manager)
+
+
+def _validate_cli_inputs(args, manager=None) -> None:
+    if args.modo not in {"incremental", "overwrite", "rebuild"}:
+        raise ValueError("modo de atualização inválido")
+    if args.intervalo < 1:
+        raise ValueError("intervalo deve ser pelo menos 1")
+    for value in (args.mensal_inicio, args.mensal_fim):
+        if value:
+            _gerar_periodos_mensais(value, value)
+    if args.mensal_inicio and args.mensal_fim:
+        _gerar_periodos_mensais(args.mensal_inicio, args.mensal_fim)
+    quarter_args = (args.ano_inicial, args.mes_inicial, args.ano_final, args.mes_final)
+    if any(value is not None for value in quarter_args):
+        if any(value is None for value in quarter_args):
+            raise ValueError("informe o intervalo trimestral completo")
+        if date(args.ano_inicial, int(args.mes_inicial), 1) > date(args.ano_final, int(args.mes_final), 1):
+            raise ValueError("intervalo trimestral invertido")
+    if args.scr_ano_inicial is not None and args.scr_ano_inicial < SCR_PRIMEIRO_ANO:
+        raise ValueError("ano SCR anterior ao início da série")
+    if args.scr_ano_final is not None and args.scr_ano_final < (args.scr_ano_inicial or SCR_PRIMEIRO_ANO):
+        raise ValueError("intervalo SCR invertido")
+
+    periodos = _parse_periodos_list(args.periodos)
+    for periodo in periodos:
+        _gerar_periodos_mensais(periodo, periodo)
+    tipos = set(DEFAULT_TIPOS if args.all else ()) | {t.strip() for t in (args.tipo or []) if t.strip()}
+    if manager is not None and tipos - set(manager.listar_caches()):
+        raise ValueError(f"Caches desconhecidos: {', '.join(sorted(tipos - set(manager.listar_caches())))}")
+    if args.scr_ano_final is not None and args.scr_ano_final > date.today().year:
+        raise ValueError("ano SCR posterior ao ano corrente")
+    quarterly_types = set(DEFAULT_TIPOS) - {"bloprudencial", "mercado_credito_sgs"}
+    if tipos & quarterly_types and any(int(value[4:6]) not in (3, 6, 9, 12) for value in periodos):
+        raise ValueError("IFData trimestral exige competências de março, junho, setembro ou dezembro")
+    if tipos & quarterly_types and not periodos and not all(value is not None for value in quarter_args):
+        raise ValueError("Informe o intervalo trimestral antes de atualizar as bases selecionadas")
+    if "bloprudencial" in tipos and not periodos and not all(value is not None for value in quarter_args) and not (args.mensal_inicio and args.mensal_fim):
+        raise ValueError("Informe o intervalo mensal de bloprudencial")
+    datasets = set(_parse_periodos_list(args.spb_datasets))
+    unknown_datasets = datasets - {spec.key for spec in SPB_DATASETS}
+    if unknown_datasets:
+        raise ValueError(f"Datasets SPB desconhecidos: {', '.join(sorted(unknown_datasets))}")
+
+
+
+def _extract_with_receipt(manager, *, tipo, periodos, modo, intervalo_salvamento, **kwargs):
+    """Confirma o plano e cada salvamento fora do estado do processo CLI."""
+    store = UpdateRunStore(manager.base_dir)
+    record = store.create(tipo, periodos, modo, {"intervalo_salvamento": intervalo_salvamento})
+    record = store.finish(record, "extracting")
+
+    def checkpoint(metadata):
+        nonlocal record
+        record = store.record_result(record, metadata)
+
+    try:
+        result = manager.extrair_periodos_com_salvamento(
+            tipo=tipo, periodos=periodos, modo=modo,
+            intervalo_salvamento=intervalo_salvamento,
+            run_id=record["run_id"], execution_periods=record["periods"],
+            callback_checkpoint=checkpoint, **kwargs,
+        )
+        record = store.record_result(record, result.metadata)
+        return result
+    except Exception as exc:
+        store.finish(store.load(record["run_id"]), "failed", error=str(exc))
+        return CacheResult(False, str(exc), fonte="nenhum")
+
+
+def _materialize_with_receipt(manager, tipo, modo, operation, *, options=None):
+    """Usa o mesmo comprovante dos adaptadores executados pela plataforma."""
+    def materialize():
+        result = operation()
+        details = result.metadata or {}
+        errors = next((details.get(key) for key in (
+            "erros", "errors", "failures", "falhas", "failed_windows", "remaining_windows",
+            "pending_periods", "failed_periods", "persistence_error", "checkpoint_error", "callback_error",
+        ) if details.get(key)), None)
+        if (not result.sucesso or errors or details.get("status") in {"partial", "failed"}
+                or details.get("truncado") or details.get("finalized") is False):
+            return CacheResult(False, "Materialização incompleta: " + result.mensagem,
+                               metadata=details, fonte="nenhum")
+        cache = manager.get_cache(tipo)
+        if tipo == "spb_meios_pagamento":
+            paths = cache.dataset_paths()
+            selected = (options or {}).get("datasets") or list(paths)
+            if not cache.manifest_path.is_file() or any(not paths[name].is_file() for name in selected):
+                return CacheResult(False, "Datasets SPB selecionados não foram confirmados em disco", fonte="nenhum")
+        elif not cache.existe() or not cache.carregar_local().sucesso:
+            return CacheResult(False, "A materialização não confirmou uma base runtime legível", fonte="nenhum")
+        return result
+
+    return run_adapter_update(manager, tipo, materialize, mode=modo,
+                              options={"modo": modo, **dict(options or {})})
+
+
+def _execute(args, manager) -> int:
+    _validate_cli_inputs(args, manager)
     tipos = []
     if args.all:
         tipos = DEFAULT_TIPOS.copy()
@@ -158,12 +274,12 @@ def main() -> int:
             _print(
                 f"==> Atualizando cache 'mercado_credito_sgs' ({inicio}–{fim or 'atual'}), modo={args.modo}"
             )
-            result = cache.materialize_history(
+            result = _materialize_with_receipt(manager, tipo, args.modo, lambda: cache.materialize_history(
                 start=inicio_data,
                 end=fim_data,
-                overwrite=(args.modo == "overwrite"),
+                overwrite=(args.modo in {"overwrite", "rebuild"}),
                 progress_callback=lambda p, m: _print(f"[{p:.0%}] {m}"),
-            )
+            ))
             if result.sucesso:
                 _print(f"OK: {result.mensagem}")
                 tipos_atualizados.add(tipo)
@@ -178,12 +294,12 @@ def main() -> int:
             _print(
                 f"==> Atualizando cache 'spb_meios_pagamento' (datasets={datasets or 'todos'}), modo={args.modo}"
             )
-            result = cache.materialize_history(
+            result = _materialize_with_receipt(manager, tipo, args.modo, lambda: cache.materialize_history(
                 datasets=datasets,
-                overwrite=(args.modo == "overwrite"),
+                overwrite=(args.modo in {"overwrite", "rebuild"}),
                 progress_callback=lambda p, m: _print(f"[{p:.0%}] {m}"),
                 log_callback=_print,
-            )
+            ), options={"datasets": datasets})
             if result.sucesso:
                 _print(f"OK: {result.mensagem}")
                 tipos_atualizados.add(tipo)
@@ -200,12 +316,12 @@ def main() -> int:
                 f"==> Atualizando cache 'scr_data' (anos {ano_inicial}-{ano_final or 'corrente'}), "
                 f"modo={args.modo}"
             )
-            result = cache.materialize_history(
+            result = _materialize_with_receipt(manager, tipo, args.modo, lambda: cache.materialize_history(
                 ano_inicial=ano_inicial,
                 ano_final=ano_final,
-                overwrite=(args.modo == "overwrite"),
+                overwrite=(args.modo in {"overwrite", "rebuild"}),
                 log_callback=_print,
-            )
+            ))
             if result.sucesso:
                 _print(f"OK: {result.mensagem}")
                 tipos_atualizados.add(tipo)
@@ -214,18 +330,18 @@ def main() -> int:
                 return 1
             continue
 
+        periodos_tipo = list(periodos)
         if tipo == "bloprudencial":
-            if not periodos:
-                if args.mensal_inicio and args.mensal_fim:
-                    periodos = _gerar_periodos_mensais(args.mensal_inicio, args.mensal_fim)
-                else:
-                    _print("Para bloprudencial, informe --mensal-inicio e --mensal-fim (YYYYMM) ou --periodos.")
-                    return 1
-        elif not periodos:
+            if args.mensal_inicio and args.mensal_fim:
+                periodos_tipo = _gerar_periodos_mensais(args.mensal_inicio, args.mensal_fim)
+            elif not periodos_tipo:
+                _print("Para bloprudencial, informe --mensal-inicio e --mensal-fim (YYYYMM) ou --periodos.")
+                return 1
+        elif not periodos_tipo:
             _print("Informe --periodos ou --ano/mes inicial/final para caches trimestrais.")
             return 1
 
-        periodos_suportados, periodos_ignorados = filter_supported_periods(tipo, list(periodos))
+        periodos_suportados, periodos_ignorados = filter_supported_periods(tipo, periodos_tipo)
         if periodos_ignorados:
             _print(
                 f"[SKIP] {tipo}: ignorando {len(periodos_ignorados)} período(s) fora da janela suportada "
@@ -241,7 +357,7 @@ def main() -> int:
             kwargs["force_refresh"] = bool(args.force_refresh)
             kwargs["cache_dir"] = "data/cache/bcb_bloprudencial"
 
-        result = manager.extrair_periodos_com_salvamento(
+        result = _extract_with_receipt(manager,
             tipo=tipo,
             periodos=list(periodos_suportados),
             modo=args.modo,
@@ -256,50 +372,14 @@ def main() -> int:
             _print(f"ERRO: {result.mensagem}")
             return 1
 
-    if tipos_atualizados & {"principal", "dre"}:
-        _print("==> Recalculando derived_metrics")
-        result_derivado = materialize_derived_metrics_cache(manager=manager, force=True)
-        if result_derivado.sucesso:
-            _print(f"OK: {result_derivado.mensagem}")
-        else:
-            _print(f"ERRO ao materializar derived_metrics: {result_derivado.mensagem}")
-            return 1
-
-    if tipos_atualizados & {"principal_individual", "dre_individual"}:
-        _print("==> Recalculando derived_metrics_individual")
-        result_derivado_ind = materialize_derived_metrics_cache(
-            manager=manager,
-            derived_cache_name="derived_metrics_individual",
-            dre_cache_name="dre_individual",
-            principal_cache_name="principal_individual",
-            force=True,
-        )
-        if result_derivado_ind.sucesso:
-            _print(f"OK: {result_derivado_ind.mensagem}")
-        else:
-            _print(f"ERRO ao materializar derived_metrics_individual: {result_derivado_ind.mensagem}")
-            return 1
-
-    if tipos_atualizados & {
-        "principal",
-        "capital",
-        "ativo",
-        "passivo",
-        "dre",
-        "principal_individual",
-        "dre_individual",
-        "carteira_pf",
-        "carteira_pj",
-        "carteira_instrumentos",
-        "bloprudencial",
-    }:
-        _print("==> Materializando cache curado de Snapshot/Peers")
-        result_curado = materialize_critical_screens_cache(force=True)
-        if result_curado.sucesso:
-            _print(f"OK: {result_curado.mensagem}")
-        else:
-            _print(f"ERRO ao materializar critical_screens: {result_curado.mensagem}")
-            return 1
+    details = materialize_for_publication(
+        manager, cache_names=tipos_atualizados, base_dir=manager.base_dir,
+        force=True, save_bundled=False,
+    )
+    for item in details:
+        _print(f"{item['status'].upper()}: {item['cache']}: {item['message']}")
+    if any(item["status"] != "ok" for item in details):
+        return 1
 
     _print("\\nConcluído.")
     return 0

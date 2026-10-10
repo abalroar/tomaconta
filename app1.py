@@ -230,8 +230,16 @@ from utils.ifdata_cache.release_ops import (
     get_postprocess_targets,
     get_publishable_bundle,
     materialize_for_publication,
+    prepare_release_publication,
     upload_release_assets,
     write_release_manifest,
+)
+from utils.ifdata_cache.update_state import (
+    UpdateRunStore, mutation_lock, is_update_running, get_update_lock_info, _write_json_atomic,
+)
+from utils.ifdata_cache.update_service import (
+    prepare_run, resumable_run, checkpoint_view, run_quarterly_update,
+    adapter_update_session, save_period_window, extract_taxas_window,
 )
 import utils.ifdata_cache.release_config as _ifdata_release_config
 
@@ -1868,9 +1876,8 @@ def _expected_periods_publicacao(
     periodos: Optional[Iterable[str]] = None,
 ) -> dict[str, str]:
     valores = [str(periodo).strip() for periodo in (periodos or []) if str(periodo or "").strip()]
-    if not valores:
-        info = cache_manager.info(tipo_cache) if cache_manager else {}
-        valores = [str(periodo).strip() for periodo in (info.get("periodos") or []) if str(periodo or "").strip()]
+    info = cache_manager.info(tipo_cache) if cache_manager else {}
+    valores.extend(str(periodo).strip() for periodo in (info.get("periodos") or []) if str(periodo or "").strip())
 
     periodo_final = max_period_from_values(valores)
     if not periodo_final:
@@ -1918,78 +1925,29 @@ def _publicar_bundle_release(
     if not ok_validacao:
         return False, msg_validacao, {}
 
-    manifest_path, manifest_payload = write_release_manifest(
-        cache_manager,
-        release_config=release_cfg,
-        expected_periods=expected_periods,
-        selected_caches=selected,
-        materialization_details=materialization_details,
-        include_hashes=True,
-    )
-    if selected == ["cosif_4010"]:
-        from utils.ifdata_cache.cosif_4010 import merge_release_manifest
-        from utils.ifdata_cache.release_config import add_release_cache_buster
-        try:
-            response = requests.get(add_release_cache_buster(
-                f"{release_cfg.release_base_url}/manifest.json", "cosif_4010"), timeout=30)
-            response.raise_for_status()
-            manifest_payload = merge_release_manifest(response.json(), cache_4010)
-            manifest_path.write_text(json.dumps(manifest_payload, ensure_ascii=False, indent=2))
-        except Exception as exc:
-            return False, f"Não foi possível preservar o manifest remoto: {exc}", {}
-    publishable_caches, skipped_targets = get_publishable_bundle(
-        selected,
-        materialization_details=materialization_details,
-        manifest_payload=manifest_payload,
-    )
-    if not publishable_caches:
-        return False, "nenhum cache elegível para publicação após validação.", {
-            "manifest_path": str(manifest_path),
-            "manifest": manifest_payload,
-            "skipped_targets": skipped_targets,
-            "selected": selected,
-        }
-
     try:
-        assets = collect_release_assets(
-            cache_manager,
-            publishable_caches,
-            manifest_path=manifest_path,
-        )
-        upload_result = upload_release_assets(
-            repo=release_cfg.repo,
-            tag=release_cfg.tag,
-            assets=assets,
-            token=str(gh_token or "").strip(),
-        )
-    except FileNotFoundError as exc:
-        return False, f"asset local ausente: {exc}", {
-            "manifest_path": str(manifest_path),
-            "manifest": manifest_payload,
-            "skipped_targets": skipped_targets,
-            "selected": selected,
-        }
+        with mutation_lock(cache_manager.base_dir, owner={"label": "publicação de bases"}):
+            manifest_path, manifest_payload, publishable_caches, assets = prepare_release_publication(
+                cache_manager, selected_caches=selected,
+                release_config=release_cfg, expected_periods=expected_periods,
+                materialization_details=materialization_details, token=gh_token,
+            )
+            upload_result = upload_release_assets(
+                repo=release_cfg.repo, tag=release_cfg.tag, assets=assets,
+                token=str(gh_token or "").strip(), base_dir=cache_manager.base_dir,
+                expected_sha256={item["name"]: item["sha256"]
+                                 for item in manifest_payload["publication_assets"]},
+            )
     except Exception as exc:
-        return False, f"falha ao publicar bundle: {exc}", {
-            "manifest_path": str(manifest_path),
-            "manifest": manifest_payload,
-            "skipped_targets": skipped_targets,
-            "selected": selected,
-        }
-
-    extras = ""
-    if skipped_targets:
-        extras = f" | não publicados: {'; '.join(skipped_targets)}"
+        return False, f"falha ao publicar bundle: {exc}", {"selected": selected}
     return True, (
-        f"bundle publicado em {release_cfg.repo}@{release_cfg.tag}: "
-        f"{', '.join(publishable_caches)} + manifest.json{extras}"
+        f"bundle publicado e verificado em {release_cfg.repo}@{release_cfg.tag}: "
+        f"{', '.join(publishable_caches)} + manifest.json"
     ), {
-        "manifest_path": str(manifest_path),
-        "manifest": manifest_payload,
-        "skipped_targets": skipped_targets,
-        "selected": selected,
-        "published_caches": publishable_caches,
-        "assets": upload_result.get("assets", []),
+        "manifest_path": str(manifest_path), "manifest": manifest_payload,
+        "selected": selected, "published_caches": publishable_caches,
+        "skipped_targets": [], "assets": upload_result.get("assets", []),
+        "activation_confirmed": False,
     }
 
 
@@ -2003,7 +1961,7 @@ def _materializar_dependencias_publicacao(
         cache_names=[tipo_cache],
         base_dir=cache_manager.base_dir if cache_manager else None,
         force=True,
-        save_bundled=True,
+        save_bundled=False,
     )
 
 
@@ -3703,52 +3661,53 @@ def _prox_periodo_api(periodo_exib: str) -> str:
     except Exception:
         return ""
 
-CHECKPOINT_ATUALIZACAO_PATH = Path("data/cache/update_checkpoint.json")
-STATUS_ATUALIZACAO_PATH = Path("data/cache/update_job_status.json")
+CHECKPOINT_ATUALIZACAO_PATH = APP_DIR / "data/cache/update_checkpoint.json"
+STATUS_ATUALIZACAO_PATH = APP_DIR / "data/cache/update_job_status.json"
 
-def _carregar_checkpoint_atualizacao() -> dict:
-    if not CHECKPOINT_ATUALIZACAO_PATH.exists():
-        return {}
-    try:
-        return json.loads(CHECKPOINT_ATUALIZACAO_PATH.read_text())
-    except Exception:
-        return {}
+def _carregar_checkpoint_atualizacao(cache_tipo: str = None) -> dict:
+    store = UpdateRunStore(APP_DIR)
+    record = store.latest(cache_tipo)
+    if record and record["periods"] != ["materialization"] and resumable_run(record, record["cache_type"]):
+        return checkpoint_view(record)
+    return {}
 
 def _salvar_checkpoint_atualizacao(payload: dict) -> None:
-    try:
-        CHECKPOINT_ATUALIZACAO_PATH.parent.mkdir(parents=True, exist_ok=True)
-        CHECKPOINT_ATUALIZACAO_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2))
-    except Exception:
-        pass
+    with mutation_lock(APP_DIR):
+        _write_json_atomic(CHECKPOINT_ATUALIZACAO_PATH, payload)
 
-def _limpar_checkpoint_atualizacao() -> None:
-    try:
-        if CHECKPOINT_ATUALIZACAO_PATH.exists():
-            CHECKPOINT_ATUALIZACAO_PATH.unlink()
-    except Exception:
-        pass
+def _limpar_checkpoint_atualizacao(cache_tipo: str = None, *, supersede: bool = False) -> None:
+    with mutation_lock(APP_DIR):
+        if supersede:
+            store = UpdateRunStore(APP_DIR)
+            record = store.latest(cache_tipo)
+            if record and resumable_run(record, record["cache_type"]):
+                store.finish(record, "superseded")
+        CHECKPOINT_ATUALIZACAO_PATH.unlink(missing_ok=True)
 
 def _carregar_status_atualizacao() -> dict:
-    if not STATUS_ATUALIZACAO_PATH.exists():
-        return {}
     try:
-        return json.loads(STATUS_ATUALIZACAO_PATH.read_text())
-    except Exception:
-        return {}
+        payload = json.loads(STATUS_ATUALIZACAO_PATH.read_text())
+    except FileNotFoundError:
+        payload = {}
+    except (OSError, ValueError):
+        payload = {"current": "registro de status ilegível"}
+    owner = get_update_lock_info(APP_DIR)
+    payload["running"] = bool(owner)
+    if owner:
+        payload["cache_tipo"] = owner.get("cache_type")
+    elif payload.get("current") not in {"concluído", "parcial"} and payload.get("run_id"):
+        record = UpdateRunStore(APP_DIR).load(payload["run_id"])
+        if record and resumable_run(record, record["cache_type"]):
+            payload["current"] = "parcial" if record["persisted_periods"] else "erro: execução interrompida; use retomar"
+    return payload
 
 def _salvar_status_atualizacao(payload: dict) -> None:
-    try:
-        STATUS_ATUALIZACAO_PATH.parent.mkdir(parents=True, exist_ok=True)
-        STATUS_ATUALIZACAO_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2))
-    except Exception:
-        pass
+    with mutation_lock(APP_DIR):
+        _write_json_atomic(STATUS_ATUALIZACAO_PATH, payload)
 
 def _limpar_status_atualizacao() -> None:
-    try:
-        if STATUS_ATUALIZACAO_PATH.exists():
-            STATUS_ATUALIZACAO_PATH.unlink()
-    except Exception:
-        pass
+    with mutation_lock(APP_DIR):
+        STATUS_ATUALIZACAO_PATH.unlink(missing_ok=True)
 
 
 def _ordenar_opcoes_cache_atualizacao(cache_keys: list[str], caches_info: dict) -> list[str]:
@@ -25364,24 +25323,24 @@ elif menu == "Atualizar Base":
             pode_extrair = False
 
         if pode_extrair:
-            checkpoint = _carregar_checkpoint_atualizacao()
+            checkpoint = _carregar_checkpoint_atualizacao(cache_selecionado)
             checkpoint_pendentes = checkpoint.get("pendentes") if checkpoint else None
             checkpoint_cache = checkpoint.get("cache_tipo")
             checkpoint_mesmo_cache = checkpoint_cache == cache_selecionado and bool(checkpoint_pendentes)
             retomar_checkpoint_inline = st.session_state.pop("_retomar_checkpoint_inline", None) == cache_selecionado
 
             status_job = _carregar_status_atualizacao()
-            job_running = bool(status_job.get("running")) and status_job.get("cache_tipo") == cache_selecionado
+            job_running = is_update_running(cache_manager.base_dir)
 
             if checkpoint_mesmo_cache:
                 st.info(f"Extração interrompida detectada para este cache: {len(checkpoint_pendentes)} período(s) pendente(s).")
                 col_chk1, col_chk2 = st.columns(2)
                 with col_chk1:
-                    retomar = st.button("retomar extração", width='stretch', key="retomar_unificado")
+                    retomar = st.button("retomar extração", width='stretch', key="retomar_unificado", disabled=job_running)
                 with col_chk2:
-                    reiniciar = st.button("reiniciar extração", width='stretch', key="reiniciar_unificado")
+                    reiniciar = st.button("reiniciar extração", width='stretch', key="reiniciar_unificado", disabled=job_running)
                 if reiniciar:
-                    _limpar_checkpoint_atualizacao()
+                    _limpar_checkpoint_atualizacao(cache_selecionado, supersede=True)
                     checkpoint = {}
                     checkpoint_pendentes = None
                     st.info("checkpoint limpo. pronto para nova extração.")
@@ -25417,7 +25376,7 @@ elif menu == "Atualizar Base":
                         f"atualizando: {status_job.get('current', '-')}"
                     )
                     st.caption(f"última atualização: {status_job.get('last_update', '-')}")
-                if st.button("limpar status travado", width='stretch', key="limpar_status_unificado"):
+                if st.button("limpar status travado", width='stretch', key="limpar_status_unificado", disabled=job_running):
                     _limpar_status_atualizacao()
                     st.success("status limpo. você pode iniciar novamente.")
                 st.stop()
@@ -25456,20 +25415,26 @@ elif menu == "Atualizar Base":
                 logs_extracao = []
 
                 if not is_taxas_juros and not is_taxas_juros_historico and not is_bloprudencial and not is_cosif_4010 and not is_spb_meios_pagamento and not is_mercado_credito_sgs:
-                    periodos_totais = periodos_extrair
-                    concluidos = set(checkpoint.get("concluidos") or [])
-                    if retomar and checkpoint_pendentes:
-                        periodos_exec = checkpoint_pendentes
-                    else:
-                        periodos_exec = [p for p in periodos_extrair if p not in concluidos]
+                    try:
+                        update_store, update_record = prepare_run(
+                            cache_manager, cache_selecionado, periodos_extrair, modo_atualizacao,
+                            {"intervalo_save": int(intervalo_save),
+                             "batch_size": max(int(intervalo_save), 1) if modo_lotes else len(periodos_extrair)},
+                            resume_id=checkpoint.get("run_id") if retomar else None,
+                        )
+                    except Exception as exc:
+                        st.error(f"Não foi possível iniciar a atualização: {exc}")
+                        st.stop()
+                    frozen = checkpoint_view(update_record)
+                    periodos_totais = frozen["periodos"]
+                    modo_atualizacao = frozen["modo"]
+                    intervalo_save = frozen["options"]["intervalo_save"]
+                    concluidos = set(frozen["concluidos"])
+                    periodos_exec = frozen["pendentes"]
+                    tamanho_lote = max(int(frozen["options"].get("batch_size") or len(periodos_exec)), 1)
+                    periodos_lote = periodos_exec[:tamanho_lote]
+                    periodos_restantes = periodos_exec[tamanho_lote:]
 
-                    tamanho_lote = max(int(intervalo_save), 1)
-                    if modo_lotes and len(periodos_exec) > tamanho_lote:
-                        periodos_lote = periodos_exec[:tamanho_lote]
-                        periodos_restantes = periodos_exec[tamanho_lote:]
-                    else:
-                        periodos_lote = periodos_exec
-                        periodos_restantes = []
                 else:
                     periodos_totais = periodos_extrair
                     periodos_lote = periodos_extrair
@@ -25481,22 +25446,24 @@ elif menu == "Atualizar Base":
                 if is_cosif_4010:
                     from scripts.ingest_cosif_4010 import ingest
                     try:
-                        cache_4010 = cache_manager.get_cache("cosif_4010")
-                        if not periodos_extrair:
-                            raise ValueError("Selecione ao menos uma competência válida")
-                        status_text.text("Ingerindo todos os grupos do caderno 4010...")
-                        resultado = ingest(cache_4010, periodos_extrair,
-                                           refresh=(modo_atualizacao == "overwrite"))
-                        progress_bar.progress(1.0)
-                        status_text.empty()
-                        st.success(resultado.mensagem)
-                        st.json(resultado.metadata["cobertura"])
-                        _carregar_bloprud_conta_por_periodos.clear()
-                        _catalogo_contas_bloprudencial.clear()
-                        _cosif_4010_fgc_referencias.clear()
-                        if publicar_auto and gh_token_final and token_validado:
-                            ok_pub, msg_pub = upload_cache_github(cache_manager, "cosif_4010", gh_token_final)
-                            (st.success if ok_pub else st.error)(msg_pub)
+                        with adapter_update_session(cache_manager, cache_selecionado, mode=modo_atualizacao, options={"periodos": list(periodos_extrair)}) as confirm_adapter:
+                            cache_4010 = cache_manager.get_cache("cosif_4010")
+                            if not periodos_extrair:
+                                raise ValueError("Selecione ao menos uma competência válida")
+                            status_text.text("Ingerindo todos os grupos do caderno 4010...")
+                            resultado = ingest(cache_4010, periodos_extrair,
+                                               refresh=(modo_atualizacao == "overwrite"))
+                            confirm_adapter(resultado)
+                            progress_bar.progress(1.0)
+                            status_text.empty()
+                            st.success(resultado.mensagem)
+                            st.json(resultado.metadata["cobertura"])
+                            _carregar_bloprud_conta_por_periodos.clear()
+                            _catalogo_contas_bloprudencial.clear()
+                            _cosif_4010_fgc_referencias.clear()
+                            if publicar_auto and gh_token_final and token_validado:
+                                ok_pub, msg_pub = upload_cache_github(cache_manager, "cosif_4010", gh_token_final)
+                                (st.success if ok_pub else st.error)(msg_pub)
                     except Exception as exc:
                         st.error(f"Falha na ingestão 4010: {exc}")
 
@@ -25504,119 +25471,124 @@ elif menu == "Atualizar Base":
                     from utils.ifdata_cache import load_bloprudencial_df_cached, preload_bloprudencial
 
                     try:
-                        force_refresh_bloprud = (modo_atualizacao == "overwrite")
-                        base_cache_bloprud = "data/cache/bcb_bloprudencial"
-                        logs_bloprud = []
-                        total = max(len(periodos_extrair), 1)
+                        with adapter_update_session(cache_manager, cache_selecionado, mode=modo_atualizacao, options={"periodos": list(periodos_extrair)}) as confirm_adapter:
+                            force_refresh_bloprud = (modo_atualizacao == "overwrite")
+                            base_cache_bloprud = "data/cache/bcb_bloprudencial"
+                            logs_bloprud = []
+                            total = max(len(periodos_extrair), 1)
 
-                        if not periodos_extrair:
-                            st.error("Nenhuma competência válida selecionada para BLOPRUDENCIAL")
-                        elif len(periodos_extrair) == 1:
-                            ym = periodos_extrair[0]
-                            status_text.text(f"Carregando BLOPRUDENCIAL {ym}...")
-                            progress_bar.progress(0.5)
-                            df_bloprud = load_bloprudencial_df_cached(
-                                yyyymm=ym,
-                                cache_dir=base_cache_bloprud,
-                                force_refresh=force_refresh_bloprud,
-                            )
-                            progress_bar.progress(1.0)
-                            inspect = (df_bloprud.attrs.get("bloprudencial") or {}).get("inspect", {})
-                            logs_bloprud.append(
-                                f"{ym}: linhas={len(df_bloprud):,} colunas={len(df_bloprud.columns)} sep={inspect.get('delimiter_guess')} enc={inspect.get('encoding_used')}"
-                            )
-                            st.session_state["bloprudencial_df"] = df_bloprud
-                            st.session_state["bloprudencial_yyyymm"] = ym
-                        else:
-                            status_text.text("Pré-carregando múltiplas competências BLOPRUDENCIAL...")
-                            preload_bloprudencial(periodos_extrair, cache_dir=base_cache_bloprud, force_refresh=force_refresh_bloprud)
-                            dfs = {}
-                            for idx, ym in enumerate(periodos_extrair, start=1):
-                                status_text.text(f"[{idx}/{len(periodos_extrair)}] Carregando {ym}...")
-                                progress_bar.progress(idx / total)
-                                dfs[ym] = load_bloprudencial_df_cached(
+                            if not periodos_extrair:
+                                st.error("Nenhuma competência válida selecionada para BLOPRUDENCIAL")
+                            elif len(periodos_extrair) == 1:
+                                ym = periodos_extrair[0]
+                                status_text.text(f"Carregando BLOPRUDENCIAL {ym}...")
+                                progress_bar.progress(0.5)
+                                df_bloprud = load_bloprudencial_df_cached(
                                     yyyymm=ym,
                                     cache_dir=base_cache_bloprud,
                                     force_refresh=force_refresh_bloprud,
                                 )
-                                inspect = (dfs[ym].attrs.get("bloprudencial") or {}).get("inspect", {})
+                                progress_bar.progress(1.0)
+                                inspect = (df_bloprud.attrs.get("bloprudencial") or {}).get("inspect", {})
                                 logs_bloprud.append(
-                                    f"{ym}: linhas={len(dfs[ym]):,} colunas={len(dfs[ym].columns)} sep={inspect.get('delimiter_guess')} enc={inspect.get('encoding_used')}"
+                                    f"{ym}: linhas={len(df_bloprud):,} colunas={len(df_bloprud.columns)} sep={inspect.get('delimiter_guess')} enc={inspect.get('encoding_used')}"
                                 )
-                            st.session_state["bloprudencial_dfs"] = dfs
-                            st.session_state["bloprudencial_yyyymm_list"] = periodos_extrair
+                                st.session_state["bloprudencial_df"] = df_bloprud
+                                st.session_state["bloprudencial_yyyymm"] = ym
+                            else:
+                                status_text.text("Pré-carregando múltiplas competências BLOPRUDENCIAL...")
+                                preload_bloprudencial(periodos_extrair, cache_dir=base_cache_bloprud, force_refresh=force_refresh_bloprud)
+                                dfs = {}
+                                for idx, ym in enumerate(periodos_extrair, start=1):
+                                    status_text.text(f"[{idx}/{len(periodos_extrair)}] Carregando {ym}...")
+                                    progress_bar.progress(idx / total)
+                                    dfs[ym] = load_bloprudencial_df_cached(
+                                        yyyymm=ym,
+                                        cache_dir=base_cache_bloprud,
+                                        force_refresh=force_refresh_bloprud,
+                                    )
+                                    inspect = (dfs[ym].attrs.get("bloprudencial") or {}).get("inspect", {})
+                                    logs_bloprud.append(
+                                        f"{ym}: linhas={len(dfs[ym]):,} colunas={len(dfs[ym].columns)} sep={inspect.get('delimiter_guess')} enc={inspect.get('encoding_used')}"
+                                    )
+                                st.session_state["bloprudencial_dfs"] = dfs
+                                st.session_state["bloprudencial_yyyymm_list"] = periodos_extrair
 
-                        progress_bar.empty()
-                        status_text.empty()
-                        save_status.empty()
+                            progress_bar.empty()
+                            status_text.empty()
+                            save_status.empty()
 
-                        st.success(f"Extração BLOPRUDENCIAL concluída para {len(periodos_extrair)} competência(s)")
-                        with st.expander("📋 Log BLOPRUDENCIAL", expanded=False):
-                            for line in logs_bloprud:
-                                st.text(line)
+                            st.success(f"Extração BLOPRUDENCIAL concluída para {len(periodos_extrair)} competência(s)")
+                            with st.expander("📋 Log BLOPRUDENCIAL", expanded=False):
+                                for line in logs_bloprud:
+                                    st.text(line)
 
-                        # Persistir também no cache manager para permitir publicação/download pelo fluxo padrão
-                        if len(periodos_extrair) == 1 and "bloprudencial_df" in st.session_state:
-                            df_preview = st.session_state["bloprudencial_df"].copy()
-                            ym_preview = st.session_state.get("bloprudencial_yyyymm", "")
-                            if ym_preview and "Período" not in df_preview.columns:
-                                df_preview["Período"] = ym_preview
-                            cache_manager.salvar(
-                                "bloprudencial",
-                                df_preview,
-                                fonte="bcb_bloprudencial",
-                                info_extra={"competencias": [ym_preview]},
-                            )
-                            c1, c2, c3 = st.columns(3)
-                            with c1:
-                                st.metric("Competência", ym_preview or "-")
-                            with c2:
-                                st.metric("Linhas", f"{len(df_preview):,}")
-                            with c3:
-                                st.metric("Colunas", len(df_preview.columns))
-                            st.dataframe(df_preview.head(20), width="stretch")
-                        elif len(periodos_extrair) > 1 and "bloprudencial_dfs" in st.session_state:
-                            df_merge = []
-                            for ym, df_ym in st.session_state["bloprudencial_dfs"].items():
-                                tmp = df_ym.copy()
-                                if "Período" not in tmp.columns:
-                                    tmp["Período"] = ym
-                                df_merge.append(tmp)
-                            if df_merge:
-                                df_bloprud_all = pd.concat(df_merge, ignore_index=True)
-                                cache_manager.salvar(
-                                    "bloprudencial",
-                                    df_bloprud_all,
+                            # Persistir também no cache manager para permitir publicação/download pelo fluxo padrão
+                            if len(periodos_extrair) == 1 and "bloprudencial_df" in st.session_state:
+                                df_preview = st.session_state["bloprudencial_df"].copy()
+                                ym_preview = st.session_state.get("bloprudencial_yyyymm", "")
+                                if ym_preview and "Período" not in df_preview.columns:
+                                    df_preview["Período"] = ym_preview
+                                save_result = save_period_window(
+                                    cache_manager, "bloprudencial",
+                                    df_preview, [ym_preview],
                                     fonte="bcb_bloprudencial",
-                                    info_extra={"competencias": periodos_extrair},
+                                    info_extra={"competencias": [ym_preview]},
                                 )
+                                c1, c2, c3 = st.columns(3)
+                                with c1:
+                                    st.metric("Competência", ym_preview or "-")
+                                with c2:
+                                    st.metric("Linhas", f"{len(df_preview):,}")
+                                with c3:
+                                    st.metric("Colunas", len(df_preview.columns))
+                                st.dataframe(df_preview.head(20), width="stretch")
+                            elif len(periodos_extrair) > 1 and "bloprudencial_dfs" in st.session_state:
+                                df_merge = []
+                                for ym, df_ym in st.session_state["bloprudencial_dfs"].items():
+                                    tmp = df_ym.copy()
+                                    if "Período" not in tmp.columns:
+                                        tmp["Período"] = ym
+                                    df_merge.append(tmp)
+                                if df_merge:
+                                    df_bloprud_all = pd.concat(df_merge, ignore_index=True)
+                                    save_result = save_period_window(
+                                        cache_manager, "bloprudencial",
+                                        df_bloprud_all, periodos_extrair,
+                                        fonte="bcb_bloprudencial",
+                                        info_extra={"competencias": periodos_extrair},
+                                    )
 
-                        if publicar_auto and gh_token_final and token_validado:
-                            detalhes_materializacao = _materializar_dependencias_publicacao(
-                                cache_manager,
-                                tipo_cache=cache_selecionado,
-                            )
-                            with st.expander("dependências recalculadas", expanded=False):
-                                _render_materialization_details(detalhes_materializacao)
-                            with st.spinner("publicando pacote consistente no GitHub Releases..."):
-                                sucesso_pub, msg_pub, ctx_pub = _publicar_bundle_release(
+                            if not save_result.sucesso:
+                                raise RuntimeError(save_result.mensagem)
+                            confirm_adapter(save_result)
+
+                            if publicar_auto and gh_token_final and token_validado:
+                                detalhes_materializacao = _materializar_dependencias_publicacao(
                                     cache_manager,
-                                    caches_selecionados=[cache_selecionado],
-                                    gh_token=gh_token_final,
-                                    expected_periods=_expected_periods_publicacao(
-                                        cache_manager,
-                                        cache_selecionado,
-                                        periodos_extrair,
-                                    ),
-                                    materialization_details=detalhes_materializacao,
+                                    tipo_cache=cache_selecionado,
                                 )
-                                if sucesso_pub:
-                                    st.success(f"✅ {msg_pub}")
-                                    skipped_targets = ctx_pub.get("skipped_targets") or []
-                                    if skipped_targets:
-                                        st.warning(f"Dependências não publicadas neste ciclo: {'; '.join(skipped_targets)}")
-                                else:
-                                    st.warning(f"⚠️ falha ao publicar: {msg_pub}")
+                                with st.expander("dependências recalculadas", expanded=False):
+                                    _render_materialization_details(detalhes_materializacao)
+                                with st.spinner("publicando pacote consistente no GitHub Releases..."):
+                                    sucesso_pub, msg_pub, ctx_pub = _publicar_bundle_release(
+                                        cache_manager,
+                                        caches_selecionados=[cache_selecionado],
+                                        gh_token=gh_token_final,
+                                        expected_periods=_expected_periods_publicacao(
+                                            cache_manager,
+                                            cache_selecionado,
+                                            periodos_extrair,
+                                        ),
+                                        materialization_details=detalhes_materializacao,
+                                    )
+                                    if sucesso_pub:
+                                        st.success(f"✅ {msg_pub}")
+                                        skipped_targets = ctx_pub.get("skipped_targets") or []
+                                        if skipped_targets:
+                                            st.warning(f"Dependências não publicadas neste ciclo: {'; '.join(skipped_targets)}")
+                                    else:
+                                        st.warning(f"⚠️ falha ao publicar: {msg_pub}")
 
                     except Exception as e:
                         progress_bar.empty()
@@ -25630,45 +25602,47 @@ elif menu == "Atualizar Base":
                         status_text.text(message)
 
                     try:
-                        cache_sgs_update = cache_manager.get_cache("mercado_credito_sgs")
-                        if cache_sgs_update is None:
-                            raise RuntimeError("Cache mercado_credito_sgs não registrado")
-                        resultado = cache_sgs_update.materialize_history(
-                            start=data_inicio_sgs,
-                            end=data_fim_sgs,
-                            overwrite=(modo_atualizacao == "overwrite"),
-                            progress_callback=callback_progresso_sgs,
-                        )
-                        progress_bar.empty()
-                        status_text.empty()
-                        save_status.empty()
-                        if resultado.sucesso:
-                            st.success(f"Extração SGS concluída: {resultado.mensagem}")
-                            meta_sgs = resultado.metadata or {}
-                            c1, c2, c3 = st.columns(3)
-                            with c1:
-                                st.metric("Séries", meta_sgs.get("series", 0))
-                            with c2:
-                                st.metric("Períodos", meta_sgs.get("total_periodos", 0))
-                            with c3:
-                                st.metric("Observações", meta_sgs.get("total_registros", 0))
+                        with adapter_update_session(cache_manager, cache_selecionado, mode=modo_atualizacao, options={"start": data_inicio_sgs, "end": data_fim_sgs}) as confirm_adapter:
+                            cache_sgs_update = cache_manager.get_cache("mercado_credito_sgs")
+                            if cache_sgs_update is None:
+                                raise RuntimeError("Cache mercado_credito_sgs não registrado")
+                            resultado = cache_sgs_update.materialize_history(
+                                start=data_inicio_sgs,
+                                end=data_fim_sgs,
+                                overwrite=(modo_atualizacao == "overwrite"),
+                                progress_callback=callback_progresso_sgs,
+                            )
+                            confirm_adapter(resultado)
+                            progress_bar.empty()
+                            status_text.empty()
+                            save_status.empty()
+                            if resultado.sucesso:
+                                st.success(f"Extração SGS concluída: {resultado.mensagem}")
+                                meta_sgs = resultado.metadata or {}
+                                c1, c2, c3 = st.columns(3)
+                                with c1:
+                                    st.metric("Séries", meta_sgs.get("series", 0))
+                                with c2:
+                                    st.metric("Períodos", meta_sgs.get("total_periodos", 0))
+                                with c3:
+                                    st.metric("Observações", meta_sgs.get("total_registros", 0))
 
-                            if publicar_auto and gh_token_final and token_validado:
-                                with st.spinner("publicando cache SGS no GitHub Releases..."):
-                                    sucesso_pub, msg_pub, _ = _publicar_bundle_release(
-                                        cache_manager,
-                                        caches_selecionados=[cache_selecionado],
-                                        gh_token=gh_token_final,
-                                        expected_periods=_expected_periods_publicacao(
-                                            cache_manager, cache_selecionado
-                                        ),
-                                    )
-                                if sucesso_pub:
-                                    st.success(msg_pub)
-                                else:
-                                    st.warning(f"Falha ao publicar: {msg_pub}")
-                        else:
-                            st.error(f"Erro na extração SGS: {resultado.mensagem}")
+                                if publicar_auto and gh_token_final and token_validado:
+                                    with st.spinner("publicando cache SGS no GitHub Releases..."):
+                                        sucesso_pub, msg_pub, _ = _publicar_bundle_release(
+                                            cache_manager,
+                                            caches_selecionados=[cache_selecionado],
+                                            gh_token=gh_token_final,
+                                            expected_periods=_expected_periods_publicacao(
+                                                cache_manager, cache_selecionado
+                                            ),
+                                        )
+                                    if sucesso_pub:
+                                        st.success(msg_pub)
+                                    else:
+                                        st.warning(f"Falha ao publicar: {msg_pub}")
+                            else:
+                                st.error(f"Erro na extração SGS: {resultado.mensagem}")
                     except Exception as exc:
                         progress_bar.empty()
                         status_text.empty()
@@ -25694,68 +25668,70 @@ elif menu == "Atualizar Base":
                     )
 
                     try:
-                        cache_taxas_hist = cache_manager.get_cache("taxas_juros_historico")
-                        if cache_taxas_hist is None:
-                            cache_taxas_hist = TaxasJurosHistoricoCache(Path.cwd())
+                        with adapter_update_session(cache_manager, cache_selecionado, mode=modo_atualizacao, options={"start": data_inicio_tj_hist, "end": data_fim_tj_hist, "max_windows": int(max_janelas_tj_hist), "reprocess_tail": int(reprocessar_cauda_tj_hist)}) as confirm_adapter:
+                            cache_taxas_hist = cache_manager.get_cache("taxas_juros_historico")
+                            if cache_taxas_hist is None:
+                                cache_taxas_hist = TaxasJurosHistoricoCache(Path.cwd())
 
-                        resultado = cache_taxas_hist.materialize_history(
-                            data_inicio=data_inicio_tj_hist.strftime('%Y-%m-%d'),
-                            data_fim=data_fim_tj_hist.strftime('%Y-%m-%d'),
-                            overwrite=(modo_atualizacao == "overwrite"),
-                            max_windows_per_run=int(max_janelas_tj_hist),
-                            reprocess_tail_windows=int(reprocessar_cauda_tj_hist),
-                            progress_callback=callback_progresso_tj_hist,
-                            log_callback=callback_log_tj_hist,
-                        )
+                            resultado = cache_taxas_hist.materialize_history(
+                                data_inicio=data_inicio_tj_hist.strftime('%Y-%m-%d'),
+                                data_fim=data_fim_tj_hist.strftime('%Y-%m-%d'),
+                                overwrite=(modo_atualizacao == "overwrite"),
+                                max_windows_per_run=int(max_janelas_tj_hist),
+                                reprocess_tail_windows=int(reprocessar_cauda_tj_hist),
+                                progress_callback=callback_progresso_tj_hist,
+                                log_callback=callback_log_tj_hist,
+                            )
 
-                        progress_bar.empty()
-                        status_text.empty()
-                        save_status.empty()
+                            confirm_adapter(resultado)
+                            progress_bar.empty()
+                            status_text.empty()
+                            save_status.empty()
 
-                        if resultado.sucesso:
-                            meta_hist = resultado.metadata or {}
-                            if meta_hist.get("finalized"):
-                                st.success(f"✅ {resultado.mensagem}")
+                            if resultado.sucesso:
+                                meta_hist = resultado.metadata or {}
+                                if meta_hist.get("finalized"):
+                                    st.success(f"✅ {resultado.mensagem}")
+                                else:
+                                    st.warning(f"⏸️ {resultado.mensagem}")
+
+                                col_hist_stat1, col_hist_stat2, col_hist_stat3, col_hist_stat4 = st.columns(4)
+                                with col_hist_stat1:
+                                    st.metric("Janelas restantes", int(meta_hist.get("remaining_windows", 0) or 0))
+                                with col_hist_stat2:
+                                    st.metric("Processadas nesta execução", int(meta_hist.get("processed_this_run", 0) or 0))
+                                with col_hist_stat3:
+                                    st.metric("Total de linhas", f"{int(meta_hist.get('total_registros', 0) or 0):,}")
+                                with col_hist_stat4:
+                                    st.metric("Janelas totais", int(meta_hist.get("total_periodos", meta_hist.get("total_periodos_alvo", 0)) or 0))
+
+                                if meta_hist.get("finalized") and publicar_auto and gh_token_final and token_validado:
+                                    with st.spinner("publicando cache histórico no GitHub Releases..."):
+                                        sucesso_pub, msg_pub = upload_cache_github(
+                                            cache_manager,
+                                            cache_selecionado,
+                                            gh_token_final,
+                                        )
+                                        if sucesso_pub:
+                                            st.success(f"✅ {msg_pub}")
+                                        else:
+                                            st.warning(f"⚠️ falha ao publicar: {msg_pub}")
+
+                                failures_hist = meta_hist.get("failures") or []
+                                if failures_hist:
+                                    with st.expander("Falhas detectadas neste chunk", expanded=False):
+                                        st.json(failures_hist)
                             else:
-                                st.warning(f"⏸️ {resultado.mensagem}")
+                                st.error(f"Erro na materialização histórica: {resultado.mensagem}")
+                                failures_hist = (resultado.metadata or {}).get("failures") or []
+                                if failures_hist:
+                                    with st.expander("Falhas detectadas neste chunk", expanded=True):
+                                        st.json(failures_hist)
 
-                            col_hist_stat1, col_hist_stat2, col_hist_stat3, col_hist_stat4 = st.columns(4)
-                            with col_hist_stat1:
-                                st.metric("Janelas restantes", int(meta_hist.get("remaining_windows", 0) or 0))
-                            with col_hist_stat2:
-                                st.metric("Processadas nesta execução", int(meta_hist.get("processed_this_run", 0) or 0))
-                            with col_hist_stat3:
-                                st.metric("Total de linhas", f"{int(meta_hist.get('total_registros', 0) or 0):,}")
-                            with col_hist_stat4:
-                                st.metric("Janelas totais", int(meta_hist.get("total_periodos", meta_hist.get("total_periodos_alvo", 0)) or 0))
-
-                            if meta_hist.get("finalized") and publicar_auto and gh_token_final and token_validado:
-                                with st.spinner("publicando cache histórico no GitHub Releases..."):
-                                    sucesso_pub, msg_pub = upload_cache_github(
-                                        cache_manager,
-                                        cache_selecionado,
-                                        gh_token_final,
-                                    )
-                                    if sucesso_pub:
-                                        st.success(f"✅ {msg_pub}")
-                                    else:
-                                        st.warning(f"⚠️ falha ao publicar: {msg_pub}")
-
-                            failures_hist = meta_hist.get("failures") or []
-                            if failures_hist:
-                                with st.expander("Falhas detectadas neste chunk", expanded=False):
-                                    st.json(failures_hist)
-                        else:
-                            st.error(f"Erro na materialização histórica: {resultado.mensagem}")
-                            failures_hist = (resultado.metadata or {}).get("failures") or []
-                            if failures_hist:
-                                with st.expander("Falhas detectadas neste chunk", expanded=True):
-                                    st.json(failures_hist)
-
-                        if logs_extracao:
-                            with st.expander("📋 Log de materialização", expanded=False):
-                                for log_line in logs_extracao:
-                                    st.text(log_line)
+                            if logs_extracao:
+                                with st.expander("📋 Log de materialização", expanded=False):
+                                    for log_line in logs_extracao:
+                                        st.text(log_line)
 
                     except Exception as e:
                         progress_bar.empty()
@@ -25782,48 +25758,50 @@ elif menu == "Atualizar Base":
                     )
 
                     try:
-                        cache_spb_exec = cache_manager.get_cache("spb_meios_pagamento")
-                        resultado_spb = cache_spb_exec.materialize_history(
-                            datasets=datasets_spb_exec,
-                            overwrite=(modo_atualizacao == "overwrite"),
-                            progress_callback=callback_progresso_spb,
-                            log_callback=callback_log_spb,
-                        )
+                        with adapter_update_session(cache_manager, cache_selecionado, mode=modo_atualizacao, options={"datasets": datasets_spb_exec}) as confirm_adapter:
+                            cache_spb_exec = cache_manager.get_cache("spb_meios_pagamento")
+                            resultado_spb = cache_spb_exec.materialize_history(
+                                datasets=datasets_spb_exec,
+                                overwrite=(modo_atualizacao == "overwrite"),
+                                progress_callback=callback_progresso_spb,
+                                log_callback=callback_log_spb,
+                            )
 
-                        progress_bar.empty()
-                        status_text.empty()
-                        save_status.empty()
+                            confirm_adapter(resultado_spb)
+                            progress_bar.empty()
+                            status_text.empty()
+                            save_status.empty()
 
-                        if resultado_spb.sucesso:
-                            st.success(f"✅ {resultado_spb.mensagem}")
-                            meta_spb = resultado_spb.metadata or {}
-                            failures_spb = meta_spb.get("failures") or []
-                            if failures_spb:
-                                with st.expander("Falhas detectadas", expanded=True):
-                                    st.json(failures_spb)
+                            if resultado_spb.sucesso:
+                                st.success(f"✅ {resultado_spb.mensagem}")
+                                meta_spb = resultado_spb.metadata or {}
+                                failures_spb = meta_spb.get("failures") or []
+                                if failures_spb:
+                                    with st.expander("Falhas detectadas", expanded=True):
+                                        st.json(failures_spb)
 
-                            if publicar_auto and gh_token_final and token_validado:
-                                with st.spinner("publicando cache SPB no GitHub Releases..."):
-                                    sucesso_pub, msg_pub = upload_cache_github(
-                                        cache_manager,
-                                        cache_selecionado,
-                                        gh_token_final,
-                                    )
-                                    if sucesso_pub:
-                                        st.success(f"✅ {msg_pub}")
-                                    else:
-                                        st.warning(f"⚠️ falha ao publicar: {msg_pub}")
-                        else:
-                            st.error(f"Erro na materialização SPB: {resultado_spb.mensagem}")
-                            failures_spb = (resultado_spb.metadata or {}).get("failures") or []
-                            if failures_spb:
-                                with st.expander("Falhas detectadas", expanded=True):
-                                    st.json(failures_spb)
+                                if publicar_auto and gh_token_final and token_validado:
+                                    with st.spinner("publicando cache SPB no GitHub Releases..."):
+                                        sucesso_pub, msg_pub = upload_cache_github(
+                                            cache_manager,
+                                            cache_selecionado,
+                                            gh_token_final,
+                                        )
+                                        if sucesso_pub:
+                                            st.success(f"✅ {msg_pub}")
+                                        else:
+                                            st.warning(f"⚠️ falha ao publicar: {msg_pub}")
+                            else:
+                                st.error(f"Erro na materialização SPB: {resultado_spb.mensagem}")
+                                failures_spb = (resultado_spb.metadata or {}).get("failures") or []
+                                if failures_spb:
+                                    with st.expander("Falhas detectadas", expanded=True):
+                                        st.json(failures_spb)
 
-                        if logs_extracao:
-                            with st.expander("📋 Log de materialização", expanded=False):
-                                for log_line in logs_extracao:
-                                    st.text(log_line)
+                            if logs_extracao:
+                                with st.expander("📋 Log de materialização", expanded=False):
+                                    for log_line in logs_extracao:
+                                        st.text(log_line)
 
                     except Exception as e:
                         progress_bar.empty()
@@ -25848,81 +25826,76 @@ elif menu == "Atualizar Base":
 
                     try:
                         # Obter o cache de taxas de juros
-                        cache_taxas = cache_manager.get_cache("taxas_juros")
+                        with adapter_update_session(cache_manager, cache_selecionado, mode=modo_atualizacao, options={"start": data_inicio_tj, "end": data_fim_tj}) as confirm_adapter:
+                            cache_taxas = cache_manager.get_cache("taxas_juros")
 
-                        if cache_taxas is None:
-                            st.error("Cache de Taxas de Juros não configurado corretamente")
-                        else:
-                            # Executar extração completa com paginação
-                            resultado = cache_taxas.extrair_completo(
-                                data_inicio=data_inicio_tj.strftime('%Y-%m-%d'),
-                                data_fim=data_fim_tj.strftime('%Y-%m-%d'),
-                                progress_callback=callback_progresso_tj,
-                                log_callback=callback_log_tj
-                            )
-
-                            # Limpar UI de progresso
-                            progress_bar.empty()
-                            status_text.empty()
-
-                            if resultado.sucesso:
-                                # Salvar cache
-                                save_status.text("Salvando cache...")
-
-                                # Se modo overwrite, limpar antes
-                                if modo_atualizacao == "overwrite":
-                                    cache_taxas.limpar_local()
-
-                                # Salvar os dados
-                                save_result = cache_taxas.salvar_local(
-                                    resultado.dados,
-                                    fonte="api",
-                                    info_extra=resultado.metadata,
+                            if cache_taxas is None:
+                                st.error("Cache de Taxas de Juros não configurado corretamente")
+                            else:
+                                # Executar extração completa com paginação
+                                resultado = extract_taxas_window(
+                                    cache_taxas,
+                                    start=data_inicio_tj.strftime('%Y-%m-%d'),
+                                    end=data_fim_tj.strftime('%Y-%m-%d'),
+                                    progress_callback=callback_progresso_tj,
+                                    log_callback=callback_log_tj
                                 )
 
-                                save_status.empty()
+                                # Limpar UI de progresso
+                                progress_bar.empty()
+                                status_text.empty()
 
-                                if save_result.sucesso:
-                                    st.success(f"✅ Extração e salvamento concluídos: {resultado.mensagem}")
+                                if resultado.sucesso:
+                                    # Salvar cache
+                                    save_status.text("Salvando cache...")
 
-                                    # Mostrar estatísticas
-                                    meta = resultado.metadata or {}
-                                    col_stat1, col_stat2, col_stat3, col_stat4 = st.columns(4)
-                                    with col_stat1:
-                                        st.metric("Total de linhas", f"{meta.get('total_registros', 0):,}")
-                                    with col_stat2:
-                                        st.metric("Produtos", meta.get('produtos_unicos', 0))
-                                    with col_stat3:
-                                        st.metric("Instituições", meta.get('instituicoes_unicas', 0))
-                                    with col_stat4:
-                                        st.metric("Períodos (datas)", meta.get('periodos_unicos', 0))
+                                    # O helper confirma o merge/gravação antes de retornar sucesso.
+                                    save_result = resultado
+                                    confirm_adapter(save_result)
 
-                                    # Verificar truncamento
-                                    if meta.get('truncado'):
-                                        st.warning("⚠️ AVISO: Possível truncamento detectado! Verifique se todos os dados foram extraídos.")
+                                    save_status.empty()
+
+                                    if save_result.sucesso:
+                                        st.success(f"✅ Extração e salvamento concluídos: {resultado.mensagem}")
+
+                                        # Mostrar estatísticas
+                                        meta = resultado.metadata or {}
+                                        col_stat1, col_stat2, col_stat3, col_stat4 = st.columns(4)
+                                        with col_stat1:
+                                            st.metric("Total de linhas", f"{meta.get('total_registros', 0):,}")
+                                        with col_stat2:
+                                            st.metric("Produtos", meta.get('produtos_unicos', 0))
+                                        with col_stat3:
+                                            st.metric("Instituições", meta.get('instituicoes_unicas', 0))
+                                        with col_stat4:
+                                            st.metric("Períodos (datas)", meta.get('periodos_unicos', 0))
+
+                                        # Verificar truncamento
+                                        if meta.get('truncado'):
+                                            st.warning("⚠️ AVISO: Possível truncamento detectado! Verifique se todos os dados foram extraídos.")
+                                        else:
+                                            st.success("✅ Extração completa sem truncamento")
+
+                                        # Mostrar logs em expander
+                                        with st.expander("📋 Log de extração", expanded=False):
+                                            for log_line in logs_extracao:
+                                                st.text(log_line)
+
+                                        if publicar_auto and gh_token_final and token_validado:
+                                            with st.spinner("publicando cache no GitHub Releases..."):
+                                                sucesso_pub, msg_pub = upload_cache_github(
+                                                    cache_manager,
+                                                    cache_selecionado,
+                                                    gh_token_final,
+                                                )
+                                                if sucesso_pub:
+                                                    st.success(f"✅ {msg_pub}")
+                                                else:
+                                                    st.warning(f"⚠️ falha ao publicar: {msg_pub}")
                                     else:
-                                        st.success("✅ Extração completa sem truncamento")
-
-                                    # Mostrar logs em expander
-                                    with st.expander("📋 Log de extração", expanded=False):
-                                        for log_line in logs_extracao:
-                                            st.text(log_line)
-
-                                    if publicar_auto and gh_token_final and token_validado:
-                                        with st.spinner("publicando cache no GitHub Releases..."):
-                                            sucesso_pub, msg_pub = upload_cache_github(
-                                                cache_manager,
-                                                cache_selecionado,
-                                                gh_token_final,
-                                            )
-                                            if sucesso_pub:
-                                                st.success(f"✅ {msg_pub}")
-                                            else:
-                                                st.warning(f"⚠️ falha ao publicar: {msg_pub}")
+                                        st.error(f"Erro ao salvar cache: {save_result.mensagem}")
                                 else:
-                                    st.error(f"Erro ao salvar cache: {save_result.mensagem}")
-                            else:
-                                st.error(f"Erro na extração: {resultado.mensagem}")
+                                    st.error(f"Erro na extração: {resultado.mensagem}")
 
                     except Exception as e:
                         progress_bar.empty()
@@ -25954,154 +25927,81 @@ elif menu == "Atualizar Base":
 
                     try:
                         if modo_bg:
-                            def _run_bg_unificado(
-                                periodos_lote_bg,
-                                periodos_restantes_bg,
-                                periodos_totais_bg,
-                                cache_tipo_bg,
-                                modo_bg_local,
-                                publicar_auto_bg,
-                                gh_token_bg,
-                            ):
-                                total_bg = len(periodos_lote_bg)
-                                _salvar_status_atualizacao({
-                                    "running": True,
-                                    "progress": 0.0,
-                                    "current": "-",
-                                    "total": total_bg,
-                                    "cache_tipo": cache_tipo_bg,
-                                    "last_update": datetime.now().isoformat(),
-                                })
-
+                            def _run_bg_unificado(record_bg, publicar_auto_bg, gh_token_bg):
+                                total_bg = len(record_bg["periods"])
+                                cache_tipo_bg = record_bg["cache_type"]
+                                def status_bg(current, progress=0.0, **extra):
+                                    _salvar_status_atualizacao({
+                                        "run_id": record_bg["run_id"], "running": True,
+                                        "progress": progress, "current": current, "total": total_bg,
+                                        "cache_tipo": cache_tipo_bg, "last_update": datetime.now().isoformat(), **extra,
+                                    })
                                 def callback_progresso_bg(i, total, periodo):
-                                    _salvar_status_atualizacao({
-                                        "running": True,
-                                        "progress": (i + 1) / max(total, 1),
-                                        "current": f"{periodo[4:6]}/{periodo[:4]}",
-                                        "total": total,
-                                        "cache_tipo": cache_tipo_bg,
-                                        "last_update": datetime.now().isoformat(),
-                                    })
-
-                                def callback_salvamento_bg(info):
-                                    _salvar_status_atualizacao({
-                                        "running": True,
-                                        "progress": _carregar_status_atualizacao().get("progress", 0),
-                                        "current": "salvando",
-                                        "total": total_bg,
-                                        "cache_tipo": cache_tipo_bg,
-                                        "last_update": datetime.now().isoformat(),
-                                    })
-
-                                resultado_bg = cache_manager.extrair_periodos_com_salvamento(
-                                    tipo=cache_tipo_bg,
-                                    periodos=periodos_lote_bg,
-                                    modo=modo_bg_local,
-                                    intervalo_salvamento=intervalo_save,
-                                    callback_progresso=callback_progresso_bg,
-                                    callback_salvamento=callback_salvamento_bg,
-                                    callback_erro=None,
-                                    dict_aliases=None
-                                )
-
-                                pendentes_final_bg = periodos_restantes_bg or []
-                                if resultado_bg.sucesso:
-                                    concluidos_bg = set(checkpoint.get("concluidos") or [])
-                                    concluidos_bg.update(periodos_lote_bg)
-                                    pendentes_final_bg = [p for p in periodos_totais_bg if p not in concluidos_bg]
-                                    if periodos_restantes_bg:
-                                        pendentes_final_bg = periodos_restantes_bg + [p for p in pendentes_final_bg if p not in periodos_restantes_bg]
-
-                                    if not pendentes_final_bg:
-                                        _limpar_checkpoint_atualizacao()
-                                        _salvar_status_atualizacao({
-                                            "running": False,
-                                            "progress": 1.0,
-                                            "current": "concluído",
-                                            "total": total_bg,
-                                            "cache_tipo": cache_tipo_bg,
-                                            "last_update": datetime.now().isoformat(),
-                                        })
-                                    else:
-                                        _salvar_checkpoint_atualizacao({
-                                            "cache_tipo": cache_tipo_bg,
-                                            "periodos": periodos_totais_bg,
-                                            "concluidos": sorted(concluidos_bg),
-                                            "pendentes": pendentes_final_bg,
-                                            "timestamp": datetime.now().isoformat(),
-                                        })
-                                        _salvar_status_atualizacao({
-                                            "running": False,
-                                            "progress": 0.0,
-                                            "current": "parcial",
-                                            "total": total_bg,
-                                            "cache_tipo": cache_tipo_bg,
-                                            "last_update": datetime.now().isoformat(),
-                                        })
-
-                                    if publicar_auto_bg and gh_token_bg and not pendentes_final_bg:
-                                        detalhes_materializacao_bg = _materializar_dependencias_publicacao(
-                                            cache_manager,
-                                            tipo_cache=cache_tipo_bg,
+                                    status_bg(f"{periodo[4:6]}/{periodo[:4]}", (i + 1) / max(total, 1))
+                                def publish_bg(record, details):
+                                    return _publicar_bundle_release(
+                                        cache_manager, caches_selecionados=[cache_tipo_bg], gh_token=gh_token_bg,
+                                        expected_periods=_expected_periods_publicacao(cache_manager, cache_tipo_bg, record["periods"]),
+                                        materialization_details=details,
+                                    )
+                                try:
+                                    with mutation_lock(cache_manager.base_dir, owner={"run_id": record_bg["run_id"], "cache_type": cache_tipo_bg}):
+                                        status_bg("iniciando")
+                                        _, completed = run_quarterly_update(
+                                            cache_manager, update_store, record_bg,
+                                            progress_callback=callback_progresso_bg,
+                                            save_callback=lambda info: status_bg("salvando"),
+                                            checkpoint_callback=_salvar_checkpoint_atualizacao,
+                                            materialize=lambda kind: _materializar_dependencias_publicacao(cache_manager, tipo_cache=kind),
+                                            publish=publish_bg if publicar_auto_bg and gh_token_bg else None,
                                         )
-                                        sucesso_pub_bg, msg_pub_bg, _ = _publicar_bundle_release(
-                                            cache_manager,
-                                            caches_selecionados=[cache_tipo_bg],
-                                            gh_token=gh_token_bg,
-                                            expected_periods=_expected_periods_publicacao(
-                                                cache_manager,
-                                                cache_tipo_bg,
-                                                periodos_totais_bg,
-                                            ),
-                                            materialization_details=detalhes_materializacao_bg,
-                                        )
-                                        _salvar_status_atualizacao({
-                                            "running": False,
-                                            "progress": 1.0,
-                                            "current": "concluído" if sucesso_pub_bg else "publicação com falha",
-                                            "total": total_bg,
-                                            "cache_tipo": cache_tipo_bg,
-                                            "last_update": datetime.now().isoformat(),
-                                            "publish_message": msg_pub_bg,
-                                        })
-                                else:
-                                    _salvar_status_atualizacao({
-                                        "running": False,
-                                        "progress": 0.0,
-                                        "current": f"erro: {resultado_bg.mensagem}",
-                                        "total": total_bg,
-                                        "cache_tipo": cache_tipo_bg,
-                                        "last_update": datetime.now().isoformat(),
-                                    })
+                                        publication = completed.get("publication") or {}
+                                        if completed["status"] in {"saved", "published"}:
+                                            _limpar_checkpoint_atualizacao(cache_tipo_bg)
+                                            status_bg("concluído", 1.0, running=False, publish_message=publication.get("message"))
+                                        elif completed["status"] == "partial":
+                                            status_bg("parcial", running=False)
+                                        elif completed["status"] == "publish_failed":
+                                            status_bg("publicação com falha", 1.0, running=False, publish_message=publication.get("message") or completed.get("error"))
+                                        else:
+                                            status_bg(f"erro: {completed.get('error') or completed.get('message')}", running=False)
+                                except Exception as exc:
+                                    # Nunca sobrescrever o status de quem detém outra trava.
+                                    if not is_update_running(cache_manager.base_dir):
+                                        status_bg(f"erro: {exc}", running=False)
 
                             st.info("Extração iniciada em background. Você pode recarregar a página para acompanhar o status.")
                             th = threading.Thread(
                                 target=_run_bg_unificado,
-                                args=(
-                                    periodos_lote,
-                                    periodos_restantes,
-                                    periodos_totais,
-                                    cache_selecionado,
-                                    modo_atualizacao,
-                                    publicar_auto,
-                                    gh_token_final,
-                                ),
+                                args=(update_record, publicar_auto and token_validado, gh_token_final),
                                 daemon=True,
                             )
                             th.start()
                             st.stop()
 
                         # Usar o gerenciador unificado para extração
-                        resultado = cache_manager.extrair_periodos_com_salvamento(
-                            tipo=cache_selecionado,
-                            periodos=periodos_lote,
-                            modo=modo_atualizacao,
-                            intervalo_salvamento=intervalo_save,
-                            callback_progresso=callback_progresso,
-                            callback_salvamento=callback_salvamento,
-                            callback_erro=callback_erro,
-                            dict_aliases=None
+                        cycle_details = []
+                        cycle_publication = []
+                        def materialize_cycle(kind):
+                            details = _materializar_dependencias_publicacao(cache_manager, tipo_cache=kind)
+                            cycle_details.extend(details)
+                            return details
+                        def publish_cycle(record, details):
+                            publication = _publicar_bundle_release(
+                                cache_manager, caches_selecionados=[cache_selecionado], gh_token=gh_token_final,
+                                expected_periods=_expected_periods_publicacao(cache_manager, cache_selecionado, record["periods"]),
+                                materialization_details=details,
+                            )
+                            cycle_publication.append(publication)
+                            return publication
+                        resultado, completed_record = run_quarterly_update(
+                            cache_manager, update_store, update_record,
+                            progress_callback=callback_progresso, save_callback=callback_salvamento,
+                            error_callback=callback_erro, checkpoint_callback=_salvar_checkpoint_atualizacao,
+                            materialize=materialize_cycle,
+                            publish=publish_cycle if publicar_auto and gh_token_final and token_validado else None,
                         )
+
 
                         # Limpar UI de progresso
                         progress_bar.empty()
@@ -26182,51 +26082,26 @@ elif menu == "Atualizar Base":
                                 if dados_dict:
                                     st.session_state['dados_capital'] = dados_dict
 
-                            extracao_completa = True
-                            if not is_taxas_juros and not is_bloprudencial and not is_cosif_4010:
-                                concluidos.update(periodos_lote)
-                                pendentes_final = [p for p in periodos_totais if p not in concluidos]
-                                if periodos_restantes:
-                                    pendentes_final = periodos_restantes + [p for p in pendentes_final if p not in periodos_restantes]
-                                if not pendentes_final:
-                                    _limpar_checkpoint_atualizacao()
-                                else:
-                                    extracao_completa = False
-                                    _salvar_checkpoint_atualizacao({
-                                        "cache_tipo": cache_selecionado,
-                                        "periodos": periodos_totais,
-                                        "concluidos": sorted(concluidos),
-                                        "pendentes": pendentes_final,
-                                        "timestamp": datetime.now().isoformat(),
-                                    })
-                                    st.warning(f"extração parcial concluída. pendentes: {len(pendentes_final)}. clique em retomar para continuar.")
-                                    if st.button("retomar agora", type="primary", width='stretch', key="retomar_inline_pos_parcial"):
-                                        st.session_state["_retomar_checkpoint_inline"] = cache_selecionado
-                                        st.rerun()
+                            pendentes_final = completed_record["pending_periods"]
+                            extracao_completa = not pendentes_final and completed_record["status"] in {"saved", "published", "publish_failed"}
+                            if extracao_completa:
+                                _limpar_checkpoint_atualizacao(cache_selecionado)
+                            elif pendentes_final:
+                                st.warning(f"extração parcial concluída. pendentes: {len(pendentes_final)}. clique em retomar para continuar.")
+                                if st.button("retomar agora", type="primary", width='stretch', key="retomar_inline_pos_parcial"):
+                                    st.session_state["_retomar_checkpoint_inline"] = cache_selecionado
+                                    st.rerun()
 
                             detalhes_materializacao = []
                             if extracao_completa:
-                                detalhes_materializacao = _materializar_dependencias_publicacao(
-                                    cache_manager,
-                                    tipo_cache=cache_selecionado,
-                                )
+                                detalhes_materializacao = cycle_details
                                 if detalhes_materializacao:
                                     with st.expander("dependências recalculadas", expanded=False):
                                         _render_materialization_details(detalhes_materializacao)
 
                             if publicar_auto and gh_token_final and token_validado and extracao_completa:
                                 with st.spinner("publicando pacote consistente no GitHub Releases..."):
-                                    sucesso_pub, msg_pub, ctx_pub = _publicar_bundle_release(
-                                        cache_manager,
-                                        caches_selecionados=[cache_selecionado],
-                                        gh_token=gh_token_final,
-                                        expected_periods=_expected_periods_publicacao(
-                                            cache_manager,
-                                            cache_selecionado,
-                                            periodos_totais,
-                                        ),
-                                        materialization_details=detalhes_materializacao,
-                                    )
+                                    sucesso_pub, msg_pub, ctx_pub = cycle_publication[0]
                                     if sucesso_pub:
                                         st.success(f"✅ {msg_pub}")
                                         skipped_targets = ctx_pub.get("skipped_targets") or []
@@ -26265,7 +26140,7 @@ elif menu == "Atualizar Base":
         with st.expander("publicação manual no GitHub", expanded=False):
             st.caption("Use esta ação para publicar o cache selecionado com o melhor pacote consistente disponível.")
             st.caption(_resumo_publicacao_consistente(cache_selecionado))
-            checkpoint_pub = _carregar_checkpoint_atualizacao() or {}
+            checkpoint_pub = _carregar_checkpoint_atualizacao(cache_selecionado) or {}
             checkpoint_pub_pendente = (
                 checkpoint_pub.get("cache_tipo") == cache_selecionado
                 and bool(checkpoint_pub.get("pendentes"))
@@ -26295,17 +26170,22 @@ elif menu == "Atualizar Base":
                     disabled=(not token_para_upload or not token_para_upload_validado or checkpoint_pub_pendente)
                 ):
                     with st.spinner(f"recalculando dependências e publicando '{cache_selecionado}' no github releases..."):
-                        detalhes_materializacao = _materializar_dependencias_publicacao(
-                            cache_manager,
-                            tipo_cache=cache_selecionado,
-                        )
-                        sucesso, mensagem, ctx_pub = _publicar_bundle_release(
-                            cache_manager,
-                            caches_selecionados=[cache_selecionado],
-                            gh_token=token_para_upload,
-                            expected_periods=_expected_periods_publicacao(cache_manager, cache_selecionado),
-                            materialization_details=detalhes_materializacao,
-                        )
+                        try:
+                            with mutation_lock(cache_manager.base_dir, owner={"label": "publicação manual"}):
+                                detalhes_materializacao = _materializar_dependencias_publicacao(
+                                    cache_manager,
+                                    tipo_cache=cache_selecionado,
+                                )
+                                sucesso, mensagem, ctx_pub = _publicar_bundle_release(
+                                    cache_manager,
+                                    caches_selecionados=[cache_selecionado],
+                                    gh_token=token_para_upload,
+                                    expected_periods=_expected_periods_publicacao(cache_manager, cache_selecionado),
+                                    materialization_details=detalhes_materializacao,
+                                )
+                        except Exception as exc:
+                            detalhes_materializacao = []
+                            sucesso, mensagem, ctx_pub = False, str(exc), {}
                         with st.expander("detalhes da materialização", expanded=False):
                             _render_materialization_details(detalhes_materializacao)
                         if sucesso:
