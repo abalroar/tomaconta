@@ -70,6 +70,8 @@ def _borders(cell, *, header=False):
     for name in ("lnL", "lnR", "lnT", "lnB"):
         for existing in tc_pr.findall(f"{{http://schemas.openxmlformats.org/drawingml/2006/main}}{name}"):
             tc_pr.remove(existing)
+    # DrawingML exige as bordas antes do preenchimento da célula.
+    for index, name in enumerate(("lnL", "lnR", "lnT", "lnB")):
         edge = OxmlElement(f"a:{name}")
         edge.set("w", "6350" if name == "lnB" and not header else "0")
         fill = OxmlElement("a:solidFill")
@@ -77,7 +79,7 @@ def _borders(cell, *, header=False):
         color.set("val", _GRID if not header else HEADER_BACKGROUND.lstrip("#"))
         fill.append(color)
         edge.append(fill)
-        tc_pr.append(edge)
+        tc_pr.insert(index, edge)
 
 
 def _cell(cell, text, *, size=14, bold=False, header=False, centered=False, color=_INK, background=None):
@@ -149,17 +151,22 @@ def _history(slide, history, x, y, width, height):
         XL_CHART_TYPE.COLUMN_CLUSTERED if bars else XL_CHART_TYPE.LINE,
         Inches(x), Inches(y), Inches(width), Inches(height), data,
     ).chart
-    # O template do python-pptx usa IDs de eixo signed. O contrato OOXML é
-    # unsignedInt: conserva as mesmas referências com sua representação UInt32.
+    # IDs são locais ao gráfico. O Office Mac rejeita alguns IDs acima de
+    # Int32 mesmo quando cabem em UInt32; usa IDs positivos pequenos e mantém
+    # todas as referências do gráfico e dos eixos no mesmo mapeamento.
+    axis_ids = {
+        node.get("val"): str(index + 1)
+        for index, node in enumerate(chart._chartSpace.xpath(".//c:catAx/c:axId | .//c:valAx/c:axId"))
+    }
     for axis_id in chart._chartSpace.xpath(".//c:axId | .//c:crossAx"):
-        axis_id.set("val", str(int(axis_id.get("val")) & 0xFFFFFFFF))
+        axis_id.set("val", axis_ids[axis_id.get("val")])
     chart.has_legend = chart.has_title = False
     chart.plots[0].has_data_labels = False
     for axis in (chart.category_axis, chart.value_axis):
         delete = axis._element.find("{http://schemas.openxmlformats.org/drawingml/2006/chart}delete")
         if delete is None:
             delete = OxmlElement("c:delete")
-            axis._element.insert(1, delete)
+            axis._element.insert_element_before(delete, "c:axPos")
         delete.set("val", "1")
     for grid in chart._chartSpace.xpath(".//c:majorGridlines | .//c:minorGridlines"):
         grid.getparent().remove(grid)
@@ -179,15 +186,19 @@ def _history(slide, history, x, y, width, height):
     blanks = chart._chartSpace.chart.find("{http://schemas.openxmlformats.org/drawingml/2006/chart}dispBlanksAs")
     if blanks is None:
         blanks = OxmlElement("c:dispBlanksAs")
-        chart._chartSpace.chart.append(blanks)
+        chart._chartSpace.chart.insert_element_before(blanks, "c:showDLblsOverMax", "c:extLst")
     blanks.set("val", "gap")
-    for parent in (chart._chartSpace, chart._chartSpace.chart.plotArea):
+    for parent, successors in (
+        (chart._chartSpace, ("c:txPr", "c:externalData", "c:printSettings", "c:userShapes", "c:extLst")),
+        (chart._chartSpace.chart.plotArea, ("c:extLst",)),
+    ):
         shape_pr = OxmlElement("c:spPr")
         shape_pr.append(OxmlElement("a:noFill"))
         line = OxmlElement("a:ln")
         line.append(OxmlElement("a:noFill"))
         shape_pr.append(line)
-        parent.append(shape_pr)
+        # spPr precede txPr/externalData na sequência OOXML.
+        parent.insert_element_before(shape_pr, *successors)
     return True
 
 

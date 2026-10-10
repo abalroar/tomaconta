@@ -24,9 +24,15 @@ A Carteira usa o modelo compartilhado da aba, com Rel. 16 e provisões do Rel. 2
 
 ## Validação
 
-- Suíte completa: 1.005 testes passaram, com 14 avisos de dependências já existentes.
+- Suíte completa: 1.006 testes passaram, com 14 avisos de dependências já existentes; teste de exportação repetido após o ajuste final dos IDs.
 - Exemplo real baixado pelo botão local: seis tabelas nativas, 13 gráficos e 13 planilhas incorporadas; zero imagens raster.
 - Integridade OOXML e geometria: zero achados; avisos conservadores de altura das tabelas de Peers/classificação conferidos visualmente.
-- Seis slides importados e renderizados; tabelas de Peers e Carteira também inspecionadas no PowerPoint. IDs de eixos normalizados para UInt32, com referências cruzadas preservadas.
+- Seis slides importados e renderizados; tabelas de Peers e Carteira também inspecionadas no PowerPoint. A primeira validação nativa não cobriu a abertura do arquivo público com os gráficos do Snapshot; a correção abaixo registra a reprodução e a nova conferência.
 - Layouts móveis compactos sem estouro horizontal dos cards e ajuda com alvo de 44 px. Teste de responsividade no navegador; não equivale a teste em aparelhos físicos.
 - Downloads pelo Chrome: Itaú com seis slides e ATTRUS com cobertura parcial, capital ausente preservado e página explicando a ausência da Carteira 4.966.
+
+## Compatibilidade com PowerPoint
+
+O arquivo público original reproduziu o aviso de reparo no PowerPoint Mac. O reparo removia o conteúdo dos dois slides de Snapshot. Identificadores de eixos convertidos de negativos para UInt32 podiam exceder Int32; uma cópia com IDs positivos pequenos abriu normalmente. O exportador agora remapeia os IDs e todas as referências cruzadas no âmbito de cada gráfico.
+
+A ordem OOXML também foi corrigida: `c:spPr` precede `c:txPr` e `c:externalData`; bordas de células precedem seu preenchimento. Inserções opcionais de eixos e lacunas respeitam os elementos sucessores. A regressão verifica a ordem, unicidade e alcance dos IDs em todos os gráficos e tabelas. O teste rejeita a versão anterior. A comparação dos arquivos preserva todas as tabelas, séries e valores financeiros.
