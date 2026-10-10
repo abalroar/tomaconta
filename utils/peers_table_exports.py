@@ -46,7 +46,7 @@ def export_excel(query):
         sheet.set_column(0, 0, 39)
         sheet.set_column(1, 1, 14)
         sheet.set_column(2, 1 + len(query["banks"]) * len(query["periods"]), 14)
-        sheet.write_string(0, 0, "Tabela de peers", header)
+        sheet.write_string(0, 0, "Tabela de Peers", header)
         sheet.write_string(1, 0, query["base"] + " / " + BASELINES[query["mode"]], text)
         sheet.merge_range(2, 0, 3, 0, "Indicador", header)
         sheet.merge_range(2, 1, 3, 1, "Unidade", header)
@@ -225,7 +225,7 @@ def export_powerpoint(query, *, charts=False, chart_metrics=(), colors=None, cha
                 slide = prs.slides.add_slide(prs.slide_layouts[6])
                 slide.background.fill.solid()
                 slide.background.fill.fore_color.rgb = RGBColor(255, 255, 255)
-                _text(slide, .38, .22, 12.55, .45, "Tabela de peers", 22, True)
+                _text(slide, .38, .22, 12.55, .45, "Tabela de Peers", 22, True)
                 _text(slide, .38, .75, 12.55, .4, query["base"] + "; " + BASELINES[query["mode"]] + "; " + query["scale"], 11)
                 columns = 1 + len(banks) * len(query["periods"])
                 table = slide.shapes.add_table(len(keys) + 2, columns, Inches(.38), Inches(1.3), Inches(12.55), Inches(.72 + .46 * len(keys))).table
@@ -321,7 +321,7 @@ def export_png(query):
             cell.get_text().set_fontsize(9)
             cell.get_text().set_color("#16713B" if directions[r,c] == "up" else "#B32624" if directions[r,c] == "down" else "#666666")
     family = "Calibri" if font_path.exists() else "DejaVu Sans"
-    fig.text(.02, .95, "Tabela de peers", fontsize=18, fontweight="bold", fontfamily=family)
+    fig.text(.02, .95, "Tabela de Peers", fontsize=18, fontweight="bold", fontfamily=family)
     fig.text(.02, .025, footer_text, fontsize=9, fontfamily=family)
     output = BytesIO()
     fig.savefig(output, format="png", dpi=180)

@@ -153,7 +153,7 @@ def _identities(path, token):
 
 def _load_context(api, individual):
     if not individual:
-        if not api["_garantir_cache_telas_criticas"]("Tabela de peers"):
+        if not api["_garantir_cache_telas_criticas"]("Tabela de Peers"):
             return {}, {}
         context = api["_get_peers_filters_context"](api["_cache_version_token"]("critical_screens"))
         manager = api["get_cache_manager"]()
@@ -297,11 +297,11 @@ def _groups_editor(api, base, banks, identities, shared, shared_sha, remote_erro
 
 
 def render(api):
-    st.markdown("### Tabela de peers")
+    st.markdown("### Tabela de Peers")
     from utils.ui_help import PEERS_COMPARISON_HELP, PERIOD_HELP, PERIMETER_HELP, render_module_help
     base = st.segmented_control("Base das demonstrações", ["Consolidada / Prudencial", "Individual"], default="Consolidada / Prudencial", key="peers_new_base", help=PERIMETER_HELP) or "Consolidada / Prudencial"
     individual = base == "Individual"
-    render_module_help("Tabela de peers", base=base)
+    render_module_help("Tabela de Peers", base=base)
     context, identities = _load_context(api, individual)
     available = list(context.get("bancos_todos", ()))
     available_periods = sorted(context.get("periodos_disponiveis", ()), key=period_sort, reverse=True)

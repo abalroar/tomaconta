@@ -226,7 +226,7 @@ def test_garantir_cache_telas_criticas_fails_fast_when_runtime_would_materialize
 
     monkeypatch.setattr(app1, "materialize_critical_screens_cache", _fail_if_materialize)
 
-    ok = app1._garantir_cache_telas_criticas("Tabela de peers")
+    ok = app1._garantir_cache_telas_criticas("Tabela de Peers")
 
     assert ok is False
     assert any("indisponível para runtime" in texto.lower() for tipo, texto in mensagens if tipo == "error")
