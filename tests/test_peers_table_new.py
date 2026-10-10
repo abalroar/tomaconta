@@ -274,10 +274,10 @@ def test_deeplink_opens_once_and_allows_navigation_to_other_tabs():
     tree = ast.parse(Path("app1.py").read_text())
     node = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "_aplicar_navegacao_inicial_mobile")
     state = {}
-    namespace = {"st": SimpleNamespace(session_state=state), "_menu_query_param_inicial": lambda: "Tabela de peers"}
+    namespace = {"st": SimpleNamespace(session_state=state), "_menu_query_param_inicial": lambda: "Tabela de Peers"}
     exec(compile(ast.Module(body=[node], type_ignores=[]), "app1.py", "exec"), namespace)
     namespace["_aplicar_navegacao_inicial_mobile"]()
-    assert state["menu_atual"] == "Tabela de peers"
+    assert state["menu_atual"] == "Tabela de Peers"
     state["menu_atual"] = "Snapshot"
     namespace["_aplicar_navegacao_inicial_mobile"]()
     assert state["menu_atual"] == "Snapshot"
@@ -291,17 +291,17 @@ def test_legacy_menu_and_exclusive_helpers_are_removed_shared_apis_remain():
         for target in node.targets if isinstance(target, ast.Name)
     }
     assert "Peers (Tabela)" not in ast.literal_eval(assignments["MENU_PRINCIPAL"])
-    assert "Tabela de peers" in ast.literal_eval(assignments["MENU_PRINCIPAL"])
+    assert "Tabela de Peers" in ast.literal_eval(assignments["MENU_PRINCIPAL"])
     dependencies = ast.literal_eval(assignments["CACHE_DEPENDENCIAS_POR_ABA"])
     assert "Peers (Tabela)" not in dependencies
-    assert dependencies["Tabela de peers"] == ["critical_screens"]
+    assert dependencies["Tabela de Peers"] == ["critical_screens"]
     routes = [
         value.value for node in ast.walk(tree)
         if isinstance(node, ast.Compare) and isinstance(node.left, ast.Name) and node.left.id == "menu"
         for value in node.comparators if isinstance(value, ast.Constant)
     ]
     assert "Peers (Tabela)" not in routes
-    assert routes.count("Tabela de peers") == 1
+    assert routes.count("Tabela de Peers") == 1
     functions = {node.name for node in tree.body if isinstance(node, ast.FunctionDef)}
     assert not functions.intersection({
         "_render_peers_table_html", "_gerar_imagem_peers_tabela",
@@ -433,8 +433,9 @@ def test_old_peers_menu_links_resolve_to_renamed_tab():
     node = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "_normalizar_rotulo_menu")
     namespace = {}
     exec(compile(ast.Module(body=[node], type_ignores=[]), "app1.py", "exec"), namespace)
-    assert namespace["_normalizar_rotulo_menu"]("Peers (Tabela Nova)") == "Tabela de peers"
-    assert namespace["_normalizar_rotulo_menu"]("Peers (Tabela)") == "Tabela de peers"
+    assert namespace["_normalizar_rotulo_menu"]("Tabela de peers") == "Tabela de Peers"
+    assert namespace["_normalizar_rotulo_menu"]("Peers (Tabela Nova)") == "Tabela de Peers"
+    assert namespace["_normalizar_rotulo_menu"]("Peers (Tabela)") == "Tabela de Peers"
 
 
 def test_arrasto_individual_base_does_not_reuse_prudential_values():
