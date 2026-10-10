@@ -10,7 +10,7 @@ import pandas as pd
 
 from .comparison_table_style import HEADER_BACKGROUND, SECTION_BACKGROUND
 
-from .peers_table_model import BY_KEY, get_metric, SCALES, BASELINES, COLORS, period_label, period_sort, short_bank, methodology_rows, comparison_label, period_comparison_label, variation_tone, VARIATION_COLORS
+from .peers_table_model import BY_KEY, get_metric, SCALES, BASELINES, COLORS, period_label, period_sort, short_bank, methodology_rows, comparison_label, period_comparison_label, variation_tone, VARIATION_COLORS, VARIATION_NOTE, COLOR_NOTE
 
 
 def _lookup(query):
@@ -25,8 +25,11 @@ def footer(query, banks=None, metric_keys=None):
     source = "BCB IFData Rel. " + ", ".join(map(str, reports)) if reports else "BCB"
     if any("4060" in s for s in sources):
         source += " / Cadoc 4060"
-    note = "Variações: taxas em bps inteiros; coberturas e custo/receita em p.p.; saldos em %; múltiplos em x. Cálculo sem arredondar os insumos.\nVerde: direção favorável; vermelho: atenção; cinza: leitura contextual. Setas: alta/queda."
-    if any(c["status"] in {"warning", "critical"} for c in query["cells"]):
+    note = (
+        "Δ por subtração: taxas em bps inteiros; coberturas e proporções em p.p. (2 casas); múltiplos em x. Saldos: Δ relativo em %.\n"
+        "Verde: favorável; vermelho: atenção; cinza: contextual. Volumes de risco também dependem da carteira."
+    )
+    if any(c["status"] in {"warning", "critical"} or c.get("reference_status") in {"warning", "critical"} for c in query["cells"]):
         note += " † Alerta de qualidade; consulte Dados e status e a memória de cálculo."
     return f"{source}. {query['base']}. {n} instituições. {dates}.\n{query['query_type']}. Consulta: {query['queried_at']}.\n{note}"
 
@@ -82,7 +85,7 @@ def export_excel(query):
                         sheet.write_blank(row, col, None, formats[key])
                     else:
                         sheet.write_number(row, col, value / SCALES[query["scale"]] if metric.unit == "R$" else value, formats[key])
-                    comment = "\n".join(filter(None, [cell["variation"], cell["source"], cell["reason"], f"Status: {cell['status']}"]))
+                    comment = "\n".join(filter(None, [cell["variation"], cell["source"], cell["reason"], f"Status: {cell['status']}", f"Status referência: {cell.get('reference_status', 'N/D')}", cell.get("reference_reason")]))
                     sheet.write_comment(row, col, comment)
             row += 1
             if query["mode"] != "none":
@@ -92,20 +95,20 @@ def export_excel(query):
                 for b, bank in enumerate(query["banks"]):
                     for p, period in enumerate(query["periods"]):
                         cell = cells[key, bank, period]
-                        sheet.write_string(row, 2 + b * len(query["periods"]) + p, cell["variation"], variations[variation_tone(metric, cell["direction"], cell["status"])])
+                        sheet.write_string(row, 2 + b * len(query["periods"]) + p, cell["variation"], variations[variation_tone(metric, cell["direction"], cell["status"], reference_status=cell.get("reference_status"))])
                 row += 1
         sheet.write_string(row + 1, 0, footer(query), text)
         sheet.set_landscape()
         sheet.fit_to_pages(1, 0)
         sheet.repeat_rows(2, 3)
         numeric = workbook.add_worksheet("Dados e status")
-        fields = ["metric", "bank", "period", "value", "reference", "reference_value", "variation", "status", "source", "reason", "delta_value", "delta_unit"]
-        titles = ["Indicador", "Instituição", "Período", "Valor (R$, decimal ou x)", "Referência", "Valor referência", "Variação", "Status", "Fonte", "Motivo", "Delta numérico", "Unidade delta"]
+        fields = ["metric", "bank", "period", "value", "reference", "reference_value", "variation", "status", "source", "reason", "delta_value", "delta_unit", "reference_status", "reference_reason"]
+        titles = ["Indicador", "Instituição", "Período", "Valor (R$, decimal ou x)", "Referência", "Valor referência", "Variação", "Status", "Fonte", "Motivo", "Delta numérico", "Unidade delta", "Status referência", "Motivo referência"]
         for col, title in enumerate(titles):
             numeric.write_string(0, col, title, header)
         for row, cell in enumerate(query["cells"], 1):
             for col, field in enumerate(fields):
-                value = cell[field]
+                value = cell.get(field)
                 if isinstance(value, (int, float)):
                     numeric.write_number(row, col, value, text)
                 elif value is not None:
@@ -174,7 +177,7 @@ def export_powerpoint(query, *, charts=False, chart_metrics=(), colors=None, cha
         prs = Presentation(BytesIO(data))
         for slide, panel in zip(prs.slides, panels):
             _text(slide, .38, 6.95, 12.55, .45, footer(query, panel.ordem_series, [panel.metric_key]), size=9, color="555555")
-            slide.notes_slide.notes_text_frame.text = str(methodology_rows(query)) + "\n" + str({k: v for k, v in query.items() if k != "cells"})
+            slide.notes_slide.notes_text_frame.text = VARIATION_NOTE + "\n" + COLOR_NOTE + "\n" + str(methodology_rows(query)) + "\n" + str({k: v for k, v in query.items() if k != "cells"})
             for shape in slide.shapes:
                 if shape.has_chart:
                     chart = shape.chart
@@ -258,7 +261,7 @@ def export_powerpoint(query, *, charts=False, chart_metrics=(), colors=None, cha
                                 paragraph = target.text_frame.add_paragraph()
                                 paragraph.text = cell["variation"]
                                 paragraph.font.size = Pt(9)
-                                paragraph.font.color.rgb = RGBColor.from_string(VARIATION_COLORS[variation_tone(metric, cell["direction"], cell["status"])].lstrip("#"))
+                                paragraph.font.color.rgb = RGBColor.from_string(VARIATION_COLORS[variation_tone(metric, cell["direction"], cell["status"], reference_status=cell.get("reference_status"))].lstrip("#"))
                 for r, row in enumerate(table.rows):
                     for c, cell in enumerate(row.cells):
                         cell.fill.solid()
@@ -277,7 +280,7 @@ def export_powerpoint(query, *, charts=False, chart_metrics=(), colors=None, cha
                                 paragraph.font.color.rgb = RGBColor.from_string("FFFFFF" if r < 2 else "222222")
                             paragraph.alignment = PP_ALIGN.LEFT if c == 0 else PP_ALIGN.CENTER
                 _text(slide, .38, 6.55, 12.55, .75, footer(query, banks, keys), 9, color="555555")
-                slide.notes_slide.notes_text_frame.text = str(methodology_rows({**query, "metrics": keys})) + "\n" + str({k: v for k, v in query.items() if k != "cells"}) + "\n" + str([c for c in query["cells"] if c["metric"] in keys and c["bank"] in banks and c["reason"]])
+                slide.notes_slide.notes_text_frame.text = VARIATION_NOTE + "\n" + COLOR_NOTE + "\n" + str(methodology_rows({**query, "metrics": keys})) + "\n" + str({k: v for k, v in query.items() if k != "cells"}) + "\n" + str([c for c in query["cells"] if c["metric"] in keys and c["bank"] in banks and c["reason"]])
     buffer = BytesIO()
     prs.save(buffer)
     return buffer.getvalue()
@@ -301,7 +304,7 @@ def export_png(query):
             data.append(["Variação"] + [cells[key, b, p]["variation"] for b in query["banks"] for p in query["periods"]])
             for c, (b, p) in enumerate(((b, p) for b in query["banks"] for p in query["periods"]), 1):
                 cell = cells[key, b, p]
-                directions[len(data), c] = variation_tone(m, cell["direction"], cell["status"])
+                directions[len(data), c] = variation_tone(m, cell["direction"], cell["status"], reference_status=cell.get("reference_status"))
     footer_text = footer(query) + "\n" + BASELINES[query["mode"]]
     height = 2.2 + len(data) * .35
     table_bottom = max(.12, .22 * (footer_text.count("\n") + 2) / height)

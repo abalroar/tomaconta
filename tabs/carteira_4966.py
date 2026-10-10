@@ -346,8 +346,8 @@ GLOSSARY_ROWS = (
         "Variável": "Variações QoQ",
         "Definição": (
             "Trimestre atual comparado ao trimestre imediatamente anterior. Saldos: crescimento relativo em %. "
-            "Vencidos/carteira e PDD/carteira: subtração em bps inteiros. Coberturas e percentuais da base comum: "
-            "subtração em p.p., com uma casa. O denominador comum é mantido nas duas datas. "
+            "Vencidos/carteira: subtração em bps inteiros. PDD/carteira, coberturas e percentuais da base comum: "
+            "subtração em p.p., com duas casas. O denominador comum é mantido nas duas datas. "
             "Os cálculos usam insumos sem arredondamento; a transição anterior a mar/2025 fica bloqueada."
         ),
         "Fonte": "Cálculo sobre BCB IFData, Relatórios 2 e 16, trimestral, visão prudencial",
@@ -355,8 +355,8 @@ GLOSSARY_ROWS = (
     {
         "Variável": "Cores das variações",
         "Definição": (
-            "Alta de vencidos/carteira recebe vermelho; queda recebe verde. Alta de cobertura recebe verde; "
-            "queda recebe vermelho. Saldos, classificação e PDD/carteira ficam neutros. "
+            "Alta de vencidos, em volume ou percentual, recebe vermelho; queda recebe verde. Alta de cobertura recebe verde; "
+            "queda recebe vermelho. Os volumes também dependem do tamanho da carteira. Demais saldos, classificação e PDD/carteira ficam neutros. "
             "A cobertura usa PDD total e é uma aproximação. Alertas no atual ou na referência neutralizam a cor "
             "e mantêm a marca de validação. As setas indicam somente alta ou queda."
         ),
@@ -449,13 +449,14 @@ def comparison_source_periods(periods: Sequence[str]) -> tuple[str, ...]:
 
 VARIATION_NOTE = (
     "QoQ compara cada valor com o trimestre imediatamente anterior indicado no cabeçalho. "
-    "Saldos: crescimento em %. Vencidos/carteira e PDD/carteira: subtração em bps inteiros. "
-    "Coberturas e percentuais da base comum: subtração em p.p., com uma casa. "
+    "Saldos: crescimento em %. Vencidos/carteira: subtração em bps inteiros. "
+    "PDD/carteira, coberturas e percentuais da base comum: subtração em p.p., com duas casas. "
     "Cálculos usam os valores sem arredondamento."
 )
 COLOR_NOTE = (
     "Verde: direção usualmente favorável; vermelho: direção de atenção. "
-    "Saldos, classificação C1–C5 e PDD/carteira ficam neutros. "
+    "Alta de vencidos recebe vermelho; queda recebe verde, em volume e percentual. "
+    "Volumes de risco também dependem do tamanho da carteira. Demais saldos, classificação C1–C5 e PDD/carteira ficam neutros. "
     "As coberturas são aproximações; leia também PDD e vencidos."
 )
 
@@ -463,7 +464,7 @@ COLOR_NOTE = (
 def cell_delta(model: Carteira4966Model, spec: RowSpec, period: str, *, secondary=False) -> CellDelta:
     """Única política de cálculo e leitura para tela, Excel e auditoria."""
     percent = secondary or spec.layout == "percent_span"
-    kind = ("bps" if spec.key in {"delinquency", "provision_over_portfolio"} else "pp") if percent else "pct"
+    kind = ("bps" if spec.key == "delinquency" else "pp") if percent else "pct"
     unit = {"bps": "bps", "pp": "p.p.", "pct": "%"}[kind]
     method = {
         "bps": "(percentual atual − percentual de referência) × 100",
@@ -487,9 +488,9 @@ def cell_delta(model: Carteira4966Model, spec: RowSpec, period: str, *, secondar
         reason = "Base ≤ 0"
     direction = None if value is None else "up" if value > 0 else "down" if value < 0 else "flat"
     reliable = not model.cell_quality_issues(spec.key, period) and not model.cell_quality_issues(spec.key, previous)
-    favorable = "down" if spec.key == "delinquency" and percent else "up" if spec.key in {"provision_over_c5", "provision_over_delinquency"} else None
+    favorable = "down" if spec.key == "delinquency" else "up" if spec.key in {"provision_over_c5", "provision_over_delinquency"} else None
     tone = credit_variation_tone(direction, favorable, reliable=reliable)
-    display = reason if value is None else formatar_delta_br(value, unit, 0 if kind == "bps" else 1 if kind == "pp" else 2, com_seta=True).replace(" %", "%")
+    display = reason if value is None else formatar_delta_br(value, unit, 0 if kind == "bps" else 2, com_seta=True).replace(" %", "%")
     if not reliable and value is not None:
         diagnostics = [
             _cell_quality_message(model, spec.key, p)
@@ -1718,7 +1719,7 @@ def _write_variations_sheet(workbook, model: Carteira4966Model) -> None:
     text = workbook.add_format({"font_name": "Calibri", "valign": "vcenter"})
     numbers = workbook.add_format({"num_format": "#,##0.000000"})
     percentage = workbook.add_format({"num_format": "0.00%"})
-    delta_formats = {unit: workbook.add_format({"num_format": code}) for unit, code in {"bps": "0", "p.p.": "0.0", "%": "0.00"}.items()}
+    delta_formats = {unit: workbook.add_format({"num_format": code}) for unit, code in {"bps": "0", "p.p.": "0.00", "%": "0.00"}.items()}
     tone_formats = {tone: workbook.add_format({"font_color": color, "font_name": "Calibri", "align": "center"}) for tone, color in VARIATION_COLORS.items()}
     for col, name in enumerate(frame.columns):
         sheet.write_string(0, col, name, header)

@@ -36,6 +36,9 @@ DERIVED_TARGET_SPECS = {
             "derived_cache_name": "derived_metrics_individual",
             "dre_cache_name": "dre_individual",
             "principal_cache_name": "principal_individual",
+            # O custo de crédito individual exige o denominador do Rel. 1
+            # individual; o Rel. 2 prudencial não pode completar esse recorte.
+            "ativo_cache_name": None,
             # Não existe Relatório 16 individual: a métrica de ativos problemáticos
             # fica N/D na base individual em vez de herdar o consolidado.
             "carteira_instrumentos_cache_name": None,

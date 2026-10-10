@@ -1,5 +1,5 @@
 {
-  "timestamp_salvamento": "2026-09-10T22:39:19.783328",
+  "timestamp_salvamento": "2026-10-10T20:26:16.191169+00:00",
   "fonte": "derivado",
   "total_registros": 140315,
   "colunas": [
@@ -7,7 +7,8 @@
     "Período",
     "Métrica",
     "Valor",
-    "Unidade"
+    "Unidade",
+    "CodInst"
   ],
   "formato": "parquet",
   "periodos": [
@@ -33,11 +34,11 @@
   "total_periodos": 18,
   "extra": {
     "denominador_zero_ou_nan": {
-      "Desp PDD / Resultado Intermediação Fin. Bruto": 18763,
+      "Desp PDD / Resultado Intermediação Fin. Bruto": 18767,
       "Desp Captação / Captação": 8162,
-      "Custo de Crédito (%)": 15496,
-      "Custo de Crédito / Receita de Crédito (%)": 21366,
-      "Ativos Problemáticos / Carteira Total": 23535
+      "Custo de Crédito (%)": 21171,
+      "Custo de Crédito / Receita de Crédito (%)": 21370,
+      "Ativos Problemáticos / Carteira Total": 28063
     },
     "period_type": "trimestral",
     "periodos_detectados": [
@@ -62,10 +63,36 @@
     ],
     "cache_origem_dre": "dre_individual",
     "cache_origem_principal": "principal_individual",
-    "cache_origem_ativo": "ativo",
-    "carteira_fonte": "relatorio_2_carteira_credito_bruta"
+    "cache_origem_ativo": "",
+    "carteira_fonte": "fallback_principal:Carteira de Crédito",
+    "official_cell_dedup_repair": {
+      "period": "3/2025",
+      "operation": "unique_official_cells_before_pivot",
+      "verified_at_utc": "2026-10-10T20:26:16.191169+00:00",
+      "sources": {
+        "principal_individual": {
+          "url": "https://olinda.bcb.gov.br/olinda/servico/IFDATA/versao/v1/odata/IfDataValores(AnoMes=202509,TipoInstituicao=3,Relatorio='1')?$format=json&$top=500000",
+          "sha256": "8a10681afde214e0b9f7933e4855e605f866cd8d5c0f64e85fa83204b1c1dce4",
+          "bytes": 8617089,
+          "raw_records": 33684,
+          "unique_records": 11228,
+          "exact_duplicate_records": 22456
+        },
+        "dre_individual": {
+          "url": "https://olinda.bcb.gov.br/olinda/servico/IFDATA/versao/v1/odata/IfDataValores(AnoMes=202509,TipoInstituicao=3,Relatorio='4')?$format=json&$top=500000",
+          "sha256": "1bc09beff7f8826740dbccff908e5707e2a973f7cc05ba1b5d628a7ff0ecae67",
+          "bytes": 102915510,
+          "raw_records": 250224,
+          "unique_records": 83408,
+          "exact_duplicate_records": 166816
+        }
+      },
+      "individual_identity": "CodInst",
+      "individual_scope": "Rel. 1 + Rel. 4; sem Rel. 2/16 prudencial"
+    },
+    "cache_origem_carteira_instrumentos": ""
   },
-  "publication_id": "tomaconta-jun26-20260911-v1",
+  "publication_id": "tomaconta-individual-set25-dedup-20261010-v1",
   "release_tag": "v1.1-cache",
-  "sha256": "632d8bff3d2b564af9e0cbbee2279e9b2c8ee3c5423491e53fb93dc584d410f9"
+  "sha256": "9200c89260d552f52cb52133bbd8ff51b572ae4a8119d9ee6cf4ecd82b1b8591"
 }

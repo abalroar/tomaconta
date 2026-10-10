@@ -14,7 +14,7 @@ from collections.abc import Mapping
 from .comparison_table_style import HEADER_BACKGROUND, VARIATION_COLORS
 from .peers_table_model import (
     get_metric, methodology_rows, period_comparison_label, period_label,
-    period_sort, short_bank, variation_tone,
+    period_sort, short_bank, variation_tone, VARIATION_NOTE as PEERS_VARIATION_NOTE,
 )
 
 
@@ -121,7 +121,7 @@ def _comparison(card, key):
     return str(value or "—"), str(card.get(f"{key}_tone") or "neutral")
 
 
-def _history(slide, history, x, y, width, height):
+def _history(slide, history, x, y, width, height, *, tone="neutral"):
     """Minigráfico nativo com planilha incorporada e lacunas preservadas."""
     from pptx.chart.data import CategoryChartData
     from pptx.dml.color import RGBColor
@@ -181,6 +181,27 @@ def _history(slide, history, x, y, width, height):
         series.format.line.color.rgb = RGBColor.from_string("61758A")
         series.format.line.width = Pt(1.7)
         chart.plots[0].smooth = False
+    # Um detalhe no último ponto conserva a leitura rápida sem pintar todo o
+    # histórico. A cor vem da política de crédito da tela; a direção sozinha
+    # não distingue melhora de risco de crescimento de um saldo contextual.
+    # Exige dois pontos finais reais, evitando inferir movimento através de
+    # uma lacuna ou colorir o último ponto antigo quando o atual é N/D.
+    endpoint_tone = history.get("tone", tone)
+    if (endpoint_tone in {"favorable", "attention"} and len(numbers) >= 2
+            and numbers[-1] is not None and numbers[-2] is not None
+            and numbers[-1] != numbers[-2]):
+        endpoint = series.points[len(numbers) - 1]
+        color = RGBColor.from_string(VARIATION_COLORS[endpoint_tone].lstrip("#"))
+        if bars:
+            endpoint.format.fill.solid()
+            endpoint.format.fill.fore_color.rgb = color
+            endpoint.format.line.fill.background()
+        else:
+            endpoint.marker.style = XL_MARKER_STYLE.CIRCLE
+            endpoint.marker.size = 4
+            endpoint.marker.format.fill.solid()
+            endpoint.marker.format.fill.fore_color.rgb = color
+            endpoint.marker.format.line.fill.background()
     # A planilha mantém o valor de cada ponto. A regra visual segue o Snapshot:
     # períodos sem valor ficam como lacuna, sem interpolação ou zero artificial.
     blanks = chart._chartSpace.chart.find("{http://schemas.openxmlformats.org/drawingml/2006/chart}dispBlanksAs")
@@ -221,7 +242,9 @@ def _snapshot_slides(prs, snapshot):
     titles = ("Porte, capital e rentabilidade", "Funding e qualidade da carteira")
     for index, group in enumerate(grouped):
         slide = _slide(prs, "Snapshot · " + short_bank(bank), f"{current}  ·  {base}  ·  {titles[index]}", len(prs.slides) + 1)
-        row_height = .565 if index == 0 else .68
+        # O segundo slide passa a incluir as duas razões de NPL. Reserva uma
+        # área fixa para as ressalvas de fonte mesmo com oito indicadores.
+        row_height = .565 if index == 0 else min(.68, 3.9 / len(group))
         widths = [4.00, 2.05, 2.04, 2.04, _CONTENT - 10.13]
         heights = [.58] + [row_height] * len(group)
         y = 1.47
@@ -230,7 +253,19 @@ def _snapshot_slides(prs, snapshot):
         for column, header in enumerate(headers):
             _cell(table.cell(0, column), header, size=12, header=True, centered=column > 0)
         for row, card in enumerate(group, 1):
-            _cell(table.cell(row, 0), card.get("label") or "Indicador", size=15)
+            label_cell = table.cell(row, 0)
+            _cell(label_cell, card.get("label") or "Indicador", size=14)
+            subtitle = str(card.get("subtitle") or "")
+            if subtitle:
+                paragraph = label_cell.text_frame.add_paragraph()
+                paragraph.text = subtitle
+                _font(paragraph, 9.5, color=_MUTED)
+            scope = str(card.get("scope") or base)
+            source = str(card.get("source_label") or card.get("source") or "")
+            if scope or source:
+                paragraph = label_cell.text_frame.add_paragraph()
+                paragraph.text = source if source == scope or source.startswith(scope + " · ") else " · ".join(part for part in (scope, source) if part)
+                _font(paragraph, 9, color=_MUTED)
             formatted = str(card.get("value") or "N/D")
             marker = str(card.get("status_marker") or "")
             _cell(table.cell(row, 1), formatted + (marker if marker and not formatted.endswith(marker) else ""), size=18, bold=True, centered=True)
@@ -239,17 +274,18 @@ def _snapshot_slides(prs, snapshot):
                 _cell(table.cell(row, column), display, size=13, centered=True, color=VARIATION_COLORS.get(tone, VARIATION_COLORS["neutral"]))
             _cell(table.cell(row, 4), "", centered=True)
             chart_y = y + heights[0] + (row - 1) * row_height + .06
-            if not _history(slide, card.get("history"), _MARGIN + sum(widths[:4]) + .05, chart_y, widths[4] - .10, row_height - .12):
-                _cell(table.cell(row, 4), "—", size=13, centered=True, color=_MUTED)
-        footer = "BCB IFData: trimestral; Cadoc 4060: mensal, alinhado ao fechamento trimestral. "
-        footer += "Cores: direção usual de crédito; cinza: contextual. N/D: dado ou comparação indisponível."
+            _, qoq_tone = _comparison(card, "qoq")
+            if not _history(slide, card.get("history"), _MARGIN + sum(widths[:4]) + .05, chart_y, widths[4] - .10, row_height - .12, tone=qoq_tone):
+                _cell(table.cell(row, 4), "N/D", size=12, centered=True, color=_MUTED)
+        source_footer = "BCB IFData individual: trimestral; relatório e escopo indicados em cada linha." if base == "Individual" else "BCB IFData: trimestral; Cadoc 4060: mensal, alinhado ao fechamento trimestral."
+        footer = source_footer + "\nCores do delta e do último ponto: verde favorável; vermelho atenção; cinza contextual. N/D: dado ou comparação indisponível."
         if index == 1:
             notes = snapshot.get("source_notes") or snapshot.get("notes") or ()
             if isinstance(notes, str):
                 notes = [notes]
             visible = [str(note) for note in notes if note][:3]
             if visible:
-                _text(slide, _MARGIN, 5.73, _CONTENT, .68, "\n".join(visible), 10, color=_MUTED)
+                _text(slide, _MARGIN, 6.06, _CONTENT, .55, "\n".join(visible), 9.5, color=_MUTED)
         _text(slide, _MARGIN, 6.70, _CONTENT, .52, footer, 9.5, color=_MUTED)
         slide.notes_slide.notes_text_frame.text = _json({
             "section": titles[index], "snapshot": {key: value for key, value in snapshot.items() if key != "cards"},
@@ -313,11 +349,12 @@ def _peers_slides(prs, snapshot, query, reason):
                         display = cell.get("display") or "N/D"
                         if cell.get("variation") == "Quebra em 2025" and cell.get("value") is not None:
                             display += "*"
-                        if cell.get("status") in {"warning", "critical"}:
+                        if cell.get("status") in {"warning", "critical"} and not display.endswith("†"):
                             display += "†"
                         _cell(target, display, size=14, bold=True, centered=True)
-                        _cell_delta(target, cell.get("variation") or "", variation_tone(metric, cell.get("direction"), cell.get("status", "unavailable")), size=10)
-            footer = "BCB IFData (trimestral) / Cadoc 4060 (mensal). Taxas: Δ em bps inteiros; coberturas e custo/receita: Δ em p.p.; saldos: Δ em %."
+                        _cell_delta(target, cell.get("variation") or "", variation_tone(metric, cell.get("direction"), cell.get("status", "unavailable"), reference_status=cell.get("reference_status")), size=10)
+            source_footer = "BCB IFData Rel. 1 individual (trimestral)." if query["base"] == "Individual" else "BCB IFData (trimestral) / Cadoc 4060 (mensal)."
+            footer = source_footer + " " + PEERS_VARIATION_NOTE
             footer += "\nVerde: favorável; vermelho: atenção; cinza: contextual. †: alerta de qualidade; *: quebra de série. Detalhes de cálculo e fontes nas notas do slide."
             if len(periods) < 3:
                 footer += f" Apenas {len(periods)} período(s) disponível(is) neste recorte."
@@ -378,7 +415,7 @@ def _carteira_slides(prs, snapshot, model, reason):
         base = model.period_labels.get(model.base_period, period_label(model.base_period)) if model.base_period else "N/D"
         footer = f"BCB IFData Rel. 16 e Rel. 2 · trimestral · {snapshot.get('base') or 'Consolidada / Prudencial'} · 4.966 desde 2025. Classificação: % da carteira-base de {base}."
         footer += "\nVencidos: operação integral com parcela >90 dias (arrasto), % da carteira do trimestre. PDD: |e2+f2+g2+h2|. Coberturas usam a PDD total."
-        footer += "\nΔ taxas: bps inteiros; coberturas/base comum: p.p.; saldos: %. *: alerta de qualidade; consulte as notas do slide."
+        footer += "\n" + VARIATION_NOTE + " *: alerta de qualidade; consulte as notas do slide."
         source_notes = snapshot.get("carteira_notes") or snapshot.get("source_notes") or ()
         if isinstance(source_notes, str):
             source_notes = [source_notes]
@@ -404,7 +441,9 @@ def export_snapshot_powerpoint(snapshot: Mapping, peers_query=None, carteira_mod
 
     ``snapshot.cards`` contém ``label``, ``value`` (texto já formatado), ``group``
     (hero/profit/support), ``qoq`` e ``yoy`` (texto ou display/tone/reason), além
-    de ``history`` opcional (periods/values/kind). Fontes, status e ressalvas do
+    de ``history`` opcional (periods/values/kind/tone), ``scope`` e ``source``.
+    A cor do ponto final usa history.tone ou qoq.tone e exige dois pontos finais
+    disponíveis. Fontes, status e ressalvas do
     payload completo são preservados nas notas editáveis de cada slide.
     """
     from pptx import Presentation

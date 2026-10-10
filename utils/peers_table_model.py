@@ -62,7 +62,8 @@ _META = {
 }
 
 # A unidade do nível (%) não determina a unidade mais legível da variação.
-# Coberturas e custo/receita usam p.p.; taxas de capital, retorno e risco usam bps.
+# Coberturas, provisões/carteira e participações usam p.p.; taxas de capital,
+# retorno, custo anualizado e inadimplência usam bps.
 _PERCENTAGE_POLICIES = {
     "Custo de Crédito (%)": ("bps", "down"),
     "Custo de Crédito / Receita de Crédito (%)": ("pp", "down"),
@@ -72,7 +73,7 @@ _PERCENTAGE_POLICIES = {
     "Inadimplência / Carteira de Crédito": ("bps", "down"),
     "Perda Esperada / Estágio 3": ("pp", "up"),
     "Perda Esperada / Est2+3": ("pp", "up"),
-    "Perda Esperada / Carteira de Crédito*": ("bps", None),
+    "Perda Esperada / Carteira de Crédito*": ("pp", None),
     "PDD / Inadimplência (arrasto)": ("pp", "up"),
     "Índice de Capital Principal (CET1)": ("bps", "up"),
     "Índice de Basileia Total (%)": ("bps", "up"),
@@ -84,11 +85,13 @@ def _with_variation_policy(metric):
     if metric.unit == "%":
         kind, favorable = _PERCENTAGE_POLICIES[metric.key]
         return replace(metric, delta_kind=kind, delta_unit="p.p." if kind == "pp" else "bps",
-                       delta_decimals=1 if kind == "pp" else 0,
+                       delta_decimals=2 if kind == "pp" else 0,
                        value_decimals=2,
                        favorable_direction=favorable)
     if metric.unit == "x":
         return replace(metric, delta_kind="absolute", delta_unit="x", favorable_direction="down")
+    if metric.key in {"Inadimplência", "Ativos Estágio 2", "Ativos Estágio 3"}:
+        return replace(metric, favorable_direction="down")
     return metric  # Saldos: crescimento relativo, sem juízo automático de crédito.
 
 
@@ -222,13 +225,14 @@ def delta(value, old, metric, mode):
     return direction, formatar_delta_br(change, unit, metric.delta_decimals, com_seta=True)
 
 
-VARIATION_NOTE = "Variações: capital, retorno e taxas de risco em bps inteiros; coberturas e custo/receita em p.p.; saldos em %; alavancagem em x. Razões e múltiplos usam subtração."
-COLOR_NOTE = "Verde: direção usualmente favorável no indicador. Vermelho: direção de atenção. Saldos e indicadores sem leitura unívoca usam cor neutra. As setas indicam alta ou queda."
+VARIATION_NOTE = "Variações por subtração: capital, retorno, custo anualizado e taxas de risco em bps inteiros; coberturas e demais proporções em p.p., com duas casas; alavancagem em x. Saldos: crescimento relativo em %."
+COLOR_NOTE = "Verde: direção usualmente favorável no indicador. Vermelho: direção de atenção. Alta de vencidos e estágios 2 e 3 recebe vermelho; queda recebe verde. Saldos de risco também dependem do tamanho da carteira. Demais saldos e indicadores sem leitura unívoca usam cor neutra. As setas indicam alta ou queda."
 
 
-def variation_tone(metric, direction, status="available"):
+def variation_tone(metric, direction, status="available", *, reference_status=None):
+    accepted = {"available", "curated_value", "derived_from_curated"}
     return credit_variation_tone(direction, metric.favorable_direction,
-                                 reliable=status in {"available", "curated_value", "derived_from_curated"})
+                                 reliable=status in accepted and (reference_status is None or reference_status in accepted))
 
 
 def variation_definition(metric):
@@ -342,6 +346,14 @@ def build_query(df, banks, periods, metrics, values, statuses, *, base, cache_to
                 if value is None:
                     reason = reason or str(analytic.get("Observação") or "Indicador indisponível nesta base e competência")
                     status = "missing"
+                if base != "Individual" and key in ARRASTO_ROWS:
+                    prior = arrasto.get((key, bank, old_period), {})
+                    reference_status = str(prior.get("status") or "available") if old is not None else "missing"
+                    reference_reason = str(prior.get("reason") or "")
+                else:
+                    prior = {} if base == "Individual" and key == "Core Funding*" else statuses.get((key, bank, old_period), {})
+                    reference_status = str(prior.get("Status analítico") or "available") if old is not None else "missing"
+                    reference_reason = str(prior.get("Observação") or "")
                 direction, variation = delta(value, old, metric, mode)
                 if base != "Individual" and old_period and period_sort(p)[0] >= 2025 > period_sort(old_period)[0] and key in {"Carteira de Crédito*", "Core Funding*", "Carteira de Crédito* / PL", "Inadimplência / Carteira de Crédito", "Perda Esperada / Carteira de Crédito*"}:
                     direction, variation = None, "Quebra em 2025"
@@ -349,7 +361,7 @@ def build_query(df, banks, periods, metrics, values, statuses, *, base, cache_to
                 delta_value, delta_unit = delta_measure(value, old, metric)
                 if direction is None:
                     delta_value = None
-                cells.append({"metric": key, "bank": bank, "period": p, "value": value, "display": display, "direction": direction, "variation": variation, "delta_value": delta_value, "delta_unit": delta_unit, "reference": old_period, "reference_value": old, "status": status, "source": source, "reason": reason})
+                cells.append({"metric": key, "bank": bank, "period": p, "value": value, "display": display, "direction": direction, "variation": variation, "delta_value": delta_value, "delta_unit": delta_unit, "reference": old_period, "reference_value": old, "reference_status": reference_status, "reference_reason": reference_reason, "status": status, "source": source, "reason": reason})
     # Hash do slice efetivo inclui componentes e referências. Independe da data da consulta.
     fingerprint = sha256(pd.util.hash_pandas_object(df.astype(str), index=False).values.tobytes()).hexdigest()
     result = {"schema_version": 3, "base": base, "banks": list(banks), "periods": list(periods), "metrics": list(metrics), "scale": scale, "mode": mode, "cache_token": cache_token, "data_sha256": fingerprint, "query_type": "Comparação de peers em competências selecionadas", "cells": cells}

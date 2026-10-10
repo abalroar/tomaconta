@@ -314,7 +314,7 @@ def test_snapshot_payload_preserves_card_format_precision_and_comparison_metadat
     card = payload["cards"][0]
     assert card["value"] == "card:0.15351632203113585"
     assert card["raw_value"] == cfg["serie"]["2/2026"]
-    assert card["history"] == history[cfg["label"]]
+    assert card["history"] == {**history[cfg["label"]], "tone": "neutral", "direction": None}
     assert card["group"] == "Capital"
     assert card["source"] == "IFData Rel. 5"
     assert card["notes"] == "definition:Capital"
@@ -360,8 +360,8 @@ def test_real_snapshot_payload_distinguishes_zero_funding_from_missing_data(miss
     assert missing_card["value"] == "N/D†"
     assert pd.isna(missing_card["raw_value"])
     assert missing_card["status"] == "Fonte indisponível."
-    assert zero_card["history"] is histories[zero["label"]]
-    assert missing_card["history"] is histories[absent["label"]]
+    assert zero_card["history"]["values"] is histories[zero["label"]]["values"]
+    assert missing_card["history"]["values"] is histories[absent["label"]]["values"]
     assert all(card[key]["display"] == "—" for card in payload["cards"] for key in ("qoq", "yoy"))
 
 
@@ -377,7 +377,7 @@ def test_snapshot_payload_no_reference_keeps_reference_unavailable():
 @pytest.mark.parametrize("cfg,previous,yoy,expected_tone,expected_display", [
     ({"label": "Carteira de Crédito", "format_key": "Carteira de Crédito Bruta", "serie": {"4/2025": 120, "3/2025": 110, "4/2024": 100}}, "3/2025", "4/2024", "neutral", "Quebra em 2025"),
     ({"label": "Índice de Basileia", "format_key": "Índice de Basileia", "is_pct": True, "status_marker": "†", "variation_reliable": False, "serie": {"4/2025": .152, "3/2025": .15, "4/2024": .14}}, "3/2025", "4/2024", "neutral", "↑ +120 bps"),
-    ({"label": "Perda Esperada / Estágio 3", "is_pct": True, "serie": {"4/2025": 1.935, "3/2025": 1.931, "4/2024": 1.931}}, "3/2025", "4/2024", "favorable", "↑ +0,4 p.p."),
+    ({"label": "Perda Esperada / Estágio 3", "is_pct": True, "serie": {"4/2025": 1.935, "3/2025": 1.931, "4/2024": 1.931}}, "3/2025", "4/2024", "favorable", "↑ +0,40 p.p."),
     ({"label": "Desp. Anualizada Captação / Volume Captação", "format_key": "Desp Captação / Captação", "is_pct": True, "higher_is_better": False, "serie": {"4/2025": -.06, "3/2025": -.05, "4/2024": -.05}}, "3/2025", "4/2024", "attention", "↓ −100 bps"),
     ({"label": "Ativo Total", "format_key": "Ativo Total", "serie": {"4/2025": 120, "3/2025": 100, "4/2024": 100}}, "3/2025", "4/2024", "neutral", "↑ +20,00%"),
 ])
@@ -403,15 +403,15 @@ def test_package_source_failure_preserves_other_slides_and_discloses_the_gap(mon
         captured.update(snapshot=snapshot, peers=peers, carteira=carteira, **kwargs)
         return b"native-deck"
     monkeypatch.setitem(sys.modules, "utils.snapshot_pptx_export", SimpleNamespace(export_snapshot_powerpoint=export))
-    def peer_failure(*args):
+    def peer_failure(*args, **kwargs):
         raise ValueError("incomplete source")
     monkeypatch.setattr(subject, "peers_history", peer_failure)
     if fail_carteira:
-        def carteira_failure(*args):
+        def carteira_failure(*args, **kwargs):
             raise ValueError("manifest unavailable")
         monkeypatch.setattr(subject, "carteira_history", carteira_failure)
     else:
-        monkeypatch.setattr(subject, "carteira_history", lambda *args: ("usable model", "", ["provisão sem digest"]))
+        monkeypatch.setattr(subject, "carteira_history", lambda *args, **kwargs: ("usable model", "", ["provisão sem digest"]))
     snapshot = {"bank": BANK, "period": "2/2026", "queried_at": "10/10/2026", "source_notes": "source explanation"}
     assert subject.export_snapshot_package(snapshot, pd.DataFrame(), {}) == b"native-deck"
     assert captured["peers"] is None
@@ -423,3 +423,70 @@ def test_package_source_failure_preserves_other_slides_and_discloses_the_gap(mon
         assert captured["carteira"] == "usable model"
         assert "provisão sem digest" in captured["snapshot"]["carteira_notes"]
     assert snapshot["source_notes"] == "source explanation"
+
+
+def test_individual_payload_declares_each_card_scope_and_uses_configured_source_note():
+    cfg = {"label": "ROE Ac. Anualizado", "format_key": "ROE Ac. YTD an. (%)", "is_pct": True,
+           "comparison": "yoy", "serie": {"2/2026": .12, "2/2025": .10},
+           "source": "IFData Rel. 1 individual", "source_label": "Rel. 1 · Individual",
+           "scope": "Individual", "notes": "Lucro YTD anualizado / PL atual"}
+    api = payload_api([])
+    api["_snapshot_card_delta"] = lambda *args: {"display": "↑ +2,0 p.p.", "tone": "favorable", "direction": "up"}
+    result = subject.snapshot_payload("BANCO A S.A.", "2/2026", "1/2026", "2/2025",
+                                      [("profit", [cfg])], {}, api, base="Individual")
+    assert result["base"] == "Individual"
+    assert "entidade jurídica" in result["notes"]
+    assert "patrimônio líquido atual" in result["source_notes"]
+    card = result["cards"][0]
+    assert card["scope"] == "Individual"
+    assert card["source_label"] == "Rel. 1 · Individual"
+    assert card["notes"] == cfg["notes"]
+    assert card["history"]["tone"] == "neutral"
+    assert card["history"]["direction"] is None
+
+
+def test_individual_carteira_unavailable_never_calls_a_consolidated_source():
+    model, reason, warnings = subject.carteira_history("ITAU - PRUDENCIAL", "2/2026", {}, base="Individual")
+    assert model is None and warnings == []
+    assert "N/D na base Individual" in reason
+    assert "mesmo perímetro" in reason
+
+
+def test_individual_peer_history_uses_individual_metrics_and_never_capital_fallback():
+    import app1
+    bank = "BANCO A S.A."
+    frame = pd.DataFrame({
+        "Instituição": [bank] * 4, "CodInst": ["1234"] * 4,
+        "Período": ["3/2025", "4/2025", "1/2026", "2/2026"],
+        "Ativo Total": [100e6, 110e6, 120e6, None],
+        "Carteira de Crédito": [50e6, 60e6, 70e6, None],
+        "Patrimônio Líquido": [10e6, 11e6, 12e6, None],
+        "Captações": [80e6, 90e6, 100e6, None],
+        "Lucro Líquido": [1e6, 2e6, 3e6, None],
+    })
+    api = {**vars(app1), "_cache_version_token": lambda source: "token-" + source}
+    query = subject.peers_history(frame, bank, "2/2026", api, "10/10/2026", base="Individual")
+    assert query["base"] == "Individual"
+    assert query["cache_token"] == "token-principal_individual"
+    assert query["metrics"] == list(subject.INDIVIDUAL_METRICS)
+    assert query["periods"] == ["4/2025", "1/2026", "2/2026"]
+    jun = [cell for cell in query["cells"] if cell["period"] == "2/2026"]
+    assert len(jun) == 6
+    assert all(cell["value"] is None and cell["display"] == "N/D" for cell in jun)
+    assert all("individual" in cell["source"] for cell in query["cells"])
+
+
+def test_individual_package_routes_both_sources_with_selected_base(monkeypatch):
+    calls = []
+    def peers(*args, **kwargs):
+        calls.append(("peers", kwargs))
+        return {"base": kwargs["base"]}
+    monkeypatch.setattr(subject, "peers_history", peers)
+    monkeypatch.setitem(sys.modules, "utils.snapshot_pptx_export", SimpleNamespace(
+        export_snapshot_powerpoint=lambda snap, peers, carteira, **kwargs: (snap, peers, carteira, kwargs)))
+    snapshot = {"base": "Individual", "bank": "BANCO A S.A.", "period": "2/2026", "queried_at": "10/10/2026"}
+    snap, query, portfolio, reasons = subject.export_snapshot_package(snapshot, pd.DataFrame(), {})
+    assert calls == [("peers", {"base": "Individual"})]
+    assert query["base"] == "Individual"
+    assert portfolio is None
+    assert "N/D na base Individual" in reasons["carteira_unavailable_reason"]

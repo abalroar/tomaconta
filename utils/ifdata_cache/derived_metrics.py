@@ -283,7 +283,8 @@ def materialize_derived_metrics_cache(
                 carteira_instrumentos_cache_name,
             )
 
-    df_derived, stats = build_derived_metrics(
+    builder = build_individual_derived_metrics if principal_cache_name == "principal_individual" else build_derived_metrics
+    df_derived, stats = builder(
         resultado_dre.dados,
         resultado_principal.dados,
         df_ativo=df_ativo,
@@ -864,6 +865,34 @@ def build_derived_metrics(
     )
 
     return df_final, stats
+
+
+def build_individual_derived_metrics(df_dre, df_principal, df_ativo=None, df_carteira_instrumentos=None):
+    """Calcula razões individuais com CodInst como identidade e fontes individuais.
+
+    Os nomes oficiais podem repetir entre pessoas jurídicas. A chave temporária
+    por código impede joins e médias entre entidades homônimas. Fontes de ativo
+    ou carteira prudencial não são usadas para completar o recorte individual.
+    """
+    from .institutions import normalize_institution_code
+    if "CodInst" not in df_dre or "CodInst" not in df_principal:
+        if df_dre.duplicated(["Instituição", "Período"]).any() or df_principal.duplicated(["Instituição", "Período"]).any():
+            raise ValueError("Base individual sem CodInst e com identidades homônimas; cálculo indisponível.")
+        return build_derived_metrics(df_dre, df_principal, df_ativo=None, df_carteira_instrumentos=None)
+    dre, principal = df_dre.copy(), df_principal.copy()
+    for frame in (dre, principal):
+        frame["CodInst"] = frame["CodInst"].map(normalize_institution_code)
+        if not frame["CodInst"].astype(bool).all() or frame.duplicated(["CodInst", "Período"]).any():
+            raise ValueError("Base individual com CodInst ausente ou duplicado na competência.")
+    names = {(str(row["CodInst"]), str(row["Período"])): str(row["Instituição"])
+             for row in dre.to_dict("records")}
+    dre["Instituição"] = dre["CodInst"]
+    principal["Instituição"] = principal["CodInst"]
+    result, stats = build_derived_metrics(dre, principal, df_ativo=None, df_carteira_instrumentos=None)
+    result["CodInst"] = result["Instituição"].astype(str)
+    result["Instituição"] = [names[(str(code), str(period))] for code, period in zip(result["CodInst"], result["Período"])]
+    result["Instituição"] = result["Instituição"].astype("category")
+    return result, stats
 
 
 def load_derived_metrics_slice(

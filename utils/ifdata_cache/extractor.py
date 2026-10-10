@@ -242,7 +242,7 @@ def extrair_valores(
     import os
     if os.getenv("TOMACONTA_IFDATA_SOURCE") == "web":
         from .ifdata_web import get_web_source
-        return get_web_source(periodo).valores(relatorio, tipo_instituicao)
+        return _deduplicate_reported_values(get_web_source(periodo).valores(relatorio, tipo_instituicao))
     url = (
         f"{BASE_URL}/IfDataValores("
         f"AnoMes={int(periodo)},"
@@ -256,9 +256,28 @@ def extrair_valores(
         logger.warning(f"Valores vazios para {periodo}, relatório {relatorio}")
         return pd.DataFrame()
 
-    df = pd.DataFrame(data["value"])
+    df = _deduplicate_reported_values(pd.DataFrame(data["value"]))
     logger.debug(f"Valores {periodo} rel.{relatorio}: {len(df)} registros")
     return df
+
+
+def _deduplicate_reported_values(df: pd.DataFrame) -> pd.DataFrame:
+    """Uma célula oficial repetida não representa três saldos a somar.
+
+    A API Olinda publicou células idênticas triplicadas em set/2025. Elimina
+    somente cópias exatas e interrompe a leitura se a mesma chave oficial tiver
+    conteúdo diferente; escolher primeiro/último ocultaria uma divergência.
+    """
+    if df is None or df.empty:
+        return df
+    unique = df.drop_duplicates().copy()
+    removed = len(df) - len(unique)
+    if removed:
+        logger.warning("IFData: removidas %s cópias exatas de células oficiais antes da agregação", removed)
+    keys = [column for column in ("TipoInstituicao", "CodInst", "AnoMes", "NumeroRelatorio", "Grupo", "Conta", "NomeColuna") if column in unique]
+    if {"CodInst", "Conta", "NomeColuna"}.issubset(unique) and unique.duplicated(keys).any():
+        raise ValueError("IFData contém valores conflitantes para a mesma instituição, competência e conta.")
+    return unique
 
 
 # =============================================================================
@@ -342,7 +361,7 @@ def extrair_resumo(
 
     # 3. Filtrar apenas variáveis desejadas (normalizar também a lista)
     variaveis_norm = [_normalizar_nome_coluna(v) for v in VARIAVEIS_RESUMO_API]
-    df_filtrado = df_val[df_val["NomeColuna"].isin(variaveis_norm)].copy()
+    df_filtrado = _deduplicate_reported_values(df_val[df_val["NomeColuna"].isin(variaveis_norm)].copy())
 
     if df_filtrado.empty:
         logger.warning(f"Nenhuma variável encontrada para {periodo}")
@@ -352,12 +371,15 @@ def extrair_resumo(
             logger.debug(f"Variáveis disponíveis (primeiras 10): {list(vars_disponiveis)}")
         return None
 
-    # 4. Pivotar dados
+    if df_filtrado.duplicated(["CodInst", "NomeColuna"]).any():
+        raise ValueError("Resumo IFData contém mais de uma conta para o mesmo indicador da instituição.")
+
+    # 4. Pivotar células únicas, sem somar repetições da fonte.
     df_pivot = df_filtrado.pivot_table(
         index="CodInst",
         columns="NomeColuna",
         values="Saldo",
-        aggfunc="sum"
+        aggfunc="first"
     ).reset_index()
     df_pivot.columns.name = None
 

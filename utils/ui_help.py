@@ -36,7 +36,7 @@ PAYMENT_FREQUENCY_HELP = ("A base mensal inclui Pix, TED, boletos, DOC, TEC e ch
                           "As participações usam os instrumentos do recorte selecionado.")
 
 MODULE_CAPTIONS = {
-    "Snapshot": "Indicadores na data-base · IFData trimestral · Visão prudencial e instituições independentes.",
+    "Snapshot": "Indicadores na data-base · IFData trimestral · Base individual ou consolidada/prudencial, conforme a seleção.",
     "Rankings": "Posições entre as instituições com dados no recorte · IFData trimestral · Visão prudencial e instituições independentes.",
     "Tabela de Peers": "Comparação por instituição e data-base · IFData trimestral · Fonte e denominador identificados por indicador.",
     "Conselho e Diretoria": "Cadastro e administradores disponíveis no BCB · Consulta atual, sem série histórica completa de mandatos.",

@@ -1,5 +1,5 @@
 {
-  "timestamp_salvamento": "2026-09-10T22:25:57.797105",
+  "timestamp_salvamento": "2026-10-10T20:26:16.191169+00:00",
   "fonte": "ifdata_web",
   "total_registros": 28114,
   "colunas": [
@@ -83,9 +83,34 @@
       },
       "registros_periodo": 1622,
       "unidade": "R$; razões em decimal"
+    },
+    "official_cell_dedup_repair": {
+      "period": "3/2025",
+      "operation": "unique_official_cells_before_pivot",
+      "verified_at_utc": "2026-10-10T20:26:16.191169+00:00",
+      "sources": {
+        "principal_individual": {
+          "url": "https://olinda.bcb.gov.br/olinda/servico/IFDATA/versao/v1/odata/IfDataValores(AnoMes=202509,TipoInstituicao=3,Relatorio='1')?$format=json&$top=500000",
+          "sha256": "8a10681afde214e0b9f7933e4855e605f866cd8d5c0f64e85fa83204b1c1dce4",
+          "bytes": 8617089,
+          "raw_records": 33684,
+          "unique_records": 11228,
+          "exact_duplicate_records": 22456
+        },
+        "dre_individual": {
+          "url": "https://olinda.bcb.gov.br/olinda/servico/IFDATA/versao/v1/odata/IfDataValores(AnoMes=202509,TipoInstituicao=3,Relatorio='4')?$format=json&$top=500000",
+          "sha256": "1bc09beff7f8826740dbccff908e5707e2a973f7cc05ba1b5d628a7ff0ecae67",
+          "bytes": 102915510,
+          "raw_records": 250224,
+          "unique_records": 83408,
+          "exact_duplicate_records": 166816
+        }
+      },
+      "individual_identity": "CodInst",
+      "individual_scope": "Rel. 1 + Rel. 4; sem Rel. 2/16 prudencial"
     }
   },
-  "publication_id": "tomaconta-jun26-20260911-v1",
-  "sha256": "474954cc8873d703125cce3523c05907a5596ca229c80907a2d2a91ed6e63a19",
+  "publication_id": "tomaconta-individual-set25-dedup-20261010-v1",
+  "sha256": "1f46c2bca56ccde4531f09aa6235e164b152a26fa1da76e7d6aa053234868724",
   "release_tag": "v1.1-cache"
 }
