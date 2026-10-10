@@ -1466,27 +1466,52 @@ class SCRDataCache(BaseCache):
             return False
         return True
 
-    @locked_cache_update
+    def _local_assets_result(self) -> Optional[CacheResult]:
+        """Lê uma geração completa sem exigir a trava de outra atualização."""
+        try:
+            data_path, metadata_path = self.coherent_read_paths()
+            parent = data_path.parent
+            dimensions = {key: parent / path.name for key, path in self.dimension_paths().items()}
+            manifest_path = parent / self.manifest_path.name
+            if not (data_path.exists() and metadata_path.exists() and manifest_path.exists()
+                    and all(path.exists() for path in dimensions.values())):
+                return None
+            data_before = data_path.stat()
+            metadata_before = metadata_path.read_bytes()
+            metadata = json.loads(metadata_before)
+            if not isinstance(metadata, dict) or not isinstance(json.loads(manifest_path.read_bytes()), dict):
+                return None
+            if not (self._parquet_tem_colunas(data_path, RESUMO_REQUIRED_COLUMNS)
+                    and self._parquet_tem_colunas(dimensions["produto"],
+                                                 ["modalidade", "submodalidade", "modalidade_bcb"])):
+                return None
+            import pyarrow.parquet as pq
+            rows = pq.ParquetFile(data_path).metadata.num_rows
+            if not rows or metadata.get("total_registros", rows) != rows:
+                return None
+            for path in dimensions.values():
+                if not pq.ParquetFile(path).metadata.num_rows:
+                    return None
+            self._validate_file_identity(data_path, metadata_path)
+            data_after = data_path.stat()
+            if (metadata_path.read_bytes() != metadata_before
+                    or (data_before.st_ino, data_before.st_size, data_before.st_mtime_ns)
+                    != (data_after.st_ino, data_after.st_size, data_after.st_mtime_ns)):
+                return None
+            return CacheResult(True, "Assets do SCR.data já disponíveis localmente.",
+                               metadata=metadata, fonte="cache_local")
+        except (OSError, ValueError, TypeError, KeyError):
+            # Snapshot removido ou promoção concorrente: a próxima leitura
+            # resolve novamente a geração, sem afirmar disponibilidade vazia.
+            return None
+
     def bootstrap_local_assets(self, *, force: bool = False) -> CacheResult:
         """Garante resumo, metadata, manifesto e dimensões localmente."""
+        if not force:
+            local = self._local_assets_result()
+            if local is not None:
+                return local
         caminhos = self.dimension_paths()
-        if (
-            not force
-            and self.arquivo_dados.exists()
-            and self.arquivo_metadata.exists()
-            and all(path.exists() for path in caminhos.values())
-            and self._parquet_tem_colunas(self.arquivo_dados, RESUMO_REQUIRED_COLUMNS)
-            and self._parquet_tem_colunas(
-                caminhos["produto"],
-                ["modalidade", "submodalidade", "modalidade_bcb"],
-            )
-        ):
-            return CacheResult(
-                sucesso=True,
-                mensagem="Assets do SCR.data já disponíveis localmente.",
-                fonte="cache_local",
-            )
-
         urls = {
             self.arquivo_dados_runtime: self.github_release_parquet_url,
             self.arquivo_metadata_runtime: self.github_release_metadata_url,
