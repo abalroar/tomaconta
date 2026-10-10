@@ -6504,6 +6504,11 @@ def _render_contas_cosif_unificado(periodos_yyyymm: Sequence[str]) -> None:
         textfont=dict(size=16),
         cliponaxis=False,
     )
+    # Reserva espaço para o valor da maior barra antes da legenda lateral.
+    coluna_plot = "Valor Calculado (abs)" if comparando_periodos else col_abs_atual
+    maior_barra = df_plot[coluna_plot].max()
+    if pd.notna(maior_barra) and maior_barra > 0:
+        fig_fgc.update_xaxes(range=[0, float(maior_barra) * 1.22])
     fig_fgc.update_layout(
         xaxis_title=f"{modo_fgc_label} (abs)",
         yaxis_title="Instituição",
@@ -15160,6 +15165,10 @@ menu = st.session_state['menu_atual']
 _menu_prev_rendered = st.session_state.get('_menu_prev_rendered')
 st.session_state['_menu_prev_rendered'] = menu
 
+if menu != "Sobre":
+    from utils.ui_polish import WORKSPACE_CSS
+    st.html(WORKSPACE_CSS)
+
 st.markdown("---")
 
 CACHE_DEPENDENCIAS_POR_ABA = {
@@ -17201,7 +17210,7 @@ elif menu == "Rankings":
         )
         _rankings_periodos_raw = list(_rankings_ctx.get("periodos_disponiveis", []))
 
-        st.markdown("### ranking")
+        st.markdown("### Rankings")
         opcoes_grafico = ["Ranking (barras)", "Deltas (barras)", "Tabela"]
         if st.session_state.get("grafico_rankings_toggle_v2") not in opcoes_grafico:
             st.session_state["grafico_rankings_toggle_v2"] = opcoes_grafico[0]
@@ -17396,16 +17405,8 @@ elif menu == "Rankings":
                     horizontal=True,
                     key="ordem_resumo"
                 )
-                _indicador_toggle_key = "ranking_data_labels_last_indicator"
-                if st.session_state.get(_indicador_toggle_key) != indicador_label:
-                    st.session_state["ranking_data_labels_toggle"] = True
-                    st.session_state[_indicador_toggle_key] = indicador_label
-                mostrar_data_labels = st.toggle(
-                    "Exibir valores",
-                    value=st.session_state.get("ranking_data_labels_toggle", True),
-                    key="ranking_data_labels_toggle",
-                    help="Mostra/oculta os valores diretamente nas barras do gráfico.",
-                )
+                from utils.ui_polish import render_rankings_data_labels_toggle
+                mostrar_data_labels = render_rankings_data_labels_toggle(indicador_label)
 
             periodo_tabela_resolvido = st.session_state.get("periodo_tabela_v1")
             if periodo_tabela_resolvido not in periodos:
@@ -18914,7 +18915,7 @@ elif menu == "Rankings":
             if grafico_base == "Deltas (antes e depois)":
                 st.markdown("---")
 
-                st.markdown("### deltas (antes e depois)")
+                st.markdown("### Deltas (antes e depois)")
                 variaveis_selecionadas_delta = [indicador_label]
                 delta_colunas_map = {label: col for label, col in indicadores_disponiveis.items()}
 
@@ -19260,7 +19261,7 @@ elif menu == "Rankings":
                                             )
                                         ))
 
-                                st.markdown("### evolução histórica (dados brutos)")
+                                st.markdown("### Evolução histórica (dados brutos)")
                                 fig_hist.update_layout(
                                     height=320,
                                     margin=dict(l=10, r=10, t=40, b=30),
@@ -19290,7 +19291,7 @@ elif menu == "Rankings":
 
                                 st.caption("histórico exibido apenas para conferência visual (sem exportação nesta seção).")
 
-                        st.markdown("#### dados brutos comparados")
+                        st.markdown("#### Dados brutos comparados")
                         df_resumo = pd.DataFrame(dados_grafico)
                         df_resumo = df_resumo.rename(columns={
                             'instituicao': 'Instituição',
@@ -19322,7 +19323,7 @@ elif menu == "Rankings":
             # =====================================================================
             if grafico_base == "Tabela":
                 st.markdown("---")
-                st.markdown("### visão tabela (posicionamento)")
+                st.markdown("### Visão tabela (posicionamento)")
 
                 # --- Controles ---
                 col_tab_periodo, col_tab_pool, col_tab_modo = st.columns([1.2, 1.0, 1.0])
@@ -19494,7 +19495,7 @@ elif menu == "Rankings":
                                 st.caption("linhas em *itálico* = instituições adicionadas individualmente (fora do pool).")
 
                             # --- Exportação ---
-                            st.markdown("#### exportar")
+                            st.markdown("#### Exportar")
                             df_export_tab = df_display.copy()
                             df_export_tab.insert(0, 'Período', formatar_periodo_mm_yyyy(periodo_tabela))
 

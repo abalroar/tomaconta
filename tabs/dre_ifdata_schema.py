@@ -627,7 +627,7 @@ def render_streamlit_app() -> None:
     st.caption("A camada abaixo diagnostica o parquet antes de montar a DRE. Nenhum sinal é invertido e nenhuma linha sem fonte clara recebe valor.")
 
     config = load_mapping_config()
-    with st.expander("Plano de execução", expanded=True):
+    with st.expander("Plano de execução", expanded=False):
         st.markdown(execution_plan_markdown())
 
     source_mode = st.radio(
