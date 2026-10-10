@@ -43,3 +43,28 @@ def test_credito_captacoes_yoy_escala_dec():
 def test_roe_trim_qoq_escala_dec():
     # Set/25 = 0.1596, Jun/25 = 0.1534 → +0,62 p.p.
     assert compute_delta(0.1596, 0.1534, "pp", "dec") == pytest.approx(0.62, abs=0.01)
+
+
+@pytest.mark.parametrize("current,base,expected", [(2.25,2.18,7),(14.77,15.18,-41),(187.41,193.54,-613),(0,2.18,-218),(-2,-3,100)])
+def test_rate_differences_keep_scale_sign_and_allow_zero_or_negative_rates(current,base,expected):
+    assert compute_delta(current, base, "bps", "pct") == pytest.approx(expected)
+    assert compute_delta(current/100, base/100, "bps", "dec") == pytest.approx(expected)
+
+
+@pytest.mark.parametrize("base", [0, -1, -100])
+def test_relative_growth_requires_positive_base_but_absolute_difference_remains_available(base):
+    assert compute_delta(50, base, "pct") is None
+    assert compute_delta(50, base, "absolute") == 50-base
+
+
+@pytest.mark.parametrize("bad", [float("inf"),float("-inf"),float("nan"),None])
+def test_nonfinite_inputs_never_become_numeric_deltas(bad):
+    for kind in ("bps","pp","pct","absolute"):
+        assert compute_delta(bad, 1, kind) is None
+        assert compute_delta(1, bad, kind) is None
+
+
+def test_monetary_growth_and_multiple_difference_use_distinct_units():
+    assert compute_delta(110,100,"pct") == pytest.approx(10)
+    assert compute_delta(11,10,"absolute") == 1
+    assert compute_delta(-50,100,"pct") == pytest.approx(-150)

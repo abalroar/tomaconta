@@ -11,6 +11,7 @@ import pandas as pd
 
 from tabs.peers_config import PEERS_TABELA_LAYOUT, PEERS_GLOSSARIO_RESUMIDO
 from utils.ui_help import get_help_text
+from utils.snapshot_delta import compute_delta
 
 
 @dataclass(frozen=True)
@@ -86,7 +87,7 @@ METRICS = _catalog()
 BY_KEY = {m.key: m for m in METRICS}
 DEFAULT_METRICS = tuple(m.key for m in METRICS if m.section != "Detalhamento e cobertura" and m.key not in {"Perda Esperada", "Ativo Total / PL", "Carteira de Crédito* / PL", "Ativos Líquidos"})
 INDIVIDUAL_METRICS = ("Ativo Total", "Carteira de Crédito*", "Core Funding*", "Patrimônio Líquido (PL)", "Lucro Líquido Acumulado", "ROE Acumulado YTD (%)")
-BASELINES = {"year": "Mesmo trimestre do ano anterior", "quarter": "Trimestre anterior", "none": "Sem variação"}
+BASELINES = {"quarter": "QoQ · trimestre anterior", "year": "YoY · mesmo trimestre do ano anterior", "none": "Sem variação"}
 SCALES = {"R$ milhões": 1e6, "R$ bilhões": 1e9}
 COLORS = ("#174A7E", "#B35421", "#56734A", "#7C5C8F", "#276C75", "#6B6B6B")
 
@@ -144,6 +145,21 @@ def required_periods(periods, mode):
     return tuple(sorted(all_periods, key=period_sort))
 
 
+def comparison_label(mode):
+    return {"quarter": "QoQ", "year": "YoY", "none": ""}[mode]
+
+
+def period_comparison_label(p, mode):
+    base = reference(p, mode)
+    return f"{comparison_label(mode)} vs {period_label(base)}" if base else ""
+
+
+def delta_measure(value, old, metric):
+    """Unidade explícita: subtração de taxas/múltiplos; crescimento de montantes."""
+    kind, scale, unit = ("bps", "dec", "bps") if metric.unit == "%" else ("absolute", "pct", "x") if metric.unit == "x" else ("pct", "pct", "%")
+    return compute_delta(value, old, kind, scale), unit
+
+
 def format_value(value, metric, scale):
     v = number(value)
     if v is None:
@@ -163,13 +179,8 @@ def delta(value, old, metric, mode):
         return None, "YTD: janelas diferentes"
     if v is None or b is None:
         return None, "Base N/D"
-    if metric.unit == "%":
-        change, unit = (v - b) * 10_000, "bps"
-    elif metric.unit == "x":
-        change, unit = v - b, "x"
-    elif b > 0:
-        change, unit = (v / b - 1) * 100, "%"
-    else:
+    change, unit = delta_measure(v, b, metric)
+    if change is None:
         return None, "Base ≤ 0"
     rounded = round(change, 2)
     direction = "up" if rounded > 0 else "down" if rounded < 0 else "flat"
@@ -285,10 +296,13 @@ def build_query(df, banks, periods, metrics, values, statuses, *, base, cache_to
                 if base != "Individual" and old_period and period_sort(p)[0] >= 2025 > period_sort(old_period)[0] and key in {"Carteira de Crédito*", "Core Funding*", "Carteira de Crédito* / PL", "Inadimplência / Carteira de Crédito", "Perda Esperada / Carteira de Crédito*"}:
                     direction, variation = None, "Quebra em 2025"
                 display = format_value(value, metric, scale) + ("†" if status in {"warning", "critical"} else "")
-                cells.append({"metric": key, "bank": bank, "period": p, "value": value, "display": display, "direction": direction, "variation": variation, "reference": old_period, "reference_value": old, "status": status, "source": source, "reason": reason})
+                delta_value, delta_unit = delta_measure(value, old, metric)
+                if direction is None:
+                    delta_value = None
+                cells.append({"metric": key, "bank": bank, "period": p, "value": value, "display": display, "direction": direction, "variation": variation, "delta_value": delta_value, "delta_unit": delta_unit, "reference": old_period, "reference_value": old, "status": status, "source": source, "reason": reason})
     # Hash do slice efetivo inclui componentes e referências. Independe da data da consulta.
     fingerprint = sha256(pd.util.hash_pandas_object(df.astype(str), index=False).values.tobytes()).hexdigest()
-    result = {"schema_version": 1, "base": base, "banks": list(banks), "periods": list(periods), "metrics": list(metrics), "scale": scale, "mode": mode, "cache_token": cache_token, "data_sha256": fingerprint, "query_type": "Comparação de peers em competências selecionadas", "cells": cells}
+    result = {"schema_version": 2, "base": base, "banks": list(banks), "periods": list(periods), "metrics": list(metrics), "scale": scale, "mode": mode, "cache_token": cache_token, "data_sha256": fingerprint, "query_type": "Comparação de peers em competências selecionadas", "cells": cells}
     result["signature"] = sha256(json.dumps(result, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
     result["queried_at"] = queried_at
     return result

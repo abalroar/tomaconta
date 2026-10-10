@@ -1,5 +1,6 @@
 import app1
 import pandas as pd
+import pytest
 
 
 def test_snapshot_metric_status_note_identifies_prudential_and_capital_unavailability():
@@ -105,6 +106,40 @@ def test_render_snap_card_explicitly_labels_trimestral_and_ytd_bases():
     assert "QoQ trimestral" in html_trim
     assert "YoY trimestral" in html_trim
     assert "YoY YTD" in html_ytd
+
+
+def test_snapshot_rates_use_bps_and_negative_monetary_base_is_not_growth():
+    for label, meta in app1.SNAPSHOT_METRICS.items():
+        assert app1._snap_metric_delta_meta({"label":label,"is_pct":True}) == ("bps","dec")
+    assert app1._snap_delta_calc(.1477,.1518,"bps","dec")["suffix"] == "-41,00 bps"
+    assert not app1._snap_delta_calc(-50,-100)["valido"]
+    assert "≤ 0" in app1._snap_delta_calc(-50,-100)["motivo"]
+    html=app1._snap_delta_html(-.01,-.02,"QoQ",False,"bps","dec")
+    assert "↑" in html
+    assert "+100,00 bps" in html
+
+
+def test_small_monetary_delta_keeps_visible_sign_and_precision():
+    assert app1._snap_delta_calc(100.04,100)["suffix"] == "+0,04%"
+
+
+def test_snapshot_audit_detects_the_rendered_delta_instead_of_recomputing_it_twice(monkeypatch):
+    cfg=[{"label":"Índice de Basileia","is_pct":True,"serie":{"1/2026":.1477,"4/2025":.1518}}]
+    assert app1._audit_deltas_snapshot(cfg,"1/2026","4/2025",None) == []
+    original=app1._snap_delta_calc
+    def wrong_suffix(*args,**kwargs):
+        return {**original(*args,**kwargs),"suffix":"-410,00 bps"}
+    monkeypatch.setattr(app1,"_snap_delta_calc",wrong_suffix)
+    findings=app1._audit_deltas_snapshot(cfg,"1/2026","4/2025",None)
+    assert len(findings) == 1
+    assert findings[0]["Delta esperado (bruto)"] == pytest.approx(-41)
+
+
+def test_cosif_signed_balance_keeps_absolute_difference_with_relative_nd():
+    result,error=app1._comparar_valores_conta_bloprudencial("202602","202601",{"202601":-100,"202602":-50},"saldo_periodo")
+    assert error is None
+    assert result["Variação"] == 50
+    assert result["Variação %"] is None
 
 
 def test_carregar_cache_relatorio_slice_uses_specialized_critical_screens_loader(monkeypatch):

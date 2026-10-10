@@ -6162,9 +6162,7 @@ def _comparar_valores_conta_bloprudencial(
         return None, f"período anterior: {erro_anterior or 'dados insuficientes'}"
 
     variacao = float(valor_atual) - float(valor_anterior)
-    variacao_pct = None
-    if valor_anterior not in (None, 0) and not pd.isna(valor_anterior):
-        variacao_pct = (variacao / abs(float(valor_anterior))) * 100.0
+    variacao_pct = compute_delta(valor_atual, valor_anterior, "pct")
 
     return {
         "Valor Atual": float(valor_atual),
@@ -10554,13 +10552,13 @@ def _snapshot_normalize_cmp_values(valor_atual, valor_base, higher_is_better: bo
 
 SNAPSHOT_METRICS = {
     "Índice de Basileia":                                {"tipo_delta": "bps", "escala": "dec"},
-    "ROE trim. anualizado":                              {"tipo_delta": "pp",  "escala": "dec"},
-    "ROE Ac. Anualizado":                                {"tipo_delta": "pp",  "escala": "dec"},
-    "Crédito / Captações":                               {"tipo_delta": "pp",  "escala": "dec"},
-    "Desp. Anualizada Captação / Volume Captação":       {"tipo_delta": "pp",  "escala": "dec"},
-    "Desp. Anualizada Captações / Volume Captações":     {"tipo_delta": "pp",  "escala": "dec"},
-    "Perda Esperada / Estágio 3":                        {"tipo_delta": "pp",  "escala": "dec"},
-    "Perda Esperada / Carteira":                         {"tipo_delta": "pp",  "escala": "dec"},
+    "ROE trim. anualizado":                              {"tipo_delta": "bps",  "escala": "dec"},
+    "ROE Ac. Anualizado":                                {"tipo_delta": "bps",  "escala": "dec"},
+    "Crédito / Captações":                               {"tipo_delta": "bps",  "escala": "dec"},
+    "Desp. Anualizada Captação / Volume Captação":       {"tipo_delta": "bps",  "escala": "dec"},
+    "Desp. Anualizada Captações / Volume Captações":     {"tipo_delta": "bps",  "escala": "dec"},
+    "Perda Esperada / Estágio 3":                        {"tipo_delta": "bps",  "escala": "dec"},
+    "Perda Esperada / Carteira":                         {"tipo_delta": "bps",  "escala": "dec"},
     "CET1":                                              {"tipo_delta": "bps", "escala": "dec"},
 }
 
@@ -10570,7 +10568,7 @@ def _snap_metric_delta_meta(metric_cfg: dict) -> tuple[str, str]:
     label = metric_cfg.get("label", "")
     meta = SNAPSHOT_METRICS.get(label, {})
     if metric_cfg.get("is_pct", False):
-        default_tipo = "bps" if metric_cfg.get("show_bps", False) else "pp"
+        default_tipo = "bps"
         default_escala = "dec"
     else:
         default_tipo = "pct"
@@ -10717,21 +10715,19 @@ def _snap_delta_calc(
 
     payload["a"] = a
     payload["b"] = b
-    if b == 0 and delta_kind == "pct":
-        payload["motivo"] = "período anterior igual a zero"
+    if b <= 0 and delta_kind == "pct":
+        payload["motivo"] = "variação relativa indisponível: período anterior ≤ 0"
         return payload
 
     diff = compute_delta(a, b, tipo=delta_kind, escala=scale)
     if diff is None:
         return payload
     if delta_kind == "bps":
-        diff_bps = int(round(diff))
-        sinal = "+" if diff_bps > 0 else ""
-        payload["suffix"] = f"{sinal}{diff_bps} bps"
+        payload["suffix"] = formatar_numero_br(diff, casas=2, sufixo=" bps", com_sinal=True)
     elif delta_kind == "pp":
         payload["suffix"] = formatar_numero_br(diff, casas=2, sufixo=" p.p.", com_sinal=True)
     else:
-        payload["suffix"] = formatar_numero_br(diff, casas=1, sufixo="%", com_sinal=True)
+        payload["suffix"] = formatar_numero_br(diff, casas=2, sufixo="%", com_sinal=True)
 
     payload["valido"] = True
     payload["motivo"] = ""
@@ -10753,14 +10749,14 @@ def _snap_delta_html(
 
     if not calc.get("valido") or a is None or b is None:
         return (
-            f'<span class="snap-card__delta snap-card__delta--neutral">'
+            f'<span class="snap-card__delta snap-card__delta--neutral" title="{_html_mod.escape(calc["motivo"], quote=True)}">'
             f'<span class="snap-card__delta-label">{label}</span> —</span>'
         )
 
     a_cmp, b_cmp = _snapshot_normalize_cmp_values(a, b, higher_is_better)
-    if a_cmp > b_cmp:
+    if a > b:
         direcao = "up"
-    elif a_cmp < b_cmp:
+    elif a < b:
         direcao = "down"
     else:
         direcao = "neutral"
@@ -10769,7 +10765,7 @@ def _snap_delta_html(
         css_mod = "snap-card__delta--neutral"
         arrow = "—"
     else:
-        melhorou = (direcao == "up" and higher_is_better) or (direcao == "down" and not higher_is_better)
+        melhorou = (a_cmp > b_cmp and higher_is_better) or (a_cmp < b_cmp and not higher_is_better)
         css_mod = "snap-card__delta--positive" if melhorou else "snap-card__delta--negative"
         arrow = "↑" if direcao == "up" else "↓"
 
@@ -11201,34 +11197,38 @@ def _audit_deltas_snapshot(
         label = cfg.get("label", "Métrica")
         delta_kind, delta_scale = _snap_metric_delta_meta(cfg)
         qoq_label, yoy_label = _snapshot_comparison_labels(cfg)
-        tolerancia = 0.5 if delta_kind == "bps" else 0.1
+        tolerancia = 0.0051
         comparacoes = [
             (qoq_label, periodo_anterior_qoq),
             (yoy_label, periodo_anterior_yoy),
         ]
         for comp_label, periodo_base in comparacoes:
+            if cfg.get("comparison") == "yoy" and comp_label == qoq_label:
+                continue
             if not periodo_base:
                 continue
             atual = serie.get(periodo_atual)
             base = serie.get(periodo_base)
             calc_payload = _snap_delta_calc(atual, base, delta_kind=delta_kind, scale=delta_scale)
             delta_calc = compute_delta(atual, base, tipo=delta_kind, escala=delta_scale)
-            if not calc_payload.get("valido") or delta_calc is None:
+            if not calc_payload.get("valido") and delta_calc is None:
                 continue
-            if delta_kind == "bps":
-                exibido = int(round(delta_calc))
-                computado = int(round(delta_calc))
+            # Lê o texto realmente renderizado; evita comparar a fórmula consigo mesma.
+            match = re.search(r"[+−-]?\d[\d.,]*", calc_payload.get("suffix", ""))
+            expected_unit = {"bps": "bps", "pp": "p.p.", "pct": "%"}[delta_kind]
+            if match is None or expected_unit not in calc_payload.get("suffix", "") or not calc_payload.get("valido"):
+                exibido = float("inf")
             else:
-                exibido = round(delta_calc, 2)
-                computado = delta_calc
-            discrepancia = abs(float(exibido) - float(computado))
+                exibido = float(match.group().replace("−", "-").replace(".", "").replace(",", "."))
+            computado = delta_calc
+            discrepancia = abs(float(exibido) - float(computado)) if computado is not None else float("inf")
             if discrepancia > tolerancia:
                 anomalias.append(
                     {
                         "Métrica": label,
                         "Comparação": comp_label,
                         "Delta renderizado": calc_payload.get("suffix", "—"),
-                        "Delta esperado (bruto)": round(computado, 4),
+                        "Delta esperado (bruto)": round(computado, 4) if computado is not None else None,
                         "Tipo delta": delta_kind,
                         "Escala": delta_scale,
                         "Discrepância": round(discrepancia, 4),
@@ -18847,15 +18847,25 @@ elif menu == "Rankings":
                         f"⚠ O indicador **{indicador_label}** é trimestral e não é compatível com "
                         f"comparação acumulada. Selecione um indicador acumulado ou altere os períodos."
                     )
+                if periodo_valido and indicador_label == "Lucro Líquido Acumulado YTD" and periodo_inicial_delta.split('/')[0] != periodo_subsequente_delta.split('/')[0]:
+                    _indicador_incompativel = True
+                    st.warning("Lucro YTD requer janelas de igual duração: selecione o mesmo trimestre em anos diferentes, ou use lucro trimestral.")
 
                 with col_tipo_var:
+                    delta_coluna = delta_colunas_map.get(indicador_label, indicador_label)
+                    delta_opcoes = ["Δ (bps)"] if _is_variavel_percentual(delta_coluna) else ["Δ absoluto", "Δ %"]
+                    if st.session_state.get("tipo_variacao_delta") not in delta_opcoes:
+                        st.session_state.pop("tipo_variacao_delta", None)
                     tipo_variacao = st.radio(
                         "ordenar por",
-                        ["Δ absoluto", "Δ %"],
-                        index=1,
+                        delta_opcoes,
+                        index=len(delta_opcoes)-1,
                         key="tipo_variacao_delta",
-                        horizontal=True
+                        horizontal=True,
+                        format_func=lambda v: "Δ relativo (%)" if v == "Δ %" else v,
                     )
+                    if tipo_variacao == "Δ (bps)":
+                        tipo_variacao = "Δ %"
                 if periodo_subsequente_delta and periodo_inicial_delta:
                     periodo_inicial_delta_fmt = formatar_periodo_mm_yyyy(periodo_inicial_delta)
                     periodo_subsequente_delta_fmt = formatar_periodo_mm_yyyy(periodo_subsequente_delta)
@@ -18893,38 +18903,24 @@ elif menu == "Rankings":
                             if pd.isna(v_ini) or pd.isna(v_sub):
                                 continue
 
-                            delta_absoluto = v_sub - v_ini
+                            delta_absoluto = compute_delta(v_sub, v_ini, "absolute")
+                            if delta_absoluto is None:
+                                continue
 
                             if _is_variavel_percentual(coluna_variavel):
-                                delta_texto = f"{delta_absoluto * 100:+.2f} p.p.".replace(".", ",")
+                                delta_texto = formatar_numero_br(delta_absoluto * 10_000, casas=2, sufixo=" bps", com_sinal=True)
                             elif coluna_variavel in VARS_MOEDAS:
                                 delta_texto = f"R$ {delta_absoluto/1e6:+,.0f}MM".replace(",", ".")
                             else:
                                 delta_texto = f"{delta_absoluto:+.2f}"
 
-                            # Para indicadores percentuais, variação é em p.p. (não % sobre %)
+                            # Taxas: subtração em bps. Montantes: crescimento sobre base positiva.
                             if _is_variavel_percentual(coluna_variavel):
-                                variacao_pct = delta_absoluto * 100  # p.p.
-                                variacao_texto = delta_texto  # mesma representação em p.p.
-                            elif v_ini == 0:
-                                if delta_absoluto > 0:
-                                    variacao_pct = float('inf')
-                                    variacao_texto = "Valor Inicial 0 - ∞"
-                                elif delta_absoluto < 0:
-                                    variacao_pct = float('-inf')
-                                    variacao_texto = "Valor Inicial 0 - ∞"
-                                else:
-                                    variacao_pct = 0
-                                    variacao_texto = "0,0%"
-                            elif v_ini < 0 and v_sub > 0:
-                                variacao_pct = ((v_sub - v_ini) / abs(v_ini)) * 100
-                                variacao_texto = f"{variacao_pct:+.1f}% (inversão)"
-                            elif v_ini > 0 and v_sub < 0:
-                                variacao_pct = ((v_sub - v_ini) / abs(v_ini)) * 100
-                                variacao_texto = f"{variacao_pct:+.1f}% (inversão)"
+                                variacao_pct = delta_absoluto * 10_000
+                                variacao_texto = delta_texto
                             else:
-                                variacao_pct = ((v_sub - v_ini) / abs(v_ini)) * 100
-                                variacao_texto = f"{variacao_pct:+.1f}%"
+                                variacao_pct = compute_delta(v_sub, v_ini, "pct")
+                                variacao_texto = "N/D: base ≤ 0" if variacao_pct is None else formatar_numero_br(variacao_pct, casas=1, sufixo="%", com_sinal=True) + (" (inversão de sinal)" if v_sub < 0 else "")
 
                             if _is_variavel_percentual(coluna_variavel):
                                 memoria_calculo = (
@@ -18946,7 +18942,7 @@ elif menu == "Rankings":
                                 'valor_sub': v_sub,
                                 'delta': delta_absoluto,
                                 'delta_texto': delta_texto,
-                                'variacao_pct': variacao_pct if not (variacao_pct == float('inf') or variacao_pct == float('-inf')) else (1e10 if variacao_pct > 0 else -1e10),
+                                'variacao_pct': variacao_pct,
                                 'variacao_texto': variacao_texto,
                                 'memoria_calculo': memoria_calculo
                             })
@@ -18956,6 +18952,13 @@ elif menu == "Rankings":
                             continue
 
                         if tipo_variacao == "Δ %":
+                            sem_base = sum(d['variacao_pct'] is None for d in dados_grafico)
+                            if sem_base:
+                                st.caption(f"{sem_base} instituições sem crescimento relativo calculável (base ≤ 0). A diferença em valor está disponível em Δ absoluto.")
+                            dados_grafico = [d for d in dados_grafico if d['variacao_pct'] is not None]
+                            if not dados_grafico:
+                                st.info("Variação relativa N/D para toda a seleção. Selecione Δ absoluto para conferir a diferença em valor.")
+                                continue
                             dados_grafico = sorted(dados_grafico, key=lambda x: x['variacao_pct'], reverse=True)
                         else:
                             dados_grafico = sorted(dados_grafico, key=lambda x: x['delta'], reverse=True)
@@ -18975,9 +18978,10 @@ elif menu == "Rankings":
                                 else:
                                     dado['valor_plot'] = cap_visual if dado['variacao_pct'] > 0 else -cap_visual
                             else:
-                                delta_plot = _normalizar_valor_indicador(dado['delta'], coluna_variavel)
+                                # Os insumos já foram normalizados antes da subtração.
+                                delta_plot = dado['delta']
                                 if _is_variavel_percentual(coluna_variavel):
-                                    dado['valor_plot'] = delta_plot * 100
+                                    dado['valor_plot'] = delta_plot * 10_000
                                 else:
                                     dado['valor_plot'] = delta_plot * format_info['multiplicador']
 
@@ -18990,16 +18994,16 @@ elif menu == "Rankings":
 
                         if tipo_variacao == "Δ %" and _is_variavel_percentual(coluna_variavel):
                             eixo_tickformat = '.2f'
-                            eixo_ticksuffix = ' p.p.'
-                            eixo_titulo = "Δ (p.p.)"
+                            eixo_ticksuffix = ' bps'
+                            eixo_titulo = "Δ (bps)"
                         elif tipo_variacao == "Δ %":
                             eixo_tickformat = '.1f'
                             eixo_ticksuffix = '%'
                             eixo_titulo = "Δ %"
                         elif _is_variavel_percentual(coluna_variavel):
                             eixo_tickformat = '.2f'
-                            eixo_ticksuffix = ' p.p.'
-                            eixo_titulo = "Δ absoluto (p.p.)"
+                            eixo_ticksuffix = ' bps'
+                            eixo_titulo = "Δ absoluto (bps)"
                         else:
                             eixo_tickformat = format_info['tickformat']
                             eixo_ticksuffix = format_info['ticksuffix']
@@ -19179,9 +19183,10 @@ elif menu == "Rankings":
                             'valor_ini': periodo_inicial_delta,
                             'valor_sub': periodo_subsequente_delta,
                             'delta_texto': 'Delta',
-                            'variacao_texto': 'Variação %'
+                            'variacao_texto': 'Variação (bps)' if _is_variavel_percentual(coluna_variavel) else 'Variação relativa (%)'
                         })
-                        df_resumo = df_resumo[['Instituição', periodo_inicial_delta, periodo_subsequente_delta, 'Delta', 'Variação %']]
+                        variacao_coluna = 'Variação (bps)' if _is_variavel_percentual(coluna_variavel) else 'Variação relativa (%)'
+                        df_resumo = df_resumo[['Instituição', periodo_inicial_delta, periodo_subsequente_delta, 'Delta', variacao_coluna]]
                         df_resumo_exibicao = df_resumo.copy()
                         for col_periodo in [periodo_inicial_delta, periodo_subsequente_delta]:
                             df_resumo_exibicao[col_periodo] = df_resumo_exibicao[col_periodo].apply(

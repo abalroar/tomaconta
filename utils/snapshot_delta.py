@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 from typing import Optional
-
-import pandas as pd
+import math
 
 
 def compute_delta(
@@ -17,6 +16,7 @@ def compute_delta(
       - "pp"  -> diferença em pontos percentuais
       - "bps" -> diferença em basis points
       - "pct" -> variação relativa percentual
+      - "absolute" -> diferença na unidade original
     escala:
       - "pct" -> valores já em base percentual (ex.: 21.38)
       - "dec" -> valores em base decimal (ex.: 0.2138)
@@ -30,23 +30,22 @@ def compute_delta(
     except (TypeError, ValueError):
         return None
 
-    if pd.isna(atual) or pd.isna(anterior):
+    if not math.isfinite(atual) or not math.isfinite(anterior):
         return None
 
     if escala not in {"pct", "dec"}:
         raise ValueError(f"escala inválida: {escala}")
 
-    if escala == "dec":
-        atual *= 100
-        anterior *= 100
-
+    difference = atual - anterior
+    if tipo == "absolute":
+        return difference
     if tipo == "pp":
-        return atual - anterior
+        return difference * (100 if escala == "dec" else 1)
     if tipo == "bps":
-        return (atual - anterior) * 100
+        return difference * (10_000 if escala == "dec" else 100)
     if tipo == "pct":
-        if anterior == 0:
+        if anterior <= 0:
             return None
-        return (atual / anterior - 1) * 100
+        return difference / anterior * 100
 
     raise ValueError(f"tipo inválido: {tipo}")

@@ -17,7 +17,7 @@ from pptx import Presentation
 from utils.peers_table_model import BY_KEY, DEFAULT_METRICS, ARRASTO_ROWS, build_query, delta, reference, get_metric, methodology_rows
 from utils.peers_table_exports import export_excel, export_powerpoint
 from utils import peers_groups
-from tabs.peers_table import table_html, calculation_rows, table_row_label, table_footnote
+from tabs.peers_table import table_html, calculation_rows, variation_rows, table_row_label, table_footnote
 
 
 def sample(banks=("A", "B", "C"), periods=("4/2025", "1/2026", "2/2026"), metrics=("Ativo Total", "Custo de Crédito (%)", "Lucro Líquido Acumulado"), **overrides):
@@ -39,6 +39,36 @@ def test_delta_baseline_units_rounding_and_ytd_guard():
     assert delta(.03, .030001, BY_KEY["Custo de Crédito (%)"], "year") == ("down", "↓ −0,01 bps")
     assert delta(3, -2, BY_KEY["Ativo Total"], "year")[0] is None
     assert delta(3, 2, BY_KEY["Lucro Líquido Acumulado"], "quarter")[1] == "YTD: janelas diferentes"
+
+
+@pytest.mark.parametrize("metric", [m for m in BY_KEY.values() if m.unit == "%"], ids=lambda m: m.key)
+def test_every_percentage_metric_uses_subtraction_in_bps(metric):
+    for mode in ("quarter", "year"):
+        assert delta(.0225,.0218,metric,mode) == ("up", "↑ +7,00 bps")
+        assert delta(.1477,.1518,metric,mode) == ("down", "↓ −41,00 bps")
+        assert delta(1.8741,1.9354,metric,mode) == ("down", "↓ −613,00 bps")
+
+
+def test_reference_and_numeric_delta_are_auditable_in_ui_and_excel():
+    q,_,values = sample(metrics=("Índice de Basileia Total (%)",), mode="quarter")
+    df=pd.DataFrame([{"Instituição":"A","Período":"4/2025"},{"Instituição":"A","Período":"1/2026"},{"Instituição":"A","Período":"1/2025"}])
+    values={("Índice de Basileia Total (%)","A","4/2025"):.1518,("Índice de Basileia Total (%)","A","1/2026"):.1477,("Índice de Basileia Total (%)","A","1/2025"):.16}
+    common=dict(base=q["base"],cache_token=q["cache_token"],scale=q["scale"],queried_at=q["queried_at"])
+    q=build_query(df,["A"],["1/2026"],q["metrics"],values,{},mode="quarter",**common)
+    assert q["cells"][0]["delta_value"] == pytest.approx(-41)
+    assert q["cells"][0]["delta_unit"] == "bps"
+    assert "14,77%" in table_html(q)
+    assert "QoQ vs Dez/25" in table_html(q)
+    memo=variation_rows(q,q["metrics"][0],"A").iloc[0]
+    assert memo["Referência"] == "Dez/25"
+    assert "14,7700% − 15,1800%" in memo["Cálculo"]
+    yoy=build_query(df,["A"],["1/2026"],q["metrics"],values,{},mode="year",**common)
+    assert yoy["cells"][0]["delta_value"] == pytest.approx(-123)
+    assert "YoY vs Mar/25" in table_html(yoy)
+    ws=load_workbook(BytesIO(export_excel(q)))["Dados e status"]
+    records=list(ws.values); headers=records[0]
+    assert records[1][headers.index("Delta numérico")] == pytest.approx(-41)
+    assert records[1][headers.index("Unidade delta")] == "bps"
 
 
 def test_query_preserves_sign_missing_components_order_and_effective_revision():
@@ -82,9 +112,8 @@ def test_table_embeds_units_and_formats_percentages_without_mutating_query():
     assert "Ativo total (R$ bi)" in html
     assert "Custo de crédito (%)" in html
     assert ">2.739,22<" in html
-    assert ">13,3%<" in html
-    assert "↑ +13,3%" in html
-    assert "13,33%" not in html
+    assert ">13,33%<" in html
+    assert "↑ +13,33%" in html
     assert json.dumps(q, sort_keys=True) == before
     assert table_row_label(BY_KEY["Ativo Total"], "R$ milhões") == "Ativo total (R$ mi)"
     titled = replace(BY_KEY["Custo de Crédito (%)"], label="Custo de crédito (%)")
@@ -96,7 +125,7 @@ def test_table_marks_series_break_values_and_gives_specific_footnote():
     for cell in q["cells"]:
         cell.update(value=1e9, display="1,00")
     html = table_html(q)
-    assert "Quebra em 2025" not in html
+    assert "Quebra em 2025" not in ''.join(etree.fromstring(html).itertext())
     assert html.count(">1,00*<") == 6
     assert html.count(">1,00<") == 12
     note = table_footnote(q)
@@ -138,7 +167,7 @@ def test_powerpoint_table_is_native_three_by_three_and_paginated():
         assert len(table.columns) == 10
         assert len(table.rows) <= 12
         assert table.cell(0, 1).is_merge_origin
-        assert table.cell(1, 3).text == "Jun/26"
+        assert table.cell(1, 3).text == "Jun/26\nYoY vs Jun/25"
         assert table.cell(2, 0).text_frame.paragraphs[1].font.size.pt == 9
         assert table.cell(2, 0).text_frame.paragraphs[1].font.bold is False
         assert all(s.top+s.height <= prs.slide_height for s in slide.shapes)
