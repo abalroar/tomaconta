@@ -5,7 +5,7 @@ Revisão dos 26 indicadores da Tabela de Peers, no perímetro Consolidada / Prud
 ## Operação e apresentação
 
 - Taxas de capital, retorno, custo de crédito e participações de risco: subtração em bps, exibidos sem casas decimais.
-- Coberturas de PDD ou perdas sobre créditos vencidos/estágios e custo/receita: subtração em pontos percentuais, com uma casa decimal. Os níveis dessas razões também usam uma casa decimal.
+- Coberturas de PDD ou perdas sobre créditos vencidos/estágios e custo/receita: subtração em pontos percentuais, com uma casa decimal. Os níveis percentuais mantêm duas casas decimais para facilitar a conferência da subtração.
 - Montantes: crescimento relativo `(atual − referência) / referência × 100`, com referência positiva. Múltiplos: diferença direta em x.
 - Cálculos mantêm a precisão dos insumos. Movimentos que arredondariam para zero preservam a direção com `<1 bp` ou o limite de exibição da unidade. Igualdade exata recebe `= 0`.
 - QoQ e YoY mantêm a referência explícita em cada coluna. Quebras em 2025, ausência de componentes e janelas YTD diferentes continuam bloqueando deltas.
@@ -14,9 +14,9 @@ Revisão dos 26 indicadores da Tabela de Peers, no perímetro Consolidada / Prud
 
 | Indicador | Referência | Atual | Variação apresentada |
 |---|---:|---:|---:|
-| Custo de Crédito / Receita de Crédito (%) | 25,3% | 27,6% | ↑ +2,3 p.p. |
+| Custo de Crédito / Receita de Crédito (%) | 25,33% | 27,62% | ↑ +2,3 p.p. |
 | Inadimplência / Carteira Total | 2,18% | 2,25% | ↑ +7 bps |
-| PDD / Inadimplência (arrasto) | 197,1% | 193,5% | ↓ −3,6 p.p. |
+| PDD / Inadimplência (arrasto) | 197,11% | 193,54% | ↓ −3,6 p.p. |
 | Índice de Basileia Total (%) | 15,18% | 14,77% | ↓ −41 bps |
 
 No exemplo 193,1% → 193,5%, a diferença direta é +0,4 p.p. Na fonte usada para o Itaú em Dez/25 → Mar/26, os níveis são 197,11% → 193,54%, diferença de −3,5768 p.p., exibida como −3,6 p.p.
