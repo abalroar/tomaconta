@@ -11541,11 +11541,11 @@ def pagina_snapshot():
                 {"label": "Perda Esperada / Estágio 3", "format_key": "Perda Esperada / Estágio 3",
                  "higher_is_better": False, "is_pct": True, "comparison_basis": "trimestral",
                  "serie": perda_est3_map,
-                 "source": "Peers (Tabela Nova): Perda Esperada (Rel. 2) ÷ Ativos Estágio 3 (Cadoc 4060)"},
+                 "source": "Tabela de peers: Perda Esperada (Rel. 2) ÷ Ativos Estágio 3 (Cadoc 4060)"},
                 {"label": "Perda Esperada / Carteira", "format_key": "Perda Esperada / Carteira de Crédito Bruta",
                  "higher_is_better": False, "is_pct": True, "comparison_basis": "trimestral",
                  "serie": perda_carteira_map,
-                 "source": "Peers (Tabela Nova): Perda Esperada ÷ Carteira de Crédito Bruta"},
+                 "source": "Tabela de peers: Perda Esperada ÷ Carteira de Crédito Bruta"},
             ],
         },
         {
@@ -14731,6 +14731,8 @@ def _normalizar_rotulo_menu(valor):
         return None
     menu_norm = str(valor).strip()
     aliases = {
+        "Peers (Tabela Nova)": "Tabela de peers",
+        "Peers (Tabela)": "Tabela de peers",
         "Taxas de Juros": "Taxas de Juros por Produto",
         "Taxas de Juros (Beta Leve)": "Taxas de Juros por Produto",
         "Taxas de Juros por Produto": "Taxas de Juros por Produto",
@@ -14753,7 +14755,7 @@ def _normalizar_rotulo_menu(valor):
 MENU_PRINCIPAL = [
     "Snapshot",
     "Rankings",
-    "Peers (Tabela Nova)",
+    "Tabela de peers",
     "Conselho e Diretoria",
     "Evolução",
     "Scatter Plot",
@@ -15068,7 +15070,7 @@ st.markdown("---")
 CACHE_DEPENDENCIAS_POR_ABA = {
     "Snapshot": ["critical_screens"],
     "Rankings": ["principal", "capital", "derived_metrics"],
-    "Peers (Tabela Nova)": ["critical_screens"],
+    "Tabela de peers": ["critical_screens"],
     "Evolução": ["principal", "passivo", "ativo", "capital"],
     "Scatter Plot": ["principal", "capital", "derived_metrics"],
     "DRE (Ind. e Congl.)": ["dre", "principal", "dre_individual", "principal_individual"],
@@ -15277,7 +15279,7 @@ menu_timer_signature = None
 t0_menu_timer = None
 if (
     menu in MENU_PRINCIPAL + MENU_BCB
-    and menu not in {"Snapshot", "Peers (Tabela Nova)", "DRE (Ind. e Congl.)", "Evolução", "Rankings"}
+    and menu not in {"Snapshot", "Tabela de peers", "DRE (Ind. e Congl.)", "Evolução", "Rankings"}
     and (
         menu not in {"Taxas de Juros por Produto", "Contas COSIF"}
         or st.session_state.get("modo_diagnostico")
@@ -15300,7 +15302,7 @@ if menu == "Sobre":
 elif menu == "Snapshot":
     pagina_snapshot()
 
-elif menu == "Peers (Tabela Nova)":
+elif menu == "Tabela de peers":
     from tabs.peers_table import render as render_peers_table_new
     render_peers_table_new(globals())
 

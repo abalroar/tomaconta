@@ -14,7 +14,7 @@ from lxml import etree
 from openpyxl import load_workbook
 from pptx import Presentation
 
-from utils.peers_table_model import BY_KEY, build_query, delta, reference, get_metric, methodology_rows
+from utils.peers_table_model import BY_KEY, DEFAULT_METRICS, ARRASTO_ROWS, build_query, delta, reference, get_metric, methodology_rows
 from utils.peers_table_exports import export_excel, export_powerpoint
 from utils import peers_groups
 from tabs.peers_table import table_html, calculation_rows, table_row_label, table_footnote
@@ -35,8 +35,8 @@ def sample(banks=("A", "B", "C"), periods=("4/2025", "1/2026", "2/2026"), metric
 def test_delta_baseline_units_rounding_and_ytd_guard():
     assert reference("1/2026", "quarter") == "4/2025"
     assert reference("2/2026", "year") == "2/2025"
-    assert delta(.030843, .030776, BY_KEY["Custo de Crédito (%)"], "year") == ("up", "↑ +0,01 p.p.")
-    assert delta(.03, .030001, BY_KEY["Custo de Crédito (%)"], "year") == ("flat", "= 0,00 p.p.")
+    assert delta(.030843, .030776, BY_KEY["Custo de Crédito (%)"], "year") == ("up", "↑ +0,67 bps")
+    assert delta(.03, .030001, BY_KEY["Custo de Crédito (%)"], "year") == ("down", "↓ −0,01 bps")
     assert delta(3, -2, BY_KEY["Ativo Total"], "year")[0] is None
     assert delta(3, 2, BY_KEY["Lucro Líquido Acumulado"], "quarter")[1] == "YTD: janelas diferentes"
 
@@ -245,10 +245,10 @@ def test_deeplink_opens_once_and_allows_navigation_to_other_tabs():
     tree = ast.parse(Path("app1.py").read_text())
     node = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "_aplicar_navegacao_inicial_mobile")
     state = {}
-    namespace = {"st": SimpleNamespace(session_state=state), "_menu_query_param_inicial": lambda: "Peers (Tabela Nova)"}
+    namespace = {"st": SimpleNamespace(session_state=state), "_menu_query_param_inicial": lambda: "Tabela de peers"}
     exec(compile(ast.Module(body=[node], type_ignores=[]), "app1.py", "exec"), namespace)
     namespace["_aplicar_navegacao_inicial_mobile"]()
-    assert state["menu_atual"] == "Peers (Tabela Nova)"
+    assert state["menu_atual"] == "Tabela de peers"
     state["menu_atual"] = "Snapshot"
     namespace["_aplicar_navegacao_inicial_mobile"]()
     assert state["menu_atual"] == "Snapshot"
@@ -262,17 +262,17 @@ def test_legacy_menu_and_exclusive_helpers_are_removed_shared_apis_remain():
         for target in node.targets if isinstance(target, ast.Name)
     }
     assert "Peers (Tabela)" not in ast.literal_eval(assignments["MENU_PRINCIPAL"])
-    assert "Peers (Tabela Nova)" in ast.literal_eval(assignments["MENU_PRINCIPAL"])
+    assert "Tabela de peers" in ast.literal_eval(assignments["MENU_PRINCIPAL"])
     dependencies = ast.literal_eval(assignments["CACHE_DEPENDENCIAS_POR_ABA"])
     assert "Peers (Tabela)" not in dependencies
-    assert dependencies["Peers (Tabela Nova)"] == ["critical_screens"]
+    assert dependencies["Tabela de peers"] == ["critical_screens"]
     routes = [
         value.value for node in ast.walk(tree)
         if isinstance(node, ast.Compare) and isinstance(node.left, ast.Name) and node.left.id == "menu"
         for value in node.comparators if isinstance(value, ast.Constant)
     ]
     assert "Peers (Tabela)" not in routes
-    assert routes.count("Peers (Tabela Nova)") == 1
+    assert routes.count("Tabela de peers") == 1
     functions = {node.name for node in tree.body if isinstance(node, ast.FunctionDef)}
     assert not functions.intersection({
         "_render_peers_table_html", "_gerar_imagem_peers_tabela",
@@ -330,3 +330,87 @@ def test_shared_analytical_status_survives_query_and_native_excel_export():
     assert rows["Ativo Total"][3].value is None
     assert rows["Core Funding*"][3].value is None
     assert rows["Ativo Total"][9].value == cells["Ativo Total"]["reason"]
+
+
+def arrasto_query(**changes):
+    row = {"Instituição": "A", "Período": "2/2026", "Carteira Total 4.966": 1000e6,
+           "Inadimplência 4.966": 20e6, "Inadimplência": 990e6, "Carteira de Crédito Bruta": 1500e6,
+           "Perda Esperada": -900e6,
+           **{f"Trace::Perda Esperada::Perda Esperada ({c}2)": -v * 1e6 for c, v in zip("efgh", [12, 2, 3, 3])},
+           "Trace::Perda Esperada::Hedge de Valor Justo (e3)": -880e6}
+    row.update(changes)
+    prior = {**row, "Período": "1/2026", "Inadimplência 4.966": 10e6}
+    before_2025 = {**row, "Período": "4/2024"}
+    df = pd.DataFrame([row, prior, before_2025])
+    q = build_query(df, ["A"], ["4/2024", "2/2026"], list(ARRASTO_ROWS), {}, {},
+                    base="Consolidada / Prudencial", cache_token="test", scale="R$ milhões",
+                    mode="quarter", queried_at="10/10/2026")
+    return q, df
+
+
+def test_arrasto_uses_rel16_total_and_only_four_expected_losses_from_2025():
+    q, df = arrasto_query()
+    cells = {c["metric"]: c for c in q["cells"] if c["period"] == "2/2026"}
+    assert set(ARRASTO_ROWS).issubset(DEFAULT_METRICS)
+    assert cells["Inadimplência"]["value"] == 20e6
+    assert cells["Inadimplência / Carteira Total"]["value"] == .02
+    assert cells["PDD / Inadimplência (arrasto)"]["value"] == 1
+    assert cells["Inadimplência / Carteira Total"]["variation"] == "↑ +100,00 bps"
+    assert cells["PDD / Inadimplência (arrasto)"]["variation"] == "↓ −10000,00 bps"
+    assert all(c["value"] is None and "mar/2025" in c["reason"] for c in q["cells"] if c["period"] == "4/2024")
+    memo = calculation_rows(q, df, "PDD / Inadimplência (arrasto)", "A")
+    assert not memo.Campo.str.contains("Hedge|Ajuste a Valor Justo|Carteira de Crédito Bruta").any()
+    assert memo[(memo.Período == "Jun/26") & (memo.Campo == "PDD (soma das quatro perdas esperadas)")].Valor.tolist() == ["20,00"]
+
+
+@pytest.mark.parametrize("changes", [{"Trace::Perda Esperada::Perda Esperada (h2)": None},
+                                      {"Inadimplência 4.966": 0}, {"Inadimplência 4.966": None},
+                                      {"Inadimplência 4.966": -1}])
+def test_arrasto_coverage_missing_component_or_invalid_denominator_stays_missing(changes):
+    q, _ = arrasto_query(**changes)
+    cell = next(c for c in q["cells"] if c["metric"] == "PDD / Inadimplência (arrasto)" and c["period"] == "2/2026")
+    assert cell["value"] is None
+    assert cell["status"] == "missing"
+    assert cell["reason"]
+
+
+def test_arrasto_quality_warning_reaches_html_excel_and_powerpoint():
+    q, _ = arrasto_query(**{"Trace::Perda Esperada::Perda Esperada (e2)": 12e6})
+    cell = next(c for c in q["cells"] if c["metric"] == "PDD / Inadimplência (arrasto)" and c["period"] == "2/2026")
+    assert cell["status"] == "warning" and "sinal" in cell["reason"]
+    assert cell["display"].endswith("†")
+    assert "†" in table_html(q)
+    wb = load_workbook(BytesIO(export_excel(q)))
+    assert any("sinal" in str(c.value) for row in wb["Dados e status"] for c in row)
+    prs = Presentation(BytesIO(export_powerpoint(q)))
+    assert any("sinal" in s.notes_slide.notes_text_frame.text for s in prs.slides)
+    assert any("†" in c.text for s in prs.slides for shape in s.shapes if shape.has_table for row in shape.table.rows for c in row.cells)
+
+
+def test_period_values_and_variations_are_centered_in_native_exports():
+    q, _, _ = sample()
+    wb = load_workbook(BytesIO(export_excel(q)))
+    assert wb["Comparativo"].cell(6, 3).alignment.horizontal == "center"
+    assert wb["Comparativo"].cell(7, 3).alignment.horizontal == "center"
+    from pptx.enum.text import PP_ALIGN
+    prs = Presentation(BytesIO(export_powerpoint(q)))
+    table = next(s.table for s in prs.slides[0].shapes if s.has_table)
+    assert all(p.alignment == PP_ALIGN.CENTER for p in table.cell(2, 1).text_frame.paragraphs)
+    assert table.cell(2, 0).text_frame.paragraphs[0].alignment == PP_ALIGN.LEFT
+
+
+def test_old_peers_menu_links_resolve_to_renamed_tab():
+    tree = ast.parse(Path("app1.py").read_text())
+    node = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "_normalizar_rotulo_menu")
+    namespace = {}
+    exec(compile(ast.Module(body=[node], type_ignores=[]), "app1.py", "exec"), namespace)
+    assert namespace["_normalizar_rotulo_menu"]("Peers (Tabela Nova)") == "Tabela de peers"
+    assert namespace["_normalizar_rotulo_menu"]("Peers (Tabela)") == "Tabela de peers"
+
+
+def test_arrasto_individual_base_does_not_reuse_prudential_values():
+    _, df = arrasto_query()
+    query = build_query(df, ["A"], ["2/2026"], list(ARRASTO_ROWS), {}, {},
+                        base="Individual", cache_token="test", scale="R$ milhões",
+                        mode="year", queried_at="10/10/2026")
+    assert all(c["value"] is None and "individuais" in c["reason"] for c in query["cells"])

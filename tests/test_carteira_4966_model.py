@@ -176,7 +176,7 @@ def test_html_has_clean_grid_without_decorative_hatched_column():
     assert "tc-4966-marker" not in rendered
     assert '<col style="width:14px">' not in rendered
     assert "border-collapse: collapse" in rendered
-    assert "--tc-line: #dddddd" in rendered
+    assert "--tc-line: #DEDEDE" in rendered
     assert 'role="region"' in rendered
     assert 'tabindex="0"' in rendered
     assert rendered.count('<tbody data-group=') == 3
@@ -268,6 +268,22 @@ def test_percentage_format_preserves_rates_below_half_percent():
     assert format_percentage(0.0049, 1) == "0,5%"
     assert format_percentage(0.0005, 1) == "0,1%"
     assert format_percentage(-0.0001, 0) == "0%"
+
+
+def test_qoq_keeps_one_decimal_and_period_values_are_centered_in_html_and_excel():
+    model = _model()
+    model.qoq = {**model.qoq, "1/2026": .01234}
+    rendered = render_carteira_4966_html(model)
+    assert "QoQ: 1,2%" in rendered
+    assert "min-width: 0; text-align: center" in rendered
+    assert "background: #EC7000" in rendered
+    wb = openpyxl.load_workbook(BytesIO(build_carteira_4966_excel(model)))
+    sheet = wb["Modelo 4966"]
+    assert any(c.value == "QoQ: 1,2%" for row in sheet for c in row)
+    assert sheet["B2"].fill.fgColor.rgb == "FFEC7000"
+    row = next(r for r in range(1, sheet.max_row + 1) if sheet.cell(r, 1).value == "Carteira total")
+    assert sheet.cell(row, 2).alignment.horizontal == "center"
+    assert sheet.cell(row, 3).alignment.horizontal == "center"
 
 
 def test_excel_matches_row_spec_order_units_without_hatched_marker_column():

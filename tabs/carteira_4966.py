@@ -17,6 +17,10 @@ from typing import Mapping, Optional, Sequence
 
 import pandas as pd
 
+from utils.comparison_table_style import (
+    HEADER_BACKGROUND, SECTION_BACKGROUND, LINE_COLOR, FONT_FAMILY,
+)
+
 
 TITLE = "Classificação da Carteira de Crédito Modelo 4966"
 
@@ -1202,11 +1206,11 @@ def render_carteira_4966_html(model: Carteira4966Model) -> str:
         """
 <style>
 .tc-4966-region {
-  --tc-ink: #24262d;
+  --tc-ink: #222222;
   --tc-ink-soft: #555961;
-  --tc-line: #dddddd;
+  --tc-line: __LINE__;
   --tc-surface: #ffffff;
-  --tc-surface-soft: #f5f5f5;
+  --tc-surface-soft: __SECTION__;
   width: 100%;
   overflow-x: auto;
   margin: .75rem 0 1rem;
@@ -1223,7 +1227,9 @@ def render_carteira_4966_html(model: Carteira4966Model) -> str:
   border-collapse: collapse;
   color: var(--tc-ink);
   background: var(--tc-surface);
-  font-size: 13px;
+  font-family: __FONT__;
+  font-size: 14px;
+  line-height: 1.3;
   font-variant-numeric: tabular-nums lining-nums;
 }
 .tc-4966-table caption {
@@ -1240,18 +1246,19 @@ def render_carteira_4966_html(model: Carteira4966Model) -> str:
 .tc-4966-table th, .tc-4966-table td {
   box-sizing: border-box;
   border: 1px solid var(--tc-line);
-  padding: 7px 5px;
+  padding: 6px 3px;
   vertical-align: middle;
 }
 .tc-4966-table thead th {
-  color: #f8f8f8;
-  background: #111111;
+  color: #ffffff;
+  background: __HEADER__;
   text-align: center;
-  font-weight: 650;
+  font-size: 12pt;
+  font-weight: 700;
   white-space: nowrap;
 }
-.tc-4966-table thead .tc-4966-qoq { color: #d8d9dc; font-size: 11px; font-weight: 500; }
-.tc-4966-table thead .tc-4966-subhead { background: #6e6e6e; color: #f5f5f5; font-size: 11px; }
+.tc-4966-table thead .tc-4966-qoq { color: #ffffff; font-size: 11px; font-weight: 500; }
+.tc-4966-table thead .tc-4966-subhead { background: __HEADER__; color: #ffffff; font-size: 11px; }
 .tc-4966-table .tc-4966-label {
   position: sticky;
   left: 0;
@@ -1260,23 +1267,24 @@ def render_carteira_4966_html(model: Carteira4966Model) -> str:
   max-width: 260px;
   background: var(--tc-surface);
   text-align: left;
-  font-weight: 500;
+  font-weight: 400;
 }
-.tc-4966-table thead .tc-4966-label { z-index: 4; background: #111111; }
-.tc-4966-table td { min-width: 0; text-align: right; white-space: nowrap; }
+.tc-4966-table thead .tc-4966-label { z-index: 4; background: __HEADER__; }
+.tc-4966-table td { min-width: 0; text-align: center; white-space: nowrap; }
 .tc-4966-table .tc-4966-period-end { border-right: 1px solid var(--tc-line); }
 .tc-4966-table .tc-4966-section-label {
   background: var(--tc-surface-soft);
   color: var(--tc-ink-soft);
   text-align: left;
-  font-size: 12px;
-  font-weight: 650;
+  font-size: 14px;
+  padding: 5px 8px;
+  font-weight: 600;
   letter-spacing: .01em;
 }
 .tc-4966-table .tc-4966-emphasis { font-weight: 700; }
 .tc-4966-table .tc-4966-ratio-row .tc-4966-label { padding-left: 20px; color: var(--tc-ink-soft); }
 .tc-4966-table .tc-4966-total-row > * {
-  background: #e8f4e8;
+  background: #ffffff;
   font-weight: 700;
 }
 .tc-4966-table .tc-4966-missing { color: #6d7077; font-style: italic; }
@@ -1351,7 +1359,7 @@ def render_carteira_4966_html(model: Carteira4966Model) -> str:
   .tc-4966-table .tc-4966-label { min-width: 220px; max-width: 260px; }
 }
 </style>
-""",
+""".replace("__HEADER__", HEADER_BACKGROUND).replace("__SECTION__", SECTION_BACKGROUND).replace("__LINE__", LINE_COLOR).replace("__FONT__", FONT_FAMILY),
         (
             f'<div class="tc-4966-region" role="region" tabindex="0" '
             f'aria-label="{html.escape(TITLE, quote=True)}">'
@@ -1366,7 +1374,7 @@ def render_carteira_4966_html(model: Carteira4966Model) -> str:
 
     for period in model.periods:
         qoq_value = model.qoq.get(period)
-        qoq_text = "QoQ: N/D" if qoq_value is None else f"QoQ: {format_percentage(qoq_value, 0)}"
+        qoq_text = "QoQ: N/D" if qoq_value is None else f"QoQ: {format_percentage(qoq_value, 1)}"
         parts.append(
             f'<th class="tc-4966-qoq tc-4966-period-end" colspan="2" scope="colgroup">'
             f'{html.escape(qoq_text)}</th>'
@@ -1826,7 +1834,7 @@ def build_carteira_4966_excel(model: Carteira4966Model) -> bytes:
         {
             "bold": True,
             "font_color": "#FFFFFF",
-            "bg_color": "#111111",
+            "bg_color": HEADER_BACKGROUND,
             "align": "center",
             "valign": "vcenter",
             **border,
@@ -1834,8 +1842,8 @@ def build_carteira_4966_excel(model: Carteira4966Model) -> bytes:
     )
     qoq_fmt = workbook.add_format(
         {
-            "font_color": "#D8D9DC",
-            "bg_color": "#111111",
+            "font_color": "#FFFFFF",
+            "bg_color": HEADER_BACKGROUND,
             "align": "center",
             "valign": "vcenter",
             "font_size": 9,
@@ -1846,7 +1854,7 @@ def build_carteira_4966_excel(model: Carteira4966Model) -> bytes:
         {
             "bold": True,
             "font_color": "#FFFFFF",
-            "bg_color": "#6E6E6E",
+            "bg_color": HEADER_BACKGROUND,
             "align": "center",
             "valign": "vcenter",
             "font_size": 9,
@@ -1854,7 +1862,7 @@ def build_carteira_4966_excel(model: Carteira4966Model) -> bytes:
         }
     )
     section_fmt = workbook.add_format(
-        {"bold": True, "font_color": "#555961", "bg_color": "#F5F5F5", "align": "left", "valign": "vcenter", **border}
+        {"bold": True, "font_color": "#555961", "bg_color": SECTION_BACKGROUND, "align": "left", "valign": "vcenter", **border}
     )
     label_fmt = workbook.add_format({"align": "left", "valign": "vcenter", **border})
     label_bold_fmt = workbook.add_format({"bold": True, "align": "left", "valign": "vcenter", **border})
@@ -1863,7 +1871,7 @@ def build_carteira_4966_excel(model: Carteira4966Model) -> bytes:
             "bold": True,
             "align": "left",
             "valign": "vcenter",
-            "bg_color": "#E8F4E8",
+            "bg_color": "#FFFFFF",
             **border,
         }
     )
@@ -1877,11 +1885,11 @@ def build_carteira_4966_excel(model: Carteira4966Model) -> bytes:
             "bottom_color": "#C9CBD0",
         }
     )
-    currency_fmt = workbook.add_format({"align": "right", "valign": "vcenter", "num_format": "#,##0", **border})
+    currency_fmt = workbook.add_format({"align": "center", "valign": "vcenter", "num_format": "#,##0", **border})
     currency_bold_fmt = workbook.add_format(
         {
             "bold": True,
-            "align": "right",
+            "align": "center",
             "valign": "vcenter",
             "num_format": "#,##0",
             **border,
@@ -1890,9 +1898,9 @@ def build_carteira_4966_excel(model: Carteira4966Model) -> bytes:
     total_currency_fmt = workbook.add_format(
         {
             "bold": True,
-            "align": "right",
+            "align": "center",
             "valign": "vcenter",
-            "bg_color": "#E8F4E8",
+            "bg_color": "#FFFFFF",
             "num_format": "#,##0",
             **border,
         }
@@ -1901,7 +1909,7 @@ def build_carteira_4966_excel(model: Carteira4966Model) -> bytes:
     percent_formats = {
         decimals: workbook.add_format(
             {
-                "align": "right",
+                "align": "center",
                 "valign": "vcenter",
                 "num_format": _excel_percentage_format_code(decimals),
                 **border,
@@ -1913,9 +1921,9 @@ def build_carteira_4966_excel(model: Carteira4966Model) -> bytes:
         decimals: workbook.add_format(
             {
                 "bold": True,
-                "align": "right",
+                "align": "center",
                 "valign": "vcenter",
-                "bg_color": "#E8F4E8",
+                "bg_color": "#FFFFFF",
                 "num_format": _excel_percentage_format_code(decimals),
                 **border,
             }
@@ -1968,7 +1976,7 @@ def build_carteira_4966_excel(model: Carteira4966Model) -> bytes:
                 "bold": True,
                 "font_color": font_color,
                 "bg_color": background,
-                "align": "right",
+                "align": "center",
                 "valign": "vcenter",
                 "num_format": _excel_marked_format_code("#,##0"),
             }
@@ -2001,7 +2009,7 @@ def build_carteira_4966_excel(model: Carteira4966Model) -> bytes:
                 "bold": True,
                 "font_color": font_color,
                 "bg_color": background,
-                "align": "right",
+                "align": "center",
                 "valign": "vcenter",
                 "num_format": _excel_marked_format_code(
                     _excel_percentage_format_code(decimals)
@@ -2019,7 +2027,7 @@ def build_carteira_4966_excel(model: Carteira4966Model) -> bytes:
     column = 1
     for period in model.periods:
         qoq_value = model.qoq.get(period)
-        qoq_text = "QoQ: N/D" if qoq_value is None else f"QoQ: {format_percentage(qoq_value, 0)}"
+        qoq_text = "QoQ: N/D" if qoq_value is None else f"QoQ: {format_percentage(qoq_value, 1)}"
         worksheet.merge_range(1, column, 1, column + 1, qoq_text, qoq_fmt)
         worksheet.merge_range(2, column, 2, column + 1, model.period_labels[period], header_fmt)
         worksheet.write(3, column, "R$ mm", subheader_fmt)

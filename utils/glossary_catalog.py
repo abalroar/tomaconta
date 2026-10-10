@@ -62,7 +62,7 @@ IFDATA_URL = "https://www3.bcb.gov.br/ifdata/index.html"
 COSIF_URL = "https://www.bcb.gov.br/estabilidadefinanceira/balancetesbalancospatrimoniais"
 SCR_URL = "https://www.bcb.gov.br/pda/desig/metodologia_versao2.pdf"
 CREDIT_RULES_URL = "https://www.bcb.gov.br/estabilidadefinanceira/exibenormativo?numero=4966&tipo=RESOLU%C3%87%C3%83O+CMN"
-REPORTS = ("Snapshot", "Rankings", "Peers (Tabela Nova)", "Evolução", "Scatter Plot")
+REPORTS = ("Snapshot", "Rankings", "Tabela de peers", "Evolução", "Scatter Plot")
 DRE = "DRE (Ind. e Congl.)"
 STATISTICS = "Estatísticas Crédito BC"
 COSIF = "Contas COSIF"
@@ -297,7 +297,7 @@ TERMS = (
     GlossaryTerm("credit_revenue", "Receita de Crédito", "Resultado e rentabilidade", "",
         "Arrendamento, outras concessões e recuperações registradas em rubricas separadas têm tratamento próprio. "
         "O nome da linha delimita a receita usada pelo indicador.",
-        ("ifdata",), (DRE, "Rankings", "Peers (Tabela Nova)"), metric_key="receita_credito"),
+        ("ifdata",), (DRE, "Rankings", "Tabela de peers"), metric_key="receita_credito"),
     GlossaryTerm("intermediation", "Resultado de intermediação financeira", "Resultado e rentabilidade",
         "Ajuda a acompanhar o resultado das atividades financeiras, como crédito, aplicações e captação, segundo as rubricas usadas na DRE.",
         "Confira a composição da linha na memória de cálculo. O rótulo de resultado bruto usado "
@@ -444,6 +444,17 @@ TERMS = (
         ("ifdata", "cosif_prudential", "ifdata_credit", "sgs"), (*REPORTS, PORTFOLIO, STATISTICS),
         formula="Magnitude da provisão ÷ base de risco explicitada no indicador", unit="% ou vezes, conforme a tela",
         aliases=("PDD/Estágio 3", "perda esperada/est2+3", "provisão/inadimplência", "índice de cobertura")),
+    GlossaryTerm("coverage_arrasto", "PDD / Vencidos acima de 90 dias (arrasto)", "Carteira e perdas",
+        "PDD dividida pelo saldo integral das operações com alguma parcela vencida há mais de 90 dias, "
+        "incluindo as parcelas a vencer pelo critério de arrasto. A PDD soma, em módulo, "
+        "as perdas esperadas e2 + f2 + g2 + h2 do Relatório 2.",
+        "A provisão também cobre ativos fora do denominador; a razão é uma aproximação de cobertura. "
+        "Hedge e ajustes a valor justo ficam fora dessa PDD. Os dois relatórios devem usar "
+        "a mesma data-base e perímetro prudencial. Disponível desde mar/2025; componente ausente "
+        "ou denominador inválido mantém N/D.",
+        ("ifdata", "ifdata_credit"), ("Tabela de peers", PORTFOLIO),
+        formula="|e2 + f2 + g2 + h2 do Rel. 2| ÷ Inadimplência do Rel. 16", unit="%",
+        aliases=("PDD / Inadimplência (arrasto)", "PDD / vencidos >90 dias (arrasto)", "cobertura por arrasto")),
     GlossaryTerm("provision_ratio", "Provisão / Carteira de crédito", "Carteira e perdas",
         "Mostra o peso da provisão para perdas esperadas em relação ao saldo da carteira escolhido como denominador.",
         "O app usa bases distintas conforme a tela: carteira contábil ou Total Geral do Relatório 16. "
@@ -572,7 +583,7 @@ TERMS = (
         "A escolha deve considerar porte, negócio, composição da carteira e fonte de recursos.",
         "Use o mesmo período e perímetro. Modelos de negócio diferentes podem sustentar "
         "níveis diferentes de rentabilidade, capital e alavancagem.",
-        modules=("Peers (Tabela Nova)", "Rankings", "Scatter Plot"), aliases=("pares", "pool", "benchmark", "mediana")),
+        modules=("Tabela de peers", "Rankings", "Scatter Plot"), aliases=("pares", "pool", "benchmark", "mediana")),
     GlossaryTerm("ranking", "Ranking e participação no recorte", "Comparações e leitura",
         "Ranking ordena as instituições com dados disponíveis para o indicador. "
         "Participação compara um valor ao total da seleção exibida.",
@@ -707,7 +718,7 @@ MODULE_GUIDES = (
         ("ifdata", "ifdata_credit", "cosif_prudential"), "Os indicadores podem vir de relatórios distintos. Confira o denominador e o motivo de eventuais lacunas."),
     ModuleGuide("Rankings", "Localizar a posição das instituições em um indicador e comparar sua evolução.",
         ("ifdata", "ifdata_credit"), "A lista reflete os filtros e as instituições com dado disponível, com modelos de negócio possivelmente diferentes."),
-    ModuleGuide("Peers (Tabela Nova)", "Comparar um conjunto escolhido de instituições por métricas de capital, carteira, resultado e captação.",
+    ModuleGuide("Tabela de peers", "Comparar um conjunto escolhido de instituições por métricas de capital, carteira, resultado e captação.",
         ("ifdata", "ifdata_credit", "cosif_prudential"), "Escolha pares com porte, atividade, período e perímetro comparáveis. Veja as regras de cada razão."),
     ModuleGuide("Conselho e Diretoria", "Consultar cargos e vínculos de administradores disponíveis no BCB.",
         ("registry",), "A consulta cadastral não reconstitui toda a história de mandatos e decisões."),

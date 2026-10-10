@@ -17,6 +17,9 @@ PERIMETER_HELP = ("Individual: pessoa jurídica identificada pelo CNPJ. Prudenci
 COMPARISON_HELP = ("YoY compara com o mesmo trimestre do ano anterior; QoQ, com o trimestre anterior. "
                    "Taxas variam em pontos percentuais. Resultados acumulados precisam de janelas "
                    "de duração igual; mudanças contábeis em 2025 podem afetar a comparação.")
+PEERS_COMPARISON_HELP = ("YoY compara com o mesmo trimestre do ano anterior; QoQ, com o trimestre anterior. "
+                         "Indicadores percentuais variam em pontos-base (bps): 100 bps = 1 ponto percentual. "
+                         "Valores monetários variam em %; múltiplos, em x. Lucro YTD requer janelas de igual duração.")
 COSIF_BASE_HELP = ("4010: balancete individual mensal. 4060: balancete prudencial mensal. "
                    "4066: balanço prudencial semestral, em junho e dezembro. "
                    "Os documentos 4060 e 4066 representam o mesmo grupo e não devem ser somados.")
@@ -33,7 +36,7 @@ PAYMENT_FREQUENCY_HELP = ("A base mensal inclui Pix, TED, boletos, DOC, TEC e ch
 MODULE_CAPTIONS = {
     "Snapshot": "Indicadores na data-base · IFData trimestral · Visão prudencial e instituições independentes.",
     "Rankings": "Posições entre as instituições com dados no recorte · IFData trimestral · Visão prudencial e instituições independentes.",
-    "Peers (Tabela Nova)": "Comparação por instituição e data-base · IFData trimestral · Fonte e denominador identificados por indicador.",
+    "Tabela de peers": "Comparação por instituição e data-base · IFData trimestral · Fonte e denominador identificados por indicador.",
     "Conselho e Diretoria": "Cadastro e administradores disponíveis no BCB · Consulta atual, sem série histórica completa de mandatos.",
     "Evolução": "Histórico de balanço, resultado e capital · IFData trimestral · Mudanças no grupo e na contabilidade podem alterar a série.",
     "Scatter Plot": "Comparação entre indicadores na mesma data-base · IFData trimestral · Confira a cobertura das variáveis selecionadas.",
@@ -82,6 +85,7 @@ _REPORTS = {
     "default_balance": "IFData Rel. 16",
     "provision": "IFData Rel. 2", "provision_ratio": "IFData Rel. 2",
     "coverage": "IFData Rel. 2 e documento COSIF 4060",
+    "coverage_arrasto": "IFData Rel. 2 e Rel. 16",
     "stage2": "Documento COSIF 4060", "stage3": "Documento COSIF 4060",
 }
 
@@ -125,6 +129,8 @@ def get_help_text(label: str, *, base: str = "Prudencial", include_source: bool 
             denominator = label.split("/", 1)[1].strip()
             definition += f" Nesta razão, seu valor sem o sinal é dividido por {denominator}."
             caution += " O agregado pode abranger ativos fora do denominador; uma queda exige examinar os componentes."
+    if context == "Peers" and label in {"Inadimplência", "Inadimplência / Carteira Total"}:
+        caution += " Disponível a partir de mar/2025, conforme a publicação do Relatório 16."
     if label == "Inadimplência / Carteira de Crédito":
         definition = "Saldo integral das operações com parcela vencida há mais de 90 dias (Rel. 16) dividido pela carteira contábil do Rel. 2."
         caution = "O denominador difere do Total Geral do Relatório 16 e pode incluir parcelas líquidas de provisão."
