@@ -41,6 +41,8 @@ Leitores de bundles publicados continuam protegidos contra runtime antigo. Uma g
 
 O autosserviço materializa os derivados no diretório de dados do ambiente. A cópia de um derivado para `data/bundled`, usada na preparação offline do projeto, permanece uma operação administrativa explícita.
 
+No primeiro uso, as dependências podem utilizar as cópias válidas que acompanham o projeto, sem baixar novamente essas bases do GitHub. A base escolhida para atualização precisa estar efetivamente salva no runtime. O progresso informa quando os dados já foram salvos e o recálculo ou a publicação continuam em andamento.
+
 ## Publicação no GitHub
 
 Antes do envio, o fluxo verifica as bases selecionadas, suas fontes e seus derivados obrigatórios, a cobertura de períodos, a qualidade e os arquivos auxiliares. Os hashes dos dados e da metadata vinculam o pacote aos arquivos validados. O manifesto remoto é lido e mesclado para conservar as entradas de outras bases.
