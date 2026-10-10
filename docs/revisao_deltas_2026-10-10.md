@@ -1,5 +1,7 @@
 # Revisão das variações — 10/10/2026
 
+Os critérios de unidade, precisão e cor desta revisão foram atualizados na [revisão da leitura de Peers](revisao_leitura_peers_2026-10-10.md), com bps inteiros e coberturas em p.p.
+
 As fórmulas de diferença em bps dos peers estavam corretas. A apresentação favorecia uma interpretação incorreta: a comparação padrão era YoY, o período de referência estava apenas no tooltip e os níveis percentuais eram arredondados para uma casa decimal.
 
 ## Reconciliação do Itaú prudencial

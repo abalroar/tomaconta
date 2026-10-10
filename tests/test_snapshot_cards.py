@@ -110,17 +110,27 @@ def test_render_snap_card_explicitly_labels_trimestral_and_ytd_bases():
 
 def test_snapshot_rates_use_bps_and_negative_monetary_base_is_not_growth():
     for label, meta in app1.SNAPSHOT_METRICS.items():
-        assert app1._snap_metric_delta_meta({"label":label,"is_pct":True}) == ("bps","dec")
-    assert app1._snap_delta_calc(.1477,.1518,"bps","dec")["suffix"] == "-41,00 bps"
+        assert app1._snap_metric_delta_meta({"label":label,"is_pct":True}) == (meta["tipo_delta"],"dec")
+    assert app1._snap_delta_calc(.1477,.1518,"bps","dec")["suffix"] == "−41 bps"
+    assert app1._snap_metric_delta_meta({"label":"Perda Esperada / Estágio 3","is_pct":True}) == ("pp","dec")
+    assert app1._snap_delta_calc(1.935,1.931,"pp","dec")["suffix"] == "+0,4 p.p."
     assert not app1._snap_delta_calc(-50,-100)["valido"]
     assert "≤ 0" in app1._snap_delta_calc(-50,-100)["motivo"]
     html=app1._snap_delta_html(-.01,-.02,"QoQ",False,"bps","dec")
     assert "↑" in html
-    assert "+100,00 bps" in html
+    assert "+100 bps" in html
 
 
 def test_small_monetary_delta_keeps_visible_sign_and_precision():
     assert app1._snap_delta_calc(100.04,100)["suffix"] == "+0,04%"
+
+
+def test_snapshot_rounding_and_small_rate_changes_are_not_audit_errors():
+    cfg=[{"label":"Índice de Basileia","is_pct":True,"serie":{"1/2026":.147769,"4/2025":.1518}}]
+    assert app1._audit_deltas_snapshot(cfg,"1/2026","4/2025",None) == []
+    cfg[0]["serie"]["1/2026"] = .151801
+    assert app1._snap_delta_calc(.151801,.1518,"bps","dec")["suffix"] == "+<1 bp"
+    assert app1._audit_deltas_snapshot(cfg,"1/2026","4/2025",None) == []
 
 
 def test_snapshot_audit_detects_the_rendered_delta_instead_of_recomputing_it_twice(monkeypatch):

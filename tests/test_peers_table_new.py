@@ -14,10 +14,11 @@ from lxml import etree
 from openpyxl import load_workbook
 from pptx import Presentation
 
-from utils.peers_table_model import BY_KEY, DEFAULT_METRICS, ARRASTO_ROWS, build_query, delta, reference, get_metric, methodology_rows
+from utils.peers_table_model import BY_KEY, DEFAULT_METRICS, ARRASTO_ROWS, build_query, delta, reference, get_metric, methodology_rows, variation_tone
 from utils.peers_table_exports import export_excel, export_powerpoint
 from utils import peers_groups
 from tabs.peers_table import table_html, calculation_rows, variation_rows, table_row_label, table_footnote
+from utils.formatting import formatar_delta_br
 
 
 def sample(banks=("A", "B", "C"), periods=("4/2025", "1/2026", "2/2026"), metrics=("Ativo Total", "Custo de Crédito (%)", "Lucro Líquido Acumulado"), **overrides):
@@ -35,18 +36,46 @@ def sample(banks=("A", "B", "C"), periods=("4/2025", "1/2026", "2/2026"), metric
 def test_delta_baseline_units_rounding_and_ytd_guard():
     assert reference("1/2026", "quarter") == "4/2025"
     assert reference("2/2026", "year") == "2/2025"
-    assert delta(.030843, .030776, BY_KEY["Custo de Crédito (%)"], "year") == ("up", "↑ +0,67 bps")
-    assert delta(.03, .030001, BY_KEY["Custo de Crédito (%)"], "year") == ("down", "↓ −0,01 bps")
+    assert delta(.030843, .030776, BY_KEY["Custo de Crédito (%)"], "year") == ("up", "↑ +1 bps")
+    assert delta(.03, .030001, BY_KEY["Custo de Crédito (%)"], "year") == ("down", "↓ <1 bp")
     assert delta(3, -2, BY_KEY["Ativo Total"], "year")[0] is None
     assert delta(3, 2, BY_KEY["Lucro Líquido Acumulado"], "quarter")[1] == "YTD: janelas diferentes"
+    assert formatar_delta_br(11.34, "bps", 0) == "+11 bps"
+    assert formatar_delta_br(-11.34, "bps", 0) == "−11 bps"
+    assert delta(.03005, .03, BY_KEY["Custo de Crédito (%)"], "year") == ("up", "↑ +1 bps")
+    assert delta(.03, .03, BY_KEY["Custo de Crédito (%)"], "year") == ("flat", "= 0 bps")
 
 
 @pytest.mark.parametrize("metric", [m for m in BY_KEY.values() if m.unit == "%"], ids=lambda m: m.key)
-def test_every_percentage_metric_uses_subtraction_in_bps(metric):
+def test_every_percentage_metric_uses_subtraction_in_the_declared_unit(metric):
     for mode in ("quarter", "year"):
-        assert delta(.0225,.0218,metric,mode) == ("up", "↑ +7,00 bps")
-        assert delta(.1477,.1518,metric,mode) == ("down", "↓ −41,00 bps")
-        assert delta(1.8741,1.9354,metric,mode) == ("down", "↓ −613,00 bps")
+        if metric.delta_unit == "p.p.":
+            assert delta(.0225,.0218,metric,mode) == ("up", "↑ +0,1 p.p.")
+            assert delta(.1477,.1518,metric,mode) == ("down", "↓ −0,4 p.p.")
+            assert delta(1.8741,1.9354,metric,mode) == ("down", "↓ −6,1 p.p.")
+        else:
+            assert delta(.0225,.0218,metric,mode) == ("up", "↑ +7 bps")
+            assert delta(.1477,.1518,metric,mode) == ("down", "↓ −41 bps")
+            assert delta(1.8741,1.9354,metric,mode) == ("down", "↓ −613 bps")
+
+
+@pytest.mark.parametrize("key", ["PDD / Inadimplência (arrasto)", "Perda Esperada / Estágio 3", "Perda Esperada / Est2+3", "Custo de Crédito / Receita de Crédito (%)"])
+def test_coverage_and_expense_shares_use_percentage_point_differences(key):
+    metric = BY_KEY[key]
+    assert metric.delta_unit == "p.p."
+    assert delta(1.935, 1.931, metric, "quarter") == ("up", "↑ +0,4 p.p.")
+    assert delta(1.935, 1.971, metric, "year") == ("down", "↓ −3,6 p.p.")
+
+
+def test_color_depends_on_credit_meaning_and_data_quality():
+    assert variation_tone(BY_KEY["Ativo Total"], "up") == "neutral"
+    assert variation_tone(BY_KEY["Inadimplência"], "down") == "neutral"
+    assert variation_tone(BY_KEY["Custo de Crédito (%)"], "up") == "attention"
+    assert variation_tone(BY_KEY["Inadimplência / Carteira Total"], "down") == "favorable"
+    assert variation_tone(BY_KEY["Índice de Basileia Total (%)"], "down") == "attention"
+    assert variation_tone(BY_KEY["Índice de Basileia Total (%)"], "down", "curated_value") == "attention"
+    assert variation_tone(BY_KEY["PDD / Inadimplência (arrasto)"], "up") == "favorable"
+    assert variation_tone(BY_KEY["PDD / Inadimplência (arrasto)"], "up", "warning") == "neutral"
 
 
 def test_reference_and_numeric_delta_are_auditable_in_ui_and_excel():
@@ -245,14 +274,24 @@ def test_schema_break_missing_june_and_duplicate_identity_are_explicit():
         build_query(pd.concat([df, df.iloc[:1]]), q["banks"], q["periods"], q["metrics"], values, {}, **opts)
 
 
-def test_excel_variations_keep_direction_color_and_values_numeric():
+def test_exports_keep_balances_neutral_and_risk_directions_meaningful():
     q, _, _ = sample(metrics=("Ativo Total",))
     q["cells"][0].update(direction="up", variation="↑ +1,00 %")
     q["cells"][1].update(direction="down", variation="↓ −1,00 %")
     sheet = load_workbook(BytesIO(export_excel(q)))["Comparativo"]
     assert sheet.cell(6, 3).value == 1
-    assert sheet.cell(7, 3).font.color.rgb == "FF16713B"
-    assert sheet.cell(7, 4).font.color.rgb == "FFB32624"
+    assert sheet.cell(7, 3).font.color.rgb == "FF666666"
+    assert sheet.cell(7, 4).font.color.rgb == "FF666666"
+    risk, _, _ = sample(metrics=("Custo de Crédito (%)",))
+    risk["cells"][0].update(direction="up", variation="↑ +11 bps")
+    risk["cells"][1].update(direction="down", variation="↓ −11 bps")
+    sheet = load_workbook(BytesIO(export_excel(risk)))["Comparativo"]
+    assert sheet.cell(7, 3).font.color.rgb == "FFB32624"
+    assert sheet.cell(7, 4).font.color.rgb == "FF16713B"
+    prs = Presentation(BytesIO(export_powerpoint(risk)))
+    table = next(s.table for s in prs.slides[0].shapes if s.has_table)
+    assert str(table.cell(2, 1).text_frame.paragraphs[1].font.color.rgb) == "B32624"
+    assert str(table.cell(2, 2).text_frame.paragraphs[1].font.color.rgb) == "16713B"
 
 
 def test_individual_definitions_and_funding_do_not_inherit_consolidated_formula():
@@ -384,8 +423,17 @@ def test_arrasto_uses_rel16_total_and_only_four_expected_losses_from_2025():
     assert cells["Inadimplência"]["value"] == 20e6
     assert cells["Inadimplência / Carteira Total"]["value"] == .02
     assert cells["PDD / Inadimplência (arrasto)"]["value"] == 1
-    assert cells["Inadimplência / Carteira Total"]["variation"] == "↑ +100,00 bps"
-    assert cells["PDD / Inadimplência (arrasto)"]["variation"] == "↓ −10000,00 bps"
+    assert cells["Inadimplência / Carteira Total"]["variation"] == "↑ +100 bps"
+    assert cells["PDD / Inadimplência (arrasto)"]["variation"] == "↓ −100,0 p.p."
+    html = table_html(q)
+    assert "↓ −100,0 p.p." in html and "percentual atual − percentual de referência" in html
+    variations = variation_rows(q, "PDD / Inadimplência (arrasto)", "A")
+    assert "100,0000% − 200,0000% = −100,0000 p.p." in variations.iloc[-1]["Cálculo"]
+    assert "× 100" not in variations.iloc[-1]["Cálculo"]
+    sheet = load_workbook(BytesIO(export_excel(q)))["Comparativo"]
+    coverage_row = next(row for row in range(1, sheet.max_row + 1) if sheet.cell(row, 1).value == "PDD / vencidos >90 dias (arrasto)")
+    assert sheet.cell(coverage_row, 4).number_format == "0.0%"
+    assert sheet.cell(coverage_row + 1, 4).value == "↓ −100,0 p.p."
     assert all(c["value"] is None and "mar/2025" in c["reason"] for c in q["cells"] if c["period"] == "4/2024")
     memo = calculation_rows(q, df, "PDD / Inadimplência (arrasto)", "A")
     assert not memo.Campo.str.contains("Hedge|Ajuste a Valor Justo|Carteira de Crédito Bruta").any()

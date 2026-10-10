@@ -12,6 +12,7 @@ import pandas as pd
 from tabs.peers_config import PEERS_TABELA_LAYOUT, PEERS_GLOSSARIO_RESUMIDO
 from utils.ui_help import get_help_text
 from utils.snapshot_delta import compute_delta
+from utils.formatting import formatar_delta_br
 
 
 @dataclass(frozen=True)
@@ -24,6 +25,11 @@ class Metric:
     source: str
     note: str = ""
     ytd: bool = False
+    delta_kind: str = "pct"
+    delta_unit: str = "%"
+    delta_decimals: int = 2
+    value_decimals: int = 2
+    favorable_direction: str | None = None
 
 
 _META = {
@@ -54,6 +60,36 @@ _META = {
     "ROE Acumulado YTD (%)": ("ROE anualizado", "%", "Lucro YTD × fator anual ÷ média do PL atual e dezembro anterior", "IFData Rel. 1"),
 }
 
+# A unidade do nível (%) não determina a unidade mais legível da variação.
+# Coberturas e custo/receita usam p.p.; taxas de capital, retorno e risco usam bps.
+_PERCENTAGE_POLICIES = {
+    "Custo de Crédito (%)": ("bps", "down"),
+    "Custo de Crédito / Receita de Crédito (%)": ("pp", "down"),
+    "Ativos Problemáticos / Carteira Total": ("bps", "down"),
+    "Inadimplência / Carteira Total": ("bps", "down"),
+    "Ativos Estágio 3 / Carteira de Crédito": ("bps", "down"),
+    "Inadimplência / Carteira de Crédito": ("bps", "down"),
+    "Perda Esperada / Estágio 3": ("pp", "up"),
+    "Perda Esperada / Est2+3": ("pp", "up"),
+    "Perda Esperada / Carteira de Crédito*": ("bps", None),
+    "PDD / Inadimplência (arrasto)": ("pp", "up"),
+    "Índice de Capital Principal (CET1)": ("bps", "up"),
+    "Índice de Basileia Total (%)": ("bps", "up"),
+    "ROE Acumulado YTD (%)": ("bps", "up"),
+}
+
+
+def _with_variation_policy(metric):
+    if metric.unit == "%":
+        kind, favorable = _PERCENTAGE_POLICIES[metric.key]
+        return replace(metric, delta_kind=kind, delta_unit="p.p." if kind == "pp" else "bps",
+                       delta_decimals=1 if kind == "pp" else 0,
+                       value_decimals=1 if kind == "pp" else 2,
+                       favorable_direction=favorable)
+    if metric.unit == "x":
+        return replace(metric, delta_kind="absolute", delta_unit="x", favorable_direction="down")
+    return metric  # Saldos: crescimento relativo, sem juízo automático de crédito.
+
 
 def _catalog():
     result = []
@@ -80,7 +116,7 @@ def _catalog():
                     "|e2 + f2 + g2 + h2 do Rel. 2| ÷ Inadimplência do Rel. 16",
                     "IFData Rel. 2 + Rel. 16", get_help_text("PDD / Inadimplência (arrasto)", context="Peers"),
                 ))
-    return tuple(result)
+    return tuple(_with_variation_policy(metric) for metric in result)
 
 
 METRICS = _catalog()
@@ -155,9 +191,8 @@ def period_comparison_label(p, mode):
 
 
 def delta_measure(value, old, metric):
-    """Unidade explícita: subtração de taxas/múltiplos; crescimento de montantes."""
-    kind, scale, unit = ("bps", "dec", "bps") if metric.unit == "%" else ("absolute", "pct", "x") if metric.unit == "x" else ("pct", "pct", "%")
-    return compute_delta(value, old, kind, scale), unit
+    """Subtração de razões e múltiplos; crescimento relativo de montantes."""
+    return compute_delta(value, old, metric.delta_kind, "dec" if metric.unit == "%" else "pct"), metric.delta_unit
 
 
 def format_value(value, metric, scale):
@@ -168,7 +203,7 @@ def format_value(value, metric, scale):
         v *= 100
     elif metric.unit == "R$":
         v /= SCALES[scale]
-    return f"{v:,.2f}".replace(",", "~").replace(".", ",").replace("~", ".") + ("%" if metric.unit == "%" else "x" if metric.unit == "x" else "")
+    return f"{v:,.{metric.value_decimals}f}".replace(",", "~").replace(".", ",").replace("~", ".") + ("%" if metric.unit == "%" else "x" if metric.unit == "x" else "")
 
 
 def delta(value, old, metric, mode):
@@ -182,10 +217,26 @@ def delta(value, old, metric, mode):
     change, unit = delta_measure(v, b, metric)
     if change is None:
         return None, "Base ≤ 0"
-    rounded = round(change, 2)
-    direction = "up" if rounded > 0 else "down" if rounded < 0 else "flat"
-    text = f"{abs(rounded):.2f}".replace(".", ",")
-    return direction, f"{'↑ +' if direction == 'up' else '↓ −' if direction == 'down' else '= '}{text} {unit}"
+    direction = "up" if change > 0 else "down" if change < 0 else "flat"
+    return direction, formatar_delta_br(change, unit, metric.delta_decimals, com_seta=True)
+
+
+VARIATION_NOTE = "Variações: capital, retorno e taxas de risco em bps inteiros; coberturas e custo/receita em p.p.; saldos em %; alavancagem em x. Razões e múltiplos usam subtração."
+COLOR_NOTE = "Verde: direção usualmente favorável no indicador. Vermelho: direção de atenção. Saldos e indicadores sem leitura unívoca usam cor neutra. As setas indicam alta ou queda."
+VARIATION_COLORS = {"favorable": "#16713B", "attention": "#B32624", "neutral": "#666666"}
+
+
+def variation_tone(metric, direction, status="available"):
+    if direction not in {"up", "down"} or metric.favorable_direction is None or status not in {"available", "curated_value", "derived_from_curated"}:
+        return "neutral"
+    return "favorable" if direction == metric.favorable_direction else "attention"
+
+
+def variation_definition(metric):
+    return {"bps": "diferença entre percentuais × 100; bps arredondados ao inteiro",
+            "pp": "percentual atual − percentual de referência; diferença em p.p.",
+            "absolute": "múltiplo atual − múltiplo de referência; diferença em x",
+            "pct": "(saldo atual − saldo de referência) ÷ saldo de referência × 100; requer base positiva"}[metric.delta_kind]
 
 
 ARRASTO_ROWS = {
@@ -302,14 +353,14 @@ def build_query(df, banks, periods, metrics, values, statuses, *, base, cache_to
                 cells.append({"metric": key, "bank": bank, "period": p, "value": value, "display": display, "direction": direction, "variation": variation, "delta_value": delta_value, "delta_unit": delta_unit, "reference": old_period, "reference_value": old, "status": status, "source": source, "reason": reason})
     # Hash do slice efetivo inclui componentes e referências. Independe da data da consulta.
     fingerprint = sha256(pd.util.hash_pandas_object(df.astype(str), index=False).values.tobytes()).hexdigest()
-    result = {"schema_version": 2, "base": base, "banks": list(banks), "periods": list(periods), "metrics": list(metrics), "scale": scale, "mode": mode, "cache_token": cache_token, "data_sha256": fingerprint, "query_type": "Comparação de peers em competências selecionadas", "cells": cells}
+    result = {"schema_version": 3, "base": base, "banks": list(banks), "periods": list(periods), "metrics": list(metrics), "scale": scale, "mode": mode, "cache_token": cache_token, "data_sha256": fingerprint, "query_type": "Comparação de peers em competências selecionadas", "cells": cells}
     result["signature"] = sha256(json.dumps(result, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
     result["queried_at"] = queried_at
     return result
 
 
 def methodology_rows(query):
-    return [{"Indicador": m.label, "Unidade": query["scale"] if m.unit == "R$" else m.unit, "Fórmula": m.formula, "Fonte": m.source, "Nota": m.note} for m in (get_metric(key, query["base"]) for key in query["metrics"])]
+    return [{"Indicador": m.label, "Unidade": query["scale"] if m.unit == "R$" else m.unit, "Variação": variation_definition(m), "Unidade da variação": m.delta_unit, "Fórmula": m.formula, "Fonte": m.source, "Nota": m.note} for m in (get_metric(key, query["base"]) for key in query["metrics"])]
 
 
 def short_bank(bank):

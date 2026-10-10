@@ -18,8 +18,9 @@ COMPARISON_HELP = ("YoY compara com o mesmo trimestre do ano anterior; QoQ, com 
                    "A diferença entre taxas é expressa em pontos percentuais ou bps (100 bps = 1 p.p.), conforme a tela. Resultados acumulados precisam de janelas "
                    "de duração igual; mudanças contábeis em 2025 podem afetar a comparação.")
 PEERS_COMPARISON_HELP = ("YoY compara com o mesmo trimestre do ano anterior; QoQ, com o trimestre anterior. "
-                         "Indicadores percentuais variam em pontos-base (bps): 100 bps = 1 ponto percentual. "
-                         "Exemplo: 2,18% para 2,25% = +7 bps. Valores monetários variam em % com base positiva; múltiplos, em x. "
+                         "Taxas de capital, retorno e risco usam bps inteiros; coberturas e custo/receita usam pontos percentuais (p.p.). "
+                         "As duas unidades expressam subtração: 100 bps = 1 p.p. Exemplo: 2,18% para 2,25% = +7 bps; cobertura de 193,1% para 193,5% = +0,4 p.p. "
+                         "Valores monetários variam em % com base positiva; múltiplos, em x. "
                          "Cada coluna identifica a referência usada. O delta usa valores sem arredondamento. Lucro YTD requer janelas de igual duração.")
 COSIF_BASE_HELP = ("4010: balancete individual mensal. 4060: balancete prudencial mensal. "
                    "4066: balanço prudencial semestral, em junho e dezembro. "
