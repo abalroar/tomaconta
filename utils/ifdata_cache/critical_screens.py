@@ -525,6 +525,14 @@ def _pick_exact_cols(df: Optional[pd.DataFrame], candidates: Sequence[str]) -> L
 def _coerce_numeric_value(value) -> Optional[float]:
     if value is None or pd.isna(value):
         return None
+    if type(value) in (int, float) or (
+        isinstance(value, (np.integer, np.floating)) and not isinstance(value, np.timedelta64)
+    ):
+        try:
+            return float(value)
+        except OverflowError:
+            # Preserve pandas' handling of integers outside float's range.
+            pass
     try:
         coerced = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
     except Exception:

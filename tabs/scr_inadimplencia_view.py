@@ -295,18 +295,23 @@ def render_scr_inadimplencia(get_cache_manager) -> None:
     def _periodos_disponiveis() -> tuple[str, ...]:
         cache = _cache()
         if cache is None:
-            return ()
+            raise RuntimeError("Cache SCR.data não inicializado")
         try:
             resultado = cache.bootstrap_local_assets()
             if not resultado.sucesso:
-                return ()
-            periodos = cache.get_info().get("periodos") or []
+                raise RuntimeError(resultado.mensagem)
+            periodos = (resultado.metadata or {}).get("periodos") or cache.get_info().get("periodos") or []
             if periodos:
                 return tuple(sorted(str(periodo) for periodo in periodos))
             datas = pd.read_parquet(cache.arquivo_dados, columns=["data_base"])
-            return tuple(sorted(datas["data_base"].astype(str).unique()))
-        except Exception:
-            return ()
+            periodos = tuple(sorted(datas["data_base"].astype(str).unique()))
+            if not periodos:
+                raise RuntimeError("Resumo SCR.data sem competências disponíveis")
+            return periodos
+        except Exception as exc:
+            # st.cache_data não memoriza exceções. Uma trava ocupada ou falha
+            # de download pode ser tentada novamente no próximo rerun.
+            raise RuntimeError(f"SCR.data temporariamente indisponível: {exc}") from exc
 
     @st.cache_data(ttl=3600, show_spinner="Carregando SCR.data...")
     def _detalhe(anos: tuple[int, ...]) -> pd.DataFrame:
@@ -395,7 +400,10 @@ def render_scr_inadimplencia(get_cache_manager) -> None:
                 ))
         return camadas
 
-    periodos_disponiveis = _periodos_disponiveis()
+    try:
+        periodos_disponiveis = _periodos_disponiveis()
+    except RuntimeError:
+        periodos_disponiveis = ()
     if not periodos_disponiveis:
         # Diferente do SGS, o SCR.data não tem cópia versionada no repositório:
         # o grão completo passa de 10 MB por ano. Quando o download do release
