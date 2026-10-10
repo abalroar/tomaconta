@@ -343,6 +343,28 @@ def test_snapshot_payload_uses_yoy_for_ytd_and_keeps_missing_value_status():
     assert missing["status"] == "Sem fonte para a instituição."
 
 
+@pytest.mark.parametrize("missing", [None, float("nan")])
+def test_real_snapshot_payload_distinguishes_zero_funding_from_missing_data(missing):
+    import app1
+    zero = {"label": "Crédito / Captações", "format_key": "Carteira de Crédito/Core Funding (%)",
+            "is_pct": True, "serie": {"2/2026": 0.0}}
+    absent = {"label": "Desp. Anualizada Captação / Volume Captação", "format_key": "Desp Captação / Captação",
+              "is_pct": True, "serie": {"2/2026": missing}, "status_marker": "†", "status_note": "Fonte indisponível."}
+    histories = {zero["label"]: {"periods": ["Jun/26"], "values": [0.0]},
+                 absent["label"]: {"periods": ["Jun/26"], "values": [missing]}}
+    payload = subject.snapshot_payload(BANK, "2/2026", None, None,
+        [("support", [zero, absent])], histories, vars(app1))
+    zero_card, missing_card = payload["cards"]
+    assert zero_card["value"] == "0,00%"
+    assert zero_card["raw_value"] == 0.0
+    assert missing_card["value"] == "N/D†"
+    assert pd.isna(missing_card["raw_value"])
+    assert missing_card["status"] == "Fonte indisponível."
+    assert zero_card["history"] is histories[zero["label"]]
+    assert missing_card["history"] is histories[absent["label"]]
+    assert all(card[key]["display"] == "—" for card in payload["cards"] for key in ("qoq", "yoy"))
+
+
 def test_snapshot_payload_no_reference_keeps_reference_unavailable():
     payload = subject.snapshot_payload(BANK, "1/2025", None, None,
         [("Resumo", [{"label": "Ativo", "serie": {"1/2025": 100}}])], {}, payload_api([]))

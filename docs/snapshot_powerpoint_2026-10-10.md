@@ -36,3 +36,11 @@ A Carteira usa o modelo compartilhado da aba, com Rel. 16 e provisões do Rel. 2
 O arquivo público original reproduziu o aviso de reparo no PowerPoint Mac. O reparo removia o conteúdo dos dois slides de Snapshot. Identificadores de eixos convertidos de negativos para UInt32 podiam exceder Int32; uma cópia com IDs positivos pequenos abriu normalmente. O exportador agora remapeia os IDs e todas as referências cruzadas no âmbito de cada gráfico.
 
 A ordem OOXML também foi corrigida: `c:spPr` precede `c:txPr` e `c:externalData`; bordas de células precedem seu preenchimento. Inserções opcionais de eixos e lacunas respeitam os elementos sucessores. A regressão verifica a ordem, unicidade e alcance dos IDs em todos os gráficos e tabelas. O teste rejeita a versão anterior. A comparação dos arquivos preserva todas as tabelas, séries e valores financeiros.
+
+## Instituições com cobertura parcial
+
+A comparação dos downloads públicos de Bradesco, SBXPAY IP e Banco Guanabara conferiu os 13 cards com a tela e as notas dos slides, incluindo seus deltas. Bradesco conservou seis tabelas e 13 gráficos nativos; SBXPAY, quatro tabelas e sete gráficos, com um slide de Carteira 4.966 indisponível; Guanabara, seis tabelas e 12 gráficos. Cada gráfico mantém sua planilha incorporada. As lacunas de Jun/26 do Guanabara são células vazias na planilha e pontos ausentes no gráfico; históricos integralmente ausentes permanecem sem gráfico.
+
+A revisão identificou dois zeros válidos de funding do SBXPAY exibidos como `N/A` por um formatador legado. O formatador específico do Snapshot agora mostra `0,00%` para percentuais zero e `N/D` para valores ausentes ou inválidos, mantendo `†` quando há uma ressalva identificada. Valores brutos, referências, deltas e históricos permanecem preservados.
+
+O Resumo em PowerPoint do Snapshot usa a base Consolidada / Prudencial, incluindo instituições independentes disponíveis nessa fonte. O seletor de base Individual pertence à Tabela de Peers; o Snapshot ainda não oferece uma exportação nesse perímetro.
