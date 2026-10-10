@@ -669,5 +669,3 @@ def test_uploaded_asset_fallback_reads_remote_bytes(monkeypatch):
     monkeypatch.setattr(R, "_request_with_retries", lambda *args, **kwargs: Response(200, content=b"verified"))
     R._verify_uploaded_asset("repo/name", "sample.parquet", Response(201, {"id": 42}),
                              hashlib.sha256(b"verified").hexdigest(), "fake")
-
-
