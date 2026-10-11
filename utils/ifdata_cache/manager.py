@@ -173,13 +173,23 @@ class CacheManager:
         Args:
             base_dir: Diretorio base do projeto. Se None, detecta automaticamente.
         """
+        from .official_store import get_official_read_snapshot, writable_cache_context
+        explicit_workspace = base_dir is not None
+        self._official_snapshot = get_official_read_snapshot(base_dir)
         if base_dir is None:
             # Detectar diretorio base (3 niveis acima: utils/ifdata_cache/manager.py)
-            base_dir = Path(__file__).parent.parent.parent.resolve()
+            snapshot = self._official_snapshot
+            base_dir = snapshot.root if snapshot else Path(__file__).parent.parent.parent.resolve()
+        elif self._official_snapshot is not None:
+            base_dir = self._official_snapshot.root
 
         self.base_dir = base_dir
         self._caches: Dict[str, BaseCache] = {}
-        self._registrar_caches_padrao()
+        if explicit_workspace and self._official_snapshot is None:
+            with writable_cache_context():
+                self._registrar_caches_padrao()
+        else:
+            self._registrar_caches_padrao()
 
     def _registrar_caches_padrao(self):
         """Registra os caches padrao do sistema."""
@@ -474,6 +484,10 @@ class CacheManager:
         from datetime import datetime
 
         from .update_state import UpdateRunStore, mutation_lock
+
+        if getattr(self, "_official_snapshot", None) is not None:
+            from .official_store import OfficialReadOnlyError
+            raise OfficialReadOnlyError("A revisão oficial é somente leitura; utilize o worker para atualizar")
 
         invalid_units = not isinstance(periodos, (list, tuple)) or (
             execution_periods is not None and not isinstance(execution_periods, (list, tuple))

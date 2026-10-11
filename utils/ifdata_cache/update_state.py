@@ -238,7 +238,7 @@ class UpdateRunStore:
             raise UpdateStateError("Identificador de execução inválido.")
         return self.root / str(run_id) / "run.json"
 
-    def create(self, cache_type: str, periods=None, mode: str = "incremental", options=None) -> dict:
+    def create(self, cache_type: str, periods=None, mode: str = "incremental", options=None, *, run_id=None) -> dict:
         if not re.fullmatch(r"[a-z][a-z0-9_]*", str(cache_type)):
             raise UpdateStateError("Fonte de atualização inválida.")
         if mode not in {"incremental", "overwrite", "rebuild"}:
@@ -248,16 +248,24 @@ class UpdateRunStore:
         )):
             raise UpdateStateError("Unidades da execução inválidas.")
         units = list(dict.fromkeys(str(p).strip() for p in (periods or [])))
+        if run_id is not None and not _RUN_ID.fullmatch(str(run_id)):
+            raise UpdateStateError("Identificador de execução inválido.")
         now = _now()
         record = {
-            "schema_version": SCHEMA_VERSION, "run_id": uuid4().hex,
+            "schema_version": SCHEMA_VERSION, "run_id": run_id if run_id is not None else uuid4().hex,
             "cache_type": cache_type, "periods": units, "mode": mode,
             "options": _safe_json(options or {}), "status": "prepared",
             "created_at": now, "updated_at": now, "requested_periods": units,
             "extracted_periods": [], "persisted_periods": [], "failed_periods": {},
             "pending_periods": units, "error": None, "publication": None,
         }
-        return self.save(record)
+        with mutation_lock(self.base_dir, owner={"run_id": record["run_id"], "cache_type": cache_type}):
+            previous = self.load(record["run_id"])
+            if previous:
+                if any(record[key] != previous[key] for key in ("cache_type", "periods", "mode", "options")):
+                    raise UpdateStateError("O identificador de execução já pertence a outro plano imutável.")
+                return previous
+            return self.save(record)
 
     def load(self, run_id: str) -> dict:
         path = self._path(run_id)

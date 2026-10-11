@@ -185,6 +185,22 @@ from utils.ifdata_cache import (
     describe_support_window,
 )
 from utils.ifdata_cache.derived_metrics import materialize_derived_metrics_cache
+from utils.ifdata_cache.official_store import begin_official_read
+from utils.ifdata_cache.revision_cache import revision_cache_data
+
+# Uma revisão global por render, somente quando o armazenamento portátil é configurado.
+_official_read_snapshot = begin_official_read()
+_official_revision_id = _official_read_snapshot.revision_id if _official_read_snapshot else None
+if st.session_state.get("_official_revision_id") != _official_revision_id:
+    for _revision_state_key in (
+        "dados_periodos", "dados_periodos_erro", "dados_periodos_fonte", "cache_fonte",
+        "dados_capital", "capital_cache_fonte", "_dados_capital_mesclados",
+        "derived_metrics_last_error", "derived_metrics_individual_last_error",
+        "spb_prepared_ppt", "bloprudencial_df", "bloprudencial_dfs",
+        "bloprudencial_yyyymm", "bloprudencial_yyyymm_list", "cache_manager",
+    ):
+        st.session_state.pop(_revision_state_key, None)
+st.session_state["_official_revision_id"] = _official_revision_id
 import utils.ifdata_cache.metric_registry as _ifdata_metric_registry
 import utils.ifdata_cache.derived_metrics as _ifdata_derived_metrics
 
@@ -2147,7 +2163,7 @@ def _aliases_file_token() -> str:
     return "instituicoes-canonicas:v1"
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@revision_cache_data(ttl=3600, show_spinner=False)
 def carregar_aliases(alias_file_token: str):
     """Compatibilidade: Alias institucional foi removido do pipeline."""
     _ = alias_file_token
@@ -2173,7 +2189,7 @@ def normalizar_nome_instituicao(nome):
 
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@revision_cache_data(ttl=3600, show_spinner=False)
 def construir_dict_aliases_normalizado(_df_aliases_hash: str, df_aliases_data: tuple):
     """Compatibilidade: Alias institucional foi removido do pipeline."""
     _perf_start("construir_dict_aliases")
@@ -2369,7 +2385,7 @@ def normalizar_codigo_cor(cor_valor):
     return None
 
 # FIX PROBLEMA 3: Carregamento correto de cores com normalização
-@st.cache_data(ttl=3600, show_spinner=False)
+@revision_cache_data(ttl=3600, show_spinner=False)
 def carregar_cores_aliases_local(_df_hash: str, cores_data: tuple):
     """Compatibilidade: cores por Alias institucional foram removidas."""
     _perf_start("carregar_cores_aliases")
@@ -2513,7 +2529,7 @@ def _carregar_conglomerados_bloprudencial_fallback() -> list[dict]:
     return resultado
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@revision_cache_data(ttl=3600, show_spinner=False)
 def carregar_conglomerados() -> list[dict]:
     """Carrega conglomerados com fallback progressivo (CSV local -> API -> BLOPRUDENCIAL)."""
     arquivo_local = APP_DIR / "conglomerados.csv"
@@ -2684,7 +2700,7 @@ def _render_orgaos_tabela_html(df_orgaos: pd.DataFrame, cor_linha: str = "#F4F1E
     """
 
 
-@st.cache_data(ttl=1800, show_spinner=False)
+@revision_cache_data(ttl=1800, show_spinner=False)
 def consultar_orgaos_estatutarios_result(cnpj: str, id_bacen: str = "") -> dict:
     resultado = consultar_pessoas_juridicas(cnpj, id_bacen=id_bacen)
     payload = resultado.payload if resultado.sucesso and isinstance(resultado.payload, dict) else {}
@@ -3298,7 +3314,7 @@ def render_tab_cdsfn() -> None:
                 block_key=bloco_key,
             )
 
-@st.cache_data(ttl=300, show_spinner=False)
+@revision_cache_data(ttl=300, show_spinner=False)
 def verificar_caches_github() -> dict:
     """Verifica quais caches existem no GitHub Releases.
 
@@ -3867,8 +3883,36 @@ def _bundled_manifest_token_cache() -> str:
     return f"{stat.st_mtime_ns}:{stat.st_size}"
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+def _manifest_official_cache() -> Optional[dict]:
+    from utils.ifdata_cache.official_store import get_official_read_snapshot
+    snapshot = get_official_read_snapshot()
+    if snapshot is None:
+        return None
+    manager = get_cache_manager()
+    caches = {}
+    for name in manager.listar_caches():
+        cache = manager.get_cache(name)
+        info = cache.get_info()
+        if not info.get("existe"):
+            continue
+        data, _ = cache.coherent_read_paths()
+        logical = data.relative_to(snapshot.root).as_posix()
+        periods = [str(value) for value in (info.get("periodos") or [])]
+        refs = [value for value in (_periodo_ref_cache(period) for period in periods) if value]
+        caches[name] = {"sha256": snapshot.manifest["files"][logical]["sha256"],
+                        "max_period": max(refs) if refs else "",
+                        "period_count": info.get("total_periodos", len(set(periods))),
+                        "record_count": info.get("total_registros", 0),
+                        "timestamp_salvamento": info.get("timestamp_salvamento")}
+    return {"official_revision_id": snapshot.revision_id,
+            "generated_at_utc": snapshot.manifest.get("created_at_utc"), "caches": caches}
+
+
+@revision_cache_data(ttl=300, show_spinner=False)
 def _carregar_manifest_bundled_cache(cache_token: str = "") -> dict:
+    official = _manifest_official_cache()
+    if official is not None:
+        return official
     path = _bundled_manifest_path_cache()
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -3879,8 +3923,11 @@ def _carregar_manifest_bundled_cache(cache_token: str = "") -> dict:
         return {"_erro": str(exc)}
 
 
-@st.cache_data(ttl=60, show_spinner=False)
+@revision_cache_data(ttl=60, show_spinner=False)
 def _carregar_manifest_release_cache(url: str, cache_token: str = "") -> dict:
+    official = _manifest_official_cache()
+    if official is not None:
+        return official
     try:
         headers = {"Cache-Control": "no-cache", "Pragma": "no-cache"}
         cache_parts = [str(cache_token).strip()] if str(cache_token or "").strip() else []
@@ -3981,6 +4028,9 @@ def _baixar_cache_release_base_cache(
     *,
     expected_sha256: str = "",
 ) -> CacheResult:
+    from utils.ifdata_cache.official_store import get_official_read_snapshot, OfficialReadOnlyError
+    if get_official_read_snapshot() is not None:
+        raise OfficialReadOnlyError("A revisão oficial não admite fallback de download GitHub")
     asset_url = f"{release_base_url.rstrip('/')}/{cache_name}_dados.parquet"
     try:
         response = requests.get(
@@ -4030,6 +4080,9 @@ def _baixar_cache_release_base_cache(
 
 
 def _salvar_cache_fallback_local(manager, cache_name: str, result: CacheResult) -> CacheResult:
+    from utils.ifdata_cache.official_store import get_official_read_snapshot, OfficialReadOnlyError
+    if get_official_read_snapshot() is not None:
+        raise OfficialReadOnlyError("Salvamento de fallback exige workspace privado do worker")
     if not result.sucesso or result.dados is None:
         return result
     cache = manager.get_cache(cache_name) if manager is not None else None
@@ -4083,6 +4136,12 @@ def _cache_period_status_from_result(cache_name: str, result, manifest: dict | N
 
 
 def _carregar_cache_com_freshness(manager, cache_name: str, manifest: dict | None):
+    from utils.ifdata_cache.official_store import get_official_read_snapshot
+    if get_official_read_snapshot() is not None:
+        result = manager.carregar(cache_name)
+        status = _cache_period_status_from_result(cache_name, result, _manifest_official_cache())
+        status.update(remote_forced=False, fallback_release_base="", official_revision_id=get_official_read_snapshot().revision_id)
+        return result, status
     result = manager.carregar(cache_name)
     status = _cache_period_status_from_result(cache_name, result, manifest)
     if status["stale"]:
@@ -4181,6 +4240,16 @@ def _load_carteira_4966_ativo_periods_impl(
             "integrity_verified": False,
             "error": "cache Ativo (Relatório 2) não registrado",
         }
+
+    from utils.ifdata_cache.official_store import get_official_read_snapshot
+    snapshot = get_official_read_snapshot()
+    if snapshot is not None:
+        result = cache.carregar_local()
+        if not result.sucesso or result.dados is None:
+            return pd.DataFrame(), {"valid": False, "integrity_verified": False, "error": result.mensagem}
+        status = {"valid": True, "integrity_verified": True, "source": result.fonte,
+                  "official_revision_id": snapshot.revision_id}
+        return _filtrar_periodos_carteira_4966(result.dados, periodos), status
 
     entry = _manifest_cache_entry_cache(manifest, "ativo")
     expected_sha256 = str(entry.get("sha256") or "").strip().lower()
@@ -4292,6 +4361,19 @@ def _load_carteira_4966_data_impl(manifest: dict | None):
     if cache is None:
         return None, {"valid": False, "error": "cache carteira_instrumentos não registrado"}
 
+    from utils.ifdata_cache.official_store import get_official_read_snapshot
+    snapshot = get_official_read_snapshot()
+    if snapshot is not None:
+        result = cache.carregar_local()
+        status = _carteira_4966_result_status(result, _manifest_official_cache())
+        status.update(integrity_verified=bool(result.sucesso), official_revision_id=snapshot.revision_id)
+        if not status["valid"]:
+            status["error"] = result.mensagem if not result.sucesso else "Carteira da revisão oficial reprovada no controle de qualidade"
+            return None, status
+        prepared = canonicalize_institution_history(result.dados, base_dir=APP_DIR)
+        status["identity_collision_count"] = int(prepared.attrs.get("institution_identity_collision_count", 0))
+        return prepared, status
+
     entry = _carteira_4966_manifest_entry(manifest)
     expected_sha256 = str(entry.get("sha256") or "").strip().lower()
     local_integrity_verified = False
@@ -4382,7 +4464,7 @@ def _load_carteira_4966_data_impl(manifest: dict | None):
     return None, remote_status
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@revision_cache_data(ttl=3600, show_spinner=False)
 def load_carteira_4966_data(release_token: str, manifest_payload: str):
     """Carrega usando exatamente o manifesto que originou a chave de cache."""
     try:
@@ -4394,7 +4476,7 @@ def load_carteira_4966_data(release_token: str, manifest_payload: str):
     return _load_carteira_4966_data_impl(manifest)
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@revision_cache_data(ttl=3600, show_spinner=False)
 def load_carteira_4966_ativo_periods(
     release_token: str,
     manifest_payload: str,
@@ -4497,7 +4579,7 @@ def _inferir_periodo_api_padrao() -> str:
     except Exception:
         return "202503"
 
-@st.cache_data(ttl=900, show_spinner=False)
+@revision_cache_data(ttl=900, show_spinner=False)
 def _diagnosticar_ifdata_resumo(periodo_api: str, termo_busca: str):
     """Diagnóstico objetivo da presença de IF no Relatório 1 (Resumo) do IFData."""
     from utils.ifdata_cache.extractor import (
@@ -5465,7 +5547,7 @@ def _candidatos_sondagem_bloprudencial(periodos_locais: Iterable[str]) -> tuple[
     return tuple(_range_mensal_yyyymm(inicio, ym_atual))
 
 
-@st.cache_data(ttl=6 * 3600, show_spinner=False)
+@revision_cache_data(ttl=6 * 3600, show_spinner=False)
 def _sondar_periodos_bloprudencial_bcb(candidatos_yyyymm: tuple[str, ...], probe_version: str = "v1") -> list[str]:
     _ = probe_version
     candidatos = tuple(dict.fromkeys(p for p in (_validar_yyyymm_str(v) for v in candidatos_yyyymm) if p))
@@ -5549,7 +5631,7 @@ def _get_cosif_4010_cache():
     return cache
 
 
-@st.cache_data(ttl=3600, max_entries=4, show_spinner=False)
+@revision_cache_data(ttl=3600, max_entries=4, show_spinner=False)
 def _cosif_4010_fgc_referencias(periodos: tuple[str, ...], cache_version: str) -> pd.DataFrame:
     from utils.ifdata_cache.cosif_4010 import fgc_reference_frame
     return fgc_reference_frame(_get_cosif_4010_cache(), periodos)
@@ -5589,7 +5671,7 @@ def _bloprud_pick_col(df_src: Optional[pd.DataFrame], candidates: list[str]) -> 
     return None
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@revision_cache_data(ttl=3600, show_spinner=False)
 def _listar_periodos_bloprudencial_disponiveis(_cache_token_bloprud: str) -> list[str]:
     """Lista competências YYYYMM disponíveis para BLOPRUDENCIAL.
 
@@ -5598,6 +5680,17 @@ def _listar_periodos_bloprudencial_disponiveis(_cache_token_bloprud: str) -> lis
     """
     _ = _cache_token_bloprud
     periodos: set[str] = set()
+    from utils.ifdata_cache.official_store import get_official_read_snapshot
+    official = get_official_read_snapshot()
+    if official is not None:
+        cache = get_cache_manager().get_cache("bloprudencial")
+        if cache is None or not cache.existe():
+            return []
+        info = cache.get_info()
+        periods = {canonical for value in (info.get("periodos") or [])
+                   if (canonical := _validar_yyyymm_str(str(value)))}
+        if periods:
+            return sorted(periods)
 
     try:
         manager = get_cache_manager()
@@ -5622,6 +5715,8 @@ def _listar_periodos_bloprudencial_disponiveis(_cache_token_bloprud: str) -> lis
     except Exception:
         pass
 
+    if official is not None:
+        return sorted(periodos)
     try:
         cache_dirs = [
             APP_DIR / "data" / "cache" / "bcb_bloprudencial" / "csv",
@@ -5649,7 +5744,7 @@ def _listar_periodos_bloprudencial_disponiveis(_cache_token_bloprud: str) -> lis
     return sorted(periodos)
 
 
-@st.cache_data(ttl=3600, max_entries=16, show_spinner=False)
+@revision_cache_data(ttl=3600, max_entries=16, show_spinner=False)
 def _carregar_bloprud_conta_por_periodos(
     periodos_yyyymm: tuple[str, ...],
     conta_cosif: Optional[str] = None,
@@ -5817,7 +5912,7 @@ def _carregar_bloprud_conta_por_periodos(
     return _agregar_base_bloprud(pd.concat(bases_norm, ignore_index=True))
 
 
-@st.cache_data(ttl=3600, max_entries=8, show_spinner=False)
+@revision_cache_data(ttl=3600, max_entries=8, show_spinner=False)
 def _catalogo_contas_bloprudencial(
     periodos_yyyymm: tuple[str, ...],
     documento_bloprudencial: Optional[str] = "4060",
@@ -5917,7 +6012,7 @@ def _catalogo_contas_bloprudencial(
     return grouped.reset_index(drop=True)
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@revision_cache_data(ttl=3600, show_spinner=False)
 def _carregar_lucro_liquido_cosif_por_periodos(
     periodos_yyyymm: tuple[str, ...],
     documento_bloprudencial: Optional[str] = "4060",
@@ -6474,7 +6569,7 @@ def _render_contas_cosif_unificado(periodos_yyyymm: Sequence[str]) -> None:
         )
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@revision_cache_data(ttl=3600, show_spinner=False)
 def _carregar_fgc_8118500009_por_periodos(periodos_yyyymm: tuple[str, ...], loader_version: str = "v1") -> pd.DataFrame:
     """Compat: mantém a carga da conta COSIF 8118500009 por competência e instituição."""
     df = _carregar_bloprud_conta_por_periodos(
@@ -7809,7 +7904,7 @@ def _slice_cache_for_peers(
         mask &= df["Período"].isin(periodos)
     return df.loc[mask].copy()
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@revision_cache_data(ttl=3600, show_spinner=False)
 def _carregar_cache_relatorio_slice(
     tipo_cache: str,
     cache_token: str,
@@ -8054,7 +8149,7 @@ def _garantir_cache_telas_criticas(menu_nome: str) -> bool:
     return False
 
 
-@st.cache_data(ttl=900, show_spinner=False)
+@revision_cache_data(ttl=900, show_spinner=False)
 def _carregar_metadata_critical_screens(cache_token: str) -> dict:
     _ = cache_token
     manager = get_cache_manager()
@@ -8119,7 +8214,7 @@ def _get_slice_cache_for_peers_fn():
     return _fallback
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@revision_cache_data(ttl=3600, show_spinner=False)
 def _carregar_bloprudencial_fallback_periodos(yyyymm_needed: tuple) -> pd.DataFrame:
     """Carrega base prudencial por competências (fallback) com cache para reuso entre reruns."""
     if not yyyymm_needed:
@@ -9335,7 +9430,7 @@ def _find_dre_source_column(df: pd.DataFrame, source_name: str) -> Optional[str]
     return None
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@revision_cache_data(ttl=3600, show_spinner=False)
 def _load_dre_mapping_payload():
     caminho = Path("data/dre_mapping.json")
     if not caminho.exists():
@@ -12779,7 +12874,7 @@ def _preparar_df_capital_base(periodos_filter: Optional[tuple] = None) -> pd.Dat
 
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@revision_cache_data(ttl=3600, show_spinner=False)
 def _construir_indices_capital_unificados(capital_token: str, alias_sig: tuple) -> pd.DataFrame:
     """Fonte única de índices de capital (CET1, T1 e Basileia Total) para Evolução e Rankings."""
     df_componentes = _construir_componentes_capital_rankings(capital_token, alias_sig)
@@ -12911,7 +13006,7 @@ def _calcular_componentes_capital_rankings_df(df_capital: pd.DataFrame) -> pd.Da
     return df_idx
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@revision_cache_data(ttl=3600, show_spinner=False)
 def _construir_componentes_capital_rankings_slice(
     capital_token: str,
     alias_sig: tuple,
@@ -12923,7 +13018,7 @@ def _construir_componentes_capital_rankings_slice(
     return _calcular_componentes_capital_rankings_df(df_capital)
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@revision_cache_data(ttl=3600, show_spinner=False)
 def _construir_indices_capital_unificados_slice(
     capital_token: str,
     alias_sig: tuple,
@@ -12947,7 +13042,7 @@ def _construir_indices_capital_unificados_slice(
     return df_componentes[colunas].copy()
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@revision_cache_data(ttl=3600, show_spinner=False)
 def _construir_componentes_capital_instituicao_slice(
     capital_token: str,
     alias_sig: tuple,
@@ -13017,7 +13112,7 @@ def _construir_componentes_capital_instituicao_slice(
     return _calcular_componentes_capital_rankings_df(df_capital)
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@revision_cache_data(ttl=3600, show_spinner=False)
 def _construir_indices_capital_instituicao_slice(
     capital_token: str,
     alias_sig: tuple,
@@ -13118,7 +13213,7 @@ def _carregar_logo_base64(logo_path: str, target_width: int = 200) -> str:
     return logo_base64
 
 
-@st.cache_data(show_spinner=False)
+@revision_cache_data(show_spinner=False)
 def _plotly_fig_to_png_bytes(fig, width: int = 1600, height: int = 900, scale: int = 2) -> Optional[bytes]:
     """Converte figura Plotly para PNG (retorna None se dependência indisponível)."""
     if fig is None:
@@ -13136,7 +13231,7 @@ def _plotly_fig_to_png_bytes(fig, width: int = 1600, height: int = 900, scale: i
 
 
 
-@st.cache_data(ttl=900, show_spinner=False)
+@revision_cache_data(ttl=900, show_spinner=False)
 def _get_peers_filters_context(critical_token: str) -> dict:
     """Retorna bancos/períodos da aba Peers a partir do cache curado final."""
     _ = critical_token
@@ -13170,6 +13265,9 @@ def _download_peers_individual_curated_cache(
     expected_record_count: int,
 ) -> tuple[Optional[pd.DataFrame], str]:
     """Baixa o asset imutável usado por Peers sem herdar tag legado do runtime."""
+    from utils.ifdata_cache.official_store import get_official_read_snapshot, OfficialReadOnlyError
+    if get_official_read_snapshot() is not None:
+        raise OfficialReadOnlyError("A revisão oficial não admite download de Peers individuais")
     asset_url = f"{_PEERS_INDIVIDUAL_RELEASE_BASE_URL}/principal_individual_dados.parquet"
     last_error = "download não iniciado"
     for tentativa in range(3):
@@ -13197,7 +13295,7 @@ def _download_peers_individual_curated_cache(
     return None, last_error
 
 
-@st.cache_data(ttl=60, show_spinner=False)
+@revision_cache_data(ttl=60, show_spinner=False)
 def _get_peers_individual_filters_context(
     principal_individual_token: str,
     release_token: str = "",
@@ -13208,6 +13306,11 @@ def _get_peers_individual_filters_context(
     _ = (principal_individual_token, release_token)
     manager = get_cache_manager()
     cache = manager.get_cache("principal_individual") if manager else None
+    from utils.ifdata_cache.official_store import get_official_read_snapshot
+    official = get_official_read_snapshot()
+    if official is not None and cache is not None and not cache.existe():
+        return {"bancos_todos": (), "periodos_disponiveis": (), "nome_para_codinsts": {},
+                "codinst_para_nome": {}, "erro": "Cache individual não incluído na revisão oficial"}
     if cache is None:
         return {
             "bancos_todos": (),
@@ -13216,6 +13319,10 @@ def _get_peers_individual_filters_context(
             "codinst_para_nome": {},
         }
 
+    if official is not None:
+        info = cache.get_info()
+        expected_period_count = int(info.get("total_periodos") or len(info.get("periodos") or []))
+        expected_record_count = int(info.get("total_registros") or 0)
     df = None
     if cache.arquivo_dados.exists():
         try:
@@ -13235,6 +13342,9 @@ def _get_peers_individual_filters_context(
         expected_record_count=expected_record_count,
     )
     if force_release_refresh:
+        if official is not None:
+            return {"bancos_todos": (), "periodos_disponiveis": (), "nome_para_codinsts": {},
+                    "codinst_para_nome": {}, "erro": "Cache individual oficial reprovado no controle de identidade/cobertura"}
         df = None
         remote_df, remote_error = _download_peers_individual_curated_cache(
             expected_period_count=expected_period_count,
@@ -13277,6 +13387,9 @@ def _get_peers_individual_filters_context(
             expected_period_count=expected_period_count,
             expected_record_count=expected_record_count,
         ):
+            if official is not None:
+                return {"bancos_todos": (), "periodos_disponiveis": (), "nome_para_codinsts": {},
+                        "codinst_para_nome": {}, "erro": "Cache individual oficial reprovado no controle de identidade/cobertura"}
             remote_df, remote_error = _download_peers_individual_curated_cache(
                 expected_period_count=expected_period_count,
                 expected_record_count=expected_record_count,
@@ -13364,7 +13477,7 @@ def _rankings_diagnostico_fontes(periodos_pedidos: Optional[tuple] = None) -> pd
     return pd.DataFrame(linhas)
 
 
-@st.cache_data(ttl=900, show_spinner=False)
+@revision_cache_data(ttl=900, show_spinner=False)
 def _get_rankings_filters_context(principal_token: str, alias_sig: tuple) -> dict:
     """Retorna períodos para filtros da aba Rankings sem concatenar dataframe completo."""
     _ = alias_sig
@@ -13397,7 +13510,7 @@ def _get_rankings_filters_context(principal_token: str, alias_sig: tuple) -> dic
     }
 
 
-@st.cache_data(ttl=900, show_spinner=False)
+@revision_cache_data(ttl=900, show_spinner=False)
 def _get_evolucao_filters_context(principal_token: str, alias_sig: tuple) -> dict:
     # [CHANGE] Data: 2026-04-05 | Aba: Evolução | Prioridade: P1
     # Motivo: a aba concatenava a base analítica inteira antes mesmo de montar os filtros.
@@ -13430,7 +13543,7 @@ def _get_evolucao_filters_context(principal_token: str, alias_sig: tuple) -> dic
     }
 
 
-@st.cache_data(ttl=900, show_spinner=False)
+@revision_cache_data(ttl=900, show_spinner=False)
 def _get_evolucao_instituicao_base_df(
     principal_token: str,
     alias_sig: tuple,
@@ -13740,7 +13853,7 @@ def _resolve_rankings_source_request(
 
 
 
-@st.cache_data(ttl=900, show_spinner=False)
+@revision_cache_data(ttl=900, show_spinner=False)
 def _get_analise_base_df(
     principal_token: str,
     alias_sig: tuple,
@@ -13800,6 +13913,11 @@ def get_analise_base_df(
 def _get_cache_data_mtime(cache_obj) -> Optional[float]:
     if cache_obj is None:
         return None
+    from utils.ifdata_cache.official_store import get_official_read_snapshot
+    if get_official_read_snapshot() is not None:
+        if not cache_obj.existe():
+            return None
+        return cache_obj.coherent_read_paths()[0].stat().st_mtime
     arquivo_leitura = getattr(cache_obj, "read_data_file", cache_obj.arquivo_dados)
     if arquivo_leitura.exists():
         return arquivo_leitura.stat().st_mtime
@@ -13811,6 +13929,11 @@ def _get_cache_data_mtime(cache_obj) -> Optional[float]:
 def _load_cache_metadata(cache_obj) -> dict:
     if cache_obj is None:
         return {}
+    from utils.ifdata_cache.official_store import get_official_read_snapshot
+    if get_official_read_snapshot() is not None:
+        if not cache_obj.existe():
+            return {}
+        return json.loads(cache_obj.coherent_read_paths()[1].read_text(encoding="utf-8"))
     arquivo_metadata = getattr(cache_obj, "read_metadata_file", cache_obj.arquivo_metadata)
     if not arquivo_metadata.exists():
         return {}
@@ -13845,6 +13968,16 @@ def ensure_derived_metrics_cache(
     cache_derivado = manager.get_cache(derived_cache_name) if manager else None
     if cache_derivado is None:
         return None, "cache de métricas derivadas não configurado", {}
+
+    from utils.ifdata_cache.official_store import get_official_read_snapshot
+    if get_official_read_snapshot() is not None:
+        info = cache_derivado.get_info()
+        if not info.get("existe"):
+            return cache_derivado, info.get("erro_metadata") or "cache de métricas derivadas não incluído na revisão oficial", {}
+        metadata = _load_cache_metadata(cache_derivado)
+        if not _derived_cache_cobre_metricas_atuais(cache_derivado):
+            return cache_derivado, "cache de métricas derivadas da revisão oficial não contém todas as métricas atuais", metadata
+        return cache_derivado, None, metadata
 
     mtime_derivado = _get_cache_data_mtime(cache_derivado)
     dre_cache = manager.get_cache(dre_cache_name)
@@ -14037,7 +14170,7 @@ def _scatter_principal_columns_from_metadata() -> tuple[str, ...]:
     return tuple()
 
 
-@st.cache_data(ttl=900, show_spinner=False)
+@revision_cache_data(ttl=900, show_spinner=False)
 def _get_scatter_filters_context(principal_token: str, alias_sig: tuple) -> dict:
     """Contexto leve de filtros/seletores do Scatter sem carregar ativo/passivo/DRE."""
     _ = (principal_token, alias_sig)
@@ -14098,7 +14231,7 @@ def _get_scatter_filters_context(principal_token: str, alias_sig: tuple) -> dict
     }
 
 
-@st.cache_data(ttl=900, show_spinner=False)
+@revision_cache_data(ttl=900, show_spinner=False)
 def _get_scatter_principal_direct_periodo_df(
     principal_token: str,
     alias_sig: tuple,
@@ -14152,7 +14285,7 @@ def _get_scatter_principal_direct_periodo_df(
     return df_periodo
 
 
-@st.cache_data(ttl=900, show_spinner=False)
+@revision_cache_data(ttl=900, show_spinner=False)
 def get_scatter_periodo_df(
     periodo: str,
     principal_token: str,
@@ -14244,6 +14377,10 @@ if 'df_aliases' not in st.session_state:
     st.session_state['colunas_classificacao'] = []
 
 def _cache_file_token(tipo_cache: str) -> str:
+    from utils.ifdata_cache.official_store import get_official_read_snapshot
+    snapshot = get_official_read_snapshot()
+    if snapshot is not None:
+        return f"official:{snapshot.revision_id}:{tipo_cache}"
     cache_manager = get_cache_manager()
     cache_obj = cache_manager.get_cache(tipo_cache) if cache_manager else None
     if cache_obj is None:
@@ -14277,7 +14414,7 @@ def _cache_version_token(tipo_cache: str) -> str:
     return token
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@revision_cache_data(ttl=300, show_spinner=False)
 def _published_artifact_identity_for_ui(
     cache_name: str,
     data_path: str,
@@ -14294,11 +14431,15 @@ def _published_artifact_identity_for_ui(
 
 def _published_bundle_status_for_ui() -> tuple[str, list[dict]]:
     manager = get_cache_manager()
+    from utils.ifdata_cache.official_store import get_official_read_snapshot
+    official = get_official_read_snapshot()
     identities = {}
     rows = []
     for cache_name in ("critical_screens", "derived_metrics"):
         cache = manager.get_cache(cache_name) if manager else None
         if cache is None:
+            continue
+        if official is not None and not cache.existe():
             continue
         data_path = getattr(cache, "read_data_file", cache.arquivo_dados)
         if not data_path.exists():
@@ -14432,7 +14573,7 @@ def carregar_dados_periodos():
 
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@revision_cache_data(ttl=3600, show_spinner=False)
 def _get_rankings_base_df(
     principal_token: str,
     capital_token: str,
@@ -14479,7 +14620,7 @@ def _merge_rankings_capital(
     return _normalizar_indicadores_rankings(df)
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@revision_cache_data(ttl=3600, show_spinner=False)
 def _get_rankings_analytical_df(
     principal_token: str,
     alias_sig: tuple,
@@ -14497,7 +14638,7 @@ def _get_rankings_analytical_df(
     return _normalizar_indicadores_rankings(df)
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@revision_cache_data(ttl=3600, show_spinner=False)
 def _get_rankings_direct_df(
     principal_token: str,
     alias_sig: tuple,
@@ -14539,7 +14680,7 @@ def _get_rankings_direct_df(
     return _normalizar_indicadores_rankings(df)
 
 
-@st.cache_data(ttl=900, show_spinner=False)
+@revision_cache_data(ttl=900, show_spinner=False)
 def _get_rankings_principal_slice_df(
     principal_token: str,
     alias_sig: tuple,
@@ -14607,7 +14748,7 @@ def _get_rankings_principal_slice_df(
     return pd.concat(frames, ignore_index=True)
 
 
-@st.cache_data(ttl=900, show_spinner=False)
+@revision_cache_data(ttl=900, show_spinner=False)
 def _get_rankings_pool_period_df(
     principal_token: str,
     alias_sig: tuple,
@@ -14624,7 +14765,7 @@ def _get_rankings_pool_period_df(
     )
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@revision_cache_data(ttl=3600, show_spinner=False)
 def _get_rankings_principal_light_df(
     principal_token: str,
     alias_sig: tuple,
@@ -14646,7 +14787,7 @@ def _get_rankings_principal_light_df(
     return _normalizar_indicadores_rankings(df)
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@revision_cache_data(ttl=3600, show_spinner=False)
 def _get_rankings_principal_with_capital_df(
     principal_token: str,
     capital_token: str,
@@ -14760,7 +14901,7 @@ def _normalizar_instituicoes_rankings_leve(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@revision_cache_data(ttl=3600, show_spinner=False)
 def _get_rankings_lucro_ytd_df(
     principal_token: str,
     alias_sig: tuple,
@@ -14791,7 +14932,7 @@ def _get_rankings_lucro_ytd_df(
     return _normalizar_instituicoes_rankings_leve(df)
 
 
-@st.cache_data(ttl=900, show_spinner=False)
+@revision_cache_data(ttl=900, show_spinner=False)
 def _get_rankings_capital_slice(
     capital_token: str,
     alias_sig: tuple,
@@ -14812,7 +14953,7 @@ def _get_rankings_capital_slice(
     return _normalizar_indicadores_rankings(df_capital)
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@revision_cache_data(ttl=3600, show_spinner=False)
 def _get_rankings_curated_df(
     curated_token: str,
     alias_sig: tuple,
@@ -14838,7 +14979,7 @@ def _get_rankings_curated_df(
     return _normalizar_indicadores_rankings(df)
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@revision_cache_data(ttl=3600, show_spinner=False)
 def _get_rankings_source_df(
     principal_token: str,
     capital_token: str,
@@ -14907,7 +15048,7 @@ def _get_rankings_source_df(
         periodos_filter=periodos_filter,
     )
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@revision_cache_data(ttl=3600, show_spinner=False)
 def _get_rankings_derivadas_pivot(
     derived_token: str,
     periodos_filter: tuple,
@@ -19694,7 +19835,7 @@ elif menu == "DRE" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo ==
     DRE_ANO_EXIBICAO_INICIAL = 2025
     DRE_MES_EXIBICAO_INICIAL = 3
 
-    @st.cache_data(ttl=3600, show_spinner=False)
+    @revision_cache_data(ttl=3600, show_spinner=False)
     def load_dre_data(cache_token: str):
         manager = get_cache_manager()
         resultado = manager.carregar("dre")
@@ -19702,7 +19843,7 @@ elif menu == "DRE" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo ==
             return resultado.dados, None
         return None, resultado.mensagem
 
-    @st.cache_data(ttl=3600, show_spinner=False)
+    @revision_cache_data(ttl=3600, show_spinner=False)
     def load_principal_captacoes_data(cache_token: str):
         manager = get_cache_manager()
         resultado = manager.carregar("principal")
@@ -19734,7 +19875,7 @@ elif menu == "DRE" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo ==
             return [p for p in parts if p]
         return []
 
-    @st.cache_data(ttl=3600, show_spinner=False)
+    @revision_cache_data(ttl=3600, show_spinner=False)
     def load_dre_cosif_mapping():
         """Carrega mapeamento COSIF da DRE (etapa 0+) a partir de arquivo versionado."""
         caminho = Path("data/dre_cosif_mapping.json")
@@ -19781,7 +19922,7 @@ elif menu == "DRE" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo ==
             }
         return mapa
 
-    @st.cache_data(ttl=3600, show_spinner=False)
+    @revision_cache_data(ttl=3600, show_spinner=False)
     def load_cosif_pdf_description_map():
         """Carrega mapa COSIF (código numérico -> descrição) extraído do PDF oficial em cache."""
         try:
@@ -19789,7 +19930,7 @@ elif menu == "DRE" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo ==
         except Exception:
             return {}
 
-    @st.cache_data(ttl=86400, show_spinner=False)
+    @revision_cache_data(ttl=86400, show_spinner=False)
     def load_cosif_metadata_batch_cached(accounts_tuple):
         """Carrega metadados COSIF (título/função/base normativa) com cache persistido em disco."""
         try:
@@ -19913,7 +20054,7 @@ elif menu == "DRE" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo ==
         df.loc[df["ytd_prev"].isna() | (df["ytd_prev"] == 0), "yoy"] = np.nan
         return df.drop(columns=["ytd_prev"])
 
-    @st.cache_data(ttl=3600, show_spinner=False)
+    @revision_cache_data(ttl=3600, show_spinner=False)
     def _build_dre_base(cache_token: str) -> tuple[pd.DataFrame, str, pd.DataFrame, pd.DataFrame]:
         """Pré-processa a base DRE uma vez por versão de cache para acelerar a aba."""
         _ = cache_token
@@ -20903,7 +21044,7 @@ elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolid
         ]
     )
 
-    @st.cache_data(ttl=3600, show_spinner=False)
+    @revision_cache_data(ttl=3600, show_spinner=False)
     def load_dre_individual_data(release_token: str):
         manager = get_cache_manager()
         bundled_manifest = _carregar_manifest_bundled_cache(_bundled_manifest_token_cache())
@@ -20917,7 +21058,7 @@ elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolid
             return resultado.dados, None, status
         return None, resultado.mensagem, status
 
-    @st.cache_data(ttl=3600, show_spinner=False)
+    @revision_cache_data(ttl=3600, show_spinner=False)
     def load_principal_individual_data(release_token: str):
         manager = get_cache_manager()
         bundled_manifest = _carregar_manifest_bundled_cache(_bundled_manifest_token_cache())
@@ -20941,7 +21082,7 @@ elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolid
             return [p for p in parts if p]
         return []
 
-    @st.cache_data(ttl=3600, show_spinner=False)
+    @revision_cache_data(ttl=3600, show_spinner=False)
     def load_dre_cosif_mapping():
         caminho = Path("data/dre_cosif_mapping.json")
         if not caminho.exists():
@@ -20984,14 +21125,14 @@ elif menu == "DRE Individual" or (menu == "DRE (Ind. e Congl.)" and dre_consolid
             }
         return mapa
 
-    @st.cache_data(ttl=3600, show_spinner=False)
+    @revision_cache_data(ttl=3600, show_spinner=False)
     def load_cosif_pdf_description_map():
         try:
             return get_cosif_description_map_cached()
         except Exception:
             return {}
 
-    @st.cache_data(ttl=86400, show_spinner=False)
+    @revision_cache_data(ttl=86400, show_spinner=False)
     def load_cosif_metadata_batch_cached(accounts_tuple):
         try:
             return get_cosif_metadata_for_accounts(list(accounts_tuple), force_refresh=False)
@@ -22948,7 +23089,7 @@ elif menu == "Taxas de Juros por Produto":
                 font=dict(size=10, color=color, family="IBM Plex Sans, sans-serif"),
             )
 
-    @st.cache_data(ttl=1800, show_spinner="Consultando catálogo recente no BCB...")
+    @revision_cache_data(ttl=1800, show_spinner="Consultando catálogo recente no BCB...")
     def _buscar_taxas_beta_catalogo_produtos(segmento: str, dias_catalogo: int = 45):
         data_inicio = (datetime.now() - timedelta(days=int(dias_catalogo))).strftime('%Y-%m-%d')
         return fetch_taxas_juros_scoped(
@@ -22964,7 +23105,7 @@ elif menu == "Taxas de Juros por Produto":
             timeout=45,
         )
 
-    @st.cache_data(ttl=1800, show_spinner="Carregando histórico enxuto do produto...")
+    @revision_cache_data(ttl=1800, show_spinner="Carregando histórico enxuto do produto...")
     def _buscar_taxas_beta_historico_produto(segmento: str, produto: str, dias_historico: int = 400):
         data_inicio = (datetime.now() - timedelta(days=int(dias_historico))).strftime('%Y-%m-%d')
         return fetch_taxas_juros_scoped(
@@ -22988,7 +23129,7 @@ elif menu == "Taxas de Juros por Produto":
             timeout=60,
         )
 
-    @st.cache_data(ttl=900, show_spinner="Carregando detalhe recente do produto...")
+    @revision_cache_data(ttl=900, show_spinner="Carregando detalhe recente do produto...")
     def _buscar_taxas_beta_detalhe_recente(segmento: str, produto: str, instituicoes_key: tuple[str, ...], dias_recente: int = 60):
         data_inicio = (datetime.now() - timedelta(days=int(dias_recente))).strftime('%Y-%m-%d')
         return fetch_taxas_juros_for_institutions(
@@ -23031,7 +23172,7 @@ elif menu == "Taxas de Juros por Produto":
         mask = df["segmento"].astype(str).str.upper() == str(segmento).upper()
         return df[mask].copy()
 
-    @st.cache_data(ttl=1800, max_entries=2, show_spinner="Verificando cache histórico de taxas...")
+    @revision_cache_data(ttl=1800, max_entries=2, show_spinner="Verificando cache histórico de taxas...")
     def _carregar_taxas_beta_catalogo_historico():
         cache = _obter_cache_taxas_historico_beta()
         if cache is None or load_taxas_juros_historico_dimension is None:
@@ -23070,7 +23211,7 @@ elif menu == "Taxas de Juros por Produto":
             "cache_path": str(cache.arquivo_dados),
         }
 
-    @st.cache_data(ttl=1800, max_entries=2, show_spinner="Carregando histórico do produto a partir do cache...")
+    @revision_cache_data(ttl=1800, max_entries=2, show_spinner="Carregando histórico do produto a partir do cache...")
     def _buscar_taxas_beta_historico_produto_cache(codigo_segmento: str, codigo_modalidade: str):
         cache = _obter_cache_taxas_historico_beta()
         if cache is None or load_taxas_juros_historico_monthly_slice is None:
@@ -23107,7 +23248,7 @@ elif menu == "Taxas de Juros por Produto":
             "error": "",
         }
 
-    @st.cache_data(ttl=900, max_entries=8, show_spinner="Carregando detalhe recente a partir do cache...")
+    @revision_cache_data(ttl=900, max_entries=8, show_spinner="Carregando detalhe recente a partir do cache...")
     def _buscar_taxas_beta_detalhe_recente_cache(
         codigo_segmento: str,
         codigo_modalidade: str,
@@ -23161,7 +23302,7 @@ elif menu == "Taxas de Juros por Produto":
             label_by_key[str(key)] = str(banco)
         return selected_keys, label_by_key
 
-    @st.cache_data(ttl=900, max_entries=4, show_spinner="Carregando série diária no período selecionado...")
+    @revision_cache_data(ttl=900, max_entries=4, show_spinner="Carregando série diária no período selecionado...")
     def _buscar_taxas_beta_diario_3m_cache(
         codigo_segmento: str,
         codigo_modalidade: str,
@@ -24109,7 +24250,7 @@ elif menu == "Meios de Pagamento (SPB)":
     def _spb_ano_mes_label(value) -> str:
         return spb_format_ano_mes_label(value)
 
-    @st.cache_data(ttl=1800, show_spinner="Carregando dados de Meios de Pagamento (Olinda/BCB)...")
+    @revision_cache_data(ttl=1800, show_spinner="Carregando dados de Meios de Pagamento (Olinda/BCB)...")
     def _spb_carregar_dataset_cache(key: str, cache_token: str) -> pd.DataFrame:
         mgr = get_cache_manager()
         cache_spb = mgr.get_cache("spb_meios_pagamento") if mgr else None
@@ -24684,11 +24825,22 @@ elif menu == "Atualizar Base":
 
     # Importar o gerenciador de cache unificado
     from utils.ifdata_cache import CacheManager, CACHES_INFO, gerar_periodos_trimestrais as gerar_periodos_cache
+    from utils.ifdata_cache.update_app_bridge import bridge_from_env
+
+    try:
+        update_bridge = bridge_from_env()
+        if update_bridge is not None and _official_read_snapshot is None:
+            raise ValueError("Configure o armazenamento oficial compartilhado antes de ativar o serviço de atualização")
+    except Exception as exc:
+        st.error(f"Serviço de atualização indisponível: {exc}")
+        st.stop()
 
     # Inicializar gerenciador
     if 'cache_manager' not in st.session_state:
         st.session_state['cache_manager'] = CacheManager()
     cache_manager = st.session_state['cache_manager']
+    if _official_read_snapshot is not None:
+        cache_manager = get_cache_manager()
     _get_sgs_credit_cache(cache_manager)
     if cache_manager.get_cache("cosif_4010") is None:
         cache_manager.registrar(_get_cosif_4010_cache())
@@ -24711,8 +24863,10 @@ elif menu == "Atualizar Base":
     st.markdown("### Status dos Caches")
 
     # Verificar status no GitHub Releases
-    github_status = verificar_caches_github()
+    github_status = (verificar_caches_github() if update_bridge is None else
+                     {"caches": {}, "release_existe": True, "repo": "armazenamento oficial", "tag": _official_read_snapshot.revision_id})
     gh_caches = github_status.get('caches', {})
+    publication_column = "Base oficial" if update_bridge is not None else "GitHub"
     caches_info = CACHES_INFO
     caches_disponiveis = _ordenar_opcoes_cache_atualizacao(cache_manager.listar_caches(), caches_info)
 
@@ -24723,6 +24877,8 @@ elif menu == "Atualizar Base":
         gh_info = gh_caches.get(tipo_cache, {})
         runtime_info = runtime_caches.get(tipo_cache, {})
         existe_local = info.get("existe", False)
+        if update_bridge is not None:
+            gh_info = {"existe": existe_local}
         existe_github = gh_info.get("existe", False)
         periodo_inicial, periodo_final = _intervalo_periodos_cache(info) if existe_local else ("-", "-")
 
@@ -24730,7 +24886,7 @@ elif menu == "Atualizar Base":
             "Cache": cache_info.get("nome_exibicao", tipo_cache),
             "Status": _status_cache_atualizacao(info, gh_info),
             "Local": "Sim" if existe_local else "Não",
-            "GitHub": "Sim" if existe_github else "Não",
+            publication_column: "Sim" if existe_github else "Não",
             "Versão local": _versao_local_cache(info) if existe_local else "-",
             "Período inicial": periodo_inicial,
             "Período final": periodo_final,
@@ -24739,11 +24895,11 @@ elif menu == "Atualizar Base":
             "Atualizado em": runtime_info.get("timestamp") or info.get("timestamp_salvamento") or "-",
             "Períodos": str(info.get("total_periodos", 0)) if existe_local else "-",
             "Registros": str(info.get("total_registros", 0)) if existe_local else "-",
-            "Tamanho GH": gh_info.get("tamanho_fmt", "-") if existe_github else "-",
+            ("Tamanho publicado" if update_bridge is not None else "Tamanho GH"): gh_info.get("tamanho_fmt", "-") if existe_github else "-",
         })
 
     total_local = sum(1 for s in status_data if s["Local"] == "Sim")
-    total_github = sum(1 for s in status_data if s["GitHub"] == "Sim")
+    total_github = sum(1 for s in status_data if s[publication_column] == "Sim")
     total_efemero = sum(1 for s in status_data if s["Status"] == "Somente local")
 
     col_r1, col_r2, col_r3 = st.columns(3)
@@ -24754,12 +24910,15 @@ elif menu == "Atualizar Base":
     with col_r3:
         st.metric("Somente local", total_efemero)
 
-    st.caption(
-        f"Release ativo em runtime: `{release_cfg.repo}@{release_cfg.tag}` "
-        f"(repo={release_cfg.repo_source} | tag={release_cfg.tag_source})"
-    )
+    if update_bridge is not None:
+        st.caption(f"Revisão oficial em uso: `{_official_read_snapshot.revision_id}`")
+    else:
+        st.caption(
+            f"Release ativo em runtime: `{release_cfg.repo}@{release_cfg.tag}` "
+            f"(repo={release_cfg.repo_source} | tag={release_cfg.tag_source})"
+        )
 
-    if total_efemero > 0:
+    if total_efemero > 0 and update_bridge is None:
         caches_efemeros = [s["Cache"] for s in status_data if s["Status"] == "Somente local"]
         st.warning(
             "Caches salvos apenas localmente serão perdidos em restart do Streamlit Cloud. "
@@ -24769,10 +24928,11 @@ elif menu == "Atualizar Base":
     with st.expander("ver detalhes dos caches", expanded=False):
         df_status = pd.DataFrame(status_data)
         st.dataframe(df_status, width='stretch', hide_index=True)
-        st.caption("Status publicado = persistido em GitHub Releases. Status somente local = efêmero no Streamlit Cloud.")
+        st.caption("Status publicado = persistido na base oficial compartilhada." if update_bridge is not None else
+                   "Status publicado = persistido em GitHub Releases. Status somente local = efêmero no Streamlit Cloud.")
         if not github_status.get('release_existe'):
             st.error(f"Release não acessível: {github_status.get('erro', 'erro desconhecido')}")
-        else:
+        elif update_bridge is None:
             st.caption(
                 f"Repositório: `{github_status.get('repo')}` | Tag: `{github_status.get('tag')}` | "
                 f"Manifesto global: {'Sim' if github_status.get('manifesto', {}).get('existe') else 'Não'}"
@@ -24798,11 +24958,12 @@ elif menu == "Atualizar Base":
             status_txt = "OK" if gate.get("success") else "ERRO"
             st.caption(f"{status_txt} | {gate.get('label')}: {gate.get('message')}")
 
-    _render_runbook_atualizar_base(
-        runtime_gates=runtime_gates,
-        total_efemero=total_efemero,
-        release_cfg=release_cfg,
-    )
+    if update_bridge is None:
+        _render_runbook_atualizar_base(
+            runtime_gates=runtime_gates,
+            total_efemero=total_efemero,
+            release_cfg=release_cfg,
+        )
 
     st.markdown("### Canonização de Instituições")
     diagnostico_map = _diagnostico_mapeamento_instituicoes(cache_manager, st.session_state.get("df_aliases"))
@@ -24919,15 +25080,24 @@ elif menu == "Atualizar Base":
             else:
                 st.warning("Cache 'spb_meios_pagamento' não está registrado no CacheManager")
         elif is_bloprudencial:
-            base_bloprud = Path("data/cache/bcb_bloprudencial")
-            zips_dir = base_bloprud / "zips"
-            csv_dir = base_bloprud / "csv"
-            total_zips = len(list(zips_dir.glob("*.zip"))) if zips_dir.exists() else 0
-            total_csv = len(list(csv_dir.glob("*.csv"))) if csv_dir.exists() else 0
-            if total_zips > 0 or total_csv > 0:
-                st.info(f"Cache atual BLOPRUDENCIAL: {total_zips} ZIP(s), {total_csv} CSV(s)")
+            from utils.ifdata_cache.official_store import get_official_read_snapshot
+            if get_official_read_snapshot() is not None:
+                info_bloprud = cache_manager.info("bloprudencial")
+                if info_bloprud.get("existe"):
+                    st.info(f"Cache oficial BLOPRUDENCIAL: {info_bloprud.get('total_periodos', 0)} períodos, {info_bloprud.get('total_registros', 0):,} registros")
+                else:
+                    st.warning("BLOPRUDENCIAL não incluído na revisão oficial")
             else:
-                st.warning("Cache BLOPRUDENCIAL ainda não existe")
+                cache_bloprud_status = cache_manager.get_cache("bloprudencial")
+                base_bloprud = (cache_bloprud_status.base_dir if cache_bloprud_status else APP_DIR) / "data/cache/bcb_bloprudencial"
+                zips_dir = base_bloprud / "zips"
+                csv_dir = base_bloprud / "csv"
+                total_zips = len(list(zips_dir.glob("*.zip"))) if zips_dir.exists() else 0
+                total_csv = len(list(csv_dir.glob("*.csv"))) if csv_dir.exists() else 0
+                if total_zips > 0 or total_csv > 0:
+                    st.info(f"Cache atual BLOPRUDENCIAL: {total_zips} ZIP(s), {total_csv} CSV(s)")
+                else:
+                    st.warning("Cache BLOPRUDENCIAL ainda não existe")
         else:
             info_selecionado = cache_manager.info(cache_selecionado)
             if info_selecionado.get("existe"):
@@ -25252,6 +25422,24 @@ elif menu == "Atualizar Base":
                     st.caption("Nota: a extração usa Tipo de Instituição 1 (Conglomerados Prudenciais e Instituições Independentes)")
         else:
             intervalo_save = 1  # Não usado para taxas de juros
+
+        if update_bridge is not None:
+            from utils.ifdata_cache.update_external_ui import render_external_update_controls
+            external_options = {"intervalo_save": int(intervalo_save), "batch_size": max(int(intervalo_save), 1)}
+            if is_cosif_4010:
+                external_options = {}
+            elif is_taxas_juros:
+                external_options = {"start": data_inicio_tj, "end": data_fim_tj}
+            elif is_taxas_juros_historico:
+                external_options = {"start": data_inicio_tj_hist, "end": data_fim_tj_hist,
+                                    "max_windows": int(max_janelas_tj_hist), "reprocess_tail": int(reprocessar_cauda_tj_hist)}
+            elif is_mercado_credito_sgs:
+                external_options = {"start": data_inicio_sgs, "end": data_fim_sgs}
+            elif is_spb_meios_pagamento:
+                external_options = {"datasets": datasets_spb_selecionados or datasets_spb_disponiveis}
+            render_external_update_controls(st, update_bridge, cache_selecionado,
+                opcoes_cache[cache_selecionado], periodos_extrair or [], modo_atualizacao, external_options)
+            st.stop()
 
         # =============================================================
         # CONFIGURAÇÃO DO TOKEN GITHUB (para publicação)

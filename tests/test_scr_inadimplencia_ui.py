@@ -436,7 +436,7 @@ def test_rota_nunca_tira_media_de_percentual():
 
 def test_rota_cacheia_o_carregamento_pesado():
     fonte = _scr_route_source()
-    assert "@st.cache_data" in fonte
+    assert "@revision_cache_data" in fonte
     assert "def _detalhe(" in fonte
 
 

@@ -56,6 +56,10 @@ def registry_name_map(frame: pd.DataFrame) -> dict[str, str]:
 
 
 def _root(base_dir=None) -> Path:
+    from .official_store import get_official_read_snapshot
+    snapshot = get_official_read_snapshot(base_dir)
+    if snapshot is not None:
+        return snapshot.root
     return Path(base_dir) if base_dir is not None else Path(__file__).resolve().parents[2]
 
 
@@ -63,11 +67,19 @@ def _registry_paths(periodo: str, base_dir=None) -> tuple[Path, Path]:
     if not re.fullmatch(r"\d{4}(03|06|09|12)", str(periodo)):
         raise ValueError(f"Competência inválida para cadastro: {periodo}")
     root = _root(base_dir)
+    from .official_store import get_official_read_snapshot
+    snapshot = get_official_read_snapshot(root)
+    if snapshot is not None:
+        path = snapshot.resolve(f"data/cache/institution_registry/{periodo}.json")
+        return path, path
     runtime = Path(os.getenv("TOMACONTA_IFDATA_REGISTRY_DIR") or root / "data/cache/institution_registry")
     return runtime / f"{periodo}.json", root / "data/bundled/institution_registry" / f"{periodo}.json"
 
 
 def save_registry(frame: pd.DataFrame, periodo: str, *, source: str, base_dir=None) -> Path:
+    from .official_store import get_official_read_snapshot, OfficialReadOnlyError
+    if get_official_read_snapshot(base_dir) is not None:
+        raise OfficialReadOnlyError("Cadastro da revisão oficial é somente leitura")
     mapping = registry_name_map(frame)
     records = [{"CodInst": code, "NomeInstituicao": name} for code, name in sorted(mapping.items())]
     encoded = json.dumps(records, ensure_ascii=False, sort_keys=True).encode()
@@ -125,6 +137,9 @@ def _web_registry(periodo):
 
 def extract_registry(periodo: str, fetch_json, *, base_dir=None) -> pd.DataFrame:
     """Só persiste cadastro completo; falhas recuperam a mesma competência."""
+    from .official_store import get_official_read_snapshot, OfficialReadOnlyError
+    if get_official_read_snapshot(base_dir) is not None:
+        raise OfficialReadOnlyError("Extração de cadastro exige workspace privado do worker")
     _registry_paths(periodo, base_dir)
     try:
         if os.getenv("TOMACONTA_IFDATA_SOURCE") == "web":
@@ -192,7 +207,8 @@ def attach_institution_names(frame: pd.DataFrame, registry: pd.DataFrame, period
         persisted = load_persisted_registry(periodo, base_dir)
         if not persisted.empty:
             names = names.where(names.notna(), codes.map(registry_name_map(persisted)))
-    if names.isna().any() and int(periodo[:4]) >= 2025:
+    from .official_store import get_official_read_snapshot
+    if names.isna().any() and int(periodo[:4]) >= 2025 and get_official_read_snapshot(base_dir) is None:
         try:
             supplemental = _web_registry(periodo)
             supplemental_map = registry_name_map(supplemental)

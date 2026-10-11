@@ -23,6 +23,7 @@ sys.path.insert(0, {str(PROJECT_ROOT)!r})
 import pandas as pd
 import plotly.express as px
 import streamlit as _streamlit
+from utils.ifdata_cache.revision_cache import revision_cache_data
 from types import SimpleNamespace
 # AppTest's ButtonGroup cannot serialize single-selection segmented controls in this
 # Streamlit version. Radio uses the same single-value widget/session-state contract.

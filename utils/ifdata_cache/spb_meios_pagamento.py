@@ -403,7 +403,7 @@ class SPBMeiosPagamentoCache(BaseCache):
 
     @property
     def manifest_path(self) -> Path:
-        return self.cache_dir / "spb_manifest.json"
+        return self._official_path(self.cache_dir / "spb_manifest.json")
 
     def dataset_paths(self) -> Dict[str, Path]:
         paths: Dict[str, Path] = {}
@@ -412,6 +412,10 @@ class SPBMeiosPagamentoCache(BaseCache):
         return paths
 
     def read_dataset_paths(self) -> Dict[str, Path]:
+        if self._official_snapshot is not None:
+            manifest = json.loads(self.manifest_path.read_bytes())
+            return {key: self._official_path(self.dataset_paths()[key])
+                    for key in manifest.get("datasets", {})}
         prefer_bundle = self._prefer_publication_bundle()
         return {key: (self.bundled_dir / path.name
                       if (prefer_bundle or not path.exists()) and (self.bundled_dir / path.name).exists()
@@ -579,6 +583,11 @@ class SPBMeiosPagamentoCache(BaseCache):
         spec = _spec_by_key(key)
         if spec is None:
             return CacheResult(sucesso=False, mensagem=f"Dataset SPB desconhecido: {key}", fonte="nenhum")
+        if self._official_snapshot is not None:
+            if forcar_remoto:
+                self._assert_writable()
+            path = self._official_path(self.dataset_paths()[key])
+            return CacheResult(True, f"{key} carregado da revisão oficial", dados=pd.read_parquet(path), fonte="cache_local")
         if key == _MAIN_KEY:
             return self.carregar(forcar_remoto=forcar_remoto)
 

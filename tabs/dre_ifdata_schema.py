@@ -641,9 +641,10 @@ def _dre_bcb_history(kind: int, root: str) -> pd.DataFrame:
 
 try:
     import streamlit as _st_bcb
-    _dre_bcb_periods = _st_bcb.cache_data(ttl=3600, show_spinner=False)(_dre_bcb_periods)
-    _dre_bcb_consult = _st_bcb.cache_data(ttl=21600, max_entries=12, show_spinner=False)(_dre_bcb_consult)
-    _dre_bcb_history = _st_bcb.cache_data(ttl=3600, show_spinner=False)(_dre_bcb_history)
+    from utils.ifdata_cache.revision_cache import revision_cache_data
+    _dre_bcb_periods = revision_cache_data(ttl=3600, show_spinner=False)(_dre_bcb_periods)
+    _dre_bcb_consult = revision_cache_data(ttl=21600, max_entries=12, show_spinner=False)(_dre_bcb_consult)
+    _dre_bcb_history = revision_cache_data(ttl=3600, show_spinner=False)(_dre_bcb_history)
 except ImportError:
     pass
 
@@ -803,8 +804,9 @@ def _load_local_parquet_paths_cached(signature: tuple[tuple[str, float, int], ..
 
 try:
     import streamlit as _st_for_cache
+    from utils.ifdata_cache.revision_cache import revision_cache_data
 
-    _load_local_parquet_paths_cached = _st_for_cache.cache_data(ttl=900, show_spinner=False)(_load_local_parquet_paths_cached)
+    _load_local_parquet_paths_cached = revision_cache_data(ttl=900, show_spinner=False)(_load_local_parquet_paths_cached)
 except Exception:
     pass
 

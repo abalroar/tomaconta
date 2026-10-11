@@ -6,6 +6,8 @@ para facilitar migracao gradual sem quebrar codigo existente.
 """
 
 import logging
+from contextvars import ContextVar
+import threading
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from .manager import CacheManager
@@ -15,10 +17,20 @@ logger = logging.getLogger("ifdata_cache.compat")
 
 # Instancia global do manager
 _manager: Optional[CacheManager] = None
+_official_manager: ContextVar[tuple | None] = ContextVar("official_cache_manager", default=None)
 
 
 def _get_manager() -> CacheManager:
     """Retorna instancia do manager, criando se necessario."""
+    from .official_store import get_official_read_snapshot
+    snapshot = get_official_read_snapshot()
+    if snapshot is not None:
+        key = (threading.get_ident(), snapshot.revision_id, str(snapshot.root))
+        cached = _official_manager.get()
+        if cached is None or cached[0] != key:
+            cached = (key, CacheManager())
+            _official_manager.set(cached)
+        return cached[1]
     global _manager
     if _manager is None:
         _manager = CacheManager()

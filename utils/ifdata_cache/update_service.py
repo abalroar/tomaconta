@@ -45,6 +45,44 @@ def prepare_run(manager, cache_type, periods, mode, options, *, resume_id=None):
         return store, store.create(cache_type, periods, mode, options)
 
 
+def finalize_saved_run(manager, store, record, *, materialize=None, publish=None):
+    """Retoma validação/publicação sem consultar novamente períodos confirmados.
+
+    A fila externa pode perder o processo depois do último salvamento. O
+    comprovante e a confirmação do cache permitem repetir somente a etapa final.
+    """
+    from .base import CacheResult
+    from .release_ops import _assert_complete_update
+
+    with mutation_lock(manager.base_dir, owner={"run_id": record["run_id"]}):
+        current = store.load(record["run_id"])
+        if current.get("status") not in {"saved", "validating", "publishing", "publish_failed", "published"}:
+            raise UpdateStateError("A extração ainda precisa ser concluída.")
+        _assert_complete_update(manager.base_dir, current["cache_type"])
+        if current["status"] == "published":
+            return CacheResult(True, "Publicação já confirmada"), current
+        try:
+            current = store.finish(current, "validating", error=None)
+            details = materialize(current["cache_type"]) if materialize else []
+            failures = [str(item.get("message") or item.get("cache"))
+                        for item in details or [] if item.get("status") != "ok"]
+            if failures:
+                raise UpdateStateError("Dependências incompletas: " + "; ".join(failures))
+            if publish:
+                current = store.finish(current, "publishing", error=None)
+                success, message, context = publish(current, details)
+                current = store.finish(current, "published" if success else "publish_failed",
+                                       error=None if success else message,
+                                       publication={"success": bool(success), "message": str(message),
+                                                    **dict(context or {})})
+            else:
+                current = store.finish(current, "saved", error=None)
+            return CacheResult(current["status"] in {"saved", "published"}, current.get("error") or "Dados confirmados"), current
+        except Exception as exc:
+            current = store.finish(store.load(record["run_id"]), "publish_failed", error=str(exc))
+            raise
+
+
 def run_quarterly_update(
     manager, store: UpdateRunStore, record: dict, *,
     progress_callback: Callable | None = None,
@@ -53,6 +91,7 @@ def run_quarterly_update(
     checkpoint_callback: Callable | None = None,
     materialize: Callable | None = None,
     publish: Callable | None = None,
+    extraction_options: Mapping | None = None,
 ):
     """Executa um lote do plano original e avança apenas confirmações duráveis.
 
@@ -101,6 +140,7 @@ def run_quarterly_update(
                 callback_progresso=progress, callback_salvamento=save_callback,
                 callback_erro=error_callback, callback_checkpoint=checkpoint,
                 dict_aliases=None,
+                **dict(extraction_options or {}),
             )
             current = store.record_result(current, result.metadata or {})
             current["message"] = str(result.mensagem)

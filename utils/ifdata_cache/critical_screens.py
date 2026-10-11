@@ -391,6 +391,12 @@ def _missing_local_source_caches(cache_manager: "CacheManager") -> list[str]:
     return missing
 
 
+def _reader_cache_manager(root: Path):
+    from .manager import CacheManager
+    from .official_store import get_official_read_snapshot
+    return CacheManager() if get_official_read_snapshot(root) is not None else CacheManager(root)
+
+
 def get_critical_screens_runtime_status(
     *,
     base_dir: Path | None = None,
@@ -405,7 +411,7 @@ def get_critical_screens_runtime_status(
     root = Path(base_dir).resolve() if base_dir else Path(__file__).resolve().parents[2]
     from .manager import CacheManager
 
-    cache_manager = manager or CacheManager(root)
+    cache_manager = manager or _reader_cache_manager(root)
     cache = CriticalScreensCache(root)
 
     cache.get_info()  # Recupera uma promoção interrompida antes de avaliar a versão.
@@ -1316,8 +1322,11 @@ def critical_screens_needs_refresh(
     root = Path(base_dir).resolve() if base_dir else Path(__file__).resolve().parents[2]
     from .manager import CacheManager
 
-    cache_manager = manager or CacheManager(root)
+    cache_manager = manager or _reader_cache_manager(root)
     cache = CriticalScreensCache(root)
+    if cache._official_snapshot is not None:
+        cache._official_bootstrap_result()
+        return False
     if not cache.existe() or not cache.arquivo_metadata.exists():
         return True
 
@@ -2181,7 +2190,7 @@ def materialize_critical_screens_cache(
     root = Path(base_dir).resolve() if base_dir else Path(__file__).resolve().parents[2]
     from .manager import CacheManager
 
-    cache_manager = manager or CacheManager(root)
+    cache_manager = manager or _reader_cache_manager(root)
     cache = CriticalScreensCache(root)
 
     if cache.existe() and not force and not periodos:
@@ -2198,6 +2207,7 @@ def materialize_critical_screens_cache(
                 )
         return result
 
+    cache._assert_writable()
     try:
         loaded = {
             cache_name: _load_source_cache(
@@ -2550,7 +2560,7 @@ def _load_runtime_passivo_support(
 
     from .manager import CacheManager
 
-    manager = CacheManager(base_dir)
+    manager = _reader_cache_manager(base_dir)
     result_passivo = manager.carregar("passivo")
     result_principal = manager.carregar("principal")
     if (
