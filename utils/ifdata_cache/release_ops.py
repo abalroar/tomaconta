@@ -155,6 +155,8 @@ def validate_cache_quality(manager, cache_names: Iterable[str]) -> dict[str, dic
     """Valida identidade, cobertura e estrutura antes de publicar caches."""
     checks: dict[str, dict[str, Any]] = {}
     for cache_name in _sorted_cache_names(cache_names):
+        result = None
+        df = None
         spec = INDIVIDUAL_CACHE_QUALITY_SPECS.get(cache_name)
         frame_validator = CACHE_FRAME_QUALITY_VALIDATORS.get(cache_name)
         check_names = cache_name in INSTITUTION_NAMED_CACHE_NAMES

@@ -12,6 +12,15 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
+from utils.ifdata_cache.revision_cache import revision_cache_data
+
+
+def _scr_cache_for_render(manager_factory, legacy_factory):
+    from utils.ifdata_cache.official_store import get_official_read_snapshot
+    if get_official_read_snapshot() is None:
+        return legacy_factory()
+    manager = manager_factory()
+    return manager.get_cache("scr_data") if manager else None
 
 from tabs import scr_inadimplencia as scr_spec
 from utils.sgs_credit_analytics import (
@@ -287,11 +296,14 @@ def render_scr_inadimplencia(get_cache_manager) -> None:
     st.caption("SCR.data mensal · Agregados de operações no país por modalidade, perfil do tomador e região. Cada taxa usa a carteira ativa do próprio recorte.")
 
     @st.cache_resource(show_spinner=False)
-    def _cache():
+    def _cache_legacy():
         manager = get_cache_manager()
         return manager.get_cache("scr_data") if manager else None
 
-    @st.cache_data(ttl=3600, show_spinner=False)
+    def _cache():
+        return _scr_cache_for_render(get_cache_manager, _cache_legacy)
+
+    @revision_cache_data(ttl=3600, show_spinner=False)
     def _periodos_disponiveis() -> tuple[str, ...]:
         cache = _cache()
         if cache is None:
@@ -313,7 +325,7 @@ def render_scr_inadimplencia(get_cache_manager) -> None:
             # de download pode ser tentada novamente no próximo rerun.
             raise RuntimeError(f"SCR.data temporariamente indisponível: {exc}") from exc
 
-    @st.cache_data(ttl=3600, show_spinner="Carregando SCR.data...")
+    @revision_cache_data(ttl=3600, show_spinner="Carregando SCR.data...")
     def _detalhe(anos: tuple[int, ...]) -> pd.DataFrame:
         cache = _cache()
         if cache is None:

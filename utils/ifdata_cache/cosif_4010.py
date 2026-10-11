@@ -158,11 +158,15 @@ class Cosif4010Cache(BaseCache):
 
     @property
     def arquivo_dados(self) -> Path:
+        if self._official_snapshot is not None:
+            return self._official_read_pair()[0]
         bundled = self.bundled_dir / self.config.arquivo_dados
         return self.arquivo_dados_runtime if self._use_runtime() or not bundled.exists() else bundled
 
     @property
     def arquivo_metadata(self) -> Path:
+        if self._official_snapshot is not None:
+            return self._official_read_pair()[1]
         if not self._use_runtime() and (self.bundled_dir / self.config.arquivo_dados).exists():
             return self.bundled_dir / self.config.arquivo_metadata
         return self.arquivo_metadata_runtime
@@ -186,14 +190,16 @@ class Cosif4010Cache(BaseCache):
 
     def get_info(self):
         info = super().get_info()
-        if "erro_metadata" in info:
+        if "erro_metadata" in info or (self._official_snapshot is not None and not info["existe"]):
             return info
         try:
             data = Path(info.get("arquivo_dados", self.arquivo_dados))
             path = data.parent / self.config.arquivo_metadata
             if data.exists() and path.exists():
                 metadata = json.loads(path.read_text())
-                if metadata.get("sha256") != _file_sha256(data):
+                digest = (self._official_snapshot.manifest["files"][data.relative_to(self.base_dir).as_posix()]["sha256"]
+                          if self._official_snapshot is not None else _file_sha256(data))
+                if metadata.get("sha256") != digest:
                     raise ValueError("Dados 4010 divergem da metadata")
                 info.update(existe=True, release_tag=self.release_tag, sha256=metadata.get("sha256"))
         except (OSError, ValueError) as exc:
@@ -275,6 +281,12 @@ class Cosif4010Cache(BaseCache):
             return CacheResult(False, f"Download do cache 4010 falhou: {exc}")
 
     def ensure_available(self) -> None:
+        if self._official_snapshot is not None:
+            self._official_bootstrap_result()
+            metadata = json.loads(self.arquivo_metadata.read_bytes())
+            if metadata.get("schema_version") != LOADER_VERSION or "202606" not in metadata.get("periodos", []):
+                raise ValueError("Revisão oficial 4010 sem metadata compatível")
+            return
         valid = False
         if self.arquivo_dados.exists() and self.arquivo_metadata.exists():
             try:

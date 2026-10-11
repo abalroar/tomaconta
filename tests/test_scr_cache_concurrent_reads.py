@@ -177,7 +177,9 @@ def _period_reader(fake_cache, monkeypatch):
     tree = ast.parse(source.read_text())
     node = next(node for node in ast.walk(tree)
                 if isinstance(node, ast.FunctionDef) and node.name == "_periodos_disponiveis")
-    namespace = {"st": st, "pd": pd, "_cache": lambda: fake_cache}
+    from utils.ifdata_cache.revision_cache import revision_cache_data
+    namespace = {"st": st, "pd": pd, "_cache": lambda: fake_cache,
+                 "revision_cache_data": revision_cache_data}
     exec(compile(ast.Module(body=[node], type_ignores=[]), str(source), "exec"), namespace)
     reader = namespace["_periodos_disponiveis"]
     reader.clear()

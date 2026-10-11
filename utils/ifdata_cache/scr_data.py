@@ -964,18 +964,19 @@ class SCRDataCache(BaseCache):
 
     @property
     def manifest_path(self) -> Path:
-        return self.cache_dir / "historico_manifest.json"
+        return self._official_path(self.cache_dir / "historico_manifest.json")
 
     def dimension_paths(self) -> Dict[str, Path]:
-        return {
+        paths = {
             "produto": self.cache_dir / "dim_produto.parquet",
             "porte": self.cache_dir / "dim_porte.parquet",
             "geo": self.cache_dir / "dim_geo.parquet",
             "segmento": self.cache_dir / "dim_segmento.parquet",
         }
+        return {key: self._official_path(path) for key, path in paths.items()}
 
     def annual_path(self, ano: Any) -> Path:
-        return self.annual_dir / f"{ano}.parquet"
+        return self._official_path(self.annual_dir / f"{ano}.parquet")
 
     @property
     def pending_dir(self) -> Path:
@@ -1541,6 +1542,8 @@ class SCRDataCache(BaseCache):
         for ano in alvo:
             caminho = self.annual_path(ano)
             schema_atual = self._parquet_tem_colunas(caminho, FACT_REQUIRED_COLUMNS)
+            if self._official_snapshot is not None and not schema_atual:
+                raise SCRQualityError(f"{ano}: slice da revisão oficial usa schema incompatível")
             if not schema_atual and baixar_ausentes:
                 self.annual_dir.mkdir(parents=True, exist_ok=True)
                 self._baixar_asset(self.annual_release_url(ano), caminho)

@@ -888,14 +888,15 @@ class TaxasJurosHistoricoCache(BaseCache):
 
     @property
     def manifest_path(self) -> Path:
-        return self.cache_dir / "historico_manifest.json"
+        return self._official_path(self.cache_dir / "historico_manifest.json")
 
     def dimension_paths(self) -> Dict[str, Path]:
-        return {
+        paths = {
             "parametros": self.cache_dir / "dim_parametros.parquet",
             "datas": self.cache_dir / "dim_datas.parquet",
             "instituicoes": self.cache_dir / "dim_instituicoes.parquet",
         }
+        return {key: self._official_path(path) for key, path in paths.items()}
 
     def _runtime_paths(self) -> List[Path]:
         return [*super()._runtime_paths(), *self.dimension_paths().values(), self.manifest_path]

@@ -13,6 +13,7 @@ import shutil
 import tempfile
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from functools import wraps
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -21,6 +22,14 @@ from uuid import uuid4
 import pandas as pd
 
 logger = logging.getLogger("ifdata_cache")
+
+
+def _requires_workspace(method):
+    @wraps(method)
+    def guarded(self, *args, **kwargs):
+        self._assert_writable()
+        return method(self, *args, **kwargs)
+    return guarded
 
 
 @dataclass
@@ -80,15 +89,46 @@ class CacheResult:
 class BaseCache(ABC):
     """Classe base abstrata para implementacoes de cache."""
 
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        for name, method in list(cls.__dict__.items()):
+            if not callable(method):
+                continue
+            mutation = name.startswith(("salvar_", "baixar_", "extrair_", "materialize_", "materializar_", "limpar_", "sync_bundle_"))
+            bootstrap = name.startswith("bootstrap_")
+            if name == "carregar":
+                @wraps(method)
+                def read_guard(self, *args, _method=method, **kw):
+                    if self._official_snapshot is not None:
+                        return BaseCache.carregar(self, *args, **kw)
+                    return _method(self, *args, **kw)
+                setattr(cls, name, read_guard)
+                continue
+            if not (mutation or bootstrap):
+                continue
+
+            def guard(function, is_bootstrap):
+                @wraps(function)
+                def guarded(self, *args, **kw):
+                    if self._official_snapshot is not None:
+                        if is_bootstrap and not kw.get("force", False):
+                            return self._official_bootstrap_result()
+                        self._assert_writable()
+                    return function(self, *args, **kw)
+                return guarded
+            setattr(cls, name, guard(method, bootstrap))
+
     def __init__(self, config: CacheConfig, base_dir: Path):
         """
         Args:
             config: Configuracao do cache
             base_dir: Diretorio base do projeto (onde fica data/)
         """
+        from .official_store import get_official_read_snapshot
+        self._official_snapshot = get_official_read_snapshot(Path(base_dir))
         self.config = config
-        self.base_dir = base_dir
-        self.cache_dir = base_dir / "data" / "cache" / config.subdir
+        self.base_dir = self._official_snapshot.root if self._official_snapshot else Path(base_dir)
+        self.cache_dir = self.base_dir / "data" / "cache" / config.subdir
 
         # Prefixo para logs
         self._log_prefix = f"[CACHE:{config.nome.upper()}]"
@@ -99,7 +139,55 @@ class BaseCache(ABC):
 
     def _garantir_diretorio(self):
         """Cria diretorio de cache se nao existir."""
+        self._assert_writable()
         self.cache_dir.mkdir(parents=True, exist_ok=True)
+
+    def _assert_writable(self):
+        if self._official_snapshot is not None:
+            from .official_store import OfficialReadOnlyError
+            raise OfficialReadOnlyError("A revisão oficial é somente leitura; utilize o worker para atualizar")
+
+    def _official_path(self, path: Path) -> Path:
+        if self._official_snapshot is None:
+            return path
+        return self._official_snapshot.resolve(Path(path).relative_to(self.base_dir).as_posix())
+
+    def _official_read_pair(self) -> Tuple[Path, Path]:
+        snapshot = self._official_snapshot
+        parquet = f"data/cache/{self.config.subdir}/{self.config.arquivo_dados}"
+        pickle_name = parquet.replace(".parquet", ".pkl")
+        data = snapshot.resolve(parquet if parquet in snapshot.manifest["files"] else pickle_name)
+        return data, snapshot.resolve(f"data/cache/{self.config.subdir}/{self.config.arquivo_metadata}")
+
+    def _official_presence(self) -> str:
+        files = self._official_snapshot.manifest["files"]
+        logical = f"data/cache/{self.config.subdir}/{self.config.arquivo_dados}"
+        data = logical in files or logical.replace(".parquet", ".pkl") in files
+        metadata = f"data/cache/{self.config.subdir}/{self.config.arquivo_metadata}" in files
+        return "complete" if data and metadata else "partial" if data or metadata else "absent"
+
+    def _official_unavailable(self) -> CacheResult:
+        presence = self._official_presence()
+        return CacheResult(False, "Cache não incluído na revisão oficial" if presence == "absent"
+                           else "Cache incompleto na revisão oficial: dados/metadata ausentes",
+                           metadata={"official_revision_id": self._official_snapshot.revision_id,
+                                     "official_cache_status": presence}, fonte="nenhum")
+
+    def _official_bootstrap_result(self) -> CacheResult:
+        if self._official_presence() != "complete":
+            return self._official_unavailable()
+        data, metadata_path = self._official_read_pair()
+        if hasattr(self, "dimension_paths"):
+            for path in self.dimension_paths().values():
+                self._official_path(path)
+        if hasattr(self, "manifest_path"):
+            manifest_path = self._official_path(self.manifest_path)
+            native = json.loads(manifest_path.read_bytes())
+            if hasattr(self, "dataset_paths"):
+                for key in native.get("datasets", {}):
+                    self._official_path(self.dataset_paths()[key])
+        metadata = json.loads(metadata_path.read_bytes())
+        return CacheResult(True, "Arquivos da revisão oficial disponíveis", metadata=metadata, fonte="cache_local")
 
     @property
     def _transaction_file(self) -> Path:
@@ -187,6 +275,7 @@ class BaseCache(ABC):
         A cópia de recuperação permanece imutável: uma segunda interrupção durante
         o rollback pode repetir a operação na próxima leitura.
         """
+        self._assert_writable()
         if not self._transaction_file.exists():
             return
         contents = self._transaction_file.read_bytes()
@@ -211,6 +300,9 @@ class BaseCache(ABC):
 
     def _read_paths(self, runtime_paths: Optional[Dict[str, Path]] = None) -> Tuple[Path, Path, Path]:
         """Resolve o par de leitura, inclusive o snapshot anterior de uma promoção."""
+        if self._official_snapshot is not None:
+            data, metadata = self._official_read_pair()
+            return data, metadata, self.arquivo_dados_pickle
         if runtime_paths is None:
             data = self.arquivo_dados
             if not data.exists() and self.arquivo_dados_pickle.exists():
@@ -241,6 +333,8 @@ class BaseCache(ABC):
 
     def coherent_read_paths(self) -> Tuple[Path, Path]:
         """Resolve arquivos para leitores de slices, com recuperação ou snapshot anterior."""
+        if self._official_snapshot is not None:
+            return self._official_read_pair()
         from .update_state import UpdateBusyError, mutation_lock
         try:
             with mutation_lock(self.base_dir):
@@ -326,12 +420,18 @@ class BaseCache(ABC):
         e os fluxos de extração raciocinam sobre o cache gravável. Para saber se há
         dado legível de qualquer origem, use `existe_leitura`.
         """
+        if self._official_snapshot is not None:
+            if self._official_presence() != "complete":
+                return False
+            return self._official_read_pair()[0].is_file()
         tem_parquet = self.arquivo_dados_runtime.exists()
         tem_pickle = self.arquivo_dados_pickle.exists()
         return tem_parquet or tem_pickle
 
     def existe_leitura(self) -> bool:
         """Indica se há dado legível, seja no runtime ou no artefato bundled."""
+        if self._official_snapshot is not None:
+            return self.existe()
         return self.existe() or self.arquivo_dados.exists()
 
     def carregar_local(self) -> CacheResult:
@@ -341,6 +441,16 @@ class BaseCache(ABC):
         sem disputar a trava administrativa. O diário e a identidade são
         conferidos antes e depois da leitura.
         """
+        if self._official_snapshot is not None:
+            if self._official_presence() != "complete":
+                return self._official_unavailable()
+            data_path, metadata_path = self._official_read_pair()
+            metadata = json.loads(metadata_path.read_bytes())
+            formato = "pickle" if data_path.suffix == ".pkl" else "parquet"
+            data, checksum, size = self._read_data_file(data_path, formato)
+            self._validate_pair(data, metadata, data_path, None, checksum, size)
+            return CacheResult(True, "Carregado da revisão oficial", dados=data,
+                               metadata=metadata, fonte="cache_local")
         from .update_state import UpdateBusyError, mutation_lock
         try:
             try:
@@ -438,6 +548,8 @@ class BaseCache(ABC):
     @property
     def arquivo_dados(self) -> Path:
         """Parquet efetivo para leitura: runtime quando existir, senão o bundled."""
+        if self._official_snapshot is not None:
+            return self._official_read_pair()[0]
         runtime = self.arquivo_dados_runtime
         if self._prefer_publication_bundle():
             return self.bundled_dir / self.config.arquivo_dados
@@ -451,6 +563,8 @@ class BaseCache(ABC):
     @property
     def arquivo_metadata(self) -> Path:
         """Metadata efetivo para leitura, pareado com `arquivo_dados`."""
+        if self._official_snapshot is not None:
+            return self._official_read_pair()[1]
         if self._prefer_publication_bundle():
             return self.bundled_dir / self.config.arquivo_metadata
         if self.arquivo_dados_runtime.exists() or (
@@ -574,6 +688,7 @@ class BaseCache(ABC):
             if older.startswith(f".{self.config.arquivo_dados}.transaction-"):
                 shutil.rmtree(self.cache_dir / older, ignore_errors=True)
 
+    @_requires_workspace
     def salvar_arquivo_local(
         self, candidato: Path, metadata: Dict, arquivos_extras: Optional[Dict[Path, Path]] = None,
     ) -> CacheResult:
@@ -651,6 +766,7 @@ class BaseCache(ABC):
             self._log("error", f"Erro ao salvar parquet materializado: {exc}")
             return CacheResult(False, f"Erro ao salvar parquet materializado: {exc}", fonte="nenhum")
 
+    @_requires_workspace
     def baixar_arquivos_local(self, urls: Dict[Path, str], *, timeout: int = 120, headers: Optional[Dict] = None) -> CacheResult:
         """Baixa todos os artefatos obrigatórios antes de substituir o runtime."""
         from .update_state import mutation_lock
@@ -682,6 +798,7 @@ class BaseCache(ABC):
         except Exception as exc:
             return CacheResult(False, f"Download não ativado; base anterior preservada: {exc}", fonte="nenhum")
 
+    @_requires_workspace
     def salvar_arquivos_auxiliares(self, candidatos: Dict[Path, Path]) -> CacheResult:
         """Promove um subconjunto auxiliar sem exigir um fato principal já existente."""
         from .update_state import mutation_lock
@@ -718,6 +835,7 @@ class BaseCache(ABC):
                     shutil.rmtree(transaction, ignore_errors=True)
             return CacheResult(False, f"Artefatos auxiliares não ativados: {exc}", fonte="nenhum")
 
+    @_requires_workspace
     def salvar_local(
         self,
         dados: pd.DataFrame,
@@ -815,6 +933,7 @@ class BaseCache(ABC):
                 fonte="nenhum"
             )
 
+    @_requires_workspace
     def limpar_local(self) -> CacheResult:
         """Remove arquivos de cache local (parquet e pickle)."""
         removidos = []
@@ -858,6 +977,23 @@ class BaseCache(ABC):
 
     def get_info(self) -> Dict[str, Any]:
         """Retorna informacoes sobre o cache."""
+        if self._official_snapshot is not None:
+            presence = self._official_presence()
+            if presence != "complete":
+                info = {"nome": self.config.nome, "descricao": self.config.descricao,
+                        "existe": False, "diretorio": str(self.cache_dir),
+                        "official_revision_id": self._official_snapshot.revision_id,
+                        "official_cache_status": presence}
+                if presence == "partial":
+                    info["erro_metadata"] = "Cache incompleto na revisão oficial: dados/metadata ausentes"
+                return info
+            data_path, metadata_path = self._official_read_pair()
+            metadata = json.loads(metadata_path.read_bytes())
+            return {"nome": self.config.nome, "descricao": self.config.descricao,
+                    "existe": True, "diretorio": str(self.cache_dir),
+                    **metadata, "arquivo_dados": str(data_path),
+                    "tamanho_bytes": data_path.stat().st_size,
+                    "official_revision_id": self._official_snapshot.revision_id}
         from .update_state import UpdateBusyError, mutation_lock
         try:
             with mutation_lock(self.base_dir):
@@ -1004,6 +1140,10 @@ class BaseCache(ABC):
         Returns:
             CacheResult com dados ou erro
         """
+        if self._official_snapshot is not None:
+            if forcar_remoto:
+                self._assert_writable()
+            return self.carregar_local()
         # Tentar cache local primeiro
         if not forcar_remoto:
             if self._publication_metadata():
