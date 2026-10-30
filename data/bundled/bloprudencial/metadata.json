@@ -1,7 +1,7 @@
 {
-  "timestamp_salvamento": "2026-10-30T19:28:38.604190",
+  "timestamp_salvamento": "2026-10-30T20:08:53.015357",
   "fonte": "bcb_cosif",
-  "total_registros": 1246790,
+  "total_registros": 1241803,
   "colunas": [
     "DATA_BASE",
     "DOCUMENTO",
@@ -56,17 +56,16 @@
   "total_periodos": 34,
   "extra": {
     "source_import": {
-      "source_url": "https://www.bcb.gov.br/content/estabilidadefinanceira/cosif/Conglomerados-prudenciais/202606BLOPRUDENCIAL.csv.zip",
-      "filename": "202606BLOPRUDENCIAL.CSV",
-      "sha256": "faf1624851e9c3fd5ba06a839f99e5144f5e196f4a93665b00ea24f896189055",
-      "rows": 85656,
-      "period": "202606",
+      "source_url": "https://www.bcb.gov.br/content/estabilidadefinanceira/cosif/Conglomerados-prudenciais/202510BLOPRUDENCIAL.csv.zip",
+      "filename": "202510BLOPRUDENCIAL.CSV",
+      "sha256": "e74f22724f3b20bad00bc1b40f91c726fa00542ca22f6ddaa0bbd0657f4a38ad",
+      "rows": 49264,
+      "period": "202510",
       "unit": "BRL",
       "documents": {
-        "4060": 50319,
-        "4066": 35337
+        "4060": 49264
       },
-      "institutions": 168,
+      "institutions": 167,
       "parser": "strict-v1",
       "header": [
         "Balancete/Balanco Geral Consolidado Prudencial (Documentos: 4060 - 4066)",
@@ -74,13 +73,14 @@
         "Fonte: Instituicoes financeiras"
       ],
       "comparison": {
-        "previous_rows": 84805,
-        "added": 893,
-        "removed": 42,
-        "changed_balances": 1453
+        "previous_rows": 52890,
+        "added": 32,
+        "removed": 37,
+        "changed_balances": 349
       },
-      "historical_duplicate_rows_preserved": 4852,
-      "archive": "data/cache/bcb_bloprudencial/sources/202606-faf1624851e9.zip"
+      "historical_duplicate_rows_preserved": 0,
+      "archive": "data/bundled/bloprudencial/sources/202510-e74f22724f3b.zip",
+      "cache_sha256": "f81fadba4ef1f01c6162da3a34fdf677ca4409a40a1e98975d1964f6f0099932"
     },
     "source_imports": [
       {
@@ -138,17 +138,125 @@
         "historical_duplicate_rows_preserved": 4852,
         "archive": "data/bundled/bloprudencial/sources/202606-faf1624851e9.zip",
         "cache_sha256": "c89c31a64cc1973fce15ce7f304762a2c95cbdc827c44bb6e2fd813bc0669a90"
+      },
+      {
+        "source_url": "https://www.bcb.gov.br/content/estabilidadefinanceira/cosif/Conglomerados-prudenciais/202507BLOPRUDENCIAL.csv.zip",
+        "filename": "202507BLOPRUDENCIAL.CSV",
+        "sha256": "a4250de3dd2007c838327145b25c0430f9cd01d5f7d229af1f2d2cbde24674b3",
+        "rows": 47253,
+        "period": "202507",
+        "unit": "BRL",
+        "documents": {
+          "4060": 47253
+        },
+        "institutions": 163,
+        "parser": "strict-v1",
+        "header": [
+          "Balancete/Balanco Geral Consolidado Prudencial (Documentos: 4060 - 4066)",
+          "Data de geracao dos dados: 2026-08-24",
+          "Fonte: Instituicoes financeiras"
+        ],
+        "comparison": {
+          "previous_rows": 47491,
+          "added": 16,
+          "removed": 9,
+          "changed_balances": 223
+        },
+        "historical_duplicate_rows_preserved": 4607,
+        "archive": "data/bundled/bloprudencial/sources/202507-a4250de3dd20.zip",
+        "cache_sha256": "6d581d8b671099facc4ae69a1f3f1341aa98cfab0a0022f4e526ef174f7f870e"
+      },
+      {
+        "source_url": "https://www.bcb.gov.br/content/estabilidadefinanceira/cosif/Conglomerados-prudenciais/202508BLOPRUDENCIAL.csv.zip",
+        "filename": "202508BLOPRUDENCIAL.CSV",
+        "sha256": "47cdeaf7731f6756e8078cf168d0d6e591b5bff87165174affb430bb766893fb",
+        "rows": 48316,
+        "period": "202508",
+        "unit": "BRL",
+        "documents": {
+          "4060": 48316
+        },
+        "institutions": 167,
+        "parser": "strict-v1",
+        "header": [
+          "Balancete/Balanco Geral Consolidado Prudencial (Documentos: 4060 - 4066)",
+          "Data de geracao dos dados: 2026-08-24",
+          "Fonte: Instituicoes financeiras"
+        ],
+        "comparison": {
+          "previous_rows": 48556,
+          "added": 22,
+          "removed": 8,
+          "changed_balances": 301
+        },
+        "historical_duplicate_rows_preserved": 4353,
+        "archive": "data/bundled/bloprudencial/sources/202508-47cdeaf7731f.zip",
+        "cache_sha256": "1e0a4eb9ed618fe425f5a78c2dc4d0e0451b77bae41c6d572e4dec3e3bf2153f"
+      },
+      {
+        "source_url": "https://www.bcb.gov.br/content/estabilidadefinanceira/cosif/Conglomerados-prudenciais/202509BLOPRUDENCIAL.csv.zip",
+        "filename": "202509BLOPRUDENCIAL.CSV",
+        "sha256": "34cc83b7cd9621df24f203595a6694a93e33f95e97db718272e4d900ff976045",
+        "rows": 48397,
+        "period": "202509",
+        "unit": "BRL",
+        "documents": {
+          "4060": 48397
+        },
+        "institutions": 164,
+        "parser": "strict-v1",
+        "header": [
+          "Balancete/Balanco Geral Consolidado Prudencial (Documentos: 4060 - 4066)",
+          "Data de geracao dos dados: 2026-08-24",
+          "Fonte: Instituicoes financeiras"
+        ],
+        "comparison": {
+          "previous_rows": 49280,
+          "added": 30,
+          "removed": 181,
+          "changed_balances": 317
+        },
+        "historical_duplicate_rows_preserved": 3621,
+        "archive": "data/bundled/bloprudencial/sources/202509-34cc83b7cd96.zip",
+        "cache_sha256": "98ee515d44d6b87acb00c3a981f5758e26ec64445713bd4fb692d12f261dcc5f"
+      },
+      {
+        "source_url": "https://www.bcb.gov.br/content/estabilidadefinanceira/cosif/Conglomerados-prudenciais/202510BLOPRUDENCIAL.csv.zip",
+        "filename": "202510BLOPRUDENCIAL.CSV",
+        "sha256": "e74f22724f3b20bad00bc1b40f91c726fa00542ca22f6ddaa0bbd0657f4a38ad",
+        "rows": 49264,
+        "period": "202510",
+        "unit": "BRL",
+        "documents": {
+          "4060": 49264
+        },
+        "institutions": 167,
+        "parser": "strict-v1",
+        "header": [
+          "Balancete/Balanco Geral Consolidado Prudencial (Documentos: 4060 - 4066)",
+          "Data de geracao dos dados: 2026-10-19",
+          "Fonte: Instituicoes financeiras"
+        ],
+        "comparison": {
+          "previous_rows": 52890,
+          "added": 32,
+          "removed": 37,
+          "changed_balances": 349
+        },
+        "historical_duplicate_rows_preserved": 0,
+        "archive": "data/bundled/bloprudencial/sources/202510-e74f22724f3b.zip",
+        "cache_sha256": "f81fadba4ef1f01c6162da3a34fdf677ca4409a40a1e98975d1964f6f0099932"
       }
     ],
-    "scope": "Retificações BCB apenas 202512 e 202606; demais períodos e caches preservados."
+    "scope": "Retificações oficiais 202507–202510, 202512 e 202606; outras competências preservadas."
   },
   "integridade": {
     "versao": 1,
-    "geracao": "7f410c12e225466c9d6558ffeed58108",
+    "geracao": "fb345a9f47654e8bafe120cadca41413",
     "arquivo_dados": "dados.parquet",
-    "sha256": "c89c31a64cc1973fce15ce7f304762a2c95cbdc827c44bb6e2fd813bc0669a90",
-    "tamanho_bytes": 10413247
+    "sha256": "f81fadba4ef1f01c6162da3a34fdf677ca4409a40a1e98975d1964f6f0099932",
+    "tamanho_bytes": 10301600
   },
-  "publication_id": "tomaconta-prudencial-retificacoes-20261030-v1",
-  "sha256": "c89c31a64cc1973fce15ce7f304762a2c95cbdc827c44bb6e2fd813bc0669a90"
+  "publication_id": "tomaconta-prudencial-historico-20261030-v2",
+  "sha256": "f81fadba4ef1f01c6162da3a34fdf677ca4409a40a1e98975d1964f6f0099932"
 }

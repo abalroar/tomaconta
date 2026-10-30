@@ -25,6 +25,16 @@ def test_cosif_hierarchy_respects_level_boundaries_and_check_digit():
     assert stem("18840005")=="18840"
 
 
+def test_cosif_general_total_is_not_a_compensation_child(simple_sources):
+    extra=records([("3000000007","Compensação ativa",100),
+                   ("3010000004","Coobrigações",100),
+                   ("3999999009","TOTAL GERAL DO ATIVO",1100)])
+    a=build_analysis(pd.concat([simple_sources,extra]),{},"C1",["202606"])
+    check=next(c for c in a.checks if c["check"].startswith("Subcontas 4066: 3000000007"))
+    assert check["status"]=="OK"
+    assert Accounts(extra.iloc[1:]).select("3")[0]==["3010000004"]
+
+
 @pytest.fixture
 def simple_sources():
     amounts=[("1000000009","Ativo",1000),("1100000002","Disponibilidades",1000),
@@ -75,7 +85,8 @@ def test_xlsx_contains_live_formulas_tahoma_black_bands_and_inspectable_inputs(s
     a=build_analysis(simple_sources,{},"C1",["202606"])
     payload=render_xlsx(a)
     wb=load_workbook(BytesIO(payload),data_only=False)
-    assert wb.sheetnames[:3]==["Balanço","DRE","Carteira 4.966"]
+    assert wb.sheetnames[:4]==["Comitê","Balanço","DRE","Carteira 4.966"]
+    assert wb["Comitê"]["C7"].value == "='Balanço'!C7"
     assert "INDEX(" in wb["Mapa COSIF"]["I2"].value and "MATCH(" in wb["Mapa COSIF"]["I2"].value
     assert wb["Balanço"]["B2"].font.name=="Tahoma"
     assert wb["Balanço"].row_dimensions[4].hidden

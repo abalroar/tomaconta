@@ -46,6 +46,12 @@ def period_key(value: Any) -> str:
     return value
 
 
+def is_totalizer(prefix: str) -> bool:
+    # COSIF 3.9.9.99.99 / 9.9.9.99.99 are general totals, including
+    # on-balance-sheet accounts. They are not children of compensation 3/9.
+    return prefix in {"3999999", "9999999"}
+
+
 def number(value):
     return float(value) if isinstance(value, (int, float)) and math.isfinite(value) else None
 
@@ -132,7 +138,7 @@ class Accounts:
         prefix = stem(prefix) if len(prefix) in (8, 10) else prefix.ljust(next(n for n in (1,2,3,5,7,9) if n>=len(prefix)),"0")
         if prefix in self.by_stem:
             return [self.by_stem[prefix]], "Conta sintética do prefixo"
-        candidates = sorted(p for p in self.by_stem if p.startswith(prefix))
+        candidates = sorted(p for p in self.by_stem if p.startswith(prefix) and not is_totalizer(p))
         chosen = []
         for candidate in candidates:
             if not any(candidate.startswith(p) for p in chosen):
@@ -249,7 +255,9 @@ class Builder:
         return result
 
     def account(self,p,doc,prefix):
-        index = self.indexes.get((p,doc),Accounts(self.cosif.iloc[:0]))
+        index = self.indexes.get((p,doc))
+        if index is None:
+            index = Accounts(self.cosif.iloc[:0])
         codes, method = index.select(prefix)
         if not codes:
             return [self._lookup(p,doc,prefix,"", "Conta não informada no documento",method,
@@ -594,7 +602,7 @@ class Builder:
     def hierarchy_checks(self):
         for (p,doc),index in self.indexes.items():
             for parent,code in sorted(index.by_stem.items()):
-                descendants=sorted(x for x in index.by_stem if x!=parent and x.startswith(parent))
+                descendants=sorted(x for x in index.by_stem if x!=parent and x.startswith(parent) and not is_totalizer(x))
                 children=[]
                 for candidate in descendants:
                     if not any(candidate.startswith(x) for x in children):children.append(candidate)
@@ -611,6 +619,7 @@ class Builder:
             "DRE: resultado acumulado no semestre civil até a data-base. Dezembro contém jul–dez. As contas 7/8 encerram em junho e dezembro.",
             "ROE: resultado semestral × 12 / meses do semestre / PL de fechamento. Não utiliza PL médio. PL nulo ou negativo gera N/D.",
             "Mapa: código exato, depois conta sintética ou fronteira de contas-filhas sem sobreposição. A descrição original permanece nos dados.",
+            "Hierarquia: os totalizadores 3.9.9.99.99 e 9.9.9.99.99 não são filhas dos grupos de compensação 3 e 9 (BCB, Críticas COSIF, regra G7). Permanecem nos dados brutos.",
             "Reclassificações: cartão pós-pago e sua provisão em Crédito; TVM livres em Ativos Líquidos; TVM vinculados em linha própria.",
             "Histórico: a estrutura COSIF muda em 2025. Detalhes não publicados no regime anterior ficam N/D; resultados agregados seguem as contas disponíveis.",
             "DRE: pessoal e tributos segregados das despesas administrativas; D&A incluída em administração. Venda e recuperação segregadas de outras receitas/despesas.",
