@@ -1,103 +1,102 @@
 {
   "versao": 1,
-  "atualizado_em": "2026-10-08",
-  "data_base": "2026-08",
+  "atualizado_em": "2026-10-30",
+  "data_base": "2026-09",
   "nota": "Leitura dos dados por página da seção Estatísticas Crédito BC. Editável na tela; para valer para todo mundo, o JSON baixado no card precisa substituir este arquivo em um commit.",
   "paginas": {
     "concessoes": {
       "titulo": "Concessões",
-      "data_base": "2026-08",
+      "data_base": "2026-09",
       "fontes": [
-        "BC · Nota à Imprensa, 29/09/2026 (dados de ago/2026)"
+        "BC · Nota à Imprensa, 29/10/2026 (dados de set/2026)",
+        "BC · BCData/SGS, consulta de 30/10/2026 (dados de set/2026 e revisões)"
       ],
-      "texto": "As concessões totais de crédito cresceram 1,7% em ago-26 frente a julho, com ajuste sazonal. O avanço foi de 3,2% nas operações com pessoas jurídicas e de 0,7% nas operações com pessoas físicas, segundo a nota do BC.\n\nO crescimento mensal da originação foi maior nas empresas. As concessões medem o fluxo de crédito novo no mês; o estoque depende também de amortizações e outros movimentos da carteira. A taxa de 1,7% corresponde à série total dessazonalizada do BC, enquanto o gráfico reúne componentes com ajuste sazonal próprio."
+      "texto": "As concessões totais dessazonalizadas recuaram 1,3% em set-26: queda de 3,4% em PJ e alta de 0,6% em PF, segundo a nota do BC.\n\nO fluxo nominal de novas operações somou R$ 747,1 bi no SGS. O gráfico reúne componentes com ajuste sazonal próprio; sua soma pode diferir do total dessazonalizado da nota."
     },
     "credito_estoque": {
       "titulo": "Estoque de crédito total",
-      "data_base": "2026-08",
+      "data_base": "2026-09",
       "fontes": [
-        "BC · Nota à Imprensa, 29/09/2026 (dados de ago/2026)",
-        "BC · SGS e IPCA, séries dos gráficos"
+        "BC · Nota à Imprensa, 29/10/2026 (dados de set/2026)",
+        "BC · BCData/SGS, consulta de 30/10/2026 (dados de set/2026 e revisões)"
       ],
-      "texto": "O saldo de crédito do SFN alcançou R$ 7,4 tri em ago-26, com alta de 0,5% no mês e de 9,2% em 12 meses. O crescimento anual ficou abaixo dos 9,3% da leitura revisada até julho.\n\nO crédito ampliado ao setor não financeiro chegou a R$ 22,0 tri, equivalente a 164,9% do PIB, e cresceu 0,6% no mês e 11,3% em 12 meses. O BC destaca altas anuais de 13,9% em títulos públicos, 15,9% em títulos privados de dívida e 18,3% em títulos securitizados. Esses percentuais são nominais; o gráfico de ritmo de evolução desconta o IPCA."
+      "texto": "O crédito do SFN cresceu 0,4% no mês e 8,6% em 12 meses, segundo a nota referente a setembro. O crédito ampliado alcançou R$ 22,1 tri.\n\nAs séries dos gráficos incorporam as revisões divulgadas nesta rodada. As variações reais descontam o IPCA; os valores de estoque são nominais."
     },
     "credito_tomador": {
       "titulo": "Por tomador",
-      "data_base": "2026-08",
+      "data_base": "2026-09",
       "fontes": [
-        "BC · Nota à Imprensa, 29/09/2026 (dados de ago/2026)",
-        "BC · SGS e IPCA, séries dos gráficos"
+        "BC · BCData/SGS, consulta de 30/10/2026 (dados de set/2026 e revisões)"
       ],
-      "texto": "O saldo de crédito às famílias somou R$ 4,7 tri em ago-26, com alta de 0,8% no mês e de 10,5% em 12 meses. Nas empresas, o saldo de R$ 2,7 tri caiu 0,1% no mês e cresceu 7,1% em 12 meses. As taxas anuais desaceleraram em relação à leitura revisada até julho, de 10,6% para PF e 7,3% para PJ.\n\nNo crédito livre, o saldo das empresas caiu 0,6% no mês e cresceu 0,5% em 12 meses. O saldo das famílias avançou 0,8% no mês e 10,5% em 12 meses. As variações da nota são nominais; as linhas de crescimento desta página descontam a inflação medida pelo IPCA."
+      "texto": "No SGS, o saldo de crédito às famílias somou R$ 4,68 tri em set-26, com variação nominal mensal de 0,09%. Nas empresas, o saldo foi de R$ 2,76 tri, com variação de 1,01%.\n\nEm 12 meses, o crescimento real foi de 5,09% em PF e 1,89% em PJ. Os cálculos usam as séries revisadas do SGS e descontam o IPCA."
     },
     "credito_produto": {
       "titulo": "Por produto",
-      "data_base": "2026-08",
+      "data_base": "2026-09",
       "fontes": [
-        "BC · Nota à Imprensa, 29/09/2026 (dados de ago/2026)",
-        "BC · SGS e IPCA, séries dos gráficos"
+        "BC · BCData/SGS, consulta de 30/10/2026 (dados de set/2026 e revisões)"
       ],
-      "texto": "No crédito livre às famílias, o BC destaca o avanço dos saldos de aquisição de veículos, cartão de crédito rotativo e consignado para trabalhadores do setor privado, modalidade que concentra as operações do Crédito do Trabalhador. No crédito livre às empresas, a redução mensal foi influenciada pelas quedas em capital de giro total e desconto de duplicatas e outros recebíveis.\n\nA contribuição para a variação de agosto depende do tamanho e da mudança de cada saldo. O mix mostra a participação de cada modalidade na carteira; as linhas de crescimento mostram a variação em 12 meses descontada pelo IPCA. Esses recortes ajudam a acompanhar a composição do crédito apontada pela nota."
+      "texto": "Em set-26, os saldos de consignado privado e de aquisição de veículos para PF variaram 1,57% e 0,42% no mês. Em PJ, desconto de duplicatas e recebíveis variou 10,43% e capital de giro, -0,04%.\n\nEssas variações são nominais, calculadas com os saldos do SGS. O mix usa a participação de cada modalidade; as linhas de crescimento em 12 meses descontam o IPCA."
     },
     "credito_empresa": {
       "titulo": "Por tipo de empresa",
-      "data_base": "2026-08",
+      "data_base": "2026-09",
       "fontes": [
-        "BC · SGS, saldos por porte e IPCA (ago/2026)"
+        "BC · BCData/SGS, consulta de 30/10/2026 (dados de set/2026 e revisões)"
       ],
-      "texto": "No recorte por porte do SGS, o saldo de micro, pequenas e médias empresas chegou a R$ 1.337,1 bi em ago-26, com alta nominal de 0,98% no mês. Nas grandes empresas, o saldo ficou em R$ 1.416,7 bi, com alta nominal de 0,07%. As MPMe representam 48,6% da soma dos dois grupos mostrados nesta página.\n\nEm 12 meses, descontado o IPCA, a expansão foi de 2,33% nas MPMe e de 2,41% nas grandes empresas. As duas taxas ficaram próximas em agosto. Esse detalhamento é calculado a partir das séries do SGS; a nota à imprensa descreve o crédito às empresas no agregado."
+      "texto": "As micro, pequenas e médias empresas somaram R$ 1.326,4 bi em set-26, e as grandes, R$ 1.440,5 bi. A participação das MPMe na soma dos dois grupos foi de 47,9%.\n\nO crescimento real em 12 meses foi de 0,74% nas MPMe e de 1,85% nas grandes empresas. Os valores são calculados pelas séries de porte do SGS, com deflação pelo IPCA."
     },
     "credito_controle": {
       "titulo": "Por controle",
-      "data_base": "2026-08",
+      "data_base": "2026-09",
       "fontes": [
-        "BC · SGS, saldos por controle e IPCA (ago/2026)"
+        "BC · BCData/SGS, consulta de 30/10/2026 (dados de set/2026 e revisões)"
       ],
-      "texto": "Em ago-26, as instituições sob controle privado nacional responderam por 44,9% do saldo de crédito no recorte por controle do SGS. As instituições públicas ficaram com 41,7% e as estrangeiras com 13,4%, participações próximas às de julho.\n\nEm 12 meses, o crescimento real do saldo foi de 5,55% nas instituições privadas nacionais, 3,86% nas públicas e 5,06% nas estrangeiras. Os cálculos descontam o IPCA e usam os saldos de cada grupo. O controle identifica a propriedade da instituição; a classificação livre ou direcionado identifica o tipo de recurso da operação."
+      "texto": "Em set-26, as participações no saldo por controle do SGS foram de 41,4% para instituições públicas, 45,2% para privadas nacionais e 13,3% para estrangeiras.\n\nO crescimento real em 12 meses foi de 3,08%, 4,87% e 3,04%, respectivamente. As participações usam a soma dos três grupos; o crescimento desconta o IPCA."
     },
     "situacao": {
       "titulo": "Situação dos agentes",
-      "data_base": "2026-07",
+      "data_base": "2026-08",
       "fontes": [
-        "BC · Nota à Imprensa, 29/09/2026 (dados de ago/2026)"
+        "BC · Nota à Imprensa, 29/10/2026 (dados de set/2026)"
       ],
-      "texto": "O endividamento das famílias atingiu 49,9% em jul-26, com alta de 0,2 p.p. no mês e de 1,1 p.p. em 12 meses. O comprometimento de renda ficou em 28,7%, estável em relação à leitura revisada de junho e 1,4 p.p. acima de julho de 2025.\n\nNesta nota, os indicadores de dívida e serviço da dívida das famílias têm competência julho, enquanto saldos, concessões, juros e inadimplência do crédito chegam a agosto. A comparação usa a renda das famílias como denominador, com conceitos distintos para o estoque de dívida e os pagamentos mensais."
+      "texto": "Em agosto, o endividamento das famílias foi de 50,1% e o comprometimento de renda, 29,0%, segundo a nota de 29/10.\n\nEsses indicadores usam a renda das famílias como denominador, com conceitos distintos para estoque de dívida e pagamentos mensais. Sua competência é agosto/2026; crédito, juros e inadimplência chegam a setembro/2026."
     },
     "npl_pre_inad": {
       "titulo": "Pré-inadimplência e inadimplência",
-      "data_base": "2026-08",
+      "data_base": "2026-09",
       "fontes": [
-        "BC · Nota à Imprensa, 29/09/2026 (dados de ago/2026)",
-        "BC · SGS, atrasos de 15 a 90 dias em recursos livres"
+        "BC · BCData/SGS, consulta de 30/10/2026 (dados de set/2026 e revisões)"
       ],
-      "texto": "A inadimplência do crédito total do SFN chegou a 5,0% em ago-26, com alta de 0,1 p.p. no mês e de 0,9 p.p. em 12 meses. Na carteira total de PF, avançou 0,2 p.p. no mês para 6,0%; na de PJ, ficou estável em 3,3%. No crédito livre, atingiu 6,6% no total, 8,0% em PF e 4,3% em PJ.\n\nNas operações com recursos livres, os atrasos de 15 a 90 dias recuaram de 4,53% para 4,52% em PF e de 2,93% para 2,84% em PJ, segundo o SGS. A queda do atraso curto ocorreu junto ao aumento da inadimplência acima de 90 dias. A evolução desses agregados não identifica a migração das mesmas operações entre faixas."
+      "texto": "A inadimplência total do SFN passou de 5,05% em agosto para 4,98% em setembro no SGS. No crédito livre, ficou em 8,09% para PF e 4,16% para PJ.\n\nOs atrasos de 15 a 90 dias em recursos livres passaram de 4,49% para 4,72% em PF e de 2,80% para 2,59% em PJ. Esses agregados não identificam a migração das mesmas operações entre faixas."
     },
     "npl_cobertura": {
       "titulo": "Cobertura e provisionamento",
-      "data_base": "2026-08",
+      "data_base": "2026-09",
       "fontes": [
-        "BC · SGS, provisão e inadimplência do SFN (ago/2026) · cobertura calculada",
+        "BC · BCData/SGS, consulta de 30/10/2026 (dados de set/2026 e revisões)",
         "BC · Nota à Imprensa, 13/03/2025 (mudança metodológica)"
       ],
-      "texto": "As provisões do SFN passaram de 7,9% da carteira em jul-26 para 8,0% em ago-26. No mesmo intervalo, a inadimplência passou de 4,88% para 5,04%. A cobertura calculada pela razão entre provisão e inadimplência caiu de 161,9% para 158,7%. Esses valores vêm das séries do SGS.\n\nA razão relaciona provisões totais ao saldo de crédito inadimplente; a avaliação da suficiência das provisões depende também de perdas esperadas, composição e garantias da carteira. A série de provisões mudou de critério em jan-25 com a adoção das perdas esperadas por estágios, conforme a Resolução CMN 4.966. Comparações que atravessam essa mudança exigem atenção ao conceito contábil."
+      "texto": "As provisões representaram 7,9% da carteira em set-26, ante 8,1% em agosto. A cobertura calculada pela razão entre provisão e inadimplência foi de 158,6%, ante 160,4%.\n\nA razão relaciona provisões totais a crédito inadimplente. A avaliação de suficiência depende das perdas esperadas, da composição e das garantias. A série de provisões muda de critério em jan-25, com a adoção das perdas esperadas por estágios; comparações que atravessam essa competência exigem atenção ao conceito contábil."
     },
     "npl_faixa_renda": {
       "titulo": "Inadimplência por faixa de renda",
       "data_base": "2026-07",
       "fontes": [
-        "BC · Nota à Imprensa, 29/09/2026 (dados de ago/2026)",
         "BC · SCR.data, jul/2026",
-        "BC · Metodologia SCR.data"
+        "BC · Metodologia SCR.data",
+        "BC · BCData/SGS, consulta de 30/10/2026 (dados de set/2026)"
       ],
-      "texto": "O SCR.data desta página chega a jul-26; as séries de crédito do SGS e a nota à imprensa de 29/09 chegam a ago-26. A nota informa inadimplência de 5,0% no crédito total e de 6,0% na carteira total das famílias em agosto. Esses agregados têm competência e recortes distintos dos dados por renda, porte, modalidade e região exibidos aqui.\n\nAs faixas de renda são expressas em salários mínimos e seus limites monetários mudam com o salário mínimo. A série de ativo problemático tem mudança de metodologia em jan-25. As comparações históricas devem considerar essas mudanças, além da competência e do denominador de cada recorte."
+      "texto": "O recorte por renda do SCR.data tem competência própria, informada na página. As séries de crédito do SGS desta atualização chegam a set-26. A comparação entre as fontes exige conferir o mês, a população e o denominador de cada recorte.\n\nAs faixas de renda são expressas em salários mínimos e seus limites monetários mudam com o salário mínimo. A série de ativo problemático tem mudança de metodologia em jan-25. As comparações históricas devem considerar essas mudanças."
     },
     "taxas": {
       "titulo": "Taxas de juros e spread",
-      "data_base": "2026-08",
+      "data_base": "2026-09",
       "fontes": [
-        "BC · Nota à Imprensa, 29/09/2026 (dados de ago/2026)"
+        "BC · Nota à Imprensa, 29/10/2026 (dados de set/2026)",
+        "BC · BCData/SGS, consulta de 30/10/2026 (dados de set/2026 e revisões)"
       ],
-      "texto": "A taxa média das concessões ficou em 32,3% a.a. em ago-26, com alta de 0,2 p.p. no mês e de 0,4 p.p. em 12 meses. O spread bancário chegou a 21,2 p.p., com aumentos de 0,3 p.p. no mês e de 0,4 p.p. em 12 meses. No crédito livre, a taxa média foi de 48,5% a.a., 0,8 p.p. acima de julho.\n\nNo crédito livre às famílias, a taxa subiu 1,4 p.p. para 61,7% a.a.; o BC atribui o movimento principalmente à composição da carteira, com altas nas taxas de cartão rotativo e parcelado. Nas empresas, a taxa caiu 1,0 p.p. para 24,2% a.a., com predomínio do efeito das taxas e recuos em cartão rotativo e capital de giro."
+      "texto": "Segundo a nota do BC, a taxa média das concessões foi de 32,4% a.a. em set-26, e o spread, 21,6 p.p. No crédito livre, o SGS registra taxas de 62,35% a.a. para PF e de 24,37% a.a. para PJ.\n\nAs taxas médias refletem os juros contratados e a composição das novas operações. A comparação deve manter o mesmo segmento, tipo de recurso e período."
     }
   }
 }
