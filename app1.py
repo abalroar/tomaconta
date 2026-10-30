@@ -15513,6 +15513,8 @@ def _render_cache_status_por_aba(menu_nome: str) -> None:
     ):
         return
     caches = CACHE_DEPENDENCIAS_POR_ABA.get(menu_nome)
+    if menu_nome == "DRE (Ind. e Congl.)" and st.session_state.get("dre_consolidada_tipo_visualizacao") == "Balanço, DRE e Carteira (Congl.)":
+        caches = ["bloprudencial", "ativo", "dre", "capital", "principal", "carteira_instrumentos"]
     if menu_nome == "Snapshot" and st.session_state.get("snapshot_base") == "Individual":
         caches = ["principal_individual", "derived_metrics_individual"]
     if not caches:
@@ -15653,7 +15655,7 @@ with st.sidebar:
             args=("Atualizar Base",),
         )
 
-DRE_VISUALIZACOES = ["DRE Gerencial", "Conglomerado Prudencial", "DRE Individual"]
+DRE_VISUALIZACOES = ["DRE Gerencial", "Conglomerado Prudencial", "DRE Individual", "Balanço, DRE e Carteira (Congl.)"]
 if "dre_consolidada_tipo_visualizacao" not in st.session_state:
     st.session_state["dre_consolidada_tipo_visualizacao"] = "DRE Gerencial"
 dre_consolidada_tipo = st.session_state.get("dre_consolidada_tipo_visualizacao", "Conglomerado Prudencial")
@@ -19827,6 +19829,10 @@ elif menu == "Balanço, DRE e DMPL (Ind.)":
 
 elif menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo == "DRE Gerencial":
     render_dre_ifdata_schema_app()
+
+elif menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo == "Balanço, DRE e Carteira (Congl.)":
+    from tabs.prudential_analysis import render as render_prudential_analysis
+    render_prudential_analysis(get_cache_manager(), _cache_version_token)
 
 elif menu == "DRE" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo == "Conglomerado Prudencial"):
     st.markdown("### Demonstração de Resultado (DRE)")
