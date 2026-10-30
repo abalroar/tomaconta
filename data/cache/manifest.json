@@ -1,6 +1,6 @@
 {
-  "run_id": "tomaconta-individual-set25-dedup-20261010-v1",
-  "generated_at_utc": "2026-10-10T20:26:16.191169+00:00",
+  "run_id": "tomaconta-credito-202609-20261030-v1",
+  "generated_at_utc": "2026-10-30T12:36:59.552949+00:00",
   "release": {
     "repo": "abalroar/tomaconta",
     "tag": "v1.1-cache",
@@ -260,19 +260,19 @@
       "cache": "mercado_credito_sgs",
       "exists": true,
       "source": "BCData/SGS",
-      "timestamp": "2026-10-08T01:02:39.752283",
-      "max_period": "202609",
-      "max_period_ref": "202609",
-      "period_count": 189,
-      "record_count": 24170,
+      "timestamp": "2026-10-30T09:36:34.469263",
+      "max_period": "202610",
+      "max_period_ref": "202610",
+      "period_count": 190,
+      "record_count": 24299,
       "path": "data/cache/mercado_credito_sgs/dados.parquet",
       "metadata_path": "data/cache/mercado_credito_sgs/metadata.json",
-      "sha256": "62696daafde87b051aa09e37b54c525d105b79ddcae6994c8a82dc5a91381dfd",
+      "sha256": "4274f48cd379176dcd7f268556e76489c83fd9237e165d1cd7c005ae2c377130",
       "release_repo": "abalroar/tomaconta",
       "release_tag": "v1.1-cache",
       "release_base_url": "https://github.com/abalroar/tomaconta/releases/download/v1.1-cache",
-      "credit_max_period_ref": "202608",
-      "household_max_period_ref": "202607",
+      "credit_max_period_ref": "202609",
+      "household_max_period_ref": "202608",
       "series_count": 130
     },
     "spb_meios_pagamento": {
@@ -529,7 +529,7 @@
   },
   "expected_periods_by_cache": {
     "cosif_4010": "202606",
-    "mercado_credito_sgs": "202608",
+    "mercado_credito_sgs": "202609",
     "scr_data": "202607"
   },
   "summary": {
@@ -538,7 +538,7 @@
     "successful_gates": 4,
     "total_gates": 4
   },
-  "publication_id": "tomaconta-taxas-20260924-20261008-v1",
+  "publication_id": "tomaconta-credito-202609-20261030-v1",
   "supplemental": {
     "spb": {
       "nucleo_trimestral": {
@@ -1017,12 +1017,12 @@
       "bytes": 1725
     },
     "mercado_credito_sgs_dados.parquet": {
-      "sha256": "62696daafde87b051aa09e37b54c525d105b79ddcae6994c8a82dc5a91381dfd",
-      "bytes": 136131
+      "sha256": "4274f48cd379176dcd7f268556e76489c83fd9237e165d1cd7c005ae2c377130",
+      "bytes": 136701
     },
     "mercado_credito_sgs_metadata.json": {
-      "sha256": "7542243221c6c7808807b7986216c142ac14498c163b671321d7b4bc8cf260a0",
-      "bytes": 9362
+      "sha256": "98243db376c06c5c6c5ee1781f4269c5429099694b0e036e80dfa2cb91533ebd",
+      "bytes": 9654
     },
     "spb_meios_pagamento_dados.parquet": {
       "sha256": "3e20aaf3c768af51d13b20ed535ac8b1fff417826930771976b45e47cdc49265",
