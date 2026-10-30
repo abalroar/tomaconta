@@ -8,95 +8,104 @@
       "titulo": "Concessões",
       "data_base": "2026-09",
       "fontes": [
-        "BC · Nota à Imprensa, 29/10/2026 (dados de set/2026)",
-        "BC · BCData/SGS, consulta de 30/10/2026 (dados de set/2026 e revisões)"
+        "BC: nota de 29/10/2026",
+        "BC: SGS de 30/10/2026"
       ],
-      "texto": "As concessões totais dessazonalizadas recuaram 1,3% em set-26: queda de 3,4% em PJ e alta de 0,6% em PF, segundo a nota do BC.\n\nO fluxo nominal de novas operações somou R$ 747,1 bi no SGS. O gráfico reúne componentes com ajuste sazonal próprio; sua soma pode diferir do total dessazonalizado da nota."
+      "texto": "A originação perdeu fôlego em setembro. As concessões recuaram 1,3% frente a agosto, com ajuste sazonal, puxadas pela queda de 3,4% em PJ; em PF, houve avanço de 0,6%. A divergência importa: as empresas receberam menos crédito novo, enquanto as famílias continuaram contratando em um ambiente de capacidade de pagamento mais pressionada. O aumento do fluxo para PF, isoladamente, oferece pouca evidência de fortalecimento do consumo, pois pode combinar compras, refinanciamentos e necessidades de liquidez.\n\nA combinação de concessões mais fracas em PJ e inadimplência crescente em PF torna a expansão mais difícil de rentabilizar. Para os credores, a disputa por volume ocorre com maior risco de perdas; para os tomadores mais frágeis, uma seleção mais restritiva pode reduzir as alternativas de financiamento. Se a desaceleração econômica atingir emprego e renda, a capacidade de originar carteiras saudáveis ficará ainda mais dependente da folga financeira do cliente após o pagamento das parcelas."
     },
     "credito_estoque": {
       "titulo": "Estoque de crédito total",
       "data_base": "2026-09",
       "fontes": [
-        "BC · Nota à Imprensa, 29/10/2026 (dados de set/2026)",
-        "BC · BCData/SGS, consulta de 30/10/2026 (dados de set/2026 e revisões)"
+        "BC: nota de 29/10/2026",
+        "BC: SGS de 30/10/2026"
       ],
-      "texto": "O crédito do SFN cresceu 0,4% no mês e 8,6% em 12 meses, segundo a nota referente a setembro. O crédito ampliado alcançou R$ 22,1 tri.\n\nAs séries dos gráficos incorporam as revisões divulgadas nesta rodada. As variações reais descontam o IPCA; os valores de estoque são nominais."
+      "texto": "O crédito do SFN segue crescendo, mas a expansão está desacelerando: o saldo chegou a R$ 7,44 trilhões em setembro, com alta de 8,6% em 12 meses, ante 9,4% em agosto. O movimento alcança famílias e empresas. No crédito livre PJ, o crescimento nominal de apenas 1,2% em um ano evidencia uma expansão particularmente fraca; o crédito direcionado ainda avança 11,5% e sustenta parte relevante do crescimento do sistema.\n\nEssa composição aumenta a importância das linhas direcionadas para a continuidade do ciclo, enquanto o crédito de mercado enfrenta juros altos e piora da capacidade de pagamento. O principal risco setorial é a coexistência de menor crescimento e perdas elevadas: a receita de novas operações pode desacelerar antes que a inadimplência das carteiras existentes recue. Uma recuperação consistente exigirá melhora da renda disponível e do custo final dos empréstimos. A continuidade do crescimento do estoque, por si só, ainda convive com deterioração da qualidade do crédito."
     },
     "credito_tomador": {
       "titulo": "Por tomador",
       "data_base": "2026-09",
       "fontes": [
-        "BC · BCData/SGS, consulta de 30/10/2026 (dados de set/2026 e revisões)"
+        "BC: nota de 29/10/2026",
+        "BC: SGS de 30/10/2026"
       ],
-      "texto": "No SGS, o saldo de crédito às famílias somou R$ 4,68 tri em set-26, com variação nominal mensal de 0,09%. Nas empresas, o saldo foi de R$ 2,76 tri, com variação de 1,01%.\n\nEm 12 meses, o crescimento real foi de 5,09% em PF e 1,89% em PJ. Os cálculos usam as séries revisadas do SGS e descontam o IPCA."
+      "texto": "As famílias concentram a maior tensão do ciclo: sua carteira ainda cresce mais que a das empresas, ao mesmo tempo que os atrasos aumentam. Em setembro, o saldo PF ficou praticamente parado no mês (+0,09%), embora acumule crescimento real de 5,1% em 12 meses. Em PJ, a alta mensal de 1,01% convive com expansão real anual de apenas 1,9%. A perda de velocidade ocorre nos dois grupos, em intensidades diferentes.\n\nEssa assimetria muda a avaliação do crescimento. Em PF, a expansão passada deixou uma carteira maior exposta ao comprometimento recorde de renda e à piora do crédito livre. Em PJ, o crescimento anual modesto e a queda das concessões dessazonalizadas sugerem pouca força para uma retomada ampla. O aumento mensal do saldo empresarial inclui movimentos sazonais de recebíveis. Para o setor, a pressão mais imediata sobre perdas está nas famílias; nas empresas, a fragilidade aparece sobretudo no ritmo de financiamento e na diferença entre portes."
     },
     "credito_produto": {
       "titulo": "Por produto",
       "data_base": "2026-09",
       "fontes": [
-        "BC · BCData/SGS, consulta de 30/10/2026 (dados de set/2026 e revisões)"
+        "BC: nota de 29/10/2026",
+        "BC: SGS de 30/10/2026",
+        "Valor Econômico, 30/10/2026"
       ],
-      "texto": "Em set-26, os saldos de consignado privado e de aquisição de veículos para PF variaram 1,57% e 0,42% no mês. Em PJ, desconto de duplicatas e recebíveis variou 10,43% e capital de giro, -0,04%.\n\nEssas variações são nominais, calculadas com os saldos do SGS. O mix usa a participação de cada modalidade; as linhas de crescimento em 12 meses descontam o IPCA."
+      "texto": "A composição dos produtos mostra pressões distintas sobre a capacidade de pagamento. No crédito livre PF, a inadimplência chega a 10,0% no cartão total e a 11,1% no crédito pessoal sem consignação; veículos registram 6,8%. O consignado privado segue expandindo o saldo (+1,6% no mês), mas o desconto em folha depende da continuidade do vínculo e da renda. A reportagem de 30/10 registra inadimplência de 10,8% nesse segmento, um alerta para avaliar separadamente o risco do consignado privado dentro da modalidade.\n\nNas empresas, o saldo de desconto de duplicatas e recebíveis cresceu 10,4% em setembro, enquanto capital de giro ficou praticamente estável. O BC associa a expansão dos recebíveis à sazonalidade, o que limita a leitura de retomada generalizada. A inadimplência de 6,0% no capital de giro, ante 0,8% em duplicatas, reforça a importância do produto na distribuição do risco. Para avaliar a expansão, ganham peso a qualidade do fluxo que pagará a dívida, a concentração dos devedores e a possibilidade de recuperação em caso de atraso."
     },
     "credito_empresa": {
       "titulo": "Por tipo de empresa",
       "data_base": "2026-09",
       "fontes": [
-        "BC · BCData/SGS, consulta de 30/10/2026 (dados de set/2026 e revisões)"
+        "BC: nota de 29/10/2026",
+        "BC: SGS de 30/10/2026"
       ],
-      "texto": "As micro, pequenas e médias empresas somaram R$ 1.326,4 bi em set-26, e as grandes, R$ 1.440,5 bi. A participação das MPMe na soma dos dois grupos foi de 47,9%.\n\nO crescimento real em 12 meses foi de 0,74% nas MPMe e de 1,85% nas grandes empresas. Os valores são calculados pelas séries de porte do SGS, com deflação pelo IPCA."
+      "texto": "As empresas menores têm menos espaço na expansão recente do crédito. O saldo das micro, pequenas e médias empresas caiu 0,4% em setembro, enquanto o das grandes cresceu 1,5%. Em 12 meses, a carteira das MPMe avançou apenas 0,7% acima da inflação, ante 1,9% nas grandes. Com R$ 1,33 trilhão e 47,9% do saldo classificado por porte, as MPMe representam uma parcela relevante do sistema com financiamento praticamente estagnado em termos reais.\n\nA diferença sugere uma recuperação desigual do acesso e da demanda por crédito. Os agregados não permitem separar esses dois efeitos, mas o resultado é menor crescimento do financiamento às empresas de menor porte. Se vendas e recebimentos enfraquecerem, a combinação de juros elevados e pouca expansão do crédito pode apertar o capital de giro e aumentar a necessidade de renegociação. A melhora recente da inadimplência PJ deve, portanto, ser acompanhada junto com a capacidade das empresas menores de renovar dívidas e financiar a operação."
     },
     "credito_controle": {
       "titulo": "Por controle",
       "data_base": "2026-09",
       "fontes": [
-        "BC · BCData/SGS, consulta de 30/10/2026 (dados de set/2026 e revisões)"
+        "BC: nota de 29/10/2026",
+        "BC: SGS de 30/10/2026"
       ],
-      "texto": "Em set-26, as participações no saldo por controle do SGS foram de 41,4% para instituições públicas, 45,2% para privadas nacionais e 13,3% para estrangeiras.\n\nO crescimento real em 12 meses foi de 3,08%, 4,87% e 3,04%, respectivamente. As participações usam a soma dos três grupos; o crescimento desconta o IPCA."
+      "texto": "A expansão de setembro foi conduzida pelas instituições privadas nacionais: sua carteira cresceu 1,0% no mês, enquanto a dos bancos públicos ficou estável e a das estrangeiras recuou 0,1%. Em 12 meses, o avanço real também foi maior nas privadas nacionais, de 4,9%, frente a cerca de 3,1% nas públicas e 3,0% nas estrangeiras. As participações no saldo são de 45,2%, 41,4% e 13,3%, respectivamente.\n\nA dimensão dos bancos públicos lhes dá capacidade de sustentar o financiamento se a oferta privada perder força. Esse papel aparece como possibilidade para os próximos meses; em setembro, o impulso observado veio das instituições privadas nacionais. Para o setor, a questão será quanto do crescimento pode se manter com retorno adequado após perdas, sobretudo no crédito às famílias. Uma eventual maior participação pública ou de linhas incentivadas poderá apoiar volumes, mas sua eficácia dependerá também da capacidade de pagamento dos tomadores e das condições dos produtos ofertados."
     },
     "situacao": {
       "titulo": "Situação dos agentes",
       "data_base": "2026-08",
       "fontes": [
-        "BC · Nota à Imprensa, 29/10/2026 (dados de set/2026)"
+        "BC: nota de 29/10/2026",
+        "BC: SGS de 30/10/2026",
+        "Valor Econômico, 30/10/2026"
       ],
-      "texto": "Em agosto, o endividamento das famílias foi de 50,1% e o comprometimento de renda, 29,0%, segundo a nota de 29/10.\n\nEsses indicadores usam a renda das famílias como denominador, com conceitos distintos para estoque de dívida e pagamentos mensais. Sua competência é agosto/2026; crédito, juros e inadimplência chegam a setembro/2026."
+      "texto": "As famílias chegaram a agosto com uma parcela recorde da renda comprometida com dívidas e menor margem para absorver novos choques. O endividamento alcançou 50,1% da renda acumulada em 12 meses, e o serviço da dívida consumiu 29,0% da renda mensal. Os dois indicadores mostram pressões complementares: um estoque elevado a financiar e pagamentos correntes que comprimem o orçamento. Somente os juros absorveram 10,9% da renda, deixando menos espaço para consumo, poupança e regularização de atrasos.\n\nA gravidade aparece na combinação desse orçamento apertado com a inadimplência recorde de 8,1% no crédito livre PF em setembro. Renegociações podem aliviar parcelas, mas uma melhora duradoura depende da renda disponível e do custo da dívida. Se a desaceleração da atividade alcançar o emprego, a menor folga financeira tende a ampliar o risco de atraso. A queda da Selic só se traduzirá em alívio efetivo na medida em que alcançar o custo e as prestações das operações das famílias."
     },
     "npl_pre_inad": {
       "titulo": "Pré-inadimplência e inadimplência",
       "data_base": "2026-09",
       "fontes": [
-        "BC · BCData/SGS, consulta de 30/10/2026 (dados de set/2026 e revisões)"
+        "BC: nota de 29/10/2026",
+        "BC: SGS de 30/10/2026"
       ],
-      "texto": "A inadimplência total do SFN passou de 5,05% em agosto para 4,98% em setembro no SGS. No crédito livre, ficou em 8,09% para PF e 4,16% para PJ.\n\nOs atrasos de 15 a 90 dias em recursos livres passaram de 4,49% para 4,72% em PF e de 2,80% para 2,59% em PJ. Esses agregados não identificam a migração das mesmas operações entre faixas."
+      "texto": "A pequena queda da inadimplência total, de 5,05% para 4,98% em setembro, oferece um sinal limitado de melhora. No crédito livre PJ, o indicador recuou de 4,34% para 4,16%; em PF, subiu de 8,03% para 8,09%, renovando o máximo da série disponível. Em um ano, a inadimplência livre PF aumentou 1,20 ponto percentual. A estabilidade do agregado em torno de 5% resulta, assim, de trajetórias diferentes e ainda convive com deterioração do crédito às famílias.\n\nO sinal mais preocupante em PF está nos atrasos de 15 a 90 dias, que avançaram de 4,49% para 4,72%. A piora simultânea dos atrasos curtos e longos mantém o risco de novas perdas nos próximos meses, embora os agregados não acompanhem a migração das mesmas operações. Em PJ, os atrasos curtos também recuaram, de 2,80% para 2,59%, reforçando a melhora mensal. A leitura setorial segue assimétrica: alívio recente nas empresas e pressão persistente nas famílias, com pouco suporte para antecipar uma reversão ampla da inadimplência."
     },
     "npl_cobertura": {
       "titulo": "Cobertura e provisionamento",
       "data_base": "2026-09",
       "fontes": [
-        "BC · BCData/SGS, consulta de 30/10/2026 (dados de set/2026 e revisões)",
-        "BC · Nota à Imprensa, 13/03/2025 (mudança metodológica)"
+        "BC: SGS de 30/10/2026",
+        "BC: nota de 13/03/2025 (mudança contábil)"
       ],
-      "texto": "As provisões representaram 7,9% da carteira em set-26, ante 8,1% em agosto. A cobertura calculada pela razão entre provisão e inadimplência foi de 158,6%, ante 160,4%.\n\nA razão relaciona provisões totais a crédito inadimplente. A avaliação de suficiência depende das perdas esperadas, da composição e das garantias. A série de provisões muda de critério em jan-25, com a adoção das perdas esperadas por estágios; comparações que atravessam essa competência exigem atenção ao conceito contábil."
+      "texto": "A proteção por provisões ficou ligeiramente menor em setembro, em um ambiente ainda pressionado por atrasos. As provisões caíram de 8,1% para 7,9% da carteira, e a cobertura do crédito inadimplente recuou de 160,4% para 158,6%. Como a inadimplência total também diminuiu no mês, a queda da cobertura indica que o estoque de provisões perdeu peso relativo aos créditos já inadimplentes. Ao mesmo tempo, a piora dos atrasos curtos em PF mantém pressão potencial sobre as perdas futuras.\n\nO ponto de atenção para a rentabilidade é a possibilidade de necessidade adicional de provisionamento enquanto o crescimento do crédito desacelera. Esse cenário depende da evolução das perdas, das recuperações e da composição das carteiras. A cobertura agregada, isoladamente, não demonstra insuficiência de provisões nem mede a despesa de crédito do período. A conclusão é de menor folga relativa frente aos atrasos observados, com maior exigência sobre a qualidade da originação e a recuperação de créditos. Comparações históricas devem respeitar a mudança contábil de janeiro de 2025."
     },
     "npl_faixa_renda": {
       "titulo": "Inadimplência por faixa de renda",
       "data_base": "2026-07",
       "fontes": [
-        "BC · SCR.data, jul/2026",
-        "BC · Metodologia SCR.data",
-        "BC · BCData/SGS, consulta de 30/10/2026 (dados de set/2026)"
+        "BC: SCR.data, jul/2026",
+        "BC: SGS de 30/10/2026",
+        "Valor Econômico, 30/10/2026"
       ],
-      "texto": "O recorte por renda do SCR.data tem competência própria, informada na página. As séries de crédito do SGS desta atualização chegam a set-26. A comparação entre as fontes exige conferir o mês, a população e o denominador de cada recorte.\n\nAs faixas de renda são expressas em salários mínimos e seus limites monetários mudam com o salário mínimo. A série de ativo problemático tem mudança de metodologia em jan-25. As comparações históricas devem considerar essas mudanças."
+      "texto": "A distribuição da deterioração entre faixas de renda será decisiva para a extensão deste ciclo de perdas. A reportagem de 30/10 reúne relatos de pressão concentrada na baixa renda e sinais de avanço para a renda média, especialmente em cartões. Se essa ampliação se confirmar, mais tomadores passarão a enfrentar dificuldade de pagamento, reduzindo o alcance de estratégias baseadas apenas em restringir os segmentos de menor renda. A combinação de parcelas elevadas e crédito caro ajuda a explicar por que a pressão pode persistir mesmo com renegociações.\n\nEsses relatos são sinais qualitativos; o recorte SCR.data desta página chega a julho e ainda não confirma a distribuição da piora observada em setembro. A questão para as próximas divulgações é se os atrasos continuarão concentrados nas faixas mais vulneráveis ou avançarão de forma consistente nas intermediárias. Isso definirá a amplitude do ajuste necessário na concessão e na cobrança. O quadro agregado já exige atenção: endividamento de 50,1% da renda anual em agosto e inadimplência de 8,1% no crédito livre PF em setembro."
     },
     "taxas": {
       "titulo": "Taxas de juros e spread",
       "data_base": "2026-09",
       "fontes": [
-        "BC · Nota à Imprensa, 29/10/2026 (dados de set/2026)",
-        "BC · BCData/SGS, consulta de 30/10/2026 (dados de set/2026 e revisões)"
+        "BC: nota de 29/10/2026",
+        "BC: SGS de 30/10/2026",
+        "Valor Econômico, 30/10/2026"
       ],
-      "texto": "Segundo a nota do BC, a taxa média das concessões foi de 32,4% a.a. em set-26, e o spread, 21,6 p.p. No crédito livre, o SGS registra taxas de 62,35% a.a. para PF e de 24,37% a.a. para PJ.\n\nAs taxas médias refletem os juros contratados e a composição das novas operações. A comparação deve manter o mesmo segmento, tipo de recurso e período."
+      "texto": "O custo final do crédito às famílias continua subindo apesar da redução recente da Selic. Em setembro, a taxa média do crédito livre PF chegou a 62,4% ao ano, ante 61,8% em agosto, e o spread passou de 47,6 para 48,5 pontos percentuais. O rotativo do cartão atingiu 451,7% ao ano. Em PJ livre, a taxa média ficou em 24,4%. A transmissão do alívio monetário ao tomador permanece limitada, em um ambiente de maior inadimplência; mudanças na composição das operações também influenciam essas médias.\n\nJuros elevados e orçamento familiar pressionado podem prolongar a deterioração: o serviço da dívida reduz a folga de pagamento, e o risco de perda dificulta a redução do preço dos empréstimos. As restrições à oferta ativa de crédito anunciadas pelo BC reforçam a importância de avaliar a capacidade de pagamento na originação. Novas exigências prudenciais, ainda em discussão, poderiam conter a oferta ou aumentar seu custo. Para o setor, a recomposição de spreads precisa ser avaliada junto com perdas, recuperação e retenção dos clientes capazes de pagar."
     }
   }
 }
