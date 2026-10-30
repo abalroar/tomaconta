@@ -15666,14 +15666,18 @@ if dre_consolidada_tipo not in DRE_VISUALIZACOES:
     dre_consolidada_tipo = "DRE Gerencial"
     st.session_state["dre_consolidada_tipo_visualizacao"] = "DRE Gerencial"
 if menu == "DRE (Ind. e Congl.)":
-    st.markdown("### DRE (Ind. e Congl.)")
-    render_module_help("DRE (Ind. e Congl.)")
-    dre_consolidada_tipo = st.segmented_control(
-        "Tipo de visualização",
-        options=DRE_VISUALIZACOES,
-        key="dre_consolidada_tipo_visualizacao",
-    )
-    st.markdown("---")
+    _dre_title, _dre_view = st.columns([2, 1])
+    with _dre_view:
+        dre_consolidada_tipo = st.selectbox(
+            "Visualização", options=DRE_VISUALIZACOES,
+            key="dre_consolidada_tipo_visualizacao", label_visibility="collapsed",
+            format_func=lambda value: "Análise financeira (conglomerado)" if value == "Balanço, DRE e Carteira (Congl.)" else value,
+        )
+    with _dre_title:
+        st.markdown("### Análise financeira" if dre_consolidada_tipo == "Balanço, DRE e Carteira (Congl.)" else "### DRE (Ind. e Congl.)")
+    if dre_consolidada_tipo != "Balanço, DRE e Carteira (Congl.)":
+        render_module_help("DRE (Ind. e Congl.)")
+        st.markdown("---")
 
 timer_box_menu = None
 menu_timer_state_key = None
@@ -26406,7 +26410,9 @@ elif menu == "Glossário":
     from tabs.glossary import render as render_glossary
     render_glossary()
 
-if menu in {"Contas COSIF", "DRE (Ind. e Congl.)"}:
+if menu in {"Contas COSIF", "DRE (Ind. e Congl.)"} and not (
+    menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo == "Balanço, DRE e Carteira (Congl.)"
+):
     _render_cache_status_por_aba(menu)
 
 if timer_box_menu is not None and menu_timer_state_key and menu_timer_signature and t0_menu_timer is not None:

@@ -1,0 +1,27 @@
+{
+  "source_url": "https://www.bcb.gov.br/content/estabilidadefinanceira/cosif/Conglomerados-prudenciais/202510BLOPRUDENCIAL.csv.zip",
+  "filename": "202510BLOPRUDENCIAL.CSV",
+  "sha256": "e74f22724f3b20bad00bc1b40f91c726fa00542ca22f6ddaa0bbd0657f4a38ad",
+  "rows": 49264,
+  "period": "202510",
+  "unit": "BRL",
+  "documents": {
+    "4060": 49264
+  },
+  "institutions": 167,
+  "parser": "strict-v1",
+  "header": [
+    "Balancete/Balanco Geral Consolidado Prudencial (Documentos: 4060 - 4066)",
+    "Data de geracao dos dados: 2026-10-19",
+    "Fonte: Instituicoes financeiras"
+  ],
+  "comparison": {
+    "previous_rows": 52890,
+    "added": 32,
+    "removed": 37,
+    "changed_balances": 349
+  },
+  "historical_duplicate_rows_preserved": 0,
+  "archive": "data/bundled/bloprudencial/sources/202510-e74f22724f3b.zip",
+  "cache_sha256": "f81fadba4ef1f01c6162da3a34fdf677ca4409a40a1e98975d1964f6f0099932"
+}

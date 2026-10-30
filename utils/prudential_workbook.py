@@ -13,6 +13,7 @@ from io import BytesIO
 import xlsxwriter
 
 from .prudential_analysis import Analysis
+from .prudential_presentation import display_rows, institution_label
 
 
 STYLES = {
@@ -40,19 +41,74 @@ def render_xlsx(analysis: Analysis) -> bytes:
                        "comments":"BCB COSIF 4060/4066 e IFData. Fórmulas e fontes preservadas no arquivo."})
     wb.set_calc_mode("auto")
     formats={}
-    def fmt(style,number_format=None,numeric=False):
-        key=(style,number_format,numeric)
+    def fmt(style,number_format=None,numeric=False,compact=False,edge=False):
+        key=(style,number_format,numeric,compact,edge)
         if key not in formats:
             cfg={"font_name":"Tahoma","font_size":10,"font_color":"#000000","valign":"vcenter",**STYLES[style]}
             if numeric:cfg["align"]="right"
             if number_format:cfg["num_format"]=number_format
+            if compact:cfg["font_size"]=9
+            if edge:cfg.update(right=1,right_color="#A7ADB4")
             formats[key]=wb.add_format(cfg)
         return formats[key]
+
+    # One editable committee page follows the supplied photograph: statements
+    # side by side, narrow numeric columns, and compact black subtotal bands.
+    from .prudential_analysis import col_name
+    committee=wb.add_worksheet("Comitê")
+    committee.hide_gridlines(2)
+    committee.set_zoom(85)
+    committee.set_default_row(14.5)
+    committee.set_column(0,0,2)
+    panel_columns=1+2*len(analysis.periods)
+    right_start=1+panel_columns+2
+    end_col=right_start+panel_columns-1
+    committee.merge_range(1,1,1,end_col,"Conglomerado prudencial | Balanço e DRE",wb.add_format({"font_name":"Tahoma","font_size":12,"bold":True,"font_color":"#222222"}))
+    committee.set_row(1,24)
+    max_row=6
+    for name,start_col in [("Balanço",1),("DRE",right_start)]:
+        sheet=analysis.sheets[name]
+        last_col=start_col+panel_columns-1
+        committee.set_column(start_col,start_col,54)
+        committee.merge_range(3,start_col,3,last_col,f"{institution_label(analysis.institution)} · {name}",fmt("header",compact=True))
+        committee.write(4,start_col,"Fonte",fmt("source",compact=True))
+        committee.write(5,start_col,"R$ MM",fmt("header",compact=True))
+        for i,period in enumerate(analysis.periods):
+            c=start_col+1+2*i
+            committee.set_column(c,c,10)
+            committee.set_column(c+1,c+1,7)
+            committee.merge_range(4,c,4,c+1,sheet.cells[f"{col_name(3+2*i)}5"].value,fmt("source",compact=True))
+            committee.merge_range(5,c,5,c+1,datetime(int(period[:4]),int(period[4:]),1),fmt("header","[$-416]mmm-yy",compact=True))
+        for target_row,(ident,source_row,label) in enumerate(display_rows(analysis,name,committee=True),6):
+            style=sheet.cells[f"B{source_row}"].style
+            committee.write(target_row,start_col,label,fmt(style,compact=True))
+            if style=="total":committee.set_row(target_row,17)
+            for i,_ in enumerate(analysis.periods):
+                for offset in range(2):
+                    source_col=col_name(3+2*i+offset)
+                    cell=sheet.cells.get(f"{source_col}{source_row}")
+                    if name=="Balanço" and offset==1 and (style in {"indent","detail"} or ident=="net"):
+                        cell=None
+                    destination=start_col+1+2*i+offset
+                    number_format=cell.fmt if cell else None
+                    f=fmt(style,number_format,True,compact=True,edge=offset==1)
+                    if cell is not None and cell.value is not None:
+                        committee.write_formula(target_row,destination,f"='{name}'!{source_col}{source_row}",f,cell.value)
+                    else:committee.write_blank(target_row,destination,None,f)
+            max_row=max(max_row,target_row)
+    committee.set_column(1+panel_columns, right_start-1,3)
+    committee.merge_range(max_row+2,1,max_row+2,end_col,"BCB · Fontes, critérios e conciliações nas abas de apoio. N/D: dado não disponível.",fmt("note",compact=True))
+    committee.set_landscape()
+    committee.set_paper(9 if len(analysis.periods)<=2 else 8)
+    committee.fit_to_pages(1,1)
+    committee.set_margins(.2,.2,.25,.25)
+    committee.print_area(1,1,max_row+2,end_col)
+    committee.set_tab_color("#000000")
     for name,s in analysis.sheets.items():
         ws=wb.add_worksheet(name)
         ws.hide_gridlines(2)
         ws.set_zoom(90 if name in {"Balanço","DRE","Carteira 4.966"} else 85)
-        ws.set_default_row(19)
+        ws.set_default_row(17)
         for col,width in s.widths.items():ws.set_column(f"{col}:{col}",width)
         for row,height in s.heights.items():ws.set_row(row-1,height,options={"hidden":row in s.hidden_rows})
         for row in s.hidden_rows:ws.set_row(row-1,s.heights.get(row,19),options={"hidden":True,"level":1})
