@@ -18,6 +18,7 @@ sys.path.insert(0, str(ROOT))
 import pandas as pd
 
 from tools.build_prudential_workbook import load_local_sources
+from utils.ifdata_cache.bloprudencial_cache import BloprudencialCache
 from utils.prudential_analysis import build_analysis
 from utils.prudential_workbook import render_xlsx
 
@@ -63,7 +64,7 @@ def main():
     parser.add_argument("--xlsx", action="store_true")
     args = parser.parse_args()
     start = time.monotonic()
-    path = args.root / "data/bundled/bloprudencial/dados.parquet"
+    path = BloprudencialCache(args.root).arquivo_dados
     periods = sorted(pd.read_parquet(path, columns=["DATA_BASE"]).DATA_BASE.astype(str).unique())
     cosif, sources = load_local_sources(args.root, periods)
     sources_by_code = {kind: {code: group for code, group in frame.groupby("CodInst")} for kind, frame in sources.items()}
