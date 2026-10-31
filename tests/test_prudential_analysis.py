@@ -93,7 +93,10 @@ def test_xlsx_contains_live_formulas_snapshot_style_and_hidden_inputs(simple_sou
     assert wb["Comitê"].freeze_panes == "C7"
     assert wb["Balanço"]["C7"].number_format.startswith("[$-416]")
     assert all(wb[name].sheet_state == "hidden" for name in ("Mapa COSIF", "Dados COSIF", "Dados IFData", "Validações"))
-    assert all(wb[name].page_setup.orientation == "landscape" for name in wb.sheetnames[:4])
+    assert wb["Comitê"].page_setup.orientation == "landscape"
+    assert all(wb[name].page_setup.orientation == "portrait" for name in wb.sheetnames[1:4])
+    assert all((wb[name].page_setup.scale or 100) >= 60 for name in wb.sheetnames[:4])
+    assert not any(wb[name].sheet_properties.pageSetUpPr and wb[name].sheet_properties.pageSetUpPr.fitToPage for name in wb.sheetnames[:4])
     row=a.rows["Balanço"]["roe"]
     assert wb["Balanço"][f"D{row}"].fill.fgColor.rgb=="FFF3F5F6"
     assert all("Validações" not in c.value for s in wb if s.title!="Validações" for row in s for c in row if c.data_type=="f")
@@ -171,7 +174,7 @@ def test_committee_long_selection_uses_legible_pages_with_every_period(simple_so
     analysis = build_analysis(pd.concat([simple_sources.assign(DATA_BASE=p) for p in periods]), {}, "C1", periods)
     workbook = load_workbook(BytesIO(render_xlsx(analysis)))
     committee = workbook["Comitê"]
-    assert committee.max_column == 13
+    assert committee.max_column == 12
     assert len(committee.row_breaks.brk) == 2
     dates = [cell.value.strftime("%Y%m") for row in committee for cell in row if getattr(cell, "is_date", False)]
     assert sorted(set(dates)) == periods
@@ -279,3 +282,37 @@ def test_refresh_restores_previous_sources_when_promotion_fails(tmp_path):
     assert pd.read_parquet(old["a"].arquivo_dados).x.iloc[0] == 1
     assert pd.read_parquet(old["b"].arquivo_dados).x.iloc[0] == 2
 
+
+
+def test_presentation_keeps_negative_small_zero_and_missing_distinct():
+    from utils.prudential_analysis import Cell
+    from utils.prudential_presentation import format_cell, value_tone
+    money = "#,##0;[Red]-#,##0;0"
+    assert [format_cell(Cell(v, fmt=money)) for v in (0, 9.5e-13, -.3, .3, -1234.4, "N/D")] == ["0", "0", "-<1", "<1", "-1.234", "N/D"]
+    assert [value_tone(Cell(v, fmt=money)) for v in (0, 9.5e-13, -.3, -5, 5, "N/D")] == ["zero", "zero", "negative", "negative", "", "missing"]
+    assert format_cell(Cell(-.001, fmt="0%;[Red]-0%;0%")) == "0%"
+    assert format_cell(Cell(.003, fmt="0.00%")) == "0,30%"
+
+
+def test_committee_panels_end_together_and_long_selection_pages_keep_pairs(simple_sources):
+    from utils.prudential_presentation import period_chunks
+    assert [len(c) for c in period_chunks(list("abcdefgh"))] == [4, 4]
+    assert [len(c) for c in period_chunks(list("abcde"))] == [3, 2]
+    periods = ["202303", "202306", "202312", "202406", "202412", "202506", "202512", "202606"]
+    analysis = build_analysis(pd.concat([simple_sources.assign(DATA_BASE=p) for p in periods]), {}, "C1", periods)
+    workbook = load_workbook(BytesIO(render_xlsx(analysis)))
+    committee = workbook["Comitê"]
+    last = lambda col: max(c.row for c in committee[col] if c.value is not None and c.row < committee.row_breaks.brk[0].id - 2)
+    assert last("B") == last("H")
+    balance = workbook["Balanço"]
+    assert balance.print_title_cols == "$A:$B" and "$2:$6" in balance.print_title_rows
+    assert [b.id for b in balance.col_breaks.brk] == [10]  # Four periods per page; 2 + 2*4 columns precede the break.
+
+
+def test_slides_follow_accounting_groups_and_never_open_on_a_subaccount(simple_sources):
+    from utils.prudential_pptx import paginate_rows, MAX_ROWS
+    analysis = build_analysis(simple_sources, {}, "C1", ["202606"])
+    for name in ("Balanço", "DRE", "Carteira 4.966"):
+        for _, rows in paginate_rows(analysis, name):
+            assert len(rows) <= MAX_ROWS
+            assert analysis.sheets[name].cells[f"B{rows[0][1]}"].style not in {"indent", "detail"}

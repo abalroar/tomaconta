@@ -9,7 +9,7 @@ import streamlit as st
 from utils.ifdata_cache.bloprudencial_cache import load_bloprudencial_parquet_slice
 from utils.ifdata_cache.revision_cache import revision_cache_data
 from utils.prudential_analysis import build_analysis, text_id
-from utils.prudential_presentation import institution_label, render_statement_html
+from utils.prudential_presentation import export_filename, institution_label, render_statement_html
 from utils.prudential_workbook import render_xlsx
 from utils.prudential_pptx import render_pptx
 
@@ -37,7 +37,7 @@ def render(manager, cache_token):
     default = next((i for i, code in enumerate(codes) if "ITAU" in names[code].upper()), 0)
     labels = {code: institution_label(name) for code, name in names.items()}
     repeated = pd.Series(labels).duplicated(keep=False).to_dict()
-    left, right = st.columns([1, 1.6])
+    left, right, export = st.columns([1.1, 2.7, .62], gap="small")
     with left:
         code = st.selectbox("Instituição", codes, index=default,
                             format_func=lambda c: labels[c] + (f" ({c})" if repeated[c] else ""),
@@ -81,12 +81,13 @@ def render(manager, cache_token):
                 st.write(str(exc))
             return
     _, analysis = saved
-    context_col, download_col = st.columns([5, 1])
-    with context_col:
-        st.caption(f"{labels[code]} · R$ milhões")
-    with download_col:
+    with export, st.container(key="tc_fin_export"):
+        # The export button lines up with the fields, below their labels.
+        st.markdown("""<style>.st-key-tc_fin_export { margin-top:1.75rem; }
+.st-key-tc_fin_export [data-testid="stElementContainer"]:has(style) { display:none; }
+@media(max-width:640px) { .st-key-tc_fin_export { margin-top:0; } }</style>""", unsafe_allow_html=True)
         with st.popover("Exportar", width="stretch"):
-            filename = f"analise_{code}_{'_'.join(analysis.periods)}"
+            filename = export_filename(analysis)
             st.download_button("Excel", data=lambda a=analysis: render_xlsx(a),
                                file_name=filename + ".xlsx",
                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -98,4 +99,4 @@ def render(manager, cache_token):
     for tab, name in zip(st.tabs(["Balanço", "DRE", "Carteira 4.966"]), ["Balanço", "DRE", "Carteira 4.966"]):
         with tab:
             st.markdown(render_statement_html(analysis, name), unsafe_allow_html=True)
-    st.caption("N/D: dado não disponível na fonte para o período.")
+    st.caption("R$ milhões. DRE acumulada no semestre. N/D: dado não disponível na fonte para o período.")
