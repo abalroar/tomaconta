@@ -11,8 +11,9 @@ from utils.ifdata_cache.revision_cache import revision_cache_data
 from utils.prudential_analysis import build_analysis, text_id
 from utils.prudential_presentation import institution_label, render_statement_html
 from utils.prudential_workbook import render_xlsx
+from utils.prudential_pptx import render_pptx
 
-MODEL_VERSION = "committee-v3"
+MODEL_VERSION = "statement-v4"
 SOURCES = ("bloprudencial", "ativo", "dre", "capital", "principal", "carteira_instrumentos")
 
 
@@ -72,38 +73,29 @@ def render(manager, cache_token):
                             sources[kind].attrs["prudential_provenance"] = {
                                 "filename": f"{kind}/dados.parquet", "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
                 analysis = build_analysis(cosif, sources, code, periods)
-                binary = render_xlsx(analysis)
-                saved = (signature, analysis, binary)
+                saved = (signature, analysis)
                 st.session_state["prudential_excel_result"] = saved
         except (ValueError, KeyError, OSError) as exc:
             st.error("Não foi possível reconciliar esta seleção.")
             with st.expander("Detalhes da fonte"):
                 st.write(str(exc))
             return
-    _, analysis, binary = saved
+    _, analysis = saved
     context_col, download_col = st.columns([5, 1])
     with context_col:
-        st.caption("Conglomerado prudencial · R$ milhões")
+        st.caption(f"{labels[code]} · R$ milhões")
     with download_col:
-        st.download_button("Excel", data=binary,
-                           file_name=f"analise_prudencial_{code}_{'_'.join(analysis.periods)}.xlsx",
-                           mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                           key=f"download_prudential_excel_{signature}", on_click="ignore", width="stretch")
+        with st.popover("Exportar", width="stretch"):
+            filename = f"analise_{code}_{'_'.join(analysis.periods)}"
+            st.download_button("Excel", data=lambda a=analysis: render_xlsx(a),
+                               file_name=filename + ".xlsx",
+                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                               key=f"download_prudential_excel_{signature}", on_click="ignore", width="stretch")
+            st.download_button("PowerPoint", data=lambda a=analysis: render_pptx(a),
+                               file_name=filename + ".pptx",
+                               mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                               key=f"download_prudential_pptx_{signature}", on_click="ignore", width="stretch")
     for tab, name in zip(st.tabs(["Balanço", "DRE", "Carteira 4.966"]), ["Balanço", "DRE", "Carteira 4.966"]):
         with tab:
             st.markdown(render_statement_html(analysis, name), unsafe_allow_html=True)
-
-    checks = pd.DataFrame(analysis.checks)
-    issues = checks[checks.status.eq("Divergência")]
-    label = "Fontes e validações" + (f" · {len(issues)} diferenças" if not issues.empty else "")
-    with st.expander(label):
-        st.caption(f"{analysis.code} · {checks.status.eq('OK').sum()} conferências OK · "
-                   f"{checks.status.eq('N/D').sum()} indisponíveis. N/D indica informação ausente.")
-        if not issues.empty:
-            st.dataframe(issues.rename(columns={"check": "Conferência", "period": "Data-base",
-                          "difference": "Diferença", "tolerance": "Tolerância", "status": "Situação", "note": "Nota"}),
-                          hide_index=True, width="stretch")
-        st.caption(f"Cachê: {len(available)} competências para esta instituição, de {available[-1][4:]}/{available[-1][:4]} "
-                   f"a {available[0][4:]}/{available[0][:4]}.")
-        for note in analysis.limitations:
-            st.caption(note)
+    st.caption("N/D: dado não disponível na fonte para o período.")

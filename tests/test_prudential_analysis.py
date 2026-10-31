@@ -81,17 +81,21 @@ def test_december_dre_is_second_semester_without_adding_june(simple_sources):
     assert "2S26" in a.sheets["DRE"].cells["E5"].value
 
 
-def test_xlsx_contains_live_formulas_tahoma_black_bands_and_inspectable_inputs(simple_sources):
+def test_xlsx_contains_live_formulas_snapshot_style_and_hidden_inputs(simple_sources):
     a=build_analysis(simple_sources,{},"C1",["202606"])
     payload=render_xlsx(a)
     wb=load_workbook(BytesIO(payload),data_only=False)
     assert wb.sheetnames[:4]==["Comitê","Balanço","DRE","Carteira 4.966"]
     assert wb["Comitê"]["C7"].value == "='Balanço'!C7"
     assert "INDEX(" in wb["Mapa COSIF"]["I2"].value and "MATCH(" in wb["Mapa COSIF"]["I2"].value
-    assert wb["Balanço"]["B2"].font.name=="Tahoma"
+    assert wb["Balanço"]["B2"].font.name=="Calibri"
     assert wb["Balanço"].row_dimensions[4].hidden
+    assert wb["Comitê"].freeze_panes == "C7"
+    assert wb["Balanço"]["C7"].number_format.startswith("[$-416]")
+    assert all(wb[name].sheet_state == "hidden" for name in ("Mapa COSIF", "Dados COSIF", "Dados IFData", "Validações"))
+    assert all(wb[name].page_setup.orientation == "landscape" for name in wb.sheetnames[:4])
     row=a.rows["Balanço"]["roe"]
-    assert wb["Balanço"][f"D{row}"].fill.fgColor.rgb=="FF000000"
+    assert wb["Balanço"][f"D{row}"].fill.fgColor.rgb=="FFF3F5F6"
     assert all("Validações" not in c.value for s in wb if s.title!="Validações" for row in s for c in row if c.data_type=="f")
 
 
@@ -129,4 +133,149 @@ def test_bundled_real_institutions_close_without_synthetic_child_double_count(co
     critical=[x for x in a.checks if x["check"].startswith(("Balanço: Ativo", "Balanço: composição", "DRE: resultado"))]
     assert critical and all(x["status"]=="OK" for x in critical),critical
     assert not any(x["status"]=="Divergência" for x in a.checks if "subcontas apresentadas" in x["check"])
+
+
+def test_native_pptx_paginates_every_row_and_period_without_images(simple_sources):
+    import json
+    from pptx import Presentation
+    from utils.prudential_pptx import render_pptx, MAX_ROWS
+    from utils.prudential_presentation import display_rows, format_cell
+    from utils.prudential_analysis import col_name
+    periods = ["202303", "202306", "202312", "202406", "202412", "202506", "202512", "202606"]
+    data = pd.concat([simple_sources.assign(DATA_BASE=p) for p in periods])
+    analysis = build_analysis(data, {}, "C1", periods)
+    deck = Presentation(BytesIO(render_pptx(analysis)))
+    seen = {}
+    for slide in deck.slides:
+        assert not any(shape.shape_type == 13 for shape in slide.shapes)
+        table = next(shape.table for shape in slide.shapes if shape.has_table)
+        notes = json.loads(slide.notes_slide.notes_text_frame.text)
+        assert len(table.rows) <= MAX_ROWS + 1
+        name = notes["statement"]
+        assert slide.shapes[-1].top + slide.shapes[-1].height <= deck.slide_height
+        for n, period in enumerate(notes["periods"]):
+            key = (name, period)
+            seen.setdefault(key, []).extend(notes["rows"])
+            for r, ident in enumerate(notes["rows"], 1):
+                row = analysis.rows[name][ident]
+                column = col_name(3 + 2 * periods.index(period))
+                assert table.cell(r, 1 + n*2).text == format_cell(analysis.sheets[name].cells.get(f"{column}{row}"))
+    for name in ("Balanço", "DRE", "Carteira 4.966"):
+        expected = [ident for ident, _, _ in display_rows(analysis, name)]
+        for period in periods:
+            assert seen[name, period] == expected
+
+
+def test_committee_long_selection_uses_legible_pages_with_every_period(simple_sources):
+    periods = ["202406", "202412", "202506", "202512", "202603", "202606"]
+    analysis = build_analysis(pd.concat([simple_sources.assign(DATA_BASE=p) for p in periods]), {}, "C1", periods)
+    workbook = load_workbook(BytesIO(render_xlsx(analysis)))
+    committee = workbook["Comitê"]
+    assert committee.max_column == 13
+    assert len(committee.row_breaks.brk) == 2
+    dates = [cell.value.strftime("%Y%m") for row in committee for cell in row if getattr(cell, "is_date", False)]
+    assert sorted(set(dates)) == periods
+    assert sum(cell.data_type == "f" for row in committee for cell in row) > 100
+
+
+def test_update_gate_rejects_broken_balance_and_duplicate_new_identity(simple_sources):
+    from utils.ifdata_cache.financial_analysis_update import validate_candidate
+    baseline = validate_candidate(simple_sources, {}, "202606")
+    assert not baseline["errors"]
+    broken = simple_sources.copy()
+    broken.loc[broken.DOCUMENTO.eq("4066") & broken.CONTA.eq("6000000004"), "SALDO"] += 100
+    report = validate_candidate(broken, {}, "202606")
+    assert any(item["check"] == "Balanço: Ativo = Passivo + PL" for item in report["errors"])
+    missing = simple_sources[~simple_sources.CONTA.str.startswith("6")]
+    assert any(item["check"] == "Grupos patrimoniais obrigatórios" for item in validate_candidate(missing, {}, "202606")["errors"])
+    new = pd.DataFrame([{"CodInst": "C1", "Período": "2/2026", "Lucro Líquido": 50}]*2)
+    with pytest.raises(ValueError, match="chave"):
+        validate_candidate(simple_sources, {"dre": new}, "202606")
+    legacy = pd.DataFrame([{"CodInst": None, "Período": "1/2015", "Lucro Líquido": 50}]*2)
+    assert not validate_candidate(simple_sources, {"dre": legacy}, "202606")["errors"]
+
+
+def test_update_gate_keeps_cross_document_differences_in_report(simple_sources):
+    from utils.ifdata_cache.financial_analysis_update import validate_candidate
+    other = simple_sources.copy()
+    other.loc[other.DOCUMENTO.eq("4060") & other.CONTA.eq("6000000004"), "SALDO"] += 20
+    report = validate_candidate(other, {}, "202606")
+    assert not report["errors"]
+    assert any(item["check"].startswith("Conciliação patrimonial") for item in report["warnings"])
+
+
+def test_month_discovery_stops_at_access_error_and_accepts_latest(monkeypatch, tmp_path):
+    from datetime import date
+    import requests
+    from utils.ifdata_cache import financial_analysis_update as update
+    calls = []
+    def download(period, *args, **kwargs):
+        calls.append(period)
+        if period == "202608":
+            return tmp_path / "source.zip"
+        response = requests.Response(); response.status_code = 404
+        raise requests.HTTPError(response=response)
+    monkeypatch.setattr(update, "download_bloprudencial_zip", download)
+    monkeypatch.setattr(update, "extract_bloprudencial_csv", lambda *args: tmp_path / "source.csv")
+    assert update.discover_source(tmp_path, today=date(2026, 10, 30))[0] == "202608"
+    assert calls == ["202609", "202608"]
+    def blocked(*args, **kwargs):
+        response = requests.Response(); response.status_code = 403
+        raise requests.HTTPError(response=response)
+    monkeypatch.setattr(update, "download_bloprudencial_zip", blocked)
+    with pytest.raises(requests.HTTPError):
+        update.discover_source(tmp_path, today=date(2026, 10, 30))
+
+
+def test_refresh_is_idempotent_and_rejects_invalid_candidate_without_writing(simple_sources, tmp_path, monkeypatch):
+    from tools import update_financial_analysis as cli
+    from utils.ifdata_cache import BloprudencialCache
+    # The fixture contains only COSIF; there are no dependent reports to rebuild.
+    monkeypatch.setattr(cli, "materialize_for_publication", lambda *args, **kwargs: [])
+    root = tmp_path / "repo"; root.mkdir()
+    path = tmp_path / "source.csv"
+    simple_sources.rename(columns={"DATA_BASE": "#DATA_BASE"}).to_csv(path, sep=";", decimal=",", index=False)
+    first, receipt = cli.update(root, csv=path, offline=True)
+    assert first["status"] == "updated", first
+    assert first["sources"] and receipt.is_file()
+    active = BloprudencialCache(root).arquivo_dados
+    original_bytes = active.read_bytes()
+    second, _ = cli.update(root, csv=path, offline=True)
+    assert second["status"] == "unchanged", second
+    assert active.read_bytes() == original_bytes
+    broken = simple_sources.copy()
+    broken.loc[broken.DOCUMENTO.eq("4066") & broken.CONTA.eq("6000000004"), "SALDO"] += 100
+    broken.rename(columns={"DATA_BASE": "#DATA_BASE"}).to_csv(path, sep=";", decimal=",", index=False)
+    third, _ = cli.update(root, csv=path, offline=True)
+    assert third["status"] == "failed"
+    assert third["validation"]["errors"] and third["sources"]
+    assert active.read_bytes() == original_bytes
+
+
+def test_refresh_restores_previous_sources_when_promotion_fails(tmp_path):
+    from types import SimpleNamespace
+    from utils.ifdata_cache.financial_analysis_update import promote_legacy
+    import json
+    class Cache:
+        def __init__(self, directory, value, fail=False):
+            directory.mkdir(parents=True)
+            self.arquivo_dados = directory / "dados.parquet"
+            self.arquivo_metadata = directory / "metadata.json"
+            self.fail = fail
+            pd.DataFrame({"x": [value]}).to_parquet(self.arquivo_dados)
+            self.arquivo_metadata.write_text(json.dumps({"fonte": "api"}))
+        def existe_leitura(self):
+            return True
+        def salvar_local(self, data, **kwargs):
+            if self.fail:
+                return SimpleNamespace(sucesso=False, mensagem="simulated I/O failure")
+            data.to_parquet(self.arquivo_dados)
+            return SimpleNamespace(sucesso=True)
+    old = {"a": Cache(tmp_path / "old/a", 1), "b": Cache(tmp_path / "old/b", 2, fail=True)}
+    new = {"a": Cache(tmp_path / "new/a", 10), "b": Cache(tmp_path / "new/b", 20)}
+    manager = SimpleNamespace(base_dir=tmp_path, get_cache=old.get)
+    with pytest.raises(ValueError, match="simulated"):
+        promote_legacy(manager, SimpleNamespace(get_cache=new.get), ["a", "b"])
+    assert pd.read_parquet(old["a"].arquivo_dados).x.iloc[0] == 1
+    assert pd.read_parquet(old["b"].arquivo_dados).x.iloc[0] == 2
 

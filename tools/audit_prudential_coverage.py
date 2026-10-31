@@ -24,7 +24,7 @@ from utils.prudential_workbook import render_xlsx
 
 
 def audit_institution(job):
-    code, frame, sources, export = job
+    code, frame, sources, export, pptx = job
     rows = []
     available = sorted(frame.DATA_BASE.unique())
     size = min(8, len(available))
@@ -49,6 +49,13 @@ def audit_institution(job):
                     assert not any(b't="e"' in workbook.read(name) for name in workbook.namelist()
                                    if name.startswith("xl/worksheets/sheet") and name.endswith(".xml"))
                 item["xlsx_bytes"] = len(payload)
+            if pptx and period == "comparative":
+                from utils.prudential_pptx import render_pptx
+                payload = render_pptx(analysis)
+                with zipfile.ZipFile(BytesIO(payload)) as deck:
+                    assert deck.testzip() is None
+                    assert not any(name.startswith("ppt/media/") for name in deck.namelist())
+                item["pptx_bytes"] = len(payload)
             item["generated"] = True
         except Exception as exc:
             item.update(generated=False, error=f"{type(exc).__name__}: {exc}")
@@ -62,13 +69,14 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--workers", type=int, default=3)
     parser.add_argument("--xlsx", action="store_true")
+    parser.add_argument("--pptx", action="store_true", help="Verify an eight-period native deck for every institution")
     args = parser.parse_args()
     start = time.monotonic()
     path = BloprudencialCache(args.root).arquivo_dados
     periods = sorted(pd.read_parquet(path, columns=["DATA_BASE"]).DATA_BASE.astype(str).unique())
     cosif, sources = load_local_sources(args.root, periods)
     sources_by_code = {kind: {code: group for code, group in frame.groupby("CodInst")} for kind, frame in sources.items()}
-    jobs = ((code, group, {kind: groups.get(code, pd.DataFrame()) for kind, groups in sources_by_code.items()}, args.xlsx)
+    jobs = ((code, group, {kind: groups.get(code, pd.DataFrame()) for kind, groups in sources_by_code.items()}, args.xlsx, args.pptx)
             for code, group in cosif.groupby("COD_CONGL", sort=True))
     results = []
     args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -90,7 +98,7 @@ def main():
     comparisons = [r for r in results if r["period"] == "comparative"]
     results = [r for r in results if r["period"] != "comparative"]
     summary = {"institutions": cosif.COD_CONGL.nunique(), "periods": periods, "pairs": len(results),
-               "generated": sum(r["generated"] for r in results), "xlsx_verified": args.xlsx,
+               "generated": sum(r["generated"] for r in results), "xlsx_verified": args.xlsx, "pptx_verified": args.pptx,
                "comparisons": len(comparisons), "comparisons_generated": sum(r["generated"] for r in comparisons),
                "duplicate_keys": int(cosif.duplicated(["COD_CONGL", "DATA_BASE", "DOCUMENTO", "CONTA"]).sum()),
                "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
