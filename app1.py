@@ -15672,6 +15672,12 @@ if menu == "DRE (Ind. e Congl.)":
         st.markdown(
             """<style>
 .st-key-tc_fin_views [data-testid="stElementContainer"]:has(style) { display:none; }
+.st-key-tc_fin_export button p { white-space:nowrap; }
+@media(min-width:641px) {
+  [data-testid="stHorizontalBlock"]:has(> [data-testid="stColumn"] .st-key-tc_fin_export) { flex-wrap:nowrap; }
+  [data-testid="stHorizontalBlock"]:has(> [data-testid="stColumn"] .st-key-tc_fin_export) > [data-testid="stColumn"] { min-width:0; }
+  [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:has(.st-key-tc_fin_export) { flex:0 0 7.5rem; min-width:7.5rem; }
+}
 .st-key-tc_fin_views [data-baseweb="button-group"] { flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; }
 .st-key-tc_fin_views button { flex:0 0 auto; min-height:1.85rem; padding:.1rem .8rem; background:transparent; color:#626970; border-color:#E8EAED; }
 .st-key-tc_fin_views button p { font-size:.82rem; white-space:nowrap; }
