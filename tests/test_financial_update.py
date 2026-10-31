@@ -131,3 +131,54 @@ def test_installed_source_enters_runtime_with_its_own_signature(tmp_path, monkey
     monkeypatch.setattr("utils.ifdata_cache.release_ops._publication_scope", lambda names: (["a"], []))
     subject.activate_installed_sources(SimpleNamespace(get_cache=lambda name: cache), ["a"])
     assert saved == [{"sha256": hashlib.sha256(b"bytes").hexdigest(), "periodos": ["202606"]}]
+
+
+def _published(frame, decisions=None):
+    from hashlib import sha256
+    from io import BytesIO
+    from unittest.mock import Mock
+    buffer = BytesIO()
+    frame.to_parquet(buffer, index=False)
+    raw = buffer.getvalue()
+    def fake_get(url, **kwargs):
+        response = Mock(status_code=200, content=raw)
+        response.raise_for_status = lambda: None
+        response.json = lambda: {"cosif_decisions": decisions or []}
+        return response
+    info = {"cache": "bloprudencial", "exists": True, "sha256": sha256(raw).hexdigest(), "record_count": len(frame), "max_period_ref": str(frame.DATA_BASE.max())}
+    return info, fake_get, sha256(raw).hexdigest()
+
+
+def _cosif(*periods):
+    return pd.DataFrame([{"DATA_BASE": period, "Período": period, "DOCUMENTO": "4060", "COD_CONGL": "C1", "CONTA": "1000000009", "SALDO": 1.0} for period in periods])
+
+
+def test_newer_published_month_replaces_the_installed_base_with_its_decisions(tmp_path, monkeypatch):
+    from hashlib import sha256
+    from utils.ifdata_cache import BloprudencialCache
+    from utils.individual_release_cache import ensure_published_bloprudencial
+    cache = BloprudencialCache(tmp_path)
+    assert cache.salvar_local(_cosif("202606"), fonte="teste").sucesso
+    decision = [{"id": "nova:4060:8197000009", "account": "8197000009", "row": "provision"}]
+    info, fake_get, digest = _published(_cosif("202606", "202607"), decision)
+    monkeypatch.setattr("utils.individual_release_cache.requests.get", fake_get)
+    assert ensure_published_bloprudencial(cache, info, "https://exemplo/release") is True
+    assert sha256(cache.read_data_file.read_bytes()).hexdigest() == digest
+    assert cache.row_overrides() == {"8197000009": "provision"}
+    # Uma nova sessão enxerga a mesma competência e não baixa de novo.
+    monkeypatch.setattr("utils.individual_release_cache.requests.get", lambda *a, **k: pytest.fail("sem download"))
+    fresh = BloprudencialCache(tmp_path)
+    assert ensure_published_bloprudencial(fresh, info, "https://exemplo/release") is False
+    assert pd.read_parquet(fresh.arquivo_dados).DATA_BASE.max() == "202607"
+
+
+def test_older_or_equal_release_never_replaces_the_installed_base(tmp_path, monkeypatch):
+    from utils.ifdata_cache import BloprudencialCache
+    from utils.individual_release_cache import ensure_published_bloprudencial
+    cache = BloprudencialCache(tmp_path)
+    assert cache.salvar_local(_cosif("202606"), fonte="teste").sucesso
+    before = cache.read_data_file.read_bytes()
+    monkeypatch.setattr("utils.individual_release_cache.requests.get", lambda *a, **k: pytest.fail("sem download"))
+    for period in ("202606", "202605"):
+        assert ensure_published_bloprudencial(cache, {"max_period_ref": period, "sha256": "0" * 64}, "https://exemplo/release") is False
+    assert cache.read_data_file.read_bytes() == before
