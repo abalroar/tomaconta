@@ -28,3 +28,28 @@ def test_evolucao_has_institution_scoped_capital_helper():
     assert "def _construir_componentes_capital_instituicao_slice" in source
     assert "mask_exata = serie_inst.eq(instituicao_str)" in source
     assert "resolver_nomes_instituicoes_capital(" in source
+
+
+def test_module_level_flow_has_no_undefined_names():
+    """Uma extração de bloco não pode deixar para trás nomes usados pelo restante da página."""
+    import ast
+    import builtins
+
+    tree = ast.parse(_app_source())
+    defined = set(dir(builtins)) | {"__file__"}
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            defined.add(node.name)
+        elif isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+            defined.add(node.id)
+        elif isinstance(node, ast.arg):
+            defined.add(node.arg)
+        elif isinstance(node, ast.ExceptHandler) and node.name:
+            defined.add(node.name)
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            defined.update((alias.asname or alias.name).split(".")[0] for alias in node.names)
+
+    assert not {
+        node.id: node.lineno for node in ast.walk(tree)
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and node.id not in defined
+    }
