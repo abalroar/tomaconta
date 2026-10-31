@@ -16047,6 +16047,17 @@ def _evolucao_enriquecer(df_ano, df_ev, instituicao):
     return df_ano, core_funding_trace_map, core_funding_memoria_map, carteira_trace_map, carteira_memoria_map, evolucao_avisos
 
 
+def _fmt_pct(v):
+    if pd.isna(v):
+        return "-"
+    try:
+        v_num = float(v)
+        v_pct = v_num * 100
+        return f"{v_pct:.1f}%".replace(".", ",")
+    except Exception:
+        return "-"
+
+
 def _evolucao_tabela(df_ano):
     """Séries do gráfico e indicadores da tabela, formatados como na aba."""
     graf_cols = {
@@ -16082,16 +16093,6 @@ def _evolucao_tabela(df_ano):
             return "-"
         try:
             return f"{float(v):,.0f}".replace(",", ".")
-        except Exception:
-            return "-"
-
-    def _fmt_pct(v):
-        if pd.isna(v):
-            return "-"
-        try:
-            v_num = float(v)
-            v_pct = v_num * 100
-            return f"{v_pct:.1f}%".replace(".", ",")
         except Exception:
             return "-"
 
@@ -16605,6 +16606,9 @@ elif menu == "Evolução":
         )
         for _aviso in _avisos_evolucao:
             st.caption(_aviso)
+        periodos_capital_evolucao = tuple(
+            df_ano.get("Período", pd.Series(dtype="object")).dropna().astype(str).unique().tolist()
+        )
 
         periodos_sem_capital = df_ano.loc[
             df_ano["Índice de Capital Principal (CET1)"].isna()
