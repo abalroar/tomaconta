@@ -283,3 +283,11 @@ def test_statement_catalog_cache_is_keyed_by_the_view():
     assert [arg.arg for arg in catalog.args.args] == ["token", "individual_view"]
     # Variáveis livres ficam fora da chave do cache: a visão não pode vir do escopo externo.
     assert "individual" not in {node.id for node in ast.walk(catalog) if isinstance(node, ast.Name)}
+
+
+def test_screen_note_keeps_every_currency_sign_literal(monkeypatch):
+    from types import SimpleNamespace
+    import tabs.prudential_analysis as subject
+    monkeypatch.setattr(subject, "reference_note", lambda analysis: "* Diferença (R$ milhões).")
+    note = subject.statement_note(SimpleNamespace())
+    assert note.count(r"\$") == 2 and note.count("$") == 2

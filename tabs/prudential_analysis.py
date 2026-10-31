@@ -21,6 +21,12 @@ MODEL_VERSION = "statement-v6"
 SOURCES = ("bloprudencial", "ativo", "dre", "capital", "principal", "carteira_instrumentos")
 
 
+def statement_note(analysis):
+    """Nota da tela. O Markdown leria dois "$" como fórmula e apagaria o "R$"."""
+    note = "R$ milhões. DRE acumulada no ano. –: dado não disponível na fonte para o período. " + reference_note(analysis)
+    return note.rstrip().replace("$", r"\$")
+
+
 def individual_analysis_frame(manager, code, periods):
     """Balancete da pessoa jurídica no formato da análise; o CNPJ-base é a identidade."""
     frame = manager.get_cache("balancete_individual").load_institution(code, required_periods(periods))
@@ -170,4 +176,4 @@ def render(manager, cache_token, *, portfolio_model=None, evolution_payload=None
                     st.caption("Carteira 4.966: dado trimestral; competências mensais selecionadas não têm esta abertura.")
             else:
                 st.markdown(render_statement_html(analysis, name), unsafe_allow_html=True)
-    st.caption(("R$ milhões. DRE acumulada no ano. –: dado não disponível na fonte para o período. " + reference_note(analysis)).rstrip())
+    st.caption(statement_note(analysis))
