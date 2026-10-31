@@ -6,22 +6,29 @@ COSIF mensal (4066 para o balanço; 4060 para o resultado) e IF.data trimestral
 
 ## Apresentação
 
-`utils/financial_statement_style.py` concentra Calibri, laranja `#EC7000`,
-texto `#24282E`, linhas `#E8EAED` e subtotais `#F3F5F6`. Os helpers nativos
-de PowerPoint foram extraídos do Snapshot para `utils/presentation_tables.py`;
-o layout e os cálculos do Snapshot foram preservados.
+`utils/financial_statement_style.py` concentra tipografia, cores e larguras:
+Calibri, laranja `#EC7000` reservado a cabeçalhos do site e do PowerPoint, grafite
+`#2F3640` nas faixas do Excel, linhas `#E8EAED` e subtotais `#F3F5F6`.
+`utils/prudential_presentation.py` define as linhas-chave (`KEY_ROWS`), os grupos
+contábeis (`PAGE_GROUPS`) e a formatação comum de valores. Os helpers nativos de
+PowerPoint foram extraídos do Snapshot para `utils/presentation_tables.py`; o layout
+e os cálculos do Snapshot foram preservados.
 
-- Tela: rótulo calculado pelo texto, limitado a 320 px (210 px em tela estreita),
-  hierarquia recuada, números à direita, uma área **Exportar**.
+- Tela: instituição, períodos e **Exportar** na mesma linha; rótulo ajustado ao texto,
+  limitado a 320 px (170 px em tela estreita, com quebra de linha); valor e percentual
+  lado a lado; cabeçalho e coluna de contas fixos na rolagem.
 - Excel: Comitê, Balanço, DRE e Carteira 4.966 visíveis; fontes, mapa e validações
-  ocultos e reexibíveis. Fórmulas e valores numéricos continuam editáveis.
-  A aba Comitê compara dois períodos por página; todos os períodos selecionados
-  permanecem nas abas detalhadas e nas páginas seguintes. Impressão em paisagem.
-- PowerPoint: tabelas nativas, até três períodos e 16 linhas por slide, com
-  cabeçalhos repetidos. Nenhuma linha da seleção é descartada na paginação.
-- Formato brasileiro com LCID `416` no Excel; sinal de menos nos negativos,
-  preservando a leitura compacta da referência. Montantes em R$ milhões.
-  `N/D` continua diferente de zero. A DRE permanece acumulada no semestre.
+  ocultos e reexibíveis. Fórmulas e valores numéricos continuam editáveis. O Comitê
+  fica em A4 paisagem, com dois períodos por página e os dois painéis terminando
+  juntos. As demais abas ficam em A4 retrato, com até quatro períodos por página e
+  títulos e contas repetidos; a escala é fixa, sem encolher para caber.
+- PowerPoint: tabelas nativas, até quatro períodos e 21 linhas por slide, com
+  cabeçalhos repetidos. Os slides seguem os grupos contábeis, e a conta principal
+  acompanha as subcontas. Nenhuma linha da seleção é descartada na paginação.
+- Formato brasileiro com LCID `416` no Excel. Montantes em R$ milhões. Negativos em
+  vermelho, zeros e `N/D` em cinza; valores abaixo de R$ 0,5 milhão aparecem como
+  `<1`, sem alterar o número guardado. `N/D` continua diferente de zero. A DRE
+  permanece acumulada no semestre.
 
 ## Atualização
 

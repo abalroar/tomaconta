@@ -15667,11 +15667,24 @@ if st.session_state.get("dre_consolidada_tipo_visualizacao") not in DRE_VISUALIZ
 dre_consolidada_tipo = st.session_state["dre_consolidada_tipo_visualizacao"]
 if menu == "DRE (Ind. e Congl.)":
     st.markdown("### Análise financeira")
-    dre_consolidada_tipo = st.segmented_control(
-        "Visão contábil", options=DRE_VISUALIZACOES,
-        key="dre_consolidada_tipo_visualizacao", label_visibility="collapsed",
-        format_func=_DRE_VIEW_LABELS.get, selection_mode="single", width="stretch",
-    )
+    # Discreet, on a single line: narrow screens scroll the four views instead of wrapping them.
+    with st.container(key="tc_fin_views"):
+        st.markdown(
+            """<style>
+.st-key-tc_fin_views [data-testid="stElementContainer"]:has(style) { display:none; }
+.st-key-tc_fin_views [data-baseweb="button-group"] { flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; }
+.st-key-tc_fin_views button { flex:0 0 auto; min-height:1.85rem; padding:.1rem .8rem; background:transparent; color:#626970; border-color:#E8EAED; }
+.st-key-tc_fin_views button p { font-size:.82rem; white-space:nowrap; }
+.st-key-tc_fin_views button[kind="segmented_controlActive"] { background:#F3F5F6; color:#24282E; border-color:#8A9099; }
+.st-key-tc_fin_views button[kind="segmented_controlActive"] p { font-weight:600; }
+</style>""",
+            unsafe_allow_html=True,
+        )
+        dre_consolidada_tipo = st.segmented_control(
+            "Visão contábil", options=DRE_VISUALIZACOES,
+            key="dre_consolidada_tipo_visualizacao", label_visibility="collapsed",
+            format_func=_DRE_VIEW_LABELS.get, selection_mode="single", width="content",
+        )
     # A second click on the active segment deselects it in Streamlit.
     dre_consolidada_tipo = dre_consolidada_tipo or DRE_VISUALIZACOES[0]
     _dre_sources = {
