@@ -107,6 +107,7 @@ def test_extractor_web_backend_is_explicit(tmp_path, monkeypatch):
     from utils.ifdata_cache.ifdata_web import get_web_source
     monkeypatch.setenv("TOMACONTA_IFDATA_SOURCE", "web")
     monkeypatch.setenv("TOMACONTA_IFDATA_WEB_DIR", str(tmp_path))
+    monkeypatch.setenv("TOMACONTA_IFDATA_REGISTRY_DIR", str(tmp_path / "registry"))
     get_web_source.cache_clear()
     monkeypatch.setattr(extractor, "_fetch_json", lambda *a, **k: pytest.fail("Olinda não deve ser chamada"))
     assert len(extractor.extrair_cadastro("202606")) == 2

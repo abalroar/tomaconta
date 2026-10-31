@@ -15655,29 +15655,32 @@ with st.sidebar:
             args=("Atualizar Base",),
         )
 
-DRE_VISUALIZACOES = ["DRE Gerencial", "Conglomerado Prudencial", "DRE Individual", "Balanço, DRE e Carteira (Congl.)"]
-if "dre_consolidada_tipo_visualizacao" not in st.session_state:
-    st.session_state["dre_consolidada_tipo_visualizacao"] = "DRE Gerencial"
-dre_consolidada_tipo = st.session_state.get("dre_consolidada_tipo_visualizacao", "Conglomerado Prudencial")
-if dre_consolidada_tipo == "Conglomerado prudencial":
-    dre_consolidada_tipo = "Conglomerado Prudencial"
-    st.session_state["dre_consolidada_tipo_visualizacao"] = "Conglomerado Prudencial"
-if dre_consolidada_tipo not in DRE_VISUALIZACOES:
-    dre_consolidada_tipo = "DRE Gerencial"
-    st.session_state["dre_consolidada_tipo_visualizacao"] = "DRE Gerencial"
+DRE_VISUALIZACOES = ["Balanço, DRE e Carteira (Congl.)", "DRE Gerencial", "Conglomerado Prudencial", "DRE Individual"]
+_DRE_VIEW_LABELS = {
+    "Balanço, DRE e Carteira (Congl.)": "Análise · Prudencial",
+    "DRE Gerencial": "DRE reorganizada · IF.data",
+    "Conglomerado Prudencial": "DRE · Prudencial",
+    "DRE Individual": "DRE · Individual",
+}
+if st.session_state.get("dre_consolidada_tipo_visualizacao") not in DRE_VISUALIZACOES:
+    st.session_state["dre_consolidada_tipo_visualizacao"] = DRE_VISUALIZACOES[0]
+dre_consolidada_tipo = st.session_state["dre_consolidada_tipo_visualizacao"]
 if menu == "DRE (Ind. e Congl.)":
-    _dre_title, _dre_view = st.columns([2, 1])
-    with _dre_view:
-        dre_consolidada_tipo = st.selectbox(
-            "Visualização", options=DRE_VISUALIZACOES,
-            key="dre_consolidada_tipo_visualizacao", label_visibility="collapsed",
-            format_func=lambda value: "Análise financeira (conglomerado)" if value == "Balanço, DRE e Carteira (Congl.)" else value,
-        )
-    with _dre_title:
-        st.markdown("### Análise financeira" if dre_consolidada_tipo == "Balanço, DRE e Carteira (Congl.)" else "### DRE (Ind. e Congl.)")
-    if dre_consolidada_tipo != "Balanço, DRE e Carteira (Congl.)":
-        render_module_help("DRE (Ind. e Congl.)")
-        st.markdown("---")
+    st.markdown("### Análise financeira")
+    dre_consolidada_tipo = st.segmented_control(
+        "Visão contábil", options=DRE_VISUALIZACOES,
+        key="dre_consolidada_tipo_visualizacao", label_visibility="collapsed",
+        format_func=_DRE_VIEW_LABELS.get, selection_mode="single", width="stretch",
+    )
+    # A second click on the active segment deselects it in Streamlit.
+    dre_consolidada_tipo = dre_consolidada_tipo or DRE_VISUALIZACOES[0]
+    _dre_sources = {
+        "Balanço, DRE e Carteira (Congl.)": "BCB COSIF · Mensal  |  IF.data · Trimestral  |  Conglomerado prudencial",
+        "DRE Gerencial": "BCB IF.data · Trimestral · Acumulado no semestre · Perímetro selecionável",
+        "Conglomerado Prudencial": "BCB IF.data · Trimestral · Acumulado no ano · Conglomerado prudencial",
+        "DRE Individual": "BCB IF.data · Trimestral · Acumulado no ano · Instituição individual",
+    }
+    st.caption(_dre_sources[dre_consolidada_tipo])
 
 timer_box_menu = None
 menu_timer_state_key = None
