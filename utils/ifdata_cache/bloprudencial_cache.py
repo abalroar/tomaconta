@@ -40,6 +40,11 @@ class BloprudencialCache(BaseCache):
         runtime_config = replace(BLOPRUDENCIAL_CONFIG, github_url_base=release_config.release_base_url)
         super().__init__(runtime_config, base_dir)
 
+    @property
+    def read_data_file(self) -> Path:
+        """Arquivo lido hoje, para conferência contra a release."""
+        return self.arquivo_dados
+
     def cosif_decisions(self) -> list[dict]:
         """Decisões da revisão de contas, guardadas no metadata e publicadas com os dados."""
         try:
