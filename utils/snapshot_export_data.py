@@ -146,7 +146,7 @@ def carteira_history(bank, cutoff, api, *, base=BASE):
     return build_carteira_4966_model(source, ativo, periods), "", warnings
 
 
-def export_snapshot_package(snapshot, df_bank_all, api):
+def export_snapshot_package(snapshot, df_bank_all, api, *, committee_slides=None):
     """Chamado somente no download: falha de uma fonte preserva os demais slides."""
     from .snapshot_pptx_export import export_snapshot_powerpoint
     peer_reason = carteira_reason = ""
@@ -165,4 +165,4 @@ def export_snapshot_package(snapshot, df_bank_all, api):
         carteira_reason = "Fonte da Carteira 4.966 indisponível para este recorte."
     payload = {**snapshot, "carteira_notes": warnings}
     return export_snapshot_powerpoint(payload, peers, carteira, peers_unavailable_reason=peer_reason,
-                                     carteira_unavailable_reason=carteira_reason)
+                                     carteira_unavailable_reason=carteira_reason, committee_slides=committee_slides)

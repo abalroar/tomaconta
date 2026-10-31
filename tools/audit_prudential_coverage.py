@@ -29,7 +29,8 @@ def audit_institution(job):
     available = sorted(frame.DATA_BASE.unique())
     size = min(8, len(available))
     comparative = [available[round(i*(len(available)-1)/max(1,size-1))] for i in range(size)]
-    selections = [(str(p), data, [str(p)]) for p, data in frame.groupby("DATA_BASE", sort=True)]
+    # Setembro e dezembro precisam do junho do ano; por isso a instituição inteira segue junto.
+    selections = [(str(p), frame, [str(p)]) for p in sorted(frame.DATA_BASE.unique())]
     selections.append(("comparative", frame, comparative))
     for period, data, periods in selections:
         item = {"code": code, "period": period, "periods": periods, "source_rows": len(data)}

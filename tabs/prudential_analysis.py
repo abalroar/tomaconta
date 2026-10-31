@@ -12,13 +12,40 @@ from utils.ifdata_cache.bloprudencial_cache import load_bloprudencial_parquet_sl
 from utils.ifdata_cache.revision_cache import revision_cache_data
 from utils.prudential_analysis import build_analysis, text_id
 from tabs.carteira_4966 import render_carteira_4966_html
-from utils.prudential_presentation import default_periods, export_filename, institution_label, period_label, render_statement_html
+from utils.prudential_presentation import default_periods, reference_note, export_filename, institution_label, period_label, render_statement_html
 from utils.prudential_workbook import render_xlsx
 from utils.prudential_pptx import render_pptx
-from utils.prudential_nim import add_nim_rows, credit_balances, prior_periods
+from utils.prudential_nim import add_nim_rows, credit_balances, prior_periods, required_periods
 
-MODEL_VERSION = "statement-v5"
+MODEL_VERSION = "statement-v6"
 SOURCES = ("bloprudencial", "ativo", "dre", "capital", "principal", "carteira_instrumentos")
+
+
+def load_analysis(manager, code, periods):
+    """Análise completa da seleção; usada pela aba e pelas exportações do Snapshot."""
+    cache = manager.get_cache("bloprudencial")
+    needed = required_periods(periods)
+    cosif = load_bloprudencial_parquet_slice(cache, periodos_yyyymm=needed)
+    cosif.attrs["prudential_provenance"] = {
+        "filename": "bloprudencial/dados.parquet", "sha256": hashlib.sha256(cache.arquivo_dados.read_bytes()).hexdigest()}
+    sources = {}
+    for kind in SOURCES[1:]:
+        result = manager.carregar(kind)
+        if result.sucesso and result.dados is not None:
+            sources[kind] = result.dados.copy()
+            path = manager.get_cache(kind).arquivo_dados
+            if path.is_file():
+                sources[kind].attrs["prudential_provenance"] = {
+                    "filename": f"{kind}/dados.parquet", "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+    analysis = build_analysis(cosif, sources, code, periods)
+    # A carteira média das NIMs usa dezembro anterior, mesmo fora da seleção.
+    prior_credit = {}
+    available = set(cosif[cosif.COD_CONGL.astype(str).eq(code)].DATA_BASE.map(text_id))
+    missing = [p for p in prior_periods(analysis.periods) if p in available]
+    if missing:
+        prior_credit = credit_balances(build_analysis(cosif, sources, code, missing))
+    add_nim_rows(analysis, prior_credit)
+    return analysis
 
 
 def render(manager, cache_token, *, portfolio_model=None, evolution_payload=None):
@@ -64,26 +91,7 @@ def render(manager, cache_token, *, portfolio_model=None, evolution_payload=None
     if not saved or saved[0] != signature:
         try:
             with st.spinner("Carregando demonstrações…"):
-                cosif = load_bloprudencial_parquet_slice(cache, periodos_yyyymm=periods)
-                cosif.attrs["prudential_provenance"] = {
-                    "filename": "bloprudencial/dados.parquet", "sha256": hashlib.sha256(cache.arquivo_dados.read_bytes()).hexdigest()}
-                sources = {}
-                for kind in SOURCES[1:]:
-                    result = manager.carregar(kind)
-                    if result.sucesso and result.dados is not None:
-                        sources[kind] = result.dados.copy()
-                        path = manager.get_cache(kind).arquivo_dados
-                        if path.is_file():
-                            sources[kind].attrs["prudential_provenance"] = {
-                                "filename": f"{kind}/dados.parquet", "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
-                analysis = build_analysis(cosif, sources, code, periods)
-                # A carteira média das NIMs pode usar um fechamento fora da seleção.
-                prior_credit = {}
-                missing = [p for p in prior_periods(analysis.periods) if p in available]
-                if missing:
-                    prior_cosif = load_bloprudencial_parquet_slice(cache, periodos_yyyymm=missing)
-                    prior_credit = credit_balances(build_analysis(prior_cosif, sources, code, missing))
-                add_nim_rows(analysis, prior_credit)
+                analysis = load_analysis(manager, code, periods)
                 saved = (signature, analysis)
                 st.session_state["prudential_excel_result"] = saved
         except (ValueError, KeyError, OSError) as exc:
@@ -121,4 +129,4 @@ def render(manager, cache_token, *, portfolio_model=None, evolution_payload=None
                     st.caption("Carteira 4.966: dado trimestral; competências mensais selecionadas não têm esta abertura.")
             else:
                 st.markdown(render_statement_html(analysis, name), unsafe_allow_html=True)
-    st.caption("R$ milhões. DRE acumulada no semestre. –: dado não disponível na fonte para o período.")
+    st.caption(("R$ milhões. DRE acumulada no ano. –: dado não disponível na fonte para o período. " + reference_note(analysis)).rstrip())

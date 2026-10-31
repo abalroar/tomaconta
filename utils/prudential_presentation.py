@@ -21,7 +21,7 @@ LABELS = {
     "others": "Outros Créditos", "related": "A Receber de Sociedades Ligadas",
     "other_funding": "Empréstimos, Repasses e Demais Obrigações",
     "assets": "Ativo Total", "liabilities": "Passivo Exigível", "liab_equity": "Passivo + Patrimônio Líquido",
-    "equity": "Patrimônio Líquido", "net": "Resultado Líquido (acum. no semestre)",
+    "equity": "Patrimônio Líquido", "net": "Resultado Líquido (acum. no ano)",
     "roe": "ROE (anualizado)", "basel": "Índice de Basileia",
 }
 
@@ -48,6 +48,39 @@ ZERO_EPSILON = 1e-6
 PERIODS_PER_PAGE = 4
 DEFAULT_QUARTERS = 4
 QUARTER_MONTHS = ("03", "06", "09", "12")
+
+
+REFERENCE_MARKED = {"after_pdd", "nim_after_pdd"}
+
+
+def reference_differences(analysis: Analysis) -> list[tuple[str, float, float]]:
+    """Competências em que a intermediação pelo COSIF e a do Rel. 4 têm sinais opostos."""
+    found = []
+    for period in analysis.periods:
+        pair = getattr(analysis, "reference", {}).get(period)
+        if pair and (pair["cosif"] < 0) != (pair["rel4"] < 0):
+            found.append((period, pair["cosif"], pair["rel4"]))
+    return found
+
+
+def reference_note(analysis: Analysis) -> str:
+    """Ressalva gerada por regra, igual para qualquer instituição e competência."""
+    found = reference_differences(analysis)
+    if not found:
+        return ""
+    values = "; ".join(f"{_window_label(p)}: {_plain_number(v)} no COSIF e {_plain_number(r)} no Rel. 4" for p, v, r in found)
+    return (f"* Sinal diferente do Resultado de Intermediação do Rel. 4 do IF.data ({values}; R$ milhões). A DRE segue as contas COSIF: "
+            "variação cambial e outros itens ficam em Outras Receitas/Despesas Operacionais, enquanto o hedge pode estar na intermediação. "
+            "A classificação não altera o lucro apurado no COSIF.")
+
+
+def _window_label(period: str) -> str:
+    start = "jul" if int(period[4:]) > 6 else "jan"
+    return f"{start}–{period_label(period)}"
+
+
+def _plain_number(value: float) -> str:
+    return f"{value:,.0f}".replace(",", ".")
 
 
 def row_tier(name: str, ident: str, style: str) -> str:
@@ -140,6 +173,8 @@ def display_rows(analysis: Analysis, name: str, *, committee: bool = False):
             label = LABELS["net"]
         elif name == "DRE" and ident == "after_pdd":
             label = "Resultado Líquido da Intermediação"
+        if name == "DRE" and ident in REFERENCE_MARKED and reference_differences(analysis):
+            label += "*"
         yield ident, row, label
 
 

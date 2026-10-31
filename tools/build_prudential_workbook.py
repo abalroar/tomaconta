@@ -15,6 +15,7 @@ import pandas as pd
 from utils.ifdata_cache.bloprudencial_cache import BloprudencialCache, load_bloprudencial_parquet_slice
 from utils.ifdata_cache.bloprudencial_ingest import ingest_source
 from utils.prudential_analysis import build_analysis
+from utils.prudential_nim import required_periods
 from utils.prudential_workbook import analysis_spec, render_xlsx
 
 
@@ -43,7 +44,7 @@ def main():
     parser.add_argument("--spec-only",action="store_true")
     args=parser.parse_args()
     for path in args.import_csv:ingest_source(path,args.root)
-    cosif,sources=load_local_sources(args.root,args.periods)
+    cosif,sources=load_local_sources(args.root,required_periods(args.periods))
     analysis=build_analysis(cosif,sources,args.code,args.periods)
     args.output.parent.mkdir(parents=True,exist_ok=True)
     args.output.with_suffix(".spec.json").write_text(json.dumps(analysis_spec(analysis),ensure_ascii=False,indent=2,allow_nan=False))

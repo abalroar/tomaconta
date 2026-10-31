@@ -74,11 +74,34 @@ def test_missing_zero_and_identity_are_not_interchangeable(simple_sources):
         build_analysis(pd.concat([simple_sources,simple_sources.iloc[:1]]),{},"C1",["202606"])
 
 
-def test_december_dre_is_second_semester_without_adding_june(simple_sources):
-    dec=simple_sources.copy();dec.DATA_BASE="202612"
-    a=build_analysis(pd.concat([simple_sources,dec]),{},"C1",["202606","202612"])
-    assert value(a,"DRE","net","E")==value(a,"DRE","net","C")
-    assert "2S26" in a.sheets["DRE"].cells["E5"].value
+def test_year_to_date_dre_for_the_four_base_dates(simple_sources):
+    """Mar e jun já vêm acumulados; set e dez somam junho, sem duplicar."""
+    frames = [simple_sources.assign(DATA_BASE=p) for p in ("202603", "202606", "202609", "202612")]
+    data = pd.concat(frames)
+    one = value(build_analysis(data, {}, "C1", ["202606"]), "DRE", "net", "C")
+    assert value(build_analysis(data, {}, "C1", ["202603"]), "DRE", "net", "C") == one
+    assert value(build_analysis(data, {}, "C1", ["202609"]), "DRE", "net", "C") == pytest.approx(2 * one)
+    december = build_analysis(data, {}, "C1", ["202606", "202612"])
+    assert value(december, "DRE", "net", "E") == pytest.approx(2 * one)
+    assert value(december, "DRE", "net", "C") == one
+    assert "jan–dez/26" in december.sheets["DRE"].cells["E5"].value
+
+
+def test_year_to_date_is_unavailable_without_june_instead_of_partial(simple_sources):
+    a = build_analysis(simple_sources.assign(DATA_BASE="202612"), {}, "C1", ["202612"])
+    assert value(a, "DRE", "net", "C") == "N/D"
+
+
+def test_reference_note_is_automatic_and_only_on_opposite_signs(simple_sources):
+    from utils.prudential_presentation import display_rows, reference_differences, reference_note
+    a = build_analysis(simple_sources, {}, "C1", ["202606"])
+    assert reference_note(a) == ""
+    a.reference["202606"] = {"cosif": -13883.0, "rel4": 30534.0}
+    assert reference_differences(a) == [("202606", -13883.0, 30534.0)]
+    assert "jan–jun/26: -13.883 no COSIF e 30.534 no Rel. 4" in reference_note(a)
+    assert any(label.endswith("*") for ident, _, label in display_rows(a, "DRE") if ident == "after_pdd")
+    a.reference["202606"] = {"cosif": 5.0, "rel4": 30534.0}
+    assert reference_note(a) == ""
 
 
 def test_xlsx_contains_live_formulas_snapshot_style_and_hidden_inputs(simple_sources):
@@ -98,7 +121,7 @@ def test_xlsx_contains_live_formulas_snapshot_style_and_hidden_inputs(simple_sou
     assert all((wb[name].page_setup.scale or 100) >= 60 for name in wb.sheetnames[:4])
     assert not any(wb[name].sheet_properties.pageSetUpPr and wb[name].sheet_properties.pageSetUpPr.fitToPage for name in wb.sheetnames[:4])
     row=a.rows["Balanço"]["roe"]
-    assert wb["Balanço"][f"D{row}"].fill.fgColor.rgb=="FF2F3640"
+    assert wb["Balanço"][f"D{row}"].fill.fgColor.rgb=="FFEC7000"
     assert all("Validações" not in c.value for s in wb if s.title!="Validações" for row in s for c in row if c.data_type=="f")
 
 
@@ -131,7 +154,7 @@ def test_strict_ingestion_preserves_zero_leading_cnpj_and_replaces_period(tmp_pa
 def test_bundled_real_institutions_close_without_synthetic_child_double_count(code):
     from tools.build_prudential_workbook import load_local_sources
     root=Path(__file__).resolve().parents[1]
-    c,s=load_local_sources(root,["202512","202606"])
+    c,s=load_local_sources(root,["202506","202512","202606"])
     a=build_analysis(c,s,code,["202512","202606"])
     critical=[x for x in a.checks if x["check"].startswith(("Balanço: Ativo", "Balanço: composição", "DRE: resultado"))]
     assert critical and all(x["status"]=="OK" for x in critical),critical
@@ -323,17 +346,16 @@ def test_workbook_prints_unavailable_as_dash_but_keeps_the_value(simple_sources)
     assert any(cell.value == "N/D" and cell.number_format.endswith(';"–"') for row in ws.iter_rows(min_row=7) for cell in row)
 
 
-def test_nim_uses_average_with_prior_semester_end_and_annualizes(simple_sources):
-    from utils.prudential_nim import add_nim_rows, credit_balances, prior_periods, prior_semester_end
-    assert [prior_semester_end(p) for p in ("202603", "202606", "202609", "202612")] == ["202512", "202512", "202606", "202606"]
+def test_nim_uses_average_with_prior_year_end_and_annualizes(simple_sources):
+    from utils.prudential_nim import add_nim_rows, credit_balances, prior_periods, prior_year_end, required_periods
+    assert [prior_year_end(p) for p in ("202603", "202606", "202609", "202612")] == ["202512"] * 4
     periods = ["202512", "202606"]
-    assert prior_periods(periods) == ["202506"]
+    assert prior_periods(periods) == ["202412"]
+    assert required_periods(["202609"]) == ["202512", "202606", "202609"]
     analysis = build_analysis(pd.concat([simple_sources.assign(DATA_BASE=p) for p in periods]), {}, "C1", periods)
-    gross_before = analysis.sheets["DRE"].cells[f"C{analysis.rows['DRE']['gross']}"].value
-    add_nim_rows(analysis, {"202506": 40.0})
+    add_nim_rows(analysis, {"202412": 40.0})
     sheet, rows = analysis.sheets["DRE"], analysis.rows["DRE"]
     assert rows["nim_gross"] == rows["net"] + 1 and rows["nim_after_pdd"] == rows["net"] + 2
-    assert sheet.cells[f"C{rows['gross']}"].value == gross_before
     credit = credit_balances(analysis)
     gross = sheet.cells[f"E{rows['gross']}"].value
     if credit.get("202606") and isinstance(gross, (int, float)) and credit["202606"] + credit["202512"] > 0:
@@ -341,3 +363,8 @@ def test_nim_uses_average_with_prior_semester_end_and_annualizes(simple_sources)
         assert sheet.cells[f"E{rows['nim_gross']}"].value == pytest.approx(expected)
     wb = load_workbook(BytesIO(render_xlsx(analysis)))
     assert "AVERAGE" in wb["DRE"][f"E{rows['nim_gross']}"].value
+    # A nota desce sem cobrir as métricas: nenhuma mesclagem pode ocupar suas linhas.
+    assert wb["DRE"][f"C{rows['nim_after_pdd']}"].value is not None
+    merged = [m for m in wb["DRE"].merged_cells.ranges if m.min_row > 6]
+    assert all(m.min_row > rows["nim_after_pdd"] for m in merged)
+
