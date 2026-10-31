@@ -471,7 +471,7 @@ def test_individual_peer_history_uses_individual_metrics_and_never_capital_fallb
     assert query["metrics"] == list(subject.INDIVIDUAL_METRICS)
     assert query["periods"] == ["4/2025", "1/2026", "2/2026"]
     jun = [cell for cell in query["cells"] if cell["period"] == "2/2026"]
-    assert len(jun) == 6
+    assert len(jun) == len(subject.INDIVIDUAL_METRICS)
     assert all(cell["value"] is None and cell["display"] == "N/D" for cell in jun)
     assert all("individual" in cell["source"] for cell in query["cells"])
 
