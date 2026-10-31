@@ -9,9 +9,10 @@ GRID = "#E8EAED"
 SECTION = "#F3F5F6"
 KEY_FILL = "#E9ECEF"
 RULE = "#8A9099"
-BAND = "#2F3640"
-BAND_NEGATIVE = "#FFB4A8"
-BAND_MUTED = "#C5CAD0"
+BAND = ACCENT
+# Vermelho sobre laranja não se lê: na faixa, o negativo fica branco e leva o sinal.
+BAND_NEGATIVE = "#FFFFFF"
+BAND_MUTED = "#FFE3CC"
 NEGATIVE = "#B32624"
 MISSING = "–"
 LABEL_MAX_PX = 320

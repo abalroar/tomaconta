@@ -356,7 +356,7 @@ def _carteira_slides(prs, snapshot, model, reason):
         })
 
 
-def export_snapshot_powerpoint(snapshot: Mapping, peers_query=None, carteira_model=None, *, peers_unavailable_reason="", carteira_unavailable_reason="") -> bytes:
+def export_snapshot_powerpoint(snapshot: Mapping, peers_query=None, carteira_model=None, *, peers_unavailable_reason="", carteira_unavailable_reason="", committee_slides=None) -> bytes:
     """Exporta Snapshot (2 slides), Peers e 4.966, nessa ordem.
 
     ``snapshot.cards`` contém ``label``, ``value`` (texto já formatado), ``group``
@@ -375,8 +375,14 @@ def export_snapshot_powerpoint(snapshot: Mapping, peers_query=None, carteira_mod
     prs.core_properties.author = "Toma Conta"
     prs.core_properties.keywords = "Snapshot; Tabela de Peers; Carteira 4.966; editável"
     _snapshot_slides(prs, snapshot)
+    # Material de comitê: as demonstrações entram logo depois da visão executiva.
+    if committee_slides is not None:
+        committee_slides(prs)
     _peers_slides(prs, snapshot, peers_query, peers_unavailable_reason)
     _carteira_slides(prs, snapshot, carteira_model, carteira_unavailable_reason)
+    if committee_slides is not None:
+        from .presentation_tables import pin_run_fonts
+        pin_run_fonts(prs)
     output = BytesIO()
     prs.save(output)
     return output.getvalue()

@@ -12046,7 +12046,7 @@ def pagina_snapshot():
     with snapshot_export_container:
         bank_filename = re.sub(r"[^\w\-.]+", "_", str(banco), flags=re.UNICODE).strip("_")
         st.download_button(
-            "Resumo em PowerPoint",
+            "Exportar Snapshot",
             data=lambda: export_snapshot_package(snapshot_for_export, df_bank_all, globals()),
             file_name=f"Resumo_{bank_filename}_{'Individual_' if base == 'Individual' else ''}{periodo_atual.replace('/', '-')}.pptx",
             mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
@@ -12054,6 +12054,27 @@ def pagina_snapshot():
             width="stretch",
         )
         st.caption(f"Snapshot e três competências mais recentes de Peers na base {base}. Carteira 4.966 incluída quando há fonte no mesmo escopo; ausências permanecem N/D.")
+        # O material de comitê usa as demonstrações do conglomerado prudencial, sem equivalente Individual.
+        codigo_comite = _codigo_comite_snapshot(df_bank_all, banco) if base != "Individual" else None
+        if codigo_comite:
+            periodos_comite = _periodos_comite_snapshot(periodo_atual)
+            st.download_button(
+                "Exportar material de comitê",
+                data=lambda: _material_comite_snapshot(snapshot_for_export, df_bank_all, codigo_comite, periodos_comite),
+                file_name=f"Comite_{bank_filename}_{periodo_atual.replace('/', '-')}.pptx",
+                mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                key="snapshot_download_comite", on_click="ignore", width="stretch",
+            )
+            st.download_button(
+                "Excel",
+                data=lambda: _excel_comite_snapshot(codigo_comite, periodos_comite),
+                file_name=f"Dados_{bank_filename}_{periodo_atual.replace('/', '-')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="snapshot_download_excel", on_click="ignore", width="stretch",
+            )
+            st.caption("Material de comitê: Snapshot, Balanço e DRE acumulada, Evolução, histórico de Peers e Carteira 4.966. Comparação com pares e liquidez regulatória não estão incluídas.")
+        elif base == "Individual":
+            st.caption("Material de comitê e Excel disponíveis na base Consolidada / Prudencial.")
     anomalias_delta_snapshot = _audit_deltas_snapshot(
         todas_metricas_snapshot,
         periodo_atual,
@@ -16171,6 +16192,58 @@ def _evolucao_payload_exportacao(codigo):
             instituicao=instituicao, df_ano=df_ano, core_funding_trace_map=core_trace, carteira_trace_map=carteira_trace,
         ),
     }
+
+
+def _codigo_comite_snapshot(df_bank_all, banco):
+    """Código do conglomerado da instituição do Snapshot, ou None sem identidade."""
+    frames = [df_bank_all]
+    dados = _carregar_dados_periodos_preparados(_cache_version_token("principal"), _alias_signature_cache_key())
+    for periodo in sorted(dados or {}, key=lambda p: (_parse_periodo(str(p)) or (0, 0, 0))[1], reverse=True)[:8]:
+        frames.append(dados[periodo])
+    for frame in frames:
+        if frame is None or frame.empty or "CodInst" not in frame.columns or "Instituição" not in frame.columns:
+            continue
+        codigos = frame.loc[frame["Instituição"].astype(str) == str(banco), "CodInst"].map(normalize_institution_code).dropna()
+        codigos = [c for c in codigos.unique().tolist() if c]
+        if codigos:
+            return codigos[-1]
+    return None
+
+
+def _periodos_comite_snapshot(periodo_atual):
+    """Quatro fins de trimestre consecutivos terminados na data-base do Snapshot."""
+    parsed = _parse_periodo(str(periodo_atual))
+    tri = _parte_periodo_para_trimestre_idx(parsed[0]) if parsed else None
+    if tri is None:
+        return []
+    ano, periodos = int(parsed[1]), []
+    for _ in range(4):
+        periodos.append(f"{ano}{tri * 3:02d}")
+        tri -= 1
+        if tri == 0:
+            ano, tri = ano - 1, 4
+    return sorted(periodos)
+
+
+def _analise_comite_snapshot(codigo, periodos):
+    from tabs.prudential_analysis import load_analysis
+    return load_analysis(get_cache_manager(), codigo, periodos)
+
+
+def _material_comite_snapshot(snapshot, df_bank_all, codigo, periodos):
+    from utils.prudential_pptx import committee_slides
+    from utils.snapshot_export_data import export_snapshot_package
+    analise = _analise_comite_snapshot(codigo, periodos)
+    evolucao = _evolucao_payload_exportacao(codigo)
+    return export_snapshot_package(snapshot, df_bank_all, globals(),
+                                   committee_slides=lambda prs: committee_slides(prs, analise, evolucao))
+
+
+def _excel_comite_snapshot(codigo, periodos):
+    from utils.prudential_workbook import render_xlsx
+    analise = _analise_comite_snapshot(codigo, periodos)
+    return render_xlsx(analise, portfolio=_modelo_4966_por_codigo(codigo, analise.periods),
+                       evolution=_evolucao_payload_exportacao(codigo))
 
 
 def _modelo_4966_por_codigo(codigo, periodos_aaaamm):

@@ -71,7 +71,9 @@ def validate_candidate(cosif, sources, period, *, rules=None):
     previous = cosif[cosif.DATA_BASE.lt(period)]
     for code, frame in incoming.groupby("COD_CONGL", sort=True):
         institution_sources = {kind: groups.get(str(code), pd.DataFrame()) for kind, groups in grouped_sources.items()}
-        analysis = build_analysis(frame, institution_sources, code, [period])
+        institution_history = previous[previous.COD_CONGL.eq(code)]
+        # A DRE de setembro e dezembro acumula o fechamento de junho, que está no histórico.
+        analysis = build_analysis(pd.concat([frame, institution_history]), institution_sources, code, [period])
         documents = set(frame.DOCUMENTO)
         preferred = "4066" if "4066" in documents else "4060"
         accounts = Accounts(frame[frame.DOCUMENTO.eq(preferred)])
@@ -92,16 +94,14 @@ def validate_candidate(cosif, sources, period, *, rules=None):
                 blocking = True
             target = "errors" if blocking else "warnings"
             report[target].append({"code": code, **check})
-        institution_history = previous[previous.COD_CONGL.eq(code)]
         for name, identifiers in {"Balanço": ("assets", "equity"), "DRE": ("net",)}.items():
             comparable = institution_history
             if name == "DRE":
-                comparable = comparable[(comparable.DATA_BASE.str[4:].astype(int)-1).mod(6).eq((int(period[4:])-1) % 6)]
+                comparable = comparable[comparable.DATA_BASE.str[4:].eq(period[4:])]
             if comparable.empty:
                 continue
             comparison_period = comparable.DATA_BASE.max()
-            old = comparable[comparable.DATA_BASE.eq(comparison_period)]
-            before = build_analysis(old, institution_sources, code, [comparison_period])
+            before = build_analysis(institution_history, institution_sources, code, [comparison_period])
             changes = []
             for ident in identifiers:
                 now = analysis.sheets[name].cells[f"C{analysis.rows[name][ident]}"].value

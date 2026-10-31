@@ -6,7 +6,7 @@ import json
 
 from .financial_statement_style import BAND, BAND_MUTED, BAND_NEGATIVE, MISSING, NEGATIVE, SECTION
 from .presentation_tables import pin_run_fonts, _slide, _table, _cell, _font, _text, _WIDTH, _HEIGHT, _MARGIN, _CONTENT, _MUTED
-from .prudential_presentation import (PAGE_GROUPS, committee_panel, display_rows, format_cell, institution_label,
+from .prudential_presentation import (PAGE_GROUPS, committee_panel, reference_note, display_rows, format_cell, institution_label,
                                       period_cells, period_label, period_source, row_tier, value_tone, with_band_gaps)
 
 MAX_ROWS = 21
@@ -25,7 +25,7 @@ ZERO_COLOR = "8E949B"
 PANEL_GAP = .25
 PANEL_TOP = 1.12
 PANEL_HEADER = .36
-PANEL_BODY = 5.42
+PANEL_BODY = 5.3
 PANEL_AMOUNT, PANEL_SHARE = .72, .38
 PANEL_ROW_MAX = .165
 PANEL_GAP_ROW = .045
@@ -213,8 +213,9 @@ def _committee_slide(prs, analysis, institution):
     for name in ("Balanço", "DRE"):
         _panel(slide, analysis, name, panels[name], periods, offset, x, label_width, height)
         x += panel_width + PANEL_GAP
-    _text(slide, _MARGIN, 7.04, _CONTENT, .22,
-          f"Fonte: Banco Central, COSIF 4060/4066 e IF.data. R$ milhões. DRE acumulada no semestre. {MISSING}: dado não disponível.", 9, color=_MUTED)
+    # A ressalva, quando existe, entra na mesma área do rodapé, sem encostar nas tabelas.
+    _text(slide, _MARGIN, 6.88 if reference_note(analysis) else 7.04, _CONTENT, .45,
+          f"Fonte: Banco Central, COSIF 4060/4066 e IF.data. R$ milhões. DRE acumulada no ano. {MISSING}: dado não disponível. {reference_note(analysis)}".rstrip(), 9, color=_MUTED)
     slide.notes_slide.notes_text_frame.text = json.dumps({
         "institution": analysis.code, "periods": periods, "statement": "Balanço e DRE",
         "rows": {name: [row[0] for row in rows if row] for name, rows in panels.items()},
@@ -237,6 +238,14 @@ def _portfolio_statement_slides(prs, analysis, institution):
             "institution": analysis.code, "periods": periods, "statement": name,
             "rows": [row[0] for row in rows], "methodology": analysis.limitations,
         }, ensure_ascii=False, default=str)
+
+
+def committee_slides(prs, analysis, evolution=None):
+    """Balanço, DRE e Evolução para compor o material de comitê do Snapshot."""
+    _committee_slide(prs, analysis, institution_label(analysis.institution))
+    if evolution is not None:
+        from .evolucao_pptx_export import add_evolucao_slides
+        add_evolucao_slides(prs, **evolution)
 
 
 def render_pptx(analysis, *, portfolio=None, evolution=None) -> bytes:

@@ -17,6 +17,7 @@ import pandas as pd
 BCB_URL = "https://www.bcb.gov.br/estabilidadefinanceira/balancetesbalancospatrimoniais"
 IFDATA_URL = "https://www.bcb.gov.br/estabilidadefinanceira/ifdata"
 ND = "N/D"
+INTERMEDIATION_FIELD = "Resultado de Intermediação Financeira (k) = (a) + (b) + (c) + (d) + (e) + (f) + (g) + (h) + (i) + (j)"
 MONEY = '#,##0;[Red]-#,##0;0'
 PCT = '0%;[Red]-0%;0%'
 
@@ -115,6 +116,8 @@ class Analysis:
     checks: list[dict] = field(default_factory=list)
     limitations: list[str] = field(default_factory=list)
     rows: dict[str, dict[str, int]] = field(default_factory=dict)
+    # Intermediação na janela publicada pelo Rel. 4, no COSIF e no próprio relatório (R$ milhões).
+    reference: dict[str, dict[str, float]] = field(default_factory=dict)
 
     def sheet(self, name):
         self.sheets[name] = Sheet(name)
@@ -155,8 +158,10 @@ class Builder:
         for col in ["DATA_BASE", "DOCUMENTO", "CONTA", "COD_CONGL"]:
             cosif[col] = cosif[col].map(text_id)
         self.all_cosif = cosif[cosif.COD_CONGL.eq(code)].copy()
-        cosif = self.all_cosif[self.all_cosif.DATA_BASE.isin(periods)].copy()
-        if cosif.empty:
+        # Jul–set e jul–dez só viram acumulado do ano somados ao fechamento de junho.
+        self.ytd_base = {p: f"{p[:4]}06" for p in periods if int(p[4:]) > 6}
+        cosif = self.all_cosif[self.all_cosif.DATA_BASE.isin(set(periods) | set(self.ytd_base.values()))].copy()
+        if not cosif.DATA_BASE.isin(periods).any():
             raise ValueError("Conglomerado sem dados COSIF nas competências selecionadas")
         if cosif.duplicated(["DATA_BASE", "DOCUMENTO", "COD_CONGL", "CONTA"]).any():
             raise ValueError("Duplicidade de instituição, data, documento e conta COSIF")
@@ -208,7 +213,7 @@ class Builder:
                 continue
             frame = frame[frame.CodInst.astype(str).eq(self.a.code)].copy()
             frame["period_key"] = frame["Período"].map(period_key)
-            frame = frame[frame.period_key.isin(self.a.periods)]
+            frame = frame[frame.period_key.isin(set(self.a.periods) | set(self.ytd_base.values()))]
             if frame.duplicated(["CodInst", "period_key"]).any():
                 raise ValueError(f"IFData {source}: identidade duplicada no mesmo período")
             for r in frame.to_dict("records"):
@@ -351,7 +356,8 @@ class Builder:
         return self.a
 
     def dre(self):
-        labels={p:f"COSIF 4060 · {'1S' if int(p[4:])<=6 else '2S'}{p[2:4]}" for p in self.a.periods}
+        months=("jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez")
+        labels={p:f"COSIF 4060 · jan–{months[int(p[4:])-1]}/{p[2:4]}" for p in self.a.periods}
         s=self.header("DRE",labels)
         definitions=[
             ("revenue","Receitas da Intermediação Financeira","section",None),
@@ -383,14 +389,14 @@ class Builder:
             ("tax_income","IR / CS","section",[("794",1),("894",1)]),
             ("tax_credit","dos quais créditos de IR / CS","detail",[("794",1)]),
             ("other_close","Outros Ajustes de Apuração","body",[("79",1),("89",1),("794",-1),("894",-1),("897",-1)]),
-            ("net","Resultado Líquido (semestre até a data-base)","total",None),
+            ("net","Resultado Líquido (acumulado no ano)","total",None),
         ]
         for id,label,style,rule in definitions:
             row=self.add_row(s,id,label,style)
             for i,p in enumerate(self.a.periods):
                 c=col_name(3+i*2)
                 if rule is not None:
-                    terms=[(r,k) for prefix,k in rule for r in self.account(p,"4060",prefix)]
+                    terms=[(r,k) for q in self._ytd_periods(p) for prefix,k in rule for r in self.account(q,"4060",prefix)]
                     self.output[(s.name,id,p)]=self.sum_refs(s,row,c,terms,style)
         formulas={"revenue":["credit","leasing","sale","tvm","other_inter"],"expenses":["funding","other_funding"],
                   "gross":["revenue","expenses"],"after_pdd":["gross","provision"],
@@ -409,11 +415,37 @@ class Builder:
                 s.hidden_rows.append(row)
         for i,p in enumerate(self.a.periods):
             # A full COSIF result is an independent control, never an output plug.
-            raw=self._control(p,"4060",["7","8"],"Resultado 4060")
+            raw=self._control_ytd(p,["7","8"],"Resultado 4060 acumulado")
             net=self.output[(s.name,"net",p)]
             self.check("DRE: resultado apresentado x grupos 7 + 8",p,Ref(net.address+"*1000000",None if net.value is None else net.value*1e6),raw)
+            # O Rel. 4 publica a janela do semestre: a comparação usa essa mesma janela.
+            window=self._control(p,"4060",["7","8"],"Resultado 4060 na janela do Rel. 4")
             report=self.metric(p,"dre",["Lucro Líquido (z) = (w) + (x) + (y)","Lucro Líquido (aa) = (x) + (y) + (z)","Lucro Líquido (j) = (g) + (h) + (i)"])
-            self.check("DRE: 4060 x IFData Rel. 4",p,raw,report,note="Divergência pode refletir retificação ou composição. O 4060 é a fonte da DRE apresentada.")
+            self.check("DRE: 4060 x IFData Rel. 4",p,window,report,note="Divergência pode refletir retificação ou composição. O 4060 é a fonte da DRE apresentada.")
+            intermediation=self.metric(p,"dre",INTERMEDIATION_FIELD)
+            cosif=self._window_after_pdd(p,definitions)
+            if intermediation.value is not None and cosif is not None:
+                self.a.reference[p]={"rel4":intermediation.value/1e6,"cosif":cosif}
+
+    def _window_after_pdd(self,p,definitions):
+        """Intermediação após provisão só na janela da competência, em R$ milhões."""
+        parts={"credit","leasing","sale","tvm","other_inter","funding","other_funding","provision"}
+        values=[r.value*k for id,_,_,rule in definitions if id in parts and rule for prefix,k in rule for r in self.account(p,"4060",prefix) if r.value is not None]
+        return sum(values)/1e6 if values else None
+
+    def _ytd_periods(self,p):
+        """Competências que compõem o acumulado; sem junho, a DRE fica N/D em vez de parcial."""
+        base=self.ytd_base.get(p)
+        if base is None:
+            return [p]
+        return [base,p] if (base,"4060") in self.indexes else []
+
+    def _control_ytd(self,p,prefixes,label):
+        s=self.a.sheets["Mapa COSIF"]
+        row=self.map_row;self.map_row+=1
+        for j,val in enumerate([self.a.code,p,"4060",label,"","Controle reportado","Soma de grupos independentes",""],1):s.put(f"{col_name(j)}{row}",val)
+        refs=[r for q in self._ytd_periods(p) for prefix in prefixes for r in self.account(q,"4060",prefix)]
+        return self.sum_refs(s,row,"I",refs,scale=1)
 
     def _control(self,p,doc,prefixes,label):
         s=self.a.sheets["Mapa COSIF"]
@@ -460,7 +492,7 @@ class Builder:
             ("liabilities","PASSIVO EXIGÍVEL","total",None),
             ("equity","Patrimônio Líquido (com resultado)","total",None),
             ("liab_equity","PASSIVO + PATRIMÔNIO LÍQUIDO","total",None),
-            ("net","Resultado Líquido (semestre até a data-base)","total",None),
+            ("net","Resultado Líquido (acumulado no ano)","total",None),
             ("roe","ROE anualizado (resultado / PL de fechamento)","total",None),
             ("cet1","Capital Principal (CET1)","total",None),
             ("basel","Índice de Basileia Total","total",None),
@@ -486,7 +518,7 @@ class Builder:
             self.output[(s.name,"equity",p)]=self.sum_refs(s,self.a.rows[s.name]["equity"],c,equity,"total")
             self.output[(s.name,"liab_equity",p)]=self.sum_refs(s,self.a.rows[s.name]["liab_equity"],c,[out("liabilities"),out("equity")],"total",scale=1,strict=True)
             self.output[(s.name,"net",p)]=self.sum_refs(s,self.a.rows[s.name]["net"],c,[self.output[("DRE","net",p)]],"total",scale=1,strict=True)
-            months=(int(p[4:])-1)%6+1
+            months=int(p[4:])
             self.output[(s.name,"roe",p)]=self.ratio(s,self.a.rows[s.name]["roe"],c,out("net"),out("equity"),12/months,"total",PCT)
             cp=self.metric(p,"capital","Capital Principal")
             tier=self.metric(p,"capital","Patrimônio de Referência Nível I")
@@ -601,6 +633,8 @@ class Builder:
 
     def hierarchy_checks(self):
         for (p,doc),index in self.indexes.items():
+            if p not in self.a.periods:
+                continue
             for parent,code in sorted(index.by_stem.items()):
                 descendants=sorted(x for x in index.by_stem if x!=parent and x.startswith(parent) and not is_totalizer(x))
                 children=[]
@@ -616,8 +650,9 @@ class Builder:
     def notes(self):
         notes=[
             "Balanço: preferência pelo 4066. No 4060, o PL inclui os grupos 7 + 8, sem somar os dois documentos.",
-            "DRE: resultado acumulado no semestre civil até a data-base. Dezembro contém jul–dez. As contas 7/8 encerram em junho e dezembro.",
-            "ROE: resultado semestral × 12 / meses do semestre / PL de fechamento. Não utiliza PL médio. PL nulo ou negativo gera N/D.",
+            "DRE: resultado acumulado no ano até a data-base. As contas 7/8 encerram em junho e dezembro, então setembro e dezembro somam o fechamento de junho. Sem junho, a DRE fica N/D.",
+            "ROE: resultado acumulado no ano × 12 / meses do ano / PL de fechamento. Não utiliza PL médio. PL nulo ou negativo gera N/D.",
+            "Intermediação: subtotais pelas contas COSIF, com a mesma regra para todas as instituições. A comparação com o Rel. 4 usa a janela que ele publica: jan–mar, jan–jun, jul–set e jul–dez. Quando o sinal difere, a linha recebe asterisco e nota. Nenhuma conta é reclassificada caso a caso.",
             "Mapa: código exato, depois conta sintética ou fronteira de contas-filhas sem sobreposição. A descrição original permanece nos dados.",
             "Hierarquia: os totalizadores 3.9.9.99.99 e 9.9.9.99.99 não são filhas dos grupos de compensação 3 e 9 (BCB, Críticas COSIF, regra G7). Permanecem nos dados brutos.",
             "Reclassificações: cartão pós-pago e sua provisão em Crédito; TVM livres em Ativos Líquidos; TVM vinculados em linha própria.",

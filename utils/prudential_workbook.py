@@ -14,7 +14,7 @@ import math
 import xlsxwriter
 
 from .prudential_analysis import Analysis, col_name
-from .prudential_presentation import (PERIODS_PER_PAGE, ZERO_EPSILON, committee_panel, display_rows, institution_label, period_chunks,
+from .prudential_presentation import (PERIODS_PER_PAGE, ZERO_EPSILON, committee_panel, reference_note, display_rows, institution_label, period_chunks,
                                       row_tier)
 from .financial_statement_style import (FONT, INK, MUTED, GRID, RULE, ACCENT, NEGATIVE, BAND_NEGATIVE, BAND_MUTED, MISSING,
                                         EXCEL_STYLES as STYLES, excel_amount_width, excel_label_width,
@@ -164,7 +164,9 @@ def _committee_sheet(wb, fmt, analysis):
                         else:
                             committee.write_blank(target_row, destination, None, f)
         note_row = top + HEADER_ROWS + body_rows + 1
-        committee.merge_range(note_row, 1, note_row, end_col, "Fonte: Banco Central, COSIF 4060/4066 e IF.data. R$ milhões. DRE acumulada no semestre. " + f"{MISSING}: dado não disponível.", fmt("note"))
+        committee.merge_range(note_row, 1, note_row, end_col, "Fonte: Banco Central, COSIF 4060/4066 e IF.data. R$ milhões. DRE acumulada no ano. " + f"{MISSING}: dado não disponível. {reference_note(analysis)}".rstrip(), fmt("note"))
+        if reference_note(analysis):
+            committee.set_row(note_row, 38)
     _value_rules(wb, committee, light)
     _value_rules(wb, committee, band, band=True)
     width_points = _column_points(*widths.values(), 2, *[PERCENT_WIDTH] * (2 * shown), *[a for a in amounts.values() for _ in range(shown)])
@@ -413,8 +415,8 @@ def render_xlsx(analysis: Analysis, *, portfolio=None, evolution=None) -> bytes:
             labels["B3"] = f"{name} · Conglomerado prudencial · R$ milhões"
             labels["B5"] = "Fonte"
             labels["B6"] = "R$ milhões"
-            note = "DRE acumulada no semestre. " if name == "DRE" else ""
-            labels.update({address: f"Fonte: Banco Central, COSIF 4060/4066 e IF.data. R$ milhões. {note}{MISSING}: dado não disponível."
+            note = "DRE acumulada no ano. " if name == "DRE" else ""
+            labels.update({address: f"Fonte: Banco Central, COSIF 4060/4066 e IF.data. R$ milhões. {note}{MISSING}: dado não disponível. {reference_note(analysis) if name == 'DRE' else ''}".rstrip()
                            for address, cell in s.cells.items() if cell.style == "note" and address != "B3"})
         values = []
         for address, cell in s.cells.items():

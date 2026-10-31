@@ -7,8 +7,7 @@ COSIF mensal (4066 para o balanço; 4060 para o resultado) e IF.data trimestral
 ## Apresentação
 
 `utils/financial_statement_style.py` concentra tipografia, cores e larguras:
-Calibri, laranja `#EC7000` reservado a cabeçalhos do site e do PowerPoint, grafite
-`#2F3640` nas faixas do Excel, linhas `#E8EAED` e subtotais `#F3F5F6`.
+Calibri, laranja `#EC7000` reservado a cabeçalhos do site e do PowerPoint, faixas no mesmo laranja, linhas `#E8EAED` e subtotais `#F3F5F6`.
 `utils/prudential_presentation.py` define as linhas-chave (`KEY_ROWS`), os grupos
 contábeis (`PAGE_GROUPS`) e a formatação comum de valores. Os helpers nativos de
 PowerPoint foram extraídos do Snapshot para `utils/presentation_tables.py`; o layout
@@ -25,15 +24,22 @@ e os cálculos do Snapshot foram preservados.
 - PowerPoint: um slide com Balanço e DRE dos três últimos períodos selecionados,
   os slides da Carteira 4.966 e o da Evolução; tudo nativo e editável. O detalhe
   de todos os períodos fica no Excel.
-- Formato brasileiro com LCID `416` no Excel. Totais e linhas-chave em faixa grafite.
+- Formato brasileiro com LCID `416` no Excel. Totais e linhas-chave em faixa laranja, com negativos em branco.
   Negativos em vermelho, zeros em cinza. Dado indisponível aparece como `–`; no
   Excel a célula continua guardando `N/D`, sem confundir ausência com zero.
 - Evolução: uma só unidade no gráfico, R$ bi quando Lucro ou PL alcança R$ 10 bi e
   R$ mm abaixo disso. Lucro em verde e prejuízo em vermelho, sem contorno.
-- NIM Bruta e NIM pós-PDD (métricas gerenciais): resultado acumulado no semestre
-  × 12 / meses do semestre / carteira média. A carteira é Operações de Crédito Líq.
-  do Balanço, na média entre a data-base e o fechamento do semestre anterior
-  (junho com dezembro; dezembro com junho; março e setembro com o início do semestre).
+- DRE: acumulada no ano. Março e junho já vêm acumulados; setembro e dezembro somam o
+  fechamento de junho. Sem junho, a DRE fica indisponível em vez de parcial.
+- NIM Bruta e NIM pós-PDD (métricas gerenciais): resultado acumulado no ano × 12 /
+  meses do ano / carteira média. A carteira é Operações de Crédito Líq. do Balanço, na
+  média entre a data-base e dezembro do ano anterior.
+- Intermediação: uma regra única pelas contas COSIF, sem reclassificação por instituição.
+  Quando o sinal difere do Resultado de Intermediação do Rel. 4, a linha recebe asterisco
+  e a nota traz os dois valores, automaticamente. Registro da base:
+  `python tools/audit_prudential_rel4.py --output registro.csv`.
+- Snapshot: **Exportar Snapshot**, **Exportar material de comitê** e **Excel**, na base
+  Consolidada / Prudencial. Comparação com pares e liquidez regulatória não estão incluídas.
 
 ## Atualização
 
@@ -62,7 +68,7 @@ relatório operacional. Diferenças entre universos não recebem ajustes artific
 
 Variações a partir de 50%, com efeito de pelo menos R$ 1 milhão, geram registro
 para revisão. Estoques usam a competência anterior disponível por instituição;
-resultados usam períodos com igual número de meses do semestre. `--rules arquivo.json`
+resultados usam o mesmo mês do ano anterior, já que a DRE é acumulada no ano. `--rules arquivo.json`
 permite configurar `rounding_brl`, `anomaly_relative` e `anomaly_material_brl`.
 
 As fontes são guardadas por SHA-256 em `data/cache/financial_analysis_sources/`.
