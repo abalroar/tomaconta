@@ -121,7 +121,8 @@ def test_xlsx_contains_live_formulas_snapshot_style_and_hidden_inputs(simple_sou
     assert all((wb[name].page_setup.scale or 100) >= 60 for name in wb.sheetnames[:4])
     assert not any(wb[name].sheet_properties.pageSetUpPr and wb[name].sheet_properties.pageSetUpPr.fitToPage for name in wb.sheetnames[:4])
     row=a.rows["Balanço"]["roe"]
-    assert wb["Balanço"][f"D{row}"].fill.fgColor.rgb=="FFEC7000"
+    assert wb["Balanço"][f"D{row}"].fill.fgColor.rgb!="FFEC7000"
+    assert wb["Balanço"][f"D{a.rows['Balanço']['assets']}"].fill.fgColor.rgb=="FFEC7000"
     assert all("Validações" not in c.value for s in wb if s.title!="Validações" for row in s for c in row if c.data_type=="f")
 
 
@@ -368,3 +369,19 @@ def test_nim_uses_average_with_prior_year_end_and_annualizes(simple_sources):
     merged = [m for m in wb["DRE"].merged_cells.ranges if m.min_row > 6]
     assert all(m.min_row > rows["nim_after_pdd"] for m in merged)
 
+
+
+def test_roe_uses_average_equity_with_prior_year_end_and_stays_missing_without_it(simple_sources):
+    from utils.prudential_nim import ROE_LIMITATION, apply_average_roe, equity_balances
+    periods = ["202512", "202606"]
+    analysis = build_analysis(pd.concat([simple_sources.assign(DATA_BASE=p) for p in periods]), {}, "C1", periods)
+    sheet, rows = analysis.sheets["Balanço"], analysis.rows["Balanço"]
+    equity = equity_balances(analysis)
+    net = sheet.cells[f"E{rows['net']}"].value
+    apply_average_roe(analysis, {})
+    assert sheet.cells[f"C{rows['roe']}"].value == "N/D"  # dez/24 fora da base: não volta ao PL final.
+    assert sheet.cells[f"E{rows['roe']}"].value == pytest.approx(net / ((equity["202606"] + equity["202512"]) / 2) * 2)
+    assert "AVERAGE" in sheet.cells[f"E{rows['roe']}"].formula
+    assert ROE_LIMITATION in analysis.limitations and not any("Não utiliza PL médio" in item for item in analysis.limitations)
+    notes = [cell.value for cell in analysis.sheets["Validações"].cells.values() if str(cell.value).startswith("ROE:")]
+    assert notes == [ROE_LIMITATION]

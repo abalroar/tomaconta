@@ -112,20 +112,19 @@ def test_office_chart_and_table_properties_follow_ooxml_child_order():
                     ])
 
 
-def test_first_two_slides_preserve_snapshot_and_have_native_editable_history_with_gaps():
+def test_first_slide_holds_the_whole_snapshot_with_native_editable_history_with_gaps():
     payload = snapshot()
     result = export_snapshot_powerpoint(payload, peers(), carteira())
     prs = Presentation(BytesIO(result))
     texts = [visible_text(slide) for slide in prs.slides]
-    assert len(prs.slides) >= 6
-    assert sum(shape.has_table for slide in list(prs.slides)[:2] for shape in slide.shapes) == 2
+    assert len(prs.slides) >= 5
+    assert sum(shape.has_table for shape in prs.slides[0].shapes) == 2
     for card in payload["cards"]:
-        target = 1 if card["group"] == "support" else 0
-        assert card["label"] in texts[target]
-        assert card["value"] in texts[target]
+        assert card["label"] in texts[0]
+        assert card["value"] in texts[0]
     assert "14,77%" in texts[0] and "↓ −41 bps" in texts[0]
     assert "QoQ\nDez/25" in texts[0] and "YoY\nMar/25" in texts[0]
-    charts = [shape.chart for slide in list(prs.slides)[:2] for shape in slide.shapes if shape.has_chart]
+    charts = [shape.chart for shape in prs.slides[0].shapes if shape.has_chart]
     assert len(charts) == 13
     assert charts[0].series[0].values == (1e9, None, 1.1e9, 1.2e9)
     workbook = load_workbook(BytesIO(charts[0].part.chart_workbook.xlsx_part.blob), data_only=True)
@@ -154,7 +153,9 @@ def test_first_two_slides_preserve_snapshot_and_have_native_editable_history_wit
             assert set(plot_ids) == set(axis_ids)
     notes = json.loads(prs.slides[0].notes_slide.notes_text_frame.text)
     assert notes["cards"][0]["qoq"]["reason"] == "Fonte preservada"
-    assert "Tabela de Peers" in texts[2]
+    # Toda página do histórico mantém o título, não só a primeira.
+    assert [text.split("\n")[0] for text in texts].count("Histórico trimestral") >= 2
+    assert "Tabela de Peers" not in texts[1]
     assert "Carteira 4.966" in texts[-1]
 
 
@@ -174,20 +175,21 @@ def test_real_snapshot_missing_funding_remains_nd_and_zero_is_editable_numeric_d
     payload = snapshot()
     payload["cards"][8:10] = cards
     prs = Presentation(BytesIO(export_snapshot_powerpoint(payload)))
-    support = prs.slides[1]
-    table = next(shape.table for shape in support.shapes if shape.has_table)
+    support = prs.slides[0]
+    table = [shape.table for shape in support.shapes if shape.has_table][1]
     assert table.cell(1, 1).text == "0,00%"
     assert table.cell(2, 1).text == "N/D†"
     assert table.cell(2, 4).text == "N/D"
     charts = [shape.chart for shape in support.shapes if shape.has_chart]
-    assert len(charts) == 4  # O histórico integralmente ausente não cria gráfico.
-    assert charts[0].series[0].values == (None, 0.0, 0.0)
-    workbook = load_workbook(BytesIO(charts[0].part.chart_workbook.xlsx_part.blob), data_only=True)
+    assert len(charts) == 12  # O histórico integralmente ausente não cria gráfico.
+    zero_chart = next(chart for chart in charts if chart.series[0].values == (None, 0.0, 0.0))
+    workbook = load_workbook(BytesIO(zero_chart.part.chart_workbook.xlsx_part.blob), data_only=True)
     assert list(workbook.active.values)[1:] == [("Dez/25", None), ("Mar/26", 0), ("Jun/26", 0)]
     notes = json.loads(support.notes_slide.notes_text_frame.text)
-    assert notes["cards"][0]["raw_value"] == 0.0
-    assert pd.isna(notes["cards"][1]["raw_value"])
-    assert notes["cards"][1]["status"] == "Fonte indisponível."
+    by_label = {card["label"]: card for card in notes["cards"]}
+    assert by_label[zero["label"]]["raw_value"] == 0.0
+    assert pd.isna(by_label[absent["label"]]["raw_value"])
+    assert by_label[absent["label"]]["status"] == "Fonte indisponível."
 
 
 def test_4966_uses_shared_difference_units_and_credit_colors_in_native_table():
@@ -207,12 +209,12 @@ def test_4966_uses_shared_difference_units_and_credit_colors_in_native_table():
 
 def test_missing_sections_keep_order_and_explicit_scope_reason_without_fabricating_values():
     prs = Presentation(BytesIO(export_snapshot_powerpoint(snapshot(), peers_unavailable_reason="IFData individual não disponível.", carteira_unavailable_reason="Relatório 16 exige o perímetro prudencial.")))
-    assert len(prs.slides) == 4
-    assert "Tabela de Peers" in visible_text(prs.slides[2])
-    assert "IFData individual não disponível." in visible_text(prs.slides[2])
-    assert "Carteira 4.966" in visible_text(prs.slides[3])
-    assert "Relatório 16 exige o perímetro prudencial." in visible_text(prs.slides[3])
-    assert "N/D" in visible_text(prs.slides[3])
+    assert len(prs.slides) == 3
+    assert "Histórico trimestral" in visible_text(prs.slides[1])
+    assert "IFData individual não disponível." in visible_text(prs.slides[1])
+    assert "Carteira 4.966" in visible_text(prs.slides[2])
+    assert "Relatório 16 exige o perímetro prudencial." in visible_text(prs.slides[2])
+    assert "N/D" in visible_text(prs.slides[2])
 
 
 def test_last_three_periods_are_chronological_and_short_coverage_is_disclosed():
@@ -264,7 +266,7 @@ def test_history_does_not_imply_a_credit_move_when_latest_delta_is_absent_flat_o
     assert chart.series[0].values == tuple(values)
 
 
-def test_individual_snapshot_keeps_two_slides_new_npl_rows_and_explicit_unavailable_scope():
+def test_individual_snapshot_keeps_new_npl_rows_and_explicit_unavailable_scope():
     payload = snapshot()
     payload["base"] = "Individual"
     for card in payload["cards"]:
@@ -281,17 +283,15 @@ def test_individual_snapshot_keeps_two_slides_new_npl_rows_and_explicit_unavaila
         })
     payload["source_notes"] = "NPL e PDD: sem fonte individual validada; ausência preservada como N/D."
     prs = Presentation(BytesIO(export_snapshot_powerpoint(payload)))
-    support = prs.slides[1]
-    table_shape = next(shape for shape in support.shapes if shape.has_table)
+    support = prs.slides[0]
+    table_shape = [shape for shape in support.shapes if shape.has_table][1]
     table = table_shape.table
     assert len(table.rows) == 8
     for row in list(table.rows)[-2:]:
-        assert "Individual" in row.cells[0].text
-        assert "Rel. 16 indisponível" in row.cells[0].text
         assert row.cells[1].text == row.cells[4].text == "N/D"
     assert "Arrasto · % da carteira" in list(table.rows)[-2].cells[0].text
     assert "PDD / vencidos por arrasto" in list(table.rows)[-1].cells[0].text
-    assert sum(shape.has_chart for shape in support.shapes) == 5
+    assert sum(shape.has_chart for shape in support.shapes) == 13
     assert "IFData individual: trimestral" in visible_text(support)
     assert "sem fonte individual validada" in visible_text(support)
     assert table_shape.top + table_shape.height < next(shape.top for shape in support.shapes if shape.has_text_frame and "sem fonte individual" in shape.text)
@@ -310,10 +310,50 @@ def test_peers_native_table_preserves_delta_but_keeps_unreliable_reference_neutr
                   status="available", reference_status="warning",
                   reference_reason="Componente incompleto no trimestre de referência.")
     prs = Presentation(BytesIO(export_snapshot_powerpoint(snapshot(), query)))
-    table = next(shape.table for shape in prs.slides[2].shapes if shape.has_table)
+    table = next(shape.table for shape in prs.slides[1].shapes if shape.has_table)
     row = next(row for row in table.rows if "Vencidos >90 dias" in row.cells[0].text)
     target = row.cells[len(row.cells) - 1]
     assert target.text == "2,25%\n↑ +7 bps"
     assert str(target.text_frame.paragraphs[1].font.color.rgb) == "666666"
-    notes = json.loads(prs.slides[2].notes_slide.notes_text_frame.text)
+    notes = json.loads(prs.slides[1].notes_slide.notes_text_frame.text)
     assert notes["cells"][-1]["reference_reason"] == latest["reference_reason"]
+
+
+def test_committee_deck_drops_repeated_rows_and_keeps_one_slide_per_section():
+    added = []
+    prs = Presentation(BytesIO(export_snapshot_powerpoint(snapshot(), peers(), carteira(), committee_slides=lambda deck: added.append(deck))))
+    assert added and len(prs.slides) == 3
+    history, portfolio = visible_text(prs.slides[1]), visible_text(prs.slides[2])
+    assert "Histórico trimestral" in history and "Basileia" not in history and "Core funding" in history
+    assert "Carteira 4.966 total" in portfolio and "% base" in portfolio
+    assert "Vencidos acima de 90 dias" not in portfolio and "PDD / C5" in portfolio
+
+
+def test_history_title_only_says_peers_when_there_are_peers():
+    from utils.snapshot_pptx_export import _history_title
+    assert _history_title({"banks": ["A"]}) == "Histórico trimestral"
+    assert _history_title({"banks": ["A", "B"]}) == "Tabela de Peers"
+
+
+def test_attention_line_follows_the_red_comparisons_and_lists_capital_first():
+    from utils.snapshot_pptx_export import attention_line
+    cards = [
+        {"label": "ROE Ac. Anualizado", "value": "-136%", "yoy": {"display": "↓ −100 bps", "tone": "attention"}},
+        {"label": "Ativo Total", "value": "R$ 3 bi", "yoy": {"display": "↑ +1%", "tone": "neutral"}},
+        {"label": "CET1", "value": "1,27%", "yoy": {"display": "↓ −885 bps", "tone": "attention"}},
+    ]
+    assert attention_line(cards, "Jun/25") == "Pontos de atenção: CET1 1,27% (−885 bps vs Jun/25); ROE Ac. Anualizado -136% (−100 bps vs Jun/25)."
+    assert attention_line(cards[1:2], "Jun/25") == ""
+
+
+def test_negative_bars_keep_their_fill_and_lines_use_their_own_range():
+    from pptx import Presentation as Deck
+    from utils.snapshot_pptx_export import _history
+    deck = Deck()
+    slide = deck.slides.add_slide(deck.slide_layouts[6])
+    assert _history(slide, {"periods": ["a", "b"], "values": [-5.0, 2.0], "kind": "bars"}, 0, 0, 1, 1)
+    assert _history(slide, {"periods": ["a", "b"], "values": [100.0, 110.0], "kind": "line"}, 0, 1, 1, 1)
+    bars, line = [shape.chart for shape in slide.shapes if shape.has_chart]
+    assert bars.series[0].invert_if_negative is False
+    assert (bars.value_axis.minimum_scale, bars.value_axis.maximum_scale) == (-5.0, 2.0)
+    assert line.value_axis.minimum_scale == 99.0 and line.value_axis.maximum_scale == 111.0

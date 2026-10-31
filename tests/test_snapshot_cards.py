@@ -28,7 +28,7 @@ def test_snapshot_funding_zero_is_a_value_and_missing_data_keeps_its_marker(labe
     missing_html = app1._render_snap_card(cfg, "2/2026", None, None)
     assert 'snap-card__value">N/D<span class="snap-card__status-mark' in missing_html
     assert "†</span>" in missing_html
-    assert app1._formatar_valor_snapshot({"format_key": "Carteira de Crédito Bruta"}, 0.0) == "R$ 0MM"
+    assert app1._formatar_valor_snapshot({"format_key": "Carteira de Crédito Bruta"}, 0.0) == "R$ 0 mm"
 
 
 def test_snapshot_metric_status_note_identifies_prudential_and_capital_unavailability():
@@ -157,8 +157,8 @@ def test_render_snap_card_explicitly_labels_trimestral_and_ytd_bases():
         periodo_yoy="4/2024",
     )
 
-    assert "QoQ trimestral" in html_trim
-    assert "YoY trimestral" in html_trim
+    assert ">QoQ<" in html_trim
+    assert ">YoY<" in html_trim
     assert "YoY YTD" in html_ytd
 
 
@@ -184,7 +184,6 @@ def test_small_monetary_delta_keeps_visible_sign_and_precision():
 @pytest.mark.parametrize("label,is_pct", [
     ("Ativo Total", False),
     ("Carteira de Crédito", False),
-    ("Patrimônio Líquido", False),
     ("Lucro Líquido Trimestral", False),
     ("Crédito / Captações", True),
     ("Perda Esperada / Carteira", True),
@@ -609,3 +608,29 @@ def test_garantir_cache_telas_criticas_fails_fast_when_runtime_would_materialize
     assert ok is False
     assert any("indisponível para runtime" in texto.lower() for tipo, texto in mensagens if tipo == "error")
     assert any("desabilitada no runtime" in texto.lower() for tipo, texto in mensagens if tipo == "caption")
+
+
+def test_equity_fall_is_a_credit_signal_and_small_moves_have_one_direction_mark():
+    cfg = {"label": "Patrimônio Líquido", "higher_is_better": True, "serie": {"2/2026": 72.0, "1/2026": 100.0}}
+    result = app1._snapshot_card_delta(cfg, "2/2026", "1/2026", "QoQ")
+    assert result["tone"] == "attention"
+    assert result["display"] == "↓ −28,00%"
+    small = app1._snap_delta_presentation(1.00001, 1.00002, "QoQ", True, "bps", "pct")
+    assert "−<" not in small["display"]
+
+
+def test_card_shows_display_label_and_leaves_the_source_in_the_help_icon():
+    cfg = {"label": "Carteira de Crédito", "display_label": "Carteira de Crédito Ampliada", "format_key": "Carteira de Crédito Bruta",
+           "serie": {"2/2026": 1e9}, "source": "Rel. 2", "source_label": "IFData Rel. 2", "scope": "Consolidada / Prudencial"}
+    html = app1._render_snap_card(cfg, "2/2026", None, None)
+    assert "Carteira de Crédito Ampliada" in html
+    assert "snap-card__meta" not in html
+    assert "snap-card__meta" in app1._render_snap_card({**cfg, "scope": "Individual"}, "2/2026", None, None)
+
+
+def test_sparkbars_start_at_zero_so_losses_go_down():
+    import re
+    svg = app1._snap_sparkbars_svg([10.0, -10.0], height=20)
+    (y_gain, h_gain), (y_loss, h_loss) = [tuple(map(float, pair)) for pair in re.findall(r'y="([\d.]+)"[^>]*height="([\d.]+)"', svg)]
+    assert y_gain + h_gain == pytest.approx(y_loss)
+    assert h_gain == h_loss == pytest.approx(10)

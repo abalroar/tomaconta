@@ -93,6 +93,13 @@ def _history(slide, history, x, y, width, height, *, tone="neutral"):
     series = chart.series[0]
     if bars:
         chart.plots[0].gap_width = 45
+        # Sem isto o Office pinta as barras negativas de branco.
+        series.invert_if_negative = False
+        # A escala justa, ancorada no zero, aproveita a altura da linha da tabela.
+        known = [number for number in numbers if number is not None]
+        low, high = min(0, *known), max(0, *known)
+        if high > low:
+            chart.value_axis.minimum_scale, chart.value_axis.maximum_scale = low, high
         series.format.fill.solid()
         series.format.fill.fore_color.rgb = RGBColor.from_string("8798A8")
         series.format.line.fill.background()
@@ -101,6 +108,11 @@ def _history(slide, history, x, y, width, height, *, tone="neutral"):
         series.format.line.color.rgb = RGBColor.from_string("61758A")
         series.format.line.width = Pt(1.7)
         chart.plots[0].smooth = False
+        # O eixo oculto começaria em zero e achataria qualquer saldo grande.
+        known = [number for number in numbers if number is not None]
+        if max(known) > min(known):
+            margin = (max(known) - min(known)) * .1
+            chart.value_axis.minimum_scale, chart.value_axis.maximum_scale = min(known) - margin, max(known) + margin
     # Um detalhe no último ponto conserva a leitura rápida sem pintar todo o
     # histórico. A cor vem da política de crédito da tela; a direção sozinha
     # não distingue melhora de risco de crescimento de um saldo contextual.
@@ -116,6 +128,9 @@ def _history(slide, history, x, y, width, height, *, tone="neutral"):
             endpoint.format.fill.solid()
             endpoint.format.fill.fore_color.rgb = color
             endpoint.format.line.fill.background()
+            invert = OxmlElement("c:invertIfNegative")
+            invert.set("val", "0")
+            endpoint._element.xpath(f"c:dPt[c:idx/@val='{len(numbers) - 1}']")[0].find("{http://schemas.openxmlformats.org/drawingml/2006/chart}idx").addnext(invert)
         else:
             endpoint.marker.style = XL_MARKER_STYLE.CIRCLE
             endpoint.marker.size = 4
@@ -143,6 +158,59 @@ def _history(slide, history, x, y, width, height, *, tone="neutral"):
     return True
 
 
+# Capital e resultado abrem a lista de atenção; os demais seguem a ordem dos cards.
+ATTENTION_FIRST = ("CET1", "Índice de Basileia", "Patrimônio Líquido", "ROE Ac. Anualizado", "Inadimplência >90 dias")
+PANEL_TITLES = ("Porte, capital e rentabilidade", "Funding e qualidade da carteira")
+PANEL_GAP = .25
+PANEL_TOP = 1.38
+PANEL_HEADER = .46
+PANEL_BODY = 4.44
+PANEL_WIDTHS = (2.1, 1.25, 1.0, 1.0)
+
+
+def attention_line(cards, yoy_label, limit=3):
+    """Pontos de atenção por regra: só o que a variação em 12 meses já marca em vermelho."""
+    flagged = [card for card in cards if _comparison(card, "yoy")[1] == "attention"]
+    flagged.sort(key=lambda card: ATTENTION_FIRST.index(card["label"]) if card["label"] in ATTENTION_FIRST else len(ATTENTION_FIRST))
+    parts = [f"{card['label']} {card.get('value')} ({_comparison(card, 'yoy')[0].lstrip('↑↓ ')} vs {yoy_label})" for card in flagged[:limit]]
+    return "Pontos de atenção: " + "; ".join(parts) + "." if parts else ""
+
+
+def _snapshot_panel(slide, group, title, x, width, labels):
+    from pptx.util import Inches
+    current, qoq_label, yoy_label = labels
+    widths = [*PANEL_WIDTHS, width - sum(PANEL_WIDTHS)]
+    row_height = PANEL_BODY / len(group)
+    table = slide.shapes.add_table(len(group) + 1, 5, Inches(x), Inches(PANEL_TOP), Inches(width), Inches(PANEL_HEADER + PANEL_BODY)).table
+    for column, column_width in zip(table.columns, widths):
+        column.width = Inches(column_width)
+    for index, row in enumerate(table.rows):
+        row.height = Inches(PANEL_HEADER if index == 0 else row_height)
+    for column, header in enumerate((title, current, f"QoQ\n{qoq_label}", f"YoY\n{yoy_label}", "Evolução")):
+        _cell(table.cell(0, column), header, size=10, header=True, centered=column > 0)
+    for row, card in enumerate(group, 1):
+        label_cell = table.cell(row, 0)
+        _cell(label_cell, card.get("label") or "Indicador", size=11)
+        subtitle = str(card.get("subtitle") or "")
+        if subtitle:
+            paragraph = label_cell.text_frame.add_paragraph()
+            paragraph.text = subtitle
+            _font(paragraph, 8.5, color=_MUTED)
+        formatted = str(card.get("value") or "N/D")
+        marker = str(card.get("status_marker") or "")
+        _cell(table.cell(row, 1), formatted + (marker if marker and not formatted.endswith(marker) else ""), size=12, bold=True, centered=True)
+        for column, comparison in ((2, "qoq"), (3, "yoy")):
+            display, tone = _comparison(card, comparison)
+            _cell(table.cell(row, column), display, size=10, centered=True, color=VARIATION_COLORS.get(tone, VARIATION_COLORS["neutral"]))
+        for column in (1, 2, 3):
+            table.cell(row, column).margin_left = table.cell(row, column).margin_right = Inches(.03)
+        _cell(table.cell(row, 4), "", centered=True)
+        _, qoq_tone = _comparison(card, "qoq")
+        chart_y = PANEL_TOP + PANEL_HEADER + (row - 1) * row_height + .05
+        if not _history(slide, card.get("history"), x + sum(PANEL_WIDTHS) + .03, chart_y, widths[4] - .06, row_height - .1, tone=qoq_tone):
+            _cell(table.cell(row, 4), "N/D", size=10, centered=True, color=_MUTED)
+
+
 def _snapshot_slides(prs, snapshot):
     cards = list(snapshot.get("cards") or ())
     if not cards:
@@ -154,64 +222,30 @@ def _snapshot_slides(prs, snapshot):
     if not grouped[1]:
         grouped = [cards[:8], cards[8:]]
     if not grouped[1] or any(len(group) > 8 for group in grouped):
-        raise ValueError("Os dois slides de Snapshot comportam até oito indicadores cada.")
+        raise ValueError("Os dois painéis do Snapshot comportam até oito indicadores cada.")
     bank, base = str(snapshot.get("bank") or "Instituição"), str(snapshot.get("base") or "")
     current = str(snapshot.get("period_label") or snapshot.get("period") or "N/D")
     qoq_label = str(snapshot.get("qoq_label") or snapshot.get("qoq_period_label") or "Trimestre anterior")
     yoy_label = str(snapshot.get("yoy_label") or snapshot.get("yoy_period_label") or "Mesmo trimestre anterior")
-    titles = ("Porte, capital e rentabilidade", "Funding e qualidade da carteira")
+    slide = _slide(prs, "Snapshot · " + short_bank(bank), f"{current}  ·  {base}", len(prs.slides) + 1)
+    attention = attention_line(cards, yoy_label)
+    if attention:
+        _text(slide, _MARGIN, 1.08, _CONTENT, .24, attention, 11, bold=True, color=VARIATION_COLORS["attention"])
+    width = (_CONTENT - PANEL_GAP) / 2
     for index, group in enumerate(grouped):
-        slide = _slide(prs, "Snapshot · " + short_bank(bank), f"{current}  ·  {base}  ·  {titles[index]}", len(prs.slides) + 1)
-        # O segundo slide passa a incluir as duas razões de NPL. Reserva uma
-        # área fixa para as ressalvas de fonte mesmo com oito indicadores.
-        row_height = .565 if index == 0 else min(.68, 3.9 / len(group))
-        widths = [4.00, 2.05, 2.04, 2.04, _CONTENT - 10.13]
-        heights = [.58] + [row_height] * len(group)
-        y = 1.47
-        table = _table(slide, len(group) + 1, 5, y, heights, widths)
-        headers = ["Indicador", f"Valor · {current}", f"QoQ\n{qoq_label}", f"YoY\n{yoy_label}", "Evolução\nAté 8 períodos"]
-        for column, header in enumerate(headers):
-            _cell(table.cell(0, column), header, size=12, header=True, centered=column > 0)
-        for row, card in enumerate(group, 1):
-            label_cell = table.cell(row, 0)
-            _cell(label_cell, card.get("label") or "Indicador", size=14)
-            subtitle = str(card.get("subtitle") or "")
-            if subtitle:
-                paragraph = label_cell.text_frame.add_paragraph()
-                paragraph.text = subtitle
-                _font(paragraph, 9.5, color=_MUTED)
-            scope = str(card.get("scope") or base)
-            source = str(card.get("source_label") or card.get("source") or "")
-            if scope or source:
-                paragraph = label_cell.text_frame.add_paragraph()
-                paragraph.text = source if source == scope or source.startswith(scope + " · ") else " · ".join(part for part in (scope, source) if part)
-                _font(paragraph, 9, color=_MUTED)
-            formatted = str(card.get("value") or "N/D")
-            marker = str(card.get("status_marker") or "")
-            _cell(table.cell(row, 1), formatted + (marker if marker and not formatted.endswith(marker) else ""), size=18, bold=True, centered=True)
-            for column, comparison in ((2, "qoq"), (3, "yoy")):
-                display, tone = _comparison(card, comparison)
-                _cell(table.cell(row, column), display, size=13, centered=True, color=VARIATION_COLORS.get(tone, VARIATION_COLORS["neutral"]))
-            _cell(table.cell(row, 4), "", centered=True)
-            chart_y = y + heights[0] + (row - 1) * row_height + .06
-            _, qoq_tone = _comparison(card, "qoq")
-            if not _history(slide, card.get("history"), _MARGIN + sum(widths[:4]) + .05, chart_y, widths[4] - .10, row_height - .12, tone=qoq_tone):
-                _cell(table.cell(row, 4), "N/D", size=12, centered=True, color=_MUTED)
-        source_footer = "BCB IFData individual: trimestral; relatório e escopo indicados em cada linha." if base == "Individual" else "BCB IFData: trimestral; Cadoc 4060: mensal, alinhado ao fechamento trimestral."
-        footer = source_footer + "\nCores do delta e do último ponto: verde favorável; vermelho atenção; cinza contextual. N/D: dado ou comparação indisponível."
-        if index == 1:
-            notes = snapshot.get("source_notes") or snapshot.get("notes") or ()
-            if isinstance(notes, str):
-                notes = [notes]
-            visible = [str(note) for note in notes if note][:3]
-            if visible:
-                _text(slide, _MARGIN, 6.06, _CONTENT, .55, "\n".join(visible), 9.5, color=_MUTED)
-        _text(slide, _MARGIN, 6.70, _CONTENT, .52, footer, 9.5, color=_MUTED)
-        slide.notes_slide.notes_text_frame.text = _json({
-            "section": titles[index], "snapshot": {key: value for key, value in snapshot.items() if key != "cards"},
-            "cards": group,
-            "methodology": "Níveis, deltas, unidades e cores são os mesmos enviados pela tela. Históricos são gráficos Office editáveis com os mesmos pontos e lacunas.",
-        })
+        _snapshot_panel(slide, group, PANEL_TITLES[index], _MARGIN + index * (width + PANEL_GAP), width, (current, qoq_label, yoy_label))
+    source_footer = "BCB IFData individual: trimestral; relatório e escopo de cada linha nas notas do slide." if base == "Individual" else "BCB IFData: trimestral; Cadoc 4060: mensal, alinhado ao fechamento trimestral."
+    footer = [source_footer + " Verde: favorável; vermelho: atenção; cinza: contextual. N/D: dado ou comparação indisponível."]
+    notes = snapshot.get("source_notes") or snapshot.get("notes") or ()
+    if isinstance(notes, str):
+        notes = [notes]
+    footer += [str(note) for note in notes if note][:3]
+    _text(slide, _MARGIN, 6.38, _CONTENT, .8, "\n".join(footer), 9, color=_MUTED)
+    slide.notes_slide.notes_text_frame.text = _json({
+        "section": "Snapshot", "snapshot": {key: value for key, value in snapshot.items() if key != "cards"},
+        "cards": cards,
+        "methodology": "Níveis, deltas, unidades e cores são os mesmos enviados pela tela. Históricos são gráficos Office editáveis com os mesmos pontos e lacunas.",
+    })
 
 
 def _unavailable_slide(prs, snapshot, title, reason):
@@ -222,10 +256,27 @@ def _unavailable_slide(prs, snapshot, title, reason):
     slide.notes_slide.notes_text_frame.text = _json({"section": title, "status": "unavailable", "reason": reason, "bank": snapshot.get("bank"), "base": snapshot.get("base")})
 
 
-def _peers_slides(prs, snapshot, query, reason):
+# No material de comitê, estes indicadores já aparecem no Balanço, na DRE ou na Carteira 4.966.
+COMMITTEE_REPEATED_METRICS = {
+    "Ativo Total", "Depósitos Totais", "Patrimônio Líquido (PL)", "Inadimplência", "Inadimplência / Carteira Total",
+    "PDD / Inadimplência (arrasto)", "Índice de Capital Principal (CET1)", "Índice de Basileia Total (%)",
+    "Lucro Líquido Acumulado", "ROE Acumulado YTD (%)",
+}
+COMMITTEE_REPEATED_PORTFOLIO = {"delinquency", "provision_over_delinquency"}
+
+
+def _history_title(query):
+    """Com uma só instituição, a tabela é um histórico; só com pares ela compara."""
+    return "Tabela de Peers" if query and len(query.get("banks") or ()) > 1 else "Histórico trimestral"
+
+
+def _peers_slides(prs, snapshot, query, reason, *, committee=False):
+    title = _history_title(query)
     if not query or not query.get("periods") or not query.get("metrics") or not query.get("banks"):
-        _unavailable_slide(prs, snapshot, "Tabela de Peers", reason)
+        _unavailable_slide(prs, snapshot, title, reason)
         return
+    if committee:
+        query = {**query, "metrics": [key for key in query["metrics"] if key not in COMMITTEE_REPEATED_METRICS]}
     periods = sorted(set(query["periods"]), key=period_sort)[-3:]
     lookup = {(cell["metric"], cell["bank"], cell["period"]): cell for cell in query["cells"]}
     # O contexto do Snapshot normalmente tem uma instituição. A paginação
@@ -234,7 +285,7 @@ def _peers_slides(prs, snapshot, query, reason):
         banks = query["banks"][bank_start:bank_start + 3]
         for start in range(0, len(query["metrics"]), 8):
             keys = query["metrics"][start:start + 8]
-            slide = _slide(prs, "Tabela de Peers", f"{query['base']}  ·  {query['scale']}  ·  {', '.join(short_bank(bank) for bank in banks)}", len(prs.slides) + 1)
+            slide = _slide(prs, title, f"{query['base']}  ·  {query['scale']}  ·  {', '.join(short_bank(bank) for bank in banks)}", len(prs.slides) + 1)
             rows = []
             section = None
             for key in keys:
@@ -247,12 +298,12 @@ def _peers_slides(prs, snapshot, query, reason):
             widths = [4.1] + [(_CONTENT - 4.1) / (column_count - 1)] * (column_count - 1)
             metric_height = min(.48, (4.95 - .64 - .23 * sum(kind == "section" for kind, _ in rows)) / len(keys))
             heights = [.64] + [.23 if kind == "section" else metric_height for kind, _ in rows]
-            table = _table(slide, len(rows) + 1, column_count, 1.45, heights, widths)
+            table = _table(slide, len(rows) + 1, column_count, 1.3, heights, widths)
             _cell(table.cell(0, 0), "Indicador", header=True, size=13)
             for bank_index, bank in enumerate(banks):
                 for period_index, period in enumerate(periods):
-                    title = (short_bank(bank) + " · " if len(banks) > 1 else "") + period_label(period)
-                    _cell(table.cell(0, 1 + bank_index * len(periods) + period_index), title + "\n" + period_comparison_label(period, query["mode"]), size=11, header=True, centered=True)
+                    header = (short_bank(bank) + " · " if len(banks) > 1 else "") + period_label(period)
+                    _cell(table.cell(0, 1 + bank_index * len(periods) + period_index), header + "\n" + period_comparison_label(period, query["mode"]), size=11, header=True, centered=True)
             for row_index, (kind, value) in enumerate(rows, 1):
                 if kind == "section":
                     table.cell(row_index, 0).merge(table.cell(row_index, column_count - 1))
@@ -286,7 +337,7 @@ def _peers_slides(prs, snapshot, query, reason):
             })
 
 
-def _carteira_slides(prs, snapshot, model, reason):
+def _carteira_slides(prs, snapshot, model, reason, *, committee=False):
     from tabs.carteira_4966 import (
         ROW_SPECS, MetricCell, VARIATION_NOTE, COLOR_NOTE, cell_delta,
         format_brl_millions, format_percentage, quality_issue_message,
@@ -299,13 +350,17 @@ def _carteira_slides(prs, snapshot, model, reason):
         ("Classificação da carteira", [spec for spec in ROW_SPECS if spec.group == "classification"]),
         ("Atrasos, provisão e cobertura", [spec for spec in ROW_SPECS if spec.group != "classification"]),
     ]
+    if committee:
+        groups = [("Classificação, provisão e cobertura", [spec for spec in ROW_SPECS if spec.key not in COMMITTEE_REPEATED_PORTFOLIO])]
+    base_label = model.period_labels.get(model.base_period, period_label(model.base_period)) if model.base_period else "N/D"
+    value_size, delta_size, label_size = (11, 8, 11) if committee else (14, 10, 13)
     for title, specs in groups:
-        slide = _slide(prs, "Carteira 4.966", f"{str(snapshot.get('bank') or 'Instituição')}  ·  {snapshot.get('base') or 'Consolidada / Prudencial'}  ·  {title}", len(prs.slides) + 1)
+        slide = _slide(prs, "Carteira 4.966", f"{short_bank(snapshot.get('bank') or 'Instituição')}  ·  {snapshot.get('base') or 'Consolidada / Prudencial'}  ·  {title}", len(prs.slides) + 1)
         columns = 1 + len(periods) * 2
         widths = [4.15] + [(_CONTENT - 4.15) / (columns - 1)] * (columns - 1)
-        row_height = .49 if len(specs) > 5 else .64
-        heights = [.53, .30] + [row_height] * len(specs)
-        table = _table(slide, len(specs) + 2, columns, 1.47, heights, widths)
+        row_height = .39 if committee else .49 if len(specs) > 5 else .64
+        heights = [.46 if committee else .53, .26 if committee else .30] + [row_height] * len(specs)
+        table = _table(slide, len(specs) + 2, columns, 1.22 if committee else 1.47, heights, widths)
         table.cell(0, 0).merge(table.cell(1, 0))
         _cell(table.cell(0, 0), "Indicador", header=True, size=13)
         for index, period in enumerate(periods):
@@ -314,10 +369,10 @@ def _carteira_slides(prs, snapshot, model, reason):
             previous = cell_delta(model, specs[0], period).reference_period
             reference = model.period_labels.get(previous, period_label(previous)) if previous else "N/D"
             _cell(table.cell(0, first), model.period_labels.get(period, period_label(period)) + "\nQoQ vs " + reference, header=True, centered=True, size=11)
-            for offset, unit in enumerate(("R$ mm", "%")):
+            for offset, unit in enumerate(("R$ mm", f"% base {base_label}")):
                 _cell(table.cell(1, first + offset), unit, header=True, centered=True, size=10)
         for row_index, spec in enumerate(specs, 2):
-            _cell(table.cell(row_index, 0), spec.label, size=13, bold=spec.emphasis)
+            _cell(table.cell(row_index, 0), "Carteira 4.966 total" if spec.key == "total_portfolio" else spec.label, size=label_size, bold=spec.emphasis)
             for period_index, period in enumerate(periods):
                 value = model.cells.get(spec.key, {}).get(period, MetricCell(None))
                 first = 1 + period_index * 2
@@ -329,9 +384,9 @@ def _carteira_slides(prs, snapshot, model, reason):
                 marker = "*" if model.cell_quality_issues(spec.key, period) else ""
                 for target, number, percent in targets:
                     display = format_percentage(number, spec.percent_decimals) if percent else format_brl_millions(number)
-                    _cell(target, display + marker, size=14, bold=spec.emphasis, centered=True)
+                    _cell(target, display + marker, size=value_size, bold=spec.emphasis, centered=True)
                     delta = cell_delta(model, spec, period, secondary=percent and spec.layout == "paired")
-                    _cell_delta(target, delta.display, delta.tone, size=10)
+                    _cell_delta(target, delta.display, delta.tone, size=delta_size)
         base = model.period_labels.get(model.base_period, period_label(model.base_period)) if model.base_period else "N/D"
         footer = f"BCB IFData Rel. 16 e Rel. 2 · trimestral · {snapshot.get('base') or 'Consolidada / Prudencial'} · 4.966 desde 2025. Classificação: % da carteira-base de {base}."
         footer += "\nVencidos: operação integral com parcela >90 dias (arrasto), % da carteira do trimestre. PDD: |e2+f2+g2+h2|. Coberturas usam a PDD total."
@@ -339,11 +394,14 @@ def _carteira_slides(prs, snapshot, model, reason):
         source_notes = snapshot.get("carteira_notes") or snapshot.get("source_notes") or ()
         if isinstance(source_notes, str):
             source_notes = [source_notes]
-        if source_notes:
+        if source_notes and not committee:
             footer += "\n" + str(source_notes[0])
         if len(periods) < 3:
             footer += f" {len(periods)} período(s) disponível(is)."
-        _text(slide, _MARGIN, 6.42, _CONTENT, .87, footer, 9.2, color=_MUTED)
+        if committee:
+            footer = f"BCB IFData Rel. 16 e Rel. 2, trimestral. Classificação: % da carteira de {base}, base comum a todas as datas. PDD: |e2+f2+g2+h2|; cobre também ativos fora dos vencidos. *: alerta de qualidade; consulte as notas do slide."
+            footer += "\n" + VARIATION_NOTE
+        _text(slide, _MARGIN, 6.42, _CONTENT, .87, footer, 9 if committee else 9.2, color=_MUTED)
         slide.notes_slide.notes_text_frame.text = _json({
             "periods": periods, "base_period": model.base_period, "base_value": model.base_value,
             "bank": snapshot.get("bank"), "scope": snapshot.get("base"), "source_notes": source_notes,
@@ -357,7 +415,7 @@ def _carteira_slides(prs, snapshot, model, reason):
 
 
 def export_snapshot_powerpoint(snapshot: Mapping, peers_query=None, carteira_model=None, *, peers_unavailable_reason="", carteira_unavailable_reason="", committee_slides=None) -> bytes:
-    """Exporta Snapshot (2 slides), Peers e 4.966, nessa ordem.
+    """Exporta Snapshot (1 slide), Histórico trimestral e 4.966, nessa ordem.
 
     ``snapshot.cards`` contém ``label``, ``value`` (texto já formatado), ``group``
     (hero/profit/support), ``qoq`` e ``yoy`` (texto ou display/tone/reason), além
@@ -373,13 +431,14 @@ def export_snapshot_powerpoint(snapshot: Mapping, peers_query=None, carteira_mod
     prs.core_properties.title = f"Resumo do Snapshot — {snapshot.get('bank', 'Instituição')}"
     prs.core_properties.subject = f"{snapshot.get('period_label', snapshot.get('period', ''))} | {snapshot.get('base', '')}"
     prs.core_properties.author = "Toma Conta"
-    prs.core_properties.keywords = "Snapshot; Tabela de Peers; Carteira 4.966; editável"
+    prs.core_properties.keywords = "Snapshot; Histórico trimestral; Carteira 4.966; editável"
     _snapshot_slides(prs, snapshot)
     # Material de comitê: as demonstrações entram logo depois da visão executiva.
     if committee_slides is not None:
         committee_slides(prs)
-    _peers_slides(prs, snapshot, peers_query, peers_unavailable_reason)
-    _carteira_slides(prs, snapshot, carteira_model, carteira_unavailable_reason)
+    committee = committee_slides is not None
+    _peers_slides(prs, snapshot, peers_query, peers_unavailable_reason, committee=committee)
+    _carteira_slides(prs, snapshot, carteira_model, carteira_unavailable_reason, committee=committee)
     if committee_slides is not None:
         from .presentation_tables import pin_run_fonts
         pin_run_fonts(prs)

@@ -18,6 +18,8 @@ from pptx.oxml.ns import qn
 from pptx.oxml.xmlchemy import OxmlElement
 from pptx.util import Inches, Pt
 
+from .peers_table_model import short_bank
+from .presentation_tables import _slide as _deck_slide
 from .evolucao_visual import (HEADER_COLOR, LOSS_COLOR, METRIC_LABELS, PROFIT_COLOR, SERIES, _axis_range, axis_scale,
                               period_label)
 from .scr_pptx_export import (
@@ -31,7 +33,9 @@ from .scr_pptx_export import (
 PERIODS_PER_SLIDE = 8
 NUMBER_FORMAT = '[$-416]#,##0.0'
 NUMBER_FORMAT_MM = '[$-416]#,##0'
-CHART_TOP, CHART_HEIGHT = .94, 3.48
+CHART_TOP, CHART_HEIGHT = 1.08, 3.38
+LEFT, WIDTH = .42, 12.49
+MONTHS = {"Jan": 1, "Fev": 2, "Mar": 3, "Abr": 4, "Mai": 5, "Jun": 6, "Jul": 7, "Ago": 8, "Set": 9, "Out": 10, "Nov": 11}
 PLOT_LEFT, PLOT_WIDTH, PLOT_TOP, PLOT_HEIGHT = .065, .865, .22, .64
 LABEL_GAP, LABEL_HEIGHT = .14, .12
 TABLE_TOP = 4.53
@@ -84,9 +88,19 @@ def _label_positions(points):
     return {index: position for (index, _), position in zip(ordered, positions)}
 
 
+def partial_months(period):
+    """Meses cobertos pelo lucro acumulado; ``None`` quando é o ano inteiro."""
+    return MONTHS.get(period_label(period).split("/")[0].title())
+
+
+def _lighter(color):
+    channels = [int(color.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4)]
+    return "".join(f"{(channel + 255) // 2:02X}" for channel in channels)
+
+
 def _chart(slide, frame, periods):
     data = CategoryChartData()
-    data.categories = [period_label(period) for period in periods]
+    data.categories = [period_label(period) + (f" ({partial_months(period)}m)" if partial_months(period) else "") for period in periods]
     values = {}
     scales = {axis: axis_scale(frame, axis) for axis in ("y", "y2")}
     formats = {axis: NUMBER_FORMAT if scales[axis][2] else NUMBER_FORMAT_MM for axis in scales}
@@ -95,7 +109,7 @@ def _chart(slide, frame, periods):
         values[column] = [float(v) / scales[axis][0] if pd.notna(v) and math.isfinite(float(v)) else None for v in numbers]
         data.add_series(name, values[column], number_format=formats[axis])
     chart = slide.shapes.add_chart(
-        XL_CHART_TYPE.COLUMN_CLUSTERED, Inches(.38), Inches(CHART_TOP), Inches(12.55), Inches(CHART_HEIGHT), data,
+        XL_CHART_TYPE.COLUMN_CLUSTERED, Inches(LEFT), Inches(CHART_TOP), Inches(WIDTH), Inches(CHART_HEIGHT), data,
     ).chart
     chart.has_title = False
     # python-pptx's template uses signed axis IDs; OOXML requires unsigned IDs.
@@ -125,10 +139,13 @@ def _chart(slide, frame, periods):
             if column == "Lucro Líquido":
                 series.format.fill.fore_color.rgb = RGBColor.from_string(PROFIT_COLOR.lstrip("#"))
                 for point_index, number in enumerate(values[column]):
-                    if number is not None and number < 0:
+                    partial = partial_months(periods[point_index])
+                    if number is not None and (number < 0 or partial):
+                        base_color = LOSS_COLOR if number < 0 else PROFIT_COLOR
                         point = series.points[point_index]
                         point.format.fill.solid()
-                        point.format.fill.fore_color.rgb = RGBColor.from_string(LOSS_COLOR.lstrip("#"))
+                        # O tom claro avisa que a barra acumula menos de 12 meses.
+                        point.format.fill.fore_color.rgb = RGBColor.from_string(_lighter(base_color) if partial else base_color.lstrip("#"))
                         point.format.line.fill.background()
                         # Sem isto o Office inverte a cor do ponto negativo para branco.
                         invert = OxmlElement("c:invertIfNegative")
@@ -145,6 +162,13 @@ def _chart(slide, frame, periods):
             target = PLOT_TOP + (1 - (values[column][last] - low) / (high - low)) * PLOT_HEIGHT - .08
             finals.append((index, target, last))
     _mover_para_eixo_secundario(chart, [2, 3], formats["y2"], escala=ranges["y2"], cor=RGBColor.from_string("222222"))
+    # Linhas retas: a curva sugeriria valores entre as datas publicadas.
+    for line_series in chart._chartSpace.xpath(".//c:lineChart/c:ser"):
+        smooth = line_series.find(qn("c:smooth"))
+        if smooth is None:
+            smooth = OxmlElement("c:smooth")
+            line_series.append(smooth)
+        smooth.set("val", "0")
     positions = _label_positions([(i, y) for i, y, _ in finals])
     for index, _, last in finals:
         label = chart.series[index].points[last].data_label
@@ -190,8 +214,8 @@ def _chart(slide, frame, periods):
         chart.legend._element.append(entry)
     _ordenar_filhos(chart.legend._element, ORDEM_LEGENDA)
     _manual_layout(chart._chartSpace.chart.plotArea, x=PLOT_LEFT, y=PLOT_TOP, w=PLOT_WIDTH, h=PLOT_HEIGHT, inner=True)
-    _text(slide, f"Lucro e PL ({scales['y'][1]})", .38, 1.43, 5.9, .2, size=10, color="555555")
-    axis_caption = _text(slide, f"Carteira e Core Funding ({scales['y2'][1]})", 7.03, 1.43, 5.9, .2, size=10, color="222222")
+    _text(slide, f"Lucro e PL ({scales['y'][1]})", LEFT, 1.57, 5.9, .2, size=10, color="555555")
+    axis_caption = _text(slide, f"Carteira e Core Funding ({scales['y2'][1]})", LEFT + WIDTH - 5.9, 1.57, 5.9, .2, size=10, color="222222")
     axis_caption.text_frame.paragraphs[0].alignment = PP_ALIGN.RIGHT
     blanks = chart._chartSpace.chart.find(qn("c:dispBlanksAs"))
     if blanks is None:
@@ -213,11 +237,11 @@ def _chart(slide, frame, periods):
 
 def _table(slide, frame, periods):
     table = slide.shapes.add_table(
-        len(frame) + 1, len(periods) + 1, Inches(.38), Inches(TABLE_TOP), Inches(12.55), Inches(.34 + .32 * len(frame)),
+        len(frame) + 1, len(periods) + 1, Inches(LEFT), Inches(TABLE_TOP), Inches(WIDTH), Inches(.34 + .32 * len(frame)),
     ).table
     table.columns[0].width = Inches(3.5)
     for column in range(1, len(periods) + 1):
-        table.columns[column].width = Inches(9.05 / len(periods))
+        table.columns[column].width = Inches((WIDTH - 3.5) / len(periods))
     table.rows[0].height = Inches(.34)
     for row in list(table.rows)[1:]:
         row.height = Inches(.32)
@@ -293,18 +317,14 @@ def add_evolucao_slides(prs, *, df_graph, df_show, periods, institution, queried
             dates = list(dict.fromkeys(period_label(row["Período"]) for row in block_status if row.get("Status analítico") == status))
             if dates:
                 caveats.append(description + ": " + ", ".join(dates) + ".")
-        slide = prs.slides.add_slide(prs.slide_layouts[6])
-        slide.background.fill.solid()
-        slide.background.fill.fore_color.rgb = RGBColor(255, 255, 255)
-        _text(slide, "Evolução", .38, .2, 12.55, .35, size=22, bold=True)
-        _text(slide, f"{institution} | {period_label(block[0])} a {period_label(block[-1])}", .38, .63, 12.55, .25, size=13)
+        slide = _deck_slide(prs, "Evolução", f"{short_bank(institution)}  ·  {period_label(block[0])} a {period_label(block[-1])}", len(prs.slides) + 1)
         _chart(slide, df_graph.iloc[start:start + len(block)], block)
         _table(slide, df_show, block)
-        note = "Lucro acumulado no ano. * Mudança do layout IFData em 2025 nas séries Carteira e Core Funding."
+        note = "Lucro acumulado no ano; barra clara: menos de 12 meses, não comparável aos anos cheios. * Mudança do layout IFData em 2025 nas séries Carteira e Core Funding."
         if any("*" in str(df_show[p].tolist()) for p in block):
             note += " * Nos indicadores: fallback analítico."
         if any("†" in str(df_show[p].tolist()) for p in block):
             note += " † Indisponibilidade com causa identificada."
-        _text(slide, "\n".join([note, *caveats]), .38, 6.52, 12.55, .46, size=9, color="555555")
-        _text(slide, footer, .38, 7.03, 12.55, .32, size=8, color="555555")
+        _text(slide, "\n".join([note, *caveats]), LEFT, 6.52, WIDTH, .46, size=9, color="555555")
+        _text(slide, footer, LEFT, 7.03, WIDTH, .32, size=8, color="555555")
         slide.notes_slide.notes_text_frame.text = notes

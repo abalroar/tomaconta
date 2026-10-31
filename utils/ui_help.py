@@ -163,14 +163,16 @@ def get_help_text(label: str, *, base: str = "Prudencial", include_source: bool 
     return " ".join(part for part in parts if part)
 
 
-def render_module_help(module: str, *, base: str | None = None, caption: bool = True) -> None:
+def render_module_help(module: str, *, base: str | None = None, caption: bool = True, label: str = "Fontes e leitura", note: str = "") -> None:
     """Contexto breve na tela e fontes do mesmo catálogo em ajuda opcional."""
     import streamlit as st
 
     guide = next(g for g in MODULE_GUIDES if g.name == module)
     if caption:
         st.caption(MODULE_CAPTIONS[module] + (f" Recorte selecionado: {base}." if base else ""))
-    with st.popover("Fontes e leitura", help="Periodicidade, escopo e cuidados relevantes para esta aba"):
+    with st.popover(label, help="Periodicidade, escopo e cuidados relevantes para esta aba", width="stretch" if note else "content"):
+        if note:
+            st.write(note)
         st.write(guide.caution)
         for key in guide.sources:
             source = SOURCE_BY_KEY[key]

@@ -44,7 +44,7 @@ def snapshot_payload(bank, period, qoq_period, yoy_period, groups, histories, ap
             history["tone"] = cfg.get("history_tone", comparison.get("tone", "neutral"))
             history["direction"] = cfg.get("history_direction", comparison.get("direction"))
             cards.append({
-                "key": cfg.get("format_key", cfg["label"]), "label": cfg["label"], "group": group,
+                "key": cfg.get("format_key", cfg["label"]), "label": cfg.get("display_label", cfg["label"]), "group": group,
                 "value": api["_formatar_valor_snapshot"](cfg, current) + marker,
                 "raw_value": current, "qoq": qoq, "yoy": yoy,
                 "history": history, "source": cfg.get("source", ""),
@@ -157,7 +157,7 @@ def export_snapshot_package(snapshot, df_bank_all, api, *, committee_slides=None
         peers = peers_history(df_bank_all, snapshot["bank"], snapshot["period"], api, snapshot["queried_at"], base=base)
     except Exception:
         log.exception("Falha no histórico de Peers para Snapshot PPT")
-        peer_reason = "Histórico da Tabela de Peers indisponível para este recorte."
+        peer_reason = "Histórico trimestral indisponível para este recorte."
     try:
         carteira, carteira_reason, warnings = carteira_history(snapshot["bank"], snapshot["period"], api, base=base)
     except Exception:
