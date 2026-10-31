@@ -242,7 +242,8 @@ def _portfolio_statement_slides(prs, analysis, institution):
 
 def committee_slides(prs, analysis, evolution=None):
     """Balanço, DRE e Evolução para compor o material de comitê do Snapshot."""
-    _committee_slide(prs, analysis, institution_label(analysis.institution))
+    from .peers_table_model import short_bank
+    _committee_slide(prs, analysis, short_bank(institution_label(analysis.institution)))
     if evolution is not None:
         from .evolucao_pptx_export import add_evolucao_slides
         add_evolucao_slides(prs, **evolution)

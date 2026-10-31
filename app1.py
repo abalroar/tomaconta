@@ -76,6 +76,14 @@ def _timer_store_elapsed(timer_key: str, selection_signature, elapsed_seconds: f
     }
 
 
+def _modo_diagnostico() -> bool:
+    """Informação operacional, como cronômetros e caches, fica fora da tela do usuário."""
+    try:
+        return bool(st.secrets.get("debug_mode", False))
+    except Exception:
+        return False
+
+
 def _timer_render_caption(timer_key: str, container, label: str) -> None:
     """Renderiza cronômetro de carregamento para a aba."""
     state = st.session_state.get(timer_key, {})
@@ -734,7 +742,7 @@ else:
             "per_institution": per_institution,
         }
 
-st.set_page_config(page_title="🏦 👀 toma.conta!", page_icon="👁️", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="🏦 👀 toma.conta!", page_icon="👁️", layout="wide", initial_sidebar_state="collapsed")
 
 # CSS e JS de interface — injetados uma única vez na carga da página.
 # O Streamlit reavalia esta chamada a cada rerun, mas o React difere o HTML
@@ -4744,12 +4752,11 @@ def _render_snapshot_institution_selector(bancos: list[str]) -> Optional[str]:
         banco_atual = default_banco
         st.session_state["snapshot_banco"] = banco_atual
 
-    st.caption(f"Instituição selecionada: **{banco_atual}**")
     query = st.text_input(
         "Buscar instituição",
         key="snapshot_banco_search",
-        placeholder="Digite nome, sigla ou alias. Ex.: Itaú, Volvo, Cressol",
-        help="A busca prioriza alias, token exato, prefixo e similaridade forte.",
+        placeholder="Buscar outra instituição: nome, sigla ou alias",
+        label_visibility="collapsed",
     )
 
     query_clean = str(query or "").strip()
@@ -10514,7 +10521,7 @@ def _formatar_valor_snapshot(metrica_cfg: dict, valor) -> str:
         if abs(v_mm) >= 1000:
             txt = f"R$ {valor_num / 1e9:,.1f} bi"
         else:
-            txt = f"R$ {v_mm:,.0f}MM"
+            txt = f"R$ {v_mm:,.0f} mm"
         return txt.replace(",", "X").replace(".", ",").replace("X", ".")
 
     return _formatar_valor_peers(valor, format_key, coluna_origem=coluna_origem)
@@ -10653,7 +10660,7 @@ def _snapshot_comparison_labels(metric_cfg: dict) -> tuple[str, str]:
 
     basis = str(metric_cfg.get("comparison_basis") or "").strip().lower()
     if basis == "trimestral":
-        return "QoQ trimestral", "YoY trimestral"
+        return "QoQ", "YoY"
     if basis == "ytd":
         return "QoQ YTD", "YoY YTD"
     return "QoQ", "YoY"
@@ -10736,7 +10743,8 @@ def _snap_sparkbars_svg(
     if len(available) < 2:
         return ""
 
-    min_v, max_v = min(available), max(available)
+    # Base no zero: prejuízo desce e nunca parece uma barra positiva pequena.
+    min_v, max_v = min(0, *available), max(0, *available)
     rng = max_v - min_v or 1
     bar_gap = 2
     bar_w = max((width - (len(nums) - 1) * bar_gap) / len(nums), 2)
@@ -10745,8 +10753,8 @@ def _snap_sparkbars_svg(
         if v is None:
             continue
         x = i * (bar_w + bar_gap)
-        h = ((v - min_v) / rng) * (height - 4) + 2
-        y = height - h
+        h = max(abs(v) / rng * height, 1.5)
+        y = (max_v - max(v, 0)) / rng * height
         rects.append(
             f'<rect x="{x:.1f}" y="{y:.1f}" width="{bar_w:.1f}" height="{h:.1f}" '
             f'rx="1.2" ry="1.2" fill="{accent if accent and i == len(nums) - 1 else color}" opacity="0.82" />'
@@ -10817,7 +10825,7 @@ def _snap_delta_calc(
     elif delta_kind == "pp":
         payload["suffix"] = formatar_delta_br(diff, "p.p.", casas=2)
     else:
-        payload["suffix"] = formatar_numero_br(diff, casas=2, sufixo="%", com_sinal=True)
+        payload["suffix"] = formatar_numero_br(diff, casas=2, sufixo="%", com_sinal=True).replace("-", "−")
 
     payload["valido"] = True
     payload["motivo"] = ""
@@ -10870,7 +10878,8 @@ def _snap_delta_presentation(
         )
         payload["tone"] = "favorable" if improved else "attention"
     payload["direction"] = direction
-    payload["display"] = f"{arrow} {suffix}"
+    # A seta já indica o sentido de um movimento abaixo do limiar de exibição.
+    payload["display"] = f"{arrow} {suffix}".replace("−<", "<").replace("+<", "<")
     return payload
 
 
@@ -10917,6 +10926,7 @@ def _snap_metric_favorable_direction(metric_cfg: dict) -> Optional[str]:
     policies = {
         "Índice de Basileia": "up",
         "CET1": "up",
+        "Patrimônio Líquido": "up",  # Capital: queda é sinal de crédito, ao contrário dos demais saldos.
         "ROE trim. anualizado": "up",
         "ROE Ac. Anualizado": "up",
         "Perda Esperada / Estágio 3": "up",
@@ -11006,7 +11016,7 @@ def _render_snap_card(
 ) -> str:
     """Monta HTML completo de um card Snapshot V2."""
     serie = metric_cfg.get("serie", {})
-    label = metric_cfg.get("label", "Métrica")
+    label = metric_cfg.get("display_label") or metric_cfg.get("label", "Métrica")
     source = metric_cfg.get("source", "")
     comparison = metric_cfg.get("comparison", "qoq")
     qoq_label, yoy_label = _snapshot_comparison_labels(metric_cfg)
@@ -11065,7 +11075,9 @@ def _render_snap_card(
         marker_class = "snap-card__status-mark--unavailable" if status_marker == "†" else "snap-card__status-mark--fallback"
         value_marker_html = f'<span class="snap-card__status-mark {marker_class}">{_html_mod.escape(status_marker)}</span>'
 
-    meta_text = str(metric_cfg.get("subtitle") or metric_cfg.get("source_label") or "").strip()
+    # A fonte fica no ícone i; só o escopo Individual, que varia por linha, permanece no card.
+    individual_source = metric_cfg.get("source_label") if str(metric_cfg.get("scope") or "") == "Individual" else ""
+    meta_text = str(metric_cfg.get("subtitle") or individual_source or "").strip()
     meta_html = f'<div class="snap-card__meta">{_html_mod.escape(meta_text)}</div>' if meta_text else ""
     # A single HTML block avoids Markdown inserting empty paragraphs beside
     # <details>, which would become extra items in the flex header.
@@ -11160,7 +11172,7 @@ _SNAPSHOT_V2_CSS = """
     background: #ffffff;
     border: 1px solid #e5e7eb;
     border-radius: 10px;
-    padding: 16px;
+    padding: 12px 14px;
     position: relative;
     font-family: 'IBM Plex Sans', sans-serif;
     min-width: 0;
@@ -11198,7 +11210,7 @@ _SNAPSHOT_V2_CSS = """
     color: #212529;
     line-height: 1.2;
     font-variant-numeric: tabular-nums;
-    overflow-wrap: anywhere;
+    white-space: nowrap;
 }
 
 .snap-card__status-mark {
@@ -11217,15 +11229,16 @@ _SNAPSHOT_V2_CSS = """
 }
 
 .snap-card--hero .snap-card__value {
-    font-size: 1.8rem;
+    font-size: 1.5rem;
 }
 
 .snap-card__spark-row {
     display: flex;
     justify-content: space-between;
     align-items: flex-end;
-    gap: 12px;
-    margin: 6px 0 10px 0;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+    margin: 2px 0 6px 0;
 }
 
 .snap-sparkline {
@@ -11339,22 +11352,20 @@ _SNAPSHOT_V2_CSS = """
     color: #3c4249;
     font-size: 0.92rem;
     font-weight: 600;
-    margin: 1.5rem 0 0.35rem 0;
-    padding-bottom: 0.35rem;
+    margin: 1rem 0 0.25rem 0;
+    padding-bottom: 0.25rem;
     border-bottom: 1px solid #e9ecef;
     font-family: 'IBM Plex Sans', sans-serif;
 }
 
 .snap-period-bar {
     display: flex;
-    gap: 16px;
+    gap: 6px;
     flex-wrap: wrap;
     font-family: 'IBM Plex Sans', sans-serif;
-    font-size: 0.78rem;
+    font-size: 0.8rem;
     color: #666666;
-    margin-bottom: 0.75rem;
-    padding: 8px 0 12px;
-    border-bottom: 1px solid #e9ecef;
+    padding-top: 0.55rem;
 }
 
 .snap-period-bar span {
@@ -11374,10 +11385,6 @@ div[class*="st-key-snapshot_bank_match_"] button {
     white-space: normal;
     line-height: 1.25;
     text-align: left;
-}
-
-.stMain .st-key-snapshot_export [data-testid="stDownloadButton"] {
-    max-width: 320px;
 }
 
 /* ===== MOBILE / TABLET ===== */
@@ -11598,9 +11605,12 @@ def pagina_snapshot():
     st.markdown(_SNAPSHOT_V2_CSS, unsafe_allow_html=True)
 
     t0 = time.perf_counter()
-    st.markdown("### Snapshot")
-    base = st.segmented_control("Base das demonstrações", options=["Consolidada / Prudencial", "Individual"], default="Consolidada / Prudencial", key="snapshot_base", help="Individual: pessoa jurídica selecionada. Consolidada / Prudencial: conglomerado ou instituição independente. Cada card identifica seu escopo; fontes sem cobertura individual permanecem N/D.") or "Consolidada / Prudencial"
-    render_module_help("Snapshot")
+    titulo_box = st.empty()
+    col_busca, col_base, col_periodo, col_fontes, col_exportar = st.columns([3.3, 2.6, 2.2, .95, 1.15], vertical_alignment="top")
+    with col_base:
+        base = st.segmented_control("Base das demonstrações", options=["Consolidada / Prudencial", "Individual"], default="Consolidada / Prudencial", key="snapshot_base", label_visibility="collapsed") or "Consolidada / Prudencial"
+    with col_fontes:
+        render_module_help("Snapshot", caption=False, label="Fontes", note="Individual: pessoa jurídica selecionada. Consolidada / Prudencial: conglomerado ou instituição independente. Fontes sem cobertura individual permanecem N/D.")
     if base == "Individual":
         from tabs.peers_table import _load_context
         snapshot_ctx, identities = _load_context(globals(), True)
@@ -11619,14 +11629,18 @@ def pagina_snapshot():
         return
 
     bancos = ordenar_bancos_com_alias(list(bancos_ctx), st.session_state.get("dict_aliases", {}))
-    banco = _render_snapshot_institution_selector(bancos)
+    with col_busca:
+        banco = _render_snapshot_institution_selector(bancos)
     if not banco:
         st.warning("sem instituições disponíveis para Snapshot.")
         return
+    from utils.peers_table_model import short_bank
+    titulo_box.markdown(f"### Snapshot · {_html_mod.escape(short_bank(banco))}")
     timer_box = st.empty()
     snapshot_signature = ("snapshot", base, banco)
     _timer_reset_if_selection_changed("snapshot_timer_state", snapshot_signature)
-    _timer_render_caption("snapshot_timer_state", timer_box, "Tempo de carregamento da aba Snapshot")
+    if _modo_diagnostico():
+        _timer_render_caption("snapshot_timer_state", timer_box, "Tempo de carregamento da aba Snapshot")
 
     df_bank_all = _carregar_cache_relatorio_slice(
         cache_name,
@@ -11668,15 +11682,13 @@ def pagina_snapshot():
     _lbl_atual = periodo_para_exibicao(periodo_atual)
     _lbl_qoq = periodo_para_exibicao(periodo_anterior_qoq) if periodo_anterior_qoq else "—"
     _lbl_yoy = periodo_para_exibicao(periodo_yoy_existente) if periodo_yoy_existente else "—"
-    st.markdown(
+    col_periodo.markdown(
         f'<div class="snap-period-bar">'
-        f'<span><strong>Período:</strong> {_lbl_atual}</span>'
-        f'<span><strong>QoQ:</strong> {_lbl_qoq}</span>'
-        f'<span><strong>YoY:</strong> {_lbl_yoy}</span>'
+        f'<strong>{_lbl_atual}</strong><span>vs {_lbl_qoq} e {_lbl_yoy}</span>'
         f'</div>',
         unsafe_allow_html=True,
     )
-    snapshot_export_container = st.container(key="snapshot_export")
+    snapshot_export_container = col_exportar.popover("Exportar", width="stretch")
 
     periodos_snapshot = [p for p in [periodo_atual, periodo_anterior_qoq, periodo_yoy_existente] if p]
     periodos_status_snapshot = list(dict.fromkeys(periodos_snapshot))
@@ -11887,7 +11899,7 @@ def pagina_snapshot():
     hero_metrics = [
         {"label": "Ativo Total", "format_key": "Ativo Total", "higher_is_better": True,
          "serie": ativo_map, "source": "BCB IFData Rel. 1 — Balanço Patrimonial", "comparison_basis": "trimestral"},
-        {"label": "Carteira de Crédito", "format_key": "Carteira de Crédito Bruta", "higher_is_better": True,
+        {"label": "Carteira de Crédito", "display_label": "Carteira de Crédito Ampliada", "format_key": "Carteira de Crédito Bruta", "higher_is_better": True,
          "serie": carteira_map, "source": "BCB IFData Rel. 2 — Soma Valor Contábil Bruto (e1+f1+g1+h1)", "comparison_basis": "trimestral"},
         {"label": "Patrimônio Líquido", "format_key": "Patrimônio Líquido", "higher_is_better": True,
          "serie": pl_map, "source": "BCB IFData Rel. 1 — Balanço Patrimonial", "comparison_basis": "trimestral"},
@@ -12020,7 +12032,7 @@ def pagina_snapshot():
 
     if any(str(cfg.get("status_marker") or "").strip() for cfg in (hero_metrics + profit_metrics + [row for sec in supporting_sections for row in sec["rows"]])):
         st.caption("† = indicador indisponível com causa identificada. Toque ou clique no ícone `i` do card para ver a limitação e a fonte.")
-    st.caption("O detalhe no último ponto acompanha a leitura de crédito da variação trimestral: verde, direção usualmente favorável; vermelho, atenção. Inadimplência e estágios maiores pedem atenção. Saldos, comparações indisponíveis e janelas YTD permanecem neutros. Coberturas exigem leitura conjunta do numerador e do denominador.")
+    st.caption("Verde: direção usualmente favorável; vermelho: atenção; cinza: contextual.")
 
     todas_metricas_snapshot = hero_metrics + profit_metrics + [row for sec in supporting_sections for row in sec["rows"]]
     from utils.snapshot_export_data import snapshot_payload, export_snapshot_package
@@ -12050,10 +12062,10 @@ def pagina_snapshot():
             data=lambda: export_snapshot_package(snapshot_for_export, df_bank_all, globals()),
             file_name=f"Resumo_{bank_filename}_{'Individual_' if base == 'Individual' else ''}{periodo_atual.replace('/', '-')}.pptx",
             mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-            key="snapshot_download_powerpoint", on_click="ignore", type="primary",
+            key="snapshot_download_powerpoint", on_click="ignore",
             width="stretch",
         )
-        st.caption(f"Snapshot e três competências mais recentes de Peers na base {base}. Carteira 4.966 incluída quando há fonte no mesmo escopo; ausências permanecem N/D.")
+        st.caption("Snapshot, histórico trimestral e Carteira 4.966.")
         # O material de comitê usa as demonstrações do conglomerado prudencial, sem equivalente Individual.
         codigo_comite = _codigo_comite_snapshot(df_bank_all, banco) if base != "Individual" else None
         if codigo_comite:
@@ -12065,6 +12077,7 @@ def pagina_snapshot():
                 mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
                 key="snapshot_download_comite", on_click="ignore", width="stretch",
             )
+            st.caption("5 slides, com Balanço, DRE e Evolução. Sem comparação com pares e liquidez regulatória.")
             st.download_button(
                 "Excel",
                 data=lambda: _excel_comite_snapshot(codigo_comite, periodos_comite),
@@ -12072,7 +12085,7 @@ def pagina_snapshot():
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key="snapshot_download_excel", on_click="ignore", width="stretch",
             )
-            st.caption("Material de comitê: Snapshot, Balanço e DRE acumulada, Evolução, histórico de Peers e Carteira 4.966. Comparação com pares e liquidez regulatória não estão incluídas.")
+            st.caption("Demonstrações completas, com fórmulas.")
         elif base == "Individual":
             st.caption("Material de comitê e Excel disponíveis na base Consolidada / Prudencial.")
     anomalias_delta_snapshot = _audit_deltas_snapshot(
@@ -12141,7 +12154,8 @@ def pagina_snapshot():
 
     tempo_total = time.perf_counter() - t0
     _timer_store_elapsed("snapshot_timer_state", snapshot_signature, tempo_total)
-    _timer_render_caption("snapshot_timer_state", timer_box, "Tempo de carregamento da aba Snapshot")
+    if _modo_diagnostico():
+        _timer_render_caption("snapshot_timer_state", timer_box, "Tempo de carregamento da aba Snapshot")
 
 
 
@@ -15576,7 +15590,7 @@ def _render_cache_status_por_aba(menu_nome: str) -> None:
             st.caption("Métricas derivadas não possuem extração direta no BCB.")
 
 
-if menu not in {"Contas COSIF", "DRE (Ind. e Congl.)"}:
+if menu not in {"Contas COSIF", "DRE (Ind. e Congl.)"} and (menu != "Snapshot" or _modo_diagnostico()):
     _render_cache_status_por_aba(menu)
 
 # Sidebar apenas para informações básicas

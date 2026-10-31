@@ -15,7 +15,7 @@ from tabs.carteira_4966 import render_carteira_4966_html
 from utils.prudential_presentation import default_periods, reference_note, export_filename, institution_label, period_label, render_statement_html
 from utils.prudential_workbook import render_xlsx
 from utils.prudential_pptx import render_pptx
-from utils.prudential_nim import add_nim_rows, credit_balances, prior_periods, required_periods
+from utils.prudential_nim import add_nim_rows, apply_average_roe, credit_balances, equity_balances, prior_periods, required_periods
 
 MODEL_VERSION = "statement-v6"
 SOURCES = ("bloprudencial", "ativo", "dre", "capital", "principal", "carteira_instrumentos")
@@ -38,13 +38,15 @@ def load_analysis(manager, code, periods):
                 sources[kind].attrs["prudential_provenance"] = {
                     "filename": f"{kind}/dados.parquet", "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
     analysis = build_analysis(cosif, sources, code, periods)
-    # A carteira média das NIMs usa dezembro anterior, mesmo fora da seleção.
-    prior_credit = {}
+    # As médias de carteira (NIM) e de PL (ROE) usam dezembro anterior, mesmo fora da seleção.
+    prior_credit, prior_equity = {}, {}
     available = set(cosif[cosif.COD_CONGL.astype(str).eq(code)].DATA_BASE.map(text_id))
     missing = [p for p in prior_periods(analysis.periods) if p in available]
     if missing:
-        prior_credit = credit_balances(build_analysis(cosif, sources, code, missing))
+        prior = build_analysis(cosif, sources, code, missing)
+        prior_credit, prior_equity = credit_balances(prior), equity_balances(prior)
     add_nim_rows(analysis, prior_credit)
+    apply_average_roe(analysis, prior_equity)
     return analysis
 
 

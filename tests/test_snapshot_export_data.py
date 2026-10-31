@@ -415,7 +415,7 @@ def test_package_source_failure_preserves_other_slides_and_discloses_the_gap(mon
     snapshot = {"bank": BANK, "period": "2/2026", "queried_at": "10/10/2026", "source_notes": "source explanation"}
     assert subject.export_snapshot_package(snapshot, pd.DataFrame(), {}) == b"native-deck"
     assert captured["peers"] is None
-    assert "Histórico da Tabela de Peers indisponível" in captured["peers_unavailable_reason"]
+    assert "Histórico trimestral indisponível" in captured["peers_unavailable_reason"]
     if fail_carteira:
         assert captured["carteira"] is None
         assert "Fonte da Carteira 4.966 indisponível" in captured["carteira_unavailable_reason"]

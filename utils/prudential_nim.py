@@ -6,6 +6,7 @@ from .prudential_analysis import Analysis, col_name
 ND = "N/D"
 RATIO = "0.00%"
 NIM_ROWS = (("nim_gross", "NIM Bruta (anualizada)", "gross"), ("nim_after_pdd", "NIM pós-PDD (anualizada)", "after_pdd"))
+ROE_LIMITATION = "ROE: resultado acumulado no ano × 12 / meses do ano / PL médio. PL médio: Patrimônio Líquido na data-base e em dezembro do ano anterior. Sem os dois saldos ou com média não positiva, gera N/D."
 LIMITATION = ("NIM: resultado acumulado no ano × 12 / meses do ano / carteira média. Carteira média: Operações de Crédito "
               "Líq. do Balanço na data-base e em dezembro do ano anterior.")
 
@@ -35,6 +36,49 @@ def credit_balances(analysis: Analysis) -> dict[str, float]:
         if cell is not None and isinstance(cell.value, (int, float)):
             values[period] = float(cell.value)
     return values
+
+
+def equity_balances(analysis: Analysis) -> dict[str, float]:
+    """Patrimônio por competência, para a média do ROE de outra seleção."""
+    sheet, row = analysis.sheets["Balanço"], analysis.rows["Balanço"]["equity"]
+    values = {}
+    for i, period in enumerate(analysis.periods):
+        cell = sheet.cells.get(f"{col_name(3 + 2 * i)}{row}")
+        if cell is not None and isinstance(cell.value, (int, float)):
+            values[period] = float(cell.value)
+    return values
+
+
+def apply_average_roe(analysis: Analysis, prior_equity: dict[str, float] | None = None) -> None:
+    """ROE sobre o PL médio: a mesma regra do Snapshot, da Evolução e da Tabela de Peers."""
+    prior_equity = prior_equity or {}
+    sheet = analysis.sheets["Balanço"]
+    rows = analysis.rows["Balanço"]
+    current = equity_balances(analysis)
+    for i, period in enumerate(analysis.periods):
+        column = col_name(3 + 2 * i)
+        cell = sheet.cells.get(f"{column}{rows['roe']}")
+        net, equity = sheet.cells.get(f"{column}{rows['net']}"), current.get(period)
+        prior = prior_year_end(period)
+        if prior in analysis.periods:
+            prior_value = current.get(prior)
+            prior_ref = f"{col_name(3 + 2 * analysis.periods.index(prior))}{rows['equity']}"
+        else:
+            prior_value = prior_equity.get(prior)
+            prior_ref = repr(prior_value) if prior_value is not None else '"N/D"'
+        net_ref, equity_ref = f"{column}{rows['net']}", f"{column}{rows['equity']}"
+        factor = 12 / int(period[4:])
+        formula = (f'=IF(AND(ISNUMBER({net_ref}),ISNUMBER({equity_ref}),ISNUMBER({prior_ref})),'
+                   f'IF({equity_ref}+{prior_ref}>0,{net_ref}/AVERAGE({equity_ref},{prior_ref})*{factor:g},"{ND}"),"{ND}")')
+        value = ND
+        if isinstance(getattr(net, "value", None), (int, float)) and equity is not None and prior_value is not None and equity + prior_value > 0:
+            value = net.value / ((equity + prior_value) / 2) * factor
+        sheet.put(f"{column}{rows['roe']}", value, formula, cell.style, cell.fmt)
+    analysis.limitations[:] = [ROE_LIMITATION if str(item).startswith("ROE:") else item for item in analysis.limitations]
+    # A aba Validações já recebeu as notas ao ser montada e precisa contar a mesma regra.
+    for cell in analysis.sheets["Validações"].cells.values():
+        if str(cell.value).startswith("ROE:"):
+            cell.value = ROE_LIMITATION
 
 
 def add_nim_rows(analysis: Analysis, prior_credit: dict[str, float] | None = None) -> None:

@@ -31,7 +31,7 @@ COMMITTEE_OMIT = {"liabilities", "liab_equity", "principal_capital", "tier1", "t
 
 # Lines that anchor the reading of each statement; every other row keeps its model style.
 KEY_ROWS = {
-    "Balanço": {"assets", "liabilities", "equity", "liab_equity", "net", "roe", "cet1", "basel"},
+    "Balanço": {"assets", "liabilities", "equity", "liab_equity"},
     "DRE": {"gross", "after_pdd", "operating", "net"},
     "Carteira 4.966": {"total", "gross", "pdd"},
 }

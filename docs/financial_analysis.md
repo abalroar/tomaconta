@@ -31,6 +31,8 @@ e os cálculos do Snapshot foram preservados.
   R$ mm abaixo disso. Lucro em verde e prejuízo em vermelho, sem contorno.
 - DRE: acumulada no ano. Março e junho já vêm acumulados; setembro e dezembro somam o
   fechamento de junho. Sem junho, a DRE fica indisponível em vez de parcial.
+- ROE do Balanço: resultado acumulado no ano × 12 / meses do ano / PL médio entre a data-base e
+  dezembro do ano anterior, a mesma base do Snapshot. Sem os dois saldos, fica indisponível.
 - NIM Bruta e NIM pós-PDD (métricas gerenciais): resultado acumulado no ano × 12 /
   meses do ano / carteira média. A carteira é Operações de Crédito Líq. do Balanço, na
   média entre a data-base e dezembro do ano anterior.
