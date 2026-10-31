@@ -1,0 +1,39 @@
+{
+  "fonte": "bcb_cosif",
+  "periodos": [
+    "202303",
+    "202306",
+    "202309",
+    "202312",
+    "202403",
+    "202406",
+    "202409",
+    "202412",
+    "202503",
+    "202506",
+    "202509",
+    "202512",
+    "202603",
+    "202606"
+  ],
+  "total_periodos": 14,
+  "total_registros": 2190763,
+  "colunas": [
+    "DATA_BASE",
+    "Período",
+    "CNPJ",
+    "CONTA",
+    "NOME_CONTA",
+    "SALDO",
+    "NOME_INSTITUICAO",
+    "TAXONOMIA",
+    "GRUPO_FONTE"
+  ],
+  "integridade": {
+    "versao": 1,
+    "geracao": "8452c89f113a4d2eb85ef5706eeff10a",
+    "arquivo_dados": "dados.parquet",
+    "sha256": "6e26c90809c9b94e283229f048c32182ced38bf74e9fe8cae1ee5d71c8a26dd9",
+    "tamanho_bytes": 19273120
+  }
+}

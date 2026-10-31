@@ -45,7 +45,7 @@ def _is_material(row, limit):
 
 def _item(kind, document, row, *, material, overrides=None, previous_name=None):
     account = row["account"]
-    result_account = document == "4060" and account[0] in "78"
+    result_account = document in ("4060", "4010") and account[0] in "78"
     line = (overrides or {}).get(account) or (dre_row_for(account) if result_account else None)
     return {"id": f"{kind}:{document}:{account}", "kind": kind, "document": document, "account": account,
             "name": str(row["name"]), "previous_name": previous_name, "total_brl": float(row["total"]),

@@ -17,9 +17,11 @@ import requests
 from .bloprudencial import download_bloprudencial_zip, extract_bloprudencial_csv
 from .bloprudencial_cache import row_overrides
 from .bloprudencial_ingest import KEY, ingest_source, normalize_cache, read_source
+from .balancete_individual import QUARTER_ENDS, adopt_file
 from .financial_analysis_review import REVIEW_MATERIAL_BRL, WATCHED_ROWS, account_changes, new_decisions, pending_items, row_jumps
 from ..prudential_analysis import Accounts, build_analysis, period_key
 
+INDIVIDUAL = "balancete_individual"
 SOURCES = ("bloprudencial", "ativo", "dre", "capital", "principal", "carteira_instrumentos")
 DEFAULT_RULES = {"rounding_brl": 1.0, "anomaly_relative": .50, "anomaly_material_brl": 1_000_000.0,
                  "review_material_brl": REVIEW_MATERIAL_BRL}
@@ -153,6 +155,58 @@ def archive_sources(candidate, root):
                    "archive": target.relative_to(root).as_posix(), "bytes": len(content)}
 
 
+def refresh_individual(candidate, live, period, workspace, overrides):
+    """Traz o 4010 do fim de trimestre e aplica as mesmas regras em todas as instituições."""
+    if period[4:] not in QUARTER_ENDS:
+        return {"status": "not_quarter_end"}
+    cache = candidate.get_cache(INDIVIDUAL)
+    result = cache.extrair_periodo(period, cache_dir=Path(workspace) / "data/cache/bcb_cosif_4010", force_refresh=True)
+    if not result.sucesso:
+        # Publicações têm calendários próprios: a análise prudencial não espera o arquivo individual.
+        return {"status": "unavailable", "message": result.mensagem}
+    incoming = result.dados
+    original = live.get_cache(INDIVIDUAL)
+    changed = period not in original.available_periods() or not same_data(original.load_period(period), incoming)
+    if changed:
+        cache.add_period(incoming)
+    return {"status": "changed" if changed else "unchanged", "institutions": int(incoming.CNPJ.nunique()),
+            "rows": len(incoming), "review": individual_review(cache, period, overrides)}
+
+
+def individual_review(cache, period, overrides):
+    """Contas novas ou sumidas no sistema e divergência contábil em qualquer instituição."""
+    import pyarrow.compute as pc
+    import pyarrow.parquet as pq
+
+    table = pq.read_table(cache.arquivo_dados, columns=["DATA_BASE", "CONTA"])
+    earlier = sorted(p for p in pc.unique(table.column("DATA_BASE")).to_pylist() if p < period)
+    known = pc.unique(table.filter(pc.less(table.column("DATA_BASE"), period)).column("CONTA")).to_pylist()
+    current = cache.load_period(period)
+    frames = [current]
+    if earlier:
+        frames.append(cache.load_period(earlier[-1]))
+    frames.append(pd.DataFrame({"DATA_BASE": "000000", "CNPJ": "", "CONTA": known, "NOME_CONTA": "", "SALDO": 0.0}))
+    compact = pd.concat(frames, ignore_index=True)[["DATA_BASE", "CNPJ", "CONTA", "NOME_CONTA", "SALDO"]]
+    items = account_changes(compact.assign(DOCUMENTO="4010", COD_CONGL=compact.CNPJ), period, overrides=overrides)
+    needed = [p for p in (f"{period[:4]}06",) if int(period[4:]) > 6 and p in earlier]
+    window = current if not needed else pd.concat([current, cache.load_period(needed[0])], ignore_index=True)
+    window = window.assign(DOCUMENTO="4010", COD_CONGL=window.CNPJ, NOME_CONGL=window.NOME_INSTITUICAO)
+    failed = []
+    for code, frame in window.groupby("COD_CONGL", sort=True):
+        if not frame.DATA_BASE.eq(period).any():
+            continue
+        analysis = build_analysis(frame, {}, code, [period], overrides=overrides, result_doc="4010", has_portfolio=False)
+        if any(check["status"] == "Divergência" and check["check"].startswith(("Balanço:", "DRE: resultado", "Subcontas"))
+               and abs(check["difference"]) > DEFAULT_RULES["rounding_brl"] + .0001 for check in analysis.checks):
+            failed.append(code)
+    if failed:
+        items.append({"id": f"divergencia:4010:{period}", "kind": "divergencia", "document": "4010", "account": None,
+                      "name": f"{len(failed)} instituição(ões): " + ", ".join(failed[:10]), "previous_name": None,
+                      "total_brl": 0.0, "institutions": len(failed), "row": None, "row_label": None,
+                      "result_account": False, "blocking": True})
+    return items
+
+
 def latest_period(cache):
     """Última competência já carregada, lida só da coluna de data."""
     if not cache.existe_leitura():
@@ -243,6 +297,10 @@ def update(root, *, period=None, csv=None, offline=False, check_only=False, rule
                 if any(not item["success"] for item in report["source_quality"].values()):
                     raise ValueError("Qualidade das fontes reprovada; geração anterior preservada")
                 report["validation"] = validate_candidate(data, sources, period, rules=rules, overrides=overrides)
+                if not offline:
+                    progress("Conferindo os balancetes individuais")
+                    report["individual"] = refresh_individual(candidate, live, period, workspace, overrides)
+                    report["validation"]["review"] += report["individual"].pop("review", [])
                 # A newly published IF.data quarter may precede the COSIF month.
                 quarter = report.get("ifdata_period")
                 if quarter and quarter != period and data.DATA_BASE.astype(str).eq(quarter).any():
@@ -256,6 +314,8 @@ def update(root, *, period=None, csv=None, offline=False, check_only=False, rule
                     original = live.get_cache(kind)
                     if not original.existe_leitura() or not same_data(pd.read_parquet(original.arquivo_dados), pd.read_parquet(source.arquivo_dados)):
                         report["changed"].append(kind)
+                if report.get("individual", {}).get("status") == "changed":
+                    report["changed"].append(INDIVIDUAL)
                 if recorded and "bloprudencial" not in report["changed"]:
                     report["changed"].append("bloprudencial")
                 report["pending_review"] = pending_items(report["validation"]["review"], {item["id"] for item in all_decisions})
@@ -267,7 +327,7 @@ def update(root, *, period=None, csv=None, offline=False, check_only=False, rule
                     report["status"] = "unchanged"
                 else:
                     progress("Recalculando as bases dependentes")
-                    details = materialize_for_publication(LocalOnlySourcesManager(candidate), cache_names=report["changed"], base_dir=workspace)
+                    details = materialize_for_publication(LocalOnlySourcesManager(candidate), cache_names=[kind for kind in report["changed"] if kind != INDIVIDUAL], base_dir=workspace)
                     report["materialization"] = details
                     if any(item["status"] != "ok" for item in details):
                         raise ValueError("Materialização incompleta; geração anterior preservada")
@@ -281,7 +341,11 @@ def update(root, *, period=None, csv=None, offline=False, check_only=False, rule
                                        actor={"subject": "financial-analysis"})
                         report["revision_id"] = revision.revision_id
                     else:
-                        promote_legacy(live, candidate, names)
+                        # O histórico individual é promovido como arquivo, sem passar por pandas.
+                        if INDIVIDUAL in names:
+                            source = candidate.get_cache(INDIVIDUAL)
+                            adopt_file(live.get_cache(INDIVIDUAL), source.arquivo_dados, source.arquivo_metadata)
+                        promote_legacy(live, candidate, [name for name in names if name != INDIVIDUAL])
                     report["promoted"] = list(dict.fromkeys(names))
                     report["status"] = "updated"
     except Exception as exc:

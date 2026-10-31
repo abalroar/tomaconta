@@ -87,6 +87,33 @@ def ensure_published_bloprudencial(cache, info: Mapping, release_base_url: str) 
     return True
 
 
+def ensure_published_individual_statements(cache, info: Mapping, release_base_url: str) -> bool:
+    """Como a base COSIF, mas por arquivo: o histórico individual não cabe em memória no servidor."""
+    from .ifdata_cache.balancete_individual import adopt_file
+
+    published = str(info.get("max_period_ref") or info.get("max_period") or "")
+    available = cache.available_periods()
+    if not re.fullmatch(r"\d{6}", published) or (available and published <= available[-1]):
+        return False
+    expected = str(info.get("sha256") or "").lower()
+    if not re.fullmatch(r"[0-9a-f]{64}", expected):
+        raise ValueError(f"{cache.config.nome}: SHA-256 ausente no manifesto.")
+    base = str(release_base_url).rstrip("/")
+    with TemporaryDirectory(prefix="balancete-release-") as directory:
+        data_path, metadata_path = Path(directory) / "dados.parquet", Path(directory) / "metadata.json"
+        for path, asset in ((data_path, "dados.parquet"), (metadata_path, "metadata.json")):
+            with requests.get(add_release_cache_buster(f"{base}/{cache.config.nome}_{asset}", expected), timeout=120, stream=True) as response:
+                response.raise_for_status()
+                with path.open("wb") as stream:
+                    for chunk in response.iter_content(1024 * 1024):
+                        stream.write(chunk)
+        if _file_sha256(data_path) != expected:
+            raise ValueError(f"{cache.config.nome}: SHA-256 recebido diverge do manifesto; fonte anterior preservada.")
+        with mutation_lock(cache.base_dir, owner={"cache_type": cache.config.nome}):
+            adopt_file(cache, data_path, metadata_path)
+    return True
+
+
 def ensure_individual_release_cache(cache, info: Mapping, release_base_url: str) -> Path:
     """Retorna a fonte cuja assinatura corresponde ao manifesto do release.
 

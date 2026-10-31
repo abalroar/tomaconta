@@ -12066,28 +12066,34 @@ def pagina_snapshot():
             width="stretch",
         )
         st.caption("Snapshot, histórico trimestral e Carteira 4.966.")
-        # O material de comitê usa as demonstrações do conglomerado prudencial, sem equivalente Individual.
-        codigo_comite = _codigo_comite_snapshot(df_bank_all, banco) if base != "Individual" else None
+        individual_comite = base == "Individual"
+        if individual_comite:
+            codigo_comite = identities.get(banco)
+            if codigo_comite not in _cnpjs_balancete_individual(get_cache_manager(), _cache_version_token("balancete_individual")):
+                codigo_comite = None
+        else:
+            codigo_comite = _codigo_comite_snapshot(df_bank_all, banco)
         if codigo_comite:
             periodos_comite = _periodos_comite_snapshot(periodo_atual)
             st.download_button(
                 "Exportar material de comitê",
-                data=lambda: _material_comite_snapshot(snapshot_for_export, df_bank_all, codigo_comite, periodos_comite),
+                data=lambda: _material_comite_snapshot(snapshot_for_export, df_bank_all, codigo_comite, periodos_comite, individual_comite),
                 file_name=f"Comite_{bank_filename}_{periodo_atual.replace('/', '-')}.pptx",
                 mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
                 key="snapshot_download_comite", on_click="ignore", width="stretch",
             )
-            st.caption("5 slides, com Balanço, DRE e Evolução. Sem comparação com pares e liquidez regulatória.")
+            st.caption("Snapshot, Balanço, DRE e histórico. Carteira 4.966 e Evolução sem fonte individual." if individual_comite else
+                       "5 slides, com Balanço, DRE e Evolução. Sem comparação com pares e liquidez regulatória.")
             st.download_button(
                 "Excel",
-                data=lambda: _excel_comite_snapshot(codigo_comite, periodos_comite),
+                data=lambda: _excel_comite_snapshot(codigo_comite, periodos_comite, individual_comite),
                 file_name=f"Dados_{bank_filename}_{periodo_atual.replace('/', '-')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key="snapshot_download_excel", on_click="ignore", width="stretch",
             )
             st.caption("Demonstrações completas, com fórmulas.")
-        elif base == "Individual":
-            st.caption("Material de comitê e Excel disponíveis na base Consolidada / Prudencial.")
+        elif individual_comite:
+            st.caption("Sem balancete individual desta instituição para o material de comitê e o Excel.")
     anomalias_delta_snapshot = _audit_deltas_snapshot(
         todas_metricas_snapshot,
         periodo_atual,
@@ -16244,35 +16250,47 @@ def _sincronizar_bloprudencial_publicado(manager):
     if st.session_state.get("_bloprudencial_sincronizado"):
         return
     st.session_state["_bloprudencial_sincronizado"] = True
-    from utils.individual_release_cache import ensure_published_bloprudencial
+    from utils.individual_release_cache import ensure_published_bloprudencial, ensure_published_individual_statements
     try:
         manifesto = _carregar_manifest_release_cache(_CARTEIRA_4966_RELEASE_MANIFEST_URL, _EXPECTED_CACHE_RELEASE_TAG)
-        info = (manifesto.get("caches") or {}).get("bloprudencial") or {}
-        if info and ensure_published_bloprudencial(manager.get_cache("bloprudencial"), info, _CARTEIRA_4966_RELEASE_BASE_URL):
+        caches = manifesto.get("caches") or {}
+        atualizou = False
+        if caches.get("bloprudencial"):
+            atualizou = ensure_published_bloprudencial(manager.get_cache("bloprudencial"), caches["bloprudencial"], _CARTEIRA_4966_RELEASE_BASE_URL)
+        if caches.get("balancete_individual"):
+            atualizou = ensure_published_individual_statements(manager.get_cache("balancete_individual"), caches["balancete_individual"], _CARTEIRA_4966_RELEASE_BASE_URL) or atualizou
+        if atualizou:
             st.cache_data.clear()
     except Exception as exc:
         # A base instalada continua válida; a falha fica visível, sem interromper a leitura.
         st.warning(f"Não foi possível conferir a base COSIF publicada: {exc}")
 
 
-def _analise_comite_snapshot(codigo, periodos):
+def _analise_comite_snapshot(codigo, periodos, individual=False):
     from tabs.prudential_analysis import load_analysis
     _sincronizar_bloprudencial_publicado(get_cache_manager())
-    return load_analysis(get_cache_manager(), codigo, periodos)
+    return load_analysis(get_cache_manager(), codigo, periodos, individual=individual)
 
 
-def _material_comite_snapshot(snapshot, df_bank_all, codigo, periodos):
+@st.cache_data(show_spinner=False, max_entries=2)
+def _cnpjs_balancete_individual(_manager, token):
+    return frozenset(_manager.get_cache("balancete_individual").catalog().CNPJ)
+
+
+def _material_comite_snapshot(snapshot, df_bank_all, codigo, periodos, individual=False):
     from utils.prudential_pptx import committee_slides
     from utils.snapshot_export_data import export_snapshot_package
-    analise = _analise_comite_snapshot(codigo, periodos)
-    evolucao = _evolucao_payload_exportacao(codigo)
+    analise = _analise_comite_snapshot(codigo, periodos, individual)
+    evolucao = None if individual else _evolucao_payload_exportacao(codigo)
     return export_snapshot_package(snapshot, df_bank_all, globals(),
                                    committee_slides=lambda prs: committee_slides(prs, analise, evolucao))
 
 
-def _excel_comite_snapshot(codigo, periodos):
+def _excel_comite_snapshot(codigo, periodos, individual=False):
     from utils.prudential_workbook import render_xlsx
-    analise = _analise_comite_snapshot(codigo, periodos)
+    analise = _analise_comite_snapshot(codigo, periodos, individual)
+    if individual:
+        return render_xlsx(analise)
     return render_xlsx(analise, portfolio=_modelo_4966_por_codigo(codigo, analise.periods),
                        evolution=_evolucao_payload_exportacao(codigo))
 
@@ -16308,9 +16326,10 @@ def _modelo_4966_por_codigo(codigo, periodos_aaaamm):
     return build_carteira_4966_model(df_inst, df_ativo_inst, selecionados)
 
 
-DRE_VISUALIZACOES = ["Balanço, DRE e Carteira (Congl.)", "DRE Gerencial", "Conglomerado Prudencial", "DRE Individual"]
+DRE_VISUALIZACOES = ["Balanço, DRE e Carteira (Congl.)", "Balanço e DRE (Ind.)", "DRE Gerencial", "Conglomerado Prudencial", "DRE Individual"]
 _DRE_VIEW_LABELS = {
     "Balanço, DRE e Carteira (Congl.)": "Análise · Prudencial",
+    "Balanço e DRE (Ind.)": "Análise · Individual",
     "DRE Gerencial": "DRE reorganizada · IF.data",
     "Conglomerado Prudencial": "DRE · Prudencial",
     "DRE Individual": "DRE · Individual",
@@ -16348,6 +16367,7 @@ if menu == "DRE (Ind. e Congl.)":
     dre_consolidada_tipo = dre_consolidada_tipo or DRE_VISUALIZACOES[0]
     _dre_sources = {
         "Balanço, DRE e Carteira (Congl.)": "BCB COSIF · Mensal  |  IF.data · Trimestral  |  Conglomerado prudencial",
+        "Balanço e DRE (Ind.)": "BCB COSIF 4010 · Fins de trimestre  |  Instituição individual",
         "DRE Gerencial": "BCB IF.data · Trimestral · Acumulado no semestre · Perímetro selecionável",
         "Conglomerado Prudencial": "BCB IF.data · Trimestral · Acumulado no ano · Conglomerado prudencial",
         "DRE Individual": "BCB IF.data · Trimestral · Acumulado no ano · Instituição individual",
@@ -20087,6 +20107,11 @@ elif menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo == "Balanço, DRE e 
         get_cache_manager(), _cache_version_token,
         portfolio_model=_modelo_4966_por_codigo, evolution_payload=_evolucao_payload_exportacao,
     )
+
+elif menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo == "Balanço e DRE (Ind.)":
+    from tabs.prudential_analysis import render as render_prudential_analysis
+    _sincronizar_bloprudencial_publicado(get_cache_manager())
+    render_prudential_analysis(get_cache_manager(), _cache_version_token, individual=True)
 
 elif menu == "DRE" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo == "Conglomerado Prudencial"):
     st.markdown("### Demonstração de Resultado (DRE)")
