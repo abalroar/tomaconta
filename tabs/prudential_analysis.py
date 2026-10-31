@@ -92,8 +92,9 @@ def render(manager, cache_token, *, portfolio_model=None, evolution_payload=None
     prefix = "individual_" if individual else ""
 
     @revision_cache_data(show_spinner=False, max_entries=4)
-    def catalog(token):
-        if individual:
+    def catalog(token, individual_view):
+        # A visão integra a chave: este cache é compartilhado entre as abas e os usuários.
+        if individual_view:
             frame = manager.get_cache("balancete_individual").catalog()
             return frame.rename(columns={"CNPJ": "COD_CONGL", "NOME_INSTITUICAO": "NOME_CONGL"}).sort_values("DATA_BASE")
         path = manager.get_cache("bloprudencial").arquivo_dados
@@ -102,7 +103,7 @@ def render(manager, cache_token, *, portfolio_model=None, evolution_payload=None
         return frame.drop_duplicates().sort_values("DATA_BASE")
 
     source_token = tuple((kind, cache_token(kind)) for kind in (*SOURCES, "balancete_individual"))
-    data = catalog(source_token)
+    data = catalog(source_token, individual)
     names = data.drop_duplicates("COD_CONGL", keep="last").set_index("COD_CONGL").NOME_CONGL.to_dict()
     codes = sorted(names, key=lambda code: names[code])
     default = next((i for i, code in enumerate(codes) if code == "60701190" or (not individual and "ITAU" in names[code].upper())), 0)

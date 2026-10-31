@@ -1,5 +1,6 @@
 """Revisão de contas, decisão de linha e atualização por etapas."""
 import json
+from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -273,3 +274,12 @@ def test_published_individual_history_is_adopted_only_when_newer(tmp_path, monke
     assert ensure_published_individual_statements(cache, info, "https://exemplo") is False
     with pytest.raises(ValueError):
         ensure_published_individual_statements(BalanceteIndividualCache(tmp_path / "outro"), {**info, "sha256": "0" * 64}, "https://exemplo")
+
+
+def test_statement_catalog_cache_is_keyed_by_the_view():
+    import ast
+    tree = ast.parse(Path("tabs/prudential_analysis.py").read_text(encoding="utf-8"))
+    catalog = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "catalog")
+    assert [arg.arg for arg in catalog.args.args] == ["token", "individual_view"]
+    # Variáveis livres ficam fora da chave do cache: a visão não pode vir do escopo externo.
+    assert "individual" not in {node.id for node in ast.walk(catalog) if isinstance(node, ast.Name)}
