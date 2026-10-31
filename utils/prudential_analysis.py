@@ -124,6 +124,75 @@ class Analysis:
         return self.sheets[name]
 
 
+DRE_DEFINITIONS=(
+    ("revenue","Receitas da Intermediação Financeira","section",None),
+    ("credit","Operações de Crédito","indent",[("711",1),("716",1)]),
+    ("leasing","Arrendamento Financeiro","indent",[("712",1)]),
+    ("sale","Resultado na Venda de Ativos Financeiros","indent",[("71915",1),("81915",1)]),
+    ("sale_gain","Lucro na Venda de Ativos Financeiros","detail",[("71915",1)]),
+    ("sale_loss","Prejuízo na Venda de Ativos Financeiros","detail",[("81915",1)]),
+    ("tvm","TVM e Aplicações Interfinanceiras","indent",[("714",1),("715",1)]),
+    ("other_inter","Outras Receitas de Intermediação","indent",[("713",1)]),
+    ("expenses","Despesas da Intermediação Financeira","section",None),
+    ("funding","Despesas de Captação","indent",[("811",1)]),
+    ("other_funding","Empréstimos, Repasses e Outras Despesas","indent",[("812",1),("813",1),("814",1),("815",1)]),
+    ("gross","Resultado Bruto da Intermediação","total",None),
+    ("provision","Provisão para Risco de Crédito (líquida)","section",[("71992",1),("81992",1)]),
+    ("after_pdd","Resultado Após PDD","total",None),
+    ("other_op","Outras Receitas / Despesas Operacionais","section",None),
+    ("services","Receitas de Serviços e Tarifas","indent",[("717",1)]),
+    ("admin","Despesas Administrativas (incl. D&A)","indent",[("817",1),("818",1),("81727",-1),("81730",-1),("81733",-1),("81736",-1),("81769",-1)]),
+    ("people","Despesas de Pessoal","indent",[("81727",1),("81730",1),("81733",1),("81736",1)]),
+    ("tax","Despesas Tributárias","indent",[("81769",1),("81925",1),("81930",1),("81933",1)]),
+    ("other_exp","Outras Despesas Operacionais","indent",[("819",1),("81915",-1),("81992",-1),("81925",-1),("81930",-1),("81933",-1)]),
+    ("recovery","Recuperação de Créditos Baixados","indent",[("71920",1)]),
+    ("equity_result","Resultado de Participações","indent",[("718",1),("816",1)]),
+    ("other_rec","Outras Receitas Operacionais","indent",[("719",1),("71915",-1),("71920",-1),("71992",-1)]),
+    ("operating","Resultado Operacional","total",None),
+    ("non_op","Resultado Não Operacional","body",[("73",1),("83",1)]),
+    ("profit_share","Participações nos Lucros","body",[("897",1)]),
+    ("tax_income","IR / CS","section",[("794",1),("894",1)]),
+    ("tax_credit","dos quais créditos de IR / CS","detail",[("794",1)]),
+    ("other_close","Outros Ajustes de Apuração","body",[("79",1),("89",1),("794",-1),("894",-1),("897",-1)]),
+    ("net","Resultado Líquido (acumulado no ano)","total",None),
+        )
+
+
+def dre_row_for(code):
+    """Linha da DRE em que a conta cai pela regra de prefixos; ``None`` fora do mapa."""
+    prefix=stem(code)
+    best=None
+    for id,_,style,rule in DRE_DEFINITIONS:
+        if style=="detail":
+            continue
+        for candidate,sign in rule or ():
+            if sign>0 and prefix.startswith(candidate) and (best is None or len(candidate)>len(best[0])):
+                best=(candidate,id)
+    return best[1] if best else None
+
+
+def dre_row_labels():
+    """Linhas que podem receber uma conta por decisão registrada na atualização."""
+    return {id:label for id,label,style,rule in DRE_DEFINITIONS if rule and style!="detail"}
+
+
+def dre_definitions(overrides=None):
+    """Regras da DRE com as decisões registradas: a conta sai da linha padrão e entra na escolhida."""
+    if not overrides:
+        return DRE_DEFINITIONS
+    allowed=dre_row_labels()
+    extra={}
+    for code,target in overrides.items():
+        if target not in allowed:
+            raise ValueError(f"Linha da DRE desconhecida para a conta {code}: {target}")
+        default=dre_row_for(code)
+        if default!=target:
+            extra.setdefault(target,[]).append((code,1))
+            if default:
+                extra.setdefault(default,[]).append((code,-1))
+    return tuple((id,label,style,[*rule,*extra.get(id,())] if rule else rule) for id,label,style,rule in DRE_DEFINITIONS)
+
+
 class Accounts:
     def __init__(self, data):
         self.rows = {str(r.CONTA): r._asdict() for r in data.itertuples(index=False)}
@@ -150,7 +219,8 @@ class Accounts:
 
 
 class Builder:
-    def __init__(self, cosif, ifdata, code, periods):
+    def __init__(self, cosif, ifdata, code, periods, overrides=None):
+        self.overrides = overrides or {}
         periods = sorted(set(period_key(p) for p in periods))
         if not periods or len(periods) > 8:
             raise ValueError("Selecione de uma a oito competências")
@@ -359,38 +429,7 @@ class Builder:
         months=("jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez")
         labels={p:f"COSIF 4060 · jan–{months[int(p[4:])-1]}/{p[2:4]}" for p in self.a.periods}
         s=self.header("DRE",labels)
-        definitions=[
-            ("revenue","Receitas da Intermediação Financeira","section",None),
-            ("credit","Operações de Crédito","indent",[("711",1),("716",1)]),
-            ("leasing","Arrendamento Financeiro","indent",[("712",1)]),
-            ("sale","Resultado na Venda de Ativos Financeiros","indent",[("71915",1),("81915",1)]),
-            ("sale_gain","Lucro na Venda de Ativos Financeiros","detail",[("71915",1)]),
-            ("sale_loss","Prejuízo na Venda de Ativos Financeiros","detail",[("81915",1)]),
-            ("tvm","TVM e Aplicações Interfinanceiras","indent",[("714",1),("715",1)]),
-            ("other_inter","Outras Receitas de Intermediação","indent",[("713",1)]),
-            ("expenses","Despesas da Intermediação Financeira","section",None),
-            ("funding","Despesas de Captação","indent",[("811",1)]),
-            ("other_funding","Empréstimos, Repasses e Outras Despesas","indent",[("812",1),("813",1),("814",1),("815",1)]),
-            ("gross","Resultado Bruto da Intermediação","total",None),
-            ("provision","Provisão para Risco de Crédito (líquida)","section",[("71992",1),("81992",1)]),
-            ("after_pdd","Resultado Após PDD","total",None),
-            ("other_op","Outras Receitas / Despesas Operacionais","section",None),
-            ("services","Receitas de Serviços e Tarifas","indent",[("717",1)]),
-            ("admin","Despesas Administrativas (incl. D&A)","indent",[("817",1),("818",1),("81727",-1),("81730",-1),("81733",-1),("81736",-1),("81769",-1)]),
-            ("people","Despesas de Pessoal","indent",[("81727",1),("81730",1),("81733",1),("81736",1)]),
-            ("tax","Despesas Tributárias","indent",[("81769",1),("81925",1),("81930",1),("81933",1)]),
-            ("other_exp","Outras Despesas Operacionais","indent",[("819",1),("81915",-1),("81992",-1),("81925",-1),("81930",-1),("81933",-1)]),
-            ("recovery","Recuperação de Créditos Baixados","indent",[("71920",1)]),
-            ("equity_result","Resultado de Participações","indent",[("718",1),("816",1)]),
-            ("other_rec","Outras Receitas Operacionais","indent",[("719",1),("71915",-1),("71920",-1),("71992",-1)]),
-            ("operating","Resultado Operacional","total",None),
-            ("non_op","Resultado Não Operacional","body",[("73",1),("83",1)]),
-            ("profit_share","Participações nos Lucros","body",[("897",1)]),
-            ("tax_income","IR / CS","section",[("794",1),("894",1)]),
-            ("tax_credit","dos quais créditos de IR / CS","detail",[("794",1)]),
-            ("other_close","Outros Ajustes de Apuração","body",[("79",1),("89",1),("794",-1),("894",-1),("897",-1)]),
-            ("net","Resultado Líquido (acumulado no ano)","total",None),
-        ]
+        definitions=dre_definitions(self.overrides)
         for id,label,style,rule in definitions:
             row=self.add_row(s,id,label,style)
             for i,p in enumerate(self.a.periods):
@@ -682,5 +721,5 @@ class Builder:
         self.a.limitations=notes
 
 
-def build_analysis(cosif: pd.DataFrame, ifdata: dict[str,pd.DataFrame], code: str, periods: list[str]) -> Analysis:
-    return Builder(cosif,ifdata,code,periods).run()
+def build_analysis(cosif: pd.DataFrame, ifdata: dict[str,pd.DataFrame], code: str, periods: list[str], *, overrides=None) -> Analysis:
+    return Builder(cosif,ifdata,code,periods,overrides).run()

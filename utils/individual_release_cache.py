@@ -18,6 +18,7 @@ from .ifdata_cache.update_state import mutation_lock
 
 
 INDIVIDUAL_CACHES = {"principal_individual", "derived_metrics_individual"}
+RELEASE_CHECKED_CACHES = INDIVIDUAL_CACHES | {"bloprudencial"}
 
 
 def _file_sha256(path: Path) -> str | None:
@@ -33,7 +34,7 @@ def _file_sha256(path: Path) -> str | None:
 
 def _release_descriptor(cache, info: Mapping) -> tuple[str, str, int | None]:
     name = str(info.get("cache") or cache.config.nome)
-    if name not in INDIVIDUAL_CACHES or name != cache.config.nome:
+    if name not in RELEASE_CHECKED_CACHES or name != cache.config.nome:
         raise ValueError("Manifesto não corresponde ao cache individual solicitado.")
     if info.get("exists") is False:
         raise ValueError(f"{name}: release sem fonte publicada.")
@@ -65,6 +66,27 @@ def _release_descriptor(cache, info: Mapping) -> tuple[str, str, int | None]:
     return asset, expected, size
 
 
+def ensure_published_bloprudencial(cache, info: Mapping, release_base_url: str) -> bool:
+    """Adota a release quando ela tem competência mais nova que a base instalada.
+
+    A base instalada vem junto com o código, e o disco do servidor não sobrevive ao
+    reinício. Sem isto, um mês publicado pela tela de atualização sumiria no reboot.
+    """
+    published = str(info.get("max_period_ref") or info.get("max_period") or "")
+    if not re.fullmatch(r"\d{6}", published):
+        return False
+    local = pd.read_parquet(cache.read_data_file, columns=["DATA_BASE"]).DATA_BASE.astype(str).max() if cache.existe_leitura() else ""
+    if published <= local:
+        return False
+    response = requests.get(add_release_cache_buster(f"{str(release_base_url).rstrip('/')}/bloprudencial_metadata.json", published), timeout=60)
+    response.raise_for_status()
+    decisions = response.json().get("cosif_decisions") or []
+    with mutation_lock(cache.base_dir, owner={"cache_type": cache.config.nome}):
+        cache._recover_local_transaction()
+        _ensure_individual_release_cache_locked(cache, info, release_base_url, extra_metadata={"cosif_decisions": decisions} if decisions else None)
+    return True
+
+
 def ensure_individual_release_cache(cache, info: Mapping, release_base_url: str) -> Path:
     """Retorna a fonte cuja assinatura corresponde ao manifesto do release.
 
@@ -78,7 +100,7 @@ def ensure_individual_release_cache(cache, info: Mapping, release_base_url: str)
         return _ensure_individual_release_cache_locked(cache, info, release_base_url)
 
 
-def _ensure_individual_release_cache_locked(cache, info: Mapping, release_base_url: str) -> Path:
+def _ensure_individual_release_cache_locked(cache, info: Mapping, release_base_url: str, extra_metadata=None) -> Path:
     if not isinstance(info, Mapping):
         raise ValueError("Manifesto do cache individual ausente.")
     asset, expected, expected_size = _release_descriptor(cache, info)
@@ -119,6 +141,7 @@ def _ensure_individual_release_cache_locked(cache, info: Mapping, release_base_u
         metadata["sha256"] = expected
         metadata["colunas"] = list(frame.columns)
         metadata["total_registros"] = len(frame)
+        metadata.update(extra_metadata or {})
         publication_id = info.get("publication_id")
         if publication_id:
             metadata["publication_id"] = str(publication_id)

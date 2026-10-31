@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from dataclasses import replace
 from pathlib import Path
 from typing import List, Optional, Sequence
@@ -25,6 +27,11 @@ BLOPRUDENCIAL_CONFIG = CacheConfig(
 )
 
 
+def row_overrides(decisions) -> dict[str, str]:
+    """Conta → linha da DRE; a decisão mais recente prevalece."""
+    return {item["account"]: item["row"] for item in decisions if item.get("account") and item.get("row")}
+
+
 class BloprudencialCache(BaseCache):
     """Cache parquet para dados BLOPRUDENCIAL carregados do módulo dedicado."""
 
@@ -32,6 +39,24 @@ class BloprudencialCache(BaseCache):
         release_config = get_release_config()
         runtime_config = replace(BLOPRUDENCIAL_CONFIG, github_url_base=release_config.release_base_url)
         super().__init__(runtime_config, base_dir)
+
+    def cosif_decisions(self) -> list[dict]:
+        """Decisões da revisão de contas, guardadas no metadata e publicadas com os dados."""
+        try:
+            return list(json.loads(self.arquivo_metadata.read_text(encoding="utf-8")).get("cosif_decisions") or [])
+        except (OSError, ValueError):
+            return []
+
+    def row_overrides(self) -> dict[str, str]:
+        return row_overrides(self.cosif_decisions())
+
+    def salvar_local(self, dados, *args, metadata_extra=None, **kwargs):
+        # Toda gravação, inclusive a extração avulsa, conserva as decisões já tomadas.
+        extra = dict(metadata_extra or {})
+        decisions = self.cosif_decisions()
+        if decisions:
+            extra.setdefault("cosif_decisions", decisions)
+        return super().salvar_local(dados, *args, metadata_extra=extra, **kwargs)
 
     def baixar_remoto(self) -> CacheResult:
         # Sem artefato remoto publicado por padrão; o fluxo principal é extração local.

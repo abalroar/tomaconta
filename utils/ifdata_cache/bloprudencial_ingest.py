@@ -68,7 +68,7 @@ def normalize_cache(frame: pd.DataFrame) -> pd.DataFrame:
     return frame
 
 
-def ingest_source(path: Path, root: Path) -> dict:
+def ingest_source(path: Path, root: Path, *, decisions=None) -> dict:
     cache = BloprudencialCache(root)
     cache._assert_writable()
     incoming, manifest = read_source(path)
@@ -96,7 +96,8 @@ def ingest_source(path: Path, root: Path) -> dict:
     with zipfile.ZipFile(archive) as zipped:
         assert hashlib.sha256(zipped.read(path.name)).hexdigest() == manifest["sha256"]
     manifest["archive"] = archive.relative_to(root).as_posix()
-    saved = cache.salvar_local(merged, fonte="bcb_cosif", info_extra={"source_import": manifest})
+    saved = cache.salvar_local(merged, fonte="bcb_cosif", info_extra={"source_import": manifest},
+                               metadata_extra={"cosif_decisions": decisions} if decisions else None)
     if not saved.sucesso:
         raise ValueError(saved.mensagem)
     reread = normalize_cache(pd.read_parquet(cache.arquivo_dados))

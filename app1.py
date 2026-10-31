@@ -16239,8 +16239,25 @@ def _periodos_comite_snapshot(periodo_atual):
     return sorted(periodos)
 
 
+def _sincronizar_bloprudencial_publicado(manager):
+    """Uma vez por sessão: traz a competência publicada pela tela de atualização."""
+    if st.session_state.get("_bloprudencial_sincronizado"):
+        return
+    st.session_state["_bloprudencial_sincronizado"] = True
+    from utils.individual_release_cache import ensure_published_bloprudencial
+    try:
+        manifesto = _carregar_manifest_release_cache(_CARTEIRA_4966_RELEASE_MANIFEST_URL, _EXPECTED_CACHE_RELEASE_TAG)
+        info = (manifesto.get("caches") or {}).get("bloprudencial") or {}
+        if info and ensure_published_bloprudencial(manager.get_cache("bloprudencial"), info, _CARTEIRA_4966_RELEASE_BASE_URL):
+            st.cache_data.clear()
+    except Exception as exc:
+        # A base instalada continua válida; a falha fica visível, sem interromper a leitura.
+        st.warning(f"Não foi possível conferir a base COSIF publicada: {exc}")
+
+
 def _analise_comite_snapshot(codigo, periodos):
     from tabs.prudential_analysis import load_analysis
+    _sincronizar_bloprudencial_publicado(get_cache_manager())
     return load_analysis(get_cache_manager(), codigo, periodos)
 
 
@@ -20065,6 +20082,7 @@ elif menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo == "DRE Gerencial":
 
 elif menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo == "Balanço, DRE e Carteira (Congl.)":
     from tabs.prudential_analysis import render as render_prudential_analysis
+    _sincronizar_bloprudencial_publicado(get_cache_manager())
     render_prudential_analysis(
         get_cache_manager(), _cache_version_token,
         portfolio_model=_modelo_4966_por_codigo, evolution_payload=_evolucao_payload_exportacao,
@@ -25270,6 +25288,11 @@ elif menu == "Atualizar Base":
             st.dataframe(placeholder_if.head(500), width='stretch', hide_index=True)
 
     if senha_input == SENHA_ADMIN:
+        from tabs.financial_update_panel import render as render_financial_update
+        render_financial_update(Path(cache_manager.base_dir), _obter_token_github()[0])
+        st.markdown("---")
+        st.markdown("### Fontes individuais (avançado)")
+        st.caption("Para atualizar a análise financeira, use os botões acima: a extração avulsa de COSIF não passa pelas conferências de contas.")
 
         # =============================================================
         # SELEÇÃO DO CACHE A ATUALIZAR

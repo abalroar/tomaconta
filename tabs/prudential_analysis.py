@@ -37,13 +37,14 @@ def load_analysis(manager, code, periods):
             if path.is_file():
                 sources[kind].attrs["prudential_provenance"] = {
                     "filename": f"{kind}/dados.parquet", "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
-    analysis = build_analysis(cosif, sources, code, periods)
+    overrides = cache.row_overrides()
+    analysis = build_analysis(cosif, sources, code, periods, overrides=overrides)
     # As médias de carteira (NIM) e de PL (ROE) usam dezembro anterior, mesmo fora da seleção.
     prior_credit, prior_equity = {}, {}
     available = set(cosif[cosif.COD_CONGL.astype(str).eq(code)].DATA_BASE.map(text_id))
     missing = [p for p in prior_periods(analysis.periods) if p in available]
     if missing:
-        prior = build_analysis(cosif, sources, code, missing)
+        prior = build_analysis(cosif, sources, code, missing, overrides=overrides)
         prior_credit, prior_equity = credit_balances(prior), equity_balances(prior)
     add_nim_rows(analysis, prior_credit)
     apply_average_roe(analysis, prior_equity)
