@@ -78,6 +78,25 @@ def _cell(cell, text, *, size=14, bold=False, header=False, centered=False, colo
         _font(paragraph, size, bold=bold or header, color="FFFFFF" if header else color, centered=centered)
 
 
+def pin_run_fonts(prs):
+    """Copia a formatação do parágrafo para cada trecho: nem todo visualizador herda de defRPr."""
+    from copy import deepcopy
+    from pptx.oxml.ns import qn
+    for slide in prs.slides:
+        for paragraph in slide._element.iter(qn("a:p")):
+            properties = paragraph.find(qn("a:pPr"))
+            default = properties.find(qn("a:defRPr")) if properties is not None else None
+            if default is None:
+                continue
+            for run in paragraph.findall(qn("a:r")):
+                existing = run.find(qn("a:rPr"))
+                pinned = deepcopy(default)
+                pinned.tag = qn("a:rPr")
+                if existing is not None:
+                    run.remove(existing)
+                run.insert(0, pinned)
+
+
 def _table(slide, rows, columns, y, heights, widths):
     from pptx.util import Inches
     table = slide.shapes.add_table(rows, columns, Inches(_MARGIN), Inches(y), Inches(_CONTENT), Inches(sum(heights))).table

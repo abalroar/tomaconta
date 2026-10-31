@@ -7,6 +7,8 @@ import re
 import pandas as pd
 import plotly.graph_objects as go
 
+from utils.comparison_table_style import VARIATION_COLORS
+
 
 HEADER_COLOR = "#EC7000"
 METRIC_LABELS = {
@@ -22,6 +24,24 @@ SERIES = (
     ("Carteira de Crédito*", "Carteira de Crédito*", "#ff5a00", "y2", 0),
     ("Core Funding*", "Core Funding*", "#222222", "y2", 0),
 )
+
+
+# Abaixo disso a escala em bilhões apaga a informação (prejuízo de R$ 93 mm vira "-0,1").
+BILLIONS_FROM = 10e9
+PROFIT_COLOR, LOSS_COLOR = VARIATION_COLORS["favorable"], VARIATION_COLORS["attention"]
+
+
+def profit_colors(values) -> list[str]:
+    """Lucro em verde e prejuízo em vermelho; a lacuna continua sem barra."""
+    return [LOSS_COLOR if isinstance(v, (int, float)) and v < 0 else PROFIT_COLOR for v in values]
+
+
+def axis_scale(frame: pd.DataFrame, axis: str = "y") -> tuple[float, str, int]:
+    """Uma única unidade no gráfico, decidida por Lucro e PL para o resultado seguir legível."""
+    numbers = [pd.to_numeric(frame[column], errors="coerce").abs().max()
+               for column, _, _, series_axis, _ in SERIES if series_axis == "y" and column in frame]
+    largest = max((float(v) for v in numbers if pd.notna(v)), default=0.0)
+    return (1e9, "R$ bi", 1) if largest >= BILLIONS_FROM else (1e6, "R$ mm", 0)
 
 
 def period_label(value: str) -> str:
@@ -42,11 +62,12 @@ def _axis_range(values: list[float]) -> tuple[float, float]:
 
 
 def build_evolucao_chart(df_graph: pd.DataFrame, labels: list[str], *, revision: str = "evolucao") -> go.Figure:
-    """Keep four series/two axes, converting only the plotted values to R$ bi."""
+    """Keep four series/two axes, converting only the plotted values to each axis' scale."""
     displayed = [period_label(label) for label in labels]
+    scales = {axis: axis_scale(df_graph, axis) for axis in ("y", "y2")}
     values = {
-        column: pd.to_numeric(df_graph[column], errors="coerce").to_numpy(dtype=float) / 1e9
-        for column, *_ in SERIES
+        column: pd.to_numeric(df_graph[column], errors="coerce").to_numpy(dtype=float) / scales[axis][0]
+        for column, _, _, axis, _ in SERIES
     }
     ranges = {
         axis: _axis_range([float(v) for column, _, _, series_axis, _ in SERIES if series_axis == axis for v in values[column]])
@@ -60,11 +81,12 @@ def build_evolucao_chart(df_graph: pd.DataFrame, labels: list[str], *, revision:
         last_indices[column] = available[-1] if available else None
         kwargs = dict(
             x=list(range(len(displayed))), y=series, name=name, yaxis=axis, legendgroup=column,
-            customdata=[number_br(v, 2) if math.isfinite(v) else "N/D" for v in series],
-            hovertemplate="%{customdata} R$ bi<extra>%{fullData.name}</extra>",
+            customdata=[number_br(v, 2 if scales[axis][2] else 0) if math.isfinite(v) else "N/D" for v in series],
+            hovertemplate="%{customdata} " + scales[axis][1] + "<extra>%{fullData.name}</extra>",
         )
         if axis == "y":
-            fig.add_trace(go.Bar(**kwargs, marker_color=color))
+            bar_color = profit_colors(list(series)) if column == "Lucro Líquido" else color
+            fig.add_trace(go.Bar(**kwargs, marker=dict(color=bar_color, line=dict(width=0))))
         else:
             fig.add_trace(go.Scatter(
                 **kwargs, mode="lines+markers", connectgaps=False,
@@ -96,7 +118,7 @@ def build_evolucao_chart(df_graph: pd.DataFrame, labels: list[str], *, revision:
             for point in points:
                 point["position"] += top_shift
         for point in points:
-            text = number_br(point["value"])
+            text = number_br(point["value"], scales[point["axis"]][2])
             if point["last"]:
                 text = f"<b>{text}</b>"
                 if dense and index != len(labels) - 1:
@@ -129,8 +151,8 @@ def build_evolucao_chart(df_graph: pd.DataFrame, labels: list[str], *, revision:
         barmode="group", bargap=.32, bargroupgap=.08, height=480,
         font=dict(family="Calibri, Arial, sans-serif", size=14, color="#333333"),
         separators=",.", plot_bgcolor="white", paper_bgcolor="white",
-        yaxis=dict(**axis_common, title="Lucro / PL (R$ bi)", range=ranges["y"], gridcolor="#eeeeee"),
-        yaxis2=dict(**axis_common, title="Carteira / funding (R$ bi)", range=ranges["y2"], overlaying="y", side="right", showgrid=False),
+        yaxis=dict(**axis_common, title=f"Lucro / PL ({scales['y'][1]})", range=ranges["y"], gridcolor="#eeeeee"),
+        yaxis2=dict(**axis_common, title=f"Carteira / funding ({scales['y2'][1]})", range=ranges["y2"], overlaying="y", side="right", showgrid=False),
         xaxis=dict(type="linear", tickmode="array", tickvals=list(range(len(displayed))), ticktext=displayed,
                    labelalias={str(i): label for i, label in enumerate(displayed)}, range=[-.6, len(labels) - .4], tickfont=dict(size=12)),
         legend=dict(orientation="h", yanchor="bottom", y=1.04, xanchor="left", x=0, font=dict(size=12), groupclick="togglegroup"),
@@ -163,6 +185,8 @@ def render_evolucao_table(df_show: pd.DataFrame, periods: list[str], cell_toolti
     <div class="evol-table-wrap" role="region" aria-label="Indicadores de Evolução" tabindex="0">
     <table class="evol-table" aria-label="Indicadores de Evolução"><thead><tr><th scope="col">Indicador</th>
     """
+    # Without indentation: Markdown would otherwise read the block as literal code.
+    html = "\n".join(line.strip() for line in html.splitlines() if line.strip())
     for period in periods:
         html += f'<th scope="col">{escape(period_label(period))}</th>'
     html += "</tr></thead><tbody>"
@@ -174,7 +198,7 @@ def render_evolucao_table(df_show: pd.DataFrame, periods: list[str], cell_toolti
             label += f'<abbr class="metric-info" title="{escape(gloss, quote=True)}" aria-label="{escape(gloss, quote=True)}">ⓘ</abbr>'
         html += f'<tr><th scope="row">{label}</th>'
         for period in periods:
-            tip = str(cell_tooltips.get((metric, str(period)), "") or "").strip()
+            tip = " ".join(str(cell_tooltips.get((metric, str(period)), "") or "").split())
             attrs = f' class="has-tip" title="{escape(tip, quote=True)}"' if tip else ""
             html += f'<td{attrs}>{escape(str(row[period]))}</td>'
         html += "</tr>"

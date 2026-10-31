@@ -1,7 +1,9 @@
 """Compact prudential statements, using the portfolio table's visual language."""
 from __future__ import annotations
 
+from datetime import datetime
 import hashlib
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import streamlit as st
@@ -9,15 +11,18 @@ import streamlit as st
 from utils.ifdata_cache.bloprudencial_cache import load_bloprudencial_parquet_slice
 from utils.ifdata_cache.revision_cache import revision_cache_data
 from utils.prudential_analysis import build_analysis, text_id
-from utils.prudential_presentation import export_filename, institution_label, render_statement_html
+from tabs.carteira_4966 import render_carteira_4966_html
+from utils.prudential_presentation import default_periods, export_filename, institution_label, period_label, render_statement_html
 from utils.prudential_workbook import render_xlsx
 from utils.prudential_pptx import render_pptx
+from utils.prudential_nim import add_nim_rows, credit_balances, prior_periods
 
-MODEL_VERSION = "statement-v4"
+MODEL_VERSION = "statement-v5"
 SOURCES = ("bloprudencial", "ativo", "dre", "capital", "principal", "carteira_instrumentos")
 
 
-def render(manager, cache_token):
+def render(manager, cache_token, *, portfolio_model=None, evolution_payload=None):
+    """``portfolio_model`` e ``evolution_payload`` entregam as visões dos menus Carteira 4.966 e Evolução."""
     cache = manager.get_cache("bloprudencial")
     if cache is None or not cache.arquivo_dados.exists():
         st.info("Base prudencial indisponível. Consulte Atualizar Base.")
@@ -45,12 +50,11 @@ def render(manager, cache_token):
     available = sorted(data.loc[data.COD_CONGL.eq(code), "DATA_BASE"].unique(), reverse=True)
     context = (code, tuple(available))
     if st.session_state.get("prudential_excel_period_context") != context:
-        semi = [p for p in available if p.endswith(("06", "12"))]
-        st.session_state["prudential_excel_periods"] = (semi or available)[:2]
+        st.session_state["prudential_excel_periods"] = default_periods(available, datetime.now(ZoneInfo("America/Sao_Paulo")))
         st.session_state["prudential_excel_period_context"] = context
     with right:
         periods = st.multiselect("Períodos", available, key="prudential_excel_periods", max_selections=8,
-                                format_func=lambda p: f"{p[4:]}/{p[:4]}")
+                                format_func=period_label)
     if not periods:
         st.caption("Selecione um período.")
         return
@@ -73,6 +77,13 @@ def render(manager, cache_token):
                             sources[kind].attrs["prudential_provenance"] = {
                                 "filename": f"{kind}/dados.parquet", "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
                 analysis = build_analysis(cosif, sources, code, periods)
+                # A carteira média das NIMs pode usar um fechamento fora da seleção.
+                prior_credit = {}
+                missing = [p for p in prior_periods(analysis.periods) if p in available]
+                if missing:
+                    prior_cosif = load_bloprudencial_parquet_slice(cache, periodos_yyyymm=missing)
+                    prior_credit = credit_balances(build_analysis(prior_cosif, sources, code, missing))
+                add_nim_rows(analysis, prior_credit)
                 saved = (signature, analysis)
                 st.session_state["prudential_excel_result"] = saved
         except (ValueError, KeyError, OSError) as exc:
@@ -81,6 +92,9 @@ def render(manager, cache_token):
                 st.write(str(exc))
             return
     _, analysis = saved
+    def _evolution():
+        return evolution_payload(code) if evolution_payload else None
+    model = portfolio_model(code, sorted(periods)) if portfolio_model else None
     with export, st.container(key="tc_fin_export"):
         # The export button lines up with the fields, below their labels.
         st.markdown("""<style>.st-key-tc_fin_export { margin-top:1.75rem; }
@@ -88,15 +102,23 @@ def render(manager, cache_token):
 @media(max-width:640px) { .st-key-tc_fin_export { margin-top:0; } }</style>""", unsafe_allow_html=True)
         with st.popover("Exportar", width="stretch"):
             filename = export_filename(analysis)
-            st.download_button("Excel", data=lambda a=analysis: render_xlsx(a),
+            def _extras():
+                return {"portfolio": model, "evolution": _evolution()}
+            st.download_button("Excel", data=lambda a=analysis: render_xlsx(a, **_extras()),
                                file_name=filename + ".xlsx",
                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                key=f"download_prudential_excel_{signature}", on_click="ignore", width="stretch")
-            st.download_button("PowerPoint", data=lambda a=analysis: render_pptx(a),
+            st.download_button("PowerPoint", data=lambda a=analysis: render_pptx(a, **_extras()),
                                file_name=filename + ".pptx",
                                mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
                                key=f"download_prudential_pptx_{signature}", on_click="ignore", width="stretch")
     for tab, name in zip(st.tabs(["Balanço", "DRE", "Carteira 4.966"]), ["Balanço", "DRE", "Carteira 4.966"]):
         with tab:
-            st.markdown(render_statement_html(analysis, name), unsafe_allow_html=True)
-    st.caption("R$ milhões. DRE acumulada no semestre. N/D: dado não disponível na fonte para o período.")
+            # A Carteira segue o menu Carteira 4.966: hierarquia, percentuais e variações.
+            if name == "Carteira 4.966" and model is not None and model.periods:
+                st.markdown(render_carteira_4966_html(model), unsafe_allow_html=True)
+                if len(model.periods) < len(periods):
+                    st.caption("Carteira 4.966: dado trimestral; competências mensais selecionadas não têm esta abertura.")
+            else:
+                st.markdown(render_statement_html(analysis, name), unsafe_allow_html=True)
+    st.caption("R$ milhões. DRE acumulada no semestre. –: dado não disponível na fonte para o período.")
