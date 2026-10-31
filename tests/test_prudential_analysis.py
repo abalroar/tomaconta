@@ -244,7 +244,7 @@ def test_refresh_is_idempotent_and_rejects_invalid_candidate_without_writing(sim
     from tools import update_financial_analysis as cli
     from utils.ifdata_cache import BloprudencialCache
     # The fixture contains only COSIF; there are no dependent reports to rebuild.
-    monkeypatch.setattr(cli, "materialize_for_publication", lambda *args, **kwargs: [])
+    monkeypatch.setattr("utils.ifdata_cache.release_ops.materialize_for_publication", lambda *args, **kwargs: [])
     root = tmp_path / "repo"; root.mkdir()
     path = tmp_path / "source.csv"
     simple_sources.rename(columns={"DATA_BASE": "#DATA_BASE"}).to_csv(path, sep=";", decimal=",", index=False)

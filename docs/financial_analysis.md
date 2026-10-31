@@ -45,7 +45,21 @@ e os cálculos do Snapshot foram preservados.
 
 ## Atualização
 
-Na raiz do repositório, com o ambiente Python do projeto:
+Pela tela: **Atualizar Base > Análise financeira**. **Verificar BCB** baixa as fontes e confere tudo sem alterar a base.
+Se houver item a revisar, a tabela pede uma decisão. **Aplicar atualização** repete a conferência, grava a nova geração e
+a publica na release. O processo roda separado da sessão, e a página pode ser fechada. Se o download falhar, a tela aceita
+o `.zip` baixado da página do BCB.
+
+Revisão de contas (`utils/ifdata_cache/financial_analysis_review.py`): o catálogo é o próprio histórico carregado, comparado
+pelo prefixo contábil. Suspendem a promoção: conta nova ou que sumiu com R$ 100 mi nos grupos 7/8 ou R$ 5 bi nos grupos
+1, 2, 4 e 6, e Provisão com troca de sinal ou salto acima de 3x contra a mesma janela do ano anterior. Contas de resultado que
+somem em janeiro ou julho não suspendem, pelo encerramento semestral. Nome alterado é aviso. Compensação fica fora.
+
+Aceitar uma conta mantém a regra por prefixo. Escolher outra linha grava a decisão no metadata de `bloprudencial`, publicada
+com os dados, e a DRE passa a usá-la sem mudar código. Na leitura, a competência publicada mais nova que a instalada é baixada
+e conferida por SHA-256; sem isso, o mês novo se perderia no reinício do servidor.
+
+Pela linha de comando, na raiz do repositório, com o ambiente Python do projeto:
 
 ```sh
 python tools/update_financial_analysis.py --data-base 2026-09
