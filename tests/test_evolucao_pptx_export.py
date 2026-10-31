@@ -121,7 +121,7 @@ def test_long_windows_keep_every_period_and_source_limitations_visible():
     assert not any("fallback para Captações" in s.text for s in prs.slides[0].shapes if s.has_text_frame)
     assert any("fallback para Captações: Dez/28" in s.text for s in prs.slides[1].shapes if s.has_text_frame)
     table = next(s.table for s in prs.slides[1].shapes if s.has_table)
-    assert table.cell(3, 1).text == "N/D†"
+    assert table.cell(3, 1).text == "–†"
     assert "Captações" in prs.slides[1].notes_slide.notes_text_frame.text
 
 
@@ -145,7 +145,7 @@ def test_zero_negative_and_all_missing_series_preserve_numeric_meaning():
     args["df_graph"].loc[0] = [-1e9, 0, None, None]
     prs = Presentation(BytesIO(export_evolucao_powerpoint(**args)))
     chart = next(s.chart for s in prs.slides[0].shapes if s.has_chart)
-    assert [tuple(s.values) for s in chart.series] == [(-1,), (0,), (None,), (None,)]
+    assert [tuple(s.values) for s in chart.series] == [(-1000,), (0,), (None,), (None,)]
     assert float(chart._chartSpace.xpath(".//c:valAx[c:axPos/@val='l']/c:scaling/c:min/@val")[0]) < 0
     assert chart.series[0]._element.xpath(".//c:dLbl")
     assert chart.series[1]._element.xpath(".//c:dLbl")
@@ -157,3 +157,13 @@ def test_mismatched_windows_are_rejected():
     args["periods"] = args["periods"][:-1]
     with pytest.raises(ValueError, match="mesmas competências"):
         export_evolucao_powerpoint(**args)
+
+
+def test_loss_bar_is_red_without_inversion():
+    args = sample(1)
+    args["df_graph"].loc[0] = [-93e6, 101e6, 2e9, 2.5e9]
+    prs = Presentation(BytesIO(export_evolucao_powerpoint(**args)))
+    chart = next(s.chart for s in prs.slides[0].shapes if s.has_chart)
+    point = chart.series[0]._element.xpath("c:dPt")[0]
+    assert point.xpath("c:invertIfNegative/@val") == ["0"]
+    assert point.xpath(".//a:srgbClr/@val")[0] == "B32624"

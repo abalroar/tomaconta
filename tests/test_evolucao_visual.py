@@ -60,3 +60,18 @@ def test_table_keeps_analytical_markers_and_original_trace_tooltips():
     assert "capital_report_missing" in html
     assert "&lt;Rel. 5&gt; &quot;ausente&quot;" in html
     assert ">Dez/25</th>" in html
+
+
+def test_small_institution_is_scaled_in_millions_per_axis():
+    from utils.evolucao_visual import axis_scale
+    frame = pd.DataFrame({"Lucro Líquido": [-93e6], "Patrimônio Líquido": [101e6],
+                          "Carteira de Crédito*": [2.0e9], "Core Funding*": [2.4e9]})
+    assert axis_scale(frame, "y")[1] == "R$ mm" and axis_scale(frame, "y2")[1] == "R$ mm"
+    fig = build_evolucao_chart(frame, ["jun-26"])
+    assert "R$ mm" in fig.layout.yaxis.title.text
+    assert fig.data[0].y[0] == -93
+    large = frame.assign(**{"Patrimônio Líquido": [250e9]})
+    assert axis_scale(large)[1] == "R$ bi"
+    # Carteira grande com PL pequeno mantém a mesma unidade em todo o gráfico.
+    assert axis_scale(frame.assign(**{"Carteira de Crédito*": [40e9]}))[1] == "R$ mm"
+    assert list(fig.data[0].marker.color) == ["#B32624"]

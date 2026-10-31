@@ -18,7 +18,8 @@ from pptx.oxml.ns import qn
 from pptx.oxml.xmlchemy import OxmlElement
 from pptx.util import Inches, Pt
 
-from .evolucao_visual import HEADER_COLOR, METRIC_LABELS, SERIES, _axis_range, period_label
+from .evolucao_visual import (HEADER_COLOR, LOSS_COLOR, METRIC_LABELS, PROFIT_COLOR, SERIES, _axis_range, axis_scale,
+                              period_label)
 from .scr_pptx_export import (
     ORDEM_CHART_SPACE, ORDEM_DLBL, ORDEM_LEGENDA, _estilizar_eixos,
     _layout_do_rotulo, _mover_para_eixo_secundario, _ordenar_filhos,
@@ -29,6 +30,7 @@ from .scr_pptx_export import (
 
 PERIODS_PER_SLIDE = 8
 NUMBER_FORMAT = '[$-416]#,##0.0'
+NUMBER_FORMAT_MM = '[$-416]#,##0'
 CHART_TOP, CHART_HEIGHT = .94, 3.48
 PLOT_LEFT, PLOT_WIDTH, PLOT_TOP, PLOT_HEIGHT = .065, .865, .22, .64
 LABEL_GAP, LABEL_HEIGHT = .14, .12
@@ -86,10 +88,12 @@ def _chart(slide, frame, periods):
     data = CategoryChartData()
     data.categories = [period_label(period) for period in periods]
     values = {}
-    for column, name, _, _, _ in SERIES:
+    scales = {axis: axis_scale(frame, axis) for axis in ("y", "y2")}
+    formats = {axis: NUMBER_FORMAT if scales[axis][2] else NUMBER_FORMAT_MM for axis in scales}
+    for column, name, _, axis, _ in SERIES:
         numbers = pd.to_numeric(frame[column], errors="coerce")
-        values[column] = [float(v) / 1e9 if pd.notna(v) and math.isfinite(float(v)) else None for v in numbers]
-        data.add_series(name, values[column], number_format=NUMBER_FORMAT)
+        values[column] = [float(v) / scales[axis][0] if pd.notna(v) and math.isfinite(float(v)) else None for v in numbers]
+        data.add_series(name, values[column], number_format=formats[axis])
     chart = slide.shapes.add_chart(
         XL_CHART_TYPE.COLUMN_CLUSTERED, Inches(.38), Inches(CHART_TOP), Inches(12.55), Inches(CHART_HEIGHT), data,
     ).chart
@@ -106,7 +110,7 @@ def _chart(slide, frame, periods):
                           for v in values[column] if v is not None])
         for axis in ("y", "y2")
     }
-    _estilizar_eixos(chart, len(periods), NUMBER_FORMAT, escala=ranges["y"])
+    _estilizar_eixos(chart, len(periods), formats["y"], escala=ranges["y"])
     chart.plots[0].gap_width = 70
     chart.plots[0].has_data_labels = False
     finals = []
@@ -114,16 +118,33 @@ def _chart(slide, frame, periods):
         series = chart.series[index]
         series.format.fill.solid()
         series.format.fill.fore_color.rgb = RGBColor.from_string(color.lstrip("#"))
-        series.format.line.color.rgb = RGBColor.from_string(color.lstrip("#"))
-        series.format.line.width = Pt(2)
+        if axis == "y":
+            # Barras sem contorno; o lucro assume a cor do próprio sinal, ponto a ponto.
+            series.format.line.fill.background()
+            series.invert_if_negative = False
+            if column == "Lucro Líquido":
+                series.format.fill.fore_color.rgb = RGBColor.from_string(PROFIT_COLOR.lstrip("#"))
+                for point_index, number in enumerate(values[column]):
+                    if number is not None and number < 0:
+                        point = series.points[point_index]
+                        point.format.fill.solid()
+                        point.format.fill.fore_color.rgb = RGBColor.from_string(LOSS_COLOR.lstrip("#"))
+                        point.format.line.fill.background()
+                        # Sem isto o Office inverte a cor do ponto negativo para branco.
+                        invert = OxmlElement("c:invertIfNegative")
+                        invert.set("val", "0")
+                        point._element.xpath(f"c:dPt[c:idx/@val='{point_index}']")[0].find(qn("c:idx")).addnext(invert)
+        else:
+            series.format.line.color.rgb = RGBColor.from_string(color.lstrip("#"))
+            series.format.line.width = Pt(2)
         valid = [i for i, v in enumerate(values[column]) if v is not None]
         if valid:
             last = valid[-1]
-            _rotular_apenas_ultimo_ponto(series, last, NUMBER_FORMAT, com_nome=False)
+            _rotular_apenas_ultimo_ponto(series, last, formats[axis], com_nome=False)
             low, high = ranges[axis]
             target = PLOT_TOP + (1 - (values[column][last] - low) / (high - low)) * PLOT_HEIGHT - .08
             finals.append((index, target, last))
-    _mover_para_eixo_secundario(chart, [2, 3], NUMBER_FORMAT, escala=ranges["y2"], cor=RGBColor.from_string("222222"))
+    _mover_para_eixo_secundario(chart, [2, 3], formats["y2"], escala=ranges["y2"], cor=RGBColor.from_string("222222"))
     positions = _label_positions([(i, y) for i, y, _ in finals])
     for index, _, last in finals:
         label = chart.series[index].points[last].data_label
@@ -169,8 +190,8 @@ def _chart(slide, frame, periods):
         chart.legend._element.append(entry)
     _ordenar_filhos(chart.legend._element, ORDEM_LEGENDA)
     _manual_layout(chart._chartSpace.chart.plotArea, x=PLOT_LEFT, y=PLOT_TOP, w=PLOT_WIDTH, h=PLOT_HEIGHT, inner=True)
-    _text(slide, "Lucro e PL (R$ bi)", .38, 1.43, 5.9, .2, size=10, color="555555")
-    axis_caption = _text(slide, "Carteira e Core Funding (R$ bi)", 7.03, 1.43, 5.9, .2, size=10, color="222222")
+    _text(slide, f"Lucro e PL ({scales['y'][1]})", .38, 1.43, 5.9, .2, size=10, color="555555")
+    axis_caption = _text(slide, f"Carteira e Core Funding ({scales['y2'][1]})", 7.03, 1.43, 5.9, .2, size=10, color="222222")
     axis_caption.text_frame.paragraphs[0].alignment = PP_ALIGN.RIGHT
     blanks = chart._chartSpace.chart.find(qn("c:dispBlanksAs"))
     if blanks is None:
@@ -208,7 +229,7 @@ def _table(slide, frame, periods):
         table.cell(r, 0).text = METRIC_LABELS.get(metric, metric)
         for c, period in enumerate(periods, 1):
             value = str(row[period])
-            table.cell(r, c).text = "N/D" + value[1:] if value.startswith("-") and value in ("-", "-†") else value
+            table.cell(r, c).text = "–" + value[1:] if value in ("-", "-†") else value
     for r, row in enumerate(table.rows):
         for c, cell in enumerate(row.cells):
             cell.fill.solid()
@@ -247,6 +268,16 @@ def export_evolucao_powerpoint(*, df_graph, df_show, periods, institution, queri
     prs.slide_width, prs.slide_height = Inches(13.333), Inches(7.5)
     prs.core_properties.title = "Evolução | " + str(institution)
     prs.core_properties.author = "Toma Conta"
+    add_evolucao_slides(prs, df_graph=df_graph, df_show=df_show, periods=periods, institution=institution,
+                        queried_at=queried_at, status_rows=status_rows)
+    output = BytesIO()
+    prs.save(output)
+    return output.getvalue()
+
+
+def add_evolucao_slides(prs, *, df_graph, df_show, periods, institution, queried_at, status_rows=()):
+    """Append the Evolução slides to an existing deck."""
+    periods = list(periods)
     query_type = "Evolução histórica; dezembro e competência final; lucro acumulado no ano"
     footer = (f"Fonte: BCB IFData, relatórios 1, 2, 3 e 5. Consolidada / Prudencial. 1 instituição. "
               f"{period_label(periods[0])} a {period_label(periods[-1])}.\n"
@@ -277,6 +308,3 @@ def export_evolucao_powerpoint(*, df_graph, df_show, periods, institution, queri
         _text(slide, "\n".join([note, *caveats]), .38, 6.52, 12.55, .46, size=9, color="555555")
         _text(slide, footer, .38, 7.03, 12.55, .32, size=8, color="555555")
         slide.notes_slide.notes_text_frame.text = notes
-    output = BytesIO()
-    prs.save(output)
-    return output.getvalue()

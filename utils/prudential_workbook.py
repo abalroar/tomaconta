@@ -14,8 +14,9 @@ import math
 import xlsxwriter
 
 from .prudential_analysis import Analysis, col_name
-from .prudential_presentation import (ZERO_EPSILON, display_rows, institution_label, period_chunks, row_tier)
-from .financial_statement_style import (FONT, INK, MUTED, GRID, RULE, ACCENT, NEGATIVE, BAND_NEGATIVE, BAND_MUTED,
+from .prudential_presentation import (PERIODS_PER_PAGE, ZERO_EPSILON, committee_panel, display_rows, institution_label, period_chunks,
+                                      row_tier)
+from .financial_statement_style import (FONT, INK, MUTED, GRID, RULE, ACCENT, NEGATIVE, BAND_NEGATIVE, BAND_MUTED, MISSING,
                                         EXCEL_STYLES as STYLES, excel_amount_width, excel_label_width,
                                         excel_number_format, excel_visible_format)
 
@@ -56,32 +57,6 @@ def _value_kind(number_format):
     return "ratio" if "0.00" in number_format else "share"
 
 
-def _spaced_rows(rows, target):
-    """Open the shorter panel around its bands, as in the committee model, until both panels end together."""
-    missing = target - len(rows)
-    if missing <= 0:
-        return list(rows)
-    before_band = [i for i, row in enumerate(rows) if i and row[-1] == "key"]
-    after_band = [i + 1 for i, row in enumerate(rows) if i + 1 < len(rows) and row[-1] == "key"]
-    before_section = [i for i, row in enumerate(rows) if i and row[-1] == "section"]
-    gaps = []
-    for position in after_band + before_band + before_section:
-        if position not in gaps and missing > len(gaps):
-            gaps.append(position)
-    spaced = []
-    for i, row in enumerate(rows):
-        if i in gaps:
-            spaced.append(None)
-        spaced.append(row)
-    return spaced
-
-
-def _committee_panel(analysis, name):
-    sheet = analysis.sheets[name]
-    return [(ident, source_row, label, sheet.cells[f"B{source_row}"].style, row_tier(name, ident, sheet.cells[f"B{source_row}"].style))
-            for ident, source_row, label in display_rows(analysis, name, committee=True)]
-
-
 def _runs(cells):
     """Compress cells into A1 ranges, per column, for one conditional format."""
     by_column, ranges = {}, []
@@ -112,7 +87,7 @@ def _value_rules(wb, ws, cells, *, band=False):
     runs = {kind: _runs((r, c) for r, c, k in cells if k == kind) for kind in ("money", "share", "ratio")}
     every = runs["money"] + runs["share"] + runs["ratio"]
     # Literal formats need both sections: Excel prefixes a sign to a single-section format.
-    rule(every, "==", '"N/D"', stop=True, font_color=muted)
+    rule(every, "==", '"N/D"', stop=True, font_color=muted, num_format=f';;;"{MISSING}"')
     rule(runs["money"], "between", (-ZERO_EPSILON, ZERO_EPSILON), stop=True, font_color=muted, num_format='"0";"0"')
     rule(runs["money"], "between", (-.4999999, -ZERO_EPSILON), stop=True, font_color=red, num_format='"<1";"-<1"')
     rule(runs["money"], "between", (ZERO_EPSILON, .4999999), stop=True, num_format='"<1";"-<1"')
@@ -131,9 +106,7 @@ def _committee_sheet(wb, fmt, analysis):
     panel_columns = 1 + 2 * shown
     right_start = 1 + panel_columns + 1
     end_col = right_start + panel_columns - 1
-    panels = {name: _committee_panel(analysis, name) for name in ("Balanço", "DRE")}
-    body_rows = max(map(len, panels.values()))
-    panels = {name: _spaced_rows(rows, body_rows) for name, rows in panels.items()}
+    panels = {name: committee_panel(analysis, name) for name in ("Balanço", "DRE")}
     body_rows = max(map(len, panels.values()))
     page_rows = HEADER_ROWS + body_rows + 3
     amounts = {name: excel_amount_width(c.value for key, c in analysis.sheets[name].cells.items()
@@ -191,7 +164,7 @@ def _committee_sheet(wb, fmt, analysis):
                         else:
                             committee.write_blank(target_row, destination, None, f)
         note_row = top + HEADER_ROWS + body_rows + 1
-        committee.merge_range(note_row, 1, note_row, end_col, "Fonte: Banco Central, COSIF 4060/4066 e IF.data. R$ milhões. DRE acumulada no semestre. N/D: dado não disponível.", fmt("note"))
+        committee.merge_range(note_row, 1, note_row, end_col, "Fonte: Banco Central, COSIF 4060/4066 e IF.data. R$ milhões. DRE acumulada no semestre. " + f"{MISSING}: dado não disponível.", fmt("note"))
     _value_rules(wb, committee, light)
     _value_rules(wb, committee, band, band=True)
     width_points = _column_points(*widths.values(), 2, *[PERCENT_WIDTH] * (2 * shown), *[a for a in amounts.values() for _ in range(shown)])
@@ -231,7 +204,124 @@ def _statement_page_setup(ws, analysis, sheet, height_points):
     ws.set_footer("&L&9Toma Conta · Banco Central&R&9&P / &N", {"margin": .2})
 
 
-def render_xlsx(analysis: Analysis) -> bytes:
+def _portfolio_sheet(wb, fmt, analysis, model):
+    """The Carteira 4.966 menu's reading: same rows and values, without the deltas."""
+    from tabs.carteira_4966 import GROUP_SPECS, ROW_SPECS, MetricCell
+    ws = wb.add_worksheet("Carteira")
+    ws.hide_gridlines(2)
+    ws.set_tab_color(ACCENT)
+    ws.set_default_row(15.75)
+    ws.set_column(0, 0, 1.5)
+    ws.set_column(1, 1, excel_label_width(spec.label for spec in ROW_SPECS))
+    periods = list(model.periods)
+    ws.set_column(2, 1 + 2 * len(periods), 9.5)
+    last = 1 + 2 * len(periods)
+    ws.merge_range(1, 1, 1, last, institution_label(analysis.institution), fmt("title"))
+    ws.set_row(1, 22)
+    ws.merge_range(2, 1, 2, last, "Carteira 4.966 · Conglomerado prudencial · R$ milhões", fmt("note"))
+    ws.write(4, 1, "R$ milhões", fmt("header", left=True))
+    ws.write(5, 1, "", fmt("header"))
+    for i, period in enumerate(periods):
+        ws.merge_range(4, 2 + 2 * i, 4, 3 + 2 * i, model.period_labels.get(period, period), fmt("header"))
+        ws.write(5, 2 + 2 * i, "R$ mm", fmt("header"))
+        ws.write(5, 3 + 2 * i, "%", fmt("header"))
+    row = 6
+    money, ratio = '#,##0;-#,##0;0', '0.00%;-0.00%;0.00%'
+    cells = []
+    for group in GROUP_SPECS:
+        specs = [spec for spec in ROW_SPECS if spec.group == group.key]
+        if not specs:
+            continue
+        ws.merge_range(row, 1, row, last, group.label or "", fmt("section"))
+        row += 1
+        for spec in specs:
+            look = "bold" if spec.emphasis else "body"
+            ws.write(row, 1, spec.label, fmt(look))
+            for i, period in enumerate(periods):
+                value = model.cells.get(spec.key, {}).get(period, MetricCell(None))
+                if spec.layout == "paired":
+                    pairs = [(2 + 2 * i, value.primary, False), (3 + 2 * i, value.secondary, True)]
+                else:
+                    pairs = [(3 + 2 * i if spec.layout == "percent_span" else 2 + 2 * i, value.primary, spec.layout == "percent_span")]
+                    ws.write_blank(row, 2 + 2 * i if spec.layout == "percent_span" else 3 + 2 * i, None, fmt(look, None, True, edge=spec.layout != "percent_span"))
+                for column, number, percent in pairs:
+                    number_format = excel_visible_format(ratio if percent else money)
+                    f = fmt(look, number_format, True, edge=percent)
+                    if number is None:
+                        ws.write_string(row, column, "N/D", f)
+                    else:
+                        # O modelo guarda reais; a tela e esta aba mostram R$ milhões.
+                        ws.write_number(row, column, number if percent else number / 1e6, f)
+                    cells.append((row, column, "ratio" if percent else "money"))
+            row += 1
+    _value_rules(wb, ws, cells)
+    ws.freeze_panes(6, 2)
+    ws.set_portrait()
+    ws.set_paper(9)
+    ws.center_horizontally()
+    ws.print_area(1, 1, row, last)
+    # Up to four periods fit one page; longer selections continue with the labels repeated.
+    if len(periods) <= PERIODS_PER_PAGE:
+        ws.fit_to_pages(1, 1)
+    else:
+        ws.set_print_scale(_print_scale(_column_points(excel_label_width(s.label for s in ROW_SPECS), *[9.5] * (2 * PERIODS_PER_PAGE)), row * 15.75, A4_PORTRAIT))
+        column, breaks = 2, []
+        for chunk in period_chunks(periods)[:-1]:
+            column += 2 * len(chunk)
+            breaks.append(column)
+        ws.set_v_pagebreaks(breaks)
+        ws.repeat_columns("A:B")
+        ws.repeat_rows(4, 5)
+    ws.set_footer("&L&9Toma Conta · Banco Central&R&9&P / &N", {"margin": .2})
+
+
+def _evolution_sheet(wb, fmt, analysis, evolution):
+    """Same series and indicators as the Evolução tab, in the axis scale shown there."""
+    from .evolucao_visual import SERIES, axis_scale, METRIC_LABELS, period_label as evolution_period
+    ws = wb.add_worksheet("Evolução")
+    ws.hide_gridlines(2)
+    ws.set_tab_color(ACCENT)
+    ws.set_default_row(15.75)
+    frame, table, periods = evolution["df_graph"], evolution["df_show"], list(evolution["periods"])
+    ws.set_column(0, 0, 1.5)
+    ws.set_column(1, 1, 32)
+    ws.set_column(2, 1 + len(periods), 10)
+    ws.merge_range(1, 1, 1, 1 + len(periods), institution_label(analysis.institution), fmt("title"))
+    ws.set_row(1, 22)
+    ws.merge_range(2, 1, 2, 1 + len(periods), "Evolução · BCB IFData · Lucro acumulado no ano", fmt("note"))
+    ws.write(4, 1, "Indicador", fmt("header", left=True))
+    for i, period in enumerate(periods):
+        ws.write(4, 2 + i, evolution_period(period), fmt("header"))
+    row = 5
+    cells = []
+    for column, name, _, axis, _ in SERIES:
+        divisor, unit, decimals = axis_scale(frame, axis)
+        ws.write(row, 1, f"{name} ({unit})", fmt("body"))
+        number_format = excel_visible_format("#,##0.0;-#,##0.0;0.0" if decimals else "#,##0;-#,##0;0")
+        for i, value in enumerate(frame[column].tolist()):
+            if value is None or value != value:
+                ws.write_string(row, 2 + i, "N/D", fmt("body", number_format, True))
+            else:
+                ws.write_number(row, 2 + i, float(value) / divisor, fmt("body", number_format, True))
+            cells.append((row, 2 + i, "money" if decimals == 0 else "ratio"))
+        row += 1
+    for _, line in table.iterrows():
+        metric = str(line["Métrica"])
+        ws.write(row, 1, METRIC_LABELS.get(metric, metric), fmt("body"))
+        for i, period in enumerate(periods):
+            text = str(line[period])
+            ws.write_string(row, 2 + i, MISSING if text.startswith("-") and len(text) <= 2 else text, fmt("body", None, True))
+        row += 1
+    _value_rules(wb, ws, cells)
+    ws.freeze_panes(5, 2)
+    ws.set_landscape()
+    ws.set_paper(9)
+    ws.fit_to_pages(1, 1)
+    ws.center_horizontally()
+    ws.print_area(1, 1, row, 1 + len(periods))
+
+
+def render_xlsx(analysis: Analysis, *, portfolio=None, evolution=None) -> bytes:
     buffer = BytesIO()
     wb = xlsxwriter.Workbook(buffer, {"in_memory": True, "strings_to_formulas": False, "strings_to_urls": False})
     wb.set_properties({"title": f"{analysis.institution} — Análise financeira prudencial", "author": "Toma Conta",
@@ -268,6 +358,11 @@ def render_xlsx(analysis: Analysis) -> bytes:
     # two periods, editable references. Long selections continue on new pages.
     _committee_sheet(wb, fmt, analysis)
     for name, s in analysis.sheets.items():
+        if name == "Carteira 4.966":
+            if portfolio is not None and portfolio.periods:
+                _portfolio_sheet(wb, fmt, analysis, portfolio)
+            if evolution is not None:
+                _evolution_sheet(wb, fmt, analysis, evolution)
         ws = wb.add_worksheet(name)
         ws.hide_gridlines(2)
         ws.set_zoom(100 if name in STATEMENTS else 85)
@@ -319,7 +414,7 @@ def render_xlsx(analysis: Analysis) -> bytes:
             labels["B5"] = "Fonte"
             labels["B6"] = "R$ milhões"
             note = "DRE acumulada no semestre. " if name == "DRE" else ""
-            labels.update({address: f"Fonte: Banco Central, COSIF 4060/4066 e IF.data. R$ milhões. {note}N/D: dado não disponível."
+            labels.update({address: f"Fonte: Banco Central, COSIF 4060/4066 e IF.data. R$ milhões. {note}{MISSING}: dado não disponível."
                            for address, cell in s.cells.items() if cell.style == "note" and address != "B3"})
         values = []
         for address, cell in s.cells.items():
@@ -350,14 +445,25 @@ def render_xlsx(analysis: Analysis) -> bytes:
         if name == "Validações":
             ws.conditional_format(1, 4, len(analysis.checks), 4, {"type": "text", "criteria": "containing", "value": "Divergência", "format": wb.add_format({"bg_color": "#FCE4D6", "font_color": "#9C0006", "bold": True})})
         if statement:
-            _value_rules(wb, ws, values)
+            light = [v for v in values if not _is_band(rows, v[0] + 1, name, s)]
+            band = [v for v in values if _is_band(rows, v[0] + 1, name, s)]
+            _value_rules(wb, ws, light)
+            _value_rules(wb, ws, band, band=True)
             _statement_page_setup(ws, analysis, s, height_points)
+            # With the menu's view available, the calculated sheet stays auditable behind it.
+            if name == "Carteira 4.966" and portfolio is not None and portfolio.periods:
+                ws.hide()
         else:
             ws.hide()
             ws.set_landscape()
             ws.fit_to_pages(1, 0)
     wb.close()
     return buffer.getvalue()
+
+
+def _is_band(rows, row, name, sheet):
+    ident = rows.get(row, (None,))[0]
+    return bool(ident) and row_tier(name, ident, sheet.cells[f"B{row}"].style) == "key"
 
 
 def _with_widths(sheet, widths):

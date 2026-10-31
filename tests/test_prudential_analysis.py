@@ -98,7 +98,7 @@ def test_xlsx_contains_live_formulas_snapshot_style_and_hidden_inputs(simple_sou
     assert all((wb[name].page_setup.scale or 100) >= 60 for name in wb.sheetnames[:4])
     assert not any(wb[name].sheet_properties.pageSetUpPr and wb[name].sheet_properties.pageSetUpPr.fitToPage for name in wb.sheetnames[:4])
     row=a.rows["Balanço"]["roe"]
-    assert wb["Balanço"][f"D{row}"].fill.fgColor.rgb=="FFF3F5F6"
+    assert wb["Balanço"][f"D{row}"].fill.fgColor.rgb=="FF2F3640"
     assert all("Validações" not in c.value for s in wb if s.title!="Validações" for row in s for c in row if c.data_type=="f")
 
 
@@ -138,35 +138,21 @@ def test_bundled_real_institutions_close_without_synthetic_child_double_count(co
     assert not any(x["status"]=="Divergência" for x in a.checks if "subcontas apresentadas" in x["check"])
 
 
-def test_native_pptx_paginates_every_row_and_period_without_images(simple_sources):
+def test_native_pptx_first_slide_has_both_statements_in_last_three_periods(simple_sources):
     import json
     from pptx import Presentation
-    from utils.prudential_pptx import render_pptx, MAX_ROWS
-    from utils.prudential_presentation import display_rows, format_cell
-    from utils.prudential_analysis import col_name
-    periods = ["202303", "202306", "202312", "202406", "202412", "202506", "202512", "202606"]
-    data = pd.concat([simple_sources.assign(DATA_BASE=p) for p in periods])
-    analysis = build_analysis(data, {}, "C1", periods)
+    from utils.prudential_pptx import render_pptx
+    periods = ["202312", "202406", "202412", "202506", "202512", "202606"]
+    analysis = build_analysis(pd.concat([simple_sources.assign(DATA_BASE=p) for p in periods]), {}, "C1", periods)
     deck = Presentation(BytesIO(render_pptx(analysis)))
-    seen = {}
+    first = deck.slides[0]
+    tables = [shape for shape in first.shapes if shape.has_table]
+    assert len(tables) == 2 and tables[0].left < tables[1].left
+    assert tables[0].top + tables[0].height <= deck.slide_height
+    assert json.loads(first.notes_slide.notes_text_frame.text)["periods"] == periods[-3:]
+    assert all(len(shape.table.columns) == 7 for shape in tables)
     for slide in deck.slides:
         assert not any(shape.shape_type == 13 for shape in slide.shapes)
-        table = next(shape.table for shape in slide.shapes if shape.has_table)
-        notes = json.loads(slide.notes_slide.notes_text_frame.text)
-        assert len(table.rows) <= MAX_ROWS + 1
-        name = notes["statement"]
-        assert slide.shapes[-1].top + slide.shapes[-1].height <= deck.slide_height
-        for n, period in enumerate(notes["periods"]):
-            key = (name, period)
-            seen.setdefault(key, []).extend(notes["rows"])
-            for r, ident in enumerate(notes["rows"], 1):
-                row = analysis.rows[name][ident]
-                column = col_name(3 + 2 * periods.index(period))
-                assert table.cell(r, 1 + n*2).text == format_cell(analysis.sheets[name].cells.get(f"{column}{row}"))
-    for name in ("Balanço", "DRE", "Carteira 4.966"):
-        expected = [ident for ident, _, _ in display_rows(analysis, name)]
-        for period in periods:
-            assert seen[name, period] == expected
 
 
 def test_committee_long_selection_uses_legible_pages_with_every_period(simple_sources):
@@ -288,7 +274,7 @@ def test_presentation_keeps_negative_small_zero_and_missing_distinct():
     from utils.prudential_analysis import Cell
     from utils.prudential_presentation import format_cell, value_tone
     money = "#,##0;[Red]-#,##0;0"
-    assert [format_cell(Cell(v, fmt=money)) for v in (0, 9.5e-13, -.3, .3, -1234.4, "N/D")] == ["0", "0", "-<1", "<1", "-1.234", "N/D"]
+    assert [format_cell(Cell(v, fmt=money)) for v in (0, 9.5e-13, -.3, .3, -1234.4, "N/D")] == ["0", "0", "-<1", "<1", "-1.234", "–"]
     assert [value_tone(Cell(v, fmt=money)) for v in (0, 9.5e-13, -.3, -5, 5, "N/D")] == ["zero", "zero", "negative", "negative", "", "missing"]
     assert format_cell(Cell(-.001, fmt="0%;[Red]-0%;0%")) == "0%"
     assert format_cell(Cell(.003, fmt="0.00%")) == "0,30%"
@@ -302,8 +288,7 @@ def test_committee_panels_end_together_and_long_selection_pages_keep_pairs(simpl
     analysis = build_analysis(pd.concat([simple_sources.assign(DATA_BASE=p) for p in periods]), {}, "C1", periods)
     workbook = load_workbook(BytesIO(render_xlsx(analysis)))
     committee = workbook["Comitê"]
-    last = lambda col: max(c.row for c in committee[col] if c.value is not None and c.row < committee.row_breaks.brk[0].id - 2)
-    assert last("B") == last("H")
+    assert committee["H7"].value == analysis.sheets["DRE"].cells["B7"].value
     balance = workbook["Balanço"]
     assert balance.print_title_cols == "$A:$B" and "$2:$6" in balance.print_title_rows
     assert [b.id for b in balance.col_breaks.brk] == [10]  # Four periods per page; 2 + 2*4 columns precede the break.
@@ -316,3 +301,43 @@ def test_slides_follow_accounting_groups_and_never_open_on_a_subaccount(simple_s
         for _, rows in paginate_rows(analysis, name):
             assert len(rows) <= MAX_ROWS
             assert analysis.sheets[name].cells[f"B{rows[0][1]}"].style not in {"indent", "detail"}
+
+
+def test_default_periods_are_last_four_closed_consecutive_quarters():
+    from datetime import date
+    from utils.prudential_presentation import default_periods
+    monthly = [f"{y}{m:02d}" for y in (2024, 2025, 2026) for m in range(1, 13) if f"{y}{m:02d}" <= "202607"]
+    assert default_periods(monthly, date(2026, 10, 31)) == ["202606", "202603", "202512", "202509"]
+    # Fechou hoje: conta. Ainda aberto: não conta, mesmo com o mês publicado.
+    assert default_periods(monthly, date(2026, 6, 30))[0] == "202606"
+    assert default_periods(monthly, date(2026, 6, 29))[0] == "202603"
+    # Lacuna da instituição não puxa trimestres fora da janela consecutiva.
+    assert default_periods(["202606", "202512", "202509"], date(2026, 10, 31)) == ["202606", "202512", "202509"]
+    assert default_periods(["202604", "202605"], date(2026, 10, 31)) == ["202605", "202604"]
+
+
+def test_workbook_prints_unavailable_as_dash_but_keeps_the_value(simple_sources):
+    a = build_analysis(simple_sources, {}, "C1", ["202606"])
+    wb = load_workbook(BytesIO(render_xlsx(a)), data_only=True)
+    ws = wb["Balanço"]
+    assert any(cell.value == "N/D" and cell.number_format.endswith(';"–"') for row in ws.iter_rows(min_row=7) for cell in row)
+
+
+def test_nim_uses_average_with_prior_semester_end_and_annualizes(simple_sources):
+    from utils.prudential_nim import add_nim_rows, credit_balances, prior_periods, prior_semester_end
+    assert [prior_semester_end(p) for p in ("202603", "202606", "202609", "202612")] == ["202512", "202512", "202606", "202606"]
+    periods = ["202512", "202606"]
+    assert prior_periods(periods) == ["202506"]
+    analysis = build_analysis(pd.concat([simple_sources.assign(DATA_BASE=p) for p in periods]), {}, "C1", periods)
+    gross_before = analysis.sheets["DRE"].cells[f"C{analysis.rows['DRE']['gross']}"].value
+    add_nim_rows(analysis, {"202506": 40.0})
+    sheet, rows = analysis.sheets["DRE"], analysis.rows["DRE"]
+    assert rows["nim_gross"] == rows["net"] + 1 and rows["nim_after_pdd"] == rows["net"] + 2
+    assert sheet.cells[f"C{rows['gross']}"].value == gross_before
+    credit = credit_balances(analysis)
+    gross = sheet.cells[f"E{rows['gross']}"].value
+    if credit.get("202606") and isinstance(gross, (int, float)) and credit["202606"] + credit["202512"] > 0:
+        expected = gross / ((credit["202606"] + credit["202512"]) / 2) * 2
+        assert sheet.cells[f"E{rows['nim_gross']}"].value == pytest.approx(expected)
+    wb = load_workbook(BytesIO(render_xlsx(analysis)))
+    assert "AVERAGE" in wb["DRE"][f"E{rows['nim_gross']}"].value

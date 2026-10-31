@@ -118,7 +118,7 @@ from utils.ui_help import (
     COMPARISON_HELP, COSIF_BASE_HELP, COSIF_CALCULATION_HELP, PAYMENT_FREQUENCY_HELP,
     PERIOD_HELP, RATE_HELP, get_help_text, render_module_help,
 )
-from utils.evolucao_visual import METRIC_LABELS, build_evolucao_chart, period_label, render_evolucao_table
+from utils.evolucao_visual import METRIC_LABELS, axis_scale, build_evolucao_chart, period_label, render_evolucao_table
 from utils.device_detection import detect_device_from_headers
 from utils.institution_search import search_institutions
 from tabs.carteira_4966 import (
@@ -15655,6 +15655,554 @@ with st.sidebar:
             args=("Atualizar Base",),
         )
 
+def _evolucao_enriquecer(df_ano, df_ev, instituicao):
+    """Core Funding, Carteira, ROE e capital da Evolução, usados pela aba e pelas exportações."""
+    evolucao_avisos = []
+    def _numeric_series(dataframe, coluna):
+        if coluna in dataframe.columns:
+            return pd.to_numeric(dataframe[coluna], errors="coerce")
+        return pd.Series(np.nan, index=dataframe.index, dtype="float64")
+
+    # Core Funding: Captações (e) + Instrumentos de Dívida Elegíveis a Capital (h) do Passivo (Rel. 3)
+    core_funding_series = None
+    core_funding_memoria_map = {}
+    core_funding_trace_map = {}
+    core_funding_fallback_reason = None
+    try:
+        periodos_evo = df_ano.get("Período", pd.Series(dtype="object")).dropna().unique().tolist()
+        # O Rel. 3 pode trazer [IF CodInst] no lugar do nome (Dez/25).
+        # Preserve a identidade da instituição selecionada antes do filtro do parquet.
+        codinsts_evo = tuple(sorted({
+            codigo for codigo in df_ev.get("CodInst", pd.Series(dtype="object")).map(normalize_institution_code)
+            if codigo
+        }))
+        cache_passivo = _carregar_passivo_evolucao_slice(
+            _cache_version_token("passivo"),
+            tuple(periodos_evo),
+            instituicao,
+            codinsts_evo,
+        )
+        cache_passivo = _aplicar_aliases_df(cache_passivo, st.session_state.get("dict_aliases", {}))
+
+        col_capt = _resolver_coluna_peers(
+            cache_passivo,
+            [
+                "Captações (e) = (a) + (b) + (c) + (d)",
+                "Captações (e)",
+                "Captações",
+                "Captacoes (e)",
+            ],
+        )
+        col_instr = _resolver_coluna_peers(
+            cache_passivo,
+            [
+                "Instrumentos de Dívida Elegíveis a Capital (h)",
+                "Instrumentos de Divida Elegiveis a Capital (h)",
+                "Instrumentos de Dívida Elegíveis a Capital",
+                "Instrumentos de Divida Elegiveis a Capital",
+            ],
+        )
+        if col_capt or col_instr:
+            core_map = {}
+            for periodo in periodos_evo:
+                df_cap_per = cache_passivo[
+                    (cache_passivo.get("Instituição", pd.Series(dtype="object")).astype(str) == str(instituicao))
+                    & (cache_passivo.get("Período", pd.Series(dtype="object")).astype(str) == str(periodo))
+                ].copy()
+                cap_val = pd.to_numeric(df_cap_per.get(col_capt), errors="coerce").sum(min_count=1) if col_capt else np.nan
+                ins_val = pd.to_numeric(df_cap_per.get(col_instr), errors="coerce").sum(min_count=1) if col_instr else np.nan
+                core_resolved = resolve_core_funding_value(
+                    year_ref=_periodo_ano_int(periodo),
+                    captacoes_value=cap_val,
+                    instrumentos_value=ins_val,
+                )
+                core_map[periodo] = core_resolved.get("value")
+                core_funding_memoria_map[periodo] = {"captacoes": cap_val, "instr_capital": ins_val}
+                core_funding_trace_map[str(periodo)] = {
+                    "status": core_resolved.get("source_kind"),
+                    "source": core_resolved.get("source_field"),
+                }
+            core_funding_series = df_ano.get("Período", pd.Series(index=df_ano.index)).map(core_map)
+        else:
+            core_funding_fallback_reason = "colunas estruturantes do Rel. 3 indisponíveis"
+    except Exception:
+        core_funding_series = None
+        core_funding_fallback_reason = "falha ao reconstruir Core Funding pelo Rel. 3"
+
+    if core_funding_series is None:
+        core_funding_series = _numeric_series(df_ano, "Captações")
+        core_funding_memoria_map = {}
+        if core_funding_fallback_reason is None:
+            core_funding_fallback_reason = "cache de passivo indisponível"
+        for _, row_ano in df_ano.iterrows():
+            periodo_ref = str(row_ano.get("Período") or "")
+            cap_value = _coerce_numeric_value(row_ano.get("Captações"))
+            core_funding_trace_map[periodo_ref] = {
+                "status": "fallback_capitacoes_view" if cap_value is not None else "missing",
+                "source": "Captações (base da aba Evolução)",
+                "note": (
+                    "A visualização caiu defensivamente para Captações porque a reconstrução completa pelo Rel. 3 não ficou disponível."
+                    if cap_value is not None
+                    else "Sem Captações disponíveis para sustentar o fallback desta visualização."
+                ),
+            }
+    df_ano["Core Funding"] = core_funding_series
+    if core_funding_fallback_reason:
+        evolucao_avisos.append(
+            "Core Funding* em fallback para Captações nesta visualização, "
+            f"porque a reconstrução pelo Rel. 3 não ficou disponível ({core_funding_fallback_reason})."
+        )
+    else:
+        periodos_core_missing_component = [
+            str(row_label)
+            for _, row_label in df_ano.loc[
+                df_ano["Período"].astype(str).map(lambda p: core_funding_trace_map.get(str(p), {}).get("status"))
+                == "missing_required_component",
+                "LabelPeriodo",
+            ].dropna().items()
+        ]
+        if periodos_core_missing_component:
+            evolucao_avisos.append(
+                "Core Funding* indisponível para "
+                + ", ".join(periodos_core_missing_component)
+                + " por ausência de um dos componentes obrigatórios do Rel. 3."
+            )
+        periodos_core_missing_source = [
+            str(row_label)
+            for _, row_label in df_ano.loc[
+                df_ano["Período"].astype(str).map(lambda p: core_funding_trace_map.get(str(p), {}).get("status"))
+                == "missing",
+                "LabelPeriodo",
+            ].dropna().items()
+        ]
+        if periodos_core_missing_source:
+            evolucao_avisos.append(
+                "Core Funding* indisponível para "
+                + ", ".join(periodos_core_missing_source)
+                + " por ausência de insumo suficiente no Rel. 3."
+            )
+
+    # Carteira de Crédito Bruta: preferir cálculo direto do Rel. 2 (Ativo)
+    carteira_bruta_series = None
+    carteira_memoria_map = {}
+    carteira_trace_map = {}
+    try:
+        periodos_evo = df_ano.get("Período", pd.Series(dtype="object")).dropna().unique().tolist()
+
+        def _periodo_tri_key(periodo_txt: str) -> Optional[str]:
+            parsed = _parse_periodo(periodo_txt)
+            if not parsed:
+                return None
+            parte, ano, _ = parsed
+            tri = _parte_periodo_para_trimestre_idx(parte)
+            if tri is None:
+                return None
+            return f"{tri}/{ano}"
+
+        periodos_evo_expand = []
+        for p in periodos_evo:
+            parsed = _parse_periodo(p)
+            if not parsed:
+                continue
+            parte, ano, _ = parsed
+            tri = _parte_periodo_para_trimestre_idx(parte)
+            if tri is None:
+                continue
+            periodos_evo_expand.append(f"{tri}/{ano}")
+            mes_map = {1: "03", 2: "06", 3: "09", 4: "12"}
+            mes = mes_map.get(tri)
+            if mes:
+                periodos_evo_expand.append(f"{mes}/{ano}")
+
+        cache_ativo = _carregar_cache_relatorio_slice(
+            "ativo",
+            _cache_version_token("ativo"),
+            tuple(sorted(set(periodos_evo_expand))) if periodos_evo_expand else tuple(periodos_evo),
+            (instituicao,),
+        )
+        cache_ativo = _aplicar_aliases_df(cache_ativo, st.session_state.get("dict_aliases", {}))
+        col_e1 = _resolver_coluna_peers(cache_ativo, ["Valor Contábil Bruto (e1)", "Valor Contabil Bruto (e1)"])
+        col_f1 = _resolver_coluna_peers(cache_ativo, ["Valor Contábil Bruto (f1)", "Valor Contabil Bruto (f1)"])
+        col_g1 = _resolver_coluna_peers(cache_ativo, ["Valor Contábil Bruto (g1)", "Valor Contabil Bruto (g1)"])
+        col_h1 = _resolver_coluna_peers(cache_ativo, ["Valor Contábil Bruto (h1)", "Valor Contabil Bruto (h1)"])
+        col_e = _resolver_coluna_peers(cache_ativo, ["Operações de Crédito (e)", "Operacoes de Credito (e)"])
+        col_f = _resolver_coluna_peers(cache_ativo, ["Operações de Arrendamento Financeiro (f)", "Operacoes de Arrendamento Financeiro (f)"])
+        col_g = _resolver_coluna_peers(
+            cache_ativo,
+            ["Outras Operações com Características de Concessão de Crédito (g)", "Outras Operacoes com Caracteristicas de Concessao de Credito (g)"],
+        )
+        col_h = _resolver_coluna_peers(
+            cache_ativo,
+            ["Valores a Receber de Transações de Pagamentos - Usuários Finais (Pós-pago) (h)",
+             "Valores a Receber de Transacoes de Pagamentos - Usuarios Finais (Pos-pago) (h)"],
+        )
+        col_d1 = _resolver_coluna_peers(cache_ativo, ["Operações de Crédito (d1)", "Operacoes de Credito (d1)"])
+        col_e1_alt = _resolver_coluna_peers(cache_ativo, ["Arrendamento Mercantil a Receber (e1)", "Arrendamento Mercantil a Receber"])
+        col_f_outros = _resolver_coluna_peers(
+            cache_ativo,
+            ["Outros Créditos - Líquido de Provisão (f)", "Outros Creditos - Liquido de Provisao (f)", "Outros Créditos - Líquido de Provisão"],
+        )
+        if col_e1 or col_f1 or col_g1 or col_h1:
+            cache_ativo = cache_ativo.copy()
+            cache_ativo["_tri_key"] = cache_ativo.get("Período", pd.Series(dtype="object")).astype(str).map(_periodo_tri_key)
+            anos = cache_ativo.get("Período", pd.Series(dtype="object")).astype(str).map(_periodo_ano_int)
+            for col_name in [col_d1, col_e1_alt, col_f_outros, col_e1, col_f1, col_g1, col_h1, col_e, col_f, col_g, col_h]:
+                if col_name:
+                    cache_ativo[col_name] = pd.to_numeric(cache_ativo.get(col_name), errors="coerce")
+            cache_ativo["_carteira_bruta"] = [
+                resolve_carteira_credito_bruta_value(
+                    year_ref=int(ano_ref) if pd.notna(ano_ref) else None,
+                    legacy_credito_value=row.get(col_d1) if col_d1 else None,
+                    legacy_arrendamento_value=row.get(col_e1_alt) if col_e1_alt else None,
+                    legacy_outros_value=row.get(col_f_outros) if col_f_outros else None,
+                    vcb_credito_value=row.get(col_e1) if col_e1 else None,
+                    vcb_arrendamento_value=row.get(col_f1) if col_f1 else None,
+                    vcb_outras_ops_value=row.get(col_g1) if col_g1 else None,
+                    vcb_pagamentos_value=row.get(col_h1) if col_h1 else None,
+                    net_credito_value=row.get(col_e) if col_e else None,
+                    net_arrendamento_value=row.get(col_f) if col_f else None,
+                    net_outras_ops_value=row.get(col_g) if col_g else None,
+                    net_pagamentos_value=row.get(col_h) if col_h else None,
+                ).get("value")
+                for ano_ref, (_, row) in zip(anos, cache_ativo.iterrows())
+            ]
+            cache_ativo["_carteira_status"] = [
+                str(
+                    resolve_carteira_credito_bruta_value(
+                        year_ref=int(ano_ref) if pd.notna(ano_ref) else None,
+                        legacy_credito_value=row.get(col_d1) if col_d1 else None,
+                        legacy_arrendamento_value=row.get(col_e1_alt) if col_e1_alt else None,
+                        legacy_outros_value=row.get(col_f_outros) if col_f_outros else None,
+                        vcb_credito_value=row.get(col_e1) if col_e1 else None,
+                        vcb_arrendamento_value=row.get(col_f1) if col_f1 else None,
+                        vcb_outras_ops_value=row.get(col_g1) if col_g1 else None,
+                        vcb_pagamentos_value=row.get(col_h1) if col_h1 else None,
+                        net_credito_value=row.get(col_e) if col_e else None,
+                        net_arrendamento_value=row.get(col_f) if col_f else None,
+                        net_outras_ops_value=row.get(col_g) if col_g else None,
+                        net_pagamentos_value=row.get(col_h) if col_h else None,
+                    ).get("source_kind")
+                    or ""
+                )
+                for ano_ref, (_, row) in zip(anos, cache_ativo.iterrows())
+            ]
+            cache_ativo["_carteira_source"] = [
+                str(
+                    resolve_carteira_credito_bruta_value(
+                        year_ref=int(ano_ref) if pd.notna(ano_ref) else None,
+                        legacy_credito_value=row.get(col_d1) if col_d1 else None,
+                        legacy_arrendamento_value=row.get(col_e1_alt) if col_e1_alt else None,
+                        legacy_outros_value=row.get(col_f_outros) if col_f_outros else None,
+                        vcb_credito_value=row.get(col_e1) if col_e1 else None,
+                        vcb_arrendamento_value=row.get(col_f1) if col_f1 else None,
+                        vcb_outras_ops_value=row.get(col_g1) if col_g1 else None,
+                        vcb_pagamentos_value=row.get(col_h1) if col_h1 else None,
+                        net_credito_value=row.get(col_e) if col_e else None,
+                        net_arrendamento_value=row.get(col_f) if col_f else None,
+                        net_outras_ops_value=row.get(col_g) if col_g else None,
+                        net_pagamentos_value=row.get(col_h) if col_h else None,
+                    ).get("source_field")
+                    or ""
+                )
+                for ano_ref, (_, row) in zip(anos, cache_ativo.iterrows())
+            ]
+            bruta_map = (
+                cache_ativo.groupby("_tri_key", dropna=True)["_carteira_bruta"]
+                .sum(min_count=1)
+                .to_dict()
+            )
+            comp_cols = [c for c in [col_d1, col_e1_alt, col_f_outros, col_e1, col_f1, col_g1, col_h1] if c]
+            if comp_cols:
+                cache_ativo["_d1"] = pd.to_numeric(cache_ativo.get(col_d1), errors="coerce") if col_d1 else np.nan
+                cache_ativo["_e1_alt"] = pd.to_numeric(cache_ativo.get(col_e1_alt), errors="coerce") if col_e1_alt else np.nan
+                cache_ativo["_f_outros"] = pd.to_numeric(cache_ativo.get(col_f_outros), errors="coerce") if col_f_outros else np.nan
+                cache_ativo["_e1"] = pd.to_numeric(cache_ativo.get(col_e1), errors="coerce") if col_e1 else np.nan
+                cache_ativo["_f1"] = pd.to_numeric(cache_ativo.get(col_f1), errors="coerce") if col_f1 else np.nan
+                cache_ativo["_g1"] = pd.to_numeric(cache_ativo.get(col_g1), errors="coerce") if col_g1 else np.nan
+                cache_ativo["_h1"] = pd.to_numeric(cache_ativo.get(col_h1), errors="coerce") if col_h1 else np.nan
+                cache_ativo["_net_e"] = pd.to_numeric(cache_ativo.get(col_e), errors="coerce") if col_e else np.nan
+                cache_ativo["_net_f"] = pd.to_numeric(cache_ativo.get(col_f), errors="coerce") if col_f else np.nan
+                cache_ativo["_net_g"] = pd.to_numeric(cache_ativo.get(col_g), errors="coerce") if col_g else np.nan
+                cache_ativo["_net_h"] = pd.to_numeric(cache_ativo.get(col_h), errors="coerce") if col_h else np.nan
+
+                def _agg_nonempty_text(series: pd.Series) -> str:
+                    for value in series.tolist():
+                        texto = str(value or "").strip()
+                        if texto:
+                            return texto
+                    return ""
+
+                comp_df = cache_ativo.groupby("_tri_key", dropna=True).agg(
+                    d1=("_d1", "sum"),
+                    e1_alt=("_e1_alt", "sum"),
+                    f_outros=("_f_outros", "sum"),
+                    e1=("_e1", "sum"),
+                    f1=("_f1", "sum"),
+                    g1=("_g1", "sum"),
+                    h1=("_h1", "sum"),
+                    net_e=("_net_e", "sum"),
+                    net_f=("_net_f", "sum"),
+                    net_g=("_net_g", "sum"),
+                    net_h=("_net_h", "sum"),
+                    status=("_carteira_status", _agg_nonempty_text),
+                    source=("_carteira_source", _agg_nonempty_text),
+                ).reset_index()
+                carteira_memoria_map = {
+                    str(r["_tri_key"]): {
+                        "d1": r["d1"], "e1_alt": r["e1_alt"], "f_outros": r["f_outros"],
+                        "e1": r["e1"], "f1": r["f1"], "g1": r["g1"], "h1": r["h1"],
+                        "net_e": r["net_e"], "net_f": r["net_f"], "net_g": r["net_g"], "net_h": r["net_h"],
+                        "status": r["status"], "source": r["source"],
+                    }
+                    for _, r in comp_df.iterrows()
+                }
+                carteira_trace_map = {
+                    str(r["_tri_key"]): {
+                        "status": r["status"],
+                        "source": r["source"],
+                        "note": (
+                            "Sem componentes brutos completos para a regra canônica do período; valor caiu explicitamente para a soma líquida e+f+g+h."
+                            if str(r["status"] or "").strip() == "fallback_net_components"
+                            else (
+                                "Um ou mais componentes obrigatórios da carteira bruta ficaram ausentes no Rel. 2 para o período."
+                                if str(r["status"] or "").strip() == "missing_required_component"
+                                else ""
+                            )
+                        ),
+                    }
+                    for _, r in comp_df.iterrows()
+                }
+            carteira_bruta_series = df_ano.get("Período", pd.Series(index=df_ano.index)).astype(str).map(_periodo_tri_key).map(bruta_map)
+    except Exception:
+        carteira_bruta_series = None
+
+    carteira_credito_base = _numeric_series(df_ano, _prefer_carteira_bruta(list(df_ano.columns)))
+    if carteira_bruta_series is not None:
+        df_ano["Carteira de Crédito Bruta"] = carteira_bruta_series.combine_first(carteira_credito_base)
+    else:
+        df_ano["Carteira de Crédito Bruta"] = carteira_credito_base
+    # ROE na Evolução: usar exatamente o mesmo valor já calculado para Peers (coluna canônica).
+    col_roe = "ROE Ac. Anualizado (%)" if "ROE Ac. Anualizado (%)" in df_ano.columns else (
+        "ROE Ac. YTD an. (%)" if "ROE Ac. YTD an. (%)" in df_ano.columns else None
+    )
+    if col_roe:
+        df_ano["ROE Ac. Anualizado (%)"] = pd.to_numeric(df_ano[col_roe], errors="coerce")
+    else:
+        # Fallback defensivo: recalcula com o mesmo critério da Peers se a coluna não existir.
+        roe_peers_inst = _calcular_roe_alinhado_peers_para_instituicao(df_ev, instituicao)
+        if not roe_peers_inst.empty:
+            df_ano = df_ano.merge(
+                roe_peers_inst.rename(columns={"ROE Ac. Anualizado (%)": "_roe_peers"}),
+                on=["Ano", "Tri"],
+                how="left",
+            )
+            df_ano["ROE Ac. Anualizado (%)"] = pd.to_numeric(df_ano["_roe_peers"], errors="coerce")
+            df_ano = df_ano.drop(columns=["_roe_peers"], errors="ignore")
+        else:
+            df_ano["ROE Ac. Anualizado (%)"] = np.nan
+    df_ano["Carteira de Crédito Bruta / PL"] = np.where(
+        pd.to_numeric(df_ano.get("Patrimônio Líquido"), errors="coerce") != 0,
+        pd.to_numeric(df_ano["Carteira de Crédito Bruta"], errors="coerce") / pd.to_numeric(df_ano.get("Patrimônio Líquido"), errors="coerce"),
+        np.nan,
+    )
+    periodos_capital_evolucao = tuple(
+        df_ano.get("Período", pd.Series(dtype="object")).dropna().astype(str).unique().tolist()
+    )
+    df_capital_idx = _construir_indices_capital_instituicao_slice(
+        _cache_version_token("capital"),
+        _alias_signature_cache_key(),
+        periodos_capital_evolucao,
+        instituicao,
+    )
+    if not df_capital_idx.empty:
+        # Merge por chave temporal robusta (Ano/Tri) para cobrir variações de formato de Período
+        # entre bases (ex.: "12/2021" vs "4/2021").
+        df_capital_idx = df_capital_idx.copy()
+        chave_cap = df_capital_idx["Período"].astype(str).apply(_parse_periodo)
+        df_capital_idx["Ano"] = chave_cap.apply(lambda x: x[1] if x else np.nan)
+        df_capital_idx["Tri"] = chave_cap.apply(lambda x: _parte_periodo_para_trimestre_idx(x[0]) if x else np.nan)
+        df_ano = df_ano.merge(
+            df_capital_idx,
+            on=["Período", "Instituição", "Ano", "Tri"],
+            how="left",
+            suffixes=("", "_capital_idx"),
+        )
+        for col_cap in [
+            "Índice de Capital Principal (CET1)",
+            "Índice de Capital T1 (%)",
+            "Índice de Basileia Total (%)",
+        ]:
+            col_cap_idx = f"{col_cap}_capital_idx"
+            if col_cap_idx in df_ano.columns:
+                if col_cap in df_ano.columns:
+                    df_ano[col_cap] = pd.to_numeric(df_ano[col_cap], errors="coerce").combine_first(
+                        pd.to_numeric(df_ano[col_cap_idx], errors="coerce")
+                    )
+                else:
+                    df_ano[col_cap] = pd.to_numeric(df_ano[col_cap_idx], errors="coerce")
+    else:
+        df_ano["Índice de Capital Principal (CET1)"] = np.nan
+        df_ano["Índice de Capital T1 (%)"] = np.nan
+        df_ano["Índice de Basileia Total (%)"] = np.nan
+    return df_ano, core_funding_trace_map, core_funding_memoria_map, carteira_trace_map, carteira_memoria_map, evolucao_avisos
+
+
+def _evolucao_tabela(df_ano):
+    """Séries do gráfico e indicadores da tabela, formatados como na aba."""
+    graf_cols = {
+        "Lucro Líquido": "Lucro Líquido Acumulado YTD",
+        "Patrimônio Líquido": "Patrimônio Líquido",
+        "Carteira de Crédito*": "Carteira de Crédito Bruta",
+        "Core Funding*": "Core Funding",
+    }
+    df_graph = pd.DataFrame({"Ano": df_ano["Ano"]})
+    for k, c in graf_cols.items():
+        df_graph[k] = pd.to_numeric(df_ano.get(c), errors="coerce")
+    df_metric = pd.DataFrame({
+        "Métrica": [
+            "ROE Ac. Anualizado (%)",
+            "Carteira de Crédito* / PL",
+            "Índice de Capital Principal (CET1)",
+            "Índice de Capital T1 (%)",
+            "Índice de Basileia Total (%)",
+        ]
+    })
+    for _, row in df_ano.iterrows():
+        periodo_label = row.get("LabelPeriodo", str(int(row["Ano"])))
+        df_metric[periodo_label] = [
+            row.get("ROE Ac. Anualizado (%)"),
+            row.get("Carteira de Crédito Bruta / PL"),
+            row.get("Índice de Capital Principal (CET1)"),
+            row.get("Índice de Capital T1 (%)"),
+            row.get("Índice de Basileia Total (%)"),
+        ]
+
+    def _fmt_valor_br(v):
+        if pd.isna(v):
+            return "-"
+        try:
+            return f"{float(v):,.0f}".replace(",", ".")
+        except Exception:
+            return "-"
+
+    def _fmt_pct(v):
+        if pd.isna(v):
+            return "-"
+        try:
+            v_num = float(v)
+            v_pct = v_num * 100
+            return f"{v_pct:.1f}%".replace(".", ",")
+        except Exception:
+            return "-"
+
+    def _fmt_evol(v, m):
+        if pd.isna(v):
+            return "-"
+        if m in ("ROE Ac. Anualizado (%)", "Índice de Basileia Total (%)", "Índice de Capital Principal (CET1)", "Índice de Capital T1 (%)"):
+            return _fmt_pct(v)
+        if m == "Carteira de Crédito* / PL":
+            return f"{float(v):.1f}x".replace(".", ",")
+        return _fmt_valor_br(v)
+
+    df_show = df_metric.copy()
+    for c in df_show.columns[1:]:
+        df_show[c] = [_fmt_evol(v, m) for v, m in zip(df_metric[c], df_metric["Métrica"])]
+    return df_graph, df_metric, df_show
+
+
+def _instituicao_principal_por_codigo(codigo):
+    """Nome da instituição na base principal a partir do código do conglomerado."""
+    alvo = normalize_institution_code(codigo)
+    dados = _carregar_dados_periodos_preparados(_cache_version_token("principal"), _alias_signature_cache_key())
+    for periodo in sorted(dados or {}, key=lambda p: (_parse_periodo(str(p)) or (0, 0, 0))[1], reverse=True):
+        df_periodo = dados[periodo]
+        if df_periodo is None or df_periodo.empty or "CodInst" not in df_periodo.columns:
+            continue
+        linhas = df_periodo[df_periodo["CodInst"].map(normalize_institution_code) == alvo]
+        if not linhas.empty:
+            return str(linhas["Instituição"].iloc[0])
+    return None
+
+
+def _evolucao_payload_exportacao(codigo):
+    """Janela padrão da aba Evolução para uma instituição, ou None sem dados."""
+    if not st.session_state.get("dados_capital"):
+        carregar_dados_capital()
+    instituicao = _instituicao_principal_por_codigo(codigo)
+    if not instituicao:
+        return None
+    principal_token, alias_sig = _cache_version_token("principal"), _alias_signature_cache_key()
+    contexto = _get_evolucao_filters_context(principal_token, alias_sig)
+    validos = pd.DataFrame(list(contexto.get("periodos_validos", ())), columns=["Período", "Ano", "Tri"]).drop_duplicates().sort_values(["Ano", "Tri"])
+    dezembros = validos[validos["Tri"] == 4]
+    if dezembros.empty:
+        return None
+    inicio = dezembros.iloc[max(0, len(dezembros) - 5)]
+    final = validos.iloc[-1]
+    janela = list(dict.fromkeys([(ano, 4) for ano in range(int(inicio["Ano"]), int(final["Ano"]))] + [(int(final["Ano"]), int(final["Tri"]))]))
+    periodos = validos[validos[["Ano", "Tri"]].apply(tuple, axis=1).isin(janela)]["Período"].astype(str).tolist()
+    df_ev = _get_evolucao_instituicao_base_df(principal_token, alias_sig, instituicao, tuple(_expandir_periodos_evolucao_calculo(periodos)))
+    if df_ev is None or df_ev.empty:
+        return None
+    df_ev = df_ev.copy()
+    parsed = df_ev["Período"].astype(str).apply(_parse_periodo)
+    df_ev["Ano"] = parsed.apply(lambda x: x[1] if x else None)
+    df_ev["Tri"] = parsed.apply(lambda x: _parte_periodo_para_trimestre_idx(x[0]) if x else None)
+    df_ev = df_ev.dropna(subset=["Ano", "Tri"]).copy()
+    df_ev["Ano"], df_ev["Tri"] = df_ev["Ano"].astype(int), df_ev["Tri"].astype(int)
+    df_inst = df_ev[(df_ev["Instituição"] == instituicao) & (df_ev[["Ano", "Tri"]].apply(tuple, axis=1).isin(janela))]
+    if df_inst.empty:
+        return None
+    df_ano = df_inst.loc[df_inst.groupby(["Ano", "Tri"], observed=False).tail(1).index].sort_values(["Ano", "Tri"]).copy()
+    meses = {1: "mar", 2: "jun", 3: "set", 4: "dez"}
+    df_ano["LabelPeriodo"] = df_ano.apply(lambda r: f"{meses[int(r['Tri'])]}-{str(int(r['Ano']))[-2:]}", axis=1)
+    df_ano, core_trace, _, carteira_trace, _, _ = _evolucao_enriquecer(df_ano, df_ev, instituicao)
+    df_graph, _, df_show = _evolucao_tabela(df_ano)
+    periodos_cols = list(df_show.columns[1:])
+    df_visual, _, _ = _decorate_evolucao_visual_table(
+        df_show, periodos_cols, instituicao=instituicao, df_ano=df_ano,
+        core_funding_trace_map=core_trace, carteira_trace_map=carteira_trace,
+    )
+    return {
+        "df_graph": df_graph, "df_show": df_visual, "periods": periodos_cols, "institution": instituicao,
+        "queried_at": datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%d/%m/%Y %H:%M %Z"),
+        "status_rows": _build_evolucao_export_status_rows(
+            instituicao=instituicao, df_ano=df_ano, core_funding_trace_map=core_trace, carteira_trace_map=carteira_trace,
+        ),
+    }
+
+
+def _modelo_4966_por_codigo(codigo, periodos_aaaamm):
+    """Modelo do menu Carteira 4.966 para os fins de trimestre da seleção."""
+    from utils.prudential_presentation import period_key_to_quarter
+    manifesto = _carregar_manifest_release_cache(_CARTEIRA_4966_RELEASE_MANIFEST_URL, _EXPECTED_CACHE_RELEASE_TAG)
+    token = _carteira_4966_release_token(manifesto)
+    payload = json.dumps(manifesto, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+    df_carteira, _ = load_carteira_4966_data(token, payload)
+    if df_carteira is None or df_carteira.empty or "CodInst" not in df_carteira.columns:
+        return None
+    alvo = normalize_institution_code(codigo)
+    df_inst = df_carteira[df_carteira["CodInst"].map(normalize_institution_code) == alvo].copy()
+    if df_inst.empty:
+        return None
+    coluna = "Período" if "Período" in df_inst.columns else "Periodo"
+    disponiveis = set(df_inst[coluna].astype(str))
+    selecionados = ordenar_periodos([q for q in map(period_key_to_quarter, periodos_aaaamm) if q in disponiveis], reverso=False)
+    if not selecionados:
+        return None
+    df_ativo_inst = pd.DataFrame()
+    df_ativo, status = load_carteira_4966_ativo_periods(token, payload, carteira_4966_source_periods(selecionados))
+    if status.get("valid") and df_ativo is not None and not df_ativo.empty:
+        df_ativo = canonicalize_institution_history(df_ativo, base_dir=APP_DIR)
+        # Como no menu: períodos históricos sem CodInst só se associam pelo nome.
+        nomes = set(df_inst["Instituição"].dropna().astype(str).str.strip())
+        mascara = df_ativo["Instituição"].astype(str).str.strip().isin(nomes)
+        if "CodInst" in df_ativo.columns:
+            mascara |= df_ativo["CodInst"].map(normalize_institution_code) == alvo
+        df_ativo_inst = df_ativo[mascara].copy()
+    return build_carteira_4966_model(df_inst, df_ativo_inst, selecionados)
+
+
 DRE_VISUALIZACOES = ["Balanço, DRE e Carteira (Congl.)", "DRE Gerencial", "Conglomerado Prudencial", "DRE Individual"]
 _DRE_VIEW_LABELS = {
     "Balanço, DRE e Carteira (Congl.)": "Análise · Prudencial",
@@ -15672,6 +16220,12 @@ if menu == "DRE (Ind. e Congl.)":
         st.markdown(
             """<style>
 .st-key-tc_fin_views [data-testid="stElementContainer"]:has(style) { display:none; }
+.st-key-tc_fin_export button p { white-space:nowrap; }
+@media(min-width:641px) {
+  [data-testid="stHorizontalBlock"]:has(> [data-testid="stColumn"] .st-key-tc_fin_export) { flex-wrap:nowrap; }
+  [data-testid="stHorizontalBlock"]:has(> [data-testid="stColumn"] .st-key-tc_fin_export) > [data-testid="stColumn"] { min-width:0; }
+  [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:has(.st-key-tc_fin_export) { flex:0 0 7.5rem; min-width:7.5rem; }
+}
 .st-key-tc_fin_views [data-baseweb="button-group"] { flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; }
 .st-key-tc_fin_views button { flex:0 0 auto; min-height:1.85rem; padding:.1rem .8rem; background:transparent; color:#626970; border-color:#E8EAED; }
 .st-key-tc_fin_views button p { font-size:.82rem; white-space:nowrap; }
@@ -16046,387 +16600,11 @@ elif menu == "Evolução":
                 return pd.to_numeric(dataframe[coluna], errors="coerce")
             return pd.Series(np.nan, index=dataframe.index, dtype="float64")
 
-        # Core Funding: Captações (e) + Instrumentos de Dívida Elegíveis a Capital (h) do Passivo (Rel. 3)
-        core_funding_series = None
-        core_funding_memoria_map = {}
-        core_funding_trace_map = {}
-        core_funding_fallback_reason = None
-        try:
-            periodos_evo = df_ano.get("Período", pd.Series(dtype="object")).dropna().unique().tolist()
-            # O Rel. 3 pode trazer [IF CodInst] no lugar do nome (Dez/25).
-            # Preserve a identidade da instituição selecionada antes do filtro do parquet.
-            codinsts_evo = tuple(sorted({
-                codigo for codigo in df_ev.get("CodInst", pd.Series(dtype="object")).map(normalize_institution_code)
-                if codigo
-            }))
-            cache_passivo = _carregar_passivo_evolucao_slice(
-                _cache_version_token("passivo"),
-                tuple(periodos_evo),
-                instituicao,
-                codinsts_evo,
-            )
-            cache_passivo = _aplicar_aliases_df(cache_passivo, st.session_state.get("dict_aliases", {}))
-
-            col_capt = _resolver_coluna_peers(
-                cache_passivo,
-                [
-                    "Captações (e) = (a) + (b) + (c) + (d)",
-                    "Captações (e)",
-                    "Captações",
-                    "Captacoes (e)",
-                ],
-            )
-            col_instr = _resolver_coluna_peers(
-                cache_passivo,
-                [
-                    "Instrumentos de Dívida Elegíveis a Capital (h)",
-                    "Instrumentos de Divida Elegiveis a Capital (h)",
-                    "Instrumentos de Dívida Elegíveis a Capital",
-                    "Instrumentos de Divida Elegiveis a Capital",
-                ],
-            )
-            if col_capt or col_instr:
-                core_map = {}
-                for periodo in periodos_evo:
-                    df_cap_per = cache_passivo[
-                        (cache_passivo.get("Instituição", pd.Series(dtype="object")).astype(str) == str(instituicao))
-                        & (cache_passivo.get("Período", pd.Series(dtype="object")).astype(str) == str(periodo))
-                    ].copy()
-                    cap_val = pd.to_numeric(df_cap_per.get(col_capt), errors="coerce").sum(min_count=1) if col_capt else np.nan
-                    ins_val = pd.to_numeric(df_cap_per.get(col_instr), errors="coerce").sum(min_count=1) if col_instr else np.nan
-                    core_resolved = resolve_core_funding_value(
-                        year_ref=_periodo_ano_int(periodo),
-                        captacoes_value=cap_val,
-                        instrumentos_value=ins_val,
-                    )
-                    core_map[periodo] = core_resolved.get("value")
-                    core_funding_memoria_map[periodo] = {"captacoes": cap_val, "instr_capital": ins_val}
-                    core_funding_trace_map[str(periodo)] = {
-                        "status": core_resolved.get("source_kind"),
-                        "source": core_resolved.get("source_field"),
-                    }
-                core_funding_series = df_ano.get("Período", pd.Series(index=df_ano.index)).map(core_map)
-            else:
-                core_funding_fallback_reason = "colunas estruturantes do Rel. 3 indisponíveis"
-        except Exception:
-            core_funding_series = None
-            core_funding_fallback_reason = "falha ao reconstruir Core Funding pelo Rel. 3"
-
-        if core_funding_series is None:
-            core_funding_series = _numeric_series(df_ano, "Captações")
-            core_funding_memoria_map = {}
-            if core_funding_fallback_reason is None:
-                core_funding_fallback_reason = "cache de passivo indisponível"
-            for _, row_ano in df_ano.iterrows():
-                periodo_ref = str(row_ano.get("Período") or "")
-                cap_value = _coerce_numeric_value(row_ano.get("Captações"))
-                core_funding_trace_map[periodo_ref] = {
-                    "status": "fallback_capitacoes_view" if cap_value is not None else "missing",
-                    "source": "Captações (base da aba Evolução)",
-                    "note": (
-                        "A visualização caiu defensivamente para Captações porque a reconstrução completa pelo Rel. 3 não ficou disponível."
-                        if cap_value is not None
-                        else "Sem Captações disponíveis para sustentar o fallback desta visualização."
-                    ),
-                }
-        df_ano["Core Funding"] = core_funding_series
-        if core_funding_fallback_reason:
-            st.caption(
-                "Core Funding* em fallback para Captações nesta visualização, "
-                f"porque a reconstrução pelo Rel. 3 não ficou disponível ({core_funding_fallback_reason})."
-            )
-        else:
-            periodos_core_missing_component = [
-                str(row_label)
-                for _, row_label in df_ano.loc[
-                    df_ano["Período"].astype(str).map(lambda p: core_funding_trace_map.get(str(p), {}).get("status"))
-                    == "missing_required_component",
-                    "LabelPeriodo",
-                ].dropna().items()
-            ]
-            if periodos_core_missing_component:
-                st.caption(
-                    "Core Funding* indisponível para "
-                    + ", ".join(periodos_core_missing_component)
-                    + " por ausência de um dos componentes obrigatórios do Rel. 3."
-                )
-            periodos_core_missing_source = [
-                str(row_label)
-                for _, row_label in df_ano.loc[
-                    df_ano["Período"].astype(str).map(lambda p: core_funding_trace_map.get(str(p), {}).get("status"))
-                    == "missing",
-                    "LabelPeriodo",
-                ].dropna().items()
-            ]
-            if periodos_core_missing_source:
-                st.caption(
-                    "Core Funding* indisponível para "
-                    + ", ".join(periodos_core_missing_source)
-                    + " por ausência de insumo suficiente no Rel. 3."
-                )
-
-        # Carteira de Crédito Bruta: preferir cálculo direto do Rel. 2 (Ativo)
-        carteira_bruta_series = None
-        carteira_memoria_map = {}
-        carteira_trace_map = {}
-        try:
-            periodos_evo = df_ano.get("Período", pd.Series(dtype="object")).dropna().unique().tolist()
-
-            def _periodo_tri_key(periodo_txt: str) -> Optional[str]:
-                parsed = _parse_periodo(periodo_txt)
-                if not parsed:
-                    return None
-                parte, ano, _ = parsed
-                tri = _parte_periodo_para_trimestre_idx(parte)
-                if tri is None:
-                    return None
-                return f"{tri}/{ano}"
-
-            periodos_evo_expand = []
-            for p in periodos_evo:
-                parsed = _parse_periodo(p)
-                if not parsed:
-                    continue
-                parte, ano, _ = parsed
-                tri = _parte_periodo_para_trimestre_idx(parte)
-                if tri is None:
-                    continue
-                periodos_evo_expand.append(f"{tri}/{ano}")
-                mes_map = {1: "03", 2: "06", 3: "09", 4: "12"}
-                mes = mes_map.get(tri)
-                if mes:
-                    periodos_evo_expand.append(f"{mes}/{ano}")
-
-            cache_ativo = _carregar_cache_relatorio_slice(
-                "ativo",
-                _cache_version_token("ativo"),
-                tuple(sorted(set(periodos_evo_expand))) if periodos_evo_expand else tuple(periodos_evo),
-                (instituicao,),
-            )
-            cache_ativo = _aplicar_aliases_df(cache_ativo, st.session_state.get("dict_aliases", {}))
-            col_e1 = _resolver_coluna_peers(cache_ativo, ["Valor Contábil Bruto (e1)", "Valor Contabil Bruto (e1)"])
-            col_f1 = _resolver_coluna_peers(cache_ativo, ["Valor Contábil Bruto (f1)", "Valor Contabil Bruto (f1)"])
-            col_g1 = _resolver_coluna_peers(cache_ativo, ["Valor Contábil Bruto (g1)", "Valor Contabil Bruto (g1)"])
-            col_h1 = _resolver_coluna_peers(cache_ativo, ["Valor Contábil Bruto (h1)", "Valor Contabil Bruto (h1)"])
-            col_e = _resolver_coluna_peers(cache_ativo, ["Operações de Crédito (e)", "Operacoes de Credito (e)"])
-            col_f = _resolver_coluna_peers(cache_ativo, ["Operações de Arrendamento Financeiro (f)", "Operacoes de Arrendamento Financeiro (f)"])
-            col_g = _resolver_coluna_peers(
-                cache_ativo,
-                ["Outras Operações com Características de Concessão de Crédito (g)", "Outras Operacoes com Caracteristicas de Concessao de Credito (g)"],
-            )
-            col_h = _resolver_coluna_peers(
-                cache_ativo,
-                ["Valores a Receber de Transações de Pagamentos - Usuários Finais (Pós-pago) (h)",
-                 "Valores a Receber de Transacoes de Pagamentos - Usuarios Finais (Pos-pago) (h)"],
-            )
-            col_d1 = _resolver_coluna_peers(cache_ativo, ["Operações de Crédito (d1)", "Operacoes de Credito (d1)"])
-            col_e1_alt = _resolver_coluna_peers(cache_ativo, ["Arrendamento Mercantil a Receber (e1)", "Arrendamento Mercantil a Receber"])
-            col_f_outros = _resolver_coluna_peers(
-                cache_ativo,
-                ["Outros Créditos - Líquido de Provisão (f)", "Outros Creditos - Liquido de Provisao (f)", "Outros Créditos - Líquido de Provisão"],
-            )
-            if col_e1 or col_f1 or col_g1 or col_h1:
-                cache_ativo = cache_ativo.copy()
-                cache_ativo["_tri_key"] = cache_ativo.get("Período", pd.Series(dtype="object")).astype(str).map(_periodo_tri_key)
-                anos = cache_ativo.get("Período", pd.Series(dtype="object")).astype(str).map(_periodo_ano_int)
-                for col_name in [col_d1, col_e1_alt, col_f_outros, col_e1, col_f1, col_g1, col_h1, col_e, col_f, col_g, col_h]:
-                    if col_name:
-                        cache_ativo[col_name] = pd.to_numeric(cache_ativo.get(col_name), errors="coerce")
-                cache_ativo["_carteira_bruta"] = [
-                    resolve_carteira_credito_bruta_value(
-                        year_ref=int(ano_ref) if pd.notna(ano_ref) else None,
-                        legacy_credito_value=row.get(col_d1) if col_d1 else None,
-                        legacy_arrendamento_value=row.get(col_e1_alt) if col_e1_alt else None,
-                        legacy_outros_value=row.get(col_f_outros) if col_f_outros else None,
-                        vcb_credito_value=row.get(col_e1) if col_e1 else None,
-                        vcb_arrendamento_value=row.get(col_f1) if col_f1 else None,
-                        vcb_outras_ops_value=row.get(col_g1) if col_g1 else None,
-                        vcb_pagamentos_value=row.get(col_h1) if col_h1 else None,
-                        net_credito_value=row.get(col_e) if col_e else None,
-                        net_arrendamento_value=row.get(col_f) if col_f else None,
-                        net_outras_ops_value=row.get(col_g) if col_g else None,
-                        net_pagamentos_value=row.get(col_h) if col_h else None,
-                    ).get("value")
-                    for ano_ref, (_, row) in zip(anos, cache_ativo.iterrows())
-                ]
-                cache_ativo["_carteira_status"] = [
-                    str(
-                        resolve_carteira_credito_bruta_value(
-                            year_ref=int(ano_ref) if pd.notna(ano_ref) else None,
-                            legacy_credito_value=row.get(col_d1) if col_d1 else None,
-                            legacy_arrendamento_value=row.get(col_e1_alt) if col_e1_alt else None,
-                            legacy_outros_value=row.get(col_f_outros) if col_f_outros else None,
-                            vcb_credito_value=row.get(col_e1) if col_e1 else None,
-                            vcb_arrendamento_value=row.get(col_f1) if col_f1 else None,
-                            vcb_outras_ops_value=row.get(col_g1) if col_g1 else None,
-                            vcb_pagamentos_value=row.get(col_h1) if col_h1 else None,
-                            net_credito_value=row.get(col_e) if col_e else None,
-                            net_arrendamento_value=row.get(col_f) if col_f else None,
-                            net_outras_ops_value=row.get(col_g) if col_g else None,
-                            net_pagamentos_value=row.get(col_h) if col_h else None,
-                        ).get("source_kind")
-                        or ""
-                    )
-                    for ano_ref, (_, row) in zip(anos, cache_ativo.iterrows())
-                ]
-                cache_ativo["_carteira_source"] = [
-                    str(
-                        resolve_carteira_credito_bruta_value(
-                            year_ref=int(ano_ref) if pd.notna(ano_ref) else None,
-                            legacy_credito_value=row.get(col_d1) if col_d1 else None,
-                            legacy_arrendamento_value=row.get(col_e1_alt) if col_e1_alt else None,
-                            legacy_outros_value=row.get(col_f_outros) if col_f_outros else None,
-                            vcb_credito_value=row.get(col_e1) if col_e1 else None,
-                            vcb_arrendamento_value=row.get(col_f1) if col_f1 else None,
-                            vcb_outras_ops_value=row.get(col_g1) if col_g1 else None,
-                            vcb_pagamentos_value=row.get(col_h1) if col_h1 else None,
-                            net_credito_value=row.get(col_e) if col_e else None,
-                            net_arrendamento_value=row.get(col_f) if col_f else None,
-                            net_outras_ops_value=row.get(col_g) if col_g else None,
-                            net_pagamentos_value=row.get(col_h) if col_h else None,
-                        ).get("source_field")
-                        or ""
-                    )
-                    for ano_ref, (_, row) in zip(anos, cache_ativo.iterrows())
-                ]
-                bruta_map = (
-                    cache_ativo.groupby("_tri_key", dropna=True)["_carteira_bruta"]
-                    .sum(min_count=1)
-                    .to_dict()
-                )
-                comp_cols = [c for c in [col_d1, col_e1_alt, col_f_outros, col_e1, col_f1, col_g1, col_h1] if c]
-                if comp_cols:
-                    cache_ativo["_d1"] = pd.to_numeric(cache_ativo.get(col_d1), errors="coerce") if col_d1 else np.nan
-                    cache_ativo["_e1_alt"] = pd.to_numeric(cache_ativo.get(col_e1_alt), errors="coerce") if col_e1_alt else np.nan
-                    cache_ativo["_f_outros"] = pd.to_numeric(cache_ativo.get(col_f_outros), errors="coerce") if col_f_outros else np.nan
-                    cache_ativo["_e1"] = pd.to_numeric(cache_ativo.get(col_e1), errors="coerce") if col_e1 else np.nan
-                    cache_ativo["_f1"] = pd.to_numeric(cache_ativo.get(col_f1), errors="coerce") if col_f1 else np.nan
-                    cache_ativo["_g1"] = pd.to_numeric(cache_ativo.get(col_g1), errors="coerce") if col_g1 else np.nan
-                    cache_ativo["_h1"] = pd.to_numeric(cache_ativo.get(col_h1), errors="coerce") if col_h1 else np.nan
-                    cache_ativo["_net_e"] = pd.to_numeric(cache_ativo.get(col_e), errors="coerce") if col_e else np.nan
-                    cache_ativo["_net_f"] = pd.to_numeric(cache_ativo.get(col_f), errors="coerce") if col_f else np.nan
-                    cache_ativo["_net_g"] = pd.to_numeric(cache_ativo.get(col_g), errors="coerce") if col_g else np.nan
-                    cache_ativo["_net_h"] = pd.to_numeric(cache_ativo.get(col_h), errors="coerce") if col_h else np.nan
-
-                    def _agg_nonempty_text(series: pd.Series) -> str:
-                        for value in series.tolist():
-                            texto = str(value or "").strip()
-                            if texto:
-                                return texto
-                        return ""
-
-                    comp_df = cache_ativo.groupby("_tri_key", dropna=True).agg(
-                        d1=("_d1", "sum"),
-                        e1_alt=("_e1_alt", "sum"),
-                        f_outros=("_f_outros", "sum"),
-                        e1=("_e1", "sum"),
-                        f1=("_f1", "sum"),
-                        g1=("_g1", "sum"),
-                        h1=("_h1", "sum"),
-                        net_e=("_net_e", "sum"),
-                        net_f=("_net_f", "sum"),
-                        net_g=("_net_g", "sum"),
-                        net_h=("_net_h", "sum"),
-                        status=("_carteira_status", _agg_nonempty_text),
-                        source=("_carteira_source", _agg_nonempty_text),
-                    ).reset_index()
-                    carteira_memoria_map = {
-                        str(r["_tri_key"]): {
-                            "d1": r["d1"], "e1_alt": r["e1_alt"], "f_outros": r["f_outros"],
-                            "e1": r["e1"], "f1": r["f1"], "g1": r["g1"], "h1": r["h1"],
-                            "net_e": r["net_e"], "net_f": r["net_f"], "net_g": r["net_g"], "net_h": r["net_h"],
-                            "status": r["status"], "source": r["source"],
-                        }
-                        for _, r in comp_df.iterrows()
-                    }
-                    carteira_trace_map = {
-                        str(r["_tri_key"]): {
-                            "status": r["status"],
-                            "source": r["source"],
-                            "note": (
-                                "Sem componentes brutos completos para a regra canônica do período; valor caiu explicitamente para a soma líquida e+f+g+h."
-                                if str(r["status"] or "").strip() == "fallback_net_components"
-                                else (
-                                    "Um ou mais componentes obrigatórios da carteira bruta ficaram ausentes no Rel. 2 para o período."
-                                    if str(r["status"] or "").strip() == "missing_required_component"
-                                    else ""
-                                )
-                            ),
-                        }
-                        for _, r in comp_df.iterrows()
-                    }
-                carteira_bruta_series = df_ano.get("Período", pd.Series(index=df_ano.index)).astype(str).map(_periodo_tri_key).map(bruta_map)
-        except Exception:
-            carteira_bruta_series = None
-
-        carteira_credito_base = _numeric_series(df_ano, _prefer_carteira_bruta(list(df_ano.columns)))
-        if carteira_bruta_series is not None:
-            df_ano["Carteira de Crédito Bruta"] = carteira_bruta_series.combine_first(carteira_credito_base)
-        else:
-            df_ano["Carteira de Crédito Bruta"] = carteira_credito_base
-        # ROE na Evolução: usar exatamente o mesmo valor já calculado para Peers (coluna canônica).
-        col_roe = "ROE Ac. Anualizado (%)" if "ROE Ac. Anualizado (%)" in df_ano.columns else (
-            "ROE Ac. YTD an. (%)" if "ROE Ac. YTD an. (%)" in df_ano.columns else None
+        df_ano, core_funding_trace_map, core_funding_memoria_map, carteira_trace_map, carteira_memoria_map, _avisos_evolucao = (
+            _evolucao_enriquecer(df_ano, df_ev, instituicao)
         )
-        if col_roe:
-            df_ano["ROE Ac. Anualizado (%)"] = pd.to_numeric(df_ano[col_roe], errors="coerce")
-        else:
-            # Fallback defensivo: recalcula com o mesmo critério da Peers se a coluna não existir.
-            roe_peers_inst = _calcular_roe_alinhado_peers_para_instituicao(df_ev, instituicao)
-            if not roe_peers_inst.empty:
-                df_ano = df_ano.merge(
-                    roe_peers_inst.rename(columns={"ROE Ac. Anualizado (%)": "_roe_peers"}),
-                    on=["Ano", "Tri"],
-                    how="left",
-                )
-                df_ano["ROE Ac. Anualizado (%)"] = pd.to_numeric(df_ano["_roe_peers"], errors="coerce")
-                df_ano = df_ano.drop(columns=["_roe_peers"], errors="ignore")
-            else:
-                df_ano["ROE Ac. Anualizado (%)"] = np.nan
-        df_ano["Carteira de Crédito Bruta / PL"] = np.where(
-            pd.to_numeric(df_ano.get("Patrimônio Líquido"), errors="coerce") != 0,
-            pd.to_numeric(df_ano["Carteira de Crédito Bruta"], errors="coerce") / pd.to_numeric(df_ano.get("Patrimônio Líquido"), errors="coerce"),
-            np.nan,
-        )
-        periodos_capital_evolucao = tuple(
-            df_ano.get("Período", pd.Series(dtype="object")).dropna().astype(str).unique().tolist()
-        )
-        df_capital_idx = _construir_indices_capital_instituicao_slice(
-            _cache_version_token("capital"),
-            _alias_signature_cache_key(),
-            periodos_capital_evolucao,
-            instituicao,
-        )
-        if not df_capital_idx.empty:
-            # Merge por chave temporal robusta (Ano/Tri) para cobrir variações de formato de Período
-            # entre bases (ex.: "12/2021" vs "4/2021").
-            df_capital_idx = df_capital_idx.copy()
-            chave_cap = df_capital_idx["Período"].astype(str).apply(_parse_periodo)
-            df_capital_idx["Ano"] = chave_cap.apply(lambda x: x[1] if x else np.nan)
-            df_capital_idx["Tri"] = chave_cap.apply(lambda x: _parte_periodo_para_trimestre_idx(x[0]) if x else np.nan)
-            df_ano = df_ano.merge(
-                df_capital_idx,
-                on=["Período", "Instituição", "Ano", "Tri"],
-                how="left",
-                suffixes=("", "_capital_idx"),
-            )
-            for col_cap in [
-                "Índice de Capital Principal (CET1)",
-                "Índice de Capital T1 (%)",
-                "Índice de Basileia Total (%)",
-            ]:
-                col_cap_idx = f"{col_cap}_capital_idx"
-                if col_cap_idx in df_ano.columns:
-                    if col_cap in df_ano.columns:
-                        df_ano[col_cap] = pd.to_numeric(df_ano[col_cap], errors="coerce").combine_first(
-                            pd.to_numeric(df_ano[col_cap_idx], errors="coerce")
-                        )
-                    else:
-                        df_ano[col_cap] = pd.to_numeric(df_ano[col_cap_idx], errors="coerce")
-        else:
-            df_ano["Índice de Capital Principal (CET1)"] = np.nan
-            df_ano["Índice de Capital T1 (%)"] = np.nan
-            df_ano["Índice de Basileia Total (%)"] = np.nan
+        for _aviso in _avisos_evolucao:
+            st.caption(_aviso)
 
         periodos_sem_capital = df_ano.loc[
             df_ano["Índice de Capital Principal (CET1)"].isna()
@@ -16441,15 +16619,7 @@ elif menu == "Evolução":
                 + ". Quando não há registro no Rel. 5 para a instituição/período, exibimos N/D."
             )
 
-        graf_cols = {
-            "Lucro Líquido": "Lucro Líquido Acumulado YTD",
-            "Patrimônio Líquido": "Patrimônio Líquido",
-            "Carteira de Crédito*": "Carteira de Crédito Bruta",
-            "Core Funding*": "Core Funding",
-        }
-        df_graph = pd.DataFrame({"Ano": df_ano["Ano"]})
-        for k, c in graf_cols.items():
-            df_graph[k] = pd.to_numeric(df_ano.get(c), errors="coerce")
+        df_graph, df_metric, df_show = _evolucao_tabela(df_ano)
 
         ano_labels = df_ano["LabelPeriodo"].tolist()
 
@@ -16468,17 +16638,10 @@ elif menu == "Evolução":
         )
         st.plotly_chart(fig_ev, key="evolucao_chart", width="stretch", config={"displaylogo": False})
         label_note = " Rótulos nos últimos dados; histórico completo no hover." if len(ano_labels) > 8 else ""
-        st.caption("Valores em R$ bi · Lucro acumulado no ano · Fonte: BCB IFData." + label_note)
+        _escala_y, _escala_y2 = axis_scale(df_graph, "y")[1], axis_scale(df_graph, "y2")[1]
+        _escala = _escala_y if _escala_y == _escala_y2 else f"{_escala_y} (Lucro e PL) e {_escala_y2} (Carteira e Core Funding)"
+        st.caption(f"Valores em {_escala} · Lucro acumulado no ano · Fonte: BCB IFData." + label_note)
 
-        df_metric = pd.DataFrame({
-            "Métrica": [
-                "ROE Ac. Anualizado (%)",
-                "Carteira de Crédito* / PL",
-                "Índice de Capital Principal (CET1)",
-                "Índice de Capital T1 (%)",
-                "Índice de Basileia Total (%)",
-            ]
-        })
         evolucao_glossario = {label: get_help_text(label) for label in (
             "ROE Ac. Anualizado (%)",
             "Carteira de Crédito* / PL",
@@ -16486,47 +16649,6 @@ elif menu == "Evolução":
             "Índice de Capital T1 (%)",
             "Índice de Basileia Total (%)",
         )}
-        for _, row in df_ano.iterrows():
-            periodo_label = row.get("LabelPeriodo", str(int(row["Ano"])))
-            df_metric[periodo_label] = [
-                row.get("ROE Ac. Anualizado (%)"),
-                row.get("Carteira de Crédito Bruta / PL"),
-                row.get("Índice de Capital Principal (CET1)"),
-                row.get("Índice de Capital T1 (%)"),
-                row.get("Índice de Basileia Total (%)"),
-            ]
-
-        def _fmt_valor_br(v):
-            if pd.isna(v):
-                return "-"
-            try:
-                return f"{float(v):,.0f}".replace(",", ".")
-            except Exception:
-                return "-"
-
-        def _fmt_pct(v):
-            if pd.isna(v):
-                return "-"
-            try:
-                v_num = float(v)
-                v_pct = v_num * 100
-                return f"{v_pct:.1f}%".replace(".", ",")
-            except Exception:
-                return "-"
-
-        def _fmt_evol(v, m):
-            if pd.isna(v):
-                return "-"
-            if m in ("ROE Ac. Anualizado (%)", "Índice de Basileia Total (%)", "Índice de Capital Principal (CET1)", "Índice de Capital T1 (%)"):
-                return _fmt_pct(v)
-            if m == "Carteira de Crédito* / PL":
-                return f"{float(v):.1f}x".replace(".", ",")
-            return _fmt_valor_br(v)
-
-        df_show = df_metric.copy()
-        for c in df_show.columns[1:]:
-            df_show[c] = [ _fmt_evol(v, m) for v,m in zip(df_metric[c], df_metric["Métrica"]) ]
-
         periodos_cols = list(df_show.columns[1:])
         df_show_visual, evol_cell_tooltips, evol_marker_presence = _decorate_evolucao_visual_table(
             df_show,
@@ -19852,7 +19974,10 @@ elif menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo == "DRE Gerencial":
 
 elif menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo == "Balanço, DRE e Carteira (Congl.)":
     from tabs.prudential_analysis import render as render_prudential_analysis
-    render_prudential_analysis(get_cache_manager(), _cache_version_token)
+    render_prudential_analysis(
+        get_cache_manager(), _cache_version_token,
+        portfolio_model=_modelo_4966_por_codigo, evolution_payload=_evolucao_payload_exportacao,
+    )
 
 elif menu == "DRE" or (menu == "DRE (Ind. e Congl.)" and dre_consolidada_tipo == "Conglomerado Prudencial"):
     st.markdown("### Demonstração de Resultado (DRE)")

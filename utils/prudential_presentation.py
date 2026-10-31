@@ -5,9 +5,11 @@ from html import escape
 import math
 import re
 import unicodedata
+from datetime import timedelta
 
 from .financial_statement_style import (FONT_FAMILY, ACCENT as HEADER_BACKGROUND, GRID as LINE_COLOR,
                                         SECTION as SECTION_BACKGROUND, KEY_FILL, RULE, INK, MUTED, NEGATIVE,
+                                        BAND, BAND_MUTED, BAND_NEGATIVE, MISSING,
                                         AMOUNT_PX, PERCENT_PX, PERIOD_MAX_PX, label_width, LABEL_MOBILE_PX)
 from .prudential_analysis import Analysis, Cell, col_name
 
@@ -18,6 +20,7 @@ LABELS = {
     "card_pdd": "(-) Provisão sobre Transações de Pagamento",
     "others": "Outros Créditos", "related": "A Receber de Sociedades Ligadas",
     "other_funding": "Empréstimos, Repasses e Demais Obrigações",
+    "assets": "Ativo Total", "liabilities": "Passivo Exigível", "liab_equity": "Passivo + Patrimônio Líquido",
     "equity": "Patrimônio Líquido", "net": "Resultado Líquido (acum. no semestre)",
     "roe": "ROE (anualizado)", "basel": "Índice de Basileia",
 }
@@ -28,7 +31,7 @@ COMMITTEE_OMIT = {"liabilities", "liab_equity", "principal_capital", "tier1", "t
 
 # Lines that anchor the reading of each statement; every other row keeps its model style.
 KEY_ROWS = {
-    "Balanço": {"assets", "equity", "net", "roe", "cet1", "basel"},
+    "Balanço": {"assets", "liabilities", "equity", "liab_equity", "net", "roe", "cet1", "basel"},
     "DRE": {"gross", "after_pdd", "operating", "net"},
     "Carteira 4.966": {"total", "gross", "pdd"},
 }
@@ -43,6 +46,8 @@ PAGE_GROUPS = {
 # Below this, a stored amount is floating-point residue, not a reported value.
 ZERO_EPSILON = 1e-6
 PERIODS_PER_PAGE = 4
+DEFAULT_QUARTERS = 4
+QUARTER_MONTHS = ("03", "06", "09", "12")
 
 
 def row_tier(name: str, ident: str, style: str) -> str:
@@ -60,6 +65,52 @@ def period_chunks(periods, size: int = PERIODS_PER_PAGE):
         chunks.append(periods[start:end])
         start = end
     return chunks
+
+
+def default_periods(available, today) -> list[str]:
+    """Last four consecutive closed quarters with data, from the viewer's date.
+
+    Monthly files stay selectable, but the default reads quarter over quarter. A
+    closed quarter not yet published gives way to the latest one that is.
+    """
+    # A quarter closes on its last day: a month counts only once it has ended.
+    tomorrow = today + timedelta(days=1)
+    closed = f"{tomorrow.year}{tomorrow.month:02d}"
+    quarters = sorted(p for p in available if p[4:] in QUARTER_MONTHS and p < closed)
+    if not quarters:
+        return sorted(available, reverse=True)[:DEFAULT_QUARTERS]
+    year, month = int(quarters[-1][:4]), int(quarters[-1][4:])
+    chain = []
+    for _ in range(DEFAULT_QUARTERS):
+        chain.append(f"{year}{month:02d}")
+        month -= 3
+        if month == 0:
+            year, month = year - 1, 12
+    return [p for p in chain if p in quarters]
+
+
+def period_key_to_quarter(period: str) -> str | None:
+    """Competência do menu Carteira 4.966 (trimestre/ano) para um fim de trimestre."""
+    return f"{QUARTER_MONTHS.index(period[4:]) + 1}/{period[:4]}" if period[4:] in QUARTER_MONTHS else None
+
+
+def with_band_gaps(rows):
+    """Thin separators around the bands of a statement; None marks a separator."""
+    spaced = []
+    for row in rows:
+        if row[-1] == "key" and spaced and spaced[-1] is not None:
+            spaced.append(None)
+        spaced.append(row)
+        if row[-1] == "key" and row is not rows[-1]:
+            spaced.append(None)
+    return spaced
+
+
+def committee_panel(analysis, name):
+    """Committee rows of one statement: (ident, row, label, style, tier)."""
+    sheet = analysis.sheets[name]
+    return [(ident, row, label, sheet.cells[f"B{row}"].style, row_tier(name, ident, sheet.cells[f"B{row}"].style))
+            for ident, row, label in display_rows(analysis, name, committee=True)]
 
 
 def export_filename(analysis: Analysis) -> str:
@@ -87,12 +138,16 @@ def display_rows(analysis: Analysis, name: str, *, committee: bool = False):
             label = LABELS.get(ident, label)
         elif name == "DRE" and ident == "net":
             label = LABELS["net"]
+        elif name == "DRE" and ident == "after_pdd":
+            label = "Resultado Líquido da Intermediação"
         yield ident, row, label
 
 
 def format_cell(cell: Cell | None) -> str:
     if cell is None or cell.value is None:
         return ""
+    if cell.value == "N/D":
+        return MISSING
     if not isinstance(cell.value, (int, float)) or not math.isfinite(cell.value):
         return str(cell.value)
     if "%" in (cell.fmt or ""):
@@ -157,12 +212,14 @@ def render_statement_html(analysis: Analysis, name: str) -> str:
 .tc-prudential .bold>* {{ font-weight:600; }}
 .tc-prudential .section>* {{ background:{SECTION_BACKGROUND}; font-weight:600; }}
 .tc-prudential .total>* {{ background:{SECTION_BACKGROUND}; font-weight:700; border-top:1px solid {RULE}; }}
-.tc-prudential .key>* {{ background:{KEY_FILL}; font-weight:700; font-style:normal; border-top:1px solid {RULE}; border-bottom:1px solid {RULE}; }}
+.tc-prudential .key>* {{ background:{BAND}; color:#fff; font-weight:700; font-style:normal; border-right-color:{BAND}; border-bottom-color:#fff; }}
+.tc-prudential .key .percent {{ color:#fff; }}
+.tc-prudential .key td.negative {{ color:{BAND_NEGATIVE}; }}
+.tc-prudential .key td.zero,.tc-prudential .key td.missing {{ color:{BAND_MUTED}; }}
 .tc-prudential td.negative {{ color:{NEGATIVE}; }}
 .tc-prudential td.zero,.tc-prudential td.missing {{ color:#8E949B; font-weight:400; }}
-.tc-prudential td.missing {{ font-size:12px; }}
 .tc-prudential tbody tr:hover>* {{ background:#F6F7F8; }}
-.tc-prudential tbody tr.key:hover>* {{ background:{KEY_FILL}; }}
+.tc-prudential tbody tr.key:hover>* {{ background:{BAND}; }}
 .tc-prudential caption {{ position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }}
 @media(max-width:700px) {{ .tc-prudential {{ --label-width:{LABEL_MOBILE_PX}px; }} .tc-prudential table {{ font-size:13px; }} .tc-prudential th,.tc-prudential td {{ padding:4px 7px; }} .tc-prudential .indent .label {{ padding-left:14px; }} .tc-prudential .detail .label {{ padding-left:20px; }} }}
 </style><div class="tc-prudential" role="region" tabindex="0" aria-label="{escape(name)}">

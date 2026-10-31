@@ -14,21 +14,26 @@ contábeis (`PAGE_GROUPS`) e a formatação comum de valores. Os helpers nativos
 PowerPoint foram extraídos do Snapshot para `utils/presentation_tables.py`; o layout
 e os cálculos do Snapshot foram preservados.
 
+- Padrão da tela: os quatro últimos trimestres fechados e consecutivos com dados,
+  a partir da data de acesso. As competências mensais continuam selecionáveis.
 - Tela: instituição, períodos e **Exportar** na mesma linha; rótulo ajustado ao texto,
-  limitado a 320 px (170 px em tela estreita, com quebra de linha); valor e percentual
-  lado a lado; cabeçalho e coluna de contas fixos na rolagem.
-- Excel: Comitê, Balanço, DRE e Carteira 4.966 visíveis; fontes, mapa e validações
-  ocultos e reexibíveis. Fórmulas e valores numéricos continuam editáveis. O Comitê
-  fica em A4 paisagem, com dois períodos por página e os dois painéis terminando
-  juntos. As demais abas ficam em A4 retrato, com até quatro períodos por página e
-  títulos e contas repetidos; a escala é fixa, sem encolher para caber.
-- PowerPoint: tabelas nativas, até quatro períodos e 21 linhas por slide, com
-  cabeçalhos repetidos. Os slides seguem os grupos contábeis, e a conta principal
-  acompanha as subcontas. Nenhuma linha da seleção é descartada na paginação.
-- Formato brasileiro com LCID `416` no Excel. Montantes em R$ milhões. Negativos em
-  vermelho, zeros e `N/D` em cinza; valores abaixo de R$ 0,5 milhão aparecem como
-  `<1`, sem alterar o número guardado. `N/D` continua diferente de zero. A DRE
-  permanece acumulada no semestre.
+  limitado a 320 px (170 px em tela estreita, com quebra de linha); cabeçalho e coluna
+  de contas fixos. A aba Carteira 4.966 usa o modelo e a tabela do menu Carteira 4.966.
+- Excel: Comitê, Balanço, DRE, Carteira e Evolução visíveis; fontes, mapa, validações
+  e a Carteira calculada ocultos e reexibíveis. O Comitê fica em A4 paisagem; as
+  demonstrações, em retrato, com até quatro períodos por página.
+- PowerPoint: um slide com Balanço e DRE dos três últimos períodos selecionados,
+  os slides da Carteira 4.966 e o da Evolução; tudo nativo e editável. O detalhe
+  de todos os períodos fica no Excel.
+- Formato brasileiro com LCID `416` no Excel. Totais e linhas-chave em faixa grafite.
+  Negativos em vermelho, zeros em cinza. Dado indisponível aparece como `–`; no
+  Excel a célula continua guardando `N/D`, sem confundir ausência com zero.
+- Evolução: uma só unidade no gráfico, R$ bi quando Lucro ou PL alcança R$ 10 bi e
+  R$ mm abaixo disso. Lucro em verde e prejuízo em vermelho, sem contorno.
+- NIM Bruta e NIM pós-PDD (métricas gerenciais): resultado acumulado no semestre
+  × 12 / meses do semestre / carteira média. A carteira é Operações de Crédito Líq.
+  do Balanço, na média entre a data-base e o fechamento do semestre anterior
+  (junho com dezembro; dezembro com junho; março e setembro com o início do semestre).
 
 ## Atualização
 

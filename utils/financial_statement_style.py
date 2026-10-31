@@ -13,6 +13,7 @@ BAND = "#2F3640"
 BAND_NEGATIVE = "#FFB4A8"
 BAND_MUTED = "#C5CAD0"
 NEGATIVE = "#B32624"
+MISSING = "–"
 LABEL_MAX_PX = 320
 LABEL_MOBILE_PX = 170
 AMOUNT_PX = 84
@@ -30,7 +31,7 @@ EXCEL_STYLES = {
     "source": {"font_size": 9, "font_color": MUTED, "align": "center", "bottom": 1, "bottom_color": GRID},
     "section": {"bold": True, "bg_color": SECTION},
     "total": {"bold": True, "bg_color": SECTION, "top": 1, "top_color": RULE},
-    "key": {"bold": True, "bg_color": SECTION, "top": 1, "top_color": RULE, "bottom": 1, "bottom_color": RULE},
+    "key": {"bold": True, "bg_color": BAND, "font_color": "#FFFFFF"},
     "band": {"bold": True, "bg_color": BAND, "font_color": "#FFFFFF"},
     "note": {"font_size": 9, "font_color": MUTED, "text_wrap": True},
     "technical": {"font_size": 8, "font_color": MUTED},
@@ -57,8 +58,14 @@ def excel_amount_width(values) -> float:
 
 
 def excel_visible_format(value):
-    """Presentation sheets color negatives through rules, in the brand's red."""
-    return excel_number_format(value.replace("[Red]", "")) if value else value
+    """Negatives take the brand's red through rules; an unavailable value prints as a dash."""
+    if not value:
+        return value
+    sections = value.replace("[Red]", "").split(";")
+    sections = (sections + sections[:1] * 3)[:3] if len(sections) < 3 else sections
+    if len(value.split(";")) == 1:
+        sections = [value, "-" + value, value]
+    return excel_number_format(";".join(sections) + ';"' + MISSING + '"')
 
 
 def excel_number_format(value):
