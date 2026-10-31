@@ -201,7 +201,7 @@ def _committee_slide(prs, analysis, institution):
     periods = analysis.periods[-SLIDE_PERIODS:]
     offset = len(analysis.periods) - len(periods)
     span = " / ".join(period_label(p) for p in periods)
-    slide = _slide(prs, "Balanço e DRE", f"{institution}  ·  Conglomerado prudencial  ·  {span}", len(prs.slides) + 1)
+    slide = _slide(prs, "Balanço e DRE", f"{institution}  ·  {analysis.scope_label}  ·  {span}", len(prs.slides) + 1)
     panels = {name: committee_panel(analysis, name) for name in ("Balanço", "DRE")}
     # The balance sheet is continuous; the income statement breathes only around its results.
     panels["DRE"] = with_band_gaps(panels["DRE"])
@@ -215,7 +215,7 @@ def _committee_slide(prs, analysis, institution):
         x += panel_width + PANEL_GAP
     # A ressalva, quando existe, entra na mesma área do rodapé, sem encostar nas tabelas.
     _text(slide, _MARGIN, 6.88 if reference_note(analysis) else 7.04, _CONTENT, .45,
-          f"Fonte: Banco Central, COSIF 4060/4066 e IF.data. R$ milhões. DRE acumulada no ano. {MISSING}: dado não disponível. {reference_note(analysis)}".rstrip(), 9, color=_MUTED)
+          f"Fonte: Banco Central, {analysis.source_label} e IF.data. R$ milhões. DRE acumulada no ano. {MISSING}: dado não disponível. {reference_note(analysis)}".rstrip(), 9, color=_MUTED)
     slide.notes_slide.notes_text_frame.text = json.dumps({
         "institution": analysis.code, "periods": periods, "statement": "Balanço e DRE",
         "rows": {name: [row[0] for row in rows if row] for name, rows in panels.items()},
@@ -230,10 +230,10 @@ def _portfolio_statement_slides(prs, analysis, institution):
     offset = len(analysis.periods) - len(periods)
     span = " / ".join(period_label(p) for p in periods)
     for group, rows in paginate_rows(analysis, name):
-        slide = _slide(prs, f"{name} · {group}", f"{institution}  ·  Conglomerado prudencial  ·  {span}", len(prs.slides) + 1)
+        slide = _slide(prs, f"{name} · {group}", f"{institution}  ·  {analysis.scope_label}  ·  {span}", len(prs.slides) + 1)
         _statement_table(slide, analysis, name, rows, periods, offset)
         _text(slide, _MARGIN, 7.04, _CONTENT, .22,
-              f"Fonte: Banco Central, COSIF 4060/4066 e IF.data. R$ milhões. {MISSING}: dado não disponível.", 9, color=_MUTED)
+              f"Fonte: Banco Central, {analysis.source_label} e IF.data. R$ milhões. {MISSING}: dado não disponível.", 9, color=_MUTED)
         slide.notes_slide.notes_text_frame.text = json.dumps({
             "institution": analysis.code, "periods": periods, "statement": name,
             "rows": [row[0] for row in rows], "methodology": analysis.limitations,
@@ -261,8 +261,8 @@ def render_pptx(analysis, *, portfolio=None, evolution=None) -> bytes:
     _committee_slide(prs, analysis, institution)
     if portfolio is not None and portfolio.periods:
         from .snapshot_pptx_export import _carteira_slides
-        _carteira_slides(prs, {"bank": institution, "base": "Conglomerado prudencial"}, portfolio, "")
-    else:
+        _carteira_slides(prs, {"bank": institution, "base": analysis.scope_label}, portfolio, "")
+    elif analysis.has_portfolio:
         _portfolio_statement_slides(prs, analysis, institution)
     if evolution is not None:
         from .evolucao_pptx_export import add_evolucao_slides

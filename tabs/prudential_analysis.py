@@ -21,8 +21,16 @@ MODEL_VERSION = "statement-v6"
 SOURCES = ("bloprudencial", "ativo", "dre", "capital", "principal", "carteira_instrumentos")
 
 
-def load_analysis(manager, code, periods):
+def individual_analysis_frame(manager, code, periods):
+    """Balancete da pessoa jurídica no formato da análise; o CNPJ-base é a identidade."""
+    frame = manager.get_cache("balancete_individual").load_institution(code, required_periods(periods))
+    return frame.assign(DOCUMENTO="4010", COD_CONGL=frame.CNPJ, NOME_CONGL=frame.NOME_INSTITUICAO)
+
+
+def load_analysis(manager, code, periods, *, individual=False):
     """Análise completa da seleção; usada pela aba e pelas exportações do Snapshot."""
+    if individual:
+        return _load_individual_analysis(manager, code, periods)
     cache = manager.get_cache("bloprudencial")
     needed = required_periods(periods)
     cosif = load_bloprudencial_parquet_slice(cache, periodos_yyyymm=needed)
@@ -51,52 +59,80 @@ def load_analysis(manager, code, periods):
     return analysis
 
 
-def render(manager, cache_token, *, portfolio_model=None, evolution_payload=None):
+def _load_individual_analysis(manager, code, periods):
+    """Mesmas regras da visão prudencial, sobre o 4010. Capital e 4.966 não têm fonte neste perímetro."""
+    cosif = individual_analysis_frame(manager, code, periods)
+    available = set(cosif.DATA_BASE)
+    periods = [period for period in periods if period in available]
+    if not periods:
+        raise ValueError("Instituição sem balancete individual nas competências selecionadas")
+    sources = {}
+    for kind, name in (("principal", "principal_individual"), ("dre", "dre_individual")):
+        result = manager.carregar(name)
+        if result.sucesso and result.dados is not None and "CodInst" in result.dados:
+            sources[kind] = result.dados[result.dados.CodInst.astype(str).eq(str(code))].copy()
+    scope = dict(result_doc="4010", scope_label="Instituição individual", source_label="COSIF 4010", has_portfolio=False)
+    overrides = manager.get_cache("bloprudencial").row_overrides()
+    analysis = build_analysis(cosif, sources, code, periods, overrides=overrides, **scope)
+    prior_credit = {}
+    missing = [p for p in prior_periods(analysis.periods) if p in available]
+    if missing:
+        prior_credit = credit_balances(build_analysis(cosif, sources, code, missing, overrides=overrides, **scope))
+    add_nim_rows(analysis, prior_credit)
+    # ROE sobre o PL da data-base: o conceito individual de Snapshot, Peers e glossário.
+    return analysis
+
+
+def render(manager, cache_token, *, portfolio_model=None, evolution_payload=None, individual=False):
     """``portfolio_model`` e ``evolution_payload`` entregam as visões dos menus Carteira 4.966 e Evolução."""
-    cache = manager.get_cache("bloprudencial")
+    cache = manager.get_cache("balancete_individual" if individual else "bloprudencial")
     if cache is None or not cache.arquivo_dados.exists():
-        st.info("Base prudencial indisponível. Consulte Atualizar Base.")
+        st.info("Base indisponível. Consulte Atualizar Base.")
         return
+    prefix = "individual_" if individual else ""
 
     @revision_cache_data(show_spinner=False, max_entries=4)
     def catalog(token):
+        if individual:
+            frame = manager.get_cache("balancete_individual").catalog()
+            return frame.rename(columns={"CNPJ": "COD_CONGL", "NOME_INSTITUICAO": "NOME_CONGL"}).sort_values("DATA_BASE")
         path = manager.get_cache("bloprudencial").arquivo_dados
         frame = pd.read_parquet(path, columns=["COD_CONGL", "NOME_CONGL", "DATA_BASE"])
         frame["DATA_BASE"] = frame.DATA_BASE.map(text_id)
         return frame.drop_duplicates().sort_values("DATA_BASE")
 
-    source_token = tuple((kind, cache_token(kind)) for kind in SOURCES)
+    source_token = tuple((kind, cache_token(kind)) for kind in (*SOURCES, "balancete_individual"))
     data = catalog(source_token)
     names = data.drop_duplicates("COD_CONGL", keep="last").set_index("COD_CONGL").NOME_CONGL.to_dict()
     codes = sorted(names, key=lambda code: names[code])
-    default = next((i for i, code in enumerate(codes) if "ITAU" in names[code].upper()), 0)
+    default = next((i for i, code in enumerate(codes) if code == "60701190" or (not individual and "ITAU" in names[code].upper())), 0)
     labels = {code: institution_label(name) for code, name in names.items()}
     repeated = pd.Series(labels).duplicated(keep=False).to_dict()
     left, right, export = st.columns([1.1, 2.7, .62], gap="small")
     with left:
         code = st.selectbox("Instituição", codes, index=default,
                             format_func=lambda c: labels[c] + (f" ({c})" if repeated[c] else ""),
-                            key="prudential_excel_code")
+                            key=f"{prefix}prudential_excel_code")
     available = sorted(data.loc[data.COD_CONGL.eq(code), "DATA_BASE"].unique(), reverse=True)
     context = (code, tuple(available))
-    if st.session_state.get("prudential_excel_period_context") != context:
-        st.session_state["prudential_excel_periods"] = default_periods(available, datetime.now(ZoneInfo("America/Sao_Paulo")))
-        st.session_state["prudential_excel_period_context"] = context
+    if st.session_state.get(f"{prefix}prudential_excel_period_context") != context:
+        st.session_state[f"{prefix}prudential_excel_periods"] = default_periods(available, datetime.now(ZoneInfo("America/Sao_Paulo")))
+        st.session_state[f"{prefix}prudential_excel_period_context"] = context
     with right:
-        periods = st.multiselect("Períodos", available, key="prudential_excel_periods", max_selections=8,
+        periods = st.multiselect("Períodos", available, key=f"{prefix}prudential_excel_periods", max_selections=8,
                                 format_func=period_label)
     if not periods:
         st.caption("Selecione um período.")
         return
 
-    signature = hashlib.sha256(repr((MODEL_VERSION, code, sorted(periods), source_token)).encode()).hexdigest()
-    saved = st.session_state.get("prudential_excel_result")
+    signature = hashlib.sha256(repr((MODEL_VERSION, individual, code, sorted(periods), source_token)).encode()).hexdigest()
+    saved = st.session_state.get(f"{prefix}prudential_excel_result")
     if not saved or saved[0] != signature:
         try:
             with st.spinner("Carregando demonstrações…"):
-                analysis = load_analysis(manager, code, periods)
+                analysis = load_analysis(manager, code, periods, individual=individual)
                 saved = (signature, analysis)
-                st.session_state["prudential_excel_result"] = saved
+                st.session_state[f"{prefix}prudential_excel_result"] = saved
         except (ValueError, KeyError, OSError) as exc:
             st.error("Não foi possível reconciliar esta seleção.")
             with st.expander("Detalhes da fonte"):
@@ -123,7 +159,8 @@ def render(manager, cache_token, *, portfolio_model=None, evolution_payload=None
                                file_name=filename + ".pptx",
                                mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
                                key=f"download_prudential_pptx_{signature}", on_click="ignore", width="stretch")
-    for tab, name in zip(st.tabs(["Balanço", "DRE", "Carteira 4.966"]), ["Balanço", "DRE", "Carteira 4.966"]):
+    statements = ["Balanço", "DRE"] if individual else ["Balanço", "DRE", "Carteira 4.966"]
+    for tab, name in zip(st.tabs(statements), statements):
         with tab:
             # A Carteira segue o menu Carteira 4.966: hierarquia, percentuais e variações.
             if name == "Carteira 4.966" and model is not None and model.periods:

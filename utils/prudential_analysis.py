@@ -118,6 +118,9 @@ class Analysis:
     rows: dict[str, dict[str, int]] = field(default_factory=dict)
     # Intermediação na janela publicada pelo Rel. 4, no COSIF e no próprio relatório (R$ milhões).
     reference: dict[str, dict[str, float]] = field(default_factory=dict)
+    scope_label: str = "Conglomerado prudencial"
+    source_label: str = "COSIF 4060/4066"
+    has_portfolio: bool = True
 
     def sheet(self, name):
         self.sheets[name] = Sheet(name)
@@ -219,8 +222,10 @@ class Accounts:
 
 
 class Builder:
-    def __init__(self, cosif, ifdata, code, periods, overrides=None):
+    def __init__(self, cosif, ifdata, code, periods, overrides=None, *, result_doc="4060", scope_label="Conglomerado prudencial", source_label="COSIF 4060/4066", has_portfolio=True):
         self.overrides = overrides or {}
+        self.result_doc = result_doc
+        self.scope_label, self.source_label, self.has_portfolio = scope_label, source_label, has_portfolio
         periods = sorted(set(period_key(p) for p in periods))
         if not periods or len(periods) > 8:
             raise ValueError("Selecione de uma a oito competências")
@@ -240,7 +245,7 @@ class Builder:
             raise ValueError("Saldo COSIF ausente ou não finito")
         self.cosif = cosif.sort_values(["DATA_BASE", "DOCUMENTO", "CONTA"])
         name = self.cosif.sort_values("DATA_BASE").NOME_CONGL.iloc[-1]
-        self.a = Analysis(name, code, periods)
+        self.a = Analysis(name, code, periods, scope_label=self.scope_label, source_label=self.source_label, has_portfolio=self.has_portfolio)
         for name in ["Balanço", "DRE", "Carteira 4.966", "Mapa COSIF", "Dados COSIF", "Dados IFData", "Validações"]:
             self.a.sheet(name)
         self.indexes = {(p, doc): Accounts(g) for (p, doc), g in self.cosif.groupby(["DATA_BASE", "DOCUMENTO"])}
@@ -427,7 +432,7 @@ class Builder:
 
     def dre(self):
         months=("jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez")
-        labels={p:f"COSIF 4060 · jan–{months[int(p[4:])-1]}/{p[2:4]}" for p in self.a.periods}
+        labels={p:f"COSIF {self.result_doc} · jan–{months[int(p[4:])-1]}/{p[2:4]}" for p in self.a.periods}
         s=self.header("DRE",labels)
         definitions=dre_definitions(self.overrides)
         for id,label,style,rule in definitions:
@@ -435,7 +440,7 @@ class Builder:
             for i,p in enumerate(self.a.periods):
                 c=col_name(3+i*2)
                 if rule is not None:
-                    terms=[(r,k) for q in self._ytd_periods(p) for prefix,k in rule for r in self.account(q,"4060",prefix)]
+                    terms=[(r,k) for q in self._ytd_periods(p) for prefix,k in rule for r in self.account(q,self.result_doc,prefix)]
                     self.output[(s.name,id,p)]=self.sum_refs(s,row,c,terms,style)
         formulas={"revenue":["credit","leasing","sale","tvm","other_inter"],"expenses":["funding","other_funding"],
                   "gross":["revenue","expenses"],"after_pdd":["gross","provision"],
@@ -454,13 +459,13 @@ class Builder:
                 s.hidden_rows.append(row)
         for i,p in enumerate(self.a.periods):
             # A full COSIF result is an independent control, never an output plug.
-            raw=self._control_ytd(p,["7","8"],"Resultado 4060 acumulado")
+            raw=self._control_ytd(p,["7","8"],f"Resultado {self.result_doc} acumulado")
             net=self.output[(s.name,"net",p)]
             self.check("DRE: resultado apresentado x grupos 7 + 8",p,Ref(net.address+"*1000000",None if net.value is None else net.value*1e6),raw)
             # O Rel. 4 publica a janela do semestre: a comparação usa essa mesma janela.
-            window=self._control(p,"4060",["7","8"],"Resultado 4060 na janela do Rel. 4")
+            window=self._control(p,self.result_doc,["7","8"],f"Resultado {self.result_doc} na janela do Rel. 4")
             report=self.metric(p,"dre",["Lucro Líquido (z) = (w) + (x) + (y)","Lucro Líquido (aa) = (x) + (y) + (z)","Lucro Líquido (j) = (g) + (h) + (i)"])
-            self.check("DRE: 4060 x IFData Rel. 4",p,window,report,note="Divergência pode refletir retificação ou composição. O 4060 é a fonte da DRE apresentada.")
+            self.check(f"DRE: {self.result_doc} x IFData Rel. 4",p,window,report,note=f"Divergência pode refletir retificação ou composição. O {self.result_doc} é a fonte da DRE apresentada.")
             intermediation=self.metric(p,"dre",INTERMEDIATION_FIELD)
             cosif=self._window_after_pdd(p,definitions)
             if intermediation.value is not None and cosif is not None:
@@ -469,7 +474,7 @@ class Builder:
     def _window_after_pdd(self,p,definitions):
         """Intermediação após provisão só na janela da competência, em R$ milhões."""
         parts={"credit","leasing","sale","tvm","other_inter","funding","other_funding","provision"}
-        values=[r.value*k for id,_,_,rule in definitions if id in parts and rule for prefix,k in rule for r in self.account(p,"4060",prefix) if r.value is not None]
+        values=[r.value*k for id,_,_,rule in definitions if id in parts and rule for prefix,k in rule for r in self.account(p,self.result_doc,prefix) if r.value is not None]
         return sum(values)/1e6 if values else None
 
     def _ytd_periods(self,p):
@@ -477,13 +482,13 @@ class Builder:
         base=self.ytd_base.get(p)
         if base is None:
             return [p]
-        return [base,p] if (base,"4060") in self.indexes else []
+        return [base,p] if (base,self.result_doc) in self.indexes else []
 
     def _control_ytd(self,p,prefixes,label):
         s=self.a.sheets["Mapa COSIF"]
         row=self.map_row;self.map_row+=1
-        for j,val in enumerate([self.a.code,p,"4060",label,"","Controle reportado","Soma de grupos independentes",""],1):s.put(f"{col_name(j)}{row}",val)
-        refs=[r for q in self._ytd_periods(p) for prefix in prefixes for r in self.account(q,"4060",prefix)]
+        for j,val in enumerate([self.a.code,p,self.result_doc,label,"","Controle reportado","Soma de grupos independentes",""],1):s.put(f"{col_name(j)}{row}",val)
+        refs=[r for q in self._ytd_periods(p) for prefix in prefixes for r in self.account(q,self.result_doc,prefix)]
         return self.sum_refs(s,row,"I",refs,scale=1)
 
     def _control(self,p,doc,prefixes,label):
@@ -494,7 +499,7 @@ class Builder:
         return self.sum_refs(s,row,"I",refs,scale=1)
 
     def balance(self):
-        docs={p:"4066" if (p,"4066") in self.indexes else "4060" for p in self.a.periods}
+        docs={p:"4066" if (p,"4066") in self.indexes else self.result_doc for p in self.a.periods}
         s=self.header("Balanço",{p:f"COSIF {docs[p]}" for p in self.a.periods})
         defs=[
             ("liquid","Ativos Líquidos (disponibilidades e TVM livres)","bold",[("11",1),("12",1),("131",1)]),
@@ -553,7 +558,7 @@ class Builder:
                              ("liabilities",["deposits","securities","payables","other_funding","obligations","subdebt"])]:
                 self.output[(s.name,id,p)]=self.sum_refs(s,self.a.rows[s.name][id],c,[out(x) for x in parts],"total",scale=1)
             equity=self.account(p,docs[p],"6")
-            if docs[p]=="4060": equity+=self.account(p,"4060","7")+self.account(p,"4060","8")
+            if docs[p]==self.result_doc: equity+=self.account(p,self.result_doc,"7")+self.account(p,self.result_doc,"8")
             self.output[(s.name,"equity",p)]=self.sum_refs(s,self.a.rows[s.name]["equity"],c,equity,"total")
             self.output[(s.name,"liab_equity",p)]=self.sum_refs(s,self.a.rows[s.name]["liab_equity"],c,[out("liabilities"),out("equity")],"total",scale=1,strict=True)
             self.output[(s.name,"net",p)]=self.sum_refs(s,self.a.rows[s.name]["net"],c,[self.output[("DRE","net",p)]],"total",scale=1,strict=True)
@@ -640,7 +645,7 @@ class Builder:
                 elif id=="pdd":
                     refs=[(self.metric(p,"ativo",f"Perda Esperada ({x}2)"),-1) for x in "efgh"]
                     self.output[(s.name,id,p)]=self.sum_refs(s,row,c,refs,style,strict=True)
-                elif id=="stage3":self.output[(s.name,id,p)]=self.sum_refs(s,row,c,self.account(p,"4060","3313"),style)
+                elif id=="stage3":self.output[(s.name,id,p)]=self.sum_refs(s,row,c,self.account(p,self.result_doc,"3313"),style)
                 elif id in {"recovery","expense"}:
                     ref=self.output[("DRE","recovery" if id=="recovery" else "provision",p)]
                     self.output[(s.name,id,p)]=self.sum_refs(s,row,c,[(ref,1 if id=="recovery" else -1)],style,scale=1,strict=True)
@@ -721,5 +726,5 @@ class Builder:
         self.a.limitations=notes
 
 
-def build_analysis(cosif: pd.DataFrame, ifdata: dict[str,pd.DataFrame], code: str, periods: list[str], *, overrides=None) -> Analysis:
-    return Builder(cosif,ifdata,code,periods,overrides).run()
+def build_analysis(cosif: pd.DataFrame, ifdata: dict[str,pd.DataFrame], code: str, periods: list[str], *, overrides=None, **scope) -> Analysis:
+    return Builder(cosif,ifdata,code,periods,overrides,**scope).run()

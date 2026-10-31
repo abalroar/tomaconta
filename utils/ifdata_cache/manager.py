@@ -134,6 +134,13 @@ CACHES_INFO = {
         "todas_variaveis": True,
         "periodicidade": "mensal",
     },
+    "balancete_individual": {
+        "nome_exibicao": "Balancetes individuais (COSIF 4010)",
+        "descricao": "Fins de trimestre para o Balanço e a DRE por instituição",
+        "relatorio": None,
+        "todas_variaveis": True,
+        "periodicidade": "trimestral",
+    },
     "balancetes": {
         "nome_exibicao": "Balancetes COSIF (4060, 4066)",
         "descricao": "Demonstrações Contábeis - Balancetes do BCB",
@@ -241,6 +248,8 @@ class CacheManager:
         self.registrar(BalancetesCache(self.base_dir))
         # Cache BLOPRUDENCIAL mensal (arquivo estático BCB)
         self.registrar(BloprudencialCache(self.base_dir))
+        from .balancete_individual import BalanceteIndividualCache
+        self.registrar(BalanceteIndividualCache(self.base_dir))
         self.registrar(Cosif4010Cache(self.base_dir))
         # Cache de Meios de Pagamento SPB (API Olinda MPV_DadosAbertos)
         self.registrar(SPBMeiosPagamentoCache(self.base_dir))

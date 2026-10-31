@@ -128,7 +128,7 @@ def _committee_sheet(wb, fmt, analysis):
         top = (offset // COMMITTEE_PERIODS) * page_rows
         if top:
             page_breaks.append(top)
-        committee.merge_range(top + 1, 1, top + 1, end_col, "Conglomerado prudencial | Balanço e DRE", title)
+        committee.merge_range(top + 1, 1, top + 1, end_col, f"{analysis.scope_label} | Balanço e DRE", title)
         committee.set_row(top + 1, 24)
         committee.set_row(top + 2, 7)
         for name, start_col in (("Balanço", 1), ("DRE", right_start)):
@@ -164,7 +164,7 @@ def _committee_sheet(wb, fmt, analysis):
                         else:
                             committee.write_blank(target_row, destination, None, f)
         note_row = top + HEADER_ROWS + body_rows + 1
-        committee.merge_range(note_row, 1, note_row, end_col, "Fonte: Banco Central, COSIF 4060/4066 e IF.data. R$ milhões. DRE acumulada no ano. " + f"{MISSING}: dado não disponível. {reference_note(analysis)}".rstrip(), fmt("note"))
+        committee.merge_range(note_row, 1, note_row, end_col, f"Fonte: Banco Central, {analysis.source_label} e IF.data. R$ milhões. DRE acumulada no ano. " + f"{MISSING}: dado não disponível. {reference_note(analysis)}".rstrip(), fmt("note"))
         if reference_note(analysis):
             committee.set_row(note_row, 38)
     _value_rules(wb, committee, light)
@@ -220,7 +220,7 @@ def _portfolio_sheet(wb, fmt, analysis, model):
     last = 1 + 2 * len(periods)
     ws.merge_range(1, 1, 1, last, institution_label(analysis.institution), fmt("title"))
     ws.set_row(1, 22)
-    ws.merge_range(2, 1, 2, last, "Carteira 4.966 · Conglomerado prudencial · R$ milhões", fmt("note"))
+    ws.merge_range(2, 1, 2, last, f"Carteira 4.966 · {analysis.scope_label} · R$ milhões", fmt("note"))
     ws.write(4, 1, "R$ milhões", fmt("header", left=True))
     ws.write(5, 1, "", fmt("header"))
     for i, period in enumerate(periods):
@@ -326,8 +326,8 @@ def _evolution_sheet(wb, fmt, analysis, evolution):
 def render_xlsx(analysis: Analysis, *, portfolio=None, evolution=None) -> bytes:
     buffer = BytesIO()
     wb = xlsxwriter.Workbook(buffer, {"in_memory": True, "strings_to_formulas": False, "strings_to_urls": False})
-    wb.set_properties({"title": f"{analysis.institution} — Análise financeira prudencial", "author": "Toma Conta",
-                       "comments": "BCB COSIF 4060/4066 e IFData. Fórmulas e fontes preservadas no arquivo."})
+    wb.set_properties({"title": f"{analysis.institution} — Análise financeira", "author": "Toma Conta",
+                       "comments": f"BCB {analysis.source_label} e IFData. Fórmulas e fontes preservadas no arquivo."})
     wb.set_calc_mode("auto")
     formats = {}
 
@@ -366,6 +366,8 @@ def render_xlsx(analysis: Analysis, *, portfolio=None, evolution=None) -> bytes:
             if evolution is not None:
                 _evolution_sheet(wb, fmt, analysis, evolution)
         ws = wb.add_worksheet(name)
+        if name == "Carteira 4.966" and not analysis.has_portfolio:
+            ws.hide()
         ws.hide_gridlines(2)
         ws.set_zoom(100 if name in STATEMENTS else 85)
         statement = name in STATEMENTS
@@ -412,11 +414,11 @@ def render_xlsx(analysis: Analysis, *, portfolio=None, evolution=None) -> bytes:
             ws.merge_range(merged, "", fmt(cell.style, cell.fmt))
         labels = {f"B{r}": label for r, (_, label) in rows.items()}
         if statement:
-            labels["B3"] = f"{name} · Conglomerado prudencial · R$ milhões"
+            labels["B3"] = f"{name} · {analysis.scope_label} · R$ milhões"
             labels["B5"] = "Fonte"
             labels["B6"] = "R$ milhões"
             note = "DRE acumulada no ano. " if name == "DRE" else ""
-            labels.update({address: f"Fonte: Banco Central, COSIF 4060/4066 e IF.data. R$ milhões. {note}{MISSING}: dado não disponível. {reference_note(analysis) if name == 'DRE' else ''}".rstrip()
+            labels.update({address: f"Fonte: Banco Central, {analysis.source_label} e IF.data. R$ milhões. {note}{MISSING}: dado não disponível. {reference_note(analysis) if name == 'DRE' else ''}".rstrip()
                            for address, cell in s.cells.items() if cell.style == "note" and address != "B3"})
         values = []
         for address, cell in s.cells.items():

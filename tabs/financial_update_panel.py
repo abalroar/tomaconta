@@ -15,7 +15,7 @@ from utils.prudential_analysis import dre_row_labels
 
 ACCEPT = "Aceitar na linha indicada"
 MAX_INDIVIDUAL_DECISIONS = 30
-KIND_LABELS = {"nova": "Conta nova", "sumiu": "Conta que sumiu", "renomeada": "Nome alterado", "salto": "Salto na linha"}
+KIND_LABELS = {"nova": "Conta nova", "sumiu": "Conta que sumiu", "renomeada": "Nome alterado", "salto": "Salto na linha", "divergencia": "Divergência contábil"}
 STATUS = {
     "validated": ("info", "Verificação concluída. Nada foi alterado na base."),
     "needs_review": ("warning", "Há contas a revisar. Nada foi alterado na base."),
@@ -153,6 +153,8 @@ def _render_report(root, report, path, token) -> None:
         st.dataframe(pd.DataFrame(errors).astype(str), hide_index=True, width="stretch")
     if report.get("changed"):
         st.caption("Bases com alteração: " + ", ".join(report["changed"]) + ".")
+    if (report.get("individual") or {}).get("status") == "unavailable":
+        st.caption("Os balancetes individuais desta data ainda não estão disponíveis no BCB; a análise individual segue na data anterior.")
     publication = report.get("publication") or {}
     if publication.get("status") == "published":
         st.success(f"Publicado em {publication['repo']}@{publication['tag']}. O site passa a ler esta versão.")

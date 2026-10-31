@@ -182,3 +182,94 @@ def test_older_or_equal_release_never_replaces_the_installed_base(tmp_path, monk
     for period in ("202606", "202605"):
         assert ensure_published_bloprudencial(cache, {"max_period_ref": period, "sha256": "0" * 64}, "https://exemplo/release") is False
     assert cache.read_data_file.read_bytes() == before
+
+
+def _individual_rows(period, code="60701190", name="BANCO A"):
+    amounts = [("1000000009", 1000.0), ("1100000002", 1000.0), ("4000000006", 800.0), ("4100000009", 800.0), ("6000000004", 150.0),
+               ("7000000003", 70.0), ("7100000006", 70.0), ("7110000003", 70.0), ("8000000002", -20.0), ("8100000005", -20.0), ("8110000002", -20.0)]
+    return pd.DataFrame([{"DATA_BASE": period, "Período": period, "CNPJ": code, "CONTA": account, "NOME_CONTA": account, "SALDO": value * 1e6,
+                          "NOME_INSTITUICAO": name, "TAXONOMIA": "X", "GRUPO_FONTE": "Bancos"} for account, value in amounts])
+
+
+def test_individual_analysis_uses_the_same_rules_and_labels_its_scope(tmp_path):
+    from io import BytesIO
+    from openpyxl import load_workbook
+    from pptx import Presentation
+    from tabs.prudential_analysis import load_analysis
+    from utils.ifdata_cache import CacheManager
+    from utils.prudential_pptx import render_pptx
+    from utils.prudential_workbook import render_xlsx
+    manager = CacheManager(tmp_path)
+    cache = manager.get_cache("balancete_individual")
+    for period in ("202512", "202603", "202606"):
+        cache.add_period(_individual_rows(period))
+    assert cache.available_periods() == ["202512", "202603", "202606"]
+    analysis = load_analysis(manager, "60701190", ["202512", "202603", "202606", "202609"], individual=True)
+    assert analysis.periods == ["202512", "202603", "202606"] and analysis.scope_label == "Instituição individual"
+    assert not any(check["status"] == "Divergência" and check["check"].startswith(("Balanço:", "DRE: resultado")) for check in analysis.checks)
+    dre, rows = analysis.sheets["DRE"], analysis.rows["DRE"]
+    assert dre.cells[f"G{rows['net']}"].value == pytest.approx(50.0)
+    assert "4010" in dre.cells["C5"].value or "4010" in str(dre.cells["C6"].value)
+    balance, balance_rows = analysis.sheets["Balanço"], analysis.rows["Balanço"]
+    assert balance.cells[f"G{balance_rows['roe']}"].value == pytest.approx(50 / 200 * 2)
+    workbook = load_workbook(BytesIO(render_xlsx(analysis)))
+    assert workbook["Carteira 4.966"].sheet_state == "hidden"
+    deck = Presentation(BytesIO(render_pptx(analysis)))
+    assert len(deck.slides) == 1
+    text = " ".join(shape.text_frame.text for shape in deck.slides[0].shapes if shape.has_text_frame)
+    assert "Instituição individual" in text and "COSIF 4010" in text and "4066" not in text
+
+
+def test_individual_history_replaces_only_its_period_and_reads_by_institution(tmp_path):
+    from utils.ifdata_cache.balancete_individual import BalanceteIndividualCache
+    cache = BalanceteIndividualCache(tmp_path)
+    cache.add_period(pd.concat([_individual_rows("202603"), _individual_rows("202603", code="11111111", name="BANCO B")]))
+    cache.add_period(_individual_rows("202606"))
+    changed = _individual_rows("202606"); changed["SALDO"] *= 2
+    cache.add_period(changed)
+    assert cache.available_periods() == ["202603", "202606"]
+    loaded = cache.load_institution("60701190", ["202606"])
+    assert loaded.SALDO.max() == 2000e6 and set(loaded.CNPJ) == {"60701190"}
+    assert set(cache.catalog().CNPJ) == {"60701190", "11111111"}
+
+
+def test_individual_review_flags_new_accounts_and_broken_totals(tmp_path):
+    from utils.ifdata_cache.balancete_individual import BalanceteIndividualCache
+    from utils.ifdata_cache.financial_analysis_update import individual_review
+    cache = BalanceteIndividualCache(tmp_path)
+    cache.add_period(_individual_rows("202603"))
+    now = _individual_rows("202606")
+    assert individual_review(_with(cache, now), "202606", {}) == []
+    extra = now.iloc[:1].assign(CONTA="8197000009", NOME_CONTA="Nova", SALDO=-2e8)
+    items = individual_review(_with(cache, pd.concat([now, extra])), "202606", {})
+    assert {item["id"] for item in items} >= {"nova:4010:8197000009", "divergencia:4010:202606"}
+    assert all(item["blocking"] for item in items)
+
+
+def _with(cache, frame):
+    cache.add_period(frame)
+    return cache
+
+
+def test_published_individual_history_is_adopted_only_when_newer(tmp_path, monkeypatch):
+    from hashlib import sha256
+    from unittest.mock import MagicMock
+    from utils.ifdata_cache.balancete_individual import BalanceteIndividualCache, file_metadata
+    from utils.individual_release_cache import ensure_published_individual_statements
+    source = BalanceteIndividualCache(tmp_path / "origem")
+    source.add_period(_individual_rows("202606")); source.add_period(_individual_rows("202609"))
+    raw, metadata = source.arquivo_dados.read_bytes(), source.arquivo_metadata.read_bytes()
+    def fake_get(url, **kwargs):
+        response = MagicMock()
+        response.__enter__.return_value = response
+        response.iter_content = lambda size: [metadata if "metadata" in url else raw]
+        return response
+    monkeypatch.setattr("utils.individual_release_cache.requests.get", fake_get)
+    cache = BalanceteIndividualCache(tmp_path / "site")
+    cache.add_period(_individual_rows("202606"))
+    info = {"max_period_ref": "202609", "sha256": sha256(raw).hexdigest()}
+    assert ensure_published_individual_statements(cache, info, "https://exemplo") is True
+    assert cache.available_periods() == ["202606", "202609"]
+    assert ensure_published_individual_statements(cache, info, "https://exemplo") is False
+    with pytest.raises(ValueError):
+        ensure_published_individual_statements(BalanceteIndividualCache(tmp_path / "outro"), {**info, "sha256": "0" * 64}, "https://exemplo")

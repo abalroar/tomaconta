@@ -43,6 +43,13 @@ e os cálculos do Snapshot foram preservados.
 - Snapshot: **Exportar Snapshot**, **Exportar material de comitê** e **Excel**, na base
   Consolidada / Prudencial. Comparação com pares e liquidez regulatória não estão incluídas.
 
+## Visão individual
+
+**Análise · Individual** e o Snapshot na base Individual aplicam as mesmas regras de Balanço, DRE, NIM e ROE ao COSIF 4010,
+por CNPJ-base. A base `balancete_individual` guarda fins de trimestre desde mar/23 e os grupos 1, 2, 4, 6, 7 e 8; é lida por
+instituição. Fonte: `python tools/build_balancete_individual.py --fim AAAAMM`. Capital regulatório, Carteira 4.966 e Evolução
+não têm fonte neste perímetro. O ROE individual usa o PL da data-base, como Snapshot e Peers individuais; o prudencial usa o PL médio.
+
 ## Atualização
 
 Pela tela: **Atualizar Base > Análise financeira**. **Verificar BCB** baixa as fontes e confere tudo sem alterar a base.

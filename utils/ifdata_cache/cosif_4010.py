@@ -83,7 +83,7 @@ def read_source_zip(path: Path, periodo: str, grupo: str) -> tuple[pd.DataFrame,
     frame = frame.loc[frame["DOCUMENTO"].eq("4010")].copy()
     if not frame["CNPJ"].str.fullmatch(r"\d{8}").all():
         raise ValueError(f"{path.name}: CNPJ-base inválido")
-    if not frame["CONTA"].str.fullmatch(r"\d{10}").all():
+    if not frame["CONTA"].str.fullmatch(r"(?:\d{8}|\d{10})").all():
         raise ValueError(f"{path.name}: conta COSIF inválida")
     # Vazio permanece ausente; zero publicado permanece zero.
     saldo = frame["SALDO"].replace("", pd.NA).str.replace(".", "", regex=False).str.replace(",", ".", regex=False)
