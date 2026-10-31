@@ -326,7 +326,9 @@ def test_committee_deck_drops_repeated_rows_and_keeps_one_slide_per_section():
     history, portfolio = visible_text(prs.slides[1]), visible_text(prs.slides[2])
     assert "Histórico trimestral" in history and "Basileia" not in history and "Core funding" in history
     assert "Carteira 4.966 total" in portfolio and "% base" in portfolio
-    assert "Vencidos acima de 90 dias" not in portfolio and "PDD / C5" in portfolio
+    # Over 90 sai do histórico, mas não pode sumir do material: volume, % e cobertura ficam aqui.
+    assert "Vencidos >90" not in history
+    assert "Vencidos acima de 90 dias" in portfolio and "PDD / Créditos vencidos acima de 90 dias" in portfolio and "PDD / C5" in portfolio
 
 
 def test_history_title_only_says_peers_when_there_are_peers():

@@ -256,13 +256,12 @@ def _unavailable_slide(prs, snapshot, title, reason):
     slide.notes_slide.notes_text_frame.text = _json({"section": title, "status": "unavailable", "reason": reason, "bank": snapshot.get("bank"), "base": snapshot.get("base")})
 
 
-# No material de comitê, estes indicadores já aparecem no Balanço, na DRE ou na Carteira 4.966.
+# No material de comitê, estes indicadores têm lugar no Balanço, na DRE ou na Carteira 4.966.
 COMMITTEE_REPEATED_METRICS = {
     "Ativo Total", "Depósitos Totais", "Patrimônio Líquido (PL)", "Inadimplência", "Inadimplência / Carteira Total",
     "PDD / Inadimplência (arrasto)", "Índice de Capital Principal (CET1)", "Índice de Basileia Total (%)",
     "Lucro Líquido Acumulado", "ROE Acumulado YTD (%)",
 }
-COMMITTEE_REPEATED_PORTFOLIO = {"delinquency", "provision_over_delinquency"}
 
 
 def _history_title(query):
@@ -338,6 +337,7 @@ def _peers_slides(prs, snapshot, query, reason, *, committee=False):
 
 
 def _carteira_slides(prs, snapshot, model, reason, *, committee=False):
+    from pptx.util import Inches
     from tabs.carteira_4966 import (
         ROW_SPECS, MetricCell, VARIATION_NOTE, COLOR_NOTE, cell_delta,
         format_brl_millions, format_percentage, quality_issue_message,
@@ -351,14 +351,14 @@ def _carteira_slides(prs, snapshot, model, reason, *, committee=False):
         ("Atrasos, provisão e cobertura", [spec for spec in ROW_SPECS if spec.group != "classification"]),
     ]
     if committee:
-        groups = [("Classificação, provisão e cobertura", [spec for spec in ROW_SPECS if spec.key not in COMMITTEE_REPEATED_PORTFOLIO])]
+        groups = [("Classificação, atrasos, provisão e cobertura", list(ROW_SPECS))]
     base_label = model.period_labels.get(model.base_period, period_label(model.base_period)) if model.base_period else "N/D"
-    value_size, delta_size, label_size = (11, 8, 11) if committee else (14, 10, 13)
+    value_size, delta_size, label_size = (10, 7.5, 10) if committee else (14, 10, 13)
     for title, specs in groups:
         slide = _slide(prs, "Carteira 4.966", f"{short_bank(snapshot.get('bank') or 'Instituição')}  ·  {snapshot.get('base') or 'Consolidada / Prudencial'}  ·  {title}", len(prs.slides) + 1)
         columns = 1 + len(periods) * 2
         widths = [4.15] + [(_CONTENT - 4.15) / (columns - 1)] * (columns - 1)
-        row_height = .39 if committee else .49 if len(specs) > 5 else .64
+        row_height = .335 if committee else .49 if len(specs) > 5 else .64
         heights = [.46 if committee else .53, .26 if committee else .30] + [row_height] * len(specs)
         table = _table(slide, len(specs) + 2, columns, 1.22 if committee else 1.47, heights, widths)
         table.cell(0, 0).merge(table.cell(1, 0))
@@ -387,6 +387,11 @@ def _carteira_slides(prs, snapshot, model, reason, *, committee=False):
                     _cell(target, display + marker, size=value_size, bold=spec.emphasis, centered=True)
                     delta = cell_delta(model, spec, period, secondary=percent and spec.layout == "paired")
                     _cell_delta(target, delta.display, delta.tone, size=delta_size)
+        if committee:
+            # Treze linhas em uma página: o texto ocupa a altura toda, sem folga interna.
+            for row in list(table.rows)[2:]:
+                for cell in row.cells:
+                    cell.margin_top = cell.margin_bottom = Inches(.01)
         base = model.period_labels.get(model.base_period, period_label(model.base_period)) if model.base_period else "N/D"
         footer = f"BCB IFData Rel. 16 e Rel. 2 · trimestral · {snapshot.get('base') or 'Consolidada / Prudencial'} · 4.966 desde 2025. Classificação: % da carteira-base de {base}."
         footer += "\nVencidos: operação integral com parcela >90 dias (arrasto), % da carteira do trimestre. PDD: |e2+f2+g2+h2|. Coberturas usam a PDD total."
