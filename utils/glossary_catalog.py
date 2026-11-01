@@ -719,6 +719,8 @@ MODULE_GUIDES = (
         ("ifdata", "ifdata_credit", "cosif_prudential"), "Os indicadores podem vir de relatórios distintos. Confira o denominador e o motivo de eventuais lacunas."),
     ModuleGuide("Rankings", "Localizar a posição das instituições em um indicador e comparar sua evolução.",
         ("ifdata", "ifdata_credit"), "A lista reflete os filtros e as instituições com dado disponível, com modelos de negócio possivelmente diferentes."),
+    ModuleGuide("Cockpit", "Acompanhar a própria carteira, com uma linha por banco e os mesmos indicadores do Snapshot.",
+        ("ifdata", "ifdata_credit", "cosif_prudential"), "A tendência é um saldo de sinais em 12 meses, não uma avaliação de crédito. Abra o Snapshot para ver os detalhes."),
     ModuleGuide("Tabela de Peers", "Comparar um conjunto escolhido de instituições por métricas de capital, carteira, resultado e captação.",
         ("ifdata", "ifdata_credit", "cosif_prudential"), "Escolha pares com porte, atividade, período e perímetro comparáveis. Veja as regras de cada razão."),
     ModuleGuide("Conselho e Diretoria", "Consultar cargos e vínculos de administradores disponíveis no BCB.",
