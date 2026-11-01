@@ -478,11 +478,12 @@ class Builder:
         return sum(values)/1e6 if values else None
 
     def _ytd_periods(self,p):
-        """Competências que compõem o acumulado; sem junho, a DRE fica N/D em vez de parcial."""
+        """Competências que compõem o acumulado; sem junho ou sem o mês, a DRE fica N/D em vez de parcial."""
         base=self.ytd_base.get(p)
         if base is None:
             return [p]
-        return [base,p] if (base,self.result_doc) in self.indexes else []
+        # Sem o mês, a soma repetiria junho como se fosse a competência pedida.
+        return [base,p] if (base,self.result_doc) in self.indexes and (p,self.result_doc) in self.indexes else []
 
     def _control_ytd(self,p,prefixes,label):
         s=self.a.sheets["Mapa COSIF"]
