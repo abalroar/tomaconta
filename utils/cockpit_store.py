@@ -119,6 +119,8 @@ class GitHubStore:
         head.raise_for_status()
         created = self.client.post(f"{base}/refs", headers=self.headers, timeout=30,
                                    json={"ref": f"refs/heads/{BRANCH}", "sha": head.json()["object"]["sha"]})
+        if created.status_code in {401, 403}:
+            raise PermissionError("O token do site não tem permissão de escrita (Contents: Read and write) neste repositório.")
         if created.status_code not in {201, 422}:
             created.raise_for_status()
 
@@ -141,6 +143,8 @@ class GitHubStore:
         response = self.client.put(f"{API}/{self.repo}/contents/{PATH}", headers=self.headers, json=body, timeout=30)
         if response.status_code in {409, 422}:
             raise ConflictError("Outra pessoa salvou ao mesmo tempo.")
+        if response.status_code in {401, 403}:
+            raise PermissionError("O token do site não tem permissão de escrita (Contents: Read and write) neste repositório.")
         response.raise_for_status()
         checked, _ = self.read()
         if checked != payload:
