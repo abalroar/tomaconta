@@ -54,7 +54,7 @@ _META = {
     "Perda Esperada / Est2+3": ("Perdas e ajustes / estágios 2 e 3", "%", "|Perdas e ajustes contábeis| ÷ (estágio 2 + estágio 3)", "IFData Rel. 2 + Cadoc 4060"),
     "Perda Esperada / Carteira de Crédito*": ("Perdas e ajustes / carteira ampliada", "%", "|Perdas e ajustes contábeis| ÷ carteira ampliada", "IFData Rel. 2"),
     "Ativo Total / PL": ("Ativo / PL", "x", "Ativo total ÷ patrimônio líquido", "IFData Rel. 1"),
-    "Carteira de Crédito* / PL": ("Carteira ampliada / PL", "x", "Carteira ampliada ÷ patrimônio líquido", "IFData Rel. 2 + Rel. 1"),
+    "Carteira de Crédito* / PL": ("Crédito / PL", "x", "Carteira ampliada ÷ patrimônio líquido", "IFData Rel. 2 + Rel. 1"),
     "Índice de Capital Principal (CET1)": ("Capital principal (CET1)", "%", "Capital principal ÷ RWA total", "IFData Rel. 5"),
     "Índice de Basileia Total (%)": ("Basileia total", "%", "(Capital principal + complementar + nível II) ÷ RWA; índice publicado como fallback", "IFData Rel. 5"),
     "Lucro Líquido Acumulado": ("Lucro líquido acumulado", "R$", "Lucro líquido de janeiro até a competência", "IFData Rel. 1"),
@@ -125,8 +125,8 @@ def _catalog():
 
 METRICS = _catalog()
 BY_KEY = {m.key: m for m in METRICS}
-DEFAULT_METRICS = tuple(m.key for m in METRICS if m.section != "Detalhamento e cobertura" and m.key not in {"Perda Esperada", "Ativo Total / PL", "Carteira de Crédito* / PL", "Ativos Líquidos"})
-INDIVIDUAL_METRICS = ("Ativo Total", "Carteira de Crédito*", "Core Funding*", "Patrimônio Líquido (PL)", "Lucro Líquido Acumulado", "ROE Acumulado YTD (%)")
+DEFAULT_METRICS = tuple(m.key for m in METRICS if m.section != "Detalhamento e cobertura" and m.key not in {"Perda Esperada", "Ativo Total / PL", "Ativos Líquidos"})
+INDIVIDUAL_METRICS = ("Ativo Total", "Carteira de Crédito*", "Core Funding*", "Patrimônio Líquido (PL)", "Carteira de Crédito* / PL", "Lucro Líquido Acumulado", "ROE Acumulado YTD (%)")
 BASELINES = {"quarter": "QoQ · trimestre anterior", "year": "YoY · mesmo trimestre do ano anterior", "none": "Sem variação"}
 SCALES = {"R$ milhões": 1e6, "R$ bilhões": 1e9}
 COLORS = ("#174A7E", "#B35421", "#56734A", "#7C5C8F", "#276C75", "#6B6B6B")
@@ -139,7 +139,7 @@ def get_metric(key, base):
     overrides = {
         "Carteira de Crédito*": dict(label="Carteira de crédito", formula="Carteira de crédito publicada; classificada quando a carteira está ausente", note="Carteira do Rel. 1 individual."),
         "Core Funding*": dict(label="Captações", formula="Captações publicadas", note="Captações do Rel. 1 individual."),
-        "Carteira de Crédito* / PL": dict(label="Carteira de crédito / PL", formula="Carteira do Rel. 1 ÷ patrimônio líquido", note="Perímetro individual."),
+        "Carteira de Crédito* / PL": dict(label="Crédito / PL", formula="Carteira do Rel. 1 ÷ patrimônio líquido", note="Perímetro individual."),
         "ROE Acumulado YTD (%)": dict(formula="Lucro YTD × fator anual ÷ PL atual", note="ROE do cache individual usa o PL atual. Fator Mar=4, Jun=2, Set=12/9, Dez=1."),
     }
     supported = key in INDIVIDUAL_METRICS or key in {"Ativo Total / PL", "Carteira de Crédito* / PL"}

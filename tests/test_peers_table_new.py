@@ -588,3 +588,10 @@ def test_arrasto_individual_base_does_not_reuse_prudential_values():
                         base="Individual", cache_token="test", scale="R$ milhões",
                         mode="year", queried_at="10/10/2026")
     assert all(c["value"] is None and "individuais" in c["reason"] for c in query["cells"])
+
+
+def test_credit_to_equity_is_a_default_row_in_capital_and_leverage():
+    metric = get_metric("Carteira de Crédito* / PL", "Consolidada / Prudencial")
+    assert metric.label == "Crédito / PL" and metric.section == "Capital e alavancagem" and metric.unit == "x"
+    assert "Carteira de Crédito* / PL" in DEFAULT_METRICS
+    assert get_metric("Carteira de Crédito* / PL", "Individual").label == "Crédito / PL"
