@@ -54,15 +54,22 @@ def _item(kind, document, row, *, material, overrides=None, previous_name=None):
             "blocking": material}
 
 
-def account_changes(cosif, period, *, material=REVIEW_MATERIAL_BRL, overrides=None):
-    """Compara a competência com o histórico, por documento, em todo o sistema."""
+def account_changes(cosif, period, *, material=REVIEW_MATERIAL_BRL, overrides=None, known_accounts=None):
+    """Compara a competência com o histórico, por documento, em todo o sistema.
+
+    ``known_accounts`` traz o catálogo pronto quando ``cosif`` contém só parte das datas.
+    """
     items = []
     for document, frame in cosif.groupby("DOCUMENTO"):
         incoming = frame[frame.DATA_BASE.eq(period)]
         history = frame[frame.DATA_BASE.lt(period)]
         if incoming.empty or history.empty:
             continue
-        current, known = _summary(incoming), set(history.CONTA.map(stem))
+        known = set(history.CONTA.map(stem))
+        if known_accounts is not None:
+            seen = known_accounts[known_accounts.DOCUMENTO.eq(document) & known_accounts.first_seen.lt(period)]
+            known |= set(seen.CONTA.map(stem))
+        current = _summary(incoming)
         before = _summary(history[history.DATA_BASE.eq(history.DATA_BASE.max())])
         for prefix, row in current.iterrows():
             if prefix not in known:

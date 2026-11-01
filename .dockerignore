@@ -1,0 +1,14 @@
+.git
+.claude
+.devcontainer
+.pytest_cache
+__pycache__
+**/__pycache__
+.venv
+outputs
+tests
+data/cache/*
+!data/cache/manifest.json
+!data/cache/taxas_juros_historico
+*.pptx
+*.xlsx

@@ -110,6 +110,8 @@ def main() -> int:
 
     parser.add_argument("--force-refresh", action="store_true", help="forçar download (bloprudencial)")
 
+    parser.add_argument("--taxas-inicio", help="início AAAA-MM-DD da janela de taxas_juros_historico")
+    parser.add_argument("--taxas-fim", help="fim AAAA-MM-DD da janela de taxas_juros_historico")
     parser.add_argument(
         "--scr-ano-inicial",
         type=int,
@@ -280,6 +282,27 @@ def _execute(args, manager) -> int:
                 overwrite=(args.modo in {"overwrite", "rebuild"}),
                 progress_callback=lambda p, m: _print(f"[{p:.0%}] {m}"),
             ))
+            if result.sucesso:
+                _print(f"OK: {result.mensagem}")
+                tipos_atualizados.add(tipo)
+            else:
+                _print(f"ERRO: {result.mensagem}")
+                return 1
+            continue
+
+        if tipo == "taxas_juros_historico":
+            cache = manager.get_cache("taxas_juros_historico")
+            if not (args.taxas_inicio and args.taxas_fim):
+                _print("Para taxas_juros_historico, informe --taxas-inicio e --taxas-fim.")
+                return 1
+            _print(f"==> Atualizando cache 'taxas_juros_historico' ({args.taxas_inicio}–{args.taxas_fim})")
+            result = _materialize_with_receipt(manager, tipo, args.modo, lambda: cache.materialize_history(
+                data_inicio=args.taxas_inicio, data_fim=args.taxas_fim, log_callback=_print,
+            ), options={"start": args.taxas_inicio, "end": args.taxas_fim})
+            # Sem limite de janelas por execução, o histórico termina na mesma chamada; parcial é falha.
+            if result.sucesso and (result.metadata or {}).get("finalized") is False:
+                _print(f"ERRO: {result.mensagem}")
+                return 1
             if result.sucesso:
                 _print(f"OK: {result.mensagem}")
                 tipos_atualizados.add(tipo)

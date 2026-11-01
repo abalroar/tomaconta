@@ -8,10 +8,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import tempfile
 import zipfile
 from pathlib import Path
 
 import pandas as pd
+import pyarrow as pa
+import pyarrow.compute as pc
+import pyarrow.parquet as pq
 
 from .bloprudencial import inspect_bloprudencial_csv, build_bloprudencial_url
 from .bloprudencial_cache import BloprudencialCache
@@ -68,12 +72,33 @@ def normalize_cache(frame: pd.DataFrame) -> pd.DataFrame:
     return frame
 
 
+def _save_table(cache, table, manifest, decisions):
+    """Grava por arquivo; a validação em lotes dispensa carregar o histórico na memória."""
+    periods = sorted(pc.unique(table.column("DATA_BASE")).to_pylist())
+    metadata = {"fonte": "bcb_cosif", "periodos": periods, "total_periodos": len(periods),
+                "total_registros": table.num_rows, "colunas": table.column_names,
+                "info": {"source_import": manifest}, "source_import": manifest}
+    kept = decisions if decisions is not None else cache.cosif_decisions()
+    if kept:
+        metadata["cosif_decisions"] = kept
+    cache.cache_dir.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="bloprudencial-", dir=cache.cache_dir) as directory:
+        candidate = Path(directory) / "novo.parquet"
+        pq.write_table(table, candidate, compression="zstd", row_group_size=100_000)
+        return cache.salvar_arquivo_local(candidate, metadata)
+
+
 def ingest_source(path: Path, root: Path, *, decisions=None) -> dict:
     cache = BloprudencialCache(root)
     cache._assert_writable()
     incoming, manifest = read_source(path)
-    existing = normalize_cache(pd.read_parquet(cache.arquivo_dados)) if cache.arquivo_dados.exists() else incoming.iloc[:0]
-    previous = existing[existing.DATA_BASE.eq(manifest["period"])]
+    # Só a competência entra em pandas; o histórico segue em colunas, sem custo de objetos Python.
+    history = pq.read_table(cache.arquivo_dados) if cache.arquivo_dados.exists() else None
+    previous = incoming.iloc[:0]
+    if history is not None:
+        history = pa.table({name: column if name == "SALDO" else pc.cast(column, pa.string()) for name, column in zip(history.column_names, history.columns)})
+        history = pa.table({name: column if name == "SALDO" else pc.replace_substring_regex(pc.fill_null(column, ""), r"\.0$", "") for name, column in zip(history.column_names, history.columns)})
+        previous = normalize_cache(history.filter(pc.equal(history.column("DATA_BASE"), manifest["period"])).to_pandas())
     comparison = previous.merge(incoming, on=KEY, how="outer", suffixes=("_old", "_new"), indicator=True)
     manifest["comparison"] = {
         "previous_rows": len(previous),
@@ -82,11 +107,18 @@ def ingest_source(path: Path, root: Path, *, decisions=None) -> dict:
         "changed_balances": int((comparison._merge.eq("both") &
                                  (comparison.SALDO_old - comparison.SALDO_new).abs().gt(.005)).sum()),
     }
-    merged = pd.concat([existing[~existing.DATA_BASE.eq(manifest["period"])], incoming], ignore_index=True)
+    incoming_table = pa.Table.from_pandas(normalize_cache(incoming), preserve_index=False)
+    if history is not None:
+        kept = history.filter(pc.not_equal(history.column("DATA_BASE"), manifest["period"]))
+        incoming_table = incoming_table.select(kept.column_names).cast(kept.schema) if set(kept.column_names) == set(incoming_table.column_names) else incoming_table
+        merged_table = pa.concat_tables([kept, incoming_table], promote_options="permissive")
+    else:
+        merged_table = incoming_table
     # Do not silently repair unrelated historical periods during this import.
     # The export rejects any duplicate in its selected institution/periods.
-    manifest["historical_duplicate_rows_preserved"] = int(merged.duplicated(KEY).sum())
-    merged = merged.sort_values(KEY).reset_index(drop=True)
+    keys = merged_table.select(KEY)
+    manifest["historical_duplicate_rows_preserved"] = keys.num_rows - keys.group_by(KEY).aggregate([]).num_rows
+    merged_table = merged_table.sort_by([(column, "ascending") for column in KEY])
     # Preserve the original bytes and validate the archived source independently.
     archive_dir = root / "data/cache/bcb_bloprudencial/sources"
     archive_dir.mkdir(parents=True, exist_ok=True)
@@ -96,12 +128,14 @@ def ingest_source(path: Path, root: Path, *, decisions=None) -> dict:
     with zipfile.ZipFile(archive) as zipped:
         assert hashlib.sha256(zipped.read(path.name)).hexdigest() == manifest["sha256"]
     manifest["archive"] = archive.relative_to(root).as_posix()
-    saved = cache.salvar_local(merged, fonte="bcb_cosif", info_extra={"source_import": manifest},
-                               metadata_extra={"cosif_decisions": decisions} if decisions else None)
+    saved = _save_table(cache, merged_table, manifest, decisions)
     if not saved.sucesso:
         raise ValueError(saved.mensagem)
-    reread = normalize_cache(pd.read_parquet(cache.arquivo_dados))
-    pd.testing.assert_frame_equal(merged, reread, check_dtype=False, check_exact=True)
+    reread = pq.read_table(cache.arquivo_dados, columns=["DATA_BASE", "SALDO"])
+    # Valor a valor: a soma de pontos flutuantes muda conforme a divisão em blocos.
+    if not (reread.column("SALDO").combine_chunks().equals(merged_table.column("SALDO").combine_chunks())
+            and reread.column("DATA_BASE").combine_chunks().equals(merged_table.column("DATA_BASE").combine_chunks())):
+        raise ValueError("Releitura da base difere da geração gravada")
     manifest["cache_sha256"] = hashlib.sha256(cache.arquivo_dados.read_bytes()).hexdigest()
     archive.with_suffix(".json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
     return manifest

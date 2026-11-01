@@ -50,3 +50,5 @@ docs/.Rhistory
 
 # Artefato gerado localmente (não versionar binário)
 data/DRE_COSIF_mapeamento_explicativo.xlsx
+
+.env

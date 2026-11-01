@@ -15,6 +15,7 @@ from utils.prudential_analysis import dre_row_labels
 
 ACCEPT = "Aceitar na linha indicada"
 MAX_INDIVIDUAL_DECISIONS = 30
+ALL_STATUS = {"ok": "Concluída", "partial": "Parcial", "failed": "Com falha", "needs_review": "Revisão pendente", "skipped": "Não executada"}
 KIND_LABELS = {"nova": "Conta nova", "sumiu": "Conta que sumiu", "renomeada": "Nome alterado", "salto": "Salto na linha", "divergencia": "Divergência contábil"}
 STATUS = {
     "validated": ("info", "Verificação concluída. Nada foi alterado na base."),
@@ -78,6 +79,28 @@ def start_job(root: Path, *, check_only: bool, period=None, csv=None, decisions=
     log = (directory / "job.log").open("ab")
     process = subprocess.Popen(command, cwd=root, env=environment, stdout=log, stderr=log, start_new_session=True)
     job_file.write_text(json.dumps({"pid": process.pid, "stage": "Iniciando", "running": True}), encoding="utf-8")
+
+
+def start_all(root: Path, *, publish=False, token=None) -> None:
+    """Todas as fontes, em processos separados, sem depender desta sessão."""
+    directory = _reports_dir(root)
+    job_file = directory / "job.json"
+    command = [sys.executable, str(Path(root) / "tools/update_all.py"), "--root", str(root), "--job-file", str(job_file)]
+    environment = dict(os.environ)
+    if publish and token:
+        command.append("--publish")
+        environment["GITHUB_PAT"] = token
+    log = (directory / "job.log").open("ab")
+    process = subprocess.Popen(command, cwd=root, env=environment, stdout=log, stderr=log, start_new_session=True)
+    job_file.write_text(json.dumps({"pid": process.pid, "stage": "Iniciando", "running": True}), encoding="utf-8")
+
+
+def latest_all_summary(root: Path) -> dict | None:
+    files = sorted(_reports_dir(root).glob("tudo-*.json"), key=lambda path: path.name)
+    try:
+        return json.loads(files[-1].read_text(encoding="utf-8")) if files else None
+    except ValueError:
+        return None
 
 
 def store_upload(root: Path, upload) -> Path:
@@ -206,6 +229,13 @@ def render(root: Path, token: str | None = None) -> None:
         st.warning("A última execução foi interrompida antes de terminar. A base anterior foi preservada; execute novamente.")
     upload = st.file_uploader("Usar arquivo baixado do BCB (opcional)", type=["zip", "csv"], key="financial_update_upload",
                               help="Só é necessário se o download automático falhar.")
+    summary = latest_all_summary(root)
+    if summary:
+        with st.expander(f"Última atualização completa: {ALL_STATUS.get(summary['status'], summary['status'])}"):
+            st.dataframe(pd.DataFrame([{"Etapa": step["name"], "Situação": ALL_STATUS.get(step["status"], step["status"]), "Detalhe": step.get("detail") or "–"} for step in summary["steps"]]), hide_index=True, width="stretch")
+    if st.button("Atualizar tudo", key="financial_update_all", help="Análise financeira e demais fontes. Exige memória: use em servidor com ao menos 4 GB."):
+        start_all(root, publish=bool(token), token=token)
+        st.rerun()
     if st.button("Verificar BCB", type="primary", key="financial_update_check"):
         try:
             csv = store_upload(root, upload) if upload else None
