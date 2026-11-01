@@ -77,6 +77,19 @@ def remove(payload, name):
     return validate({**payload, "carteiras": [item for item in payload["carteiras"] if clean_name(item["nome"]).casefold() != key]})
 
 
+def rename(payload, old, new):
+    """Só o nome muda; bancos e demais carteiras ficam como estão."""
+    new = clean_name(new)
+    current = find(payload, old)
+    if current is None:
+        raise ValueError(f"Carteira não encontrada: {old}")
+    other = find(payload, new)
+    if other is not None and other is not current:
+        raise ValueError(f"Já existe uma carteira com o nome {other['nome']}.")
+    updated = [{**item, "nome": new} if item is current else item for item in payload["carteiras"]]
+    return validate({**payload, "carteiras": sorted(updated, key=lambda item: item["nome"].casefold())})
+
+
 def resolve(portfolio, identities):
     """Bancos encontrados pelo código na base atual e os que saíram dela."""
     by_code = {code: name for name, code in identities.items()}

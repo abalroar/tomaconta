@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from html import escape
+import math
 import re
 
 import streamlit as st
@@ -60,6 +61,31 @@ def trend(comparisons):
     return {"state": state, "reason": " · ".join(part for part in parts if part) or "Sem variação relevante.", "better": len(better), "worse": len(worse)}
 
 
+ORDER_TREND = "Tendência (piores primeiro)"
+ORDER_PORTFOLIO = "Ordem da carteira"
+DEFAULT_SORT = "Ativo Total"
+DEFAULT_SPARK = "ROE Ac. Anualizado"
+
+
+def sort_rows(rows, order, descending=True):
+    """Métrica ausente vai sempre para o fim, em qualquer direção."""
+    if order == ORDER_PORTFOLIO:
+        return list(rows)
+    if order == ORDER_TREND:
+        return sorted(rows, key=lambda row: (TREND_ORDER[row["trend"]["state"]], -row["trend"].get("worse", 0)))
+    known = [row for row in rows if row["cells"][order].get("raw") is not None]
+    missing = [row for row in rows if row["cells"][order].get("raw") is None]
+    return sorted(known, key=lambda row: row["cells"][order]["raw"], reverse=descending) + missing
+
+
+def _number(value):
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
 def build_row(bank, frame, api, spark_label):
     """Valores e comparações de um banco, na última data que ele publicou."""
     from utils.snapshot_data import snapshot_risk_maps
@@ -84,12 +110,13 @@ def build_row(bank, frame, api, spark_label):
         annual = api["_snapshot_card_delta"](cfg, current, year_ago, "YoY")
         shown = quarter or annual
         cells[cfg["label"]] = {"value": api["_formatar_valor_snapshot"](cfg, cfg["serie"].get(current)), "delta": shown["display"],
-                               "tone": shown["tone"], "reference": "QoQ" if quarter else "YoY", "annual": annual["display"]}
+                               "tone": shown["tone"], "reference": "QoQ" if quarter else "YoY", "annual": annual["display"],
+                               "raw": _number(cfg["serie"].get(current))}
         if annual.get("valido"):
             comparisons[cfg["label"]] = (annual["tone"], annual["display"].lstrip("↑↓ "))
         if cfg["label"] == spark_label:
             spark = [cfg["serie"].get(p) for p in reversed(window)]
-    return {"bank": bank, "period": current, "cells": cells, "trend": trend(comparisons), "spark": spark, "spark_kind": "bars" if spark_label.startswith("Lucro") else "line"}
+    return {"bank": bank, "period": current, "previous": previous, "year_ago": year_ago, "cells": cells, "trend": trend(comparisons), "spark": spark, "spark_kind": "bars" if spark_label.startswith("Lucro") else "line"}
 
 
 CSS = """<style>
@@ -107,21 +134,24 @@ CSS = """<style>
 .tc-cockpit .trend { display:inline-block; padding:2px 8px; border-radius:10px; font-size:.72rem; font-weight:500; background:#f3f4f5; color:#555b63; }
 .tc-cockpit .trend-up { background:#e8f4ec; color:#16713B; } .tc-cockpit .trend-down { background:#fbeaea; color:#B32624; }
 .tc-cockpit .why { display:block; font-size:.68rem; color:#777d85; white-space:normal; min-width:170px; max-width:260px; text-align:left; margin-top:3px; }
+.tc-cockpit th.sorted { color:#212529; font-weight:600; background:#eef1f4; }
+.tc-cockpit td.sorted { background:#f8f9fa; }
 .tc-cockpit td.trend-cell, .tc-cockpit th.trend-cell { text-align:left; }
 </style>"""
 
 
-def render_table(rows, latest, api):
+def render_table(rows, latest, api, highlight=None, spark_name="ROE"):
     metrics = metric_configs()
-    head = "".join(f"<th>{escape(cfg['short'])}</th>" for cfg in metrics)
-    html = [CSS, '<div class="tc-cockpit-wrap"><table class="tc-cockpit"><thead><tr><th>Instituição</th><th class="trend-cell">Tendência</th><th>Evolução</th>', head, "</tr></thead><tbody>"]
+    mark = lambda cfg: ' class="sorted"' if cfg["label"] == highlight else ""
+    head = "".join(f"<th{mark(cfg)}>{escape(cfg['short'])}</th>" for cfg in metrics)
+    html = [CSS, '<div class="tc-cockpit-wrap"><table class="tc-cockpit"><thead><tr><th>Instituição</th><th class="trend-cell">Tendência</th><th>Evolução · ' + escape(spark_name) + '</th>', head, "</tr></thead><tbody>"]
     sparks = {"bars": api["_snap_sparkbars_svg"], "line": api["_snap_sparkline_svg"]}
     for row in rows:
         stale = f'<span class="date">{escape(api["periodo_para_exibicao"](row["period"]))}</span>' if row["period"] != latest else ""
         info = row["trend"]
         spark = sparks[row["spark_kind"]](row["spark"], width=70, height=22) if any(v is not None for v in row["spark"]) else "–"
         cells = "".join(
-            f'<td><span class="val">{escape(row["cells"][cfg["label"]]["value"])}</span>'
+            f'<td{mark(cfg)}><span class="val">{escape(row["cells"][cfg["label"]]["value"])}</span>'
             f'<span class="chg {row["cells"][cfg["label"]]["tone"]}" title="{escape(row["cells"][cfg["label"]]["reference"])}; 12 meses: {escape(row["cells"][cfg["label"]]["annual"])}">{escape(row["cells"][cfg["label"]]["delta"])}</span></td>'
             for cfg in metrics)
         html.append(f'<tr><td>{escape(short_bank(row["bank"]))}{stale}</td>'
@@ -157,9 +187,12 @@ def render(api):
         st.error(f"Não foi possível ler as carteiras: {exc}")
         return
     names = [item["nome"] for item in payload["carteiras"]]
+    # O nome novo entra antes de o seletor existir: o Streamlit não aceita alterar um widget já criado.
+    if "cockpit_name_pending" in st.session_state:
+        st.session_state["cockpit_name"] = st.session_state.pop("cockpit_name_pending")
     left, right = st.columns([1, 3], vertical_alignment="top")
     with left:
-        name = st.selectbox("Seu nome", names, index=None, placeholder="Escolha ou digite um nome", accept_new_options=True, key="cockpit_name")
+        name = st.selectbox("Seu nome", names, index=None, placeholder="Escolha uma carteira ou digite um nome novo", accept_new_options=True, key="cockpit_name")
     name = cockpit_store.clean_name(name)
     existing = cockpit_store.find(payload, name) if name else None
     saved, gone = cockpit_store.resolve(existing, identities) if existing else ([], [])
@@ -173,8 +206,10 @@ def render(api):
     if gone:
         st.warning("Fora da base atual: " + ", ".join(gone))
     changed = sorted(banks) != sorted(saved) or not existing
-    actions = st.columns([1, 1, 4])
-    if actions[0].button("Salvar carteira", type="primary", disabled=not banks or not changed, key="cockpit_save"):
+    actions = st.columns([1.1, .9, .9, 3.1], vertical_alignment="center")
+    if existing and changed:
+        actions[3].caption("Alterações ainda não salvas. A tabela já mostra a seleção atual.")
+    if actions[0].button("Salvar alterações" if existing else "Salvar carteira", type="primary", disabled=not banks or not changed, key="cockpit_save"):
         try:
             cockpit_store.save(store, lambda current: cockpit_store.upsert(current, name, banks, identities), f"Carteira de {name}")
             _read_portfolios.clear()
@@ -183,7 +218,17 @@ def render(api):
         except Exception as exc:
             st.error(f"Não foi possível salvar: {exc}")
     if existing:
-        with actions[1].popover("Excluir"):
+        with actions[1].popover("Renomear"):
+            new_name = st.text_input("Novo nome", value=existing["nome"], key=f"cockpit_rename_{name.casefold()}")
+            if st.button("Salvar nome", key="cockpit_rename_save", disabled=cockpit_store.clean_name(new_name) == existing["nome"] or not cockpit_store.clean_name(new_name)):
+                try:
+                    cockpit_store.save(store, lambda current: cockpit_store.rename(current, name, new_name), f"Renomeia carteira de {name}")
+                    _read_portfolios.clear()
+                    st.session_state["cockpit_name_pending"] = cockpit_store.clean_name(new_name)
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Não foi possível renomear: {exc}")
+        with actions[2].popover("Excluir"):
             st.caption("O histórico guarda a versão anterior.")
             if st.button(f"Excluir a carteira de {existing['nome']}", key="cockpit_delete"):
                 try:
@@ -195,8 +240,14 @@ def render(api):
                     st.error(f"Não foi possível excluir: {exc}")
     if not banks:
         return
-    spark_label = st.segmented_control("Evolução", [cfg["label"] for cfg in metric_configs()], default="ROE Ac. Anualizado", key="cockpit_spark",
-                                       format_func={cfg["label"]: cfg["short"] for cfg in metric_configs()}.get) or "ROE Ac. Anualizado"
+    labels = {cfg["label"]: cfg["short"] for cfg in metric_configs()}
+    options = [ORDER_TREND, *labels, ORDER_PORTFOLIO]
+    order_col, direction_col, _ = st.columns([1.4, 1.2, 3], vertical_alignment="bottom")
+    order = order_col.selectbox("Ordenar por", options, index=options.index(DEFAULT_SORT), key="cockpit_order", format_func=lambda item: labels.get(item, item))
+    is_metric = order in labels
+    direction = direction_col.segmented_control("Direção", ["Maior → menor", "Menor → maior"], default="Maior → menor", key="cockpit_direction",
+                                                disabled=not is_metric, label_visibility="collapsed") or "Maior → menor"
+    spark_label = order if is_metric else DEFAULT_SPARK
     frame = api["_carregar_cache_relatorio_slice"]("critical_screens", token, instituicoes=tuple(banks))
     rows = []
     for bank in banks:
@@ -207,9 +258,15 @@ def render(api):
     if not rows:
         st.info("Sem dados para as instituições selecionadas.")
         return
-    rows.sort(key=lambda row: (TREND_ORDER[row["trend"]["state"]], -row["trend"].get("worse", 0)))
+    rows = sort_rows(rows, order, direction == "Maior → menor")
     latest = api["ordenar_periodos"]([row["period"] for row in rows], reverso=True)[0]
-    st.markdown(render_table(rows, latest, api), unsafe_allow_html=True)
-    st.caption("Variação do trimestre; no lucro e no ROE, contra os mesmos meses do ano anterior. Passe o mouse para ver os 12 meses. "
+    reference = next(row for row in rows if row["period"] == latest)
+    show = api["periodo_para_exibicao"]
+    comparisons = " e ".join(filter(None, (f"{show(reference['previous'])} (trimestre)" if reference["previous"] else "", f"{show(reference['year_ago'])} (12 meses)" if reference["year_ago"] else "")))
+    behind = sum(row["period"] != latest for row in rows)
+    st.markdown(f"**Data-base: {escape(show(latest))}**" + (f" · comparada com {escape(comparisons)}" if comparisons else "")
+                + (f" · {behind} instituição(ões) com data anterior, indicada na linha" if behind else ""))
+    st.markdown(render_table(rows, latest, api, order if is_metric else None, labels[spark_label]), unsafe_allow_html=True)
+    st.caption("Evolução: últimos 8 trimestres da métrica escolhida em Ordenar por. Variação do trimestre; no lucro e no ROE, contra os mesmos meses do ano anterior. Passe o mouse para ver os 12 meses. "
                "Tendência: saldo de sinais em 12 meses de CET1, Basileia, PL, ROE, Over 90 e cobertura. Só contam movimentos de ao menos 25 bps, 5 p.p. ou 2%. Saldo de dois ou mais define melhorando ou piorando. "
                "É uma regra de leitura, não uma avaliação de crédito.")
