@@ -306,3 +306,11 @@ def test_new_generation_wins_over_the_installed_publication_after_file_promotion
     cache.add_period(_individual_rows("202609"))
     assert cache.available_periods() == ["202606", "202609"]
     assert cache.arquivo_dados == cache.arquivo_dados_runtime
+
+
+def test_missing_month_is_not_filled_with_the_june_close(simple_sources):
+    from utils.prudential_analysis import build_analysis
+    analysis = build_analysis(simple_sources, {}, "C1", ["202606", "202607"])
+    sheet, rows = analysis.sheets["DRE"], analysis.rows["DRE"]
+    assert isinstance(sheet.cells[f"C{rows['net']}"].value, (int, float))
+    assert sheet.cells[f"E{rows['net']}"].value in (None, "N/D")
