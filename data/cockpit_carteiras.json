@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "carteiras": [
+    {
+      "nome": "Matheus Prates",
+      "membros": [
+        {
+          "id": "C0080099",
+          "label": "ITAU - PRUDENCIAL"
+        },
+        {
+          "id": "C0080075",
+          "label": "BRADESCO - PRUDENCIAL"
+        },
+        {
+          "id": "C0080185",
+          "label": "SANTANDER - PRUDENCIAL"
+        },
+        {
+          "id": "C0080329",
+          "label": "BB - PRUDENCIAL"
+        },
+        {
+          "id": "C0086581",
+          "label": "CLOUDWALK IP - PRUDENCIAL"
+        },
+        {
+          "id": "C0084820",
+          "label": "MERCADO PAGO IP - PRUDENCIAL"
+        },
+        {
+          "id": "C0084686",
+          "label": "STONE IP - PRUDENCIAL"
+        },
+        {
+          "id": "C0084813",
+          "label": "PAGSEGURO - PRUDENCIAL"
+        },
+        {
+          "id": "C0086440",
+          "label": "SOLFÁCIL SCFI - PRUDENCIAL"
+        }
+      ],
+      "atualizado_em": "2026-11-01T03:34:25+00:00"
+    }
+  ]
+}
