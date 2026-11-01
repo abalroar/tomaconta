@@ -47,15 +47,11 @@
       "nome": "Teste",
       "membros": [
         {
-          "id": "C0084693",
-          "label": "NU PAGAMENTOS - PRUDENCIAL"
-        },
-        {
           "id": "C0080075",
           "label": "BRADESCO - PRUDENCIAL"
         }
       ],
-      "atualizado_em": "2026-11-01T04:00:46+00:00"
+      "atualizado_em": "2026-11-01T04:01:15+00:00"
     }
   ]
 }
