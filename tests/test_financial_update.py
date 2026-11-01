@@ -291,3 +291,18 @@ def test_screen_note_keeps_every_currency_sign_literal(monkeypatch):
     monkeypatch.setattr(subject, "reference_note", lambda analysis: "* Diferença (R$ milhões).")
     note = subject.statement_note(SimpleNamespace())
     assert note.count(r"\$") == 2 and note.count("$") == 2
+
+
+def test_new_generation_wins_over_the_installed_publication_after_file_promotion(tmp_path):
+    from utils.ifdata_cache.balancete_individual import BalanceteIndividualCache, file_metadata
+    origin = BalanceteIndividualCache(tmp_path / "origem")
+    origin.add_period(_individual_rows("202606"))
+    bundled = tmp_path / "site/data/bundled/balancete_individual"
+    bundled.mkdir(parents=True)
+    (bundled / "dados.parquet").write_bytes(origin.arquivo_dados.read_bytes())
+    (bundled / "metadata.json").write_text(json.dumps({**file_metadata(origin.arquivo_dados), "publication_id": "instalada"}))
+    cache = BalanceteIndividualCache(tmp_path / "site")
+    assert cache.available_periods() == ["202606"]
+    cache.add_period(_individual_rows("202609"))
+    assert cache.available_periods() == ["202606", "202609"]
+    assert cache.arquivo_dados == cache.arquivo_dados_runtime

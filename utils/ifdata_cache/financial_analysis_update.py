@@ -12,6 +12,9 @@ import tempfile
 from uuid import uuid4
 
 import pandas as pd
+import pyarrow as pa
+import pyarrow.compute as pc
+import pyarrow.parquet as pq
 import requests
 
 from .bloprudencial import download_bloprudencial_zip, extract_bloprudencial_csv
@@ -51,7 +54,46 @@ def same_data(left, right):
     return bool((a == b).all())
 
 
-def validate_candidate(cosif, sources, period, *, rules=None, overrides=None):
+def same_source(kind, original, source, period):
+    """A ingestão só troca uma competência do COSIF; compará-la dispensa ler o histórico."""
+    if kind != "bloprudencial":
+        return same_data(pd.read_parquet(original.arquivo_dados), pd.read_parquet(source.arquivo_dados))
+    left, right = pq.ParquetFile(original.arquivo_dados).metadata.num_rows, pq.ParquetFile(source.arquivo_dados).metadata.num_rows
+    if left != right:
+        return False
+    read = lambda cache: normalize_cache(pq.read_table(cache.arquivo_dados, filters=[("DATA_BASE", "=", period)]).to_pandas())
+    return same_data(read(original), read(source))
+
+
+def validation_periods(available, period):
+    """Datas que a conferência usa: a competência, a anterior, o ano anterior e os junhos dos acumulados."""
+    earlier = sorted(p for p in available if p < period)
+    prior_year = f"{int(period[:4]) - 1}{period[4:]}"
+    wanted = {period, prior_year, f"{period[:4]}06", f"{prior_year[:4]}06"}
+    if earlier:
+        wanted.add(earlier[-1])
+        wanted.add(f"{earlier[-1][:4]}06")
+    return wanted & (set(available) | {period})
+
+
+def validation_slice(cache, periods):
+    """Catálogo de contas e só as datas que a conferência lê."""
+    table = pq.read_table(cache.arquivo_dados, columns=["DATA_BASE", "DOCUMENTO", "CONTA"])
+    table = pa.table({name: pc.cast(column, pa.string()) for name, column in zip(table.column_names, table.columns)})
+    available = pc.unique(table.column("DATA_BASE")).to_pylist()
+    wanted = set()
+    # O 4066 é semestral: a comparação de contas precisa da última data de cada documento.
+    by_document = table.select(["DOCUMENTO", "DATA_BASE"]).group_by(["DOCUMENTO", "DATA_BASE"]).aggregate([]).to_pandas()
+    for period in filter(None, periods):
+        wanted |= validation_periods(available, period)
+        earlier = by_document[by_document.DATA_BASE.lt(period)]
+        wanted |= set(earlier.groupby("DOCUMENTO").DATA_BASE.max())
+    known = table.select(["DATA_BASE", "DOCUMENTO", "CONTA"]).group_by(["DOCUMENTO", "CONTA"]).aggregate([("DATA_BASE", "min")]).to_pandas()
+    data = pd.read_parquet(cache.arquivo_dados, filters=[("DATA_BASE", "in", sorted(wanted))])
+    return known.rename(columns={"DATA_BASE_min": "first_seen"}), data
+
+
+def validate_candidate(cosif, sources, period, *, rules=None, overrides=None, known_accounts=None):
     """Keep source/perimeter differences in the report; block broken accounting."""
     rules = {**DEFAULT_RULES, **(rules or {})}
     if any(not math.isfinite(float(v)) or float(v) < 0 for v in rules.values()):
@@ -130,7 +172,7 @@ def validate_candidate(cosif, sources, period, *, rules=None, overrides=None):
                     if isinstance(now, (int, float)) and isinstance(then, (int, float)):
                         watched[ident][0] += now
                         watched[ident][1] += then
-    report["review"] = account_changes(cosif, period, material=rules["review_material_brl"], overrides=overrides) + row_jumps(watched, period)
+    report["review"] = account_changes(cosif, period, material=rules["review_material_brl"], overrides=overrides, known_accounts=known_accounts) + row_jumps(watched, period)
     return report
 
 
@@ -207,6 +249,14 @@ def individual_review(cache, period, overrides):
     return items
 
 
+def peak_memory_mb():
+    """Pico do processo, para dimensionar o servidor pela medição real."""
+    import resource
+    import sys
+    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    return round(peak / (1024 * 1024 if sys.platform == "darwin" else 1024))
+
+
 def latest_period(cache):
     """Última competência já carregada, lida só da coluna de data."""
     if not cache.existe_leitura():
@@ -225,7 +275,13 @@ def update(root, *, period=None, csv=None, offline=False, check_only=False, rule
     from .update_backend import LocalOnlySourcesManager, assert_adapter_complete, collect_official_artifacts
     from .update_state import mutation_lock
 
-    progress = progress or (lambda stage: None)
+    notify = progress or (lambda stage: None)
+    memory = {}
+
+    def progress(stage):
+        memory[stage] = peak_memory_mb()
+        notify(stage)
+
     root = Path(root).resolve()
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S") + "-" + uuid4().hex[:8]
     report_dir = root / "data/cache/financial_analysis_updates"
@@ -290,13 +346,13 @@ def update(root, *, period=None, csv=None, offline=False, check_only=False, rule
                         report["ifdata_period"] = None
                 report["sources"] = list(archive_sources(workspace, root))
                 progress("Conferindo as contas e os totais")
-                data = pd.read_parquet(candidate.get_cache("bloprudencial").arquivo_dados)
+                known_accounts, data = validation_slice(candidate.get_cache("bloprudencial"), [period, report.get("ifdata_period")])
                 sources = {kind: pd.read_parquet(candidate.get_cache(kind).arquivo_dados)
                            for kind in SOURCES[1:] if candidate.get_cache(kind).existe_leitura()}
                 report["source_quality"] = validate_cache_quality(candidate, list(sources))
                 if any(not item["success"] for item in report["source_quality"].values()):
                     raise ValueError("Qualidade das fontes reprovada; geração anterior preservada")
-                report["validation"] = validate_candidate(data, sources, period, rules=rules, overrides=overrides)
+                report["validation"] = validate_candidate(data, sources, period, rules=rules, overrides=overrides, known_accounts=known_accounts)
                 if not offline:
                     progress("Conferindo os balancetes individuais")
                     report["individual"] = refresh_individual(candidate, live, period, workspace, overrides)
@@ -304,7 +360,7 @@ def update(root, *, period=None, csv=None, offline=False, check_only=False, rule
                 # A newly published IF.data quarter may precede the COSIF month.
                 quarter = report.get("ifdata_period")
                 if quarter and quarter != period and data.DATA_BASE.astype(str).eq(quarter).any():
-                    report["ifdata_validation"] = validate_candidate(data, sources, quarter, rules=rules, overrides=overrides)
+                    report["ifdata_validation"] = validate_candidate(data, sources, quarter, rules=rules, overrides=overrides, known_accounts=known_accounts)
                 if any(report[key]["errors"] for key in ("validation", "ifdata_validation") if key in report):
                     raise ValueError("Conferência contábil reprovada; geração anterior preservada")
                 for kind in SOURCES:
@@ -312,7 +368,7 @@ def update(root, *, period=None, csv=None, offline=False, check_only=False, rule
                     if not source.existe_leitura():
                         continue
                     original = live.get_cache(kind)
-                    if not original.existe_leitura() or not same_data(pd.read_parquet(original.arquivo_dados), pd.read_parquet(source.arquivo_dados)):
+                    if not original.existe_leitura() or not same_source(kind, original, source, period):
                         report["changed"].append(kind)
                 if report.get("individual", {}).get("status") == "changed":
                     report["changed"].append(INDIVIDUAL)
@@ -341,11 +397,12 @@ def update(root, *, period=None, csv=None, offline=False, check_only=False, rule
                                        actor={"subject": "financial-analysis"})
                         report["revision_id"] = revision.revision_id
                     else:
-                        # O histórico individual é promovido como arquivo, sem passar por pandas.
-                        if INDIVIDUAL in names:
-                            source = candidate.get_cache(INDIVIDUAL)
-                            adopt_file(live.get_cache(INDIVIDUAL), source.arquivo_dados, source.arquivo_metadata)
-                        promote_legacy(live, candidate, [name for name in names if name != INDIVIDUAL])
+                        # As bases grandes são promovidas como arquivo, sem passar por pandas.
+                        for name in (INDIVIDUAL, "bloprudencial"):
+                            if name in names:
+                                source = candidate.get_cache(name)
+                                adopt_file(live.get_cache(name), source.arquivo_dados, source.arquivo_metadata)
+                        promote_legacy(live, candidate, [name for name in names if name not in (INDIVIDUAL, "bloprudencial")])
                     report["promoted"] = list(dict.fromkeys(names))
                     report["status"] = "updated"
     except Exception as exc:
@@ -358,6 +415,8 @@ def update(root, *, period=None, csv=None, offline=False, check_only=False, rule
                 os.environ[key] = value
         from .ifdata_web import get_web_source
         get_web_source.cache_clear()
+        report["peak_memory_mb"] = peak_memory_mb()
+        report["memory_by_stage"] = memory
         report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2, default=str, allow_nan=False) + "\n")
     return report, report_path
 

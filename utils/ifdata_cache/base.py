@@ -721,6 +721,10 @@ class BaseCache(ABC):
                     if column not in columns and equivalent not in columns:
                         raise ValueError(f"Coluna obrigatória ausente: {column}")
                 metadata = dict(metadata)
+                # Como em salvar_local: sem a origem, o runtime perderia para a base instalada.
+                publication = self._publication_metadata()
+                if publication:
+                    metadata.setdefault("baseline_publication_id", publication["publication_id"])
                 if "total_registros" in metadata and metadata["total_registros"] != rows:
                     raise ValueError("Quantidade de registros diverge da metadata")
                 if "colunas" in metadata and metadata["colunas"] != columns:

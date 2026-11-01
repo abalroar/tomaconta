@@ -1,6 +1,7 @@
 import importlib
 import math
 import hashlib
+import hmac
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, Optional, List, Sequence, Mapping, Iterable
 import streamlit as st
@@ -1364,7 +1365,13 @@ ALIASES_PATH = _resolver_aliases_path()
 LOGO_PATH = str(DATA_DIR / "logo.jpg")
 
 # Senha para proteger a funcionalidade de atualização de cache
-SENHA_ADMIN = "m4th3u$987"
+def _senha_admin_configurada() -> str:
+    """Segredo fora do código: Secrets no Streamlit Cloud, variável de ambiente na AWS."""
+    try:
+        valor = st.secrets.get("TOMACONTA_ADMIN_PASSWORD", "")
+    except Exception:
+        valor = ""
+    return str(valor or os.getenv("TOMACONTA_ADMIN_PASSWORD", ""))
 
 VARS_PERCENTUAL = [
     'ROE Ac. Anualizado (%)',
@@ -25312,7 +25319,10 @@ elif menu == "Atualizar Base":
         else:
             st.dataframe(placeholder_if.head(500), width='stretch', hide_index=True)
 
-    if senha_input == SENHA_ADMIN:
+    senha_admin = _senha_admin_configurada()
+    if not senha_admin:
+        st.warning("Área administrativa desativada: defina TOMACONTA_ADMIN_PASSWORD nos Secrets ou no ambiente.")
+    if senha_admin and hmac.compare_digest(senha_input.encode("utf-8"), senha_admin.encode("utf-8")):
         from tabs.financial_update_panel import render as render_financial_update
         render_financial_update(Path(cache_manager.base_dir), _obter_token_github()[0])
         st.markdown("---")
