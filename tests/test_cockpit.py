@@ -130,3 +130,11 @@ def test_small_moves_cannot_tip_the_trend():
     data = votes("attention", "attention", "neutral")
     data["CET1"] = ("attention", "−10 bps")
     assert trend(data)["state"] == "flat"
+
+
+def test_a_read_only_token_gets_a_clear_message():
+    client = FakeGitHub()
+    client.branches.add(store.BRANCH)
+    client.put = lambda url, **kwargs: client._ok(403)
+    with pytest.raises(PermissionError, match="permissão de escrita"):
+        store.save(store.GitHubStore("t", "o/r", client=client), lambda current: store.upsert(current, "A", ["BANCO A"], IDS), "x")
