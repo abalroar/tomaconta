@@ -10,6 +10,7 @@ class Module:
 
 
 MODULES = (
+    Module("Cockpit", "Carteira", "Uma linha por banco da sua carteira, com as métricas do Snapshot e a tendência em 12 meses."),
     Module("Snapshot", "Instituição", "Visão consolidada dos principais indicadores, variações e qualidade dos dados."),
     Module("Rankings", "Comparação", "Ordenação por indicador e período, com filtros e exportação das instituições selecionadas."),
     Module("Tabela de Peers", "Comparação", "Bancos e períodos lado a lado, variação trimestral ou anual, grupos salvos e cálculo sob clique."),

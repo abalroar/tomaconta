@@ -15251,6 +15251,7 @@ def _normalizar_rotulo_menu(valor):
 
 # Lista de opções do menu principal (análise)
 MENU_PRINCIPAL = [
+    "Cockpit",
     "Snapshot",
     "Rankings",
     "Tabela de Peers",
@@ -15515,6 +15516,7 @@ if menu != "Sobre":
 
 CACHE_DEPENDENCIAS_POR_ABA = {
     "Snapshot": ["critical_screens"],
+    "Cockpit": ["critical_screens"],
     "Rankings": ["principal", "capital", "derived_metrics"],
     "Tabela de Peers": ["critical_screens"],
     "Evolução": ["principal", "passivo", "ativo", "capital"],
@@ -15603,7 +15605,7 @@ def _render_cache_status_por_aba(menu_nome: str) -> None:
             st.caption("Métricas derivadas não possuem extração direta no BCB.")
 
 
-if menu not in {"Contas COSIF", "DRE (Ind. e Congl.)"} and (menu != "Snapshot" or _modo_diagnostico()):
+if menu not in {"Contas COSIF", "DRE (Ind. e Congl.)"} and (menu not in {"Snapshot", "Cockpit"} or _modo_diagnostico()):
     _render_cache_status_por_aba(menu)
 
 # Sidebar apenas para informações básicas
@@ -16387,7 +16389,7 @@ menu_timer_signature = None
 t0_menu_timer = None
 if (
     menu in MENU_PRINCIPAL + MENU_BCB
-    and menu not in {"Snapshot", "Tabela de Peers", "DRE (Ind. e Congl.)", "Evolução", "Rankings"}
+    and menu not in {"Snapshot", "Cockpit", "Tabela de Peers", "DRE (Ind. e Congl.)", "Evolução", "Rankings"}
     and (
         menu not in {"Taxas de Juros por Produto", "Contas COSIF"}
         or st.session_state.get("modo_diagnostico")
@@ -16409,6 +16411,10 @@ if menu == "Sobre":
 # neste bloco `if/elif` para evitar branches mortos e comportamento inesperado.
 elif menu == "Snapshot":
     pagina_snapshot()
+
+elif menu == "Cockpit":
+    from tabs.cockpit import render as render_cockpit
+    render_cockpit(globals())
 
 elif menu == "Tabela de Peers":
     from tabs.peers_table import render as render_peers_table_new

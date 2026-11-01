@@ -25,7 +25,7 @@ def test_header_groups_keep_every_existing_route_and_name_exactly_once():
     _, menus = _app_assignments()
     destinations = [label for _, labels in NAVIGATION_GROUPS for label in labels]
     existing = [label for group in menus.values() for label in group]
-    assert len(destinations) == len(set(destinations)) == 16
+    assert len(destinations) == len(set(destinations)) == 17
     assert set(destinations) == set(existing)
 
 
@@ -65,7 +65,7 @@ st.write("Página: " + st.session_state.menu_atual)
     app.button(key="header_nav_desktop_1_3").click().run()
     assert not app.exception
     assert app.session_state["menu_atual"] == "Carteira 4.966"
-    app.button(key="header_nav_mobile_0_2").click().run()
+    app.button(key="header_nav_mobile_0_3").click().run()
     assert not app.exception
     assert app.session_state["menu_atual"] == "Tabela de Peers"
     assert app.session_state["revision"] == 2
