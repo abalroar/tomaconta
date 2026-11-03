@@ -42,6 +42,40 @@
         }
       ],
       "atualizado_em": "2026-11-01T03:34:25+00:00"
+    },
+    {
+      "nome": "Victor Lucena",
+      "membros": [
+        {
+          "id": "81723108",
+          "label": "CREDICOAMO CREDITO RURAL COOPERATIVA"
+        },
+        {
+          "id": "C0081483",
+          "label": "BCO FIBRA S.A. - PRUDENCIAL"
+        },
+        {
+          "id": "C0080934",
+          "label": "BR PARTNERS - PRUDENCIAL"
+        },
+        {
+          "id": "C0083553",
+          "label": "MIDWAY S.A. - SCFI - PRUDENCIAL"
+        },
+        {
+          "id": "C0084703",
+          "label": "REALIZE SCFI - PRUDENCIAL"
+        },
+        {
+          "id": "C0080305",
+          "label": "PEFISA S.A. - PRUDENCIAL"
+        },
+        {
+          "id": "C0081555",
+          "label": "BCO RABOBANK INTL BRASIL S.A. - PRUDENCIAL"
+        }
+      ],
+      "atualizado_em": "2026-11-03T14:39:55+00:00"
     }
   ]
 }
