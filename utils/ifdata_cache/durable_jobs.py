@@ -33,14 +33,14 @@ _CACHE_TYPES = frozenset({
     "principal", "principal_individual", "ativo", "passivo", "capital", "dre", "dre_individual",
     "carteira_pf", "carteira_pj", "carteira_instrumentos", "bloprudencial", "balancetes",
     "cosif_4010", "mercado_credito_sgs", "scr_data", "taxas_juros", "taxas_juros_historico",
-    "spb_meios_pagamento",
+    "spb_meios_pagamento", "mercado_imobiliario",
 })
 _QUARTERLY = frozenset({
     "principal", "principal_individual", "ativo", "passivo", "capital", "dre", "dre_individual",
     "carteira_pf", "carteira_pj", "carteira_instrumentos", "balancetes",
 })
 _MONTHLY = frozenset({"cosif_4010", "bloprudencial"})
-_DATE_WINDOWS = frozenset({"taxas_juros", "taxas_juros_historico", "mercado_credito_sgs"})
+_DATE_WINDOWS = frozenset({"taxas_juros", "taxas_juros_historico", "mercado_credito_sgs", "mercado_imobiliario"})
 _SOURCE_OPTIONS = {
     **{name: frozenset({"batch_size", "intervalo_save"}) for name in _QUARTERLY},
     "bloprudencial": frozenset({"batch_size", "intervalo_save", "force_refresh"}),
@@ -48,6 +48,7 @@ _SOURCE_OPTIONS = {
     "taxas_juros": frozenset({"start", "end"}),
     "taxas_juros_historico": frozenset({"start", "end", "max_windows", "reprocess_tail"}),
     "mercado_credito_sgs": frozenset({"start", "end"}),
+    "mercado_imobiliario": frozenset({"start", "end"}),
     "spb_meios_pagamento": frozenset({"datasets"}),
     "scr_data": frozenset({"years"}),
 }

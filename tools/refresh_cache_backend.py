@@ -62,6 +62,7 @@ DEFAULT_TIPOS = [
     "carteira_instrumentos",
     "bloprudencial",
     "mercado_credito_sgs",
+    "mercado_imobiliario",
 ]
 
 DERIVED_SPECS = [
@@ -374,7 +375,7 @@ def _run_refresh_locked(args: argparse.Namespace, base_dir: Path) -> int:
     detalhes = []
 
     for tipo in DEFAULT_TIPOS:
-        periodos = periodos_mensais if tipo in {"bloprudencial", "mercado_credito_sgs"} else periodos_tri
+        periodos = periodos_mensais if tipo in {"bloprudencial", "mercado_credito_sgs", "mercado_imobiliario"} else periodos_tri
         action = "REUSE" if args.publish_only else "REFRESH"
         _print(
             f"[{action}] {tipo}: {len(periodos)} períodos "
@@ -421,7 +422,7 @@ def _run_refresh_locked(args: argparse.Namespace, base_dir: Path) -> int:
                 break
             continue
 
-        if tipo == "mercado_credito_sgs":
+        if tipo in {"mercado_credito_sgs", "mercado_imobiliario"}:
             cache_sgs = manager.get_cache(tipo)
             try:
                 resultado_sgs = _materialize_with_receipt(manager, tipo, getattr(args, "modo", "overwrite"), lambda: cache_sgs.materialize_history(
@@ -429,8 +430,9 @@ def _run_refresh_locked(args: argparse.Namespace, base_dir: Path) -> int:
                     end=pd.Period(args.mensal_fim, freq="M").end_time.date(),
                     overwrite=(getattr(args, "modo", "overwrite") in {"overwrite", "rebuild"}),
                     progress_callback=lambda progress, message: _print(
-                        f"[SGS {progress:.0%}] {message}"
+                        f"[{tipo} {progress:.0%}] {message}"
                     ),
+                    **({"rebuild": getattr(args, "modo", "overwrite") == "rebuild"} if tipo == "mercado_imobiliario" else {}),
                 ))
             except Exception as exc:
                 resultado_sgs = SimpleNamespace(sucesso=False, mensagem=str(exc), dados=None)
@@ -567,6 +569,12 @@ def _run_refresh_locked(args: argparse.Namespace, base_dir: Path) -> int:
         "quarterly": f"{args.ano_final}{args.mes_final}",
         "monthly": args.mensal_fim,
     }
+    # A divulgação imobiliária tem calendário próprio e não acompanha o SGS.
+    imob_cache = manager.get_cache("mercado_imobiliario")
+    if imob_cache is not None and imob_cache.existe_leitura():
+        imob_periods = imob_cache.get_info().get("periodos") or []
+        if imob_periods:
+            expected_periods["mercado_imobiliario"] = max(str(period) for period in imob_periods)
     publication = {
         "requested": bool(args.publish),
         "repo": release_config.repo,

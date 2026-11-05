@@ -28,6 +28,13 @@ logger = logging.getLogger("ifdata_cache")
 
 # Informações dos caches para UI
 CACHES_INFO = {
+    "mercado_imobiliario": {
+        "nome_exibicao": "Mercado Imobiliário (Olinda/BCB)",
+        "descricao": "Contratação PF/PJ, estoque PF/PJ e imóveis; BNDU excluído",
+        "relatorio": None,
+        "todas_variaveis": True,
+        "periodicidade": "mensal",
+    },
     "cosif_4010": {
         "nome_exibicao": "COSIF 4010 (individual)",
         "descricao": "Balancetes individuais - todos os grupos publicados pelo BCB",
@@ -222,6 +229,7 @@ class CacheManager:
         from .spb_meios_pagamento import SPBMeiosPagamentoCache
         from .scr_data import SCRDataCache
         from .sgs_credit import SGSCreditCache
+        from .mercado_imobiliario import MercadoImobiliarioCache
 
         # Caches principais (variáveis selecionadas)
         self.registrar(PrincipalCache(self.base_dir, manter_codinst=True))
@@ -257,6 +265,7 @@ class CacheManager:
         self.registrar(SCRDataCache(self.base_dir))
         # Cache de estatísticas agregadas de crédito (API BCData/SGS)
         self.registrar(SGSCreditCache(self.base_dir))
+        self.registrar(MercadoImobiliarioCache(self.base_dir))
 
     def registrar(self, cache: BaseCache):
         """Registra um novo tipo de cache.

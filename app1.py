@@ -1891,6 +1891,9 @@ def forcar_recarregar_cache():
 def _get_sgs_credit_cache(cache_manager=None):
     """Registra o cache SGS também em processos Streamlit mantidos após hot reload."""
     manager = cache_manager or get_cache_manager()
+    if manager is not None and manager.get_cache("mercado_imobiliario") is None:
+        from utils.ifdata_cache.mercado_imobiliario import MercadoImobiliarioCache
+        manager.registrar(MercadoImobiliarioCache(manager.base_dir))
     cache = manager.get_cache("mercado_credito_sgs") if manager else None
     if cache is None:
         from utils.ifdata_cache.sgs_credit import SGSCreditCache
@@ -1914,7 +1917,7 @@ def _expected_periods_publicacao(
     if not periodo_final:
         return {}
 
-    if tipo_cache in {"bloprudencial", "cosif_4010", "mercado_credito_sgs"}:
+    if tipo_cache in {"bloprudencial", "cosif_4010", "mercado_credito_sgs", "mercado_imobiliario"}:
         return {"monthly": str(periodo_final)}
     periodo_ref = str(periodo_final).replace("/", "")
     if len(periodo_ref) >= 6 and periodo_ref[-2:] in {"03", "06", "09", "12"}:
@@ -15523,14 +15526,14 @@ CACHE_DEPENDENCIAS_POR_ABA = {
     "Scatter Plot": ["principal", "capital", "derived_metrics"],
     "DRE (Ind. e Congl.)": ["dre", "principal", "dre_individual", "principal_individual"],
     "Carteira 4.966": ["carteira_instrumentos", "ativo"],
-    "Estatísticas Crédito BC": ["mercado_credito_sgs", "scr_data"],
+    "Estatísticas Crédito BC": ["mercado_credito_sgs", "scr_data", "mercado_imobiliario"],
     "Taxas de Juros por Produto": ["taxas_juros_historico"],
     "Meios de Pagamento (SPB)": ["spb_meios_pagamento"],
     "Contas COSIF": ["bloprudencial", "cosif_4010"],
     "Atualizar Base": [
         "principal", "capital", "ativo", "passivo", "dre", "carteira_pf",
         "carteira_pj", "carteira_instrumentos", "bloprudencial", "taxas_juros_historico",
-        "spb_meios_pagamento", "scr_data", "mercado_credito_sgs",
+        "spb_meios_pagamento", "scr_data", "mercado_credito_sgs", "mercado_imobiliario",
         "derived_metrics", "derived_metrics_individual",
     ],
 }
@@ -15549,6 +15552,8 @@ def _nota_cache_dependencia(cache_nome: str) -> str:
         return "SCR.data — ZIPs anuais do PDA/BCB agregados por UF, segmento, porte e produto"
     if cache_nome == "mercado_credito_sgs":
         return "séries mensais agregadas do Sistema Gerenciador de Séries Temporais do BCB"
+    if cache_nome == "mercado_imobiliario":
+        return "Mercado Imobiliário — Olinda/BCB; contratação, estoque e imóveis; BNDU excluído"
     if cache_nome == "spb_meios_pagamento":
         return "Meios de Pagamento (SPB) - 12 datasets Olinda (MPV_DadosAbertos, BCB)"
     if cache_nome == "critical_screens":
@@ -25358,6 +25363,7 @@ elif menu == "Atualizar Base":
             "cosif_4010": "COSIF 4010 - todos os nomes (CSV mensal BCB)",
             "spb_meios_pagamento": "Meios de Pagamento (SPB/Olinda BCB) - 12 datasets",
             "mercado_credito_sgs": "Estatísticas Crédito BC (BCData/SGS) - séries mensais agregadas",
+            "mercado_imobiliario": "Mercado Imobiliário (Olinda/BCB) - contratação, estoque e imóveis",
         }
         caches_dropdown = [cache for cache in caches_disponiveis if cache in opcoes_cache]
 
@@ -25374,7 +25380,7 @@ elif menu == "Atualizar Base":
         is_bloprudencial = (cache_selecionado == "bloprudencial")
         is_cosif_4010 = (cache_selecionado == "cosif_4010")
         is_spb_meios_pagamento = (cache_selecionado == "spb_meios_pagamento")
-        is_mercado_credito_sgs = (cache_selecionado == "mercado_credito_sgs")
+        is_series_mensais = cache_selecionado in {"mercado_credito_sgs", "mercado_imobiliario"}
 
         # Mostrar status do cache selecionado
         if is_spb_meios_pagamento:
@@ -25416,16 +25422,23 @@ elif menu == "Atualizar Base":
         # =============================================================
         st.markdown("#### 2. Modo de atualização")
 
+        rotulo_overwrite = (
+            "Reprocessar janela (preserva demais meses)" if cache_selecionado == "mercado_imobiliario"
+            else "Overwrite (substitui todo o cache)"
+        )
         modo_atualizacao = st.radio(
             "modo",
             options=["incremental", "overwrite"],
-            format_func=lambda x: "Incremental (adiciona/atualiza períodos)" if x == "incremental" else "Overwrite (substitui todo o cache)",
+            format_func=lambda x: "Incremental (adiciona/atualiza períodos)" if x == "incremental" else rotulo_overwrite,
             horizontal=True,
             key="modo_atualizacao"
         )
 
         if modo_atualizacao == "overwrite":
-            st.warning("Modo OVERWRITE: todos os dados existentes serão substituídos!")
+            if cache_selecionado == "mercado_imobiliario":
+                st.caption("Reconsulta os meses selecionados e preserva o histórico fora da janela. Para revisar tudo, escolha início em abril/2014.")
+            else:
+                st.warning("Modo OVERWRITE: todos os dados existentes serão substituídos!")
 
         # =============================================================
         # SELEÇÃO DE PERÍODOS
@@ -25451,17 +25464,22 @@ elif menu == "Atualizar Base":
             )
             periodos_extrair = None
 
-        elif is_mercado_credito_sgs:
-            st.caption("Estatísticas Crédito BC: séries mensais via BCData/SGS, materializadas em formato longo.")
+        elif is_series_mensais:
+            if cache_selecionado == "mercado_imobiliario":
+                st.caption("Mercado Imobiliário: séries mensais Olinda/BCB. O modo incremental revisa os últimos 12 meses; selecione início anterior para revisar o histórico. BNDU excluído. Risco da Operação: histórico até dez/2024.")
+                inicio_padrao_series = cache_manager.get_cache(cache_selecionado).default_start()
+            else:
+                st.caption("Estatísticas Crédito BC: séries mensais via BCData/SGS, materializadas em formato longo.")
+                inicio_padrao_series = datetime(2011, 1, 1).date()
             col_data1, col_data2 = st.columns(2)
             hoje_sgs = datetime.now().date()
             with col_data1:
                 data_inicio_sgs = st.date_input(
                     "Data inicial",
-                    value=datetime(2011, 1, 1).date(),
+                    value=inicio_padrao_series,
                     min_value=datetime(1990, 1, 1).date(),
                     max_value=hoje_sgs,
-                    key="sgs_credit_data_inicio_extracao",
+                    key="imob_data_inicio_extracao" if cache_selecionado == "mercado_imobiliario" else "sgs_credit_data_inicio_extracao",
                     format="DD/MM/YYYY",
                 )
             with col_data2:
@@ -25470,7 +25488,7 @@ elif menu == "Atualizar Base":
                     value=hoje_sgs,
                     min_value=datetime(1990, 1, 1).date(),
                     max_value=hoje_sgs,
-                    key="sgs_credit_data_fim_extracao",
+                    key="imob_data_fim_extracao" if cache_selecionado == "mercado_imobiliario" else "sgs_credit_data_fim_extracao",
                     format="DD/MM/YYYY",
                 )
             if data_inicio_sgs > data_fim_sgs:
@@ -25711,7 +25729,7 @@ elif menu == "Atualizar Base":
         # =============================================================
         # CONFIGURAÇÕES AVANÇADAS
         # =============================================================
-        if not is_taxas_juros and not is_taxas_juros_historico and not is_spb_meios_pagamento and not is_mercado_credito_sgs:
+        if not is_taxas_juros and not is_taxas_juros_historico and not is_spb_meios_pagamento and not is_series_mensais:
             with st.expander("configurações avançadas"):
                 intervalo_save = st.slider(
                     "salvar a cada N períodos",
@@ -25739,7 +25757,7 @@ elif menu == "Atualizar Base":
             elif is_taxas_juros_historico:
                 external_options = {"start": data_inicio_tj_hist, "end": data_fim_tj_hist,
                                     "max_windows": int(max_janelas_tj_hist), "reprocess_tail": int(reprocessar_cauda_tj_hist)}
-            elif is_mercado_credito_sgs:
+            elif is_series_mensais:
                 external_options = {"start": data_inicio_sgs, "end": data_fim_sgs}
             elif is_spb_meios_pagamento:
                 external_options = {"datasets": datasets_spb_selecionados or datasets_spb_disponiveis}
@@ -25812,7 +25830,7 @@ elif menu == "Atualizar Base":
 
         # A extração não depende mais de alias local.
         pode_extrair = True
-        if not is_taxas_juros and not is_taxas_juros_historico and not is_bloprudencial and not is_cosif_4010 and not is_spb_meios_pagamento and not is_mercado_credito_sgs and not periodos_extrair:
+        if not is_taxas_juros and not is_taxas_juros_historico and not is_bloprudencial and not is_cosif_4010 and not is_spb_meios_pagamento and not is_series_mensais and not periodos_extrair:
             st.error("nenhum período válido selecionado para extração.")
             pode_extrair = False
 
@@ -25908,7 +25926,7 @@ elif menu == "Atualizar Base":
                 erros_encontrados = []
                 logs_extracao = []
 
-                if not is_taxas_juros and not is_taxas_juros_historico and not is_bloprudencial and not is_cosif_4010 and not is_spb_meios_pagamento and not is_mercado_credito_sgs:
+                if not is_taxas_juros and not is_taxas_juros_historico and not is_bloprudencial and not is_cosif_4010 and not is_spb_meios_pagamento and not is_series_mensais:
                     try:
                         update_store, update_record = prepare_run(
                             cache_manager, cache_selecionado, periodos_extrair, modo_atualizacao,
@@ -26090,28 +26108,29 @@ elif menu == "Atualizar Base":
                         save_status.empty()
                         st.error(f"Erro na extração BLOPRUDENCIAL: {e}")
 
-                elif is_mercado_credito_sgs:
+                elif is_series_mensais:
                     def callback_progresso_sgs(progress, message):
                         progress_bar.progress(min(progress, 1.0))
                         status_text.text(message)
 
                     try:
                         with adapter_update_session(cache_manager, cache_selecionado, mode=modo_atualizacao, options={"start": data_inicio_sgs, "end": data_fim_sgs}) as confirm_adapter:
-                            cache_sgs_update = cache_manager.get_cache("mercado_credito_sgs")
+                            cache_sgs_update = cache_manager.get_cache(cache_selecionado)
                             if cache_sgs_update is None:
-                                raise RuntimeError("Cache mercado_credito_sgs não registrado")
+                                raise RuntimeError(f"Cache {cache_selecionado} não registrado")
                             resultado = cache_sgs_update.materialize_history(
                                 start=data_inicio_sgs,
                                 end=data_fim_sgs,
                                 overwrite=(modo_atualizacao == "overwrite"),
                                 progress_callback=callback_progresso_sgs,
+                                **({"rebuild": modo_atualizacao == "rebuild"} if cache_selecionado == "mercado_imobiliario" else {}),
                             )
                             confirm_adapter(resultado)
                             progress_bar.empty()
                             status_text.empty()
                             save_status.empty()
                             if resultado.sucesso:
-                                st.success(f"Extração SGS concluída: {resultado.mensagem}")
+                                st.success(f"Extração de séries mensais concluída: {resultado.mensagem}")
                                 meta_sgs = resultado.metadata or {}
                                 c1, c2, c3 = st.columns(3)
                                 with c1:
@@ -26122,7 +26141,7 @@ elif menu == "Atualizar Base":
                                     st.metric("Observações", meta_sgs.get("total_registros", 0))
 
                                 if publicar_auto and gh_token_final and token_validado:
-                                    with st.spinner("publicando cache SGS no GitHub Releases..."):
+                                    with st.spinner("Publicando séries mensais no GitHub Releases..."):
                                         sucesso_pub, msg_pub, _ = _publicar_bundle_release(
                                             cache_manager,
                                             caches_selecionados=[cache_selecionado],
@@ -26136,12 +26155,12 @@ elif menu == "Atualizar Base":
                                     else:
                                         st.warning(f"Falha ao publicar: {msg_pub}")
                             else:
-                                st.error(f"Erro na extração SGS: {resultado.mensagem}")
+                                st.error(f"Erro na extração de séries mensais: {resultado.mensagem}")
                     except Exception as exc:
                         progress_bar.empty()
                         status_text.empty()
                         save_status.empty()
-                        st.error(f"Erro na extração SGS: {exc}")
+                        st.error(f"Erro na extração de séries mensais: {exc}")
 
                 elif is_taxas_juros_historico:
                     from utils.ifdata_cache import TaxasJurosHistoricoCache

@@ -46,6 +46,7 @@ DEFAULT_TIPOS = [
     "carteira_instrumentos",
     "bloprudencial",
     "mercado_credito_sgs",
+    "mercado_imobiliario",
 ]
 
 
@@ -105,8 +106,8 @@ def main() -> int:
     parser.add_argument("--ano-final", type=int, help="ano final (trimestral)")
     parser.add_argument("--mes-final", choices=["03", "06", "09", "12"], help="mês final (trimestral)")
 
-    parser.add_argument("--mensal-inicio", help="início mensal YYYYMM (BLOPRUDENCIAL ou mercado_credito_sgs)")
-    parser.add_argument("--mensal-fim", help="fim mensal YYYYMM (BLOPRUDENCIAL ou mercado_credito_sgs)")
+    parser.add_argument("--mensal-inicio", help="início mensal YYYYMM (BLOPRUDENCIAL, SGS ou Mercado Imobiliário)")
+    parser.add_argument("--mensal-fim", help="fim mensal YYYYMM (BLOPRUDENCIAL, SGS ou Mercado Imobiliário)")
 
     parser.add_argument("--force-refresh", action="store_true", help="forçar download (bloprudencial)")
 
@@ -178,7 +179,7 @@ def _validate_cli_inputs(args, manager=None) -> None:
         raise ValueError(f"Caches desconhecidos: {', '.join(sorted(tipos - set(manager.listar_caches())))}")
     if args.scr_ano_final is not None and args.scr_ano_final > date.today().year:
         raise ValueError("ano SCR posterior ao ano corrente")
-    quarterly_types = set(DEFAULT_TIPOS) - {"bloprudencial", "mercado_credito_sgs"}
+    quarterly_types = set(DEFAULT_TIPOS) - {"bloprudencial", "mercado_credito_sgs", "mercado_imobiliario"}
     if tipos & quarterly_types and any(int(value[4:6]) not in (3, 6, 9, 12) for value in periodos):
         raise ValueError("IFData trimestral exige competências de março, junho, setembro ou dezembro")
     if tipos & quarterly_types and not periodos and not all(value is not None for value in quarter_args):
@@ -263,9 +264,14 @@ def _execute(args, manager) -> int:
 
     tipos_atualizados = set()
     for tipo in tipos:
-        if tipo == "mercado_credito_sgs":
-            cache = manager.get_cache("mercado_credito_sgs")
-            inicio = args.mensal_inicio or "201101"
+        if tipo in {"mercado_credito_sgs", "mercado_imobiliario"}:
+            cache = manager.get_cache(tipo)
+            if args.mensal_inicio:
+                inicio = args.mensal_inicio
+            elif tipo == "mercado_imobiliario":
+                inicio = "201404" if args.modo == "rebuild" else cache.default_start().strftime("%Y%m")
+            else:
+                inicio = "201101"
             fim = args.mensal_fim
             inicio_data = f"{inicio[:4]}-{inicio[4:6]}-01"
             fim_data = None
@@ -274,13 +280,14 @@ def _execute(args, manager) -> int:
 
                 fim_data = f"{fim[:4]}-{fim[4:6]}-{monthrange(int(fim[:4]), int(fim[4:6]))[1]:02d}"
             _print(
-                f"==> Atualizando cache 'mercado_credito_sgs' ({inicio}–{fim or 'atual'}), modo={args.modo}"
+                f"==> Atualizando cache '{tipo}' ({inicio}–{fim or 'atual'}), modo={args.modo}"
             )
             result = _materialize_with_receipt(manager, tipo, args.modo, lambda: cache.materialize_history(
                 start=inicio_data,
                 end=fim_data,
                 overwrite=(args.modo in {"overwrite", "rebuild"}),
                 progress_callback=lambda p, m: _print(f"[{p:.0%}] {m}"),
+                **({"rebuild": args.modo == "rebuild"} if tipo == "mercado_imobiliario" else {}),
             ))
             if result.sucesso:
                 _print(f"OK: {result.mensagem}")

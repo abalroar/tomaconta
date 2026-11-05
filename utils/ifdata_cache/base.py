@@ -894,7 +894,7 @@ class BaseCache(ABC):
                 self._sync_file(staged_data)
                 metadata = {**(metadata_extra or {}), **self._build_local_metadata(dados, fonte, formato_usado, info_extra)}
                 publication = self._publication_metadata()
-                if publication and fonte in {"api", "bcb_cosif", "ifdata_web", "materialized", "derivado", "BCData/SGS"}:
+                if publication and fonte in {"api", "bcb_cosif", "ifdata_web", "materialized", "derivado", "BCData/SGS", "Olinda/MercadoImobiliario/BCB"}:
                     metadata["baseline_publication_id"] = publication["publication_id"]
                 metadata["integridade"] = {
                     "versao": 1,

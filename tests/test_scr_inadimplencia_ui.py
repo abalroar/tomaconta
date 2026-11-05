@@ -396,7 +396,13 @@ def test_rota_existe_e_e_unica():
 
 def test_menu_registra_a_aba():
     fonte = _app_source()
-    assert '"Estatísticas Crédito BC": ["mercado_credito_sgs", "scr_data"]' in fonte
+    dependencies = next(
+        ast.literal_eval(node.value) for node in ast.parse(fonte).body
+        if isinstance(node, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id == "CACHE_DEPENDENCIAS_POR_ABA" for target in node.targets
+        )
+    )
+    assert {"mercado_credito_sgs", "scr_data"}.issubset(dependencies["Estatísticas Crédito BC"])
     mercado = (APP_PATH.parent / "tabs" / "mercado_credito.py").read_text(encoding="utf-8")
     assert '"Inad por Faixa de Renda"' in mercado
     assert "render_scr_inadimplencia(get_cache_manager)" in mercado
