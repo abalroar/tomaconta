@@ -45,13 +45,14 @@ from utils.credito_bc_glossario import (
 
 
 TITLE = "Estatísticas Crédito BC"
-SUBTITLE = "Séries mensais agregadas do Sistema Gerenciador de Séries Temporais do Banco Central"
+SUBTITLE = "Estatísticas mensais do Banco Central · SGS, SCR.data e Mercado Imobiliário"
 MAIN_SECTIONS = (
     "Concessões",
     "Crédito SFN",
     "Situação dos Agentes",
     "Inadimplência e Provisionamento",
     "Taxas de Juros e Spread",
+    "Mercado Imobiliário",
     "Glossário",
 )
 CREDIT_SUBSECTIONS = (
@@ -153,22 +154,30 @@ def _chart(fig: go.Figure, key: str) -> None:
         )
     with info_column:
         with st.popover("i", help="Séries do BCB usadas neste gráfico"):
-            st.markdown("**Séries BCB/SGS**")
-            if source_aliases:
-                for alias in source_aliases:
-                    spec = SGS_SERIES[alias]
-                    name = spec.official_name
-                    if spec.metadata_url:
-                        st.markdown(f"- **SGS {spec.code}**: [{name}]({spec.metadata_url})")
-                    else:
-                        st.markdown(f"- **{spec.label}**: {name}")
-                    unit = {"brl_million": "R$ milhões", "pct": "%", "pct_month": "% ao mês", "pct_year": "% ao ano", "pp": "pontos percentuais", "months": "meses"}.get(spec.unit, spec.unit)
-                    frequency = {"monthly": "mensal", "quarterly": "trimestral", "daily": "diária"}.get(spec.frequency, spec.frequency)
-                    st.caption(f"Unidade: {unit} · Frequência da fonte: {frequency}.")
-                    if spec.note:
-                        st.caption(spec.note)
+            if meta.get("source_provider") == "Olinda/MercadoImobiliario":
+                from utils.mercado_imobiliario import METHODOLOGY_URL
+                st.markdown("**BCB · Olinda/MercadoImobiliario**")
+                st.caption(meta.get("source_note") or "Valor mensal publicado pelo BCB.")
+                st.markdown(f"[Metodologia do BCB]({METHODOLOGY_URL})")
+                st.caption("Códigos das séries utilizadas:")
+                st.code("\n".join(meta.get("source_codes", [])), language=None)
             else:
-                st.caption("Indicador derivado das séries exibidas no card.")
+                st.markdown("**Séries BCB/SGS**")
+                if source_aliases:
+                    for alias in source_aliases:
+                        spec = SGS_SERIES[alias]
+                        name = spec.official_name
+                        if spec.metadata_url:
+                            st.markdown(f"- **SGS {spec.code}**: [{name}]({spec.metadata_url})")
+                        else:
+                            st.markdown(f"- **{spec.label}**: {name}")
+                        unit = {"brl_million": "R$ milhões", "pct": "%", "pct_month": "% ao mês", "pct_year": "% ao ano", "pp": "pontos percentuais", "months": "meses"}.get(spec.unit, spec.unit)
+                        frequency = {"monthly": "mensal", "quarterly": "trimestral", "daily": "diária"}.get(spec.frequency, spec.frequency)
+                        st.caption(f"Unidade: {unit} · Frequência da fonte: {frequency}.")
+                        if spec.note:
+                            st.caption(spec.note)
+                else:
+                    st.caption("Indicador derivado das séries exibidas no card.")
             st.caption("O rodapé informa a última competência deste gráfico. Consulte o conceito da série antes de cruzá-la com IFData ou SCR.data.")
     if not fig.data:
         st.info("Séries deste card ainda não estão disponíveis no cache.")
@@ -852,6 +861,7 @@ def _deck_completo(
     wide: pd.DataFrame, get_cache_manager, *,
     metadata: Mapping | None = None,
     modalidade_regiao: str | None = None,
+    imobiliario_options: Mapping | None = None,
     progresso: Callable[[float, str], None] | None = None,
 ) -> tuple[bytes, dict]:
     from utils.comentarios_credito import carregar, comentario
@@ -895,6 +905,16 @@ def _deck_completo(
             if leitura is not None and not leitura.vazio else None,
             figuras,
         ))
+    from tabs.mercado_imobiliario import load_frame, deck_sections, glossary_section
+    imob_frame, imob_metadata, imob_error = load_frame(get_cache_manager)
+    # A janela móvel termina na última observação de cada série; preserva os históricos.
+    imob_options = dict(imobiliario_options or {"uf": "br", "months": 12})
+    imob_sections, imob_coverage = deck_sections(imob_frame, **imob_options)
+    secoes.extend(imob_sections)
+    cobertura.extend(imob_coverage)
+    if imob_error:
+        for item in imob_coverage:
+            item["erro"] = imob_error
     if not any(item["Gráficos"] for item in cobertura):
         raise ValueError("Nenhuma seção possui gráficos disponíveis no período selecionado.")
     fonte = str((metadata or {}).get("fonte") or "BCData/SGS")
@@ -902,19 +922,20 @@ def _deck_completo(
     ultima = pd.DatetimeIndex(historia.index).max()
     glossario = secoes_glossario_deck(ultima.strftime("%m/%Y"), fonte)
     secoes.extend(glossario)
+    secoes.append(glossary_section())
     completo = all(item["Situação"] == "Incluída" for item in cobertura)
     if progresso:
         progresso(len(SECOES_DECK) / (len(SECOES_DECK) + 1), "Montando gráficos editáveis e glossário")
     blob, meta = exportar_deck_secoes_pptx(
         secoes,
         titulo_deck=TITLE if completo else f"{TITLE} · exportação parcial",
-        subtitulo_capa=(f"Séries do SGS e do SCR.data · janela até {formatar_competencia(fim)} "
-                        f"· início em {formatar_competencia(inicio)}"),
-        rodape_capa="fonte: Banco Central do Brasil · BCData/SGS e SCR.data",
+        subtitulo_capa=(f"SGS e SCR.data · janela até {formatar_competencia(fim)} "
+                        f"· início em {formatar_competencia(inicio)} · Mercado Imobiliário: {imob_options.get('uf', 'br').upper()}, competências por gráfico"),
+        rodape_capa="fonte: Banco Central do Brasil · BCData/SGS, SCR.data e Olinda/MercadoImobiliario",
     )
-    meta.update(cobertura=cobertura, completo=completo, secoes_glossario=len(glossario),
+    meta.update(cobertura=cobertura, completo=completo, secoes_glossario=len(glossario) + 1,
                 periodo_inicial=inicio.strftime("%Y-%m"), periodo_final=fim.strftime("%Y-%m"),
-                modalidade_regiao=modalidade_regiao)
+                modalidade_regiao=modalidade_regiao, imobiliario_options=imob_options)
     if progresso:
         progresso(1.0, "Arquivo pronto")
     return blob, meta
@@ -923,6 +944,7 @@ def _deck_completo(
 def _assinatura_deck(
     wide: pd.DataFrame, get_cache_manager, metadata: Mapping | None = None,
     modalidade_regiao: str | None = None,
+    imobiliario_options: Mapping | None = None,
 ) -> str:
     """Identifica os insumos do arquivo, inclusive revisões na mesma competência."""
     from utils.comentarios_credito import carregar
@@ -931,7 +953,8 @@ def _assinatura_deck(
     for frame in (wide, wide.attrs.get("full_history", wide)):
         resumo.update(repr(tuple(frame.columns)).encode("utf-8"))
         resumo.update(pd.util.hash_pandas_object(frame, index=True).values.tobytes())
-    contexto = {"comentarios": carregar(), "sgs": metadata or {}, "modalidade_regiao": modalidade_regiao}
+    contexto = {"comentarios": carregar(), "sgs": metadata or {}, "modalidade_regiao": modalidade_regiao,
+                "imobiliario_options": imobiliario_options or {"uf": "br", "months": 12}}
     try:
         manager = get_cache_manager() if get_cache_manager else None
         cache = manager.get_cache("scr_data") if manager else None
@@ -941,12 +964,21 @@ def _assinatura_deck(
         )
     except Exception as exc:
         contexto["scr"] = {"indisponivel": type(exc).__name__}
+    try:
+        manager_imob = get_cache_manager() if get_cache_manager else None
+        cache_imob = manager_imob.get_cache("mercado_imobiliario") if manager_imob else None
+        contexto["mercado_imobiliario"] = (
+            sha256(cache_imob.arquivo_metadata.read_bytes()).hexdigest() if cache_imob and cache_imob.arquivo_metadata.exists() else None
+        )
+    except Exception as exc:
+        contexto["mercado_imobiliario"] = {"indisponivel": type(exc).__name__}
     resumo.update(json.dumps(contexto, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8"))
     return resumo.hexdigest()
 
 
 def _botao_deck_completo(
     wide: pd.DataFrame, get_cache_manager, *, metadata: Mapping | None = None,
+    imobiliario_options: Mapping | None = None,
 ) -> None:
     """A geração começa por pedido, com cobertura e opção de tentar novamente."""
     datas = pd.DatetimeIndex(wide.index).dropna()
@@ -985,10 +1017,13 @@ def _botao_deck_completo(
     st.caption(
         f"Período: {formatar_competencia(datas.min())} a {formatar_competencia(datas.max())}. "
         "Inclui as seções SGS, inadimplência PF por renda em todas as modalidades, "
-        f"visão regional de {modalidade_regiao} e glossário. "
-        "O SCR respeita o mesmo período e termina em sua última observação disponível."
+        f"visão regional de {modalidade_regiao}, Mercado Imobiliário e glossário. "
+        "O SCR respeita o mesmo período. Mercado Imobiliário usa seu próprio recorte, com competências indicadas por gráfico."
     )
-    chave = _assinatura_deck(wide, get_cache_manager, metadata, modalidade_regiao)
+    st.caption("Mercado Imobiliário: " + str((imobiliario_options or {}).get("uf", "br")).upper()
+               + " · " + (f"últimos {(imobiliario_options or {}).get('months', 12)} meses de cada série"
+                            if (imobiliario_options or {}).get("months", 12) else "intervalo selecionado ou série completa"))
+    chave = _assinatura_deck(wide, get_cache_manager, metadata, modalidade_regiao, imobiliario_options)
     memo = st.session_state.setdefault("_deck_completo_memo", {})
     if memo.get("chave") != chave:
         memo.clear()
@@ -1001,6 +1036,7 @@ def _botao_deck_completo(
         try:
             memo["valor"] = _deck_completo(
                 wide, get_cache_manager, metadata=metadata, modalidade_regiao=modalidade_regiao,
+                imobiliario_options=imobiliario_options,
                 progresso=lambda valor, texto: barra.progress(valor, text=texto),
             )
         except Exception as exc:
@@ -1302,10 +1338,16 @@ def _render_glossary(frame: pd.DataFrame, metadata: Mapping | None) -> None:
     st.markdown("#### Glossário e metodologia")
     glossary_section = st.segmented_control(
         "Conteúdo do glossário",
-        ("Indicadores SGS", "SCR.data"),
+        ("Indicadores SGS", "SCR.data", "Mercado Imobiliário"),
         default="Indicadores SGS",
         key="sgs_credit_glossary_section",
     )
+    if glossary_section == "Mercado Imobiliário":
+        from tabs.mercado_imobiliario import GLOSSARY
+        from utils.mercado_imobiliario import SOURCE_URL, METHODOLOGY_URL
+        st.markdown(GLOSSARY)
+        st.markdown(f"[Página do BCB]({SOURCE_URL}) · [Metodologia]({METHODOLOGY_URL})")
+        return
     if glossary_section == "SCR.data":
         st.markdown(SCR_SECTIONS[0][0])
         st.markdown(SCR_SECTIONS[0][1])
@@ -1369,11 +1411,13 @@ def render_mercado_credito(cache, *, get_cache_manager=None) -> None:
     st.markdown(_ESTILO_SECAO, unsafe_allow_html=True)
     st.markdown(f"### {TITLE}")
     render_module_help(TITLE)
-    if cache is None:
-        st.error("Cache `mercado_credito_sgs` não registrado.")
-        return
-    result = cache.carregar()
-    if not result.sucesso or result.dados is None or result.dados.empty:
+    selected = st.segmented_control(
+        "Área", MAIN_SECTIONS, default=MAIN_SECTIONS[0], key="sgs_credit_main_section",
+    )
+    from types import SimpleNamespace
+    result = cache.carregar() if cache is not None else SimpleNamespace(sucesso=False, dados=None, metadata={}, mensagem="Cache SGS não registrado")
+    sgs_available = result.sucesso and result.dados is not None and not result.dados.empty
+    if not sgs_available and selected != "Mercado Imobiliário":
         st.warning("O cache SGS ainda não foi materializado ou publicado.")
         st.code(
             ".venv/bin/python tools/update_caches_cli.py --tipo mercado_credito_sgs --modo overwrite",
@@ -1383,12 +1427,12 @@ def render_mercado_credito(cache, *, get_cache_manager=None) -> None:
             st.caption(result.mensagem)
         return
 
-    full_wide = derive_credit_totals(to_wide(result.dados))
+    full_wide = derive_credit_totals(to_wide(result.dados)) if sgs_available else pd.DataFrame()
 
     # As duas fontes da seção têm calendários diferentes, e dentro do próprio
     # SGS o bloco de endividamento das famílias sai depois do de crédito.
     competencias = _competencias_por_fonte(full_wide)
-    if competencias:
+    if competencias and selected != "Mercado Imobiliário":
         st.caption(
             "Competência no cache · "
             + " · ".join(
@@ -1396,14 +1440,9 @@ def render_mercado_credito(cache, *, get_cache_manager=None) -> None:
                 for rotulo, data in competencias.items()
             )
         )
-    _aviso_de_defasagem(full_wide)
+    if sgs_available and selected != "Mercado Imobiliário":
+        _aviso_de_defasagem(full_wide)
 
-    selected = st.segmented_control(
-        "Área",
-        MAIN_SECTIONS,
-        default=MAIN_SECTIONS[0],
-        key="sgs_credit_main_section",
-    )
     # Os dois downloads ficam num popover: dois botões primários no topo
     # competiam com o conteúdo e ocupavam uma faixa inteira da página.
     _, coluna_export = st.columns([0.82, 0.18])
@@ -1412,9 +1451,13 @@ def render_mercado_credito(cache, *, get_cache_manager=None) -> None:
             export_slot = st.container()
             deck_slot = st.container()
     figuras: list[go.Figure] = []
+    imobiliario_context = None
     token = _EXPORT_FIGURES.set(figuras)
     try:
-        if selected == "Crédito SFN":
+        if selected == "Mercado Imobiliário":
+            from tabs.mercado_imobiliario import render as render_imobiliario
+            imobiliario_context = render_imobiliario(get_cache_manager)
+        elif selected == "Crédito SFN":
             _render_credit(_period_filter(full_wide))
         elif selected == "Situação dos Agentes":
             _render_situation(_period_filter(full_wide))
@@ -1430,9 +1473,15 @@ def render_mercado_credito(cache, *, get_cache_manager=None) -> None:
         _EXPORT_FIGURES.reset(token)
 
     with deck_slot:
-        _botao_deck_completo(
-            _period_filter_silencioso(full_wide), get_cache_manager, metadata=result.metadata,
-        )
+        if sgs_available:
+            _botao_deck_completo(
+                _period_filter_silencioso(full_wide), get_cache_manager, metadata=result.metadata,
+                imobiliario_options=imobiliario_context["options"] if imobiliario_context else None,
+            )
+    if imobiliario_context:
+        from tabs.mercado_imobiliario import render_download
+        with export_slot:
+            render_download(imobiliario_context)
 
     if figuras:
         from utils.sgs_credit_pptx_export import exportar_figuras_pptx
@@ -1442,6 +1491,8 @@ def render_mercado_credito(cache, *, get_cache_manager=None) -> None:
             detalhe = str(st.session_state.get("sgs_credit_subsection") or "")
         elif selected == "Inadimplência e Provisionamento":
             detalhe = str(st.session_state.get("sgs_npl_subsection") or "")
+        elif selected == "Mercado Imobiliário":
+            detalhe = str(st.session_state.get("imob_section") or "")
         pagina = " · ".join(item for item in (selected, detalhe) if item)
         blob, meta_export = exportar_figuras_pptx(
             figuras,

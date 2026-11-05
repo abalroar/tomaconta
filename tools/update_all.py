@@ -30,6 +30,7 @@ def build_plan(*, publish=False, today=None) -> list[dict]:
         {"name": FINANCIAL, "command": financial},
         {"name": "Demais relatórios do IF.data", "command": cli + [item for kind in QUARTERLY_EXTRAS for item in ("--tipo", kind)], "needs_quarter": True},
         {"name": "Séries de crédito (SGS)", "command": cli + ["--tipo", "mercado_credito_sgs"]},
+        {"name": "Mercado Imobiliário (Olinda)", "command": cli + ["--tipo", "mercado_imobiliario"]},
         {"name": "Meios de pagamento (SPB)", "command": cli + ["--tipo", "spb_meios_pagamento"]},
         {"name": "SCR.data", "command": cli + ["--tipo", "scr_data", "--scr-ano-inicial", str(today.year - 1)]},
         {"name": "Taxas de juros", "command": cli + ["--tipo", "taxas_juros_historico", "--taxas-inicio", start, "--taxas-fim", today.isoformat()]},

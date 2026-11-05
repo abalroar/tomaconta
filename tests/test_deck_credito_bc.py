@@ -73,7 +73,9 @@ def gerenciador(janela):
             return fato[fato["data_base"].str[:4].astype(int).isin(anos)].copy()
 
     cache = CacheSCRTeste()
-    return lambda: SimpleNamespace(get_cache=lambda nome: cache if nome == "scr_data" else None)
+    from utils.ifdata_cache.mercado_imobiliario import MercadoImobiliarioCache
+    imob = MercadoImobiliarioCache(PROJECT_ROOT)
+    return lambda: SimpleNamespace(get_cache=lambda nome: cache if nome == "scr_data" else imob if nome == "mercado_imobiliario" else None)
 
 
 @pytest.fixture(scope="module")
@@ -208,7 +210,8 @@ def test_comentario_sai_em_paragrafos_separados(deck):
 
 def test_todas_as_abas_e_submenus_entram(deck):
     _, meta, _ = deck
-    assert meta["secoes"] == len(MC.SECOES_DECK) + meta["secoes_glossario"]
+    from utils.mercado_imobiliario import SECTIONS
+    assert meta["secoes"] == len(MC.SECOES_DECK) + len(SECTIONS) + meta["secoes_glossario"]
     assert meta["completo"] is True
     # 42 gráficos do SGS mais os da aba de faixa de renda, que traz todas as
     # modalidades PF e a visão regional.
@@ -688,7 +691,8 @@ def test_falha_de_secao_mantem_as_demais_e_informa_cobertura(monkeypatch, janela
     assert meta["completo"] is False
     assert meta["cobertura"][0]["Situação"] == "Falha"
     assert meta["cobertura"][0]["erro"] == "falha controlada"
-    assert all(item["Gráficos"] == 1 for item in meta["cobertura"][1:])
+    assert all(item["Gráficos"] == 1 for item in meta["cobertura"][1:len(MC.SECOES_DECK)])
+    assert all(item["Situação"] == "Sem dados" for item in meta["cobertura"][len(MC.SECOES_DECK):])
     assert eventos[-1] == (1.0, "Arquivo pronto")
     assert [v for v, _ in eventos] == sorted(v for v, _ in eventos)
 

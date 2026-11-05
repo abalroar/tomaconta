@@ -27,6 +27,7 @@ from .update_state import (
     UpdateRunStore, load_cache_update_result, mutation_lock, write_cache_update_result,
 )
 from .institution_registry import INSTITUTION_NAMED_CACHE_NAMES, validate_institution_names
+from ..mercado_imobiliario import validate_frame as validate_mercado_imobiliario
 
 
 DERIVED_TARGET_SPECS = {
@@ -73,6 +74,7 @@ PUBLISH_ORDER = [
     "bloprudencial",
     "cosif_4010",
     "mercado_credito_sgs",
+    "mercado_imobiliario",
     "derived_metrics",
     "derived_metrics_individual",
     "critical_screens",
@@ -86,6 +88,7 @@ INDIVIDUAL_CACHE_QUALITY_SPECS = {
 
 CACHE_FRAME_QUALITY_VALIDATORS = {
     "carteira_instrumentos": validate_carteira_4966_quality,
+    "mercado_imobiliario": validate_mercado_imobiliario,
 }
 
 
@@ -802,7 +805,7 @@ def _prepare_release_publication(
         if (getattr(cache, "release_repo", release.repo), getattr(cache, "release_tag", release.tag)) != (release.repo, release.tag):
             raise ValueError(f"{name}: destino efetivo diverge do release selecionado")
         expected = (expected_periods or {}).get(name)
-        if name in {"bloprudencial", "mercado_credito_sgs"}:
+        if name in {"bloprudencial", "mercado_credito_sgs", "mercado_imobiliario"}:
             expected = expected or (expected_periods or {}).get("monthly")
         if expected and record.get("max_period_ref") != normalize_period_reference(expected):
             raise ValueError(f"{name}: competência máxima difere do alvo {expected}")

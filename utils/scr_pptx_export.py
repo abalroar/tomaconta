@@ -146,6 +146,7 @@ def _caixa_texto(
         paragrafo.space_after = Pt(0)
         corrida = paragrafo.add_run()
         corrida.text = bloco
+        corrida.font.name = "Calibri"
         corrida.font.size = Pt(tamanho)
         corrida.font.bold = negrito
         corrida.font.color.rgb = cor
@@ -908,6 +909,12 @@ def _adicionar_painel(
             texto=rotulo, tamanho=FONTE_TITULO_PT, cor=COR_TITULO, negrito=True,
         )
         altura_cabecalho = ALTURA_TITULO_COMPACTO
+        if getattr(painel, "mostrar_fonte_compacta", False):
+            _caixa_texto(
+                slide, left=left, top=top + altura_cabecalho, width=width, height=ALTURA_FONTE,
+                texto=painel.fonte, tamanho=FONTE_FONTE_PT, cor=COR_FONTE,
+            )
+            altura_cabecalho += ALTURA_FONTE
     else:
         altura_titulo = Inches(0.48) if getattr(painel, "estilo_taxas", False) else ALTURA_TITULO
         _caixa_texto(
@@ -1000,8 +1007,9 @@ def _adicionar_painel(
     grafico = slide.shapes.add_chart(
         chart_type, left, topo_grafico, width, altura_grafico, dados
     ).chart
+    grafico.font.name = "Calibri"
     grafico.has_title = False
-    if taxas:
+    if taxas or getattr(painel, "preservar_lacunas", False):
         elemento_chart = grafico._chartSpace.chart
         vazios = elemento_chart.find(qn("c:dispBlanksAs"))
         if vazios is None:

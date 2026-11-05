@@ -22,7 +22,7 @@ from .update_state import UpdateRunStore, mutation_lock
 
 SPECIAL_CACHES = frozenset({
     "cosif_4010", "taxas_juros", "taxas_juros_historico", "spb_meios_pagamento",
-    "mercado_credito_sgs", "scr_data",
+    "mercado_credito_sgs", "mercado_imobiliario", "scr_data",
 })
 
 
@@ -324,7 +324,7 @@ class UpdateBackend:
             raise ValueError("A atualização portátil exige recalcular as dependências")
         kind = spec.get("cache_type")
         options = spec.get("options") or {}
-        if kind in {"taxas_juros", "taxas_juros_historico", "mercado_credito_sgs"} and not all(options.get(key) for key in ("start", "end")):
+        if kind in {"taxas_juros", "taxas_juros_historico", "mercado_credito_sgs", "mercado_imobiliario"} and not all(options.get(key) for key in ("start", "end")):
             raise ValueError("Informe uma janela de datas completa para congelar o plano")
         if kind == "scr_data" and not options.get("years"):
             raise ValueError("Informe os anos do SCR.data para congelar o plano")
@@ -554,4 +554,6 @@ class UpdateJobExecutor:
                 previous_completed = completed
         keys = ("datasets",) if kind == "spb_meios_pagamento" else ("start", "end")
         kwargs = {key: options[key] for key in keys if key in options}
+        if kind == "mercado_imobiliario":
+            kwargs["rebuild"] = spec["mode"] == "rebuild"
         return cache.materialize_history(overwrite=overwrite, **kwargs)
