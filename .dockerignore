@@ -12,3 +12,4 @@ data/cache/*
 !data/cache/taxas_juros_historico
 *.pptx
 *.xlsx
+web
