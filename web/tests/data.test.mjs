@@ -115,7 +115,7 @@ test('real concessoes-1 retains barBRL and line-months on separate screenandOffi
  assert.equal(calls.length,1);const [groups,options]=calls[0];
  assert.deepEqual(groups.map(g=>g.type),['BAR','LINE']);assert.equal(groups[1].options.secondaryValAxis,true);
  assert.equal(groups[1].options.secondaryCatAxis,true);assert.equal(options.valAxes.length,2);
- assert.deepEqual(options.valAxes.map(a=>a.valAxisTitle),['R$ bi','meses']);
+ assert.deepEqual(options.valAxes.map(a=>a.showValAxisTitle),[false,false]);
  assert.deepEqual(groups[0].data[0].values,c.series[0].data.map(p=>p[1]));
  assert.deepEqual(groups[1].data[0].values,c.series[1].data.map(p=>p[1]));
 });
@@ -138,7 +138,8 @@ test('nativeOfficeXML contains actual combocharts and twovaluescales',async()=>{
  const bytes=await p.write({outputType:'nodebuffer'});const zip=await JSZip.loadAsync(bytes);
  const xml=await zip.file('ppt/charts/chart1.xml').async('string');
  assert.match(xml,/<c:barChart>/);assert.match(xml,/<c:lineChart>/);assert.equal((xml.match(/<c:valAx>/g)||[]).length,2);
- assert.match(xml,/R\$ bi/);assert.match(xml,/meses/);assert.match(xml,/<c:axPos val="r"/);
+ assert.doesNotMatch(xml,/<c:title>/);assert.match(xml,/<c:axPos val="r"/);
+ assert.match(xml,/<c:symbol val="none"/);assert.match(xml,/E5E5E5/);assert.match(xml,/CCCCCC/);
 });
 
 test('emptysecondaryunitfallstoexplicitprimarypercentageunit',()=>{
