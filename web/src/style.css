@@ -3,3 +3,5 @@
 @media(prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}@media print{.sidebar,.topbar,.export-buttons,.filters,.tabs,button{display:none!important}main{margin:0}.content{padding:0}.chart-card{break-inside:avoid}.chart-grid{display:block}.chart-card{margin-bottom:20px}.page-footer{display:none}}
 
 @media(max-width:800px){.sidebar:not(.open){visibility:hidden}.sidebar.open{visibility:visible}}
+
+.bank-filters.analysis-controls-hidden .bank-select,.bank-filters.analysis-controls-hidden>label:last-child{display:none}
