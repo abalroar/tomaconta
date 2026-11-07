@@ -1,11 +1,13 @@
 import {cp,mkdir,readFile,writeFile} from 'node:fs/promises';
 import {resolve,dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {execFileSync} from 'node:child_process';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const target=process.argv[2];if(!target)throw Error('Informe o checkout isolado do site pessoal.');
 await mkdir(resolve(target,'public/tomaconta'),{recursive:true});
 await cp(resolve(root,'dist'),resolve(target,'public/tomaconta'),{recursive:true});
 await cp(resolve(root,'server/bcb.js'),resolve(target,'worker/tomaconta.js'));
 const manifest=JSON.parse(await readFile(resolve(root,'public/data/manifest.json'),'utf8'));
-await writeFile(resolve(target,'public/tomaconta/build.json'),JSON.stringify({app:'Toma Conta',version:1,sourceData:manifest.sourceCommit,builtAt:manifest.builtAt,charts:manifest.chartCount}));
+const frontendCommit=execFileSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim();
+await writeFile(resolve(target,'public/tomaconta/build.json'),JSON.stringify({app:'Toma Conta',version:2,sourceData:manifest.sourceCommit,builtAt:manifest.builtAt,frontendCommit,frontendBuiltAt:new Date().toISOString(),charts:manifest.chartCount}));
 console.log('Piloto copiado para public/tomaconta; preserve o roteamento /tomaconta/api/* do Worker.');
