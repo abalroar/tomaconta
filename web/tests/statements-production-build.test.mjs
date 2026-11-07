@@ -22,8 +22,8 @@ test('production application references an executable worker with bundled import
   const workerReferences = chunks.flatMap(chunk => [...chunk.code.matchAll(/new Worker\(\s*new URL\(\s*["']([^"']*statements-worker[^"']*\.js)["']/g)].map(match => match[1]));
   assert.equal(workerReferences.length, 1, 'the real application must instantiate exactly one bundled statements worker');
   const workerPath = new URL(workerReferences[0], 'https://example.test');
-  assert.ok(workerPath.pathname.startsWith('/tomaconta/assets/'));
-  const file = path.join(outDir, workerPath.pathname.slice('/tomaconta/'.length));
+  assert.ok(workerPath.pathname.startsWith('/atlas-sfn/assets/'));
+  const file = path.join(outDir, workerPath.pathname.slice('/atlas-sfn/'.length));
   assert.ok((await readFile(file)).byteLength > 0);
 
   // Import the exact emitted worker. Missing local imports fail in Node's ESM
@@ -62,11 +62,11 @@ test('production application references an executable worker with bundled import
   };
   assert.deepEqual(await next(), {type: 'ready', fetches: 0});
   const entity = {id: 'prudential-C0080099', scope: 'prudential', code: 'C0080099', inputPath: 'data/statements/inputs/prudential-C0080099.json.gz'};
-  const job = {type: 'analyze', entity, periods: ['202512', '202606'], dataBase: 'https://example.test/tomaconta/data/'};
+  const job = {type: 'analyze', entity, periods: ['202512', '202606'], dataBase: 'https://example.test/atlas-sfn/data/'};
   for (const [id, change, expected] of [
     ['identity', {entity: {...entity, code: 'C0083539'}}, /Identidade contábil inválida/],
     ['base', {dataBase: 'https://example.test/data/'}, /Origem dos dados inválida/],
-    ['revision', {dataBase: 'https://example.test/tomaconta/api/shared/data/invalid/'}, /Origem dos dados inválida/],
+    ['revision', {dataBase: 'https://example.test/atlas-sfn/api/shared/data/invalid/'}, /Origem dos dados inválida/],
     ['periods', {periods: ['202606', '202512']}, /Competências inválidas/],
   ]) {
     worker.postMessage({...job, ...change, id});

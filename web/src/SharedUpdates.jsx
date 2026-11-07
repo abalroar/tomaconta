@@ -54,7 +54,7 @@ export default function SharedUpdates({publication,catalog,manifest}){
     finally{postRequest.current=null;if(mounted.current)setSubmitting(false);}
   }
   return <section className="tc-shared-updates" aria-labelledby="tc-shared-title">
-    <div className="tc-shared-heading"><div><h2 id="tc-shared-title">Base compartilhada</h2><p className="tc-section-description">A atualização validada fica disponível para todos que usam o Toma Conta.</p></div><button type="button" className="tc-text-action" disabled={loading} onClick={refresh}>{loading?'Consultando…':'Consultar fila'}</button></div>
+    <div className="tc-shared-heading"><div><h2 id="tc-shared-title">Base compartilhada</h2><p className="tc-section-description">A atualização validada fica disponível para todos que usam o Atlas SFN.</p></div><button type="button" className="tc-text-action" disabled={loading} onClick={refresh}>{loading?'Consultando…':'Consultar fila'}</button></div>
     {!configured&&!loading&&<p className="tc-operation-status">A atualização compartilhada está disponível no site publicado.</p>}
     {configured&&current.builtIn&&<p className="tc-operation-status" role="status">A base compartilhada aguarda a importação inicial. A versão publicada continua disponível.</p>}
     {available&&<div className="tc-shared-publication" role="status"><span>Uma nova base está disponível.</span><button type="button" className="tc-action tc-action-primary" onClick={()=>globalThis.location.reload()}>Carregar nova base</button></div>}

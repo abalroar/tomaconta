@@ -1,7 +1,7 @@
 import React,{lazy,Suspense,useCallback,useEffect,useRef,useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {currentDataRevision,json} from './data.js';
-import Landing from './Landing.jsx';
+import Landing from './AtlasLanding.jsx';
 import AppShell from './AppShell.jsx';
 import {statementNavigationUrl} from './statement-data.js';
 import {loadPublication} from './publication-data.js';
@@ -76,7 +76,7 @@ function App(){
   },[catalog]);
   function updateHousing(charts,selectedUf){if(activeUf.current===(selectedUf||uf))setHousing({uf:selectedUf||uf,charts});}
 
-  if(!manifest||!catalog)return <div className="tc-boot"><strong>Toma Conta.</strong><p role={error?'alert':'status'}>{error||'Carregando dados…'}</p>{error&&<button type="button" onClick={()=>setRetry(value=>value+1)}>Tentar novamente</button>}</div>;
+  if(!manifest||!catalog)return <div className="tc-boot"><strong>Atlas SFN</strong><p role={error?'alert':'status'}>{error||'Carregando dados…'}</p>{error&&<button type="button" onClick={()=>setRetry(value=>value+1)}>Tentar novamente</button>}</div>;
   if(page==='overview')return <SectionBoundary key="overview"><Landing catalog={catalog} sfn={sfn} onNavigate={navigate} onOpenInstitution={openInstitution}/></SectionBoundary>;
   const imob=housing.uf===uf?housing.charts:[];
   return <AppShell page={page} onNavigate={navigate}>

@@ -1,0 +1,27 @@
+.atlas-scene{position:relative;width:100%;height:clamp(420px,62svh,640px);min-width:0;color:#234556;font-family:inherit;font-variant-numeric:tabular-nums;isolation:isolate}
+.atlas-scene-svg{display:block;width:100%;height:100%;overflow:visible;outline-offset:3px}
+.atlas-scene{overflow:hidden}
+.atlas-scene--map .atlas-scene-svg{touch-action:none;cursor:grab}
+.atlas-scene--map .atlas-scene-svg:active{cursor:grabbing}
+.atlas-scene--distribution .atlas-scene-svg{touch-action:pan-y}
+.atlas-scene-svg:focus-visible{outline:2px solid #ec7000;outline-offset:-3px}
+.atlas-scene-state{cursor:pointer;outline:none}
+.atlas-scene-state:focus-visible{stroke:#ec7000!important;stroke-width:2.6px!important}
+.atlas-scene-mark circle{cursor:pointer;outline:none;vector-effect:non-scaling-stroke}
+.atlas-scene-mark circle:focus-visible{stroke:#ec7000!important;stroke-width:3px!important}
+.atlas-scene-annotation text{font-family:inherit;font-size:13px;fill:#234556;stroke:#f5f6f2;stroke-width:4px;paint-order:stroke fill;stroke-linejoin:round;letter-spacing:-.01em}
+.atlas-scene-leader{stroke:#829eaa;stroke-width:.8;fill:none;vector-effect:non-scaling-stroke}
+.atlas-scene-label-name{font-weight:650}
+.atlas-scene-label-value{font-weight:450;font-size:12px;letter-spacing:0}
+.atlas-scene-mini{stroke:#f5f6f2;stroke-width:.6px;vector-effect:non-scaling-stroke}
+.atlas-scene-axis line{stroke:#a6bec7;stroke-width:1}
+.atlas-scene-axis text{fill:#426371;font-family:inherit;font-size:12px;font-variant-numeric:tabular-nums}
+.atlas-scene-camera{position:absolute;right:10px;bottom:12px;display:flex;gap:7px;align-items:center}
+.atlas-scene-camera button{width:34px;height:34px;border:1px solid #a6bec7;border-radius:50%;background:#f5f6f2;color:#315f78;padding:7px;display:grid;place-items:center;cursor:pointer;transition:background-color 140ms ease-out,transform 140ms ease-out}
+@media(hover:hover) and (pointer:fine){.atlas-scene-camera button:hover{background:#dfebee}}
+.atlas-scene-camera button:active{transform:scale(.96)}
+.atlas-scene-camera button:focus-visible{outline:2px solid #ec7000;outline-offset:3px}
+.atlas-scene-camera svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+@media(max-width:700px){.atlas-scene{height:clamp(360px,57svh,500px)}.atlas-scene-annotation text{font-size:11px;stroke-width:3.5px}.atlas-scene-label-value{font-size:11px}.atlas-scene-axis text{font-size:11px}.atlas-scene-camera{right:0;bottom:3px}.atlas-scene-camera button{width:36px;height:36px}}
+@media(pointer:coarse){.atlas-scene-camera button{width:44px;height:44px;padding:10px}}
+@media(prefers-reduced-motion:reduce){.atlas-scene-camera button{transition:none}.atlas-scene-camera button:active{transform:none}}

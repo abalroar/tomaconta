@@ -3,12 +3,13 @@ import {bcbProxy} from './server/bcb.js';
 import {handleShared,SHARED_ROOT} from './server/shared.js';
 
 export default defineConfig({
-  base:'/tomaconta/',
+  base:'/atlas-sfn/',
   plugins:[{
     name:'tomaconta-local-api',
     configureServer(server){
       server.middlewares.use(async(req,res,next)=>{
         const url=new URL(req.url,'http://localhost');
+        if(url.pathname.startsWith('/atlas-sfn/api/'))url.pathname=url.pathname.replace('/atlas-sfn/api/','/tomaconta/api/');
         let response;
         if(url.pathname.startsWith(`${SHARED_ROOT}/`)){
           // Development has no financial bindings. The real handler reports

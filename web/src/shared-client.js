@@ -5,7 +5,7 @@ export const SHARED_BASES=[
   {kind:'individual',label:'Balanço e DRE · individual',source:'BCB · COSIF 4010'},
   {kind:'mercado_credito_sgs',label:'Crédito do SFN',source:'BCB · SGS',sourceId:'sfn'},
   {kind:'mercado_imobiliario',label:'Mercado imobiliário',source:'BCB · Olinda',sourceId:'imob'},
-  {kind:'scr_data',label:'Crédito por renda e região',source:'BCB · SCR.data',sourceId:'scr'},
+  {kind:'scr_data',label:'Crédito PF/PJ · Atlas e séries',source:'BCB · SCR.data',sourceId:'scr'},
   {kind:'spb_meios_pagamento',label:'Meios de pagamento',source:'BCB · Olinda / MPV',sourceId:'spb'},
   {kind:'rede_agencias',label:'Rede de agências',source:'BCB / IBGE'},
   {kind:'tudo',label:'Todas as bases',source:'BCB / IBGE'},
