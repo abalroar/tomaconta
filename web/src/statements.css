@@ -1,0 +1,52 @@
+.statements-page{min-width:0}
+.statements-toolbar{display:flex;justify-content:space-between;align-items:center;gap:20px;flex-wrap:wrap;margin-bottom:15px}
+.statements-tabs{display:flex;gap:19px;align-items:center;flex-wrap:wrap}
+.statements-tabs button{font-size:13px;padding:6px 0;border-bottom:1px solid transparent}
+.statements-tabs button[aria-selected=true]{font-weight:600;border-bottom-color:#315f78}
+.statements-selection{display:flex;justify-content:space-between;gap:28px;align-items:center;margin-bottom:20px}
+.statements-selection>.institution-search{width:440px;max-width:100%;min-width:0}
+.statements-selection .institution-search__results{position:absolute;top:100%;left:0;right:0;z-index:30;background:#edf3f4;padding:4px 12px;border:1px solid #bdced3}
+.statements-identity{display:flex;align-items:baseline;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:15px 18px;background:#edf3f4;font-size:12px;margin-bottom:23px}
+.statements-identity strong{font-weight:600}
+.statements-identity p{font-size:11px;color:#506a76;margin:3px 0 0;line-height:1.6}
+.statements-identity>span{font-size:11px;color:#506a76}
+.statements-period-picker{position:relative;flex-shrink:0;font-size:12px}
+.statements-period-picker>summary{list-style:none;border-bottom:1px solid #a4bdc4;padding:7px 0;cursor:pointer;display:flex;align-items:center;gap:10px}
+.statements-period-picker>summary::-webkit-details-marker{display:none}
+.statements-period-options{position:absolute;right:0;top:calc(100% + 8px);width:310px;max-width:calc(100vw - 40px);z-index:35;background:#fff;border:1px solid #bdced3;padding:14px 16px}
+.statements-period-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px 15px;max-height:280px;overflow:auto;margin:12px 0}
+.statements-period-grid label{font-size:12px;flex-direction:row;align-items:center;gap:8px;min-height:30px}
+.statements-period-grid input{accent-color:#315f78;margin:0;width:14px;height:14px;min-height:0}
+.statements-period-actions{display:flex;justify-content:space-between;align-items:center;gap:15px;font-size:11px;color:#506a76}
+.statements-period-actions button{font-size:12px;text-decoration:underline;text-underline-offset:3px}
+.statements-period-actions .statements-apply{background:#315f78;color:#fff;padding:7px 13px;border-radius:2px;text-decoration:none}
+.statements-table-controls{display:flex;align-items:center;gap:20px;flex-wrap:wrap}
+.statements-table-controls label{font-size:12px;gap:7px;flex-direction:row}
+.statements-table-controls input{accent-color:#315f78;width:14px;height:14px;margin:0;min-height:0}
+.institution-page .statements-table{table-layout:fixed;font-size:12px;line-height:1.5}
+.institution-page .statements-table thead th{text-align:right;font-size:11px;padding:9px 8px;border-bottom:1px solid #ccdadd}
+.institution-page .statements-table thead th:first-child{text-align:left}
+.institution-page .statements-table td,.institution-page .statements-table tbody th{padding:9px 8px;border-bottom:1px solid #e0e8eb;vertical-align:top}
+.institution-page .statements-table td{white-space:normal;overflow-wrap:anywhere}
+.institution-page .statements-table tbody th{font-weight:400}
+.institution-page .statements-table .statements-section{background:#f4f7f8}
+.institution-page .statements-table .statements-section th,.institution-page .statements-table .statements-bold th{font-weight:600}
+.institution-page .statements-table .statements-key{background:#e7eff1}
+.institution-page .statements-table .statements-key th,.institution-page .statements-table .statements-key td{font-weight:600}
+.institution-page .statements-table .statements-indent th{padding-left:20px}
+.institution-page .statements-table .statements-detail th{padding-left:28px}
+.institution-page .statements-table td.is-negative{color:#8f463a}
+.institution-page .statements-table td.is-zero,.institution-page .statements-table td.is-missing{color:#667d88}
+.statements-pagination{display:flex;justify-content:space-between;align-items:center;gap:18px;flex-wrap:wrap;font-size:11px;color:#506a76;margin:0 0 12px}
+.statements-pagination>div{display:flex;align-items:center;gap:15px}
+.statements-pagination button{font-size:12px;padding:6px 0;text-decoration:underline;text-underline-offset:3px}
+.statements-footnote{font-size:11px;line-height:1.65;color:#506a76;margin:17px 0 0;max-width:95ch}
+.statements-error{font-size:12px;line-height:1.6;color:#8f342f;padding:8px 0}
+.statements-error p{margin:0}
+.statements-error button{margin-top:5px}
+.statements-local-export{display:flex;justify-content:flex-end;margin-bottom:15px}
+.statements-checks{margin-top:15px}
+.institution-page .statements-checks table{font-size:11px;margin-top:10px}
+.institution-page .statements-checks td,.institution-page .statements-checks th{padding:6px 5px;white-space:normal}
+@media(max-width:680px){.statements-selection{gap:16px;align-items:stretch;flex-wrap:wrap}.statements-selection>.institution-search{width:100%;flex-basis:100%}.statements-period-picker{margin-left:auto}.statements-identity{padding:13px 14px}.statements-table-controls{gap:14px}.institution-page .statements-table{font-size:11px}.institution-page .statements-table td,.institution-page .statements-table tbody th,.institution-page .statements-table thead th{padding:8px 4px}.institution-page .statements-table .statements-indent th{padding-left:12px}.institution-page .statements-table .statements-detail th{padding-left:18px}}
+@media(pointer:coarse){.statements-tabs button,.statements-period-picker>summary,.statements-period-actions button,.statements-pagination button{min-height:44px}.statements-period-grid label{min-height:44px}.statements-period-grid input,.statements-table-controls input{min-height:0;font-size:inherit}.statements-table-controls label{min-height:44px}}

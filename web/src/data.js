@@ -2,7 +2,15 @@ export const BASE=import.meta.env?.BASE_URL ?? '/';
 export const COLORS=['#ec7000','#171717','#8b8c8d','#a64a00','#d1d2d3','#f7ae62','#555759','#b56a20'];
 export const number=(v,d=1)=>v==null||v===''||!Number.isFinite(+v)?'N/D':new Intl.NumberFormat('pt-BR',{maximumFractionDigits:d,minimumFractionDigits:d}).format(+v);
 export const dateLabel=v=>/^\d{4}-\d{2}/.test(v||'')?`${v.slice(5,7)}/${v.slice(0,4)}`:v||'N/D';
-export async function json(path){const r=await fetch(BASE+path);if(!r.ok)throw new Error(`Dados indisponíveis (${r.status}). Tente novamente.`);return r.json();}
+export async function json(path){
+ const r=await fetch(BASE+path);if(!r.ok)throw new Error(`Dados indisponíveis (${r.status}). Tente novamente.`);
+ if(!path.endsWith('.json.gz'))return r.json();
+ const bytes=new Uint8Array(await r.arrayBuffer());
+ // Asset servers may already have decoded gzip through Content-Encoding.
+ if(bytes[0]!==0x1f||bytes[1]!==0x8b)return JSON.parse(new TextDecoder().decode(bytes));
+ if(typeof DecompressionStream!=='function')throw new Error('Este navegador não consegue abrir a base de demonstrações. Atualize o navegador e tente novamente.');
+ return new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))).json();
+}
 export function filterChart(chart,window='12',start='',end=''){
  const dates=chart.series.flatMap(s=>s.data.filter(p=>p[1]!=null).map(p=>p[0])).filter(x=>/^\d{4}-\d{2}-\d{2}$/.test(x));
  if(!dates.length)return chart;
