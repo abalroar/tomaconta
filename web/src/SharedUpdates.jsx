@@ -56,7 +56,7 @@ export default function SharedUpdates({publication,catalog,manifest}){
   return <section className="tc-shared-updates" aria-labelledby="tc-shared-title">
     <div className="tc-shared-heading"><div><h2 id="tc-shared-title">Base compartilhada</h2><p className="tc-section-description">A atualização validada fica disponível para todos que usam o Toma Conta.</p></div><button type="button" className="tc-text-action" disabled={loading} onClick={refresh}>{loading?'Consultando…':'Consultar fila'}</button></div>
     {!configured&&!loading&&<p className="tc-operation-status">A atualização compartilhada está disponível no site publicado.</p>}
-    {configured&&current.builtIn&&<p className="tc-operation-status" role="status">A primeira base compartilhada está sendo preparada. A versão publicada continua disponível.</p>}
+    {configured&&current.builtIn&&<p className="tc-operation-status" role="status">A base compartilhada aguarda a importação inicial. A versão publicada continua disponível.</p>}
     {available&&<div className="tc-shared-publication" role="status"><span>Uma nova base está disponível.</span><button type="button" className="tc-action tc-action-primary" onClick={()=>globalThis.location.reload()}>Carregar nova base</button></div>}
     <form onSubmit={submit}>
       <div className="tc-shared-controls"><label className="tc-field tc-shared-base">Base<select value={kind} onChange={event=>selectKind(event.target.value)} disabled={submitting}>{SHARED_BASES.map(source=><option value={source.kind} key={source.kind}>{source.label}</option>)}</select></label><button type="submit" className="tc-action tc-action-primary" disabled={!ready||loading||submitting}>{submitting?'Enviando…':'Atualizar para todos'}</button></div>

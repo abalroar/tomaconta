@@ -77,7 +77,7 @@ function App(){
   function updateHousing(charts,selectedUf){if(activeUf.current===(selectedUf||uf))setHousing({uf:selectedUf||uf,charts});}
 
   if(!manifest||!catalog)return <div className="tc-boot"><strong>Toma Conta.</strong><p role={error?'alert':'status'}>{error||'Carregando dados…'}</p>{error&&<button type="button" onClick={()=>setRetry(value=>value+1)}>Tentar novamente</button>}</div>;
-  if(page==='overview')return <Landing catalog={catalog} sfn={sfn} onNavigate={navigate} onOpenInstitution={openInstitution}/>;
+  if(page==='overview')return <SectionBoundary key="overview"><Landing catalog={catalog} sfn={sfn} onNavigate={navigate} onOpenInstitution={openInstitution}/></SectionBoundary>;
   const imob=housing.uf===uf?housing.charts:[];
   return <AppShell page={page} onNavigate={navigate}>
     {error&&<div className="tc-app-error" role="alert"><span>{error}</span><button type="button" onClick={()=>setError('')}>Fechar</button></div>}
