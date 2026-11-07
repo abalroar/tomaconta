@@ -143,6 +143,14 @@ O agendamento consulta a fila a cada cinco minutos, nos minutos 2, 7, 12 e assim
 
 A passagem de intervalo com passo para lista mantém os mesmos doze horários por hora. Ela registra uma nova edição do cron pelo responsável do repositório para renovar a agenda. O sucesso de `workflow_dispatch` e o estado `active` não comprovam a entrega de eventos `schedule`; essa comprovação exige registrar uma execução real com esse evento e seu resultado.
 
+### Relógio independente da fila
+
+`tomaconta-shared-clock.yml` registra um segundo agendamento nativo, nos minutos 4, 9, 14 e assim por diante até 59. Seu trabalho é curto: consultar a fila pública e verificar, com filtros de status no GitHub, se o executor original já está ativo. Sem pedidos `queued` ou `running`, termina sem chamar a API do GitHub. Com executor ativo, também termina sem despacho. Um pedido `running` sem execução ativa pode acordar o executor; a validade da reserva continua sendo decidida pelo servidor.
+
+Se há trabalho e nenhuma execução ativa, o relógio emite no máximo um `workflow_dispatch` do executor original na `main`, sem inputs de bootstrap. O job recebe o `GITHUB_TOKEN` temporário do próprio GitHub com `actions: write` e `contents: read`; nenhuma credencial pessoal é copiada ou persistida, e o token não é enviado ao site. Checkout não persiste credenciais. O executor conserva OIDC, workflow autorizado, concorrência, reservas e publicação atuais. O GitHub documenta que `workflow_dispatch` é uma exceção que permite [acionar outro workflow com o token do repositório](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow#triggering-a-workflow-from-a-workflow).
+
+O recibo do relógio registra evento `schedule`, run ID, horário UTC, pedidos observados e resultado (`empty`, `executor_active` ou `dispatched`). A execução do executor terá evento `workflow_dispatch`, iniciado pelo relógio. A prova de automação exige ligar os dois runs ao pedido publicado; um dispatch manual do operador não satisfaz esse requisito. Ambos os agendamentos dependem da entrega de eventos pelo GitHub e não garantem horário exato. A presença do novo workflow no repositório, sozinha, não comprova funcionamento.
+
 ## Conferência pública em 07/11/2026
 
 O [bootstrap 42354223004](https://github.com/abalroar/tomaconta/actions/runs/42354223004) publicou `c8eed6c80d114b088c8672f55245906e`, com 7.608 arquivos e 291.332.640 bytes. A preparação levou 1,608 s de tempo de parede em produção; esse número inclui I/O e não mede CPU isoladamente. A publicação atômica terminou sem alterar os módulos contábeis.
