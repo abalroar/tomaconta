@@ -136,3 +136,15 @@ Os testes do Worker usam SQLite real em memória, R2 com verificação de checks
 O baseline real foi conferido antes da importação: 7.565 arquivos, 270.005.759 bytes, 30 Parquets e maior arquivo de 19.273.120 bytes. `validateFiles` e `validateDependencies` aceitaram o inventário completo; somente o README documental da malha foi omitido. A conferência local leu dez catálogos, 7.684.249 bytes, em cerca de 43 ms de Node. Isso verifica o contrato dos artefatos; latência e limites do ambiente Worker ainda precisam ser medidos na implantação.
 
 Na publicação, conferir pela interface: importação inicial; pedido imobiliário e seu progresso; data/abrangência e fonte por gráfico; atualização compartilhada observável em nova sessão; download de PPTX e Balanço/DRE do contexto selecionado; falha controlada preservando revisão anterior; e restauração condicional. Registrar a revisão ativa junto dos resultados.
+
+## Cadência do executor
+
+O agendamento consulta a fila a cada cinco minutos, nos minutos 2, 7, 12 e assim por diante até 57. A cadência evita o início da hora, quando o GitHub informa maior carga e possibilidade de atrasos ou descarte de eventos agendados. A execução não tem horário de início garantido. O mesmo workflow pode ser acionado manualmente, mantendo a verificação OIDC, o bloqueio de concorrência e a mesma fila. Referência: [GitHub — schedule](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule).
+
+## Conferência pública em 07/11/2026
+
+O [bootstrap 42354223004](https://github.com/abalroar/tomaconta/actions/runs/42354223004) publicou `c8eed6c80d114b088c8672f55245906e`, com 7.608 arquivos e 291.332.640 bytes. A preparação levou 1,608 s de tempo de parede em produção; esse número inclui I/O e não mede CPU isoladamente. A publicação atômica terminou sem alterar os módulos contábeis.
+
+O [pedido imobiliário 42355724780](https://github.com/abalroar/tomaconta/actions/runs/42355724780), criado pela interface pública, publicou `7dd4626a08de419c84dafd1e2d9e9f5e` em 165,71 s após a reserva. Reutilizou 7.604 arquivos e enviou quatro novos objetos. A sessão anterior manteve `c8eed6c8` até carregar a nova base, e uma sessão nova exibiu o link do mapa com a revisão `7dd4626a`.
+
+Foram baixados dessa base os Excel/PPTX prudenciais da Afinz (duas competências) e individuais do Itaú (oito no Excel, três no PPTX conforme o renderer original). Os componentes `xl/` e `ppt/` ficaram byte-idênticos às referências anteriores. Os decks de 75, 24 e quatro gráficos passaram em 50.592 verificações contra o JSON realmente servido nessa revisão: dados, planilhas editáveis, zeros, N/D, eixos, Calibri, fundo branco e paleta. A conferência visual no PowerPoint nativo incluiu Balanço/DRE e gráficos imobiliários. Falha e restauração condicionais foram conferidas em D1/R2 local; não se provocou falha de coleta nem restauração artificial na base pública.
