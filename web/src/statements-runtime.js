@@ -42,9 +42,9 @@ function sameContext(message, request) {
 /** A worker is created only when a statement or native file is requested. */
 export function createStatementRuntime({
   dataBase = datasetRoot,
-  WorkerClass = globalThis.Worker,
+  WorkerClass,
   timeoutMs = 180000,
-  workerUrl = new URL('./statements-worker.js', import.meta.url),
+  workerUrl,
 } = {}) {
   let worker = null;
   let sequence = 0;
@@ -71,8 +71,14 @@ export function createStatementRuntime({
 
   function getWorker() {
     if (worker) return worker;
-    if (typeof WorkerClass !== 'function') throw new Error('Este navegador não oferece os recursos necessários para preparar as demonstrações.');
-    const instance = new WorkerClass(workerUrl, {type: 'module', name: 'tomaconta-statements'});
+    const Constructor = WorkerClass ?? globalThis.Worker;
+    if (typeof Constructor !== 'function') throw new Error('Este navegador não oferece os recursos necessários para preparar as demonstrações.');
+    // Keep the native constructor literal so Vite bundles the worker's imports.
+    // An injected constructor or URL remains available to deterministic tests.
+    const injectedPath = './statements-worker.js';
+    const instance = WorkerClass !== undefined || workerUrl !== undefined
+      ? new Constructor(workerUrl ?? new URL(injectedPath, import.meta.url), {type: 'module', name: 'tomaconta-statements'})
+      : new Worker(new URL('./statements-worker.js', import.meta.url), {type: 'module', name: 'tomaconta-statements'});
     worker = instance;
     instance.addEventListener('message', ({data: message}) => {
       if (worker !== instance || !message || !pending.has(message.id)) return;
