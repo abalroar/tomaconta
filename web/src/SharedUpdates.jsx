@@ -48,7 +48,7 @@ export default function SharedUpdates({publication,catalog,manifest}){
     try{
       const job=await submitSharedPlan(plan,pendingPost.current.key,{signal:controller.signal});
       pendingPost.current=null;
-      if(mounted.current){setJobs(existing=>[job,...existing.filter(item=>item.id!==job.id)]);setNotice(job.status==='queued'?'Pedido na fila.':job.status==='running'?'Esta atualização já está em execução.':job.status==='succeeded'?'Esta atualização já foi publicada.':sharedJobOutcome(job));}
+      if(mounted.current){setJobs(existing=>[job,...existing.filter(item=>item.id!==job.id)]);setNotice('');}
       await refresh();
     }catch(reason){if(mounted.current&&!controller.signal.aborted){setError(reason);setNotice('');}}
     finally{postRequest.current=null;if(mounted.current)setSubmitting(false);}
