@@ -30,6 +30,7 @@ from urllib.request import Request, urlopen
 ROOT = Path(__file__).resolve().parents[1]
 API_ROOT = "https://matheusprat.es/tomaconta/api/shared"
 AUDIENCE = API_ROOT + "/runner"
+RUNNER_USER_AGENT = "TomaContaSharedRunner/1.0 (+https://github.com/abalroar/tomaconta)"
 WORKFLOW = "abalroar/tomaconta/.github/workflows/tomaconta-shared.yml@refs/heads/main"
 KINDS = {"bootstrap", "financeiro", "individual", "mercado_credito_sgs", "mercado_imobiliario", "scr_data", "spb_meios_pagamento", "rede_agencias", "tudo"}
 HEX = re.compile(r"[a-f0-9]{64}\Z")
@@ -128,7 +129,7 @@ class OidcIdentity:
                 raise RunnerError("Identidade OIDC do GitHub Actions indisponível")
             query = [(k, v) for k, v in parse_qsl(parsed.query) if k != "audience"] + [("audience", self.audience)]
             url = urlunsplit(parsed._replace(query=urlencode(query)))
-            request = Request(url, headers={"Authorization": "Bearer " + credential})
+            request = Request(url, headers={"Authorization": "Bearer " + credential, "User-Agent": RUNNER_USER_AGENT})
             try:
                 with self.opener(request, timeout=30) as response:
                     value = json.load(response)
@@ -190,7 +191,8 @@ class SharedAPI:
             raise RunnerError("Acesso ao serviço negado; novas tentativas foram interrompidas")
         if not path.startswith("/runner/") or ".." in path:
             raise RunnerError("Operação do executor inválida")
-        extra = {"Authorization": "Bearer " + self.identity.bearer(), "Accept-Encoding": "identity", **(headers or {})}
+        supplied = {key: value for key, value in (headers or {}).items() if key.lower() != "user-agent"}
+        extra = {"Authorization": "Bearer " + self.identity.bearer(), "Accept-Encoding": "identity", **supplied, "User-Agent": RUNNER_USER_AGENT}
         if data is not None and not isinstance(data, bytes):
             data = json.dumps(data, ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode()
             extra["Content-Type"] = "application/json"
