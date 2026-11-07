@@ -18,6 +18,17 @@ r = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(r)
 
 
+def public_claims(now=1000, **updates):
+    return {"iss": "https://token.actions.githubusercontent.com", "aud": r.AUDIENCE,
+            "repository": "abalroar/tomaconta", "repository_owner": "abalroar",
+            "repository_id": "1141557164", "repository_owner_id": "255978345",
+            "ref": "refs/heads/main", "workflow_ref": r.WORKFLOW,
+            "repository_visibility": "public", "runner_environment": "github-hosted",
+            "event_name": "workflow_dispatch", "sha": "a" * 40, "workflow_sha": "a" * 40,
+            "run_id": "123", "run_attempt": "1", "iat": now, "nbf": now - 1,
+            "exp": now + 600, **updates}
+
+
 def source(tmp_path):
     root = tmp_path / "source"
     for folder in ("utils", "tabs", "data/bundled/demo", "web/public/data"):
@@ -175,7 +186,7 @@ def test_oidc_is_cached_renewed_and_requested_for_exact_audience():
     calls = []
     def opener(request, **_):
         calls.append(request)
-        payload = base64.urlsafe_b64encode(json.dumps({"exp": now[0] + 600}).encode()).rstrip(b"=").decode()
+        payload = base64.urlsafe_b64encode(json.dumps(public_claims(now[0])).encode()).rstrip(b"=").decode()
         return io.BytesIO(json.dumps({"value": "header." + payload + ".signature"}).encode())
     identity = r.OidcIdentity(env={"ACTIONS_ID_TOKEN_REQUEST_URL": "https://run.actions.githubusercontent.com/id?x=1",
                                    "ACTIONS_ID_TOKEN_REQUEST_TOKEN": "oidc-request-only"}, opener=opener, clock=lambda: now[0])
@@ -426,3 +437,86 @@ def test_duplicate_content_is_uploaded_once_while_both_logical_files_remain(tmp_
     prepared = next(call[2] for call in api.calls if call[1] == "prepare")
     web = [file for file in prepared["files"] if file["path"].startswith("web/data/example")]
     assert len(web) == 2 and web[0]["sha256"] == web[1]["sha256"]
+
+
+@pytest.mark.parametrize("key", ["iss", "aud", "repository", "repository_owner", "repository_id", "repository_owner_id", "ref", "workflow_ref", "event_name", "runner_environment", "repository_visibility", "sha", "workflow_sha", "run_id", "run_attempt", "exp", "nbf", "iat"])
+def test_identity_diagnostics_report_only_divergent_claim_names(key):
+    claims = public_claims(**{key: "SENSITIVE-SUPPLIED-VALUE"})
+    with pytest.raises(r.RunnerError) as error:
+        r.diagnose_identity_claims(claims, env={}, now=1000)
+    assert str(error.value) == "Claims OIDC divergentes: " + key
+    assert "SENSITIVE" not in str(error.value)
+
+
+def test_identity_receipt_is_boolean_and_explicitly_not_signature_verification():
+    receipt = r.diagnose_identity_claims(public_claims(), env={}, now=1000)
+    assert receipt["diagnosticOnly"] is True and receipt["signatureVerifiedLocally"] is False
+    assert receipt["publicMetadataMatches"] is True
+    assert all(value is True for value in receipt["claimSentinels"].values())
+    serialized = json.dumps(receipt)
+    assert "abalroar" not in serialized and "token.actions" not in serialized
+
+
+def test_identity_only_never_creates_api_client_or_outputs_token(monkeypatch, capsys):
+    calls = []
+    class Identity:
+        def bearer(self): calls.append("identity");return "NEVER-PRINT-THIS-TOKEN"
+    monkeypatch.setattr(r, "check_github_context", lambda: None)
+    monkeypatch.setattr(r, "OidcIdentity", Identity)
+    monkeypatch.setattr(r, "SharedAPI", lambda: pytest.fail("identity-only cannot create an API client"))
+    assert r.main(["--identity-only"]) == 0
+    output = capsys.readouterr().out
+    assert "NEVER-PRINT" not in output
+    assert json.loads(output) == {"status": "identity_only", "apiCalled": False}
+    assert calls == ["identity"]
+    with pytest.raises(r.RunnerError): r.main(["--identity-only", "--seed"])
+
+
+def test_http_diagnostics_whitelist_headers_and_never_read_error_body():
+    headers = {"X-TomaConta-Service": "shared-v1", "Content-Type": "application/json; charset=utf-8",
+               "CF-Ray": "0123456789abcdef-GRU", "Authorization": "NEVER-LOG", "Set-Cookie": "NEVER-LOG"}
+    safe = r.safe_http_diagnostics(headers)
+    assert safe == {"workerMarker": True, "contentType": "application/json; charset=utf-8", "cfRay": "0123456789abcdef-GRU", "cfMitigated": "absent"}
+    assert r.safe_http_diagnostics({"cf-mitigated": "challenge"})["cfMitigated"] == "challenge"
+    assert r.safe_http_diagnostics({"cf-mitigated": "NEVER-LOG"})["cfMitigated"] == "unavailable"
+    assert "NEVER" not in json.dumps(safe)
+    assert r.safe_http_diagnostics({"CF-Ray": "Bearer-NEVER-LOG", "Content-Type": "NEVER-LOG"})["cfRay"] == "unavailable"
+    class Identity:
+        def bearer(self): return "private-token"
+    def opener(request, **kwargs):
+        raise HTTPError(request.full_url, 403, "", headers, io.BytesIO(b"NEVER-READ-BODY"))
+    api = r.SharedAPI(identity=Identity(), opener=opener)
+    with pytest.raises(r.RunnerError) as error: api.request("GET", "/runner/pending")
+    assert '"workerMarker":true' in str(error.value)
+    assert "0123456789abcdef-GRU" in str(error.value)
+    assert "NEVER" not in str(error.value) and "private-token" not in str(error.value)
+
+
+def test_schedule_requires_activation_and_manual_diagnostic_has_priority():
+    text = (ROOT / ".github/workflows/tomaconta-shared.yml").read_text()
+    assert "(github.event_name == 'workflow_dispatch' || vars.TOMACONTA_SHARED_ENABLED == 'true')" in text
+    assert text.index("--identity-only") < text.index("--seed --pending-only")
+    assert "diagnostic:" in text
+    assert "if: needs.pending.outputs.pending == 'true'" in text
+
+
+def test_pooled_http_error_preserves_only_diagnostic_headers(monkeypatch):
+    import requests
+    class Response:
+        status_code = 403
+        headers = {"X-TomaConta-Service": "shared-v1", "Content-Type": "application/json", "CF-Ray": "0123456789abcdef-GRU", "Authorization": "NEVER-LOG"}
+        def __enter__(self): return self
+        def __exit__(self, *_): pass
+        def json(self): pytest.fail("error bodies cannot be read")
+    class Session:
+        def request(self, *args, **kwargs): return Response()
+        def close(self): pass
+    class Identity:
+        def bearer(self): return "private-token"
+    monkeypatch.setattr(requests, "Session", Session)
+    api = r.SharedAPI(identity=Identity());api.enable_pool()
+    with pytest.raises(r.RunnerError) as error: api.request("GET", "/runner/pending")
+    assert '"workerMarker":true' in str(error.value)
+    assert "NEVER" not in str(error.value)
+    assert api.denied is True
+    api.close_pool()

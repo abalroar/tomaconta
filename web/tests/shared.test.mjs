@@ -179,6 +179,7 @@ test('public jobs require same-origin and initial import and restore require an 
   const fixture = setup(), scheduled = await fixture.token({event_name: 'schedule'});
   const seedResponse = await fixture.call('/runner/seed', {method: 'POST', jwt: scheduled, input: {kind: 'bootstrap'}});
   assert.equal(seedResponse.status, 403);
+  assert.equal(seedResponse.headers.get('X-TomaConta-Service'), 'shared-v1');
   const beforeSeed = await fixture.call('/jobs', {method: 'POST', input: {kind: 'financeiro'}, headers: {'Idempotency-Key': 'b'.repeat(32)}});
   assert.equal(beforeSeed.status, 503);
   const initial = await publishInitial(fixture);

@@ -9,6 +9,10 @@ on:
         description: 'Enfileirar baseline inicial (somente sem revisão ativa)'
         type: boolean
         default: false
+      diagnostic:
+        description: 'Somente diagnóstico OIDC (sem chamada à API nem coleta)'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -24,7 +28,8 @@ jobs:
       github.repository_id == '1141557164' &&
       github.repository_owner_id == '255978345' &&
       github.ref == 'refs/heads/main' &&
-      github.event.repository.private == false
+      github.event.repository.private == false &&
+      (github.event_name == 'workflow_dispatch' || vars.TOMACONTA_SHARED_ENABLED == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -39,8 +44,11 @@ jobs:
       - id: pending
         env:
           BOOTSTRAP: ${{ github.event_name == 'workflow_dispatch' && inputs.bootstrap || false }}
+          DIAGNOSTIC: ${{ github.event_name == 'workflow_dispatch' && inputs.diagnostic || false }}
         run: |
-          if [ "$BOOTSTRAP" = "true" ]; then
+          if [ "$DIAGNOSTIC" = "true" ]; then
+            python scripts/tomaconta_shared_runner.py --identity-only
+          elif [ "$BOOTSTRAP" = "true" ]; then
             python scripts/tomaconta_shared_runner.py --seed --pending-only
           else
             python scripts/tomaconta_shared_runner.py --pending-only

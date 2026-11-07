@@ -49,6 +49,7 @@
 .tc-landing .tc-network-show-all{font-size:11px;text-decoration:underline;text-underline-offset:4px;margin-top:9px;min-height:28px}
 .tc-landing .tc-network-place-open{display:block;font-size:12px;font-weight:500;border:1px solid #315f78;padding:7px 11px;min-height:34px;margin-top:15px}
 .tc-network-place-bank>button[aria-pressed=true]{font-weight:600;color:#244c63}
+.tc-landing .tc-network-reading>p.tc-network-link-status,.tc-landing .tc-network-place>p.tc-network-link-status{display:block;font-size:11px!important;line-height:1.6;margin:10px 0 0!important}
 .tc-network-zoom{position:absolute;bottom:10px;right:0;display:flex;gap:5px;z-index:2}
 .tc-landing .tc-network-zoom button{display:flex;align-items:center;justify-content:center;min-width:33px;min-height:33px;border:1px solid #c4d4da;background:#f4f8f8d9;color:#315a6b;transition:background-color 140ms ease,transform 130ms ease}
 .tc-landing .tc-network-zoom button:active{transform:scale(.96)}
