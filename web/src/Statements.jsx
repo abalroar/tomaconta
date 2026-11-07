@@ -41,7 +41,7 @@ function StatementExport({entity,periods,packet,disabled,onStatus,onError}){
     finally{if(context.current===selectedKey)setBusy(false);}
   }
   return <details ref={node} className="tc-export-menu"><summary>Exportar</summary><div className="tc-export-options"><strong>{entity?groupName(entity):'Demonstrações'}</strong>{entity&&<p>{SCOPE_LABELS[entity.scope]} · {periods.map(period=>statementPeriodLabel(period)).join(', ')}</p>}
-    <button type="button" disabled={disabled||busy||!entity} onClick={()=>run('xlsx')}>Excel da análise</button><button type="button" disabled={disabled||busy||!entity} onClick={()=>run('pptx')}>PPTX da análise</button>
+    <button type="button" disabled={disabled||busy||!entity} onClick={()=>run('xlsx')}>Excel da análise</button><button type="button" disabled={disabled||busy||!entity} onClick={()=>run('pptx')}>{periods.length>3?'PPTX · últimas 3 competências':'PPTX da análise'}</button>
     {status&&<p role="status" aria-live="polite">{status}</p>}
   </div></details>;
 }
