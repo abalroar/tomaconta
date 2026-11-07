@@ -14,6 +14,7 @@ function relationship(xml,id){return [...xml.matchAll(/<Relationship\b[^>]*\/>/g
 // losing numeric zeros there while its native chart cache correctly keeps 0.
 // Repair only those empty numeric cells identified by the cache's formula and
 // point index. Missing observations, formulas and nonzero values stay intact.
+// Embedded workbook font names follow the deck's Calibri; other styles stay intact.
 // These XML forms belong to our generated OOXML, not to user-supplied documents.
 export async function repairPptxChartWorkbooks(bytes){
  const {default:JSZip}=await import('jszip');
@@ -31,7 +32,6 @@ export async function repairPptxChartWorkbooks(bytes){
     if(value.trim()!==''&&Number(value)===0&&row<=last)zeros.push({sheet,cell:range[2]+row});
    }
   }
-  if(!zeros.length)continue;
   const externalId=chart.match(/<c:externalData\b[^>]*\br:id="([^"]+)"/)?.[1];
   const rels=zip.file(relationshipsPath(entry.name));
   if(!externalId||!rels)throw new Error('Não foi possível conferir a planilha do gráfico. Tente novamente.');
@@ -46,6 +46,12 @@ export async function repairPptxChartWorkbooks(bytes){
    const definition=await workbook.file('xl/workbook.xml').async('string');
    const links=await workbook.file('xl/_rels/workbook.xml.rels').async('string');
    state={workbook,sheets:new Map(),changed:false};
+   const styleFile=workbook.file('xl/styles.xml');
+   if(styleFile){
+    const styles=await styleFile.async('string');
+    const normalized=styles.replace(/(<fonts\b[^>]*>)([\s\S]*?)(<\/fonts>)/,(_all,open,fonts,close)=>open+fonts.replace(/(<name\b[^>]*\bval=")[^"]*(")/g,'$1Calibri$2')+close);
+    if(normalized!==styles){workbook.file('xl/styles.xml',normalized);state.changed=true;changed=true;}
+   }
    for(const [tag] of definition.matchAll(/<sheet\b[^>]*\/>/g)){
     const sheetLink=relationship(links,xmlAttribute(tag,'r:id'));
     if(sheetLink)state.sheets.set(xmlAttribute(tag,'name'),{path:partPath('xl/workbook.xml',xmlAttribute(sheetLink,'Target')),xml:null,changed:false});

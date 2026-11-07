@@ -72,7 +72,22 @@ A fila admite até quatro pedidos pendentes e uma execução ativa global. Há d
 
 A reserva dura 180 segundos. O executor deve enviar heartbeat a cada 30 segundos, inclusive durante coleta, validação e envio de arquivos. Uma execução interrompida pode ser retomada em até três tentativas com nova reserva; o manifesto de origem permanece o mesmo. Depois disso, o pedido recebe estado de falha.
 
-O agendamento consulta a fila a cada cinco minutos. O GitHub pode atrasar execuções agendadas; o despacho manual oferece recuperação. Os limites estão na [documentação de eventos agendados do GitHub](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows).
+O agendamento consulta a fila a cada cinco minutos quando a variável de repositório `TOMACONTA_SHARED_ENABLED` vale `true`. Antes da ativação, os horários agendados ficam sem consultar a API. O despacho manual permanece disponível para diagnóstico e importação inicial. O GitHub pode atrasar execuções agendadas; os limites estão na [documentação de eventos agendados do GitHub](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows).
+
+### Ativação e diagnóstico
+
+O modo `diagnostic` apenas solicita a identidade ao emissor GitHub e confere a estrutura e a metadata pública das claims. Ele termina antes de criar o cliente da API do site. O recibo contém booleanos e marca explicitamente que a assinatura não foi verificada localmente; a autorização continua sendo responsabilidade do Worker. Divergências são indicadas somente pelos nomes das claims. JWT, credencial de emissão, URL credenciada e corpos de erro ficam fora do diagnóstico. Nas operações normais, falhas HTTP podem informar apenas o marcador booleano `X-TomaConta-Service: shared-v1`, `Content-Type`, `CF-Ray` e a sentinela de `cf-mitigated` (`challenge`, ausente ou valor indisponível). Os valores têm limites de tamanho e formato. HTTP 401, 403 e 429 interrompem novas chamadas ao serviço nessa execução.
+
+O responsável pela publicação executa estes comandos em etapas, conferindo os resultados de cada uma:
+
+```sh
+gh workflow run tomaconta-shared.yml --ref main -f diagnostic=true --repo abalroar/tomaconta
+gh workflow run tomaconta-shared.yml --ref main -f bootstrap=true --repo abalroar/tomaconta
+# Somente após conferir uma revisão compartilhada ativa:
+gh variable set TOMACONTA_SHARED_ENABLED --body true --repo abalroar/tomaconta
+```
+
+Para suspender apenas a consulta periódica, definir a mesma variável como `false`. O diagnóstico manual tem prioridade sobre a opção `bootstrap` quando ambas forem selecionadas.
 
 ## Geração e arquivos
 
@@ -109,7 +124,7 @@ O leitor público fixa uma revisão antes de buscar catálogos, históricos, geo
 
 ```sh
 node --test web/tests/shared.test.mjs
-python -m unittest discover -s tests -p 'test_tomaconta_shared_runner.py'
+python -m pytest -q tests/test_tomaconta_shared_runner.py
 ```
 
 Os testes do Worker usam SQLite real em memória, R2 com verificação de checksum e tokens RS256 assinados para a fixture. Cobrem escopo OIDC, isolamento das fotos, fila, deduplicação, reservas expiradas, hashes, dependências, preservação de bytes gzip, preparação e publicação condicionais.

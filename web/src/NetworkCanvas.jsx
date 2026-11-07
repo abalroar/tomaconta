@@ -91,7 +91,7 @@ export default function NetworkCanvas({data,geometry,bankId,cityId,exclusive=fal
       width=Math.round(box.width);height=Math.round(box.height);dpr=Math.min(devicePixelRatio||1,2);
       canvas.width=Math.round(width*dpr);canvas.height=Math.round(height*dpr);
       const inset=width>760?Math.min(190,width*.19):12;
-      const rightInset=width>760&&width<=1000?239:24;
+      const rightInset=width>760?239:24;
       projection=geoMercator().fitExtent([[inset+10,16],[width-rightInset,height-20]],regions);
       const path=geoPath(projection);paths=regions.features.map(feature=>new Path2D(path(feature)));
       points=data.municipalities.filter(city=>Number.isFinite(city.lon)&&Number.isFinite(city.lat)).map(city=>{const [x,y]=projection([city.lon,city.lat]);return {city,x,y};});

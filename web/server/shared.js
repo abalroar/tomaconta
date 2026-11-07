@@ -16,7 +16,7 @@ const initialized = new WeakMap(), keyCaches = new WeakMap(), manifestCache = ne
 const random = () => crypto.randomUUID().replaceAll('-', '');
 const timestamp = value => new Date(value).toISOString();
 const digest = async bytes => [...new Uint8Array(await crypto.subtle.digest('SHA-256', typeof bytes === 'string' ? new TextEncoder().encode(bytes) : bytes))].map(byte => byte.toString(16).padStart(2, '0')).join('');
-const reply = (data, status = 200, headers = {}) => Response.json(data, {status, headers: {'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', ...headers}});
+const reply = (data, status = 200, headers = {}) => Response.json(data, {status, headers: {'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'X-TomaConta-Service': 'shared-v1', ...headers}});
 class HttpError extends Error {constructor(status, message, headers) {super(message); this.status = status; this.headers = headers;}}
 const fail = (status, message, headers) => {throw new HttpError(status, message, headers);};
 const object = value => value && typeof value === 'object' && !Array.isArray(value);

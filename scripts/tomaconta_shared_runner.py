@@ -13,6 +13,7 @@ from datetime import date, datetime, timezone
 import base64
 import hashlib
 import json
+import math
 import os
 from pathlib import Path, PurePosixPath
 import re
@@ -64,6 +65,53 @@ def check_github_context(env=os.environ):
         raise RunnerError("Commit de origem ausente")
 
 
+def diagnose_identity_claims(claims, *, audience=AUDIENCE, env=os.environ, now=None):
+    """Inspect public metadata only; the server must still verify the signature.
+
+    Errors identify claim names, never token bytes, supplied values, credentials,
+    request URLs or response bodies. Successful diagnostics contain booleans.
+    """
+    if not isinstance(claims, dict):
+        raise RunnerError("Claims OIDC divergentes: payload")
+    now = time.time() if now is None else now
+    expected = {"iss": "https://token.actions.githubusercontent.com", "aud": audience,
+                "repository": "abalroar/tomaconta", "repository_owner": "abalroar",
+                "repository_id": "1141557164", "repository_owner_id": "255978345",
+                "ref": "refs/heads/main", "workflow_ref": WORKFLOW,
+                "runner_environment": "github-hosted", "repository_visibility": "public"}
+    checks = {key: (str(claims.get(key)) == value if key.endswith("_id") else claims.get(key) == value)
+              for key, value in expected.items()}
+    checks["event_name"] = (claims.get("event_name") in {"schedule", "workflow_dispatch"}
+                            and (not env.get("GITHUB_EVENT_NAME") or claims.get("event_name") == env["GITHUB_EVENT_NAME"]))
+    for key, variable in (("sha", "GITHUB_SHA"), ("workflow_sha", "GITHUB_WORKFLOW_SHA")):
+        value = claims.get(key)
+        checks[key] = (isinstance(value, str) and re.fullmatch(r"[a-f0-9]{40}", value) is not None
+                       and (not env.get(variable) or value == env[variable]))
+    for key, variable, limit in (("run_id", "GITHUB_RUN_ID", 25), ("run_attempt", "GITHUB_RUN_ATTEMPT", 8)):
+        value = str(claims.get(key, ""))
+        checks[key] = (re.fullmatch(r"\d{1," + str(limit) + r"}", value) is not None
+                       and (not env.get(variable) or value == env[variable]))
+    numeric = lambda value: type(value) in {int, float} and math.isfinite(value)
+    checks["exp"] = numeric(claims.get("exp")) and claims["exp"] > now + 60
+    checks["nbf"] = numeric(claims.get("nbf")) and claims["nbf"] <= now + 30
+    checks["iat"] = numeric(claims.get("iat")) and now - 600 <= claims["iat"] <= now + 30
+    invalid = sorted(key for key, matched in checks.items() if not matched)
+    if invalid:
+        raise RunnerError("Claims OIDC divergentes: " + ", ".join(invalid))
+    return {"phase": "identity", "diagnosticOnly": True, "signatureVerifiedLocally": False,
+            "publicMetadataMatches": True, "claimSentinels": checks}
+
+
+def safe_http_diagnostics(headers):
+    headers = headers or {}
+    content_type = headers.get("Content-Type", "")
+    ray = headers.get("CF-Ray", "")
+    return {"workerMarker": headers.get("X-TomaConta-Service") == "shared-v1",
+            "contentType": content_type if isinstance(content_type, str) and len(content_type) <= 120 and re.fullmatch(r"[A-Za-z0-9.+/-]+(?:;[A-Za-z0-9= ._-]+)*", content_type) else "unavailable",
+            "cfRay": ray if isinstance(ray, str) and re.fullmatch(r"[A-Fa-f0-9]{16,32}(?:-[A-Za-z0-9]{2,10})?", ray) else "unavailable",
+            "cfMitigated": "challenge" if headers.get("cf-mitigated") == "challenge" else "absent" if not headers.get("cf-mitigated") else "unavailable"}
+
+
 class OidcIdentity:
     def __init__(self, audience=AUDIENCE, env=os.environ, opener=urlopen, clock=time.time):
         self.audience, self.env, self.opener, self.clock = audience, env, opener, clock
@@ -89,11 +137,11 @@ class OidcIdentity:
             token = value.get("value", "")
             try:
                 payload = json.loads(base64.urlsafe_b64decode(token.split(".")[1] + "==="))
-                until = float(payload["exp"]) - 60
             except (ValueError, KeyError, IndexError, TypeError) as exc:
                 raise RunnerError("Resposta OIDC inválida") from exc
-            if until <= self.clock():
-                raise RunnerError("Identidade OIDC já expirada")
+            receipt = diagnose_identity_claims(payload, audience=self.audience, env=self.env, now=self.clock())
+            until = float(payload["exp"]) - 60
+            print(json.dumps(receipt, separators=(",", ":")), flush=True)
             # Claims are cryptographically verified by the server; this local
             # decode merely schedules renewal and is never an authorization gate.
             self.token, self.until = token, until
@@ -131,7 +179,8 @@ class SharedAPI:
                     timeout=(15, 120 if binary or request.get_method() == "PUT" else 45),
                     allow_redirects=False, stream=binary) as response:
                 if not 200 <= response.status_code < 300:
-                    raise HTTPError(request.full_url, response.status_code, "", {}, None)
+                    safe_headers = {name: response.headers.get(name, "") for name in ("X-TomaConta-Service", "Content-Type", "CF-Ray", "cf-mitigated")}
+                    raise HTTPError(request.full_url, response.status_code, "", safe_headers, None)
                 return response.raw.read(MAX_FILE + 1) if binary else response.json()
         except self.pool.RequestException:
             raise URLError("Conexão com o serviço interrompida") from None
@@ -165,7 +214,8 @@ class SharedAPI:
                 if exc.code in {401, 403, 429}:
                     self.denied = True
                 # Never include response bodies, Authorization, identity URLs or JWTs.
-                raise RunnerError(f"Serviço compartilhado respondeu HTTP {exc.code}; geração anterior preservada") from None
+                diagnostic = json.dumps(safe_http_diagnostics(exc.headers), separators=(",", ":"))
+                raise RunnerError(f"Serviço compartilhado respondeu HTTP {exc.code}; geração anterior preservada; {diagnostic}") from None
             except (URLError, TimeoutError, ConnectionError):
                 if attempt + 1 == attempts:
                     raise RunnerError("A conexão com o serviço foi interrompida; confira o estado da atualização") from None
@@ -602,9 +652,16 @@ def execute_claim(api, claim, *, processor=materialize_generation, source_root=R
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--pending-only", action="store_true")
+    parser.add_argument("--identity-only", action="store_true", help="Diagnóstico público das claims OIDC; não chama a API nem coleta dados")
     parser.add_argument("--seed", action="store_true", help="Bootstrap manual, aceito pelo servidor apenas sem revisão ativa")
     args = parser.parse_args(argv)
     check_github_context()
+    if args.identity_only:
+        if args.seed or args.pending_only:
+            raise RunnerError("Use --identity-only sem operações de atualização")
+        OidcIdentity().bearer()
+        print(json.dumps({"status": "identity_only", "apiCalled": False}))
+        return 0
     api = SharedAPI()
     if args.seed:
         if os.environ.get("GITHUB_EVENT_NAME") != "workflow_dispatch":

@@ -36,9 +36,14 @@ test('native chart workbook preserves numeric zero and missing values on both ax
   assert.deepEqual(await repaired.file(path).async('uint8array'),await entry.async('uint8array'),path);
  }
  for(const [path,entry] of Object.entries(before.zip.files)){
-  if(entry.dir||path==='xl/worksheets/sheet1.xml')continue;
+  if(entry.dir||['xl/worksheets/sheet1.xml','xl/styles.xml'].includes(path))continue;
   assert.deepEqual(await after.zip.file(path).async('uint8array'),await entry.async('uint8array'),path);
  }
+ const previousStyles=await before.zip.file('xl/styles.xml').async('string'),styles=await after.zip.file('xl/styles.xml').async('string');
+ const fontNames=xml=>[...xml.matchAll(/<name\b[^>]*\bval="([^"]*)"/g)].map(match=>match[1]);
+ assert.ok(fontNames(styles).length>0&&fontNames(styles).every(name=>name==='Calibri'));
+ const withoutNames=xml=>xml.replace(/(<name\b[^>]*\bval=")[^"]*(")/g,'$1FONT$2');
+ assert.equal(withoutNames(styles),withoutNames(previousStyles),'all non-font styles and number formats stay byte-identical');
  const chartPath=Object.keys(repaired.files).find(path=>/^ppt\/charts\/chart\d+\.xml$/.test(path));
  const native=await repaired.file(chartPath).async('string');
  assert.match(native,/<c:barChart>/);assert.match(native,/<c:lineChart>/);
@@ -56,4 +61,19 @@ test('real Comercial default-window zeros survive the embedded workbook without 
  for(const ref of ['E4','E5','E6','E7','E8'])assert.match(cell(xml,ref),/<v>0<\/v>/,ref);
  for(const path of Object.keys(original.files).filter(p=>/^ppt\/charts\/chart\d+\.xml$/.test(p)))
   assert.equal(await repaired.file(path).async('string'),await original.file(path).async('string'));
+});
+
+test('zero-free workbooks use Calibri while formulas, cached values and missing cells remain byte-identical',async()=>{
+ const chart={id:'formula-fonts',title:'Dados',source:'BCB',unit:'R$ milhões',series:[{name:'Crédito',type:'line',data:[['2026-01-31',4],['2026-02-28',null],['2026-03-31',8]]}]};
+ const {presentation}=buildPptx([chart],'Teste',PptxGenJS);
+ const outer=await JSZip.loadAsync(await presentation.write({outputType:'arraybuffer'})),before=await embedded(outer);
+ let xml=await before.zip.file('xl/worksheets/sheet1.xml').async('string');
+ xml=xml.replace(cell(xml,'B4'),cell(xml,'B4').replace('<v>8</v>','<f>4*2</f><v>8</v>'));
+ before.zip.file('xl/worksheets/sheet1.xml',xml);outer.file(before.path,await before.zip.generateAsync({type:'uint8array'}));
+ const fixed=await JSZip.loadAsync(await repairPptxChartWorkbooks(await outer.generateAsync({type:'uint8array'}))),after=await embedded(fixed);
+ assert.equal(await after.zip.file('xl/worksheets/sheet1.xml').async('string'),xml);
+ const styles=await after.zip.file('xl/styles.xml').async('string');
+ assert.ok([...styles.matchAll(/<name\b[^>]*\bval="([^"]*)"/g)].every(match=>match[1]==='Calibri'));
+ assert.match(cell(xml,'B4'),/<f>4\*2<\/f><v>8<\/v>/);
+ assert.match(cell(xml,'B3'),/<v\s*\/>|<v>\s*<\/v>/);
 });
