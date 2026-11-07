@@ -1,15 +1,40 @@
 export const BASE=import.meta.env?.BASE_URL ?? '/';
+let dataRevision=null;
+export const currentDataRevision=()=>dataRevision;
+export function pinDataRevision(revision){
+ if(revision!==null&&(typeof revision!=='string'||!/^[a-f0-9]{32}$/.test(revision)))throw Error('A revisão publicada é inválida. Recarregue a página.');
+ dataRevision=revision;
+ return dataRevision;
+}
+export const datasetRoot=()=>dataRevision?`${BASE}api/shared/data/${dataRevision}/`:`${BASE}data/`;
+export function datasetPath(path){
+ if(typeof path!=='string'||!/^data\/[A-Za-z0-9_./-]+$/.test(path)||path.slice(5).split('/').some(part=>!part||part==='.'||part==='..'))throw Error('O endereço dos dados é inválido.');
+ return path.slice(5);
+}
+export const datasetUrl=path=>datasetRoot()+datasetPath(path);
+export function validateDatasetRoot(value,origin=globalThis.location?.href||'http://localhost/'){
+ if(typeof value!=='string'||/[?#\\%]/.test(value)||/(?:^|\/)\.\.?(?:\/|$)/.test(value))throw Error('Origem dos dados inválida.');
+ const url=new URL(value,origin),site=new URL(origin),staticPath=new URL(`${BASE}data/`,site).pathname,sharedPath=new URL(`${BASE}api/shared/data/`,site).pathname;
+ const shared=url.pathname.startsWith(sharedPath)&&/^[a-f0-9]{32}\/$/.test(url.pathname.slice(sharedPath.length));
+ if(url.origin!==site.origin||url.username||url.password||url.search||url.hash||!(url.pathname===staticPath||shared))throw Error('Origem dos dados inválida.');
+ return url.href;
+}
 export const COLORS=['#ec7000','#171717','#8b8c8d','#a64a00','#d1d2d3','#f7ae62','#555759','#b56a20'];
 export const number=(v,d=1)=>v==null||v===''||!Number.isFinite(+v)?'N/D':new Intl.NumberFormat('pt-BR',{maximumFractionDigits:d,minimumFractionDigits:d}).format(+v);
 export const dateLabel=v=>/^\d{4}-\d{2}/.test(v||'')?`${v.slice(5,7)}/${v.slice(0,4)}`:v||'N/D';
 export async function json(path){
- const r=await fetch(BASE+path);if(!r.ok)throw new Error(`Dados indisponíveis (${r.status}). Tente novamente.`);
- if(!path.endsWith('.json.gz'))return r.json();
- const bytes=new Uint8Array(await r.arrayBuffer());
+ const revision=dataRevision,url=datasetUrl(path),r=await fetch(url);if(!r.ok)throw new Error(`Dados indisponíveis (${r.status}). Tente novamente.`);
+ const responseRevision=r.headers.get('X-TomaConta-Revision');
+ if(revision&&responseRevision&&responseRevision!==revision)throw Error('Os dados recebidos pertencem a outra revisão. Recarregue a página.');
+ let value;
+ if(!path.endsWith('.json.gz'))value=await r.json();
+ else{const bytes=new Uint8Array(await r.arrayBuffer());
  // Asset servers may already have decoded gzip through Content-Encoding.
- if(bytes[0]!==0x1f||bytes[1]!==0x8b)return JSON.parse(new TextDecoder().decode(bytes));
- if(typeof DecompressionStream!=='function')throw new Error('Este navegador não consegue abrir a base de demonstrações. Atualize o navegador e tente novamente.');
- return new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))).json();
+ if(bytes[0]!==0x1f||bytes[1]!==0x8b)value=JSON.parse(new TextDecoder().decode(bytes));
+ else{if(typeof DecompressionStream!=='function')throw new Error('Este navegador não consegue abrir a base de demonstrações. Atualize o navegador e tente novamente.');
+ value=await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))).json();}}
+ if(revision!==dataRevision)throw Error('A revisão dos dados mudou durante a consulta. Recarregue a página.');
+ return value;
 }
 export function filterChart(chart,window='12',start='',end=''){
  const dates=chart.series.flatMap(s=>s.data.filter(p=>p[1]!=null).map(p=>p[0])).filter(x=>/^\d{4}-\d{2}-\d{2}$/.test(x));

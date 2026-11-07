@@ -1,4 +1,4 @@
-import {BASE} from './data.js';
+import {datasetRoot,validateDatasetRoot} from './data.js';
 
 const MIME = {
   xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -33,6 +33,7 @@ function sameContext(message, request) {
   return message.context?.entityId === request.entity.id &&
     message.context?.operation === request.operation &&
     (message.context?.format || null) === (request.format || null) &&
+    message.context?.dataBase === request.dataBase &&
     Array.isArray(message.context?.periods) &&
     message.context.periods.length === request.periods.length &&
     message.context.periods.every((p, i) => p === request.periods[i]);
@@ -40,14 +41,16 @@ function sameContext(message, request) {
 
 /** A worker is created only when a statement or native file is requested. */
 export function createStatementRuntime({
-  baseUrl = BASE,
+  dataBase = datasetRoot,
   WorkerClass = globalThis.Worker,
   timeoutMs = 180000,
   workerUrl = new URL('./statements-worker.js', import.meta.url),
 } = {}) {
   let worker = null;
   let sequence = 0;
+  let activeDataBase=null;
   const pending = new Map();
+  const resolvedDataBase=()=>validateDatasetRoot(typeof dataBase==='function'?dataBase():dataBase);
 
   function remove(id) {
     const request = pending.get(id);
@@ -61,6 +64,7 @@ export function createStatementRuntime({
   function reset(reason = abortError()) {
     const current = worker;
     worker = null;
+    activeDataBase=null;
     current?.terminate();
     for (const id of [...pending.keys()]) remove(id).reject(reason);
   }
@@ -73,6 +77,8 @@ export function createStatementRuntime({
     instance.addEventListener('message', ({data: message}) => {
       if (worker !== instance || !message || !pending.has(message.id)) return;
       const request = pending.get(message.id);
+      try{if(resolvedDataBase()!==request.dataBase){reset(new Error('A revisão dos dados mudou. Prepare novamente a análise.'));return;}}
+      catch(error){reset(error);return;}
       if (!sameContext(message, request)) {
         remove(message.id).reject(new Error('A resposta recebida pertence a outro recorte da análise. Tente novamente.'));
         return;
@@ -121,10 +127,13 @@ export function createStatementRuntime({
       selection = statementSelection(entity, periods);
       if (operation === 'export' && !Object.hasOwn(MIME, format)) throw new Error('Formato de exportação inválido.');
       if (signal?.aborted) throw abortError();
+      const base=resolvedDataBase();
+      if(activeDataBase&&activeDataBase!==base)reset(new Error('A revisão dos dados mudou. Prepare novamente a análise.'));
+      activeDataBase=base;
     } catch (error) {return Promise.reject(error);}
     return new Promise((resolve, reject) => {
       const id = `statement-${++sequence}`;
-      const request = {...selection, operation, format, onStatus, signal, resolve, reject};
+      const request = {...selection, operation, format, onStatus, signal, resolve, reject,dataBase:activeDataBase};
       request.onAbort = () => {
         const cancelled = remove(id);
         if (!cancelled) return;
@@ -139,10 +148,8 @@ export function createStatementRuntime({
       signal?.addEventListener('abort', request.onAbort, {once: true});
       try {
         const active = getWorker();
-        const origin = globalThis.location?.href || 'http://localhost/';
-        const base = new URL(baseUrl, origin).href;
         onStatus?.('Preparando análise…');
-        active.postMessage({type: operation, id, ...selection, format, baseUrl: base});
+        active.postMessage({type: operation, id, ...selection, format, dataBase:request.dataBase});
       } catch (error) {remove(id)?.reject(error);}
     });
   }

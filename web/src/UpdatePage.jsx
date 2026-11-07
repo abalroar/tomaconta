@@ -3,10 +3,12 @@ import {BASE, json, number} from './data.js';
 import {mergeImob} from './update.js';
 import {ChartPanel, ExportMenu} from './Chart.jsx';
 import {competenceLabel, latestChartPeriod} from './series-data.js';
-import {publicationStatus, publishedSources, sgsChart} from './update-data.js';
+import {housingStorageKey,publicationStatus, publishedSources, sgsChart} from './update-data.js';
+import {validateNetwork} from './network-data.js';
+import SharedUpdates from './SharedUpdates.jsx';
 
-function localHousing(uf) {
-  try {const saved = JSON.parse(localStorage.getItem(`tomaconta-imob-${uf}`)); return Array.isArray(saved) && saved.length === 24;} catch {return false;}
+function localHousing(uf,version) {
+  try {const saved = JSON.parse(localStorage.getItem(housingStorageKey(uf,version))); return Array.isArray(saved) && saved.length === 24;} catch {return false;}
 }
 
 async function official(path, label) {
@@ -15,7 +17,8 @@ async function official(path, label) {
   return response.json();
 }
 
-export default function UpdatePage({manifest, catalog, statementIndex, imob = [], uf = 'br', setUf, onImobChange, onError}) {
+export default function UpdatePage({manifest, catalog, statementIndex, imob = [], uf = 'br', setUf, publication,onImobChange, onError}) {
+  const version=publication?.revision||'static-'+manifest.sourceCommit;
   const [busy, setBusy] = useState('');
   const [status, setStatus] = useState({});
   const [series, setSeries] = useState([]);
@@ -23,10 +26,12 @@ export default function UpdatePage({manifest, catalog, statementIndex, imob = []
   const [seriesError, setSeriesError] = useState('');
   const [seriesAttempt, setSeriesAttempt] = useState(0);
   const [live, setLive] = useState(null);
-  const [savedHousing, setSavedHousing] = useState(() => localHousing(uf));
+  const [savedHousing, setSavedHousing] = useState(() => localHousing(uf,version));
+  const [network,setNetwork]=useState(null);
   const mounted = useRef(true), ufRef = useRef(uf);
   useEffect(() => {mounted.current = true; return () => {mounted.current = false;};}, []);
-  useEffect(() => {ufRef.current = uf; setSavedHousing(localHousing(uf)); setStatus(value => ({...value, housing: ''}));}, [uf]);
+  useEffect(() => {ufRef.current = uf; setSavedHousing(localHousing(uf,version)); setStatus(value => ({...value, housing: ''}));}, [uf,version]);
+  useEffect(()=>{let active=true;json('data/bank-network.json').then(validateNetwork).then(result=>{if(active)setNetwork(result);}).catch(()=>{});return()=>{active=false;};},[]);
   useEffect(() => {
     let active = true;
     setSeriesError('');
@@ -38,7 +43,7 @@ export default function UpdatePage({manifest, catalog, statementIndex, imob = []
     }).catch(error => {if (active) setSeriesError(error.message);});
     return () => {active = false;};
   }, [seriesAttempt]);
-  const sources = useMemo(() => publishedSources(manifest, catalog, statementIndex), [manifest, catalog, statementIndex]);
+  const sources = useMemo(() => publishedSources(manifest, catalog, statementIndex,network), [manifest, catalog, statementIndex,network]);
   function report(area, message) {if (mounted.current) setStatus(value => ({...value, [area]: message}));}
   function failure(area, error) {report(area, error.message); onError?.(error.message);}
   async function checkPublications() {
@@ -57,7 +62,7 @@ export default function UpdatePage({manifest, catalog, statementIndex, imob = []
       const [specs, result] = await Promise.all([json('data/imob-catalog.json'), official(`source=imob&uf=${encodeURIComponent(selectedUf)}`, 'Mercado imobiliário')]);
       if (!Array.isArray(result.value) || !result.value.length) throw new Error('O BCB não retornou observações. Sua cópia anterior foi preservada.');
       const updated = mergeImob(imob, specs, result.value, selectedUf, result._queryWindow);
-      try {localStorage.setItem(`tomaconta-imob-${selectedUf}`, JSON.stringify(updated));}
+      try {localStorage.setItem(housingStorageKey(selectedUf,version), JSON.stringify(updated));}
       catch {throw new Error('O navegador não conseguiu salvar a atualização. Sua cópia anterior foi preservada. Libere espaço ou use outro navegador.');}
       if (mounted.current && ufRef.current === selectedUf) {
         onImobChange?.(updated, selectedUf);
@@ -73,7 +78,7 @@ export default function UpdatePage({manifest, catalog, statementIndex, imob = []
     try {
       const published = await json(`data/imob-${selectedUf}.json`);
       if (!Array.isArray(published) || published.length !== 24) throw new Error('A versão publicada retornou um catálogo incompleto. Sua cópia anterior foi preservada.');
-      localStorage.removeItem(`tomaconta-imob-${selectedUf}`);
+      localStorage.removeItem(housingStorageKey(selectedUf,version));
       if (mounted.current && ufRef.current === selectedUf) {
         onImobChange?.(published, selectedUf);
         setSavedHousing(false);
@@ -95,18 +100,19 @@ export default function UpdatePage({manifest, catalog, statementIndex, imob = []
   }
   return <>
     <section className="tc-page-header">
-      <div className="tc-page-title"><h1>Atualizar base</h1><p>Consulte as publicações do BCB ou atualize a cópia imobiliária deste navegador.</p></div>
+      <div className="tc-page-title"><h1>Atualizar base</h1><p>Atualize os dados compartilhados ou consulte as publicações do BCB.</p></div>
       <div className="tc-section-controls"><button type="button" className="tc-action" disabled={Boolean(busy)} onClick={checkPublications}>{busy === 'publications' ? 'Consultando…' : 'Verificar publicações do BCB'}</button></div>
       {status.publications && <p className="tc-operation-status" role="status" aria-live="polite">{status.publications}</p>}
     </section>
     <div className="tc-page-content">
+      <SharedUpdates {...{publication,catalog,manifest}}/>
       <section aria-labelledby="tc-published-title">
         <h2 className="tc-section-heading" id="tc-published-title">Base publicada</h2>
         <div className="tc-table-scroll"><table className="tc-data-table tc-sources-table"><thead><tr><th>Base</th><th>Fonte</th><th>Competência</th><th>Cobertura</th></tr></thead><tbody>{sources.map(source => <tr key={source.id}><td>{source.name}</td><td>{source.url ? <a href={source.url} target="_blank" rel="noreferrer">{source.provider}</a> : source.provider}</td><td>{competenceLabel(source.period)}</td><td>{number(source.count, 0)} {source.countLabel}</td></tr>)}</tbody></table></div>
       </section>
       <div className="tc-update-sections">
         <section aria-labelledby="tc-housing-update-title">
-          <h2 id="tc-housing-update-title">Mercado imobiliário</h2>
+          <h2 id="tc-housing-update-title">Cópia imobiliária neste navegador</h2>
           <p className="tc-section-description">A atualização consulta os últimos 12 meses. O histórico anterior e as séries encerradas são mantidos.</p>
           <div className="tc-update-controls"><label className="tc-field">Abrangência<select value={uf} disabled={Boolean(busy)} onChange={event => setUf?.(event.target.value)}>{(manifest.ufs || ['br']).map(value => <option key={value} value={value}>{value === 'br' ? 'Brasil' : value.toUpperCase()}</option>)}</select></label></div>
           <p className="tc-copy-context">{imob.length?'Em uso: '+(savedHousing ? 'cópia deste navegador' : 'versão publicada')+' · '+competenceLabel(latestChartPeriod(imob)):'Carregando a base desta abrangência…'}</p>
@@ -123,7 +129,7 @@ export default function UpdatePage({manifest, catalog, statementIndex, imob = []
         </section>
       </div>
       {live && <section className="tc-live-section"><div className="tc-live-toolbar"><h2>Consulta SGS</h2><ExportMenu charts={[live]} title={`SGS · ${live.title}`} onError={onError}/></div><ChartPanel chart={live}/></section>}
-      <details className="tc-base-origin"><summary>Origem e alcance da atualização</summary><p>As consultas desta tela usam os serviços oficiais do BCB. A atualização imobiliária é salva neste navegador. A versão compartilhada do site é mantida pelo publicador.</p><p>Fonte da publicação: {manifest.sourceCommit?.slice(0, 7)} · preparada em {new Date(manifest.builtAt).toLocaleString('pt-BR')}. BNDU permanece excluído. Risco da Operação é histórico até dezembro/2024.</p></details>
+      <details className="tc-base-origin"><summary>Origem e alcance da atualização</summary><p>A base compartilhada usa os coletores e as validações existentes do Toma Conta. Uma nova publicação é carregada inteira, preservando instituição, competência e exportações. A cópia imobiliária local pertence apenas a este navegador e a esta revisão.</p><p>Revisão em uso: {publication?.revision?.slice(0,8)||'publicação estática'} · fonte {manifest.sourceCommit?.slice(0, 7)} · preparada em {new Date(manifest.builtAt).toLocaleString('pt-BR')}. BNDU permanece excluído. Risco da Operação é histórico até dezembro/2024.</p></details>
     </div>
   </>;
 }

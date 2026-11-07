@@ -1,9 +1,14 @@
-import React,{useCallback,useEffect,useMemo,useRef,useState} from 'react';
-import {Menu,Pause,Play} from 'lucide-react';
+import React,{lazy,Suspense,useCallback,useEffect,useMemo,useRef,useState} from 'react';
+import {ArrowLeft,ArrowRight,Menu,Pause,Play} from 'lucide-react';
 import {BASE,json,number} from './data.js';
 import InstitutionSearch from './InstitutionSearch.jsx';
 import {selectLandingCohort,groupName,groupColor,creditTotalFromCharts,buildRoeRace} from './landing-data.js';
+import {tabNavigation} from './tab-navigation.js';
 import './landing.css';
+import './explorer.css';
+
+const NetworkMap=lazy(()=>import('./NetworkMap.jsx'));
+const SCENES=[['map','Agências'],['race','Rentabilidade'],['size','Porte'],['credit','Crédito']];
 
 const months=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const dateLabel=date=>`${months[+date.slice(5,7)-1]}/${date.slice(0,4)}`;
@@ -15,27 +20,29 @@ function useChartWidth(){const ref=useRef(null),[width,setWidth]=useState(0);use
 function Source({children,sgs=false}){return <details className="tc-source"><summary>Fonte: BCB / {sgs?'SGS':'IFData'}</summary><div>{children}<a href={sgs?'https://www.bcb.gov.br/estatisticas/estatisticasmonetariascredito':'https://www3.bcb.gov.br/ifdata/'} target="_blank" rel="noreferrer">Consultar a fonte</a></div></details>;}
 
 function Credit({chart}){
-  const [ref,width]=useChartWidth(),points=chart?.series?.[0]?.data||[],valid=points.filter(p=>p[1]!=null);
+  const [ref,width]=useChartWidth(),[focused,setFocused]=useState(null),[announcement,setAnnouncement]=useState(''),points=chart?.series?.[0]?.data||[],valid=points.filter(p=>p[1]!=null);
   if(!valid.length)return <div ref={ref} className="tc-credit-chart"><p className="tc-empty">Série de crédito indisponível.</p></div>;
-  const w=width||600,h=230,p={left:29,right:17,top:30,bottom:31},first=valid[0],last=valid.at(-1);
+  const w=width||600,h=350,p={left:36,right:18,top:38,bottom:35},first=valid[0],last=valid.at(-1),focus=focused==null?null:points[focused];
   const t0=Date.parse(first[0]),t1=Date.parse(last[0]),top=Math.max(2,Math.ceil(Math.max(...valid.map(p=>p[1]))/1000/2)*2);
   const x=date=>p.left+(Date.parse(date)-t0)/(t1-t0||1)*(w-p.left-p.right),y=value=>h-p.bottom-value/1000/top*(h-p.top-p.bottom);
   const segments=[];let segment=[];
   points.forEach(point=>{if(point[1]==null){if(segment.length)segments.push(segment);segment=[];}else segment.push(point);});if(segment.length)segments.push(segment);
-  return <div ref={ref} className="tc-credit-chart">{width>0&&<svg viewBox={`0 0 ${w} ${h}`} role="img" aria-label={`Crédito do SFN: R$ ${number(first[1]/1000,2)} trilhões em ${dateLabel(first[0])} e R$ ${number(last[1]/1000,2)} trilhões em ${dateLabel(last[0])}, em valores nominais`}>
+  function inspect(event){const box=event.currentTarget.getBoundingClientRect(),ratio=Math.max(0,Math.min(1,((event.clientX-box.left)/box.width*w-p.left)/(w-p.left-p.right))),time=t0+ratio*(t1-t0);let closest=0,distance=Infinity;points.forEach((point,index)=>{const gap=Math.abs(Date.parse(point[0])-time);if(gap<distance){distance=gap;closest=index;}});setFocused(closest);}
+  function keyboard(event){if(!['ArrowLeft','ArrowRight','Home','End','Escape'].includes(event.key))return;event.preventDefault();if(event.key==='Escape'){setFocused(null);return;}const index=event.key==='Home'?0:event.key==='End'?points.length-1:Math.max(0,Math.min(points.length-1,(focused??points.length-1)+(event.key==='ArrowLeft'?-1:1)));setFocused(index);setAnnouncement(`${dateLabel(points[index][0])}: ${points[index][1]==null?'N/D':number(points[index][1]/1000,2)+' trilhões de reais'}`);}
+  return <div ref={ref} className="tc-credit-chart">{width>0&&<svg viewBox={`0 0 ${w} ${h}`} role="img" tabIndex={0} onPointerMove={inspect} onPointerLeave={()=>setFocused(null)} onKeyDown={keyboard} aria-label={`Crédito do SFN: R$ ${number(first[1]/1000,2)} trilhões em ${dateLabel(first[0])} e R$ ${number(last[1]/1000,2)} trilhões em ${dateLabel(last[0])}, em valores nominais. Setas percorrem os meses.`}>
     <title>Saldo de crédito do SFN · R$ trilhões nominais</title>
     {Array.from({length:5},(_,i)=>top*i/4).map(value=><g key={value}><line className="tc-grid" x1={p.left} x2={w-p.right} y1={y(value*1000)} y2={y(value*1000)}/><text x={p.left-8} y={y(value*1000)+4} textAnchor="end">{number(value,Number.isInteger(value)?0:1)}</text></g>)}
     {segments.map((points,i)=>{const d=points.map(([date,value],j)=>`${j?'L':'M'}${x(date)},${y(value)}`).join(' ');return <g key={i}><path className="tc-credit-area" d={`${d} L${x(points.at(-1)[0])},${h-p.bottom} L${x(points[0][0])},${h-p.bottom} Z`}/><path className="tc-series-line" d={d}/></g>;})}
-    <circle className="tc-series-point" cx={x(last[0])} cy={y(last[1])} r={4}/><text className="tc-final-value" x={w-p.right} y={y(last[1])-13} textAnchor="end">{number(last[1]/1000,2)}</text>
+    <circle className="tc-series-point" cx={x(last[0])} cy={y(last[1])} r={4}/>{focus?<g><line className="tc-credit-inspector" x1={x(focus[0])} x2={x(focus[0])} y1={p.top} y2={h-p.bottom}/>{focus[1]!=null&&<circle className="tc-series-point" cx={x(focus[0])} cy={y(focus[1])} r={5}/>}<text className="tc-credit-inspector-value" x={Math.max(p.left+4,Math.min(w-p.right-4,x(focus[0])))} y={p.top-13} textAnchor={x(focus[0])>w/2?'end':'start'}>{dateLabel(focus[0])} · {focus[1]==null?'N/D':number(focus[1]/1000,2)}</text></g>:<text className="tc-final-value" x={w-p.right} y={y(last[1])-13} textAnchor="end">{number(last[1]/1000,2)}</text>}
     <text x={p.left} y={h-7}>{dateLabel(first[0])}</text><text x={w-p.right} y={h-7} textAnchor="end">{dateLabel(last[0])}</text>
-  </svg>}</div>;
+  </svg>}<span className="tc-sr" role="status" aria-live="polite">{announcement}</span></div>;
 }
 
-function Slope({cohort,onChoose}){
+function Slope({cohort,onChoose,tall=false}){
   const [ref,width]=useChartWidth(),[focused,setFocused]=useState(null);
   const ordered=useMemo(()=>cohort.filter(b=>b.latest.roe!=null).slice().sort((a,b)=>b.latest.roe-a.latest.roe||b.latest.assets-a.latest.assets),[cohort]);
   const ranks=new Map(ordered.map((bank,index)=>[bank.id,index]));
-  const w=width||800,h=286,narrow=w<470,lx=narrow?104:174,rx=w-(narrow?104:174),y=index=>49+index*22;
+  const w=width||800,h=tall?400:286,narrow=w<470,lx=narrow?104:174,rx=w-(narrow?104:174),y=index=>(tall?60:49)+index*(tall?33:22);
   const short={'Banco do Brasil':'BB','Nu Pagamentos':'Nu','BTG Pactual':'BTG','Santander':'Sant.'};
   return <div ref={ref} className={`tc-slope-chart${focused?' has-focus':''}`}>
     {width>0&&<svg viewBox={`0 0 ${w} ${h}`} aria-label="Posições por ativos e ROE entre os dez maiores por ativos">
@@ -57,7 +64,7 @@ function Slope({cohort,onChoose}){
   </div>;
 }
 
-function Race({cohort,race,onChoose,failed=false}){
+function Race({cohort,race,onChoose,failed=false,embedded=false}){
   const plotRef=useRef(null),sectionRef=useRef(null),yearRef=useRef(null),quarterRef=useRef(null),progressRef=useRef(null),liveRef=useRef(null),nodes=useRef({}),control=useRef(null);
   const [phase,setPhase]=useState('paused');
   const lo=Math.min(0,Math.floor((race?.minRoe??0)/10)*10),hi=Math.max(10,Math.ceil((race?.maxRoe??70)/10)*10),span=hi-lo,zero=-lo/span*100;
@@ -96,8 +103,8 @@ function Race({cohort,race,onChoose,failed=false}){
     const preference=event=>{if(event.matches){manuallyPaused=true;suspend();position=Math.round(position);paint(at(position));paintDate();}};reduce.addEventListener('change',preference);
     return()=>{cancel();observer.disconnect();document.removeEventListener('visibilitychange',visibility);reduce.removeEventListener('change',preference);control.current=null;};
   },[race,cohort,lo,hi,span,onChoose]);
-  return <section className="tc-section tc-race" ref={sectionRef} aria-labelledby="race-title">
-    <div className="tc-heading"><div><h2 id="race-title">A fila anda</h2><p>ROE anualizado · %</p></div><div className="tc-film-aside"><div className="tc-date"><span ref={yearRef}/><small ref={quarterRef}/></div><button type="button" className="tc-film-button" disabled={(race?.periods?.length||0)<2} aria-label={phase==='playing'?'Pausar animação':phase==='finished'?'Reproduzir animação novamente':'Reproduzir animação'} onClick={()=>control.current?.()}>{phase==='playing'?<Pause size={17} strokeWidth={1.5}/>:<Play size={17} strokeWidth={1.5}/>}</button></div></div>
+  return <section className="tc-section tc-race" ref={sectionRef} aria-labelledby={embedded?undefined:'race-title'} aria-label={embedded?'Corrida de ROE dos dez maiores':undefined}>
+    <div className="tc-heading"><div>{!embedded&&<h2 id="race-title">A fila anda</h2>}<p>ROE anualizado · %</p></div><div className="tc-film-aside"><div className="tc-date"><span ref={yearRef}/><small ref={quarterRef}/></div><button type="button" className="tc-film-button" disabled={(race?.periods?.length||0)<2} aria-label={phase==='playing'?'Pausar animação':phase==='finished'?'Reproduzir animação novamente':'Reproduzir animação'} onClick={()=>control.current?.()}>{phase==='playing'?<Pause size={17} strokeWidth={1.5}/>:<Play size={17} strokeWidth={1.5}/>}</button></div></div>
     {race?.periods?.length>=2?<>
       <div className="tc-race-axis" aria-hidden="true"><span/><span/><div className="tc-ticks"><span style={{left:0}}>{lo}</span>{lo<0&&<span style={{left:zero+'%'}}>0</span>}<span style={{left:'100%'}}>{hi}</span></div><span/></div>
       <div className="tc-race-rows" ref={plotRef} role="group" aria-label="Instituições ordenadas por ROE" style={{'--zero':zero+'%','--group-count':cohort.length}}>
@@ -131,20 +138,32 @@ function BankPreview({bank,onOpen}){
 
 export default function Landing({catalog,sfn,onNavigate,onOpenInstitution}){
   const cohort=useMemo(()=>selectLandingCohort(catalog),[catalog]),suggested=useMemo(()=>selectLandingCohort(catalog,15).slice(10),[catalog]);
-  const [selected,setSelected]=useState(()=>cohort[0]?.id),[histories,setHistories]=useState(null),[loadError,setLoadError]=useState(false),[retry,setRetry]=useState(0),[menu,setMenu]=useState(false);
+  const [selected,setSelected]=useState(()=>cohort[0]?.id),[networkSelection,setNetworkSelection]=useState(null),[scene,setScene]=useState(()=>{const id=new URLSearchParams(location.search).get('scene');return SCENES.some(([key])=>key===id)?id:'map';}),[sceneMotion,setSceneMotion]=useState(false),[histories,setHistories]=useState(null),[loadError,setLoadError]=useState(false),[retry,setRetry]=useState(0),[menu,setMenu]=useState(false);
   useEffect(()=>{let active=true;setHistories(null);setLoadError(false);Promise.all(cohort.map(bankHistory)).then(value=>{if(active)setHistories(value);}).catch(()=>{if(active)setLoadError(true);});return()=>{active=false;};},[cohort,retry]);
   const raceResult=useMemo(()=>{try{return {value:histories?buildRoeRace(cohort,histories):null,error:false};}catch{return {value:null,error:true};}},[cohort,histories]);
   const credit=useMemo(()=>{try{return creditTotalFromCharts(sfn);}catch{return null;}},[sfn]);
   const race=raceResult.value,historyUnavailable=loadError||raceResult.error;
   const selectedBank=catalog.institutions.find(bank=>bank.id===selected)||cohort[0];
-  const choose=useCallback(bank=>{setSelected(bank.id);document.getElementById('institution')?.scrollIntoView({behavior:'auto',block:'start'});},[]);
+  const selectBank=useCallback(bank=>{setSelected(bank.id);setNetworkSelection(bank.id);},[]);
+  const choose=useCallback(bank=>{setSelected(bank.id);setNetworkSelection(bank.id);document.getElementById('institution')?.scrollIntoView({behavior:'auto',block:'start'});},[]);
+  function changeScene(id,event){setSceneMotion(!!event?.detail);setScene(id);const url=new URL(location.href);url.searchParams.set('scene',id);history.replaceState({},'',url);}
+  function nextScene(offset,event){const index=SCENES.findIndex(([id])=>id===scene);changeScene(SCENES[(index+offset+SCENES.length)%SCENES.length][0],event);}
   const links=[['institutions','Instituições'],['sfn','Sistema financeiro'],['imob','Mercado imobiliário'],['payments','Pagamentos'],['update','Atualizar base']];
   return <div className="tc-landing">
     <header className="tc-nav"><a className="tc-wordmark" href={BASE} onClick={event=>{event.preventDefault();onNavigate('overview');}}>Toma Conta</a><button className="tc-nav-toggle" type="button" aria-label="Abrir navegação" aria-expanded={menu} onClick={()=>setMenu(!menu)}><Menu size={22}/></button><nav className={menu?'is-open':''} aria-label="Navegação principal">{links.map(([id,label])=><a href={`${BASE}?view=${id}`} key={id} onClick={event=>{event.preventDefault();setMenu(false);onNavigate(id);}}>{label}</a>)}</nav></header>
-    <section className="tc-hero" aria-labelledby="tc-credit-title"><div className="tc-hero-main"><div className="tc-hero-copy"><h1 id="tc-credit-title">Uma década na conta</h1><p>Crédito no Brasil · R$ trilhões nominais</p></div><Credit chart={credit}/></div><Source sgs><p>Saldo de crédito do SFN. Soma dos quatro componentes de crédito livre e direcionado, PF e PJ, usados no Toma Conta. Valores nominais, sem ajuste pela inflação. Meses incompletos permanecem sem dado.</p></Source></section>
-    <section className="tc-section tc-size" aria-labelledby="tc-size-title"><h2 className="tc-dual-title" id="tc-size-title" aria-label="Tamanho e documento"><span>Tamanho</span><span>Documento</span></h2><p className="tc-dual-meta">Dez maiores · {periodLabel(catalog.latestPeriod)}</p><Slope cohort={cohort} onChoose={choose}/><Source><p>Grupos prudenciais selecionados pelo ativo total. As posições por ativos e ROE são calculadas dentro dessa amostra, na mesma competência.</p></Source></section>
-    <Race cohort={cohort} race={race} onChoose={choose} failed={historyUnavailable}/>
-    <section className="tc-institution-discovery" aria-label="Outras instituições">{historyUnavailable&&<p className="tc-history-error" role="status">Não foi possível carregar a corrida. <button type="button" onClick={()=>setRetry(value=>value+1)}>Tentar novamente</button></p>}<InstitutionSearch catalog={catalog} suggested={suggested} onSelect={choose}/></section>
+    <main className="tc-explorer" aria-label="Explorar os dados do Toma Conta">
+      <div className="tc-explorer-controls"><div className="tc-explorer-navigation"><div className="tc-explorer-tabs" role="tablist" aria-label="Explorações">{SCENES.map(([id,label])=><button type="button" role="tab" key={id} id={`tc-scene-${id}`} aria-selected={scene===id} tabIndex={scene===id?0:-1} aria-controls="tc-explorer-pane" onKeyDown={event=>{setSceneMotion(false);tabNavigation(event);}} onClick={event=>changeScene(id,event)}>{label}</button>)}</div><div className="tc-explorer-arrows"><button type="button" aria-label="Exploração anterior" onClick={event=>nextScene(-1,event)}><ArrowLeft size={18} strokeWidth={1.6}/></button><button type="button" aria-label="Próxima exploração" onClick={event=>nextScene(1,event)}><ArrowRight size={18} strokeWidth={1.6}/></button></div></div><InstitutionSearch catalog={catalog} suggested={suggested} onSelect={onOpenInstitution} placeholder="Buscar uma instituição" label="Buscar instituição"/></div>
+      <div className="tc-explorer-title">{scene==='map'?<><h1>Na praça</h1><p>Agências bancárias no Brasil</p></>:scene==='race'?<><h1>A fila anda</h1><p>Dez maiores por ativos em {periodLabel(catalog.latestPeriod)}</p></>:scene==='size'?<><h1 className="tc-dual-title" aria-label="Tamanho e documento"><span>Tamanho</span><span>Documento</span></h1><p>Dez maiores · {periodLabel(catalog.latestPeriod)}</p></>:<><h1>Uma década na conta</h1><p>Crédito no Brasil · R$ trilhões nominais</p></>}</div>
+      <div className={'tc-explorer-content'+(sceneMotion?' has-motion':'')} role="tabpanel" id="tc-explorer-pane" aria-labelledby={`tc-scene-${scene}`}>
+        <div className={'tc-explore-pane tc-pane-'+scene} key={scene}>
+          {scene==='map'&&<Suspense fallback={<div className="tc-scene-loading" role="status">Carregando o mapa…</div>}><NetworkMap {...{catalog}} onOpen={onOpenInstitution} onSelectBank={selectBank} selectedAnalysisId={networkSelection}/></Suspense>}
+          {scene==='race'&&<><Race cohort={cohort} race={race} onChoose={choose} failed={historyUnavailable} embedded/>{historyUnavailable&&<p className="tc-history-error" role="status">Histórico indisponível. <button type="button" onClick={()=>setRetry(value=>value+1)}>Tentar novamente</button></p>}</>}
+          {scene==='size'&&<><Slope cohort={cohort} onChoose={choose} tall/><Source><p>Posições por ativos e ROE dentro da amostra selecionada, na mesma competência. Cada linha conserva a cor de seu banco.</p></Source></>}
+          {scene==='credit'&&<><Credit chart={credit}/><Source sgs><p>Saldo de crédito do SFN. Soma dos quatro componentes de crédito livre e direcionado, PF e PJ, usados no Toma Conta. Valores nominais, sem ajuste pela inflação. Meses incompletos permanecem sem dado.</p></Source></>}
+        </div>
+      </div>
+    </main>
     {selectedBank&&<BankPreview bank={selectedBank} onOpen={onOpenInstitution}/>}
+    <footer className="tc-landing-footer"><span>Toma Conta</span><a href="https://matheusprat.es">matheusprat.es</a></footer>
   </div>;
 }

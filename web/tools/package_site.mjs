@@ -7,7 +7,9 @@ const target=process.argv[2];if(!target)throw Error('Informe o checkout isolado 
 await mkdir(resolve(target,'public/tomaconta'),{recursive:true});
 await cp(resolve(root,'dist'),resolve(target,'public/tomaconta'),{recursive:true});
 await cp(resolve(root,'server/bcb.js'),resolve(target,'worker/tomaconta.js'));
+await cp(resolve(root,'server/shared.js'),resolve(target,'worker/tomaconta-shared.js'));
+await cp(resolve(root,'server/shared-schema.js'),resolve(target,'worker/shared-schema.js'));
 const manifest=JSON.parse(await readFile(resolve(root,'public/data/manifest.json'),'utf8'));
 const frontendCommit=execFileSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim();
 await writeFile(resolve(target,'public/tomaconta/build.json'),JSON.stringify({app:'Toma Conta',version:2,sourceData:manifest.sourceCommit,builtAt:manifest.builtAt,frontendCommit,frontendBuiltAt:new Date().toISOString(),charts:manifest.chartCount}));
-console.log('Piloto copiado para public/tomaconta; preserve o roteamento /tomaconta/api/* do Worker.');
+console.log('Toma Conta copiado para public/tomaconta com os handlers BCB e compartilhado; preserve o roteamento /tomaconta/api/* do Worker.');

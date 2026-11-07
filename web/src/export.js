@@ -1,4 +1,78 @@
-import {COLORS,dateLabel,periodOf,chartCategories,axisUnits,seriesAxis,percentAxis} from './data.js';
+import {COLORS,dateLabel,periodOf,chartCategories,axisUnits,seriesAxis,percentAxis,download} from './data.js';
+
+const xmlText=value=>value.replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&apos;/g,"'").replace(/&amp;/g,'&');
+const xmlAttribute=(tag,name)=>xmlText(tag.match(new RegExp(`\\b${name}="([^"]*)"`))?.[1]||'');
+function partPath(owner,target){
+ const parts=target.startsWith('/')?[]:owner.split('/').slice(0,-1);
+ for(const part of target.split('/')){if(part==='..')parts.pop();else if(part&&part!=='.')parts.push(part);}
+ return parts.join('/');
+}
+const relationshipsPath=part=>part.replace(/([^/]+)$/,'_rels/$1.rels');
+function relationship(xml,id){return [...xml.matchAll(/<Relationship\b[^>]*\/>/g)].map(match=>match[0]).find(tag=>xmlAttribute(tag,'Id')===id&&xmlAttribute(tag,'TargetMode')!=='External');}
+
+// PptxGenJS 4.0.1 writes `value || ''` into ordinary chart worksheets,
+// losing numeric zeros there while its native chart cache correctly keeps 0.
+// Repair only those empty numeric cells identified by the cache's formula and
+// point index. Missing observations, formulas and nonzero values stay intact.
+// These XML forms belong to our generated OOXML, not to user-supplied documents.
+export async function repairPptxChartWorkbooks(bytes){
+ const {default:JSZip}=await import('jszip');
+ const zip=await JSZip.loadAsync(bytes),workbooks=new Map();let changed=false;
+ for(const entry of zip.file(/^ppt\/charts\/chart\d+\.xml$/)){
+  const chart=await entry.async('string'),zeros=[];
+  for(const [,reference] of chart.matchAll(/<c:numRef>([\s\S]*?)<\/c:numRef>/g)){
+   const formula=xmlText(reference.match(/<c:f>([^<]*)<\/c:f>/)?.[1]||'');
+   const range=/^('(?:[^']|'')*'|[^!]+)!\$?([A-Z]+)\$?(\d+):\$?([A-Z]+)\$?(\d+)$/.exec(formula);
+   if(!range||range[2]!==range[4])continue;
+   const sheet=range[1].replace(/^'|'$/g,'').replaceAll("''","'"),first=Number(range[3]),last=Number(range[5]);
+   const cache=reference.match(/<c:numCache>([\s\S]*?)<\/c:numCache>/)?.[1]||'';
+   for(const [,index,value] of cache.matchAll(/<c:pt idx="(\d+)">\s*<c:v>([^<]*)<\/c:v>\s*<\/c:pt>/g)){
+    const row=first+Number(index);
+    if(value.trim()!==''&&Number(value)===0&&row<=last)zeros.push({sheet,cell:range[2]+row});
+   }
+  }
+  if(!zeros.length)continue;
+  const externalId=chart.match(/<c:externalData\b[^>]*\br:id="([^"]+)"/)?.[1];
+  const rels=zip.file(relationshipsPath(entry.name));
+  if(!externalId||!rels)throw new Error('Não foi possível conferir a planilha do gráfico. Tente novamente.');
+  const link=relationship(await rels.async('string'),externalId);
+  if(!link)throw new Error('Planilha do gráfico não encontrada. Tente novamente.');
+  const workbookPath=partPath(entry.name,xmlAttribute(link,'Target'));
+  let state=workbooks.get(workbookPath);
+  if(!state){
+   const embedded=zip.file(workbookPath);
+   if(!embedded)throw new Error('Planilha do gráfico não encontrada. Tente novamente.');
+   const workbook=await JSZip.loadAsync(await embedded.async('uint8array'));
+   const definition=await workbook.file('xl/workbook.xml').async('string');
+   const links=await workbook.file('xl/_rels/workbook.xml.rels').async('string');
+   state={workbook,sheets:new Map(),changed:false};
+   for(const [tag] of definition.matchAll(/<sheet\b[^>]*\/>/g)){
+    const sheetLink=relationship(links,xmlAttribute(tag,'r:id'));
+    if(sheetLink)state.sheets.set(xmlAttribute(tag,'name'),{path:partPath('xl/workbook.xml',xmlAttribute(sheetLink,'Target')),xml:null,changed:false});
+   }
+   workbooks.set(workbookPath,state);
+  }
+  for(const {sheet,cell} of zeros){
+   const target=state.sheets.get(sheet);
+   if(!target)throw new Error('A referência do gráfico não corresponde à planilha. Tente novamente.');
+   target.xml??=await state.workbook.file(target.path).async('string');
+   target.xml=target.xml.replace(new RegExp(`<c\\b[^>]*\\br="${cell}"[^>]*>[\\s\\S]*?<\\/c>`),element=>{
+    const type=xmlAttribute(element.slice(0,element.indexOf('>')+1),'t');
+    if((type&&type!=='n')||/<f\b/.test(element))return element;
+    const repaired=element.replace(/<v\s*\/>|<v>\s*<\/v>/,'<v>0</v>');
+    if(repaired!==element){target.changed=true;state.changed=true;changed=true;}
+    return repaired;
+   });
+  }
+ }
+ if(!changed)return bytes;
+ for(const [path,state] of workbooks){
+  if(!state.changed)continue;
+  for(const sheet of state.sheets.values())if(sheet.changed)state.workbook.file(sheet.path,sheet.xml);
+  zip.file(path,await state.workbook.generateAsync({type:'uint8array',compression:'DEFLATE'}));
+ }
+ return zip.generateAsync({type:'uint8array',compression:'DEFLATE'});
+}
 export function chartDataForPptx(chart){const dates=chartCategories(chart);return chart.series.map(s=>({name:s.name,labels:dates.map(dateLabel),values:dates.map(d=>{const v=s.data.find(p=>p[0]===d)?.[1];return v==null?null:percentAxis(chart,seriesAxis(chart,s))?v/100:v;})}));}
 export function addChartForPptx(slide,types,chart,options={}){
  const prepared=chartDataForPptx(chart),groups=[];
@@ -8,7 +82,7 @@ export function addChartForPptx(slide,types,chart,options={}){
   group.data.push(prepared[index]);group.options.chartColors.push(COLORS[index%COLORS.length].slice(1));
  });
  const axes=axisUnits(chart),format=axis=>percentAxis(chart,axis)?'0.0%':'#,##0.0';
- const opts={...options,valAxisLabelFormatCode:format(0),showValAxisTitle:false,lineDataSymbol:'none',lineDataSymbolSize:2,valGridLine:{color:'E5E5E5',size:.5},valAxisLineColor:'CCCCCC',catAxisLineColor:'CCCCCC',valAxisLineSize:.5,catAxisLineSize:.5};
+ const opts={...options,dataLabelFontFace:'Calibri',valAxisLabelFormatCode:format(0),showValAxisTitle:false,lineDataSymbol:'none',lineDataSymbolSize:2,valGridLine:{color:'E5E5E5',size:.5},valAxisLineColor:'CCCCCC',catAxisLineColor:'CCCCCC',valAxisLineSize:.5,catAxisLineSize:.5};
  if(axes.length>1){opts.valAxes=axes.map((unit,axis)=>({showValAxisTitle:false,valAxisLabelFormatCode:format(axis),valAxisLabelFontFace:'Calibri',valAxisLabelFontSize:7,valGridLine:axis===0?{color:'E5E5E5',size:.5}:{style:'none'},axisPos:axis===1?'r':'l'}));opts.catAxes=[{catAxisLabelPos:'low'},{catAxisHidden:true,catAxisLabelPos:'none'}];}
  const native=groups.map(({axis,kind,...group})=>group);
  if(native.length===1)slide.addChart(native[0].type,native[0].data,opts);else slide.addChart(native,opts);
@@ -31,5 +105,7 @@ export function buildPptx(charts,title,PptxGenJS){
 }
 export async function exportPptx(charts,title='Toma Conta'){
  const {default:PptxGenJS}=await import('pptxgenjs');const {presentation,coverage,fileName}=buildPptx(charts,title,PptxGenJS);
- await presentation.writeFile({fileName});return {total:coverage.total,exported:coverage.ready.length,complete:coverage.complete,missing:coverage.missing.map(c=>({id:c.id,title:c.title,section:c.section}))};
+ const bytes=await repairPptxChartWorkbooks(await presentation.write({outputType:'arraybuffer'}));
+ download(new Blob([bytes],{type:'application/vnd.openxmlformats-officedocument.presentationml.presentation'}),fileName);
+ return {total:coverage.total,exported:coverage.ready.length,complete:coverage.complete,missing:coverage.missing.map(c=>({id:c.id,title:c.title,section:c.section}))};
 }

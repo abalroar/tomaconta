@@ -3,8 +3,9 @@ import * as echarts from 'echarts';
 import {axisUnits, chartOption, csvDownload, dateLabel, number, periodOf, seriesUnit, seriesAxis} from './data.js';
 import {exportPptx} from './export.js';
 import {chartLabel, chartTick, chartValue, showInnerLabel} from './chart-format.js';
+import {WEB_CHART_COLORS} from './chart-palette.js';
 
-export const WEB_CHART_COLORS = ['#315f78', '#bd7042', '#76589a', '#a68a2d', '#358572', '#a74f60', '#64717b', '#367caa'];
+export {WEB_CHART_COLORS};
 export const plainText = value => String(value ?? '').replace(/<[^>]*>/g, '').replaceAll('&amp;', '&');
 
 export default function Chart({chart, height = 280, colors, compact = false, showLegend = true, valueLabels}) {
@@ -18,13 +19,14 @@ export default function Chart({chart, height = 280, colors, compact = false, sho
     option.textStyle = {...option.textStyle, color: ink, fontSize: 11};
     option.legend = {...option.legend, show: showLegend, textStyle: {...option.legend.textStyle, color: muted, fontFamily: 'Hanken Grotesk Variable, Hanken Grotesk, Arial, sans-serif'}};
     option.tooltip = {...option.tooltip, backgroundColor: '#fff', borderColor: '#bdced3', textStyle: {color: ink, fontFamily: 'Hanken Grotesk Variable, Hanken Grotesk, Arial, sans-serif', fontSize: 12}};
-    option.xAxis = {...option.xAxis, axisLabel: {...option.xAxis.axisLabel, color: muted, fontSize: 11}, axisLine: {lineStyle: {color: '#ccdadd'}}};
+    option.xAxis = {...option.xAxis, axisLabel: {...option.xAxis.axisLabel, color: muted, fontSize: 11, showMinLabel:true,showMaxLabel:true}, axisLine: {lineStyle: {color: '#ccdadd'}}};
     option.yAxis = option.yAxis.map((axis, index) => ({...axis, scale:chart.series.some(series=>series.type==='bar'&&seriesAxis(chart,series)===index)?false:axis.scale, nameTextStyle: {...axis.nameTextStyle, color: muted}, axisLabel: {...axis.axisLabel, color: muted, fontSize: 11, formatter: value => chartTick(value)}, splitLine: {...axis.splitLine, lineStyle: {color: '#e0e8eb'}}}));
     const labelSettings = valueLabels === undefined ? chart.valueLabels : valueLabels;
     const totals = new Map(chart.totalData || []);
     const lastBar = option.series.findLastIndex(series => series.type === 'bar');
     option.series = option.series.map((series, index) => {
       const presented = {...series, label: {...series.label, show: false}, tooltip: {...series.tooltip, valueFormatter: value => chartValue(value, seriesUnit(chart, chart.series[index]))}};
+      if (series.type === 'line') presented.lineStyle = {...series.lineStyle, width: 3};
       if (labelSettings && series.type === 'bar') {
         const total = labelSettings.total && index === lastBar;
         const inner = labelSettings.innerSeries === index;

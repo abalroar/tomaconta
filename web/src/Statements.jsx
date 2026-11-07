@@ -6,7 +6,7 @@ import {groupName,searchInstitutions} from './landing-data.js';
 import InstitutionSearch from './InstitutionSearch.jsx';
 import {tabNavigation} from './tab-navigation.js';
 import {prepareStatement,exportStatement,resetStatementRuntime} from './statements-runtime.js';
-import {SCOPE_LABELS,statementPeriodLabel,samePeriods,validateStatementPacket,preferredStatement,statementSearchCatalog,selectedStatementPeriods,statementFileName} from './statement-data.js';
+import {SCOPE_LABELS,statementPeriodLabel,samePeriods,validateStatementPacket,statementAnalysisBank,statementSelectionForBank,statementSearchCatalog,selectedStatementPeriods,statementFileName} from './statement-data.js';
 import './statements.css';
 
 const TABLES=['Balanço','DRE','Carteira 4.966'];
@@ -55,10 +55,11 @@ function StatementTable({table,periods,detail,shares}){
   </table>;
 }
 
-export default function Statements({index,bank,exportHost,onContextChange,onRetryIndex}){
-  const [crosswalk,setCrosswalk]=useState(null),[crosswalkReady,setCrosswalkReady]=useState(false),[entityId,setEntityId]=useState(''),[scope,setScope]=useState('prudential'),[periods,setPeriods]=useState([]),[tableName,setTableName]=useState('Balanço'),[packet,setPacket]=useState(null),[loading,setLoading]=useState(false),[status,setStatus]=useState(''),[error,setError]=useState(''),[retry,setRetry]=useState(0),[detail,setDetail]=useState(false),[shares,setShares]=useState(false),[page,setPage]=useState(0);
+export default function Statements({index,catalog,bank,exportHost,onContextChange,onRetryIndex}){
+  const [crosswalk,setCrosswalk]=useState(null),[crosswalkReady,setCrosswalkReady]=useState(false),[entityId,setEntityId]=useState(''),[scope,setScope]=useState('prudential'),[periods,setPeriods]=useState([]),[periodNotice,setPeriodNotice]=useState(''),[tableName,setTableName]=useState('Balanço'),[packet,setPacket]=useState(null),[loading,setLoading]=useState(false),[status,setStatus]=useState(''),[error,setError]=useState(''),[retry,setRetry]=useState(0),[detail,setDetail]=useState(false),[shares,setShares]=useState(false),[page,setPage]=useState(0);
   const defaults=useRef(selectedFromUrl()),boundBank=useRef(''),remembered=useRef({}),snapshotCache=useRef(new Map()),small=useSmallTable(),id=useId();
   const entity=index?.institutions.find(entry=>entry.id===entityId)||null;
+  const analysisBank=useMemo(()=>crosswalkReady?statementAnalysisBank(catalog,crosswalk,entity):null,[catalog,crosswalkReady,crosswalk,entity]);
   const searchable=useMemo(()=>index&&!index.unavailable?statementSearchCatalog(index,scope):{institutions:[]},[index,scope]);
   const suggested=useMemo(()=>searchInstitutions(searchable,groupName(bank),{limit:4}),[searchable,bank]);
   const ready=entity&&packet?.id===entity.id&&samePeriods(packet.periods,periods),tables=ready?packet.tables:[],table=tables.find(entry=>entry.name===tableName)||tables[0];
@@ -67,14 +68,14 @@ export default function Statements({index,bank,exportHost,onContextChange,onRetr
   useEffect(()=>{let active=true;if(!index||index.unavailable)return;setCrosswalkReady(false);json(index.crosswalkPath).then(result=>{if(active)setCrosswalk(result);}).catch(()=>{if(active)setCrosswalk(null);}).finally(()=>{if(active)setCrosswalkReady(true);});return()=>{active=false;};},[index]);
   useEffect(()=>{
     if(!index||index.unavailable||!crosswalkReady||boundBank.current===bank.id)return;
-    const requested=index.institutions.find(entry=>entry.id===defaults.current.id),preferred=requested||preferredStatement(index,bank,crosswalk);
+    const selection=statementSelectionForBank(index,bank,crosswalk,{entity,periods,requestedId:defaults.current.id,requestedPeriods:defaults.current.periods}),preferred=selection.entity;
     boundBank.current=bank.id;
-    if(preferred){setEntityId(preferred.id);setScope(preferred.scope);setPeriods(selectedStatementPeriods(preferred,defaults.current.periods));remembered.current[preferred.scope]=preferred.id;}
+    if(preferred){setEntityId(preferred.id);setScope(preferred.scope);if(!samePeriods(periods,selection.periods))setPeriods(selection.periods);remembered.current[preferred.scope]=preferred.id;}
     else{setEntityId('');setPeriods([]);setScope('prudential');}
     defaults.current={};
   },[index,crosswalkReady,crosswalk,bank.id]);
 
-  useEffect(()=>{if(!entity||!periods.length){setPacket(null);onContextChange?.(null);return;}storeSelection(entity,periods);onContextChange?.({id:entity.id,code:entity.code,name:entity.name,scope:entity.scope});},[entity,periods,onContextChange]);
+  useEffect(()=>{if(!entity||!periods.length){setPacket(null);onContextChange?.(null);return;}storeSelection(entity,periods);onContextChange?.({id:entity.id,code:entity.code,name:entity.name,scope:entity.scope,periods,analysisBank});},[entity,periods,analysisBank,onContextChange]);
   useEffect(()=>{
     const abort=new AbortController();let active=true;
     if(!entity||!periods.length)return()=>abort.abort();
@@ -96,8 +97,8 @@ export default function Statements({index,bank,exportHost,onContextChange,onRetr
   },[entity,periods,retry]);
   useEffect(()=>{function back(){const selected=selectedFromUrl(),next=index?.institutions.find(entry=>entry.id===selected.id);if(next){setEntityId(next.id);setScope(next.scope);setPeriods(selectedStatementPeriods(next,selected.periods));}}globalThis.addEventListener('popstate',back);return()=>globalThis.removeEventListener('popstate',back);},[index]);
 
-  function select(next){const actual=index.institutions.find(entry=>entry.id===next.id);if(!actual)return;remembered.current[actual.scope]=actual.id;setScope(actual.scope);setEntityId(actual.id);setPeriods(selectedStatementPeriods(actual));setPage(0);setError('');}
-  function changeScope(next){setScope(next);const previous=index.institutions.find(entry=>entry.id===remembered.current[next]);if(previous){setEntityId(previous.id);setPeriods(selectedStatementPeriods(previous));}else{setEntityId('');setPeriods([]);setError('');onContextChange?.(null);const url=new URL(location.href);url.searchParams.delete('statement');url.searchParams.delete('periods');history.replaceState({},'',url);}}
+  function select(next){const actual=index.institutions.find(entry=>entry.id===next.id);if(!actual)return;const selected=selectedStatementPeriods(actual,periods);setPeriodNotice(periods.length&&!samePeriods(periods,selected)?'Competências selecionadas indisponíveis nesta instituição. Exibindo as últimas competências disponíveis.':'');remembered.current[actual.scope]=actual.id;setScope(actual.scope);setEntityId(actual.id);setPeriods(selected);setPage(0);setError('');}
+  function changeScope(next){setPeriodNotice('');setScope(next);const previous=index.institutions.find(entry=>entry.id===remembered.current[next]);if(previous){setEntityId(previous.id);setPeriods(selectedStatementPeriods(previous));}else{setEntityId('');setPeriods([]);setError('');onContextChange?.(null);const url=new URL(location.href);url.searchParams.delete('statement');url.searchParams.delete('periods');history.replaceState({},'',url);}}
   function retryAnalysis(){resetStatementRuntime();setRetry(value=>value+1);}
 
   if(!index)return <p className="institution-empty" role="status">Carregando catálogo de demonstrações…</p>;
@@ -107,9 +108,11 @@ export default function Statements({index,bank,exportHost,onContextChange,onRetr
   return <section className="statements-page" aria-labelledby={`${id}-heading`}>
     {exportHost?createPortal(exportMenu,exportHost):<div className="statements-local-export">{exportMenu}</div>}
     <div className="statements-toolbar"><div className="statements-tabs" role="tablist" aria-label="Demonstração">{TABLES.map((name,index)=><button type="button" role="tab" id={`${id}-tab-${index}`} key={name} aria-selected={name===tableName} tabIndex={name===tableName?0:-1} aria-controls={`${id}-table`} onKeyDown={tabNavigation} onClick={()=>setTableName(name)}>{name}</button>)}</div><label>Perímetro <select value={scope} onChange={event=>changeScope(event.target.value)}><option value="prudential">Prudencial</option><option value="individual">Individual</option></select></label></div>
-    <div className="statements-selection"><InstitutionSearch catalog={searchable} suggested={suggested} onSelect={select} placeholder={scope==='individual'?'Buscar pessoa jurídica ou CNPJ-base':'Buscar conglomerado ou código'} label="Selecionar instituição das demonstrações"/>{entity&&<PeriodPicker {...{entity,periods}} onChange={setPeriods}/>}</div>
+    <div className="statements-selection"><InstitutionSearch catalog={searchable} suggested={suggested} onSelect={select} placeholder={scope==='individual'?'Buscar pessoa jurídica ou CNPJ-base':'Buscar conglomerado ou código'} label="Selecionar instituição das demonstrações"/>{entity&&<PeriodPicker {...{entity,periods}} onChange={selected=>{setPeriodNotice('');setPeriods(selected);}}/>}</div>
     {!entity?<p className="institution-empty">{!crosswalkReady?'Identificando a instituição…':scope==='individual'?'Escolha a pessoa jurídica no perímetro individual.':'Selecione um conglomerado para consultar Balanço e DRE.'}</p>:<>
       <div className="statements-identity"><div><strong>{entity.name}</strong><p>{scope==='individual'?`CNPJ-base ${entity.code} · COSIF 4010`:`Conglomerado ${entity.code} · COSIF 4060 / 4066`}</p></div><span>R$ milhões · índices em %</span></div>
+      {periodNotice&&<p className="statements-footnote" role="status">{periodNotice}</p>}
+      {crosswalkReady&&!analysisBank&&<p className="statements-footnote">Seleção contábil independente. Análise e comparação: {groupName(bank)} · {bank.perimeter}.</p>}
       {error&&<div className="statements-error" role="alert"><p>{error}</p><button type="button" className="institution-text-action" onClick={retryAnalysis}>Tentar novamente</button></div>}
       {!ready||loading?<p className="institution-empty" role="status">{error?'Selecione outra instituição ou tente novamente.':status||'Preparando demonstrativos…'}</p>:table&&<>
         <div className="institution-section-title"><h2 id={`${id}-heading`}>{table.name}</h2><div className="statements-table-controls"><label><input type="checkbox" checked={shares} onChange={event=>{setShares(event.target.checked);setPage(0);}}/>Composição (%)</label><button type="button" className="institution-text-action" onClick={()=>setDetail(value=>!value)}>{detail?'Recolher contas':'Detalhar contas'}</button></div></div>
