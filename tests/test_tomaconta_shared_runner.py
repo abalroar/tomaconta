@@ -194,6 +194,7 @@ def test_oidc_is_cached_renewed_and_requested_for_exact_audience():
     now[0] = 1550
     assert identity.bearer() != first; assert len(calls) == 2
     assert "audience=https%3A%2F%2Fmatheusprat.es%2Ftomaconta%2Fapi%2Fshared%2Frunner" in calls[0].full_url
+    assert calls[0].get_header("User-agent") == r.RUNNER_USER_AGENT
 
 
 def test_access_denial_stops_http_and_never_leaks_identity():
@@ -406,6 +407,7 @@ def test_execute_transport_reuses_sessions_without_redirects_or_content_decoding
     assert len(sessions) == 1
     assert all(call[2]["allow_redirects"] is False for call in calls)
     assert all(call[2]["headers"]["Accept-encoding"] == "identity" for call in calls)
+    assert all(call[2]["headers"]["User-agent"] == r.RUNNER_USER_AGENT for call in calls)
     assert api.request("GET", "/runner/blobs/" + "a" * 64, binary=True) == b'original-gzip-bytes'
     api.close_pool();assert sessions[0].closed
 
@@ -520,3 +522,19 @@ def test_pooled_http_error_preserves_only_diagnostic_headers(monkeypatch):
     assert "NEVER" not in str(error.value)
     assert api.denied is True
     api.close_pool()
+
+
+def test_runner_identifies_itself_with_fixed_application_user_agent(monkeypatch):
+    monkeypatch.setenv("USER_AGENT", "invalid-environment-value")
+    monkeypatch.setenv("RUNNER_USER_AGENT", "invalid-environment-override")
+    calls = []
+    class Identity:
+        def bearer(self): return "fixture-identity"
+    def opener(request, **kwargs):
+        calls.append(request)
+        return io.BytesIO(b'{"pending":false}')
+    api = r.SharedAPI(identity=Identity(), opener=opener)
+    assert api.request("GET", "/runner/pending", headers={"User-Agent": "invalid-request-override", "user-agent": "invalid-lowercase-override"}) == {"pending": False}
+    assert calls[0].get_header("User-agent") == "TomaContaSharedRunner/1.0 (+https://github.com/abalroar/tomaconta)"
+    assert r.API_ROOT == "https://matheusprat.es/tomaconta/api/shared"
+    assert r.AUDIENCE == "https://matheusprat.es/tomaconta/api/shared/runner"

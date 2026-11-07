@@ -38,6 +38,8 @@ Todas as rotas `/runner/…` exigem `Authorization: Bearer <JWT>` emitido pelo G
 
 Também são verificados `exp`, `nbf`, `iat`, `sha`, `workflow_sha`, `run_id` e `run_attempt`. A reserva fica vinculada ao par execução/tentativa. A renovação do JWT durante a mesma execução preserva essa identidade. O workflow precisa de `id-token: write`; as demais permissões podem permanecer de leitura. Os claims e a emissão estão documentados na [referência OIDC do GitHub](https://docs.github.com/en/actions/reference/security/oidc).
 
+O executor identifica suas requisições OIDC e da API compartilhada com o cabeçalho fixo `User-Agent: TomaContaSharedRunner/1.0 (+https://github.com/abalroar/tomaconta)`, incluindo o transporte com pool. A constante não recebe substituição por variável de ambiente ou cabeçalho do pedido. A Cloudflare recomenda identificar a aplicação com um User-Agent descritivo e documenta que alguns valores padrão de bibliotecas, como `urllib`, podem ser recusados antes da execução do Worker no [Browser Integrity Check de workers.dev](https://developers.cloudflare.com/workers/configuration/routing/workers-dev/#browser-integrity-check-on-workersdev). O cabeçalho identifica o próprio serviço; assinatura RS256, claims, audiência, endereço da API e proteções do ambiente mantêm seus contratos.
+
 ## API pública
 
 Prefixo de todas as rotas: `/tomaconta/api/shared`.
@@ -88,6 +90,8 @@ gh variable set TOMACONTA_SHARED_ENABLED --body true --repo abalroar/tomaconta
 ```
 
 Para suspender apenas a consulta periódica, definir a mesma variável como `false`. O diagnóstico manual tem prioridade sobre a opção `bootstrap` quando ambas forem selecionadas.
+
+Após integrar a identificação do executor, o responsável realiza primeiro uma única consulta autenticada pendente, sem `bootstrap`, conferindo o recibo HTTP antes de importar dados. Se o serviço continuar respondendo 403, a execução para e o diagnóstico é registrado; o User-Agent permanece fixo.
 
 ## Geração e arquivos
 
