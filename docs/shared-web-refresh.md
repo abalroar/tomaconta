@@ -139,7 +139,9 @@ Na publicação, conferir pela interface: importação inicial; pedido imobiliá
 
 ## Cadência do executor
 
-O agendamento consulta a fila a cada cinco minutos, nos minutos 2, 7, 12 e assim por diante até 57. A cadência evita o início da hora, quando o GitHub informa maior carga e possibilidade de atrasos ou descarte de eventos agendados. A execução não tem horário de início garantido. O mesmo workflow pode ser acionado manualmente, mantendo a verificação OIDC, o bloqueio de concorrência e a mesma fila. Referência: [GitHub — schedule](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule).
+O agendamento consulta a fila a cada cinco minutos, nos minutos 2, 7, 12 e assim por diante até 57, declarados pela lista explícita `2,7,12,17,22,27,32,37,42,47,52,57 * * * *`. A cadência evita o início da hora, quando o GitHub informa maior carga e possibilidade de atrasos ou descarte de eventos agendados. A execução não tem horário de início garantido. O mesmo workflow pode ser acionado manualmente, mantendo a verificação OIDC, o bloqueio de concorrência e a mesma fila. Referência: [GitHub — schedule](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule).
+
+A passagem de intervalo com passo para lista mantém os mesmos doze horários por hora. Ela registra uma nova edição do cron pelo responsável do repositório para renovar a agenda. O sucesso de `workflow_dispatch` e o estado `active` não comprovam a entrega de eventos `schedule`; essa comprovação exige registrar uma execução real com esse evento e seu resultado.
 
 ## Conferência pública em 07/11/2026
 
