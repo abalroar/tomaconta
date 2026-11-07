@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
+import gzip
 import hashlib
 import json
 from pathlib import Path
@@ -23,6 +24,7 @@ ROOT = Path(__file__).resolve().parents[2]
 AGENCIES_URL = "https://olinda.bcb.gov.br/olinda/servico/Informes_Agencias/versao/v1/odata/Agencias"
 MALHAS_URL = "https://servicodados.ibge.gov.br/api/v4/malhas/paises/BR"
 LOCALITIES_URL = "https://servicodados.ibge.gov.br/api/v1/localidades/municipios"
+GEOGRAPHY_BASELINE = Path(__file__).resolve().parent / "data/bank-network-geography"
 RETAIL_SEGMENTS = frozenset(("Banco Múltiplo", "Banco Comercial", "Caixa Econômica Federal"))
 
 
@@ -60,6 +62,30 @@ def fetch_json(url, path, *, refresh=False):
     write(path, response.content)
     write(metadata_path, encode(metadata))
     return value, metadata
+
+
+def geography_json(url, path, *, refresh=False, baseline=GEOGRAPHY_BASELINE):
+    """Use the reviewed IBGE reference independently of the BCB refresh cycle.
+
+    The original collection timestamp and hash stay unchanged. An explicit
+    geography refresh consults IBGE and still fails closed on HTTP errors.
+    """
+    metadata_path = path.with_suffix(path.suffix + ".source.json")
+    if not refresh and path.exists() != metadata_path.exists():
+        raise ValueError(f"Referência geográfica incompleta: {path.name}")
+    if not refresh and not path.exists() and not metadata_path.exists():
+        archived = baseline / (path.name + ".gz")
+        provenance = baseline / metadata_path.name
+        if not archived.is_file() or not provenance.is_file():
+            raise ValueError(f"Referência geográfica versionada ausente: {path.name}")
+        data = gzip.decompress(archived.read_bytes())
+        metadata = json.loads(provenance.read_text())
+        if metadata.get("url") != url or metadata.get("sha256") != sha(data) or metadata.get("bytes") != len(data):
+            raise ValueError(f"Referência geográfica inconsistente: {path.name}")
+        json.loads(data)
+        write(path, data)
+        write(metadata_path, encode(metadata))
+    return fetch_json(url, path, refresh=refresh)
 
 
 def collect_agencies(source_dir, *, raw=None, evidence=None, refresh=False):
@@ -189,7 +215,7 @@ def official_links(root, source_dir, period, cnpj_bases, *, refresh=False, catal
     return result, statuses, sources
 
 
-def export(root, output, source_dir, *, agencies=None, evidence=None, refresh=False, link_period=None, catalog_dir=None):
+def export(root, output, source_dir, *, agencies=None, evidence=None, refresh=False, refresh_geography=False, link_period=None, catalog_dir=None):
     link_period = membership_period(root, link_period, catalog_dir=catalog_dir)
     rows, agency_source = collect_agencies(source_dir, raw=agencies, evidence=evidence, refresh=refresh)
     full_ids = [(str(r["CnpjBase"]), str(r["CnpjSequencial"]), str(r["CnpjDv"])) for r in rows]
@@ -201,10 +227,10 @@ def export(root, output, source_dir, *, agencies=None, evidence=None, refresh=Fa
     if len(positions) != 1:
         raise ValueError("Posições de agências misturadas")
     position = datetime.strptime(next(iter(positions)), "%d/%m/%Y").date().isoformat()
-    localities, locality_source = fetch_json(LOCALITIES_URL, source_dir / "localities.json", refresh=refresh)
+    localities, locality_source = geography_json(LOCALITIES_URL, source_dir / "localities.json", refresh=refresh_geography)
     query = {"qualidade": "minima", "formato": "application/vnd.geo+json"}
-    municipalities_geo, municipalities_source = fetch_json(MALHAS_URL + "?" + urlencode({"intrarregiao": "municipio", **query}), source_dir / "municipalities.geojson", refresh=refresh)
-    ufs_geo, ufs_source = fetch_json(MALHAS_URL + "?" + urlencode({"intrarregiao": "UF", **query}), source_dir / "ufs.geojson", refresh=refresh)
+    municipalities_geo, municipalities_source = geography_json(MALHAS_URL + "?" + urlencode({"intrarregiao": "municipio", **query}), source_dir / "municipalities.geojson", refresh=refresh_geography)
+    ufs_geo, ufs_source = geography_json(MALHAS_URL + "?" + urlencode({"intrarregiao": "UF", **query}), source_dir / "ufs.geojson", refresh=refresh_geography)
     local = {str(item["id"]): item for item in localities}
     geometries = {str(feature["properties"]["codarea"]): feature["geometry"] for feature in municipalities_geo["features"]}
     if len(local) != len(localities) or set(local) != set(geometries):
@@ -306,8 +332,9 @@ if __name__ == "__main__":
     parser.add_argument("--agencies", type=Path)
     parser.add_argument("--agencies-evidence", type=Path)
     parser.add_argument("--refresh", action="store_true")
+    parser.add_argument("--refresh-geography", action="store_true", help="Reconsultar localidades e malhas IBGE; independente da atualização BCB")
     parser.add_argument("--period", "--link-period", dest="link_period", help="Última competência do catálogo candidato (YYYYMM ou YYYY-MM); derivada do catálogo quando omitida")
     args = parser.parse_args()
     result = export(args.root, args.output, args.source_dir, agencies=args.agencies,
-                    evidence=args.agencies_evidence, refresh=args.refresh, link_period=args.link_period, catalog_dir=args.catalog_dir)
+                    evidence=args.agencies_evidence, refresh=args.refresh, refresh_geography=args.refresh_geography, link_period=args.link_period, catalog_dir=args.catalog_dir)
     print(json.dumps({"position": result["position"], **result["checks"]}, ensure_ascii=False))

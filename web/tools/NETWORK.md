@@ -6,8 +6,10 @@
 # Na raiz, em ambiente Python próprio para coleta:
 python -m pip install -r web/tools/requirements-network.txt
 python web/tools/export_network.py
-# Reconsultar todas as fontes, preservando o resultado anterior se a coleta falhar:
+# Reconsultar cadastro BCB e vínculos IF.data:
 python web/tools/export_network.py --refresh
+# Atualização editorial da referência territorial IBGE:
+python web/tools/export_network.py --refresh --refresh-geography
 python -m unittest discover -s web/tests -p test_network_pipeline.py
 # Testes do pacote versionado, sem rede ou Python:
 cd web
@@ -15,6 +17,8 @@ node --test tests/network-data.test.mjs
 ```
 
 As páginas BCB são ordenadas por `CnpjBase,CnpjSequencial,CnpjDv`, com `$top=1000` e `$skip` até a primeira página incompleta. Duplicidade de CNPJ completo, posições misturadas, divergência de UF ou totais não reconciliados interrompem a geração. Fontes e hashes ficam no cache `data/cache/bank_network`; metadados e hashes das páginas integram o dataset publicado. `--agencies` e `--agencies-evidence` permitem reutilizar um levantamento completo cujo SHA-256 e totais sejam conferidos.
+
+As três referências territoriais IBGE têm ciclo próprio. `web/tools/data/bank-network-geography` guarda os bytes oficiais comprimidos e seus recibos originais, com URL, data, tamanho e SHA-256. Na primeira execução eles são conferidos e materializados no cache; nas seguintes, o cache da revisão ativa é conferido e reutilizado. `--refresh` continua consultando agências e IF.data. Somente `--refresh-geography` reconsulta IBGE, preservando os recibos anteriores se houver falha de conexão. A renovação da referência territorial requer revisar as três fontes juntas e versionar seus novos arquivos/recibos; municípios novos sem correspondência continuam impedindo publicar. Nenhuma data de coleta é promovida ao dia da atualização bancária. Isso permite atualizar o cadastro bancário quando a API cartográfica estiver indisponível.
 
 O cadastro usado nos vínculos IF.data acompanha `institutions.json.latestPeriod` do candidato. Use `--catalog-dir CAMINHO` quando `institutions.json` e `statements/crosswalk.json` estiverem no staging de uma revisão; o padrão é `ROOT/web/public/data`. `--period YYYYMM` (ou YYYY-MM) pode explicitar essa competência e deve concordar com esse catálogo. O script não escolhe competência pelo relógio nem fixa junho/2026. Se o cadastro oficial daquela competência não estiver disponível, a geração falha preservando a publicação anterior. Os hashes do catálogo e do crosswalk usados são registrados com as fontes do vínculo.
 

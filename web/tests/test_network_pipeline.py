@@ -3,6 +3,7 @@
 No network, Parquet, ignored cache or previous QA artifacts are required.
 """
 import json
+import gzip
 from pathlib import Path
 import sys
 import tempfile
@@ -15,6 +16,43 @@ import export_network as network
 
 
 class NetworkPipeline(unittest.TestCase):
+    def test_packaged_geography_reproduces_official_bytes_without_network(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(network.requests, "get", side_effect=AssertionError("IBGE must not be queried during BCB refresh")):
+            for name in ("localities.json", "municipalities.geojson", "ufs.geojson"):
+                metadata = json.loads((network.GEOGRAPHY_BASELINE / (name + ".source.json")).read_text())
+                path = Path(directory) / name
+                value, provenance = network.geography_json(metadata["url"], path)
+                self.assertTrue(value)
+                self.assertEqual(provenance, metadata)
+                self.assertEqual(path.stat().st_size, metadata["bytes"])
+                self.assertEqual(network.sha(path.read_bytes()), metadata["sha256"])
+                self.assertEqual(network.geography_json(metadata["url"], path), (value, provenance))
+
+    def test_corrupt_geography_does_not_query_network_or_repair_silently(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(network.requests, "get") as fetch:
+            baseline = Path(directory) / "baseline"
+            baseline.mkdir()
+            (baseline / "localities.json.gz").write_bytes(gzip.compress(b"[]", mtime=0))
+            (baseline / "localities.json.source.json").write_text(json.dumps({"url": network.LOCALITIES_URL, "sha256": "a" * 64, "bytes": 2}))
+            path = Path(directory) / "cache/localities.json"
+            with self.assertRaisesRegex(ValueError, "inconsistente"):
+                network.geography_json(network.LOCALITIES_URL, path, baseline=baseline)
+            self.assertFalse(path.exists())
+            fetch.assert_not_called()
+
+    def test_explicit_geography_refresh_failure_keeps_original_reference(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "localities.json"
+            url = json.loads((network.GEOGRAPHY_BASELINE / "localities.json.source.json").read_text())["url"]
+            network.geography_json(url, path)
+            old = path.read_bytes()
+            receipt = path.with_suffix(".json.source.json").read_bytes()
+            with patch.object(network.requests, "get", side_effect=network.requests.ConnectTimeout("IBGE unavailable")):
+                with self.assertRaises(network.requests.ConnectTimeout):
+                    network.geography_json(url, path, refresh=True)
+            self.assertEqual(path.read_bytes(), old)
+            self.assertEqual(path.with_suffix(".json.source.json").read_bytes(), receipt)
+
     def test_membership_date_comes_from_candidate_catalog_not_wall_clock(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -82,9 +120,11 @@ class NetworkPipeline(unittest.TestCase):
             root = Path(directory)
             published = root / "bank-network.json"
             published.write_text("previous")
-            with patch.object(network, "membership_period", return_value="202606"), patch.object(network, "collect_agencies", return_value=([row], {})), patch.object(network, "fetch_json", side_effect=[([locality], {}), (invalid, {}), ({}, {})]), patch.object(network, "official_links") as links:
+            with patch.object(network, "membership_period", return_value="202606"), patch.object(network, "collect_agencies", return_value=([row], {})) as agencies, patch.object(network, "geography_json", side_effect=[([locality], {}), (invalid, {}), ({}, {})]) as geography, patch.object(network, "official_links") as links:
                 with self.assertRaisesRegex(ValueError, "sem município/ponto oficial"):
-                    network.export(root, root, root / "cache")
+                    network.export(root, root, root / "cache", refresh=True)
+                self.assertTrue(agencies.call_args.kwargs["refresh"])
+                self.assertEqual([call.kwargs["refresh"] for call in geography.call_args_list], [False, False, False])
                 links.assert_not_called()
             self.assertEqual(published.read_text(), "previous")
 
