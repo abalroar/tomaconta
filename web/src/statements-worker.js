@@ -1,5 +1,5 @@
 /* Python and its packages are loaded on demand, outside the interface thread. */
-const ENGINE_PATH = 'data/statements/engine/';
+import {datasetPath,validateDatasetRoot} from './data.js';
 const PYTHON_ROOT = '/tc-engine';
 let enginePromise;
 let nativePromise;
@@ -10,8 +10,11 @@ const packets = new Map();
 const cancelled = new Set();
 const knownJobs = new Set();
 
-function context(job) {return {entityId: job.entity.id, periods: job.periods, operation: job.type, format: job.format || null};}
+function context(job) {return {entityId: job.entity.id, periods: job.periods, operation: job.type, format: job.format || null,dataBase:job.dataBase};}
 function status(job, message) {if (!cancelled.has(job.id)) self.postMessage({type: 'status', id: job.id, context: context(job), message});}
+export function statementAssetUrl(dataBase,path,origin=globalThis.location?.href||'http://localhost/'){
+  return new URL(datasetPath(path),validateDatasetRoot(dataBase,origin)).href;
+}
 
 function validateJob(job) {
   if (!job || !['analyze', 'export'].includes(job.type) || typeof job.id !== 'string' || !job.entity) throw new Error('Pedido inválido.');
@@ -19,10 +22,9 @@ function validateJob(job) {
   if (!['individual', 'prudential'].includes(scope) || !(scope === 'individual' ? /^\d{8}$/ : /^C\d{7}$/).test(code || '') || id !== `${scope}-${code}` || ![`data/statements/inputs/${id}.json.gz`, `data/statements/inputs/${id}.json`].includes(inputPath)) throw new Error('Identidade contábil inválida.');
   if (!Array.isArray(job.periods) || !job.periods.length || job.periods.length > 8 || new Set(job.periods).size !== job.periods.length || job.periods.some(p => typeof p !== 'string' || !/^\d{4}(0[1-9]|1[0-2])$/.test(p)) || [...job.periods].sort().some((p, i) => p !== job.periods[i])) throw new Error('Competências inválidas.');
   if (job.type === 'export' && !['xlsx', 'pptx'].includes(job.format)) throw new Error('Formato inválido.');
-  const base = new URL(job.baseUrl);
-  if (base.origin !== self.location.origin || base.search || base.hash || !base.pathname.endsWith('/')) throw new Error('Origem dos dados inválida.');
-  if (activeBase && activeBase !== base.href) throw new Error('A origem da análise foi alterada.');
-  activeBase = base.href;
+  const base=validateDatasetRoot(job.dataBase,self.location.href);
+  if (activeBase && activeBase !== base) throw new Error('A origem da análise foi alterada.');
+  activeBase = base;
 }
 
 async function response(url) {
@@ -71,7 +73,7 @@ async function engine(job) {
   if (!enginePromise) {
     enginePromise = (async () => {
       status(job, 'Carregando recursos da análise…');
-      const engineBase = new URL(ENGINE_PATH, activeBase);
+      const engineBase = new URL('.',statementAssetUrl(activeBase,'data/statements/engine/manifest.json',self.location.href));
       const manifest = validateManifest(await (await response(new URL('manifest.json', engineBase))).json());
       const runtimeUrl = `${manifest.pyodide.indexURL}pyodide.mjs`;
       const {loadPyodide} = await import(/* @vite-ignore */ runtimeUrl);
@@ -121,7 +123,7 @@ async function input(job) {
   if (!sources.has(job.entity.id)) {
     const promise = (async () => {
       status(job, 'Carregando dados da instituição…');
-      const text = await decodeStatementBytes(await (await response(new URL(job.entity.inputPath, activeBase))).arrayBuffer());
+      const text = await decodeStatementBytes(await (await response(statementAssetUrl(activeBase,job.entity.inputPath,self.location.href))).arrayBuffer());
       const packet = JSON.parse(text);
       if (packet.id !== job.entity.id || packet.scope !== job.entity.scope || packet.code !== job.entity.code) throw new Error('Os dados recebidos pertencem a outra instituição.');
       return {text, packet};

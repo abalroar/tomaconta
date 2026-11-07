@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {createStatementRuntime, statementSelection} from '../src/statements-runtime.js';
 import {decodeStatementBytes} from '../src/statements-worker.js';
 import {gzipSync} from 'node:zlib';
+import {datasetRoot,pinDataRevision} from '../src/data.js';
 
 const itau = {id: 'prudential-C0080099', scope: 'prudential', code: 'C0080099', periods: ['202512', '202603', '202606'], inputPath: 'data/statements/inputs/prudential-C0080099.json'};
 const individual = {id: 'individual-60701190', scope: 'individual', code: '60701190', periods: ['202512', '202603', '202606']};
@@ -17,12 +18,12 @@ function fixture(t, options = {}) {
     emit(data) {this.events.get('message')({data});}
     fail() {this.events.get('error')({preventDefault() {}});}
   }
-  const runtime = createStatementRuntime({WorkerClass: Worker, baseUrl: 'https://matheusprat.es/tomaconta/', timeoutMs: 5000, ...options});
+  const runtime = createStatementRuntime({WorkerClass: Worker, dataBase: 'http://localhost/data/', timeoutMs: 5000, ...options});
   t.after(() => runtime.reset());
   return {runtime, instances};
 }
 
-const context = request => ({entityId: request.entity.id, periods: request.periods, operation: request.type, format: request.format || null});
+const context = request => ({entityId: request.entity.id, periods: request.periods, operation: request.type, format: request.format || null,dataBase:request.dataBase});
 function complete(worker, request, extra = {}) {worker.emit({type: 'result', id: request.id, context: context(request), packet: {id: request.entity.id, periods: request.periods, tables: []}, ...extra});}
 
 test('Python worker stays lazy; selection is sorted without changing the source and preserves identity', async t => {
@@ -36,7 +37,7 @@ test('Python worker stays lazy; selection is sorted without changing the source 
   assert.equal(instances[0].config.type, 'module');
   const request = instances[0].messages[0];
   assert.deepEqual(request.periods, ['202512', '202606']);
-  assert.equal(request.baseUrl, 'https://matheusprat.es/tomaconta/');
+  assert.equal(request.dataBase, 'http://localhost/data/');
   instances[0].emit({type: 'status', id: request.id, context: context(request), message: 'Carregando dados da instituição…'});
   const packet = {id: itau.id, periods: request.periods, tables: [{values: [null, 0, -12]}]};
   complete(instances[0], request, {packet});
@@ -70,7 +71,7 @@ test('simultaneous institutions cannot consume one another’s results', async t
 
 test('responses must match entity, period, operation and export format', async t => {
   const {runtime, instances} = fixture(t);
-  for (const changed of [{entityId: individual.id}, {periods: ['202603']}, {operation: 'export'}, {format: 'pptx'}]) {
+  for (const changed of [{entityId: individual.id}, {periods: ['202603']}, {operation: 'export'}, {format: 'pptx'},{dataBase:'http://localhost/api/shared/data/'+'a'.repeat(32)+'/'}]) {
     const result = runtime.prepare(itau, ['202606']);
     const worker = instances[0], request = worker.messages.at(-1);
     worker.emit({type: 'result', id: request.id, context: {...context(request), ...changed}, packet: {id: itau.id, periods: ['202606']}});
@@ -194,4 +195,40 @@ test('missing gzip support and incomplete streams reject without producing a pac
   const compressed = gzipSync('{"value":10}');
   await assert.rejects(decodeStatementBytes(compressed, null), /navegador/);
   await assert.rejects(decodeStatementBytes(compressed.subarray(0, 8)));
+});
+
+test('the runtime posts an explicit revision base while retaining canonical identity paths',async t=>{
+  const dataBase='http://localhost/api/shared/data/'+'a'.repeat(32)+'/';
+  const {runtime,instances}=fixture(t,{dataBase});
+  const pending=runtime.prepare(individual,['202606']);
+  const request=instances[0].messages[0];
+  assert.equal(request.dataBase,dataBase);
+  assert.equal(request.entity.inputPath,'data/statements/inputs/individual-60701190.json.gz');
+  complete(instances[0],request);
+  assert.equal((await pending).id,individual.id);
+});
+
+test('a changed publication terminates the old worker and cannot reuse its engine or late response',async t=>{
+  t.after(()=>pinDataRevision(null));pinDataRevision('a'.repeat(32));
+  const {runtime,instances}=fixture(t,{dataBase:datasetRoot});
+  const first=runtime.prepare(individual,['202606']),rejected=assert.rejects(first,/revisão/);
+  const old=instances[0],previous=old.messages[0];
+  pinDataRevision('b'.repeat(32));
+  const second=runtime.prepare(individual,['202606']);
+  await rejected;
+  assert.equal(old.terminated,true);
+  assert.equal(instances.length,2);
+  assert.notEqual(instances[1].messages[0].dataBase,previous.dataBase);
+  complete(old,previous);
+  complete(instances[1],instances[1].messages[0]);
+  assert.equal((await second).id,individual.id);
+});
+
+test('a late response is rejected after a pin changes even before another Python request starts',async t=>{
+  t.after(()=>pinDataRevision(null));pinDataRevision('a'.repeat(32));
+  const {runtime,instances}=fixture(t,{dataBase:datasetRoot});
+  const pending=runtime.prepare(individual,['202606']),rejected=assert.rejects(pending,/revisão/);
+  const worker=instances[0],request=worker.messages[0];
+  pinDataRevision('b'.repeat(32));complete(worker,request);
+  await rejected;assert.equal(worker.terminated,true);
 });

@@ -1,4 +1,4 @@
-import React,{useEffect,useId,useMemo,useRef,useState} from 'react';
+import React,{useCallback,useEffect,useId,useMemo,useRef,useState} from 'react';
 import {json,csvDownload} from './data.js';
 import {groupColor,groupName,selectLandingCohort} from './landing-data.js';
 import InstitutionSearch from './InstitutionSearch.jsx';
@@ -84,18 +84,19 @@ function Data({catalog,payload,period}){
   return <section className="institution-data" aria-label="Valores originais"><table><thead><tr><th scope="col">Indicador</th><th scope="col">Valor original</th><th scope="col">Unidade</th></tr></thead><tbody>{Object.entries(catalog.metrics).map(([key,metric])=><tr key={key}><th scope="row">{metric.label}</th><td>{metricNumber(row?.values[key],key,catalog.metrics,{raw:true})}</td><td className="institution-data-unit">{metric.unit}</td></tr>)}</tbody></table></section>;
 }
 
-export default function InstitutionPage({catalog,bankId,onSelect,statementIndex,onRetryStatements}){
-  const initial=useRef(parseContext()),[tab,setTab]=useState(initial.current.tab),[asOf,setAsOf]=useState(initial.current.period),[window,setWindow]=useState(initial.current.window),[payload,setPayload]=useState(null),[error,setError]=useState(''),[retry,setRetry]=useState(0),[metric,setMetric]=useState('roe'),[peerIds,setPeerIds]=useState([bankId]),[peerHistories,setPeerHistories]=useState([]),[peerError,setPeerError]=useState(''),[peerLoading,setPeerLoading]=useState(false),[exportHost,setExportHost]=useState(null),[statementContext,setStatementContext]=useState(null);
+export default function InstitutionPage({catalog,bankId,onSelect,onStatementSelect,statementIndex,onRetryStatements}){
+  const initial=useRef(parseContext()),[tab,setTab]=useState(initial.current.tab),[asOf,setAsOf]=useState(initial.current.period),[window,setWindow]=useState(initial.current.window),[payload,setPayload]=useState(null),[error,setError]=useState(''),[retry,setRetry]=useState(0),[metric,setMetric]=useState('roe'),[peerIds,setPeerIds]=useState([bankId]),[peerHistories,setPeerHistories]=useState([]),[peerError,setPeerError]=useState(''),[peerLoading,setPeerLoading]=useState(false),[exportHost,setExportHost]=useState(null);
   const previousBank=useRef(bankId),cache=useRef(new Map()),tabPrefix=useId(),bank=catalog.institutions.find(entry=>entry.id===bankId)||catalog.institutions[0],period=asOf||bank.latestPeriod;
   const peers=useMemo(()=>peerIds.map(id=>catalog.institutions.find(entry=>entry.id===id)).filter(entry=>entry&&entry.perimeter===bank.perimeter),[catalog,peerIds,bank.perimeter]);
   const perimeters=useMemo(()=>[...new Set(catalog.institutions.map(entry=>entry.perimeter))],[catalog]);
   const suggested=useMemo(()=>selectLandingCohort(catalog).slice(0,4),[catalog]);
 
-  useEffect(()=>{let active=true;setPayload(null);setError('');const changed=previousBank.current!==bank.id;
-    if(changed){setAsOf(bank.latestPeriod);setTab('analysis');setPeerIds([bank.id]);setStatementContext(null);previousBank.current=bank.id;}
+  useEffect(()=>{let active=true;setPayload(null);setError('');const changed=previousBank.current!==bank.id,preserveStatements=tab==='statements';
+    if(changed){if(!preserveStatements){setAsOf(bank.latestPeriod);setTab('analysis');}setPeerIds([bank.id]);previousBank.current=bank.id;}
+    const desiredPeriod=changed&&!preserveStatements?bank.latestPeriod:asOf||bank.latestPeriod;
     const cached=cache.current.get(bank.id);
     const task=cached?Promise.resolve(cached):json(bank.historyPath).then(result=>validateInstitutionHistory(bank,result));
-    task.then(result=>{if(active){cache.current.set(bank.id,result);setPayload(result);if(!result.history.some(row=>row.period===(changed?bank.latestPeriod:asOf||bank.latestPeriod)))setAsOf(result.history.at(-1)?.period||bank.latestPeriod);}}).catch(reason=>{if(active)setError(reason.message);});
+    task.then(result=>{if(active){cache.current.set(bank.id,result);setPayload(result);if(!result.history.some(row=>row.period===desiredPeriod))setAsOf(result.history.at(-1)?.period||bank.latestPeriod);}}).catch(reason=>{if(active)setError(reason.message);});
     return()=>{active=false;};
   },[bank.id,retry]);
 
@@ -112,9 +113,12 @@ export default function InstitutionPage({catalog,bankId,onSelect,statementIndex,
   const exportCharts=useMemo(()=>ready?institutionExportCharts({bank,payload,metrics:catalog.metrics,period,window}):[],[ready,bank,payload,catalog.metrics,period,window]);
   const compare=useMemo(()=>comparisonChart({banks:peers,histories:peerHistories,metrics:catalog.metrics,key:metric,period,window,perimeter:bank.perimeter}),[peers,peerHistories,catalog.metrics,metric,period,window,bank.perimeter]);
   function choose(entry){onSelect(entry);setTab('analysis');setAsOf(entry.latestPeriod);setPeerIds([entry.id]);}
+  const statementContext=useCallback(context=>{
+    if(context?.analysisBank&&context.analysisBank.id!==bank.id)onStatementSelect?.(context.analysisBank,context,context.periods);
+  },[bank.id,onStatementSelect]);
   function changePerimeter(value){const next=catalog.institutions.filter(entry=>entry.perimeter===value).slice().sort((a,b)=>(b.latest.assets??-Infinity)-(a.latest.assets??-Infinity))[0];if(next)choose(next);}
   function exportRanking(){const rows=catalog.institutions.filter(entry=>entry.perimeter===bank.perimeter&&entry.latestPeriod===catalog.latestPeriod).map(entry=>({title:entry.name,unit:catalog.metrics[metric].unit,source:'BCB / IFData · '+entry.perimeter,series:[{name:catalog.metrics[metric].label,data:[[entry.latestPeriod,entry.latest[metric]]]}]}));csvDownload(rows,'Ranking_'+metric+'_'+catalog.latestPeriod);}
-  const statementActive=tab==='statements',title=statementActive&&statementContext?.name?groupName(statementContext):groupName(bank);
+  const statementActive=tab==='statements',title=groupName(bank);
   return <div className="institution-page">
     <header className="institution-header tc-page-header">
       <div className="institution-identity"><div><h1>{title}</h1>{statementActive&&<p>Demonstrações contábeis</p>}</div><InstitutionSearch catalog={catalog} suggested={suggested} onSelect={choose} placeholder="Trocar instituição" label="Trocar instituição"/></div>
@@ -129,7 +133,7 @@ export default function InstitutionPage({catalog,bankId,onSelect,statementIndex,
       <div className="institution-tabs" role="tablist" aria-label="Análise da instituição">{TABS.map(([id,label])=><button type="button" id={`${tabPrefix}-${id}`} key={id} role="tab" aria-selected={tab===id} tabIndex={tab===id?0:-1} aria-controls={`${tabPrefix}-panel`} onKeyDown={tabNavigation} onClick={()=>{setTab(id);setError('');}}>{label}</button>)}</div>
     </header>
     <div className="tc-page-content institution-content" role="tabpanel" id={`${tabPrefix}-panel`} aria-labelledby={`${tabPrefix}-${tab}`}>
-      {statementActive?<Statements index={statementIndex} bank={bank} exportHost={exportHost} onContextChange={setStatementContext} onRetryIndex={onRetryStatements}/>:<>
+      {statementActive?<Statements index={statementIndex} {...{catalog,bank,exportHost}} onContextChange={statementContext} onRetryIndex={onRetryStatements}/>:<>
         {error&&ready&&<p className="institution-inline-error" role="alert">{error}</p>}
         {tab==='analysis'&&(ready?<Analysis {...{bank,payload,period,window}} metrics={catalog.metrics}/>:<HistoryMessage error={error} onRetry={()=>setRetry(value=>value+1)}/>)}
         {tab==='compare'&&<Comparison {...{catalog,metric,setMetric,period,window}} banks={peers} histories={peerHistories} perimeter={bank.perimeter} onAdd={entry=>setPeerIds(ids=>ids.length<4&&!ids.includes(entry.id)?[...ids,entry.id]:ids)} onRemove={id=>setPeerIds(ids=>ids.filter(value=>value!==id))} loading={peerLoading} error={peerError}/>}

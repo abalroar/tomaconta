@@ -1,4 +1,5 @@
 /** Dados da landing: seleção por competência, valores publicados e identidades preservadas. */
+import {WEB_CHART_COLORS} from './chart-palette.js';
 export const LANDING_GROUPS = Object.freeze([
   {id:'5f6d3c0745685d8f',code:'C0080099',name:'Itaú',color:'#ce623c',aliases:['Itaú Unibanco']},
   {id:'b0cbcee8867e0b37',code:'C0080329',name:'Banco do Brasil',color:'#aa8a22',aliases:['BB']},
@@ -31,7 +32,7 @@ export function groupColor(group){
   const profile=profileFor(group);if(profile)return profile.color;
   const identity=String(group?.id||groupCode(group)||group?.name||group||'');
   let hash=2166136261;for(const character of identity)hash=Math.imul(hash^character.charCodeAt(0),16777619)>>>0;
-  return LANDING_GROUPS[hash%LANDING_GROUPS.length].color;
+  return WEB_CHART_COLORS[hash%WEB_CHART_COLORS.length];
 }
 
 /** Retorna os objetos originais do catálogo; não reúne nomes ou perímetros. */

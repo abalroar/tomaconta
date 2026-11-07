@@ -1,3 +1,27 @@
 import {defineConfig} from 'vite';
 import {bcbProxy} from './server/bcb.js';
-export default defineConfig({base:'/tomaconta/',plugins:[{name:'bcb-local',configureServer(server){server.middlewares.use(async(req,res,next)=>{if(!req.url.startsWith('/tomaconta/api/bcb'))return next();const r=await bcbProxy(new URL(req.url,'http://localhost'));res.statusCode=r.status;r.headers.forEach((v,k)=>res.setHeader(k,v));res.end(await r.text());});}}],build:{rollupOptions:{output:{manualChunks:{charts:['echarts'],react:['react','react-dom']}}}}});
+import {handleShared,SHARED_ROOT} from './server/shared.js';
+
+export default defineConfig({
+  base:'/tomaconta/',
+  plugins:[{
+    name:'tomaconta-local-api',
+    configureServer(server){
+      server.middlewares.use(async(req,res,next)=>{
+        const url=new URL(req.url,'http://localhost');
+        let response;
+        if(url.pathname.startsWith(`${SHARED_ROOT}/`)){
+          // Development has no financial bindings. The real handler reports
+          // static mode explicitly and rejects refresh requests until configured.
+          response=await handleShared(new Request(url,{method:req.method}),{});
+        }else if(url.pathname==='/tomaconta/api/bcb'){
+          response=await bcbProxy(url);
+        }else return next();
+        res.statusCode=response.status;
+        response.headers.forEach((value,key)=>res.setHeader(key,value));
+        res.end(await response.text());
+      });
+    },
+  }],
+  build:{rollupOptions:{output:{manualChunks:{charts:['echarts'],react:['react','react-dom']}}}},
+});

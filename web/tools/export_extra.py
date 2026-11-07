@@ -171,10 +171,20 @@ def spb_charts(source_dir: Path):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--scr-cache", type=Path, default=ROOT / "data/cache/scr_data")
-    parser.add_argument("--output", type=Path, default=ROOT / "web/public/data/extra.json")
+    parser.add_argument("--root", type=Path, default=ROOT)
+    parser.add_argument("--scr-cache", type=Path)
+    parser.add_argument("--only", choices=("scr", "spb"), help="Preserva a outra fonte já materializada no output")
+    parser.add_argument("--output", type=Path)
     args = parser.parse_args()
-    charts = scr_charts(args.scr_cache) + spb_charts(ROOT / "data/bundled/spb_meios_pagamento")
+    args.output = args.output or args.root / "web/public/data/extra.json"
+    previous = json.loads(args.output.read_text()) if args.only and args.output.exists() else []
+    scr = ([chart for chart in previous if chart["section"].startswith("SCR")]
+           if args.only == "spb" else scr_charts(args.scr_cache or args.root / "data/cache/scr_data"))
+    spb = ([chart for chart in previous if not chart["section"].startswith("SCR")]
+           if args.only == "scr" else spb_charts(args.root / "data/bundled/spb_meios_pagamento"))
+    if args.only and not (scr and spb):
+        raise ValueError("A geração parcial exige a outra fonte já materializada")
+    charts = scr + spb
     if len({item["id"] for item in charts}) != len(charts):
         raise ValueError("Identificadores duplicados")
     args.output.parent.mkdir(parents=True, exist_ok=True)

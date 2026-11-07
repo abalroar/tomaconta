@@ -14,6 +14,33 @@ export function preferredStatement(index,bank,crosswalk){
   const code=bank.perimeter==='Prudencial'?groupCode(bank):null;
   return code?index.institutions.find(entry=>entry.scope==='prudential'&&entry.code===code)||null:null;
 }
+/** Reverse only an exact, unique official link; aliases remain independent. */
+export function statementAnalysisBank(catalog,crosswalk,entity){
+  if(entity?.scope!=='prudential'||!/^C\d{7}$/.test(entity.code||'')||entity.id!==`prudential-${entity.code}`)return null;
+  const matches=Object.entries(crosswalk?.links||{}).filter(([,link])=>link.statementId===entity.id&&link.scope===entity.scope&&link.code===entity.code);
+  if(matches.length!==1)return null;
+  const banks=(catalog?.institutions||[]).filter(bank=>bank.id===matches[0][0]&&bank.perimeter==='Prudencial');
+  if(banks.length!==1)return null;
+  const knownCode=groupCode(banks[0]);
+  return knownCode&&knownCode!==entity.code?null:banks[0];
+}
+/** A reverse bank synchronization retains the already selected statement dates. */
+export function statementSelectionForBank(index,bank,crosswalk,{entity=null,periods=[],requestedId,requestedPeriods}={}){
+  const requested=index.institutions.find(entry=>entry.id===requestedId);
+  if(requested)return {entity:requested,periods:selectedStatementPeriods(requested,requestedPeriods)};
+  const preferred=preferredStatement(index,bank,crosswalk);
+  if(!preferred)return {entity:null,periods:[]};
+  const sameEntity=entity?.id===preferred.id&&entity.scope===preferred.scope&&entity.code===preferred.code;
+  return {entity:preferred,periods:selectedStatementPeriods(preferred,sameEntity?periods:undefined)};
+}
+export function statementNavigationUrl(href,bank,entity,periods){
+  if(bank?.perimeter!=='Prudencial'||!bank.id||entity?.scope!=='prudential'||!/^C\d{7}$/.test(entity.code||'')||entity.id!==`prudential-${entity.code}`)throw Error('Vínculo prudencial inválido.');
+  const selected=selectedStatementPeriods(entity,periods);
+  if(!Array.isArray(periods)||!samePeriods(selected,periods.slice().sort()))throw Error('Competências de demonstrações inválidas.');
+  const url=new URL(href);
+  for(const [key,value]of Object.entries({view:'institutions',bank:bank.id,panel:'statements',statement:entity.id,periods:selected.join(',')}))url.searchParams.set(key,value);
+  return url;
+}
 export function statementSearchCatalog(index,scope){
   return {institutions:index.institutions.filter(entity=>entity.scope===scope).map(entity=>({...entity,key:entity.name,officialCode:entity.code,perimeter:scope==='individual'?`Individual · CNPJ-base ${entity.code}`:`Prudencial · ${entity.code}`,latestPeriod:statementPeriodLabel(entity.latestPeriod,true)}))};
 }
