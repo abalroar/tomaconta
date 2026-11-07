@@ -1,4 +1,4 @@
-# Toma Conta — aplicação web
+# Atlas SFN — aplicação web
 
 <!-- impeccable:product-schema 1 -->
 
@@ -16,7 +16,7 @@ Explorar dados públicos do Banco Central, comparar instituições no perímetro
 
 ## Operating Context
 
-Landing exploratória; análise institucional; Balanço e DRE; comparação e ranking; séries do SFN, mercado imobiliário e pagamentos; atualização da base. Publicação atual em matheusprat.es/tomaconta, com assets estáticos e Worker Cloudflare. Cálculos contábeis e renderizadores nativos são os módulos Python existentes, executados sob demanda no navegador.
+Landing geográfica de crédito PF/PJ e agências; análise institucional; Balanço e DRE; comparação e ranking; séries do SFN, mercado imobiliário e pagamentos; atualização da base. Publicação em matheusprat.es/atlas-sfn (entrada anterior /tomaconta preservada), com assets estáticos e Worker Cloudflare. Cálculos contábeis e renderizadores nativos são os módulos Python existentes, executados sob demanda no navegador.
 
 ## Capabilities and Constraints
 

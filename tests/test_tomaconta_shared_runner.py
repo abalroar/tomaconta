@@ -38,6 +38,35 @@ def source(tmp_path):
     return root
 
 
+def atlas_dataset(root, *, numerator=10):
+    """A complete tiny PF/PJ generation with independently hashed assets."""
+    data = root / "web/public/data"; data.mkdir(parents=True, exist_ok=True)
+    persons = []
+    for person in ("PF", "PJ"):
+        rows = [[0, index, 0, 0, numerator, 100] for index in range(27)]
+        checks = {"observedCells": 27, "expectedCells": 27, "absentCells": 0,
+                  "zeroNumeratorCells": 0, "zeroDenominatorCells": 0,
+                  "originalQuery": [{"cuts": 27, "maxRateDifferencePP": 0}],
+                  "latest": {"numerator": numerator * 27, "denominator": 2700}}
+        document = {"schemaVersion": 1, "person": person, "unit": "R$ mil",
+                    "periodStart": "2026-07", "periodEnd": "2026-07",
+                    "dims": {"person": person, "segmentKind": "income" if person == "PF" else "size",
+                             "months": ["2026-07"], "ufs": [{"uf": uf} for uf in sorted(r.ATLAS_UFS)],
+                             "segments": ["Uma faixa"], "products": ["Uma modalidade"]},
+                    "rows": rows, "checks": checks, "sourceRevision": "a" * 64,
+                    "sourceFiles": [{"asset": "scr_data_ano_2026.parquet", "bytes": 6,
+                                     "sha256": r.hashlib.sha256(b"annual").hexdigest()}]}
+        name = "atlas-" + person.lower() + ".json"
+        (data / name).write_text(json.dumps(document))
+        persons.append({"person": person, "checks": checks,
+                        "asset": {"path": "data/" + name, "bytes": (data / name).stat().st_size,
+                                  "sha256": r.digest(data / name)}})
+    validation = {"schemaVersion": 1, "periodStart": "2026-07", "periodEnd": "2026-07",
+                  "months": 1, "ufs": 27, "persons": persons}
+    (data / "atlas-validation.json").write_text(json.dumps(validation))
+    return data
+
+
 def claim(kind="mercado_imobiliario", base=None):
     return {"job": {"id": "a" * 32, "lease_id": "b" * 32, "base_revision": None if base is None else "c" * 32,
                     "kind": kind, "params": {"kind": kind, "mode": "incremental"}}, "base": base}
@@ -141,6 +170,124 @@ def test_identical_checkout_blob_can_be_reused_but_never_overrides_manifest(tmp_
 def test_rejects_path_escape(tmp_path, path):
     with pytest.raises(r.RunnerError):
         r.logical_path(tmp_path, path)
+
+
+def test_legacy_generation_gets_explicit_atlas_baseline_without_scr_cache(tmp_path, monkeypatch):
+    monkeypatch.setenv("GITHUB_SHA", "f" * 40)
+    src = source(tmp_path); atlas_dataset(src)
+    target = tmp_path / "candidate"; target.mkdir()
+    content = b'{"active":true}'
+    sha = r.hashlib.sha256(content).hexdigest()
+    item = {"path": "web/data/active.json", "size": len(content), "sha256": sha}
+    class Progress:
+        def check(self): pass
+    r.seed_workspace(target, {"files": [item]}, API(blobs={sha: content}), Progress(), src)
+    assert not (target / "web/public/data/example.json").exists()
+    assert not (target / "data/cache/scr_data").exists()
+    for name in r.ATLAS_FILES:
+        assert (target / "web/public/data" / name).read_bytes() == (src / "web/public/data" / name).read_bytes()
+    origin = json.loads((target / "web/public/data/atlas-origin.json").read_text())
+    assert origin["mode"] == "versioned-baseline" and origin["sourceCommit"] == "f" * 40
+    assert origin["source"] == "versioned-web-dataset"
+    assert r.validate_atlas_artifacts(target)["origin"] == "versioned-baseline"
+
+
+def test_atlas_baseline_never_replaces_existing_revision_or_repairs_partial_trio(tmp_path):
+    src = tmp_path / "source"; atlas_dataset(src, numerator=10)
+    target = tmp_path / "candidate"; active = atlas_dataset(target, numerator=20)
+    hashes = {name: r.digest(active / name) for name in r.ATLAS_FILES}
+    r.seed_atlas_baseline(target, src)
+    assert {name: r.digest(active / name) for name in r.ATLAS_FILES} == hashes
+    assert not (active / "atlas-origin.json").exists()
+    (active / "atlas-pj.json").unlink()
+    with pytest.raises(r.RunnerError, match="Atlas incompleta"):
+        r.seed_atlas_baseline(target, src)
+    assert not (active / "atlas-pj.json").exists()
+
+
+def test_atlas_validation_is_optional_but_rejects_hash_or_source_divergence(tmp_path):
+    assert r.validate_atlas_artifacts(tmp_path) is None
+    data = atlas_dataset(tmp_path)
+    assert set(r.validate_atlas_artifacts(tmp_path)["persons"]) == {"PF", "PJ"}
+    original = (data / "atlas-pf.json").read_bytes()
+    (data / "atlas-pf.json").write_bytes(original + b" ")
+    with pytest.raises(r.RunnerError, match="validação/hash"):
+        r.validate_atlas_artifacts(tmp_path)
+    (data / "atlas-pf.json").write_bytes(original)
+    r.atlas_origin(tmp_path, "candidate-scr")
+    with pytest.raises(r.RunnerError, match="anuais SCR desta geração"):
+        r.validate_atlas_artifacts(tmp_path)
+    annual = tmp_path / "data/cache/scr_data/staging/annual/2026.parquet"
+    annual.parent.mkdir(parents=True); annual.write_bytes(b"annual")
+    assert r.validate_atlas_artifacts(tmp_path)["origin"] == "candidate-scr"
+
+
+def test_atlas_export_failure_never_uploads_or_promotes_partial_generation(tmp_path, monkeypatch):
+    src = source(tmp_path); baseline = atlas_dataset(src)
+    hashes = {name: r.digest(baseline / name) for name in r.ATLAS_FILES}
+    monkeypatch.setattr(r, "refresh_sources", lambda *args: (["scr_data"], {}))
+    def generator(name, root, out, *args):
+        if name == "export_atlas.py":
+            (out / "atlas-pf.json").write_text('{"partial":true}')
+            raise r.RunnerError("SCR sem classificação completa")
+    monkeypatch.setattr(r, "run_generator", generator)
+    api = API()
+    with pytest.raises(r.RunnerError, match="classificação completa"):
+        r.execute_claim(api, claim("scr_data"), source_root=src, heartbeat_interval=100)
+    assert [call[1] for call in api.calls] == ["fail"]
+    assert {name: r.digest(baseline / name) for name in r.ATLAS_FILES} == hashes
+
+
+@pytest.mark.parametrize("kind", ["scr_data", "tudo", "bootstrap"])
+def test_scr_and_bootstrap_regenerate_atlas_using_candidate_cache(tmp_path, monkeypatch, kind):
+    output = tmp_path / "web/public/data"; output.mkdir(parents=True)
+    cache = tmp_path / "data/cache/scr_data"
+    annual = cache / "staging/annual/2026.parquet"; annual.parent.mkdir(parents=True)
+    annual.write_bytes(b"annual"); (cache / "metadata.json").write_text('{}')
+    calls = []
+    monkeypatch.setattr(r, "refresh_sources", lambda *args: (["scr_data"] if kind != "bootstrap" else [], {}))
+    def generator(name, root, out, *args):
+        calls.append((name, root, out, args))
+        if name == "export_atlas.py": atlas_dataset(root)
+        if name == "export_network.py":
+            (out / "bank-network.json").write_text(json.dumps({"position": "2026-11-05", "checks": {"reconciled": True}}))
+    monkeypatch.setattr(r, "run_generator", generator)
+    monkeypatch.setattr(r, "validate_artifacts", lambda root: {"atlas": r.validate_atlas_artifacts(root)})
+    class Progress:
+        def update(self, *args): pass
+    result = r.materialize_generation(tmp_path, {"kind": kind}, Progress())
+    names = [call[0] for call in calls]
+    assert names.count("export_atlas.py") == 1
+    assert names.index("export_atlas.py") < names.index("export_charts.py")
+    call = next(call for call in calls if call[0] == "export_atlas.py")
+    assert call[1] == tmp_path and call[2] == output and call[3] == ()
+    assert result["reports"]["atlas"]["status"] == "updated"
+    assert result["coverage"]["atlas"]["origin"] == "candidate-scr"
+
+
+@pytest.mark.parametrize("kind", ["financeiro", "mercado_imobiliario", "rede_agencias", "bootstrap"])
+def test_unrelated_generation_preserves_atlas_and_bootstrap_without_scr_uses_identified_baseline(tmp_path, monkeypatch, kind):
+    src = tmp_path / "baseline"; atlas_dataset(src)
+    root = tmp_path / "candidate"
+    r.seed_atlas_baseline(root, src)
+    data = root / "web/public/data"
+    hashes = {name: r.digest(data / name) for name in (*r.ATLAS_FILES, "atlas-origin.json")}
+    changed = ["principal"] if kind == "financeiro" else []
+    calls = []
+    monkeypatch.setattr(r, "refresh_sources", lambda *args: (changed.copy(), {}))
+    def generator(name, candidate, out, *args):
+        calls.append(name)
+        if name == "export_network.py":
+            (out / "bank-network.json").write_text(json.dumps({"position": "2026-11-05", "checks": {"reconciled": True}}))
+    monkeypatch.setattr(r, "run_generator", generator)
+    monkeypatch.setattr(r, "validate_artifacts", lambda candidate: {"atlas": r.validate_atlas_artifacts(candidate)})
+    class Progress:
+        def update(self, *args): pass
+    result = r.materialize_generation(root, {"kind": kind}, Progress())
+    assert "export_atlas.py" not in calls
+    assert {name: r.digest(data / name) for name in hashes} == hashes
+    assert result["reports"]["atlas"]["status"] == "preserved"
+    assert result["coverage"]["atlas"]["origin"] == "versioned-baseline"
 
 
 def test_gzip_transport_retains_compressed_identity(tmp_path):
@@ -361,6 +508,8 @@ def test_registry_refresh_uses_pinned_candidate_catalog_without_fixed_financial_
     monkeypatch.setattr(r, "refresh_sources", lambda *args: ([], {}))
     def generator(name, root, out, *args):
         calls.append((name, root, out, args))
+        if name == "export_atlas.py":
+            atlas_dataset(root)
         if name == "export_network.py":
             (out / "bank-network.json").write_text(json.dumps({"position": "2026-11-05", "checks": {"reconciled": True, "selectedRecords": 12818}}))
     monkeypatch.setattr(r, "run_generator", generator)
@@ -368,7 +517,8 @@ def test_registry_refresh_uses_pinned_candidate_catalog_without_fixed_financial_
     class Progress:
         def update(self, *args): pass
     result = r.materialize_generation(tmp_path, {"kind": kind}, Progress())
-    assert [c[0] for c in calls] == ["export_charts.py", "export_network.py"]
+    expected = (["export_atlas.py"] if kind == "tudo" else []) + ["export_charts.py", "export_network.py"]
+    assert [c[0] for c in calls] == expected
     args = calls[-1][3]
     assert args[args.index("--catalog-dir") + 1] == str(output)
     assert "--refresh" in args

@@ -129,7 +129,7 @@ export default function UpdatePage({manifest, catalog, statementIndex, imob = []
         </section>
       </div>
       {live && <section className="tc-live-section"><div className="tc-live-toolbar"><h2>Consulta SGS</h2><ExportMenu charts={[live]} title={`SGS · ${live.title}`} onError={onError}/></div><ChartPanel chart={live}/></section>}
-      <details className="tc-base-origin"><summary>Origem e alcance da atualização</summary><p>A base compartilhada usa os coletores e as validações existentes do Toma Conta. Uma nova publicação é carregada inteira, preservando instituição, competência e exportações. A cópia imobiliária local pertence apenas a este navegador e a esta revisão.</p><p>Revisão em uso: {publication?.revision?.slice(0,8)||'publicação estática'} · fonte {manifest.sourceCommit?.slice(0, 7)} · preparada em {new Date(manifest.builtAt).toLocaleString('pt-BR')}. BNDU permanece excluído. Risco da Operação é histórico até dezembro/2024.</p></details>
+      <details className="tc-base-origin"><summary>Origem e alcance da atualização</summary><p>A base compartilhada usa os coletores e as validações existentes do Atlas SFN. Uma nova publicação é carregada inteira, preservando instituição, competência e exportações. A cópia imobiliária local pertence apenas a este navegador e a esta revisão.</p><p>Revisão em uso: {publication?.revision?.slice(0,8)||'publicação estática'} · fonte {manifest.sourceCommit?.slice(0, 7)} · preparada em {new Date(manifest.builtAt).toLocaleString('pt-BR')}. BNDU permanece excluído. Risco da Operação é histórico até dezembro/2024.</p></details>
     </div>
   </>;
 }

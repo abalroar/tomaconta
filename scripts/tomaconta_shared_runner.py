@@ -35,6 +35,8 @@ WORKFLOW = "abalroar/tomaconta/.github/workflows/tomaconta-shared.yml@refs/heads
 KINDS = {"bootstrap", "financeiro", "individual", "mercado_credito_sgs", "mercado_imobiliario", "scr_data", "spb_meios_pagamento", "rede_agencias", "tudo"}
 HEX = re.compile(r"[a-f0-9]{64}\Z")
 MAX_FILE = 64_000_000
+ATLAS_FILES = ("atlas-pf.json", "atlas-pj.json", "atlas-validation.json")
+ATLAS_UFS = {"AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS", "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC", "SP", "SE", "TO"}
 
 
 class RunnerError(RuntimeError):
@@ -310,6 +312,46 @@ def validate_file(item):
         raise RunnerError("Os bytes das fontes devem preservar sua codificação original")
 
 
+def atlas_origin(root, mode, source_root=None):
+    """Keep a baseline's own identity separate from this generation's SCR cache."""
+    data = root / "web/public/data"
+    result = {"schemaVersion": 1, "mode": mode,
+              "sourceCommit": os.environ.get("GITHUB_SHA"),
+              "files": [{"path": "data/" + name, "bytes": (data / name).stat().st_size,
+                         "sha256": digest(data / name)} for name in ATLAS_FILES]}
+    if source_root is not None:
+        result["source"] = "versioned-web-dataset"
+        result["note"] = "Baseline Atlas com origem própria; não foi recalculada a partir do cache SCR desta geração."
+    (data / "atlas-origin.json").write_text(json.dumps(result, ensure_ascii=False, allow_nan=False, separators=(",", ":")), encoding="utf-8")
+    return result
+
+
+def seed_atlas_baseline(root, source_root, *, built_in=False):
+    """Backfill only the newly introduced Atlas trio on a legacy revision.
+
+    Existing candidate datasets are exclusive and remain byte-identical. A
+    partial trio is invalid: filling individual files could mix PF/PJ windows.
+    No cache, source Parquet or unrelated checkout file is copied here.
+    """
+    target, baseline = root / "web/public/data", source_root / "web/public/data"
+    present = [(target / name).is_file() for name in ATLAS_FILES]
+    if any(present):
+        if not all(present):
+            raise RunnerError("Geração Atlas incompleta; preserve PF, PJ e validação juntos")
+        if built_in and not (target / "atlas-origin.json").is_file():
+            atlas_origin(root, "versioned-baseline", source_root)
+        return
+    available = [(baseline / name).is_file() for name in ATLAS_FILES]
+    if not any(available):
+        return  # Compatibility with a checkout that predates Atlas entirely.
+    if not all(available):
+        raise RunnerError("Baseline Atlas versionada incompleta")
+    target.mkdir(parents=True, exist_ok=True)
+    for name in ATLAS_FILES:
+        shutil.copyfile(baseline / name, target / name)
+    atlas_origin(root, "versioned-baseline", source_root)
+
+
 def seed_workspace(root, base, api, progress, source_root=ROOT):
     if base is None:
         for directory in ("data/bundled", "web/public/data"):
@@ -342,6 +384,7 @@ def seed_workspace(root, base, api, progress, source_root=ROOT):
             logical_path(root, item["path"])
         with ThreadPoolExecutor(max_workers=6) as pool:
             list(pool.map(restore, files))
+    seed_atlas_baseline(root, source_root, built_in=base is None)
     # Original model code is read-only and exactly identical to this workflow's
     # pinned commit. Exporter checks these bytes before publishing its engine.
     for name in ("utils", "tabs"):
@@ -475,6 +518,103 @@ def refresh_sources(root, plan, progress):
     return sorted(set(changed)), reports
 
 
+def validate_atlas_artifacts(root):
+    """Validate Atlas when present, retaining compatibility with old revisions."""
+    data = root / "web/public/data"
+    present = [(data / name).is_file() for name in ATLAS_FILES]
+    if not any(present):
+        return None
+    if not all(present):
+        raise RunnerError("Geração Atlas incompleta; preserve PF, PJ e validação juntos")
+    validation = json.loads((data / "atlas-validation.json").read_text())
+    persons = validation.get("persons", [])
+    if validation.get("schemaVersion") != 1 or {person.get("person") for person in persons} != {"PF", "PJ"} or len(persons) != 2:
+        raise RunnerError("Validação Atlas sem PF e PJ")
+    origin_path = data / "atlas-origin.json"
+    origin = json.loads(origin_path.read_text()) if origin_path.is_file() else {}
+    if origin:
+        if origin.get("schemaVersion") != 1 or origin.get("mode") not in {"versioned-baseline", "candidate-scr"}:
+            raise RunnerError("Origem Atlas inválida")
+        original = {item.get("path"): item for item in origin.get("files", [])}
+        if len(original) != len(ATLAS_FILES):
+            raise RunnerError("Origem Atlas incompleta")
+        for name in ATLAS_FILES:
+            item = original.get("data/" + name, {})
+            path = data / name
+            if item.get("sha256") != digest(path) or item.get("bytes") != path.stat().st_size:
+                raise RunnerError("Atlas diverge da origem registrada")
+    documents, coverage = {}, {}
+    numeric = lambda value: type(value) in {int, float} and math.isfinite(value)
+    for person in persons:
+        name = "atlas-" + person["person"].lower() + ".json"
+        path, asset = data / name, person.get("asset", {})
+        if asset.get("path") != "data/" + name or asset.get("sha256") != digest(path) or asset.get("bytes") != path.stat().st_size:
+            raise RunnerError("Dataset Atlas não corresponde à validação/hash")
+        document = json.loads(path.read_text())
+        dims = document.get("dims", {})
+        months, states = dims.get("months", []), dims.get("ufs", [])
+        segments, products = dims.get("segments", []), dims.get("products", [])
+        expected_kind = "income" if person["person"] == "PF" else "size"
+        if (document.get("schemaVersion") != 1 or document.get("person") != person["person"]
+                or dims.get("person") != person["person"] or dims.get("segmentKind") != expected_kind
+                or document.get("unit") != "R$ mil" or not months or sorted(set(months)) != months
+                or any(not re.fullmatch(r"20\d{2}-(0[1-9]|1[0-2])", month) for month in months)
+                or len(states) != 27 or {state.get("uf") for state in states} != ATLAS_UFS
+                or not segments or len(set(segments)) != len(segments)
+                or not products or len(set(products)) != len(products)):
+            raise RunnerError("Dimensões ou perímetro Atlas inválidos")
+        if (validation.get("months") != len(months) or validation.get("ufs") != 27
+                or document.get("periodStart") != months[0] or validation.get("periodStart") != months[0]
+                or document.get("periodEnd") != months[-1] or validation.get("periodEnd") != months[-1]):
+            raise RunnerError("Competências Atlas divergentes")
+        rows = document.get("rows", [])
+        seen, latest = set(), [0.0, 0.0]
+        limits = (len(months), len(states), len(segments), len(products))
+        for row in rows:
+            if (not isinstance(row, list) or len(row) != 6
+                    or any(type(value) is not int or not 0 <= value < bound for value, bound in zip(row[:4], limits))
+                    or any(not numeric(value) or value < 0 for value in row[4:]) or row[4] > row[5]):
+                raise RunnerError("Saldo ou coordenada Atlas inválidos")
+            coordinate = tuple(row[:4])
+            if coordinate in seen:
+                raise RunnerError("Coordenada Atlas duplicada")
+            seen.add(coordinate)
+            if row[0] == len(months) - 1:
+                latest[0] += row[4]; latest[1] += row[5]
+        checks = document.get("checks", {})
+        original = checks.get("originalQuery", [])
+        if (not rows or checks != person.get("checks") or checks.get("observedCells") != len(rows)
+                or checks.get("expectedCells") != math.prod(limits)
+                or checks.get("absentCells") != math.prod(limits) - len(rows)
+                or checks.get("zeroNumeratorCells") != sum(row[4] == 0 for row in rows)
+                or checks.get("zeroDenominatorCells") != sum(row[5] == 0 for row in rows)
+                or not original or any(not numeric(item.get("maxRateDifferencePP")) or item["maxRateDifferencePP"] > .001
+                                       or type(item.get("cuts")) is not int or item["cuts"] < 1 for item in original)):
+            raise RunnerError("Cobertura ou reconciliação Atlas divergente")
+        for field, value in zip(("numerator", "denominator"), latest):
+            recorded = checks.get("latest", {}).get(field)
+            if not numeric(recorded) or not math.isclose(value, recorded, rel_tol=2e-9, abs_tol=.01):
+                raise RunnerError("Totais Atlas divergentes")
+        sources = document.get("sourceFiles", [])
+        if not sources or any(not HEX.fullmatch(item.get("sha256", "")) or type(item.get("bytes")) is not int or item["bytes"] < 1
+                              or not re.fullmatch(r"scr_data_ano_20\d{2}\.parquet", item.get("asset", "")) for item in sources):
+            raise RunnerError("Fontes Atlas sem identidade")
+        if origin.get("mode") == "candidate-scr":
+            cache = root / "data/cache/scr_data"
+            for source in sources:
+                year = source["asset"][-12:-8]
+                options = [cache / "staging/annual" / (year + ".parquet"), cache / source["asset"]]
+                source_path = next((option for option in options if option.is_file()), None)
+                if source_path is None or source_path.stat().st_size != source["bytes"] or digest(source_path) != source["sha256"]:
+                    raise RunnerError("Atlas não usa os anuais SCR desta geração")
+        documents[person["person"]] = document
+        coverage[person["person"]] = {"periodStart": months[0], "periodEnd": months[-1], "observedCells": len(rows)}
+    if (documents["PF"]["dims"]["months"] != documents["PJ"]["dims"]["months"]
+            or documents["PF"].get("sourceRevision") != documents["PJ"].get("sourceRevision")):
+        raise RunnerError("PF e PJ usam revisões SCR diferentes")
+    return {"origin": origin.get("mode", "preserved-generation"), "persons": coverage}
+
+
 def validate_artifacts(root):
     data = root / "web/public/data"
     required = ["manifest.json", "sfn.json", "extra.json", "imob-br.json", "imob-catalog.json", "institutions.json",
@@ -514,8 +654,12 @@ def validate_artifacts(root):
     network = json.loads((data / "bank-network.json").read_text())
     if network.get("checks", {}).get("reconciled") is not True:
         raise RunnerError("Cadastro de agências não reconciliado")
-    return {"charts": counts, "statements": index.get("counts"), "modelVersion": index["modelVersion"],
-            "network": {"position": network["position"], **{key: network["checks"].get(key) for key in ("sourceRecords", "selectedRecords", "bankCount", "analysisLinks")}}}
+    result = {"charts": counts, "statements": index.get("counts"), "modelVersion": index["modelVersion"],
+              "network": {"position": network["position"], **{key: network["checks"].get(key) for key in ("sourceRecords", "selectedRecords", "bankCount", "analysisLinks")}}}
+    atlas = validate_atlas_artifacts(root)
+    if atlas is not None:
+        result["atlas"] = atlas
+    return result
 
 
 def materialize_generation(root, plan, progress):
@@ -525,6 +669,14 @@ def materialize_generation(root, plan, progress):
         for kind, flag in (("scr_data", "scr"), ("spb_meios_pagamento", "spb")):
             if kind in changed:
                 run_generator("export_extra.py", root, output / "extra.json", "--only", flag)
+    scr_cache = root / "data/cache/scr_data"
+    bootstrap_cache = any((scr_cache / name).is_file() for name in ("metadata.json", "scr_data_metadata.json"))
+    if "scr_data" in changed or plan["kind"] in {"scr_data", "tudo"} or plan["kind"] == "bootstrap" and bootstrap_cache:
+        progress.update(.55, "Gerando o Atlas PF e PJ com o cache SCR desta execução")
+        run_generator("export_atlas.py", root, output)
+        reports["atlas"] = {"status": "updated", "origin": atlas_origin(root, "candidate-scr")}
+    elif (output / "atlas-origin.json").is_file():
+        reports["atlas"] = {"status": "preserved", "origin": json.loads((output / "atlas-origin.json").read_text())}
     # This renderer reads only the explicit candidate bundles, including on imob
     # updates. The resulting deck is later built from these very JSON datasets.
     progress.update(.58, "Gerando os gráficos a partir das fontes desta execução")
