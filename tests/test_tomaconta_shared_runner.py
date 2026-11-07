@@ -225,7 +225,7 @@ def test_idle_claim_never_runs_a_collector(monkeypatch, capsys):
 
 def test_workflow_probes_before_installing_and_claims_after_setup():
     text = (ROOT / ".github/workflows/tomaconta-shared.yml").read_text()
-    assert "cron: '2-57/5 * * * *'" in text
+    assert "cron: '2,7,12,17,22,27,32,37,42,47,52,57 * * * *'" in text
     assert "id-token: write" in text and "contents: read" in text
     assert "contents: write" not in text and "secrets." not in text
     assert "github.event.repository.private == false" in text
