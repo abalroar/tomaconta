@@ -735,6 +735,9 @@ MODULE_GUIDES = (
         ("statements",), "As unidades, referências e demonstrações dependem do documento enviado pela instituição."),
     ModuleGuide(COSIF, "Pesquisar contas contábeis e comparar os saldos ou fluxos por instituição, na visão individual ou prudencial.",
         ("cosif_4010", "cosif_prudential"), "Confira documento, natureza da conta e meses usados no cálculo. A visão individual mantém os saldos por CNPJ-base."),
+    ModuleGuide("Garantias de Arranjo", "Acompanhar quanto das obrigações em arranjos de pagamento está coberto por títulos dados em garantia.",
+        ("cosif_prudential",), "O balancete não identifica a bandeira beneficiária nem garantias prestadas por terceiros, como fianças. "
+        "A visão prudencial elimina saldos entre empresas do grupo; a obrigação de uma instituição isolada pode ser bem maior."),
     ModuleGuide(PORTFOLIO, "Examinar carteiras de instrumentos, inadimplência, ativos problemáticos e provisões a partir de 2025.",
         ("ifdata_credit", "ifdata"), "Carteiras C1 a C5 e estágios contábeis são classificações distintas. As células marcadas têm diagnóstico de validação."),
     ModuleGuide(STATISTICS, "Acompanhar o mercado de crédito por séries SGS e detalhar inadimplência por região e perfil no SCR.data.",

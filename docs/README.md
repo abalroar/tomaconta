@@ -20,6 +20,7 @@ Documentos em uso, nesta pasta:
 - [estimativa_tempo_git.md](estimativa_tempo_git.md)
 - [fidc_mc3_modelagem.md](fidc_mc3_modelagem.md)
 - [financial_analysis.md](financial_analysis.md)
+- [garantias_arranjo.md](garantias_arranjo.md)
 - [ifdata_identity_repair_20261009.json](ifdata_identity_repair_20261009.json)
 - [ifdata_individual_set25_dedup_20261010.json](ifdata_individual_set25_dedup_20261010.json)
 - [investigacao_dre_a1.md](investigacao_dre_a1.md)
