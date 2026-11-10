@@ -192,7 +192,7 @@ def render(api):
         st.session_state["cockpit_name"] = st.session_state.pop("cockpit_name_pending")
     left, right = st.columns([1, 3], vertical_alignment="top")
     with left:
-        name = st.selectbox("Seu nome", names, index=None, placeholder="Escolha uma carteira ou digite um nome novo", accept_new_options=True, key="cockpit_name")
+        name = st.selectbox("Nome da carteira", names, index=None, placeholder="Escolha uma carteira ou digite um nome novo", accept_new_options=True, key="cockpit_name")
     name = cockpit_store.clean_name(name)
     existing = cockpit_store.find(payload, name) if name else None
     saved, gone = cockpit_store.resolve(existing, identities) if existing else ([], [])
@@ -201,7 +201,6 @@ def render(api):
         banks = st.multiselect("Instituições da carteira", available, default=saved, key=state_key, disabled=not name,
                                placeholder="Busque e marque as instituições", format_func=short_bank)
     if not name:
-        st.caption("Qualquer pessoa pode criar, ver e alterar uma carteira. O histórico de alterações fica guardado no GitHub, que é público.")
         return
     if gone:
         st.warning("Fora da base atual: " + ", ".join(gone))
