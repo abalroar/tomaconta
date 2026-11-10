@@ -20,6 +20,7 @@ MODULES = (
     Module("DRE (Ind. e Congl.)", "Resultado", "DRE gerencial, prudencial e individual, respeitando a fonte e o calendário de cada base."),
     Module("Balanço, DRE e DMPL (Ind.)", "Demonstrações", "Demonstrações individuais publicadas no CDSFN: balanço, resultado e mutações do PL."),
     Module("Contas COSIF", "Contabilidade", "Consulta de contas dos documentos 4010, 4060 e 4066, incluindo contribuições FGC/FGCoop."),
+    Module("Garantias de Arranjo", "Risco", "Obrigações em arranjos de pagamento, títulos dados em garantia e a razão entre eles, mês a mês, por conglomerado."),
     Module("Carteira 4.966", "Risco", "Carteira, ativos problemáticos, inadimplência, provisões e coberturas por instituição."),
     Module("Estatísticas Crédito BC", "Crédito agregado", "SGS e SCR.data: concessões, saldos, inadimplência, renda, regiões, endividamento e spreads."),
     Module("Taxas de Juros por Produto", "Juros", "Taxas PF/PJ por modalidade, instituição e janela de consulta, com exportação de gráficos."),

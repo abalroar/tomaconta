@@ -12,7 +12,7 @@ NAVIGATION_GROUPS = (
     )),
     ("Contábil e crédito", (
         "DRE (Ind. e Congl.)", "Balanço, DRE e DMPL (Ind.)", "Contas COSIF",
-        "Carteira 4.966",
+        "Carteira 4.966", "Garantias de Arranjo",
     )),
     ("Mercado", (
         "Estatísticas Crédito BC", "Taxas de Juros por Produto",

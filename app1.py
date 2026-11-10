@@ -15265,6 +15265,7 @@ MENU_PRINCIPAL = [
     "Balanço, DRE e DMPL (Ind.)",
     "Contas COSIF",
     "Carteira 4.966",
+    "Garantias de Arranjo",
 ]
 
 # Lista de opções de dados e estatísticas do Banco Central
@@ -15520,6 +15521,7 @@ if menu != "Sobre":
 CACHE_DEPENDENCIAS_POR_ABA = {
     "Snapshot": ["critical_screens"],
     "Cockpit": ["critical_screens"],
+    "Garantias de Arranjo": ["bloprudencial"],
     "Rankings": ["principal", "capital", "derived_metrics"],
     "Tabela de Peers": ["critical_screens"],
     "Evolução": ["principal", "passivo", "ativo", "capital"],
@@ -15610,7 +15612,7 @@ def _render_cache_status_por_aba(menu_nome: str) -> None:
             st.caption("Métricas derivadas não possuem extração direta no BCB.")
 
 
-if menu not in {"Contas COSIF", "DRE (Ind. e Congl.)"} and (menu not in {"Snapshot", "Cockpit"} or _modo_diagnostico()):
+if menu not in {"Contas COSIF", "Garantias de Arranjo", "DRE (Ind. e Congl.)"} and (menu not in {"Snapshot", "Cockpit"} or _modo_diagnostico()):
     _render_cache_status_por_aba(menu)
 
 # Sidebar apenas para informações básicas
@@ -16394,7 +16396,7 @@ menu_timer_signature = None
 t0_menu_timer = None
 if (
     menu in MENU_PRINCIPAL + MENU_BCB
-    and menu not in {"Snapshot", "Cockpit", "Tabela de Peers", "DRE (Ind. e Congl.)", "Evolução", "Rankings"}
+    and menu not in {"Snapshot", "Cockpit", "Garantias de Arranjo", "Tabela de Peers", "DRE (Ind. e Congl.)", "Evolução", "Rankings"}
     and (
         menu not in {"Taxas de Juros por Produto", "Contas COSIF"}
         or st.session_state.get("modo_diagnostico")
@@ -16420,6 +16422,10 @@ elif menu == "Snapshot":
 elif menu == "Cockpit":
     from tabs.cockpit import render as render_cockpit
     render_cockpit(globals())
+
+elif menu == "Garantias de Arranjo":
+    from tabs.arranjo_garantias import render as render_arranjo_garantias
+    render_arranjo_garantias(globals())
 
 elif menu == "Tabela de Peers":
     from tabs.peers_table import render as render_peers_table_new

@@ -25,7 +25,7 @@ def test_header_groups_keep_every_existing_route_and_name_exactly_once():
     _, menus = _app_assignments()
     destinations = [label for _, labels in NAVIGATION_GROUPS for label in labels]
     existing = [label for group in menus.values() for label in group]
-    assert len(destinations) == len(set(destinations)) == 17
+    assert len(destinations) == len(set(destinations)) == 18
     assert set(destinations) == set(existing)
 
 

@@ -46,6 +46,7 @@ MODULE_CAPTIONS = {
     "DRE (Ind. e Congl.)": "Resultado por instituição e perímetro · IFData trimestral · A DRE publicada acumula valores por semestre.",
     "Balanço, DRE e DMPL (Ind.)": "Demonstrações individuais do documento 9011 · Consulta ao BCB · Referências semestrais ou anuais conforme o documento.",
     "Contas COSIF": "Contas por instituição e data-base · 4010 individual mensal; 4060 prudencial mensal; 4066 prudencial semestral.",
+    "Garantias de Arranjo": "Garantia / Obrigações em arranjos de pagamento, uma linha por conglomerado · COSIF 4060 prudencial mensal · Desde jan/2025.",
     "Carteira 4.966": "Carteiras de instrumentos e qualidade do crédito · IFData trimestral, Relatório 16 · Visão prudencial desde mar/2025.",
     "Estatísticas Crédito BC": "Mercado de crédito, Mercado Imobiliário e recortes por região e perfil · SGS, SCR.data e Olinda, com conceitos e calendários próprios.",
     "Taxas de Juros por Produto": "Taxas médias por instituição, produto e janela de contratação · BCB · A visão mensal usa a última observação do mês.",
