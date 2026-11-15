@@ -375,13 +375,24 @@ def test_credit_module_has_period_range_info_popovers_and_no_expectations_regist
     assert "Expectativas do Mercado de Crédito" not in source
     assert "Registry de séries SGS" not in source
     assert "DateOffset(months=11)" in source
-    assert '"Baixar PPTX desta aba"' in source
+    # O rótulo diz quantos gráficos saem, e a montagem do deck é única.
+    assert 'gráficos desta aba em PPTX' in source
     assert "reversed(periods)" in source
     assert "formatar_competencia" in source
     assert 'div[data-testid="stPopover"] button' not in source
     assert '"SCR.data"' in source
     assert "_render_source_footer" not in source
     assert 'fig.update_layout(title_text=""' in source
+    # Nenhum par de gráficos é montado à mão: a distribuição em linhas passa
+    # sempre por _cards_em_grade, que sabe a largura de cada card.
+    assert "with col1:" not in source
+    assert "with col2:" not in source
+    assert "zip(columns," not in source
+    # Séries próximas pedem meia largura; barra empilhada pede largura total.
+    for chave in ("sgs_comprometimento", "sgs_emprego", "sgs_rates_", "sgs_npl_pf_pre"):
+        assert chave in source
+    # O rodapé de cada card informa a competência que ele alcança.
+    assert "_competencia_do_card" in source
     assert "fig.update_layout(title=None" not in source
 
 
@@ -395,15 +406,16 @@ def test_navigation_has_dedicated_bcb_group_and_no_top_level_scr():
         for target in node.targets
         if isinstance(target, ast.Name) and target.id in {"MENU_PRINCIPAL", "MENU_BCB"}
     }
-    assert assignments["MENU_BCB"] == ["Estatísticas Crédito BC", "Taxas de Juros por Produto"]
+    assert assignments["MENU_BCB"] == ["Estatísticas Crédito BC", "Taxas de Juros por Produto", "Meios de Pagamento (SPB)"]
     assert "Inadimplência (SCR)" not in assignments["MENU_PRINCIPAL"]
     assert "Estatísticas Crédito BC" not in assignments["MENU_PRINCIPAL"]
     assert "Taxas de Juros por Produto" not in assignments["MENU_PRINCIPAL"]
 
 
-def test_taxas_por_produto_defaults_to_12_months_and_exports_pptx():
+def test_taxas_por_produto_selects_periods_and_exports_pptx():
     source = (PROJECT_ROOT / "app1.py").read_text(encoding="utf-8")
-    assert 'st.session_state["tj_beta_janela_meses"] = min(12, max_meses_beta)' in source
+    assert 'chave="tj_beta_mensal", frequencia="M"' in source
+    assert 'chave="tj_beta_diario", frequencia="D"' in source
     assert 'file_name="taxas_juros_por_produto.pptx"' in source
     assert 'key="tj_beta_download_pptx"' in source
 

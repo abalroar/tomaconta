@@ -1,0 +1,60 @@
+.tc-landing{--tc-ink:#315f78;--tc-text:#213e50;--tc-muted:#4d6d79;--tc-line:#c6d6db;background:#f4f8f8}
+.tc-nav{background:#f4f8f8;padding-top:21px;padding-bottom:21px}
+.tc-explorer{padding:0 36px 25px;background:#f4f8f8;max-width:1440px;margin:0 auto;min-width:0}
+.tc-explorer-controls{display:flex;justify-content:space-between;align-items:center;gap:25px;min-height:70px;border-top:1px solid #c7d7dc}
+.tc-explorer-navigation{display:flex;align-items:center;gap:25px;min-width:0}
+.tc-explorer-tabs{display:flex;gap:24px;min-width:0}
+.tc-landing .tc-explorer-tabs button{font-size:12px;min-height:40px;color:#536f7b;white-space:nowrap;position:relative}
+.tc-landing .tc-explorer-tabs button[aria-selected=true]{font-weight:600;color:#254a5e}
+.tc-explorer-tabs button:after{content:'';position:absolute;left:0;right:0;bottom:5px;height:1px;background:transparent}
+.tc-explorer-tabs button[aria-selected=true]:after{background:#315f78}
+.tc-explorer-arrows{display:flex;gap:3px;flex-shrink:0}
+.tc-landing .tc-explorer-arrows button{display:flex;align-items:center;justify-content:center;min-width:28px;min-height:32px;color:#315f78;transition:transform 130ms ease,background-color 130ms ease}
+.tc-landing .tc-explorer-arrows button:hover{background:#dce8eb}
+.tc-landing .tc-explorer-arrows button:active{transform:scale(.95)}
+.tc-explorer-controls>.institution-search{width:290px;flex-shrink:0;z-index:12}
+.tc-explorer-controls .institution-search__field{padding:5px 0;border-color:#b3c9d0}
+.tc-explorer-controls .institution-search__field input{font-size:13px;min-height:28px}
+.tc-explorer-controls .institution-search__results{position:absolute;left:0;right:0;top:100%;background:#f4f8f8;box-shadow:0 12px 24px #23435014;padding:0 12px}
+.tc-explorer-controls .institution-search__result{font-size:13px;min-height:43px}
+.tc-explorer-title{padding-top:15px;min-height:91px}
+.tc-landing .tc-explorer-title h1{font-size:35px;line-height:1.15;letter-spacing:-.025em;font-weight:550;max-width:none}
+.tc-landing .tc-explorer-title p{margin-top:9px;font-size:12px;color:#506f7c}
+.tc-explorer-title .tc-dual-title{width:100%}
+.tc-explorer-content{min-height:clamp(500px,calc(100svh - 240px),710px);position:relative;isolation:isolate}
+.tc-explore-pane{min-width:0}
+.has-motion>.tc-explore-pane{animation:tc-scene-arrive 210ms cubic-bezier(.23,1,.32,1)}
+@keyframes tc-scene-arrive{from{opacity:.6;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
+.tc-explore-pane .tc-section{padding:0;background:transparent}
+.tc-explore-pane .tc-race{padding-top:0;max-width:1000px;margin:0 auto}
+.tc-explore-pane .tc-race .tc-heading{min-height:47px;align-items:center;margin-bottom:9px}
+.tc-explore-pane .tc-race .tc-heading p{font-size:12px;margin:0}
+.tc-explore-pane .tc-date{font-size:29px;min-height:48px}
+.tc-explore-pane .tc-date small{font-size:11px;margin-top:5px}
+.tc-explore-pane .tc-race-axis{margin-top:7px}
+.tc-explore-pane .tc-source{margin-top:15px;font-size:10px}
+.tc-pane-race{padding-top:10px}
+.tc-pane-size{padding-top:8px}
+.tc-pane-size .tc-source{margin-top:10px}
+.tc-pane-credit{padding-top:20px;max-width:1080px;margin:0 auto}
+.tc-pane-credit .tc-credit-chart{padding-top:5px}
+.tc-landing .tc-credit-inspector{stroke:#90adb8;stroke-width:1;stroke-dasharray:3 4}
+.tc-landing .tc-credit-inspector-value{font-size:13px;font-weight:550;fill:#315f78}
+.tc-scene-loading{min-height:440px;display:flex;align-items:center;justify-content:center;color:#506f7c;font-size:13px}
+.tc-landing .tc-profile{padding-top:30px;padding-bottom:30px;background:#e3edf0;border-top:1px solid #c8d9de;--tc-muted:#4d6d79;--tc-line:#bdcfd6}
+.tc-profile-top{display:flex;align-items:baseline;justify-content:space-between;gap:20px;margin-bottom:23px}
+.tc-landing .tc-profile-top h2{font-size:29px;font-weight:550;color:#234659}
+.tc-profile-top p{margin-top:0;white-space:nowrap}
+.tc-profile .tc-series-point{stroke:#e3edf0}
+.tc-profile .tc-series-line{stroke:var(--selected-bank)}
+.tc-profile .tc-series-point{fill:var(--selected-bank)}
+.tc-landing-footer{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:20px 36px;color:#526f7b;font-size:11px;background:#e3edf0;border-top:1px solid #c6d8dd}
+.tc-landing-footer a{text-decoration:none}
+.tc-landing-footer a:hover{text-decoration:underline}
+@media(min-width:1500px){.tc-explorer{padding-left:36px;padding-right:36px}.tc-nav,.tc-profile,.tc-landing-footer{padding-left:max(36px,calc((100% - 1368px)/2));padding-right:max(36px,calc((100% - 1368px)/2))}}
+@media(max-width:1000px){.tc-explorer-tabs{gap:18px}.tc-explorer-navigation{gap:17px}.tc-explorer-controls>.institution-search{width:250px}.tc-explorer-controls{gap:20px}}
+@media(max-width:760px){.tc-explorer{padding:0 20px 23px}.tc-explorer-controls{flex-wrap:wrap;gap:7px;padding:8px 0 5px}.tc-explorer-controls>.institution-search{order:-1;width:100%}.tc-explorer-navigation{width:100%;justify-content:space-between}.tc-explorer-tabs{gap:22px}.tc-landing .tc-explorer-tabs button{font-size:11px;min-height:36px}.tc-explorer-arrows{gap:5px}.tc-explorer-title{min-height:80px;padding-top:17px}.tc-landing .tc-explorer-title h1{font-size:29px}.tc-landing .tc-explorer-title p{font-size:11px;margin-top:8px}.tc-explorer-content{min-height:540px}.tc-pane-size{padding-top:14px}.tc-pane-credit{padding-top:30px}.tc-explorer .tc-source{font-size:10px}.tc-pane-race{padding-top:10px}.tc-landing .tc-profile{padding:27px 20px}.tc-profile-top{display:block}.tc-profile-top p{margin-top:7px}.tc-landing-footer{padding:18px 20px}.tc-explorer-controls .institution-search__results{padding:0 9px}.tc-explorer-controls .institution-search__result{flex-direction:row;align-items:center;font-size:13px}.tc-explorer-controls .institution-search__result small{text-align:right}}
+@media(max-width:390px){.tc-explorer-tabs{gap:16px}.tc-explorer-arrows{gap:0}.tc-landing .tc-explorer-arrows button{min-width:28px}.tc-landing .tc-explorer-title h1{font-size:27px}}
+@media(pointer:coarse){.tc-landing .tc-explorer-arrows button{min-width:36px;min-height:44px}.tc-landing .tc-explorer-tabs button{min-height:44px}}
+@media(max-width:760px){.tc-explorer-content{min-height:600px}}
+@media(prefers-reduced-motion:reduce){.has-motion>.tc-explore-pane{animation:none}.tc-explorer button{transition:none!important}}

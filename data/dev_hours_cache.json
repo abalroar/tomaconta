@@ -1,24 +1,78 @@
 {
-  "calculado_em": "2026-06-03T13:05:15.854498-03:00",
-  "horas_base_commits": 193.67,
-  "horas_overhead": 42.33,
-  "total_horas": 236.01,
+  "schema_version": 2,
+  "calculado_em": "2026-10-09T21:55:01.540748+00:00",
+  "horas_base_commits": 219.53,
+  "horas_overhead": 54.0,
+  "total_horas": 273.53,
   "faixa_estimativa_horas": {
-    "min": 193.67,
-    "central": 236.01,
-    "max": 320.67
+    "min": 219.53,
+    "central": 273.53,
+    "max": 381.53
+  },
+  "total_sessoes": 162,
+  "sessao_media_horas": 1.69,
+  "total_commits": 875,
+  "commits_duplicados": 226,
+  "primeiro_commit": "2026-01-25T02:22:17+00:00",
+  "ultimo_commit": "2026-10-09T21:20:58+00:00",
+  "repositorios": [
+    "abalroar/tomaconta-dev",
+    "abalroar/tomaconta",
+    "abalroar/ficadeolho"
+  ],
+  "fontes": [
+    {
+      "repositorio": "abalroar/tomaconta-dev",
+      "nomes_consultados": [
+        "abalroar/tomaconta-dev"
+      ],
+      "branch": "main",
+      "head_sha": "0714a46e4e6b67553396a80a3c05e9b6b77f9d60",
+      "commits_consultados": 803,
+      "merges_excluidos": 370,
+      "commits_considerados": 433
+    },
+    {
+      "repositorio": "abalroar/tomaconta",
+      "nomes_consultados": [
+        "abalroar/tomaconta",
+        "abalroar/ficadeolho"
+      ],
+      "branch": "main",
+      "head_sha": "6f56f9b07eefe86a9f1a5c64a137eb791ed64218",
+      "commits_consultados": 1062,
+      "merges_excluidos": 394,
+      "commits_considerados": 668
+    }
+  ],
+  "parametros": {
+    "limiar_sessao_min": 90,
+    "overhead_sessao_min": 20,
+    "incluir_merges": false
   },
   "distribuicao_sessoes": {
-    "< 30 min": 53,
-    "30-60 min": 21,
-    "1-2 h": 19,
-    "2-4 h": 18,
-    "> 4 h": 16
+    "< 30 min": 76,
+    "30-60 min": 23,
+    "1-2 h": 25,
+    "2-4 h": 21,
+    "> 4 h": 17
+  },
+  "commits_por_mes": {
+    "2026-01": 215,
+    "2026-02": 298,
+    "2026-03": 98,
+    "2026-04": 148,
+    "2026-05": 13,
+    "2026-06": 16,
+    "2026-07": 33,
+    "2026-08": 18,
+    "2026-09": 27,
+    "2026-10": 9
   },
   "esforco_semanal": [
     {
       "semana_inicio": "2026-01-19",
-      "label_semana": "19/Jan",
+      "label_semana": "19/jan",
       "sessoes": 5,
       "horas_commits": 13.18,
       "horas_overhead": 1.67,
@@ -26,7 +80,7 @@
     },
     {
       "semana_inicio": "2026-01-26",
-      "label_semana": "26/Jan",
+      "label_semana": "26/jan",
       "sessoes": 14,
       "horas_commits": 33.17,
       "horas_overhead": 4.67,
@@ -34,7 +88,7 @@
     },
     {
       "semana_inicio": "2026-02-02",
-      "label_semana": "02/Feb",
+      "label_semana": "02/fev",
       "sessoes": 5,
       "horas_commits": 6.16,
       "horas_overhead": 1.67,
@@ -42,7 +96,7 @@
     },
     {
       "semana_inicio": "2026-02-09",
-      "label_semana": "09/Feb",
+      "label_semana": "09/fev",
       "sessoes": 17,
       "horas_commits": 40.13,
       "horas_overhead": 5.67,
@@ -50,7 +104,7 @@
     },
     {
       "semana_inicio": "2026-02-16",
-      "label_semana": "16/Feb",
+      "label_semana": "16/fev",
       "sessoes": 11,
       "horas_commits": 19.93,
       "horas_overhead": 3.67,
@@ -58,15 +112,31 @@
     },
     {
       "semana_inicio": "2026-02-23",
-      "label_semana": "23/Feb",
+      "label_semana": "23/fev",
       "sessoes": 8,
       "horas_commits": 4.8,
       "horas_overhead": 2.67,
       "total_horas": 7.47
     },
     {
+      "semana_inicio": "2026-03-02",
+      "label_semana": "02/mar",
+      "sessoes": 0,
+      "horas_commits": 0.0,
+      "horas_overhead": 0.0,
+      "total_horas": 0.0
+    },
+    {
+      "semana_inicio": "2026-03-09",
+      "label_semana": "09/mar",
+      "sessoes": 0,
+      "horas_commits": 0.0,
+      "horas_overhead": 0.0,
+      "total_horas": 0.0
+    },
+    {
       "semana_inicio": "2026-03-16",
-      "label_semana": "16/Mar",
+      "label_semana": "16/mar",
       "sessoes": 6,
       "horas_commits": 1.96,
       "horas_overhead": 2.0,
@@ -74,7 +144,7 @@
     },
     {
       "semana_inicio": "2026-03-23",
-      "label_semana": "23/Mar",
+      "label_semana": "23/mar",
       "sessoes": 13,
       "horas_commits": 23.89,
       "horas_overhead": 4.33,
@@ -82,7 +152,7 @@
     },
     {
       "semana_inicio": "2026-03-30",
-      "label_semana": "30/Mar",
+      "label_semana": "30/mar",
       "sessoes": 17,
       "horas_commits": 24.83,
       "horas_overhead": 5.67,
@@ -90,15 +160,15 @@
     },
     {
       "semana_inicio": "2026-04-06",
-      "label_semana": "06/Apr",
+      "label_semana": "06/abr",
       "sessoes": 11,
-      "horas_commits": 12.66,
+      "horas_commits": 12.58,
       "horas_overhead": 3.67,
-      "total_horas": 16.33
+      "total_horas": 16.25
     },
     {
       "semana_inicio": "2026-04-13",
-      "label_semana": "13/Apr",
+      "label_semana": "13/abr",
       "sessoes": 11,
       "horas_commits": 10.54,
       "horas_overhead": 3.67,
@@ -106,7 +176,7 @@
     },
     {
       "semana_inicio": "2026-04-20",
-      "label_semana": "20/Apr",
+      "label_semana": "20/abr",
       "sessoes": 1,
       "horas_commits": 0.0,
       "horas_overhead": 0.33,
@@ -114,7 +184,7 @@
     },
     {
       "semana_inicio": "2026-04-27",
-      "label_semana": "27/Apr",
+      "label_semana": "27/abr",
       "sessoes": 1,
       "horas_commits": 0.0,
       "horas_overhead": 0.33,
@@ -122,50 +192,187 @@
     },
     {
       "semana_inicio": "2026-05-04",
-      "label_semana": "04/May",
+      "label_semana": "04/mai",
       "sessoes": 5,
       "horas_commits": 1.75,
       "horas_overhead": 1.67,
       "total_horas": 3.42
     },
     {
+      "semana_inicio": "2026-05-11",
+      "label_semana": "11/mai",
+      "sessoes": 0,
+      "horas_commits": 0.0,
+      "horas_overhead": 0.0,
+      "total_horas": 0.0
+    },
+    {
       "semana_inicio": "2026-05-18",
-      "label_semana": "18/May",
+      "label_semana": "18/mai",
       "sessoes": 1,
       "horas_commits": 0.0,
       "horas_overhead": 0.33,
       "total_horas": 0.33
     },
     {
+      "semana_inicio": "2026-05-25",
+      "label_semana": "25/mai",
+      "sessoes": 0,
+      "horas_commits": 0.0,
+      "horas_overhead": 0.0,
+      "total_horas": 0.0
+    },
+    {
       "semana_inicio": "2026-06-01",
-      "label_semana": "01/Jun",
+      "label_semana": "01/jun",
+      "sessoes": 2,
+      "horas_commits": 4.04,
+      "horas_overhead": 0.67,
+      "total_horas": 4.71
+    },
+    {
+      "semana_inicio": "2026-06-08",
+      "label_semana": "08/jun",
+      "sessoes": 0,
+      "horas_commits": 0.0,
+      "horas_overhead": 0.0,
+      "total_horas": 0.0
+    },
+    {
+      "semana_inicio": "2026-06-15",
+      "label_semana": "15/jun",
+      "sessoes": 0,
+      "horas_commits": 0.0,
+      "horas_overhead": 0.0,
+      "total_horas": 0.0
+    },
+    {
+      "semana_inicio": "2026-06-22",
+      "label_semana": "22/jun",
       "sessoes": 1,
-      "horas_commits": 0.66,
+      "horas_commits": 0.0,
       "horas_overhead": 0.33,
-      "total_horas": 0.99
+      "total_horas": 0.33
+    },
+    {
+      "semana_inicio": "2026-06-29",
+      "label_semana": "29/jun",
+      "sessoes": 6,
+      "horas_commits": 5.84,
+      "horas_overhead": 2.0,
+      "total_horas": 7.84
+    },
+    {
+      "semana_inicio": "2026-07-06",
+      "label_semana": "06/jul",
+      "sessoes": 5,
+      "horas_commits": 1.03,
+      "horas_overhead": 1.67,
+      "total_horas": 2.7
+    },
+    {
+      "semana_inicio": "2026-07-13",
+      "label_semana": "13/jul",
+      "sessoes": 3,
+      "horas_commits": 3.33,
+      "horas_overhead": 1.0,
+      "total_horas": 4.33
+    },
+    {
+      "semana_inicio": "2026-07-20",
+      "label_semana": "20/jul",
+      "sessoes": 0,
+      "horas_commits": 0.0,
+      "horas_overhead": 0.0,
+      "total_horas": 0.0
+    },
+    {
+      "semana_inicio": "2026-07-27",
+      "label_semana": "27/jul",
+      "sessoes": 0,
+      "horas_commits": 0.0,
+      "horas_overhead": 0.0,
+      "total_horas": 0.0
+    },
+    {
+      "semana_inicio": "2026-08-03",
+      "label_semana": "03/ago",
+      "sessoes": 0,
+      "horas_commits": 0.0,
+      "horas_overhead": 0.0,
+      "total_horas": 0.0
+    },
+    {
+      "semana_inicio": "2026-08-10",
+      "label_semana": "10/ago",
+      "sessoes": 2,
+      "horas_commits": 1.63,
+      "horas_overhead": 0.67,
+      "total_horas": 2.29
+    },
+    {
+      "semana_inicio": "2026-08-17",
+      "label_semana": "17/ago",
+      "sessoes": 2,
+      "horas_commits": 2.25,
+      "horas_overhead": 0.67,
+      "total_horas": 2.91
+    },
+    {
+      "semana_inicio": "2026-08-24",
+      "label_semana": "24/ago",
+      "sessoes": 0,
+      "horas_commits": 0.0,
+      "horas_overhead": 0.0,
+      "total_horas": 0.0
+    },
+    {
+      "semana_inicio": "2026-08-31",
+      "label_semana": "31/ago",
+      "sessoes": 9,
+      "horas_commits": 4.23,
+      "horas_overhead": 3.0,
+      "total_horas": 7.23
+    },
+    {
+      "semana_inicio": "2026-09-07",
+      "label_semana": "07/set",
+      "sessoes": 3,
+      "horas_commits": 0.4,
+      "horas_overhead": 1.0,
+      "total_horas": 1.4
+    },
+    {
+      "semana_inicio": "2026-09-14",
+      "label_semana": "14/set",
+      "sessoes": 0,
+      "horas_commits": 0.0,
+      "horas_overhead": 0.0,
+      "total_horas": 0.0
+    },
+    {
+      "semana_inicio": "2026-09-21",
+      "label_semana": "21/set",
+      "sessoes": 0,
+      "horas_commits": 0.0,
+      "horas_overhead": 0.0,
+      "total_horas": 0.0
+    },
+    {
+      "semana_inicio": "2026-09-28",
+      "label_semana": "28/set",
+      "sessoes": 0,
+      "horas_commits": 0.0,
+      "horas_overhead": 0.0,
+      "total_horas": 0.0
+    },
+    {
+      "semana_inicio": "2026-10-05",
+      "label_semana": "05/out",
+      "sessoes": 3,
+      "horas_commits": 3.84,
+      "horas_overhead": 1.0,
+      "total_horas": 4.84
     }
-  ],
-  "commits_por_mes": {
-    "2026-01": 215,
-    "2026-02": 298,
-    "2026-03": 98,
-    "2026-04": 150,
-    "2026-05": 13,
-    "2026-06": 2
-  },
-  "total_sessoes": 127,
-  "sessao_media_horas": 1.86,
-  "total_commits": 776,
-  "primeiro_commit": "2026-01-25T02:22:17+00:00",
-  "ultimo_commit": "2026-06-03T15:27:03+00:00",
-  "repositorios": [
-    "abalroar/tomaconta-dev",
-    "abalroar/tomaconta",
-    "abalroar/ficadeolho"
-  ],
-  "parametros": {
-    "limiar_sessao_min": 90,
-    "overhead_sessao_min": 20,
-    "incluir_merges": false
-  }
+  ]
 }

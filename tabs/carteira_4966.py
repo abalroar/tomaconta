@@ -7,7 +7,7 @@ ordem ou unidade entre os tres artefatos.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from io import BytesIO
 import html
 import math
@@ -16,6 +16,13 @@ import unicodedata
 from typing import Mapping, Optional, Sequence
 
 import pandas as pd
+
+from utils.comparison_table_style import (
+    HEADER_BACKGROUND, SECTION_BACKGROUND, LINE_COLOR, FONT_FAMILY,
+    VARIATION_COLORS, credit_variation_tone,
+)
+from utils.formatting import formatar_delta_br
+from utils.snapshot_delta import compute_delta
 
 
 TITLE = "Classificação da Carteira de Crédito Modelo 4966"
@@ -67,6 +74,20 @@ class MetricCell:
 
 
 @dataclass(frozen=True)
+class CellDelta:
+    value: Optional[float]
+    unit: str
+    display: str
+    direction: Optional[str]
+    tone: str
+    reference_period: Optional[str]
+    current: Optional[float]
+    reference: Optional[float]
+    method: str
+    reason: str = ""
+
+
+@dataclass(frozen=True)
 class QualityIssue:
     period: str
     severity: str
@@ -104,6 +125,8 @@ class Carteira4966Model:
     qoq: Mapping[str, Optional[float]]
     cells: Mapping[str, Mapping[str, MetricCell]]
     quality_issues: tuple[QualityIssue, ...] = ()
+    reference_cells: Mapping[str, Mapping[str, MetricCell]] = field(default_factory=dict)
+    reference_quality_issues: tuple[QualityIssue, ...] = ()
 
     @property
     def missing_provision_periods(self) -> tuple[str, ...]:
@@ -120,7 +143,7 @@ class Carteira4966Model:
     def cell_quality_issues(self, row_key: str, period: str) -> tuple[QualityIssue, ...]:
         return tuple(
             issue
-            for issue in self.quality_issues
+            for issue in (*self.quality_issues, *self.reference_quality_issues)
             if issue.period == period and issue.applies_to(row_key)
         )
 
@@ -164,7 +187,7 @@ ROW_SPECS = (
             column.lower(),
             "base_total",
             "Carteira total do período-base",
-            help_text=f"{column} do Relatório 16 dividido pela base comum da carteira total.",
+            help_text=f"Carteira {column} do Relatório 16, classificada por tipo de instrumento e garantia. C1 a C5 são categorias distintas dos estágios contábeis. O percentual usa a carteira total do período-base comum. Fonte: IFData trimestral, visão prudencial.",
         )
         for column in CLASSIFICATION_COLUMNS
     ),
@@ -211,8 +234,9 @@ ROW_SPECS = (
         "provision",
         emphasis=True,
         help_text=(
-            "Magnitude da soma das colunas Perda Esperada e2, f2, g2 e h2 "
-            "da tabela Ativo, visão Conglomerado Prudencial."
+            "Saldo de provisão para perdas estimadas: soma das parcelas de Perda Esperada "
+            "e2, f2, g2 e h2, exibida sem o sinal contábil. Usa somente essas parcelas; "
+            "hedge e ajustes de valor justo ficam fora. Fonte: IFData Rel. 2, trimestral, visão prudencial."
         ),
     ),
     RowSpec(
@@ -225,7 +249,7 @@ ROW_SPECS = (
         "Carteira total do mesmo período",
         emphasis=True,
         percent_decimals=2,
-        help_text="Provisão total dividida pela carteira total do mesmo período.",
+        help_text="PDD do Relatório 2 dividida pelo Total Geral do Relatório 16, no mesmo trimestre e perímetro prudencial. O denominador difere da carteira contábil usada em outras abas; confira os alertas do cruzamento.",
     ),
     RowSpec(
         "provision_over_c5",
@@ -235,7 +259,7 @@ ROW_SPECS = (
         "provision",
         "c5",
         "C5 do mesmo período",
-        help_text="Provisão total dividida por C5 no mesmo período.",
+        help_text="PDD total dividida pela carteira C5 do mesmo trimestre. A PDD também cobre ativos de outras categorias; o percentual é uma aproximação de cobertura e depende da composição.",
     ),
     RowSpec(
         "provision_over_delinquency",
@@ -245,7 +269,7 @@ ROW_SPECS = (
         "provision",
         "delinquency",
         "Vencidos acima de 90 dias do mesmo período",
-        help_text="Provisão total dividida pelos vencidos acima de 90 dias no mesmo período.",
+        help_text="PDD total dividida pelo saldo integral das operações com alguma parcela vencida há mais de 90 dias (arrasto), no mesmo trimestre. A provisão também pode cobrir ativos fora desse denominador.",
     ),
 )
 
@@ -286,7 +310,7 @@ GLOSSARY_ROWS = (
     {
         "Variável": "PDD (Perda Esperada)",
         "Definição": (
-            "Magnitude da soma de Perda Esperada (e2), (f2), (g2) e (h2). "
+            "Valor sem o sinal contábil da soma de Perda Esperada (e2), (f2), (g2) e (h2). "
             "Não inclui Hedge de Valor Justo nem Ajuste a Valor Justo."
         ),
         "Fonte": "BCB IFData, Relatório 2 Ativo, Conglomerado Prudencial",
@@ -317,6 +341,26 @@ GLOSSARY_ROWS = (
             "Total Exterior não é mostrado nesta visão por seguir o escopo solicitado."
         ),
         "Fonte": "BCB IFData, Relatório 16",
+    },
+    {
+        "Variável": "Variações QoQ",
+        "Definição": (
+            "Trimestre atual comparado ao trimestre imediatamente anterior. Saldos: crescimento relativo em %. "
+            "Vencidos/carteira: subtração em bps inteiros. PDD/carteira, coberturas e percentuais da base comum: "
+            "subtração em p.p., com duas casas. O denominador comum é mantido nas duas datas. "
+            "Os cálculos usam insumos sem arredondamento; a transição anterior a mar/2025 fica bloqueada."
+        ),
+        "Fonte": "Cálculo sobre BCB IFData, Relatórios 2 e 16, trimestral, visão prudencial",
+    },
+    {
+        "Variável": "Cores das variações",
+        "Definição": (
+            "Alta de vencidos, em volume ou percentual, recebe vermelho; queda recebe verde. Alta de cobertura recebe verde; "
+            "queda recebe vermelho. Os volumes também dependem do tamanho da carteira. Demais saldos, classificação e PDD/carteira ficam neutros. "
+            "A cobertura usa PDD total e é uma aproximação. Alertas no atual ou na referência neutralizam a cor "
+            "e mantêm a marca de validação. As setas indicam somente alta ou queda."
+        ),
+        "Fonte": "Leitura de crédito do modelo; consulte também os componentes e o diagnóstico",
     },
 )
 
@@ -394,6 +438,85 @@ def _previous_period(period: str) -> Optional[str]:
         return None
     quarter, year = int(match.group(1)), int(match.group(2))
     return f"{quarter - 1}/{year}" if quarter > 1 else f"4/{year - 1}"
+
+
+def comparison_source_periods(periods: Sequence[str]) -> tuple[str, ...]:
+    """Inclui o trimestre anterior exato, mesmo quando ele não é exibido."""
+    return tuple(sorted({str(p) for p in periods} | {
+        previous for p in periods if (previous := _previous_period(str(p)))
+    }, key=_period_sort_key))
+
+
+VARIATION_NOTE = (
+    "QoQ compara cada valor com o trimestre imediatamente anterior indicado no cabeçalho. "
+    "Saldos: crescimento em %. Vencidos/carteira: subtração em bps inteiros. "
+    "PDD/carteira, coberturas e percentuais da base comum: subtração em p.p., com duas casas. "
+    "Cálculos usam os valores sem arredondamento."
+)
+COLOR_NOTE = (
+    "Verde: direção usualmente favorável; vermelho: direção de atenção. "
+    "Alta de vencidos recebe vermelho; queda recebe verde, em volume e percentual. "
+    "Volumes de risco também dependem do tamanho da carteira. Demais saldos, classificação C1–C5 e PDD/carteira ficam neutros. "
+    "As coberturas são aproximações; leia também PDD e vencidos."
+)
+
+
+def cell_delta(model: Carteira4966Model, spec: RowSpec, period: str, *, secondary=False) -> CellDelta:
+    """Única política de cálculo e leitura para tela, Excel e auditoria."""
+    percent = secondary or spec.layout == "percent_span"
+    kind = ("bps" if spec.key == "delinquency" else "pp") if percent else "pct"
+    unit = {"bps": "bps", "pp": "p.p.", "pct": "%"}[kind]
+    method = {
+        "bps": "(razão decimal atual − razão decimal de referência) × 10.000",
+        "pp": "(razão decimal atual − razão decimal de referência) × 100",
+        "pct": "(saldo atual − saldo de referência) ÷ saldo de referência × 100; base positiva",
+    }[kind]
+    previous = _previous_period(period)
+    current_cell = model.cells.get(spec.key, {}).get(period, MetricCell(None))
+    reference_cell = model.cells.get(spec.key, {}).get(previous) or model.reference_cells.get(spec.key, {}).get(previous, MetricCell(None))
+    current = current_cell.secondary if secondary else current_cell.primary
+    reference = reference_cell.secondary if secondary else reference_cell.primary
+    reason = ""
+    if previous and _period_sort_key(previous)[0] < 2025 <= _period_sort_key(period)[0]:
+        reason = "Quebra em 2025"
+    elif current is None:
+        reason = "Dado N/D"
+    elif reference is None:
+        reason = "Base N/D"
+    value = None if reason else compute_delta(current, reference, kind, escala="dec")
+    if value is None and not reason:
+        reason = "Base ≤ 0"
+    direction = None if value is None else "up" if value > 0 else "down" if value < 0 else "flat"
+    reliable = not model.cell_quality_issues(spec.key, period) and not model.cell_quality_issues(spec.key, previous)
+    favorable = "down" if spec.key == "delinquency" else "up" if spec.key in {"provision_over_c5", "provision_over_delinquency"} else None
+    tone = credit_variation_tone(direction, favorable, reliable=reliable)
+    display = reason if value is None else formatar_delta_br(value, unit, 0 if kind == "bps" else 2, com_seta=True).replace(" %", "%")
+    if not reliable and value is not None:
+        diagnostics = [
+            _cell_quality_message(model, spec.key, p)
+            for p in (period, previous) if model.cell_quality_issues(spec.key, p)
+        ]
+        reason = "Atual ou referência com alerta de qualidade; validar na fonte. " + " ".join(diagnostics)
+        display += "*"
+    return CellDelta(value, unit, display, direction, tone, previous, current, reference, method, reason)
+
+
+def variation_dataframe(model: Carteira4966Model) -> pd.DataFrame:
+    rows = []
+    for spec in ROW_SPECS:
+        for period in model.periods:
+            for secondary in ([False, True] if spec.layout == "paired" else [False]):
+                delta = cell_delta(model, spec, period, secondary=secondary)
+                percent = secondary or spec.layout == "percent_span"
+                rows.append({
+                    "Indicador": spec.label, "Componente": "%" if percent else "R$",
+                    "Período": format_period_label(period), "Referência": format_period_label(delta.reference_period) if delta.reference_period else "N/D",
+                    "Atual (R$ ou decimal)": delta.current, "Base (R$ ou decimal)": delta.reference,
+                    "Delta numérico": delta.value, "Unidade delta": delta.unit,
+                    "Variação": delta.display, "Leitura": delta.tone,
+                    "Cálculo": delta.method, "Status": delta.reason or "Disponível",
+                })
+    return pd.DataFrame(rows)
 
 
 def _best_row_for_period(
@@ -779,6 +902,7 @@ def build_carteira_4966_model(
     """
 
     ordered_periods = tuple(sorted(dict.fromkeys(str(period) for period in periods), key=_period_sort_key))
+    source_periods = comparison_source_periods(ordered_periods)
     carteira_relevant = [
         column
         for candidates in (
@@ -797,7 +921,7 @@ def build_carteira_4966_model(
         if (column := _resolve_column(ativo, (candidate,))) is not None
     ]
 
-    all_carteira_periods = set(ordered_periods)
+    all_carteira_periods = set(source_periods)
     period_column = _resolve_column(carteira, ("Período", "Periodo"))
     if period_column:
         all_carteira_periods.update(carteira[period_column].dropna().astype(str).tolist())
@@ -809,7 +933,7 @@ def build_carteira_4966_model(
 
     provision_by_period: dict[str, Optional[float]] = {}
     provision_findings: dict[str, _ExpectedLossResult] = {}
-    for period in ordered_periods:
+    for period in source_periods:
         ativo_row = _best_row_for_period(ativo, period, ativo_relevant)
         provision_result = _expected_loss_from_row(ativo_row, ativo)
         conflicting_columns = _conflicting_columns_for_period(
@@ -862,7 +986,7 @@ def build_carteira_4966_model(
 
     cells: dict[str, dict[str, MetricCell]] = {spec.key: {} for spec in ROW_SPECS}
     for spec in ROW_SPECS:
-        for period in ordered_periods:
+        for period in source_periods:
             metrics = metrics_by_period.get(period, {})
             value = _numeric(metrics.get(spec.value_key))
             if spec.layout == "paired":
@@ -883,12 +1007,12 @@ def build_carteira_4966_model(
 
     pdd_quality_issues = _build_pdd_quality_issues(
         metrics_by_period,
-        ordered_periods,
+        source_periods,
         provision_findings,
     )
     delinquency_quality_issues = _build_delinquency_quality_issues(
         metrics_by_period,
-        ordered_periods,
+        source_periods,
     )
 
     return Carteira4966Model(
@@ -897,8 +1021,10 @@ def build_carteira_4966_model(
         base_period=selected_base,
         base_value=base_value,
         qoq=qoq,
-        cells=cells,
-        quality_issues=(*pdd_quality_issues, *delinquency_quality_issues),
+        cells={key: {p: cell for p, cell in values.items() if p in ordered_periods} for key, values in cells.items()},
+        reference_cells={key: {p: cell for p, cell in values.items() if p not in ordered_periods} for key, values in cells.items()},
+        quality_issues=tuple(issue for issue in (*pdd_quality_issues, *delinquency_quality_issues) if issue.period in ordered_periods),
+        reference_quality_issues=tuple(issue for issue in (*pdd_quality_issues, *delinquency_quality_issues) if issue.period not in ordered_periods),
     )
 
 
@@ -1139,7 +1265,7 @@ def _cell_title(spec: RowSpec, cell: MetricCell, *, secondary: bool = False) -> 
 def render_carteira_4966_html(model: Carteira4966Model) -> str:
     """Renderiza tabela HTML acessivel, responsiva e isolada por namespace CSS."""
 
-    min_width = max(700, 240 + len(model.periods) * 136)
+    min_width = max(700, 240 + len(model.periods) * 168)
     base_label = model.period_labels.get(model.base_period or "", "N/D")
 
     def render_data_cell(
@@ -1152,6 +1278,7 @@ def render_carteira_4966_html(model: Carteira4966Model) -> str:
         quality_issue: Optional[QualityIssue] = None,
         quality_message: str = "",
         tooltip_id: str = "",
+        delta: Optional[CellDelta] = None,
     ) -> str:
         """Monta uma celula sem atributos vazios e com alerta acessivel."""
 
@@ -1192,22 +1319,31 @@ def render_carteira_4966_html(model: Carteira4966Model) -> str:
         # Células sinalizadas já expõem o diagnóstico por um tooltip próprio,
         # associado via aria-describedby. Manter também o title nativo faz os
         # dois balões se sobreporem e duplica a mensagem no hover/foco.
+        if delta is not None:
+            title += f"; QoQ vs {format_period_label(delta.reference_period or 'N/D')}: {delta.display}; {delta.method}"
+            if delta.reason:
+                title += "; " + delta.reason
         if title and quality_issue is None:
             attributes.append(f'title="{html.escape(title, quote=True)}"')
         attribute_text = f" {' '.join(attributes)}" if attributes else ""
-        return f"<td{attribute_text}>{content}{tooltip}</td>"
+        variation = "" if delta is None else (
+            f'<span class="tc-4966-delta {delta.tone}" aria-label="'
+            f'{html.escape("QoQ: " + delta.display, quote=True)}">{html.escape(delta.display)}</span>'
+        )
+        return f'<td{attribute_text}><span class="tc-4966-value">{content}{tooltip}</span>{variation}</td>'
 
     parts = [
         """
 <style>
 .tc-4966-region {
-  --tc-ink: #24262d;
+  --tc-ink: #222222;
   --tc-ink-soft: #555961;
-  --tc-line: #dddddd;
+  --tc-line: __LINE__;
   --tc-surface: #ffffff;
-  --tc-surface-soft: #f5f5f5;
+  --tc-surface-soft: __SECTION__;
   width: 100%;
-  overflow-x: auto;
+  overflow: auto;
+  max-height: 640px;
   margin: .75rem 0 1rem;
   background: var(--tc-surface);
   outline: none;
@@ -1222,7 +1358,9 @@ def render_carteira_4966_html(model: Carteira4966Model) -> str:
   border-collapse: collapse;
   color: var(--tc-ink);
   background: var(--tc-surface);
-  font-size: 13px;
+  font-family: __FONT__;
+  font-size: 14px;
+  line-height: 1.3;
   font-variant-numeric: tabular-nums lining-nums;
 }
 .tc-4966-table caption {
@@ -1239,18 +1377,24 @@ def render_carteira_4966_html(model: Carteira4966Model) -> str:
 .tc-4966-table th, .tc-4966-table td {
   box-sizing: border-box;
   border: 1px solid var(--tc-line);
-  padding: 7px 5px;
+  padding: 6px 3px;
   vertical-align: middle;
 }
 .tc-4966-table thead th {
-  color: #f8f8f8;
-  background: #111111;
+  position: sticky;
+  z-index: 3;
+  color: #ffffff;
+  background: __HEADER__;
   text-align: center;
-  font-weight: 650;
+  font-size: 12pt;
+  font-weight: 700;
   white-space: nowrap;
 }
-.tc-4966-table thead .tc-4966-qoq { color: #d8d9dc; font-size: 11px; font-weight: 500; }
-.tc-4966-table thead .tc-4966-subhead { background: #6e6e6e; color: #f5f5f5; font-size: 11px; }
+.tc-4966-table thead tr:nth-child(1) th { top: 0; height: 34px; }
+.tc-4966-table thead tr:nth-child(2) th { top: 34px; height: 26px; }
+.tc-4966-table thead tr:nth-child(3) th { top: 60px; height: 26px; }
+.tc-4966-table thead .tc-4966-qoq { color: #ffffff; font-size: 11px; font-weight: 500; }
+.tc-4966-table thead .tc-4966-subhead { background: __HEADER__; color: #ffffff; font-size: 11px; }
 .tc-4966-table .tc-4966-label {
   position: sticky;
   left: 0;
@@ -1259,26 +1403,31 @@ def render_carteira_4966_html(model: Carteira4966Model) -> str:
   max-width: 260px;
   background: var(--tc-surface);
   text-align: left;
-  font-weight: 500;
+  font-weight: 400;
 }
-.tc-4966-table thead .tc-4966-label { z-index: 4; background: #111111; }
-.tc-4966-table td { min-width: 0; text-align: right; white-space: nowrap; }
+.tc-4966-table thead .tc-4966-label { z-index: 4; background: __HEADER__; }
+.tc-4966-table td { min-width: 0; text-align: center; white-space: nowrap; }
 .tc-4966-table .tc-4966-period-end { border-right: 1px solid var(--tc-line); }
 .tc-4966-table .tc-4966-section-label {
   background: var(--tc-surface-soft);
   color: var(--tc-ink-soft);
   text-align: left;
-  font-size: 12px;
-  font-weight: 650;
+  font-size: 14px;
+  padding: 5px 8px;
+  font-weight: 600;
   letter-spacing: .01em;
 }
 .tc-4966-table .tc-4966-emphasis { font-weight: 700; }
 .tc-4966-table .tc-4966-ratio-row .tc-4966-label { padding-left: 20px; color: var(--tc-ink-soft); }
 .tc-4966-table .tc-4966-total-row > * {
-  background: #e8f4e8;
+  background: #ffffff;
   font-weight: 700;
 }
 .tc-4966-table .tc-4966-missing { color: #6d7077; font-style: italic; }
+.tc-4966-value { display: block; font-weight: 600; }
+.tc-4966-delta { display: block; margin-top: 3px; font-size: 11px; font-weight: 400; font-style: normal; white-space: normal; color: #666666; }
+.tc-4966-delta.favorable { color: #16713B; }
+.tc-4966-delta.attention { color: #B32624; }
 .tc-4966-table .tc-4966-quality-warning {
   color: #654c00;
   background: #fff4cc;
@@ -1350,31 +1499,30 @@ def render_carteira_4966_html(model: Carteira4966Model) -> str:
   .tc-4966-table .tc-4966-label { min-width: 220px; max-width: 260px; }
 }
 </style>
-""",
+""".replace("__HEADER__", HEADER_BACKGROUND).replace("__SECTION__", SECTION_BACKGROUND).replace("__LINE__", LINE_COLOR).replace("__FONT__", FONT_FAMILY),
         (
             f'<div class="tc-4966-region" role="region" tabindex="0" '
             f'aria-label="{html.escape(TITLE, quote=True)}">'
             f'<table class="tc-4966-table" style="min-width:{min_width}px">'
             f'<caption>{html.escape(TITLE)}. Valores em milhões de reais.</caption>'
             '<colgroup><col style="width:240px">'
-            + "".join('<col style="width:68px"><col style="width:68px">' for _ in model.periods)
+            + "".join('<col style="width:84px"><col style="width:84px">' for _ in model.periods)
             + "</colgroup><thead><tr>"
             '<th class="tc-4966-label" rowspan="3" scope="col">Indicador</th>'
         ),
     ]
 
     for period in model.periods:
-        qoq_value = model.qoq.get(period)
-        qoq_text = "QoQ: N/D" if qoq_value is None else f"QoQ: {format_percentage(qoq_value, 0)}"
-        parts.append(
-            f'<th class="tc-4966-qoq tc-4966-period-end" colspan="2" scope="colgroup">'
-            f'{html.escape(qoq_text)}</th>'
-        )
-    parts.append("</tr><tr>")
-    for period in model.periods:
         parts.append(
             f'<th class="tc-4966-period-end" colspan="2" scope="colgroup">'
             f'{html.escape(model.period_labels[period])}</th>'
+        )
+    parts.append("</tr><tr>")
+    for period in model.periods:
+        qoq_text = f"QoQ vs {format_period_label(_previous_period(period) or 'N/D')}"
+        parts.append(
+            f'<th class="tc-4966-qoq tc-4966-period-end" colspan="2" scope="colgroup">'
+            f'{html.escape(qoq_text)}</th>'
         )
     parts.append("</tr><tr>")
     for _ in model.periods:
@@ -1455,6 +1603,7 @@ def render_carteira_4966_html(model: Carteira4966Model) -> str:
                             quality_issue=quality_issue,
                             quality_message=quality_message,
                             tooltip_id=f"{quality_description_id}-primary",
+                            delta=cell_delta(model, spec, period),
                         )
                     )
                     parts.append(
@@ -1469,6 +1618,7 @@ def render_carteira_4966_html(model: Carteira4966Model) -> str:
                             quality_issue=quality_issue,
                             quality_message=quality_message,
                             tooltip_id=f"{quality_description_id}-secondary",
+                            delta=cell_delta(model, spec, period, secondary=True),
                         )
                     )
                 elif spec.layout == "currency_span":
@@ -1491,6 +1641,7 @@ def render_carteira_4966_html(model: Carteira4966Model) -> str:
                             quality_issue=quality_issue,
                             quality_message=quality_message,
                             tooltip_id=quality_description_id,
+                            delta=cell_delta(model, spec, period),
                         )
                     )
                 else:
@@ -1513,6 +1664,7 @@ def render_carteira_4966_html(model: Carteira4966Model) -> str:
                             quality_issue=quality_issue,
                             quality_message=quality_message,
                             tooltip_id=quality_description_id,
+                            delta=cell_delta(model, spec, period),
                         )
                     )
             parts.append("</tr>")
@@ -1557,6 +1709,42 @@ def model_to_audit_dataframe(model: Carteira4966Model) -> pd.DataFrame:
                 row[f"{label} (%)"] = None if cell.primary is None else cell.primary * 100
         rows.append(row)
     return pd.DataFrame(rows)
+
+
+def _write_variations_sheet(workbook, model: Carteira4966Model) -> None:
+    """Resultados numéricos completos e leitura visual nos dois downloads."""
+    sheet = workbook.add_worksheet("Variações")
+    frame = variation_dataframe(model)
+    header = workbook.add_format({"bold": True, "bg_color": HEADER_BACKGROUND, "font_color": "#FFFFFF", "text_wrap": True})
+    text = workbook.add_format({"font_name": "Calibri", "valign": "vcenter"})
+    numbers = workbook.add_format({"num_format": "#,##0.000000"})
+    percentage = workbook.add_format({"num_format": "0.00%"})
+    delta_formats = {unit: workbook.add_format({"num_format": code}) for unit, code in {"bps": "0", "p.p.": "0.00", "%": "0.00"}.items()}
+    tone_formats = {tone: workbook.add_format({"font_color": color, "font_name": "Calibri", "align": "center"}) for tone, color in VARIATION_COLORS.items()}
+    for col, name in enumerate(frame.columns):
+        sheet.write_string(0, col, name, header)
+    for row, record in enumerate(frame.to_dict("records"), 1):
+        for col, (name, value) in enumerate(record.items()):
+            fmt = tone_formats[record["Leitura"]] if name == "Variação" else text
+            if name in {"Atual (R$ ou decimal)", "Base (R$ ou decimal)", "Delta numérico"}:
+                fmt = delta_formats[record["Unidade delta"]] if name == "Delta numérico" else percentage if record["Componente"] == "%" else numbers
+                number = _finite_number(value)
+                if number is None:
+                    sheet.write_blank(row, col, None, fmt)
+                else:
+                    sheet.write_number(row, col, number, fmt)
+            else:
+                sheet.write_string(row, col, str(value), fmt)
+    sheet.set_column(0, 0, 52)
+    sheet.set_column(1, 3, 15)
+    sheet.set_column(4, 8, 22)
+    sheet.set_column(9, 9, 14)
+    sheet.set_column(10, 11, 70)
+    sheet.freeze_panes(1, 4)
+    sheet.autofilter(0, 0, len(frame), len(frame.columns) - 1)
+    sheet.hide_gridlines(2)
+    sheet.write_string(len(frame) + 2, 0, VARIATION_NOTE, text)
+    sheet.write_string(len(frame) + 3, 0, COLOR_NOTE, text)
 
 
 def build_carteira_4966_raw_excel(
@@ -1801,6 +1989,7 @@ def build_carteira_4966_raw_excel(
 
         style_sheet("Rel16 Carteira", carteira_export)
         style_sheet("Rel2 Ativo", ativo_export)
+        _write_variations_sheet(workbook, model)
 
     output.seek(0)
     return output.getvalue()
@@ -1825,7 +2014,7 @@ def build_carteira_4966_excel(model: Carteira4966Model) -> bytes:
         {
             "bold": True,
             "font_color": "#FFFFFF",
-            "bg_color": "#111111",
+            "bg_color": HEADER_BACKGROUND,
             "align": "center",
             "valign": "vcenter",
             **border,
@@ -1833,19 +2022,24 @@ def build_carteira_4966_excel(model: Carteira4966Model) -> bytes:
     )
     qoq_fmt = workbook.add_format(
         {
-            "font_color": "#D8D9DC",
-            "bg_color": "#111111",
+            "font_color": "#FFFFFF",
+            "bg_color": HEADER_BACKGROUND,
             "align": "center",
             "valign": "vcenter",
             "font_size": 9,
             **border,
         }
     )
+    delta_formats = {
+        tone: workbook.add_format({"font_name": "Calibri", "font_size": 9, "font_color": color, "align": "center", "valign": "vcenter", **border})
+        for tone, color in VARIATION_COLORS.items()
+    }
+    delta_label_fmt = workbook.add_format({"font_size": 9, "font_color": VARIATION_COLORS["neutral"], "indent": 1, **border})
     subheader_fmt = workbook.add_format(
         {
             "bold": True,
             "font_color": "#FFFFFF",
-            "bg_color": "#6E6E6E",
+            "bg_color": HEADER_BACKGROUND,
             "align": "center",
             "valign": "vcenter",
             "font_size": 9,
@@ -1853,7 +2047,7 @@ def build_carteira_4966_excel(model: Carteira4966Model) -> bytes:
         }
     )
     section_fmt = workbook.add_format(
-        {"bold": True, "font_color": "#555961", "bg_color": "#F5F5F5", "align": "left", "valign": "vcenter", **border}
+        {"bold": True, "font_color": "#555961", "bg_color": SECTION_BACKGROUND, "align": "left", "valign": "vcenter", **border}
     )
     label_fmt = workbook.add_format({"align": "left", "valign": "vcenter", **border})
     label_bold_fmt = workbook.add_format({"bold": True, "align": "left", "valign": "vcenter", **border})
@@ -1862,7 +2056,7 @@ def build_carteira_4966_excel(model: Carteira4966Model) -> bytes:
             "bold": True,
             "align": "left",
             "valign": "vcenter",
-            "bg_color": "#E8F4E8",
+            "bg_color": "#FFFFFF",
             **border,
         }
     )
@@ -1876,11 +2070,11 @@ def build_carteira_4966_excel(model: Carteira4966Model) -> bytes:
             "bottom_color": "#C9CBD0",
         }
     )
-    currency_fmt = workbook.add_format({"align": "right", "valign": "vcenter", "num_format": "#,##0", **border})
+    currency_fmt = workbook.add_format({"align": "center", "valign": "vcenter", "num_format": "#,##0", **border})
     currency_bold_fmt = workbook.add_format(
         {
             "bold": True,
-            "align": "right",
+            "align": "center",
             "valign": "vcenter",
             "num_format": "#,##0",
             **border,
@@ -1889,9 +2083,9 @@ def build_carteira_4966_excel(model: Carteira4966Model) -> bytes:
     total_currency_fmt = workbook.add_format(
         {
             "bold": True,
-            "align": "right",
+            "align": "center",
             "valign": "vcenter",
-            "bg_color": "#E8F4E8",
+            "bg_color": "#FFFFFF",
             "num_format": "#,##0",
             **border,
         }
@@ -1900,7 +2094,7 @@ def build_carteira_4966_excel(model: Carteira4966Model) -> bytes:
     percent_formats = {
         decimals: workbook.add_format(
             {
-                "align": "right",
+                "align": "center",
                 "valign": "vcenter",
                 "num_format": _excel_percentage_format_code(decimals),
                 **border,
@@ -1912,9 +2106,9 @@ def build_carteira_4966_excel(model: Carteira4966Model) -> bytes:
         decimals: workbook.add_format(
             {
                 "bold": True,
-                "align": "right",
+                "align": "center",
                 "valign": "vcenter",
-                "bg_color": "#E8F4E8",
+                "bg_color": "#FFFFFF",
                 "num_format": _excel_percentage_format_code(decimals),
                 **border,
             }
@@ -1967,7 +2161,7 @@ def build_carteira_4966_excel(model: Carteira4966Model) -> bytes:
                 "bold": True,
                 "font_color": font_color,
                 "bg_color": background,
-                "align": "right",
+                "align": "center",
                 "valign": "vcenter",
                 "num_format": _excel_marked_format_code("#,##0"),
             }
@@ -2000,7 +2194,7 @@ def build_carteira_4966_excel(model: Carteira4966Model) -> bytes:
                 "bold": True,
                 "font_color": font_color,
                 "bg_color": background,
-                "align": "right",
+                "align": "center",
                 "valign": "vcenter",
                 "num_format": _excel_marked_format_code(
                     _excel_percentage_format_code(decimals)
@@ -2017,10 +2211,9 @@ def build_carteira_4966_excel(model: Carteira4966Model) -> bytes:
 
     column = 1
     for period in model.periods:
-        qoq_value = model.qoq.get(period)
-        qoq_text = "QoQ: N/D" if qoq_value is None else f"QoQ: {format_percentage(qoq_value, 0)}"
-        worksheet.merge_range(1, column, 1, column + 1, qoq_text, qoq_fmt)
-        worksheet.merge_range(2, column, 2, column + 1, model.period_labels[period], header_fmt)
+        qoq_text = f"QoQ vs {format_period_label(_previous_period(period) or 'N/D')}"
+        worksheet.merge_range(1, column, 1, column + 1, model.period_labels[period], header_fmt)
+        worksheet.merge_range(2, column, 2, column + 1, qoq_text, qoq_fmt)
         worksheet.write(3, column, "R$ mm", subheader_fmt)
         worksheet.write(3, column + 1, "%", subheader_fmt)
         worksheet.write_comment(
@@ -2178,9 +2371,31 @@ def build_carteira_4966_excel(model: Carteira4966Model) -> bytes:
                 column += 2
             row_index += 1
 
+            worksheet.write_string(row_index, 0, "Variação QoQ", delta_label_fmt)
+            for index, period in enumerate(model.periods):
+                column = 1 + index * 2
+                for secondary in ([False, True] if spec.layout == "paired" else [False]):
+                    delta = cell_delta(model, spec, period, secondary=secondary)
+                    delta_column = column + int(secondary)
+                    fmt = delta_formats[delta.tone]
+                    if spec.layout == "paired":
+                        worksheet.write_string(row_index, delta_column, delta.display, fmt)
+                    else:
+                        worksheet.merge_range(row_index, column, row_index, column + 1, delta.display, fmt)
+                    worksheet.write_comment(row_index, delta_column, (
+                        f"QoQ vs {format_period_label(delta.reference_period or 'N/D')}; "
+                        f"atual: {delta.current}; referência: {delta.reference}; "
+                        f"{delta.method}; {delta.reason or 'Disponível'}"
+                    ), {"author": "Toma Conta"})
+            row_index += 1
+
+    worksheet.write_string(row_index + 1, 0, VARIATION_NOTE, delta_label_fmt)
+    worksheet.write_string(row_index + 2, 0, COLOR_NOTE, delta_label_fmt)
+
     worksheet.set_column(0, 0, 49)
     worksheet.set_column(1, last_column, 13)
     worksheet.freeze_panes(4, 1)
+    worksheet.repeat_rows(1, 3)
     worksheet.hide_gridlines(2)
     worksheet.set_landscape()
     worksheet.fit_to_pages(1, 1)
@@ -2285,6 +2500,8 @@ def build_carteira_4966_excel(model: Carteira4966Model) -> bytes:
     glossary.set_default_row(38)
     glossary.freeze_panes(1, 0)
     glossary.hide_gridlines(2)
+
+    _write_variations_sheet(workbook, model)
 
     workbook.close()
     output.seek(0)

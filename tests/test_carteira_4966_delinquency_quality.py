@@ -137,13 +137,13 @@ def test_valid_delinquency_is_consistent_and_unmarked_in_all_exports():
 
     rendered = render_carteira_4966_html(model)
     amount_html, percent_html = _delinquency_html_cells(rendered)
-    assert _visible_text(amount_html) == "10"
-    assert _visible_text(percent_html) == "10,00%"
+    assert _visible_text(amount_html) == "10Base N/D"
+    assert _visible_text(percent_html) == "10,00%Base N/D"
     assert "tc-4966-quality-" not in amount_html + percent_html
     assert "aria-describedby" not in amount_html + percent_html
     assert "*" not in _visible_text(amount_html + percent_html)
     assert "Inadimplência do Relatório 16" in rendered
-    assert 'title="Carteira total do mesmo período"' in percent_html
+    assert 'title="Carteira total do mesmo período; QoQ vs Set/25' in percent_html
 
     visual, visual_amount, visual_percent = _visual_cells(
         build_carteira_4966_excel(model)

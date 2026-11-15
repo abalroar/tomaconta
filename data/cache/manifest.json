@@ -1,0 +1,1108 @@
+{
+  "run_id": "tomaconta-credito-202609-20261030-v1",
+  "generated_at_utc": "2026-10-30T12:36:59.552949+00:00",
+  "release": {
+    "repo": "abalroar/tomaconta",
+    "tag": "v1.1-cache",
+    "raw_repo": "abalroar/tomaconta",
+    "release_base_url": "https://github.com/abalroar/tomaconta/releases/download/v1.1-cache",
+    "repo_source": "default",
+    "tag_source": "default",
+    "raw_repo_source": "default"
+  },
+  "expected_periods": {
+    "quarterly": "202606",
+    "monthly": "202606"
+  },
+  "caches": {
+    "principal": {
+      "cache": "principal",
+      "exists": true,
+      "source": "ifdata_web",
+      "timestamp": "2026-09-10T22:25:56.059101",
+      "max_period": "2/2026",
+      "max_period_ref": "202606",
+      "period_count": 46,
+      "record_count": 63459,
+      "path": "data/cache/principal/dados.parquet",
+      "metadata_path": "data/cache/principal/metadata.json",
+      "sha256": "539e940a4ababbbea349a67c448bf46de087db92b01897cdf95911220b33bdcc",
+      "release_repo": "abalroar/tomaconta",
+      "release_tag": "v1.1-cache",
+      "release_base_url": "https://github.com/abalroar/tomaconta/releases/download/v1.1-cache"
+    },
+    "principal_individual": {
+      "cache": "principal_individual",
+      "exists": true,
+      "source": "ifdata_web",
+      "timestamp": "2026-10-10T20:26:16.191169+00:00",
+      "max_period": "2/2026",
+      "max_period_ref": "202606",
+      "period_count": 18,
+      "record_count": 28114,
+      "path": "data/cache/principal_individual/dados.parquet",
+      "metadata_path": "data/cache/principal_individual/metadata.json",
+      "sha256": "1f46c2bca56ccde4531f09aa6235e164b152a26fa1da76e7d6aa053234868724",
+      "release_repo": "abalroar/tomaconta",
+      "release_tag": "v1.1-cache",
+      "release_base_url": "https://github.com/abalroar/tomaconta/releases/download/v1.1-cache"
+    },
+    "capital": {
+      "cache": "capital",
+      "exists": true,
+      "source": "ifdata_web",
+      "timestamp": "2026-09-10T22:25:59.457678",
+      "max_period": "2/2026",
+      "max_period_ref": "202606",
+      "period_count": 46,
+      "record_count": 61653,
+      "path": "data/cache/capital/dados.parquet",
+      "metadata_path": "data/cache/capital/metadata.json",
+      "sha256": "8a14bd1857328b99ad309cffd2a60ab888a39a77ef3b630f2f6013a60671d5f4",
+      "release_repo": "abalroar/tomaconta",
+      "release_tag": "v1.1-cache",
+      "release_base_url": "https://github.com/abalroar/tomaconta/releases/download/v1.1-cache"
+    },
+    "ativo": {
+      "cache": "ativo",
+      "exists": true,
+      "source": "ifdata_web",
+      "timestamp": "2026-09-10T22:26:01.144612",
+      "max_period": "2/2026",
+      "max_period_ref": "202606",
+      "period_count": 46,
+      "record_count": 63403,
+      "path": "data/cache/ativo/dados.parquet",
+      "metadata_path": "data/cache/ativo/metadata.json",
+      "sha256": "a6087e559779f578f054b4d3c5290e37c579a3a38365e7b8de3f49583042b8b1",
+      "release_repo": "abalroar/tomaconta",
+      "release_tag": "v1.1-cache",
+      "release_base_url": "https://github.com/abalroar/tomaconta/releases/download/v1.1-cache"
+    },
+    "passivo": {
+      "cache": "passivo",
+      "exists": true,
+      "source": "ifdata_web",
+      "timestamp": "2026-09-10T22:26:02.842303",
+      "max_period": "2/2026",
+      "max_period_ref": "202606",
+      "period_count": 46,
+      "record_count": 63403,
+      "path": "data/cache/passivo/dados.parquet",
+      "metadata_path": "data/cache/passivo/metadata.json",
+      "sha256": "e4d281074c43348d9a485235b97f422412d4db94ec0564c40f8e3d97ddbb9119",
+      "release_repo": "abalroar/tomaconta",
+      "release_tag": "v1.1-cache",
+      "release_base_url": "https://github.com/abalroar/tomaconta/releases/download/v1.1-cache",
+      "placeholder_count": 0
+    },
+    "dre": {
+      "cache": "dre",
+      "exists": true,
+      "source": "ifdata_web",
+      "timestamp": "2026-09-10T22:26:04.675916",
+      "max_period": "2/2026",
+      "max_period_ref": "202606",
+      "period_count": 46,
+      "record_count": 63403,
+      "path": "data/cache/dre/dados.parquet",
+      "metadata_path": "data/cache/dre/metadata.json",
+      "sha256": "56ee4eab53f1d31a92cbee4325bbcd80f1d104c66dd1d8097eb49b22498ce560",
+      "release_repo": "abalroar/tomaconta",
+      "release_tag": "v1.1-cache",
+      "release_base_url": "https://github.com/abalroar/tomaconta/releases/download/v1.1-cache"
+    },
+    "dre_individual": {
+      "cache": "dre_individual",
+      "exists": true,
+      "source": "ifdata_web",
+      "timestamp": "2026-10-10T20:26:16.191169+00:00",
+      "max_period": "2/2026",
+      "max_period_ref": "202606",
+      "period_count": 18,
+      "record_count": 28063,
+      "path": "data/cache/dre_individual/dados.parquet",
+      "metadata_path": "data/cache/dre_individual/metadata.json",
+      "sha256": "9091635d6663da6164305f7d2d7647008e17221d2992259f9e98c31bab0c28f0",
+      "release_repo": "abalroar/tomaconta",
+      "release_tag": "v1.1-cache",
+      "release_base_url": "https://github.com/abalroar/tomaconta/releases/download/v1.1-cache"
+    },
+    "carteira_pf": {
+      "cache": "carteira_pf",
+      "exists": true,
+      "source": "ifdata_web",
+      "timestamp": "2026-09-10T22:26:08.309691",
+      "max_period": "2/2026",
+      "max_period_ref": "202606",
+      "period_count": 5,
+      "record_count": 6649,
+      "path": "data/cache/carteira_pf/dados.parquet",
+      "metadata_path": "data/cache/carteira_pf/metadata.json",
+      "sha256": "81c5286a908d1fec685c4fad8a8be6579f8553aefaae793633a6d018595503b4",
+      "release_repo": "abalroar/tomaconta",
+      "release_tag": "v1.1-cache",
+      "release_base_url": "https://github.com/abalroar/tomaconta/releases/download/v1.1-cache"
+    },
+    "carteira_pj": {
+      "cache": "carteira_pj",
+      "exists": true,
+      "source": "ifdata_web",
+      "timestamp": "2026-09-10T22:26:09.927675",
+      "max_period": "2/2026",
+      "max_period_ref": "202606",
+      "period_count": 5,
+      "record_count": 6649,
+      "path": "data/cache/carteira_pj/dados.parquet",
+      "metadata_path": "data/cache/carteira_pj/metadata.json",
+      "sha256": "a580cc04b771183e115713159e105309c348721bd33aff293b8f9bdc0c9ac19d",
+      "release_repo": "abalroar/tomaconta",
+      "release_tag": "v1.1-cache",
+      "release_base_url": "https://github.com/abalroar/tomaconta/releases/download/v1.1-cache"
+    },
+    "carteira_instrumentos": {
+      "cache": "carteira_instrumentos",
+      "exists": true,
+      "source": "ifdata_web",
+      "timestamp": "2026-09-10T22:26:13.038887",
+      "max_period": "2/2026",
+      "max_period_ref": "202606",
+      "period_count": 6,
+      "record_count": 8018,
+      "path": "data/cache/carteira_instrumentos/dados.parquet",
+      "metadata_path": "data/cache/carteira_instrumentos/metadata.json",
+      "sha256": "1fe74ca92b1ae402ecfd15b762e7497874cbe9e11b859d1ea3fcfa4319eb7fcc",
+      "release_repo": "abalroar/tomaconta",
+      "release_tag": "v1.1-cache",
+      "release_base_url": "https://github.com/abalroar/tomaconta/releases/download/v1.1-cache"
+    },
+    "bloprudencial": {
+      "cache": "bloprudencial",
+      "exists": true,
+      "source": "bcb_bloprudencial",
+      "timestamp": "2026-09-10T22:28:47.741607",
+      "max_period": "202606",
+      "max_period_ref": "202606",
+      "period_count": 34,
+      "record_count": 1244497,
+      "path": "data/cache/bloprudencial/dados.parquet",
+      "metadata_path": "data/cache/bloprudencial/metadata.json",
+      "sha256": "cf556a0bef881053bd38e23da8399090df6bfe2dac0d384689aa9934e244fb04",
+      "release_repo": "abalroar/tomaconta",
+      "release_tag": "v1.1-cache",
+      "release_base_url": "https://github.com/abalroar/tomaconta/releases/download/v1.1-cache"
+    },
+    "derived_metrics": {
+      "cache": "derived_metrics",
+      "exists": true,
+      "source": "derivado",
+      "timestamp": "2026-09-10T22:39:19.122671",
+      "max_period": "2/2026",
+      "max_period_ref": "202606",
+      "period_count": 46,
+      "record_count": 317015,
+      "path": "data/cache/derived_metrics/dados.parquet",
+      "metadata_path": "data/cache/derived_metrics/metadata.json",
+      "sha256": "9159d83ecb6ff62711164cc7abed3e817ef5f20cfa16834e009f22d0272bc785",
+      "release_repo": "abalroar/tomaconta",
+      "release_tag": "v1.1-cache",
+      "release_base_url": "https://github.com/abalroar/tomaconta/releases/download/v1.1-cache"
+    },
+    "derived_metrics_individual": {
+      "cache": "derived_metrics_individual",
+      "exists": true,
+      "source": "derivado",
+      "timestamp": "2026-10-10T20:26:16.191169+00:00",
+      "max_period": "2/2026",
+      "max_period_ref": "202606",
+      "period_count": 18,
+      "record_count": 140315,
+      "path": "data/cache/derived_metrics_individual/dados.parquet",
+      "metadata_path": "data/cache/derived_metrics_individual/metadata.json",
+      "sha256": "9200c89260d552f52cb52133bbd8ff51b572ae4a8119d9ee6cf4ecd82b1b8591",
+      "release_repo": "abalroar/tomaconta",
+      "release_tag": "v1.1-cache",
+      "release_base_url": "https://github.com/abalroar/tomaconta/releases/download/v1.1-cache"
+    },
+    "critical_screens": {
+      "cache": "critical_screens",
+      "exists": true,
+      "source": "materialized",
+      "timestamp": "2026-09-10T22:51:05.973167",
+      "max_period": "2/2026",
+      "max_period_ref": "202606",
+      "period_count": 46,
+      "record_count": 63379,
+      "path": "data/cache/critical_screens/dados.parquet",
+      "metadata_path": "data/cache/critical_screens/metadata.json",
+      "sha256": "e702aca3bf2d537be00cb45a2e48c93e3d82faa1587dd220a6a5b10b23b1f419",
+      "release_repo": "abalroar/tomaconta",
+      "release_tag": "v1.1-cache",
+      "release_base_url": "https://github.com/abalroar/tomaconta/releases/download/v1.1-cache"
+    },
+    "cosif_4010": {
+      "cache": "cosif_4010",
+      "exists": true,
+      "source": "bcb_cosif",
+      "timestamp": "2026-09-10T17:41:07.911882",
+      "max_period": "202606",
+      "max_period_ref": "202606",
+      "period_count": 1,
+      "record_count": 345835,
+      "path": "data/bundled/cosif_4010/dados.parquet",
+      "metadata_path": "data/bundled/cosif_4010/metadata.json",
+      "sha256": "6ce0d2bcd1a3f823bdb7d4ee5a776100e27b888c297dd3ff1bbe4ebc34a42953",
+      "release_repo": "abalroar/tomaconta",
+      "release_tag": "v1.1-cache",
+      "release_base_url": "https://github.com/abalroar/tomaconta/releases/download/v1.1-cache"
+    },
+    "mercado_credito_sgs": {
+      "cache": "mercado_credito_sgs",
+      "exists": true,
+      "source": "BCData/SGS",
+      "timestamp": "2026-10-30T09:36:34.469263",
+      "max_period": "202610",
+      "max_period_ref": "202610",
+      "period_count": 190,
+      "record_count": 24299,
+      "path": "data/cache/mercado_credito_sgs/dados.parquet",
+      "metadata_path": "data/cache/mercado_credito_sgs/metadata.json",
+      "sha256": "4274f48cd379176dcd7f268556e76489c83fd9237e165d1cd7c005ae2c377130",
+      "release_repo": "abalroar/tomaconta",
+      "release_tag": "v1.1-cache",
+      "release_base_url": "https://github.com/abalroar/tomaconta/releases/download/v1.1-cache",
+      "credit_max_period_ref": "202609",
+      "household_max_period_ref": "202608",
+      "series_count": 130
+    },
+    "spb_meios_pagamento": {
+      "cache": "spb_meios_pagamento",
+      "exists": true,
+      "source": "api",
+      "timestamp": "2026-09-10T22:20:27.240150",
+      "max_period": "202606",
+      "max_period_ref": "202606",
+      "period_count": 46,
+      "record_count": 46,
+      "path": "data/cache/spb_meios_pagamento/nucleo_trimestral.parquet",
+      "metadata_path": "data/cache/spb_meios_pagamento/metadata.json",
+      "sha256": "3e20aaf3c768af51d13b20ed535ac8b1fff417826930771976b45e47cdc49265",
+      "release_repo": "abalroar/tomaconta",
+      "release_tag": "v1.1-cache",
+      "release_base_url": "https://github.com/abalroar/tomaconta/releases/download/v1.1-cache"
+    },
+    "taxas_juros_historico": {
+      "cache": "taxas_juros_historico",
+      "exists": true,
+      "source": "api_bcb_consulta_unificada",
+      "timestamp": "2026-10-08T17:22:16.693184",
+      "max_period": "2026-09-18",
+      "max_period_ref": "202609",
+      "period_count": 3694,
+      "record_count": 2793925,
+      "path": "data/cache/taxas_juros_historico/dados.parquet",
+      "metadata_path": "data/cache/taxas_juros_historico/metadata.json",
+      "sha256": "a8307cd3b5f40ea55e70c514359a87d6c49d403c02664e6b673bb4c79c5eab79",
+      "release_repo": "abalroar/tomaconta",
+      "release_tag": "v1.1-cache",
+      "release_base_url": "https://github.com/abalroar/tomaconta/releases/download/v1.1-cache",
+      "latest_window_end": "2026-09-24"
+    },
+    "scr_data": {
+      "cache": "scr_data",
+      "exists": true,
+      "source": "bcb_pda_scrdata_zip",
+      "timestamp": "2026-10-08T01:06:24.571602",
+      "max_period": "2026-07",
+      "max_period_ref": "202607",
+      "period_count": 169,
+      "record_count": 594299,
+      "path": "data/cache/scr_data/dados.parquet",
+      "metadata_path": "data/cache/scr_data/metadata.json",
+      "sha256": "2f671ed0d6b578b5c607f82cbf167bc13f36b3ef37490b304285314e0106c0c3",
+      "release_repo": "abalroar/tomaconta",
+      "release_tag": "v1.2-scr-cache",
+      "release_base_url": "https://github.com/abalroar/tomaconta/releases/download/v1.2-scr-cache"
+    }
+  },
+  "gates": {
+    "snapshot_peers": {
+      "label": "Snapshot/Peers",
+      "success": true,
+      "expected_period": "202606",
+      "expected_period_ref": "202606",
+      "message": "alinhado em 202606",
+      "caches": {
+        "critical_screens": {
+          "cache": "critical_screens",
+          "exists": true,
+          "source": "materialized",
+          "timestamp": "2026-09-10T22:51:05.973167",
+          "max_period": "2/2026",
+          "max_period_ref": "202606",
+          "period_count": 46,
+          "record_count": 63379,
+          "path": "data/cache/critical_screens/dados.parquet",
+          "metadata_path": "data/cache/critical_screens/metadata.json",
+          "sha256": "e702aca3bf2d537be00cb45a2e48c93e3d82faa1587dd220a6a5b10b23b1f419",
+          "release_repo": "abalroar/tomaconta",
+          "release_tag": "v1.1-cache",
+          "release_base_url": "https://github.com/abalroar/tomaconta/releases/download/v1.1-cache"
+        }
+      }
+    },
+    "rankings": {
+      "label": "Rankings",
+      "success": true,
+      "expected_period": "202606",
+      "expected_period_ref": "202606",
+      "message": "alinhado em 202606",
+      "caches": {
+        "principal": {
+          "cache": "principal",
+          "exists": true,
+          "source": "ifdata_web",
+          "timestamp": "2026-09-10T22:25:56.059101",
+          "max_period": "2/2026",
+          "max_period_ref": "202606",
+          "period_count": 46,
+          "record_count": 63459,
+          "path": "data/cache/principal/dados.parquet",
+          "metadata_path": "data/cache/principal/metadata.json",
+          "sha256": "539e940a4ababbbea349a67c448bf46de087db92b01897cdf95911220b33bdcc",
+          "release_repo": "abalroar/tomaconta",
+          "release_tag": "v1.1-cache",
+          "release_base_url": "https://github.com/abalroar/tomaconta/releases/download/v1.1-cache"
+        },
+        "capital": {
+          "cache": "capital",
+          "exists": true,
+          "source": "ifdata_web",
+          "timestamp": "2026-09-10T22:25:59.457678",
+          "max_period": "2/2026",
+          "max_period_ref": "202606",
+          "period_count": 46,
+          "record_count": 61653,
+          "path": "data/cache/capital/dados.parquet",
+          "metadata_path": "data/cache/capital/metadata.json",
+          "sha256": "8a14bd1857328b99ad309cffd2a60ab888a39a77ef3b630f2f6013a60671d5f4",
+          "release_repo": "abalroar/tomaconta",
+          "release_tag": "v1.1-cache",
+          "release_base_url": "https://github.com/abalroar/tomaconta/releases/download/v1.1-cache"
+        }
+      }
+    },
+    "dre_consolidado": {
+      "label": "DRE Conglomerado",
+      "success": true,
+      "expected_period": "202606",
+      "expected_period_ref": "202606",
+      "message": "alinhado em 202606",
+      "caches": {
+        "dre": {
+          "cache": "dre",
+          "exists": true,
+          "source": "ifdata_web",
+          "timestamp": "2026-09-10T22:26:04.675916",
+          "max_period": "2/2026",
+          "max_period_ref": "202606",
+          "period_count": 46,
+          "record_count": 63403,
+          "path": "data/cache/dre/dados.parquet",
+          "metadata_path": "data/cache/dre/metadata.json",
+          "sha256": "56ee4eab53f1d31a92cbee4325bbcd80f1d104c66dd1d8097eb49b22498ce560",
+          "release_repo": "abalroar/tomaconta",
+          "release_tag": "v1.1-cache",
+          "release_base_url": "https://github.com/abalroar/tomaconta/releases/download/v1.1-cache"
+        },
+        "principal": {
+          "cache": "principal",
+          "exists": true,
+          "source": "ifdata_web",
+          "timestamp": "2026-09-10T22:25:56.059101",
+          "max_period": "2/2026",
+          "max_period_ref": "202606",
+          "period_count": 46,
+          "record_count": 63459,
+          "path": "data/cache/principal/dados.parquet",
+          "metadata_path": "data/cache/principal/metadata.json",
+          "sha256": "539e940a4ababbbea349a67c448bf46de087db92b01897cdf95911220b33bdcc",
+          "release_repo": "abalroar/tomaconta",
+          "release_tag": "v1.1-cache",
+          "release_base_url": "https://github.com/abalroar/tomaconta/releases/download/v1.1-cache"
+        },
+        "derived_metrics": {
+          "cache": "derived_metrics",
+          "exists": true,
+          "source": "derivado",
+          "timestamp": "2026-09-10T22:39:19.122671",
+          "max_period": "2/2026",
+          "max_period_ref": "202606",
+          "period_count": 46,
+          "record_count": 317015,
+          "path": "data/cache/derived_metrics/dados.parquet",
+          "metadata_path": "data/cache/derived_metrics/metadata.json",
+          "sha256": "9159d83ecb6ff62711164cc7abed3e817ef5f20cfa16834e009f22d0272bc785",
+          "release_repo": "abalroar/tomaconta",
+          "release_tag": "v1.1-cache",
+          "release_base_url": "https://github.com/abalroar/tomaconta/releases/download/v1.1-cache"
+        }
+      }
+    },
+    "dre_individual": {
+      "label": "DRE Individual",
+      "success": true,
+      "expected_period": "202606",
+      "expected_period_ref": "202606",
+      "message": "alinhado em 202606",
+      "caches": {
+        "dre_individual": {
+          "cache": "dre_individual",
+          "exists": true,
+          "source": "ifdata_web",
+          "timestamp": "2026-09-10T22:26:06.584080",
+          "max_period": "2/2026",
+          "max_period_ref": "202606",
+          "period_count": 18,
+          "record_count": 28063,
+          "path": "data/cache/dre_individual/dados.parquet",
+          "metadata_path": "data/cache/dre_individual/metadata.json",
+          "sha256": "664f306e62e57744ca9bb6f04ac0e93cca6fcd4192ce0eb87e5729f7e80e750b",
+          "release_repo": "abalroar/tomaconta",
+          "release_tag": "v1.1-cache",
+          "release_base_url": "https://github.com/abalroar/tomaconta/releases/download/v1.1-cache"
+        },
+        "principal_individual": {
+          "cache": "principal_individual",
+          "exists": true,
+          "source": "ifdata_web",
+          "timestamp": "2026-09-10T22:25:57.797105",
+          "max_period": "2/2026",
+          "max_period_ref": "202606",
+          "period_count": 18,
+          "record_count": 28114,
+          "path": "data/cache/principal_individual/dados.parquet",
+          "metadata_path": "data/cache/principal_individual/metadata.json",
+          "sha256": "474954cc8873d703125cce3523c05907a5596ca229c80907a2d2a91ed6e63a19",
+          "release_repo": "abalroar/tomaconta",
+          "release_tag": "v1.1-cache",
+          "release_base_url": "https://github.com/abalroar/tomaconta/releases/download/v1.1-cache"
+        },
+        "derived_metrics_individual": {
+          "cache": "derived_metrics_individual",
+          "exists": true,
+          "source": "derivado",
+          "timestamp": "2026-09-10T22:39:19.783328",
+          "max_period": "2/2026",
+          "max_period_ref": "202606",
+          "period_count": 18,
+          "record_count": 140315,
+          "path": "data/cache/derived_metrics_individual/dados.parquet",
+          "metadata_path": "data/cache/derived_metrics_individual/metadata.json",
+          "sha256": "632d8bff3d2b564af9e0cbbee2279e9b2c8ee3c5423491e53fb93dc584d410f9",
+          "release_repo": "abalroar/tomaconta",
+          "release_tag": "v1.1-cache",
+          "release_base_url": "https://github.com/abalroar/tomaconta/releases/download/v1.1-cache"
+        }
+      }
+    }
+  },
+  "placeholder_validations": {
+    "principal": {
+      "success": true,
+      "count": 0,
+      "message": "ok",
+      "examples": []
+    },
+    "capital": {
+      "success": true,
+      "count": 0,
+      "message": "ok",
+      "examples": []
+    },
+    "passivo": {
+      "success": true,
+      "count": 0,
+      "message": "ok",
+      "examples": []
+    }
+  },
+  "expected_periods_by_cache": {
+    "cosif_4010": "202606",
+    "mercado_credito_sgs": "202609",
+    "scr_data": "202607"
+  },
+  "summary": {
+    "total_caches": 19,
+    "present_caches": 19,
+    "successful_gates": 4,
+    "total_gates": 4
+  },
+  "publication_id": "tomaconta-credito-202609-20261030-v1",
+  "supplemental": {
+    "spb": {
+      "nucleo_trimestral": {
+        "rows": 46,
+        "latest_source_period": "2026-06-30",
+        "sha256": "3e20aaf3c768af51d13b20ed535ac8b1fff417826930771976b45e47cdc49265",
+        "url": "https://olinda.bcb.gov.br/olinda/servico/MPV_DadosAbertos/versao/v1/odata/MeiosdePagamentosTrimestralDA(trimestre=@trimestre)?@trimestre='19001'&$format=json"
+      },
+      "nucleo_mensal": {
+        "rows": 292,
+        "latest_source_period": "202607",
+        "sha256": "b667635b0567aa4e8d3d1a935ad69fc4e80fa8241d04b4c32c5a0dc2a6b0f90d",
+        "url": "https://olinda.bcb.gov.br/olinda/servico/MPV_DadosAbertos/versao/v1/odata/MeiosdePagamentosMensalDA(AnoMes=@AnoMes)?@AnoMes='190001'&$format=json"
+      },
+      "cartoes": {
+        "rows": 6131,
+        "latest_source_period": "20262",
+        "sha256": "a4423d1aa54834c0e47575de24d0b1a014e4d6defa938695d21a4ecbe052b134",
+        "url": "https://olinda.bcb.gov.br/olinda/servico/MPV_DadosAbertos/versao/v1/odata/Quantidadeetransacoesdecartoes(trimestre=@trimestre)?@trimestre='19001'&$format=json"
+      },
+      "intercambio": {
+        "rows": 662556,
+        "latest_source_period": "20261",
+        "sha256": "ec2b29542c2b3eca5dec006e695c34031623eac97cc1cd7892ea321caa4d3fec",
+        "url": "https://olinda.bcb.gov.br/olinda/servico/MPV_DadosAbertos/versao/v1/odata/INTERCAMDA(trimestre=@trimestre)?@trimestre='19001'&$format=json"
+      },
+      "desconto": {
+        "rows": 13158,
+        "latest_source_period": "20261",
+        "sha256": "b9064e12c3d5cafeda0494a738887a5a9930d00f0f3f5b65e5bd95119357cb19",
+        "url": "https://olinda.bcb.gov.br/olinda/servico/MPV_DadosAbertos/versao/v1/odata/DESCONTODA(trimestre=@trimestre)?@trimestre='19001'&$format=json"
+      },
+      "portador": {
+        "rows": 6857,
+        "latest_source_period": "20261",
+        "sha256": "c394d6ce3684dc469ace86f2bd93774aef5280d5a30b3e355c63343395f5996f",
+        "url": "https://olinda.bcb.gov.br/olinda/servico/MPV_DadosAbertos/versao/v1/odata/PORTADORDA(trimestre=@trimestre)?@trimestre='19001'&$format=json"
+      },
+      "atm": {
+        "rows": 51114,
+        "latest_source_period": "20261",
+        "sha256": "735c5530a25a370204d81d8fdd0df4bddca214590baf7b7acffae914db8b80a3",
+        "url": "https://olinda.bcb.gov.br/olinda/servico/MPV_DadosAbertos/versao/v1/odata/ESTATATMDA(trimestre=@trimestre)?@trimestre='19001'&$format=json"
+      },
+      "terminais": {
+        "rows": 2028,
+        "latest_source_period": "20261",
+        "sha256": "ebec5e9bf3437bdcff2940c5b4e9e38bfee9c5b60844326d640f475f74b3261d",
+        "url": "https://olinda.bcb.gov.br/olinda/servico/MPV_DadosAbertos/versao/v1/odata/INFRTERMDA(trimestre=@trimestre)?@trimestre='19001'&$format=json"
+      },
+      "estabelecimentos_credenciados": {
+        "rows": 1452,
+        "latest_source_period": "20261",
+        "sha256": "a6607bc533fa7bbf4e59028a4d1441e2bda9978557f8946ff1bf2706fa30bd16",
+        "url": "https://olinda.bcb.gov.br/olinda/servico/MPV_DadosAbertos/versao/v1/odata/EstabCredTransDA(trimestre=@trimestre)?@trimestre='19001'&$format=json"
+      },
+      "infra_estabelecimentos": {
+        "rows": 2030,
+        "latest_source_period": "20261",
+        "sha256": "0ece1ed10a203f39ac323aa3afab2eca63e7a99bcec8ecd0e9d636966c634e2b",
+        "url": "https://olinda.bcb.gov.br/olinda/servico/MPV_DadosAbertos/versao/v1/odata/INFRESTADA(trimestre=@trimestre)?@trimestre='19001'&$format=json"
+      },
+      "canais_servicos": {
+        "rows": 830,
+        "latest_source_period": "20261",
+        "sha256": "c1092e4d51e7e5cbf534e7bc2b9147a999baed2a95d9107622ae20e873ca170e",
+        "url": "https://olinda.bcb.gov.br/olinda/servico/MPV_DadosAbertos/versao/v1/odata/OPEINTRADA(trimestre=@trimestre)?@trimestre='19001'&$format=json"
+      },
+      "canais_transacoes": {
+        "rows": 6575,
+        "latest_source_period": "20261",
+        "sha256": "4df11ee711d34d7a58844d86952ef83171df5c1b6dbc3c02021cfad14fd10fd1",
+        "url": "https://olinda.bcb.gov.br/olinda/servico/MPV_DadosAbertos/versao/v1/odata/TRANSOPADA(trimestre=@trimestre)?@trimestre='19001'&$format=json"
+      }
+    },
+    "scr_release": "v1.2-scr-cache",
+    "scr_sha256": "2f671ed0d6b578b5c607f82cbf167bc13f36b3ef37490b304285314e0106c0c3",
+    "scr_latest": "2026-07",
+    "sgs_credit_refresh": {
+      "window_start": "2025-09",
+      "window_end": "2026-09",
+      "credit_latest": "2026-08",
+      "households_latest": "2026-07",
+      "series_count": 130,
+      "failures": [],
+      "latest_period_by_series": {
+        "cdi_aa": "2026-09",
+        "comprometimento_amortizacao": "2026-07",
+        "comprometimento_juros": "2026-07",
+        "comprometimento_servico_ex_habitacional": "2026-07",
+        "concessoes_direcionado_pf": "2026-08",
+        "concessoes_direcionado_pf_imobiliario": "2026-08",
+        "concessoes_direcionado_pj": "2026-08",
+        "concessoes_livre_pf": "2026-08",
+        "concessoes_livre_pf_cartao": "2026-08",
+        "concessoes_livre_pf_consignado": "2026-08",
+        "concessoes_livre_pf_nao_consignado": "2026-08",
+        "concessoes_livre_pf_veiculos": "2026-08",
+        "concessoes_livre_pj": "2026-08",
+        "concessoes_livre_pj_capital_giro": "2026-08",
+        "concessoes_sa_direcionado_pf": "2026-08",
+        "concessoes_sa_direcionado_pj": "2026-08",
+        "concessoes_sa_livre_pf": "2026-08",
+        "concessoes_sa_livre_pj": "2026-08",
+        "concessoes_sa_pf": "2026-08",
+        "concessoes_sa_pf_cartao_vista": "2026-08",
+        "concessoes_sa_pf_veiculos": "2026-08",
+        "concessoes_sa_pj": "2026-08",
+        "concessoes_sa_pj_capital_giro": "2026-08",
+        "concessoes_total": "2026-08",
+        "credito_ampliado_divida_externa": "2026-08",
+        "credito_ampliado_emprestimos": "2026-08",
+        "credito_ampliado_titulos": "2026-08",
+        "credito_ampliado_total": "2026-08",
+        "desocupacao": "2026-08",
+        "endividamento_renda": "2026-07",
+        "inad_direcionado_pf_imobiliario": "2026-08",
+        "inad_estrangeiro": "2026-08",
+        "inad_livre_pf": "2026-08",
+        "inad_livre_pf_cartao_parcelado": "2026-08",
+        "inad_livre_pf_cartao_rotativo": "2026-08",
+        "inad_livre_pf_cartao_total": "2026-08",
+        "inad_livre_pf_cheque": "2026-08",
+        "inad_livre_pf_consignado": "2026-08",
+        "inad_livre_pf_nao_consignado": "2026-08",
+        "inad_livre_pf_veiculos": "2026-08",
+        "inad_livre_pj": "2026-08",
+        "inad_livre_pj_capital_giro": "2026-08",
+        "inad_livre_pj_conta_garantida": "2026-08",
+        "inad_livre_pj_duplicatas": "2026-08",
+        "inad_livre_total": "2026-08",
+        "inad_privado_nacional": "2026-08",
+        "inad_publico": "2026-08",
+        "inad_total": "2026-08",
+        "ipca_mensal": "2026-08",
+        "prazo_direcionado_pf_imobiliario": "2026-08",
+        "prazo_direcionado_pj": "2026-08",
+        "prazo_livre_pf_cartao_parcelado": "2026-08",
+        "prazo_livre_pf_consignado": "2026-08",
+        "prazo_livre_pf_nao_consignado": "2026-08",
+        "prazo_livre_pf_veiculos": "2026-08",
+        "prazo_livre_pj": "2026-08",
+        "pre_inad_direcionado_pf_imobiliario": "2026-08",
+        "pre_inad_livre_pf": "2026-08",
+        "pre_inad_livre_pf_cartao_parcelado": "2026-08",
+        "pre_inad_livre_pf_cartao_rotativo": "2026-08",
+        "pre_inad_livre_pf_cartao_total": "2026-08",
+        "pre_inad_livre_pf_cheque": "2026-08",
+        "pre_inad_livre_pf_consignado": "2026-08",
+        "pre_inad_livre_pf_nao_consignado": "2026-08",
+        "pre_inad_livre_pf_veiculos": "2026-08",
+        "pre_inad_livre_pj": "2026-08",
+        "pre_inad_livre_pj_capital_giro": "2026-08",
+        "pre_inad_livre_pj_conta_garantida": "2026-08",
+        "pre_inad_livre_pj_duplicatas": "2026-08",
+        "pre_inad_livre_total": "2026-08",
+        "pre_inad_total": "2026-08",
+        "provisao_estrangeiro": "2026-08",
+        "provisao_privado_nacional": "2026-08",
+        "provisao_publico": "2026-08",
+        "provisao_sfn": "2026-08",
+        "saldo_controle_estrangeiro": "2026-08",
+        "saldo_controle_privado_nacional": "2026-08",
+        "saldo_controle_publico": "2026-08",
+        "saldo_direcionado_pf": "2026-08",
+        "saldo_direcionado_pf_bndes": "2026-08",
+        "saldo_direcionado_pf_imobiliario": "2026-08",
+        "saldo_direcionado_pf_microcredito": "2026-08",
+        "saldo_direcionado_pf_outros": "2026-08",
+        "saldo_direcionado_pf_rural": "2026-08",
+        "saldo_direcionado_pj": "2026-08",
+        "saldo_direcionado_pj_bndes": "2026-08",
+        "saldo_direcionado_pj_imobiliario": "2026-08",
+        "saldo_direcionado_pj_outros": "2026-08",
+        "saldo_direcionado_pj_rural": "2026-08",
+        "saldo_direcionado_total": "2026-08",
+        "saldo_livre_pf": "2026-08",
+        "saldo_livre_pf_cartao_parcelado": "2026-08",
+        "saldo_livre_pf_cartao_rotativo": "2026-08",
+        "saldo_livre_pf_cartao_total": "2026-08",
+        "saldo_livre_pf_cartao_vista": "2026-08",
+        "saldo_livre_pf_cheque": "2026-08",
+        "saldo_livre_pf_consignado": "2026-08",
+        "saldo_livre_pf_consignado_inss": "2026-08",
+        "saldo_livre_pf_consignado_privado": "2026-08",
+        "saldo_livre_pf_consignado_publico": "2026-08",
+        "saldo_livre_pf_pessoal_nao_consignado": "2026-08",
+        "saldo_livre_pf_veiculos": "2026-08",
+        "saldo_livre_pj": "2026-08",
+        "saldo_livre_pj_acc": "2026-08",
+        "saldo_livre_pj_aquisicao_bens": "2026-08",
+        "saldo_livre_pj_capital_giro": "2026-08",
+        "saldo_livre_pj_conta_garantida": "2026-08",
+        "saldo_livre_pj_duplicatas": "2026-08",
+        "saldo_livre_pj_exportacao": "2026-08",
+        "saldo_livre_total": "2026-08",
+        "saldo_pf_total": "2026-08",
+        "saldo_pj_grande": "2026-08",
+        "saldo_pj_mpme": "2026-08",
+        "saldo_pj_total": "2026-08",
+        "selic_aa": "2026-09",
+        "spread_pf_livre": "2026-08",
+        "spread_pj_livre": "2026-08",
+        "taxa_pf_cartao_parcelado": "2026-08",
+        "taxa_pf_cartao_rotativo": "2026-08",
+        "taxa_pf_cartao_total": "2026-08",
+        "taxa_pf_cheque": "2026-08",
+        "taxa_pf_consignado": "2026-08",
+        "taxa_pf_imobiliario": "2026-08",
+        "taxa_pf_livre": "2026-08",
+        "taxa_pf_nao_consignado": "2026-08",
+        "taxa_pf_veiculos": "2026-08",
+        "taxa_pj_capital_giro": "2026-08",
+        "taxa_pj_conta_garantida": "2026-08",
+        "taxa_pj_duplicatas": "2026-08",
+        "taxa_pj_livre": "2026-08"
+      }
+    },
+    "scr_refresh": {
+      "source": {
+        "page": "https://www.bcb.gov.br/estabilidadefinanceira/scrdata",
+        "zip_template": "https://www.bcb.gov.br/pda/desig/scrdata_{ano}.zip"
+      },
+      "revised_years": [
+        "2024",
+        "2025",
+        "2026"
+      ],
+      "schema_version": 2,
+      "failures": [],
+      "assets": {
+        "scr_data_dados.parquet": {
+          "sha256": "2f671ed0d6b578b5c607f82cbf167bc13f36b3ef37490b304285314e0106c0c3",
+          "bytes": 16956909
+        },
+        "scr_data_metadata.json": {
+          "sha256": "ecfb7c08bc30819c6ea79c1f272cd1f761818369517755f901740a96b6fb5797",
+          "bytes": 3329
+        },
+        "scr_data_dim_produto.parquet": {
+          "sha256": "41cf936ebd7a4a65b78dd5338383a08a34c91c3e393d56902043b62d771f063c",
+          "bytes": 6988
+        },
+        "scr_data_dim_porte.parquet": {
+          "sha256": "60487199ac18a930ccab895aa8fb5a5e9107867fb1f5e150475e061b1b9313e5",
+          "bytes": 8085
+        },
+        "scr_data_dim_geo.parquet": {
+          "sha256": "581c64f99e9dba4351d3e7711be51166fd4060a97970a681fae2c6c80e616ec5",
+          "bytes": 4002
+        },
+        "scr_data_dim_segmento.parquet": {
+          "sha256": "52bf4b94f7207b7593e3ea192e09b9b95b5b9d9cb0d3a7923f17064ad57662c4",
+          "bytes": 4614
+        },
+        "scr_data_manifest.json": {
+          "sha256": "ce0bc52d76af72f5bdacfad0d75df91a14ebb5d7c5b2a7f9a28bc64e01e1826e",
+          "bytes": 16520
+        },
+        "scr_data_ano_2012.parquet": {
+          "sha256": "2a0a70cb37333d1b81cf2ba8bc2c1f8415805956d79eda9a786466e440cbf57c",
+          "bytes": 4110836
+        },
+        "scr_data_ano_2013.parquet": {
+          "sha256": "c0aed1bab700e9e6621ef7691d884be9fcd84b96b2c7ac2727b0b1020b561de7",
+          "bytes": 8518832
+        },
+        "scr_data_ano_2014.parquet": {
+          "sha256": "5f335c02c984c8d8fb74950ef22e6bbbb4be38b8c8fdeca70585e8f1b50dcde7",
+          "bytes": 8739943
+        },
+        "scr_data_ano_2015.parquet": {
+          "sha256": "2d7fb859ba9e5c8a5332a9ab8ef89c77fb8d2fec87d0788e50dd8d8f9ab48e22",
+          "bytes": 8709440
+        },
+        "scr_data_ano_2016.parquet": {
+          "sha256": "ab0ad10a4750bb1296018b0bd3d416d9d797389555e6b6bf23ea8887da56b032",
+          "bytes": 8753359
+        },
+        "scr_data_ano_2017.parquet": {
+          "sha256": "4ec500dee4abdeca2554230f2b96c17db3cc37bec828e84a0fd38c9a610cd9a5",
+          "bytes": 8830375
+        },
+        "scr_data_ano_2018.parquet": {
+          "sha256": "9c6b60b0ee799dd98cd21225da2c8ac7694fc3869d26dff97acef816ab8e9ab8",
+          "bytes": 8938543
+        },
+        "scr_data_ano_2019.parquet": {
+          "sha256": "12491b0fc8cd5b3e2f367d4bacd6f1bf5462ec016c98011659957b15da04b408",
+          "bytes": 9894717
+        },
+        "scr_data_ano_2020.parquet": {
+          "sha256": "4c2c1747f822d7f30f2146f5c5edab262b8039ce31483df675b78c332f36b147",
+          "bytes": 10151806
+        },
+        "scr_data_ano_2021.parquet": {
+          "sha256": "e967ab455c818d89d1d636c3759f02f1ab57e2974fd3935fc5186efaba6285c9",
+          "bytes": 10317807
+        },
+        "scr_data_ano_2022.parquet": {
+          "sha256": "747ceae38225306c786ae2eac771887080050010b236b3361093b6f791a54ddf",
+          "bytes": 10956740
+        },
+        "scr_data_ano_2023.parquet": {
+          "sha256": "954b62acf8e49db2b05f30948abdc926c96374ace8245233886c5b53cc0180c1",
+          "bytes": 11598081
+        },
+        "scr_data_ano_2024.parquet": {
+          "sha256": "db8f1ac54b28db5bb92b7f48167e94bd077780e692048cfd59d6a9cb248e5b54",
+          "bytes": 11604473
+        },
+        "scr_data_ano_2025.parquet": {
+          "sha256": "dc0fdce8dd4e95f0855faa71d17c8d2f5ced752db7dbe1af6282db6bcf6fe7c1",
+          "bytes": 11463705
+        },
+        "scr_data_ano_2026.parquet": {
+          "sha256": "0f1542c203aaf6a5e10b2912ef039f53afca4c18efdf35bb51e8f791aa2504fb",
+          "bytes": 6977141
+        }
+      }
+    },
+    "institution_identity_repair": {
+      "verified_at_utc": "2026-10-09T20:06:48.845407+00:00",
+      "numeric_values_unchanged": true,
+      "repairs": [
+        {
+          "cache": "passivo",
+          "periodo": "202512",
+          "names_repaired": 1406,
+          "registry_sha256": "1a0d1ec17cbe1b677a2dc28052ab58ceb138d27fde700665dfea129f63553b6a",
+          "source": "https://olinda.bcb.gov.br/olinda/servico/IFDATA/versao/v1/odata/IfDataCadastro(AnoMes=202512); https://www3.bcb.gov.br/ifdata/",
+          "before_sha256": "3bf105e5aba390385045c7ad3790b30657badee965b59d88631326c56cabe3c9",
+          "after_sha256": "e4d281074c43348d9a485235b97f422412d4db94ec0564c40f8e3d97ddbb9119",
+          "numeric_values_unchanged": true,
+          "repaired_at_utc": "20261009T194237Z"
+        }
+      ]
+    },
+    "individual_set25_dedup": {
+      "period": "3/2025",
+      "operation": "unique_official_cells_before_pivot",
+      "verified_at_utc": "2026-10-10T20:26:16.191169+00:00",
+      "sources": {
+        "principal_individual": {
+          "url": "https://olinda.bcb.gov.br/olinda/servico/IFDATA/versao/v1/odata/IfDataValores(AnoMes=202509,TipoInstituicao=3,Relatorio='1')?$format=json&$top=500000",
+          "sha256": "8a10681afde214e0b9f7933e4855e605f866cd8d5c0f64e85fa83204b1c1dce4",
+          "bytes": 8617089,
+          "raw_records": 33684,
+          "unique_records": 11228,
+          "exact_duplicate_records": 22456
+        },
+        "dre_individual": {
+          "url": "https://olinda.bcb.gov.br/olinda/servico/IFDATA/versao/v1/odata/IfDataValores(AnoMes=202509,TipoInstituicao=3,Relatorio='4')?$format=json&$top=500000",
+          "sha256": "1bc09beff7f8826740dbccff908e5707e2a973f7cc05ba1b5d628a7ff0ecae67",
+          "bytes": 102915510,
+          "raw_records": 250224,
+          "unique_records": 83408,
+          "exact_duplicate_records": 166816
+        }
+      },
+      "individual_identity": "CodInst",
+      "individual_scope": "Rel. 1 + Rel. 4; sem Rel. 2/16 prudencial"
+    }
+  },
+  "published_assets": {
+    "principal_dados.parquet": {
+      "sha256": "539e940a4ababbbea349a67c448bf46de087db92b01897cdf95911220b33bdcc",
+      "bytes": 5625808
+    },
+    "principal_metadata.json": {
+      "sha256": "f58044d831b9563422d0ec4eb8b9596d60eef15efa2d0ee8b07884390ebad187",
+      "bytes": 3577
+    },
+    "principal_individual_dados.parquet": {
+      "sha256": "1f46c2bca56ccde4531f09aa6235e164b152a26fa1da76e7d6aa053234868724",
+      "bytes": 2208395
+    },
+    "principal_individual_metadata.json": {
+      "sha256": "19f38b3e39c663b116d239424466a8871417ad233e5341b3cc3d67604829eabe",
+      "bytes": 4286
+    },
+    "capital_dados.parquet": {
+      "sha256": "8a14bd1857328b99ad309cffd2a60ab888a39a77ef3b630f2f6013a60671d5f4",
+      "bytes": 4125548
+    },
+    "capital_metadata.json": {
+      "sha256": "27b122bd0dedd32ddaf8d71bfe968674f7996c2d5ffaa67bdaf768d07a038fe0",
+      "bytes": 3504
+    },
+    "ativo_dados.parquet": {
+      "sha256": "a6087e559779f578f054b4d3c5290e37c579a3a38365e7b8de3f49583042b8b1",
+      "bytes": 5701050
+    },
+    "ativo_metadata.json": {
+      "sha256": "8ff8daa718f746d621f05bed473693971c9a50d1b68cde45fa159a4c1043fed2",
+      "bytes": 4729
+    },
+    "passivo_dados.parquet": {
+      "sha256": "e4d281074c43348d9a485235b97f422412d4db94ec0564c40f8e3d97ddbb9119",
+      "bytes": 5160555
+    },
+    "passivo_metadata.json": {
+      "sha256": "494bb71877069d05ea8f02a9c424c0e4c8c93422da4729753f2dc2b344300938",
+      "bytes": 4957
+    },
+    "dre_dados.parquet": {
+      "sha256": "56ee4eab53f1d31a92cbee4325bbcd80f1d104c66dd1d8097eb49b22498ce560",
+      "bytes": 11472269
+    },
+    "dre_metadata.json": {
+      "sha256": "57d7a5bf72f58e7dae29fd57539682ccec33e3031ce909605e027109101b5015",
+      "bytes": 8187
+    },
+    "dre_individual_dados.parquet": {
+      "sha256": "9091635d6663da6164305f7d2d7647008e17221d2992259f9e98c31bab0c28f0",
+      "bytes": 5483995
+    },
+    "dre_individual_metadata.json": {
+      "sha256": "684f4fffcce8a83d2133e8831660c72d1adcf9c19c09bd5d74e1e2dd58e948ae",
+      "bytes": 8478
+    },
+    "carteira_pf_dados.parquet": {
+      "sha256": "81c5286a908d1fec685c4fad8a8be6579f8553aefaae793633a6d018595503b4",
+      "bytes": 451906
+    },
+    "carteira_pf_metadata.json": {
+      "sha256": "95575d97a41274cfde4e1e47d1b126d989a2c1a74b42c2ea7ab4d0b6490d94f6",
+      "bytes": 3148
+    },
+    "carteira_pj_dados.parquet": {
+      "sha256": "a580cc04b771183e115713159e105309c348721bd33aff293b8f9bdc0c9ac19d",
+      "bytes": 363530
+    },
+    "carteira_pj_metadata.json": {
+      "sha256": "a9ce04f6fd91d7d42c12b6432497491a7e7df9e14ad9a0da661fbca4fdc6b817",
+      "bytes": 3078
+    },
+    "carteira_instrumentos_dados.parquet": {
+      "sha256": "1fe74ca92b1ae402ecfd15b762e7497874cbe9e11b859d1ea3fcfa4319eb7fcc",
+      "bytes": 542425
+    },
+    "carteira_instrumentos_metadata.json": {
+      "sha256": "d020d79d4d923f24ec492ddfae2d923104faef627db7af84d8525c022ce81a83",
+      "bytes": 2990
+    },
+    "derived_metrics_dados.parquet": {
+      "sha256": "9159d83ecb6ff62711164cc7abed3e817ef5f20cfa16834e009f22d0272bc785",
+      "bytes": 510297
+    },
+    "derived_metrics_metadata.json": {
+      "sha256": "6b00bd2ef6b2086f4b62ad0df7a7e68dd33d35eb934ec82697b61e352e8a0c65",
+      "bytes": 2375
+    },
+    "derived_metrics_individual_dados.parquet": {
+      "sha256": "9200c89260d552f52cb52133bbd8ff51b572ae4a8119d9ee6cf4ecd82b1b8591",
+      "bytes": 593195
+    },
+    "derived_metrics_individual_metadata.json": {
+      "sha256": "0b2ff13c5b6ae0f71adc19ec3be419927b4e31ba7a544b597c4b6757047d64ed",
+      "bytes": 2845
+    },
+    "critical_screens_dados.parquet": {
+      "sha256": "e702aca3bf2d537be00cb45a2e48c93e3d82faa1587dd220a6a5b10b23b1f419",
+      "bytes": 17097176
+    },
+    "critical_screens_metadata.json": {
+      "sha256": "b65365278fb205910a6a35d307fd638537979fb6ba2dec709bf92f5d99e3dac0",
+      "bytes": 612646
+    },
+    "bloprudencial_dados.parquet": {
+      "sha256": "cf556a0bef881053bd38e23da8399090df6bfe2dac0d384689aa9934e244fb04",
+      "bytes": 12068184
+    },
+    "bloprudencial_metadata.json": {
+      "sha256": "576f2e244e92ffbf8ad42b7942fb2f596f0c4809ba834fb0e0768857f9dccff1",
+      "bytes": 1725
+    },
+    "mercado_credito_sgs_dados.parquet": {
+      "sha256": "4274f48cd379176dcd7f268556e76489c83fd9237e165d1cd7c005ae2c377130",
+      "bytes": 136701
+    },
+    "mercado_credito_sgs_metadata.json": {
+      "sha256": "98243db376c06c5c6c5ee1781f4269c5429099694b0e036e80dfa2cb91533ebd",
+      "bytes": 9654
+    },
+    "spb_meios_pagamento_dados.parquet": {
+      "sha256": "3e20aaf3c768af51d13b20ed535ac8b1fff417826930771976b45e47cdc49265",
+      "bytes": 27009
+    },
+    "spb_meios_pagamento_metadata.json": {
+      "sha256": "d075c105624cdb59cde3028d7fca19be13180a3e25c2a8741fcf28a923e66c00",
+      "bytes": 5927
+    },
+    "spb_meios_pagamento_nucleo_mensal.parquet": {
+      "sha256": "b667635b0567aa4e8d3d1a935ad69fc4e80fa8241d04b4c32c5a0dc2a6b0f90d",
+      "bytes": 29104
+    },
+    "spb_meios_pagamento_cartoes.parquet": {
+      "sha256": "a4423d1aa54834c0e47575de24d0b1a014e4d6defa938695d21a4ecbe052b134",
+      "bytes": 266701
+    },
+    "spb_meios_pagamento_intercambio.parquet": {
+      "sha256": "ec2b29542c2b3eca5dec006e695c34031623eac97cc1cd7892ea321caa4d3fec",
+      "bytes": 10082298
+    },
+    "spb_meios_pagamento_desconto.parquet": {
+      "sha256": "b9064e12c3d5cafeda0494a738887a5a9930d00f0f3f5b65e5bd95119357cb19",
+      "bytes": 305885
+    },
+    "spb_meios_pagamento_portador.parquet": {
+      "sha256": "c394d6ce3684dc469ace86f2bd93774aef5280d5a30b3e355c63343395f5996f",
+      "bytes": 188313
+    },
+    "spb_meios_pagamento_atm.parquet": {
+      "sha256": "735c5530a25a370204d81d8fdd0df4bddca214590baf7b7acffae914db8b80a3",
+      "bytes": 163065
+    },
+    "spb_meios_pagamento_terminais.parquet": {
+      "sha256": "ebec5e9bf3437bdcff2940c5b4e9e38bfee9c5b60844326d640f475f74b3261d",
+      "bytes": 54339
+    },
+    "spb_meios_pagamento_estabelecimentos_credenciados.parquet": {
+      "sha256": "a6607bc533fa7bbf4e59028a4d1441e2bda9978557f8946ff1bf2706fa30bd16",
+      "bytes": 24090
+    },
+    "spb_meios_pagamento_infra_estabelecimentos.parquet": {
+      "sha256": "0ece1ed10a203f39ac323aa3afab2eca63e7a99bcec8ecd0e9d636966c634e2b",
+      "bytes": 45386
+    },
+    "spb_meios_pagamento_canais_servicos.parquet": {
+      "sha256": "c1092e4d51e7e5cbf534e7bc2b9147a999baed2a95d9107622ae20e873ca170e",
+      "bytes": 18276
+    },
+    "spb_meios_pagamento_canais_transacoes.parquet": {
+      "sha256": "4df11ee711d34d7a58844d86952ef83171df5c1b6dbc3c02021cfad14fd10fd1",
+      "bytes": 99336
+    },
+    "spb_meios_pagamento_manifest.json": {
+      "sha256": "23ae83a4fb91e7590ac4bc1d091518f9b5e7b030a53d63f0f857f28d2f488e71",
+      "bytes": 397
+    },
+    "taxas_juros_historico_dados.parquet": {
+      "sha256": "a8307cd3b5f40ea55e70c514359a87d6c49d403c02664e6b673bb4c79c5eab79",
+      "bytes": 18536130
+    },
+    "taxas_juros_historico_metadata.json": {
+      "sha256": "8b4f9c0e91588e9709c8cebf82bd7f1881148ba852bea1ca12c45f924a525772",
+      "bytes": 68891
+    },
+    "taxas_juros_historico_dim_parametros.parquet": {
+      "sha256": "70ee6dbbaac7041a12d7acfeb3bd841e6e573d6f3daa3d8a882683edc8642c3b",
+      "bytes": 4342
+    },
+    "taxas_juros_historico_dim_datas.parquet": {
+      "sha256": "42604421d5f64f762100be75619178bc17fb5d0cc8b6ca2dbf977f632a46d639",
+      "bytes": 68615
+    },
+    "taxas_juros_historico_dim_instituicoes.parquet": {
+      "sha256": "0c5a867efbbb220bb6b2cf4d166a9b969450a3c84ecb70a57bf8c346e16221a8",
+      "bytes": 21483
+    },
+    "taxas_juros_historico_manifest.json": {
+      "sha256": "ebb2910dfe63d44bde4cbe99441d9e5822746c4fcd2f3496ad81c917ee01840e",
+      "bytes": 2309
+    }
+  }
+}

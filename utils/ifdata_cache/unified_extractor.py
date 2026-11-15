@@ -254,32 +254,9 @@ def normalizar_nome_coluna(valor: str) -> str:
 
 
 def extrair_cadastro(periodo: str) -> pd.DataFrame:
-    """Extrai cadastro de instituições para um período.
-
-    Args:
-        periodo: Período no formato YYYYMM
-
-    Returns:
-        DataFrame com CodInst, NomeInstituicao e outros campos
-    """
-    url = f"{BASE_URL}/IfDataCadastro(AnoMes={int(periodo)})?$format=json&$top=5000"
-
-    logger.info(f"Extraindo cadastro para período {periodo}")
-
-    try:
-        data = _fetch_json(url, timeout=60)
-        df = pd.DataFrame((data or {}).get("value", []))
-
-        if df.empty:
-            logger.warning(f"Cadastro vazio para período {periodo}")
-        else:
-            logger.info(f"Cadastro {periodo}: {len(df)} registros")
-
-        return df
-
-    except ExtractionError as e:
-        logger.error(f"Falha ao extrair cadastro {periodo}: {e}")
-        return pd.DataFrame()
+    """Usa o cadastro validado compartilhado entre todos os extratores."""
+    from .extractor import extrair_cadastro as shared_registry
+    return shared_registry(periodo)
 
 
 def extrair_valores(
@@ -404,40 +381,18 @@ def processar_periodo(
             df_pivot = df_pivot.rename(columns=colunas_para_renomear)
 
         # 7. Adicionar nomes de instituições
-        if not df_cad.empty and "CodInst" in df_cad.columns:
-            # Encontrar coluna de nome
-            col_nome = None
-            for candidato in ["NomeInstituicao", "NomeInstituição"]:
-                if candidato in df_cad.columns:
-                    col_nome = candidato
-                    break
+        from .institution_registry import attach_institution_names
+        df_pivot = attach_institution_names(df_pivot, df_cad, periodo, name_column="NomeInstituicao")
 
-            if col_nome:
-                df_nomes = df_cad[["CodInst", col_nome]].drop_duplicates()
-                df_nomes = df_nomes.rename(columns={col_nome: "NomeInstituicao"})
-                df_pivot = df_pivot.merge(df_nomes, on="CodInst", how="left")
-
-        # 8. Preencher nomes faltantes
-        if "NomeInstituicao" not in df_pivot.columns:
-            df_pivot["NomeInstituicao"] = df_pivot["CodInst"].apply(lambda x: f"[IF {x}]")
-        else:
-            df_pivot["NomeInstituicao"] = df_pivot.apply(
-                lambda row: row["NomeInstituicao"] if pd.notna(row["NomeInstituicao"])
-                else f"[IF {row['CodInst']}]",
-                axis=1
-            )
-
-        # 9. Preservar nome oficial da fonte; alias foi removido do pipeline.
-
-        # 10. Adicionar período
+        # 8. Adicionar período
         df_pivot["Periodo"] = periodo
 
-        # 11. Reordenar colunas
+        # 9. Reordenar colunas
         cols_inicio = ["Periodo", "CodInst", "NomeInstituicao"]
         outras_cols = sorted([c for c in df_pivot.columns if c not in cols_inicio])
         df_pivot = df_pivot[cols_inicio + outras_cols]
 
-        # 12. Remover linhas sem dados numéricos
+        # 10. Remover linhas sem dados numéricos
         colunas_numericas = [c for c in df_pivot.columns if c not in cols_inicio]
         if colunas_numericas:
             df_pivot = df_pivot.dropna(subset=colunas_numericas, how="all")

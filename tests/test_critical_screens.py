@@ -1,3 +1,4 @@
+import hashlib
 import json
 from pathlib import Path
 
@@ -1160,6 +1161,11 @@ def test_runtime_replaces_same_period_local_when_content_hash_differs(tmp_path: 
 
     cache.bundled_dir.mkdir(parents=True, exist_ok=True)
     bundled_df.to_parquet(cache.bundled_data_file, index=False)
+    # O bundle representa outra geração completa, com integridade dos próprios bytes.
+    runtime_metadata["integridade"]["sha256"] = hashlib.sha256(
+        cache.bundled_data_file.read_bytes()
+    ).hexdigest()
+    runtime_metadata["integridade"]["tamanho_bytes"] = cache.bundled_data_file.stat().st_size
     cache.bundled_metadata_file.write_text(
         json.dumps(runtime_metadata, ensure_ascii=False),
         encoding="utf-8",
@@ -1246,7 +1252,9 @@ def test_load_critical_screens_slice_supplements_missing_funding_from_passivo(tm
     assert principal_cache is not None
     assert passivo_cache is not None
     assert principal_cache.salvar_local(principal_df, fonte="test").sucesso
-    assert passivo_cache.salvar_local(passivo_df, fonte="test").sucesso
+    # Simula arquivo legado corrompido; gravações novas rejeitam placeholders.
+    passivo_cache.cache_dir.mkdir(parents=True, exist_ok=True)
+    passivo_df.to_parquet(passivo_cache.arquivo_dados_runtime, index=False)
     assert critical_cache.salvar_local(
         stale_critical_df,
         fonte="materialized",
@@ -1331,7 +1339,9 @@ def test_load_runtime_passivo_support_prefilters_selected_institutions_before_ca
     assert principal_cache is not None
     assert passivo_cache is not None
     assert principal_cache.salvar_local(principal_df, fonte="test").sucesso
-    assert passivo_cache.salvar_local(passivo_df, fonte="test").sucesso
+    # Simula arquivo legado corrompido; gravações novas rejeitam placeholders.
+    passivo_cache.cache_dir.mkdir(parents=True, exist_ok=True)
+    passivo_df.to_parquet(passivo_cache.arquivo_dados_runtime, index=False)
 
     import utils.ifdata_cache.critical_screens as critical_screens_module
 
@@ -1356,3 +1366,21 @@ def test_load_runtime_passivo_support_prefilters_selected_institutions_before_ca
     row = support.iloc[0]
     assert row["Instituição"] == "ITAU - PRUDENCIAL"
     assert row["Core Funding"] == 150.0
+
+
+def test_dre_ratios_align_filtered_indices_with_funding_denominator():
+    """Recortar trimestres do histórico não pode apagar ou trocar o denominador."""
+    from utils.ifdata_cache.critical_screens import _build_dre_ratios_lookup
+    dre = pd.DataFrame({
+        "Instituição": ["ITAU - PRUDENCIAL"] * 2,
+        "Período": ["1/2026", "2/2026"],
+        "Despesas de Captações (g)": [-10., -20.],
+    }, index=[103, 810])
+    principal = pd.DataFrame({
+        "Instituição": ["ITAU - PRUDENCIAL"] * 2,
+        "Período": ["1/2026", "2/2026"], "Captações": [100., 200.],
+    }, index=[7, 9])
+    lookup = _build_dre_ratios_lookup(dre, principal, {})
+    june = next(value for key, value in lookup.items() if key[1] == "2/2026")
+    assert june["Trace::Desp Captação::Captações Média YTD"] == 150.
+    assert abs(june["Desp Captação / Captação"] - (-40. / 150.)) < 1e-12

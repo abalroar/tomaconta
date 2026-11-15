@@ -1,0 +1,361 @@
+from io import BytesIO
+import json
+from zipfile import ZipFile
+
+import pandas as pd
+import pytest
+from lxml import etree
+from openpyxl import load_workbook
+from pptx import Presentation
+
+from tabs.carteira_4966 import EXPECTED_LOSS_COLUMNS, build_carteira_4966_model
+from utils.snapshot_pptx_export import export_snapshot_powerpoint
+
+
+def snapshot():
+    labels = [
+        "Ativo Total", "Carteira de Crédito", "Patrimônio Líquido", "Índice de Basileia",
+        "Lucro Líquido Trimestral", "Lucro Líquido Acum. YTD", "ROE trim. anualizado", "ROE Ac. Anualizado",
+        "Crédito / Captações", "Desp. Anualizada Captação / Volume Captação", "Perda Esperada / Estágio 3",
+        "Perda Esperada / Carteira", "CET1",
+    ]
+    return {
+        "bank": "ITAU - PRUDENCIAL", "base": "Consolidada / Prudencial", "period_label": "Mar/26",
+        "qoq_label": "Dez/25", "yoy_label": "Mar/25", "source_notes": ["Dados trimestrais. Perda Esperada / Estágio 3: cobertura aproximada."],
+        "cards": [{"key": str(index), "label": label, "value": "14,77%" if index == 3 else f"{index},25",
+                   "qoq": {"display": "↓ −41 bps" if index == 3 else "↑ +7 bps", "tone": "attention", "reason": "Fonte preservada"},
+                   "yoy": {"display": "↑ +0,4 p.p.", "tone": "favorable"},
+                   "group": "hero" if index < 4 else "profit" if index < 8 else "support",
+                   "source": "BCB IFData Rel. 1", "status": "available",
+                   "history": {"periods": ["Jun/25", "Set/25", "Dez/25", "Mar/26"], "values": [1e9, None, 1.1e9, 1.2e9], "kind": "bars" if 4 <= index < 8 else "line"}}
+                  for index, label in enumerate(labels)],
+    }
+
+
+def carteira():
+    source = pd.DataFrame({
+        "Período": ["3/2025", "4/2025", "1/2026"], "Total Geral": [100e6, 100e6, 110e6],
+        "C1": [10e6, 10e6, 11e6], "C2": [20e6, 20e6, 21e6], "C3": [15e6, 15e6, 17e6],
+        "C4": [20e6, 20e6, 21e6], "C5": [30e6, 30e6, 33e6], "Total não Individualizado": [3e6, 3e6, 4e6],
+        "Carteira não Informada ou não se Aplica": [2e6, 2e6, 3e6], "Total Exterior": [0, 0, 0],
+        "Inadimplência": [2e6, 2.18e6, 110e6 * .0225],
+    })
+    loss = pd.DataFrame({"Período": source["Período"]})
+    loss[EXPECTED_LOSS_COLUMNS[0]] = [-4e6, -2.18e6 * 1.931, -110e6 * .0225 * 1.935]
+    for column in EXPECTED_LOSS_COLUMNS[1:]:
+        loss[column] = 0.0
+    return build_carteira_4966_model(source, loss, source["Período"].tolist())
+
+
+def peers():
+    from utils.peers_table_model import DEFAULT_METRICS, build_query
+    periods = ["3/2025", "4/2025", "1/2026"]
+    df = pd.DataFrame({"Instituição": ["ITAU - PRUDENCIAL"] * 3, "Período": periods})
+    return build_query(df, ["ITAU - PRUDENCIAL"], periods, DEFAULT_METRICS, {}, {},
+                       base="Consolidada / Prudencial", cache_token="qa", scale="R$ bilhões", mode="quarter", queried_at="10/10/2026")
+
+
+def visible_text(slide):
+    pieces = []
+    for shape in slide.shapes:
+        if shape.has_text_frame:
+            pieces.append(shape.text)
+        elif shape.has_table:
+            pieces.extend(cell.text for row in shape.table.rows for cell in row.cells if not cell.is_spanned)
+    return "\n".join(pieces)
+
+
+def assert_schema_order(parent, sequence):
+    """Verifica a sequência OOXML, que um ZIP bem formado não valida."""
+    names = [etree.QName(child).localname for child in parent]
+    assert all(name in sequence for name in names), names
+    positions = [sequence.index(name) for name in names]
+    assert positions == sorted(positions), names
+    assert len(names) == len(set(names)), names
+
+
+def test_office_chart_and_table_properties_follow_ooxml_child_order():
+    # A ordem inválida de spPr levou o PowerPoint a remover os slides 1 e 2.
+    # Bordas após solidFill também violam a sequência de tcPr.
+    with ZipFile(BytesIO(export_snapshot_powerpoint(snapshot(), peers(), carteira()))) as archive:
+        for path in archive.namelist():
+            if path.startswith("ppt/charts/chart") and path.endswith(".xml"):
+                root = etree.fromstring(archive.read(path))
+                assert_schema_order(root, [
+                    "date1904", "lang", "roundedCorners", "style", "clrMapOvr", "pivotSource",
+                    "protection", "chart", "spPr", "txPr", "externalData", "printSettings", "userShapes", "extLst",
+                ])
+                ns = {"c": "http://schemas.openxmlformats.org/drawingml/2006/chart"}
+                chart = root.find("c:chart", ns)
+                assert_schema_order(chart, [
+                    "title", "autoTitleDeleted", "pivotFmts", "view3D", "floor", "sideWall", "backWall",
+                    "plotArea", "legend", "plotVisOnly", "dispBlanksAs", "showDLblsOverMax", "extLst",
+                ])
+                for axis in root.xpath(".//c:catAx | .//c:valAx", namespaces=ns):
+                    assert [etree.QName(child).localname for child in axis][:4] == ["axId", "scaling", "delete", "axPos"]
+                for point in root.xpath(".//c:dPt", namespaces=ns):
+                    assert_schema_order(point, [
+                        "idx", "invertIfNegative", "marker", "bubble3D", "explosion",
+                        "spPr", "pictureOptions", "extLst",
+                    ])
+                for marker in root.xpath(".//c:marker", namespaces=ns):
+                    if len(marker):
+                        assert_schema_order(marker, ["symbol", "size", "spPr", "extLst"])
+                plot_area = chart.find("c:plotArea", ns)
+                assert_schema_order(plot_area, ["layout", "lineChart", "barChart", "catAx", "valAx", "dTable", "spPr", "extLst"])
+            if path.startswith("ppt/slides/slide") and path.endswith(".xml"):
+                root = etree.fromstring(archive.read(path))
+                for props in root.xpath(".//a:tcPr", namespaces={"a": "http://schemas.openxmlformats.org/drawingml/2006/main"}):
+                    assert_schema_order(props, [
+                        "lnL", "lnR", "lnT", "lnB", "lnTlToBr", "lnBlToTr", "cell3D",
+                        "noFill", "solidFill", "gradFill", "blipFill", "pattFill", "grpFill", "headers", "extLst",
+                    ])
+
+
+def test_first_slide_holds_the_whole_snapshot_with_native_editable_history_with_gaps():
+    payload = snapshot()
+    result = export_snapshot_powerpoint(payload, peers(), carteira())
+    prs = Presentation(BytesIO(result))
+    texts = [visible_text(slide) for slide in prs.slides]
+    assert len(prs.slides) >= 5
+    assert sum(shape.has_table for shape in prs.slides[0].shapes) == 2
+    for card in payload["cards"]:
+        assert card["label"] in texts[0]
+        assert card["value"] in texts[0]
+    assert "14,77%" in texts[0] and "↓ −41 bps" in texts[0]
+    assert "QoQ\nDez/25" in texts[0] and "YoY\nMar/25" in texts[0]
+    charts = [shape.chart for shape in prs.slides[0].shapes if shape.has_chart]
+    assert len(charts) == 13
+    assert charts[0].series[0].values == (1e9, None, 1.1e9, 1.2e9)
+    workbook = load_workbook(BytesIO(charts[0].part.chart_workbook.xlsx_part.blob), data_only=True)
+    assert list(workbook.active.values)[2] == ("Set/25", None)
+    with ZipFile(BytesIO(result)) as archive:
+        assert not any(path.startswith("ppt/media/") for path in archive.namelist())
+        assert len([path for path in archive.namelist() if path.startswith("ppt/embeddings/")]) == 13
+        chart_xml = etree.fromstring(archive.read("ppt/charts/chart1.xml"))
+        assert chart_xml.xpath("string(.//c:dispBlanksAs/@val)", namespaces={"c": "http://schemas.openxmlformats.org/drawingml/2006/chart"}) == "gap"
+        namespace = {"c": "http://schemas.openxmlformats.org/drawingml/2006/chart"}
+        for path in archive.namelist():
+            if not path.startswith("ppt/charts/chart") or not path.endswith(".xml"):
+                continue
+            chart_xml = etree.fromstring(archive.read(path))
+            identifiers = chart_xml.xpath(".//c:axId/@val | .//c:crossAx/@val", namespaces=namespace)
+            # IDs UInt32 acima de Int32 causam reparo no PowerPoint Mac.
+            assert all(0 < int(identifier) <= 0x7FFFFFFF for identifier in identifiers)
+            axes = chart_xml.xpath(".//c:catAx | .//c:valAx", namespaces=namespace)
+            axis_ids = [axis.xpath("string(c:axId/@val)", namespaces=namespace) for axis in axes]
+            assert len(axis_ids) == len(set(axis_ids)) == 2
+            for axis in axes:
+                own_id = axis.xpath("string(c:axId/@val)", namespaces=namespace)
+                cross_id = axis.xpath("string(c:crossAx/@val)", namespaces=namespace)
+                assert cross_id in axis_ids and cross_id != own_id
+            plot_ids = chart_xml.xpath(".//c:lineChart/c:axId/@val | .//c:barChart/c:axId/@val", namespaces=namespace)
+            assert set(plot_ids) == set(axis_ids)
+    notes = json.loads(prs.slides[0].notes_slide.notes_text_frame.text)
+    assert notes["cards"][0]["qoq"]["reason"] == "Fonte preservada"
+    # Toda página do histórico mantém o título, não só a primeira.
+    assert [text.split("\n")[0] for text in texts].count("Histórico trimestral") >= 2
+    assert "Tabela de Peers" not in texts[1]
+    assert "Carteira 4.966" in texts[-1]
+
+
+@pytest.mark.parametrize("missing", [None, float("nan")])
+def test_real_snapshot_missing_funding_remains_nd_and_zero_is_editable_numeric_data(missing):
+    import app1
+    from utils.snapshot_export_data import snapshot_payload
+
+    zero = {"label": "Crédito / Captações", "format_key": "Carteira de Crédito/Core Funding (%)",
+            "is_pct": True, "serie": {"2/2026": 0.0}}
+    absent = {"label": "Desp. Anualizada Captação / Volume Captação", "format_key": "Desp Captação / Captação",
+              "is_pct": True, "serie": {"2/2026": missing}, "status_marker": "†", "status_note": "Fonte indisponível."}
+    histories = {zero["label"]: {"periods": ["Dez/25", "Mar/26", "Jun/26"], "values": [None, 0.0, 0.0]},
+                 absent["label"]: {"periods": ["Dez/25", "Mar/26", "Jun/26"], "values": [None, missing, None]}}
+    cards = snapshot_payload("SBXPAY IP - PRUDENCIAL", "2/2026", None, None,
+                             [("support", [zero, absent])], histories, vars(app1))["cards"]
+    payload = snapshot()
+    payload["cards"][8:10] = cards
+    prs = Presentation(BytesIO(export_snapshot_powerpoint(payload)))
+    support = prs.slides[0]
+    table = [shape.table for shape in support.shapes if shape.has_table][1]
+    assert table.cell(1, 1).text == "0,00%"
+    assert table.cell(2, 1).text == "N/D†"
+    assert table.cell(2, 4).text == "N/D"
+    charts = [shape.chart for shape in support.shapes if shape.has_chart]
+    assert len(charts) == 12  # O histórico integralmente ausente não cria gráfico.
+    zero_chart = next(chart for chart in charts if chart.series[0].values == (None, 0.0, 0.0))
+    workbook = load_workbook(BytesIO(zero_chart.part.chart_workbook.xlsx_part.blob), data_only=True)
+    assert list(workbook.active.values)[1:] == [("Dez/25", None), ("Mar/26", 0), ("Jun/26", 0)]
+    notes = json.loads(support.notes_slide.notes_text_frame.text)
+    by_label = {card["label"]: card for card in notes["cards"]}
+    assert by_label[zero["label"]]["raw_value"] == 0.0
+    assert pd.isna(by_label[absent["label"]]["raw_value"])
+    assert by_label[absent["label"]]["status"] == "Fonte indisponível."
+
+
+def test_4966_uses_shared_difference_units_and_credit_colors_in_native_table():
+    prs = Presentation(BytesIO(export_snapshot_powerpoint(snapshot(), peers(), carteira())))
+    table = next(shape.table for shape in prs.slides[-1].shapes if shape.has_table)
+    risk = next(row for row in table.rows if "conceito de arrasto" in row.cells[0].text)
+    # Final period has two subcolumns, saldo and carteira %. Rate moves 2.18 -> 2.25.
+    assert "2,25%" in risk.cells[len(risk.cells) - 1].text
+    assert "↑ +7 bps" in risk.cells[len(risk.cells) - 1].text
+    assert str(risk.cells[len(risk.cells) - 1].text_frame.paragraphs[1].font.color.rgb) == "B32624"
+    coverage = next(row for row in table.rows if row.cells[0].text == "PDD / Créditos vencidos acima de 90 dias (%)")
+    assert "193,50%" in coverage.cells[len(coverage.cells) - 2].text
+    assert "↑ +0,40 p.p." in coverage.cells[len(coverage.cells) - 2].text
+    assert str(coverage.cells[len(coverage.cells) - 2].text_frame.paragraphs[1].font.color.rgb) == "16713B"
+    assert "bps inteiros" in visible_text(prs.slides[-1])
+
+
+def test_missing_sections_keep_order_and_explicit_scope_reason_without_fabricating_values():
+    prs = Presentation(BytesIO(export_snapshot_powerpoint(snapshot(), peers_unavailable_reason="IFData individual não disponível.", carteira_unavailable_reason="Relatório 16 exige o perímetro prudencial.")))
+    assert len(prs.slides) == 3
+    assert "Histórico trimestral" in visible_text(prs.slides[1])
+    assert "IFData individual não disponível." in visible_text(prs.slides[1])
+    assert "Carteira 4.966" in visible_text(prs.slides[2])
+    assert "Relatório 16 exige o perímetro prudencial." in visible_text(prs.slides[2])
+    assert "N/D" in visible_text(prs.slides[2])
+
+
+def test_last_three_periods_are_chronological_and_short_coverage_is_disclosed():
+    model = carteira()
+    model.periods = ("1/2026",)
+    prs = Presentation(BytesIO(export_snapshot_powerpoint(snapshot(), peers(), model)))
+    final = visible_text(prs.slides[-1])
+    assert "Mar/26\nQoQ vs Dez/25" in final
+    assert "1 período(s) disponível(is)" in final
+    assert "Set/25\nQoQ vs" not in final
+
+
+def test_history_mismatched_periods_raise_a_clear_input_error():
+    payload = snapshot()
+    payload["cards"][0]["history"]["periods"].pop()
+    with pytest.raises(ValueError, match="um rótulo por valor"):
+        export_snapshot_powerpoint(payload)
+
+
+@pytest.mark.parametrize("kind", ["line", "bars"])
+@pytest.mark.parametrize("tone,color", [("favorable", "16713B"), ("attention", "B32624")])
+def test_history_uses_credit_tone_at_native_endpoint_without_changing_editable_values(kind, tone, color):
+    payload = snapshot()
+    payload["cards"][0]["qoq"]["tone"] = tone
+    payload["cards"][0]["history"] = {
+        "periods": ["Set/25", "Dez/25", "Mar/26"],
+        "values": [None, 2.18, 2.25], "kind": kind,
+    }
+    chart = next(shape.chart for shape in Presentation(BytesIO(export_snapshot_powerpoint(payload))).slides[0].shapes if shape.has_chart)
+    assert len(chart.series) == 1
+    assert chart.series[0].values == (None, 2.18, 2.25)
+    point = chart._chartSpace.xpath(".//c:dPt")[0]
+    assert point.xpath("string(c:idx/@val)") == "2"
+    assert point.xpath(".//a:srgbClr/@val") == [color]
+    workbook = load_workbook(BytesIO(chart.part.chart_workbook.xlsx_part.blob), data_only=True)
+    assert list(workbook.active.values)[1:] == [("Set/25", None), ("Dez/25", 2.18), ("Mar/26", 2.25)]
+
+
+@pytest.mark.parametrize("values,tone", [
+    ([1, 2, None], "attention"), ([1, None, 3], "favorable"),
+    ([1, 2, 2], "favorable"), ([1, 2, 3], "neutral"),
+])
+def test_history_does_not_imply_a_credit_move_when_latest_delta_is_absent_flat_or_contextual(values, tone):
+    payload = snapshot()
+    payload["cards"][0]["qoq"]["tone"] = tone
+    payload["cards"][0]["history"] = {"periods": ["Set/25", "Dez/25", "Mar/26"], "values": values}
+    chart = next(shape.chart for shape in Presentation(BytesIO(export_snapshot_powerpoint(payload))).slides[0].shapes if shape.has_chart)
+    assert not chart._chartSpace.xpath(".//c:dPt")
+    assert chart.series[0].values == tuple(values)
+
+
+def test_individual_snapshot_keeps_new_npl_rows_and_explicit_unavailable_scope():
+    payload = snapshot()
+    payload["base"] = "Individual"
+    for card in payload["cards"]:
+        card["scope"] = "Individual"
+        card["source"] = "IFData Rel. 1"
+    for key, label in [("npl", "NPL >90 dias · arrasto"), ("coverage", "Cobertura PDD / NPL >90 dias")]:
+        payload["cards"].append({
+            "key": key, "label": label, "value": "N/D", "group": "support",
+            "subtitle": "Arrasto · % da carteira" if key == "npl" else "PDD / vencidos por arrasto",
+            "scope": "Individual", "source": "IFData Rel. 16 indisponível",
+            "qoq": {"display": "N/D", "tone": "neutral"},
+            "yoy": {"display": "N/D", "tone": "neutral"},
+            "history": {"periods": ["Set/25", "Dez/25", "Mar/26"], "values": [None, None, None]},
+        })
+    payload["source_notes"] = "NPL e PDD: sem fonte individual validada; ausência preservada como N/D."
+    prs = Presentation(BytesIO(export_snapshot_powerpoint(payload)))
+    support = prs.slides[0]
+    table_shape = [shape for shape in support.shapes if shape.has_table][1]
+    table = table_shape.table
+    assert len(table.rows) == 8
+    for row in list(table.rows)[-2:]:
+        assert row.cells[1].text == row.cells[4].text == "N/D"
+    assert "Arrasto · % da carteira" in list(table.rows)[-2].cells[0].text
+    assert "PDD / vencidos por arrasto" in list(table.rows)[-1].cells[0].text
+    assert sum(shape.has_chart for shape in support.shapes) == 13
+    assert "IFData individual: trimestral" in visible_text(support)
+    assert "sem fonte individual validada" in visible_text(support)
+    assert table_shape.top + table_shape.height < next(shape.top for shape in support.shapes if shape.has_text_frame and "sem fonte individual" in shape.text)
+    notes = json.loads(support.notes_slide.notes_text_frame.text)
+    assert notes["snapshot"]["base"] == "Individual"
+    assert notes["cards"][-1]["scope"] == "Individual"
+
+
+def test_peers_native_table_preserves_delta_but_keeps_unreliable_reference_neutral():
+    query = peers()
+    key = "Inadimplência / Carteira Total"
+    query["metrics"] = [key]
+    query["cells"] = [cell for cell in query["cells"] if cell["metric"] == key]
+    latest = next(cell for cell in query["cells"] if cell["period"] == "1/2026")
+    latest.update(value=2.25, display="2,25%", variation="↑ +7 bps", direction="up",
+                  status="available", reference_status="warning",
+                  reference_reason="Componente incompleto no trimestre de referência.")
+    prs = Presentation(BytesIO(export_snapshot_powerpoint(snapshot(), query)))
+    table = next(shape.table for shape in prs.slides[1].shapes if shape.has_table)
+    row = next(row for row in table.rows if "Vencidos >90 dias" in row.cells[0].text)
+    target = row.cells[len(row.cells) - 1]
+    assert target.text == "2,25%\n↑ +7 bps"
+    assert str(target.text_frame.paragraphs[1].font.color.rgb) == "666666"
+    notes = json.loads(prs.slides[1].notes_slide.notes_text_frame.text)
+    assert notes["cells"][-1]["reference_reason"] == latest["reference_reason"]
+
+
+def test_committee_deck_drops_repeated_rows_and_keeps_one_slide_per_section():
+    added = []
+    prs = Presentation(BytesIO(export_snapshot_powerpoint(snapshot(), peers(), carteira(), committee_slides=lambda deck: added.append(deck))))
+    assert added and len(prs.slides) == 3
+    history, portfolio = visible_text(prs.slides[1]), visible_text(prs.slides[2])
+    assert "Histórico trimestral" in history and "Basileia" not in history and "Core funding" in history
+    assert "Carteira 4.966 total" in portfolio and "% base" in portfolio
+    # Over 90 sai do histórico, mas não pode sumir do material: volume, % e cobertura ficam aqui.
+    assert "Vencidos >90" not in history
+    assert "Vencidos acima de 90 dias" in portfolio and "PDD / Créditos vencidos acima de 90 dias" in portfolio and "PDD / C5" in portfolio
+
+
+def test_history_title_only_says_peers_when_there_are_peers():
+    from utils.snapshot_pptx_export import _history_title
+    assert _history_title({"banks": ["A"]}) == "Histórico trimestral"
+    assert _history_title({"banks": ["A", "B"]}) == "Tabela de Peers"
+
+
+def test_attention_line_follows_the_red_comparisons_and_lists_capital_first():
+    from utils.snapshot_pptx_export import attention_line
+    cards = [
+        {"label": "ROE Ac. Anualizado", "value": "-136%", "yoy": {"display": "↓ −100 bps", "tone": "attention"}},
+        {"label": "Ativo Total", "value": "R$ 3 bi", "yoy": {"display": "↑ +1%", "tone": "neutral"}},
+        {"label": "CET1", "value": "1,27%", "yoy": {"display": "↓ −885 bps", "tone": "attention"}},
+    ]
+    assert attention_line(cards, "Jun/25") == "Pontos de atenção: CET1 1,27% (−885 bps vs Jun/25); ROE Ac. Anualizado -136% (−100 bps vs Jun/25)."
+    assert attention_line(cards[1:2], "Jun/25") == ""
+
+
+def test_negative_bars_keep_their_fill_and_lines_use_their_own_range():
+    from pptx import Presentation as Deck
+    from utils.snapshot_pptx_export import _history
+    deck = Deck()
+    slide = deck.slides.add_slide(deck.slide_layouts[6])
+    assert _history(slide, {"periods": ["a", "b"], "values": [-5.0, 2.0], "kind": "bars"}, 0, 0, 1, 1)
+    assert _history(slide, {"periods": ["a", "b"], "values": [100.0, 110.0], "kind": "line"}, 0, 1, 1, 1)
+    bars, line = [shape.chart for shape in slide.shapes if shape.has_chart]
+    assert bars.series[0].invert_if_negative is False
+    assert (bars.value_axis.minimum_scale, bars.value_axis.maximum_scale) == (-5.0, 2.0)
+    assert line.value_axis.minimum_scale == 99.0 and line.value_axis.maximum_scale == 111.0

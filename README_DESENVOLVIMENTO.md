@@ -1,5 +1,13 @@
 # README de Desenvolvimento
 
+## Atualização portátil e autosserviço
+
+O [manual da etapa 2](docs/autosservico_portatil_etapa_2.md) descreve a API, o worker,
+a fila persistente e a instalação com armazenamento oficial versionado. A configuração
+é opcional; o site atual conserva o modo existente até o serviço ser instalado.
+O [contrato do armazenamento](docs/armazenamento-oficial.md) detalha revisões,
+integridade, publicação, restauração e backup.
+
 ## Checks rápidos antes de merge
 
 Execute o check de unicidade dos rótulos do dispatcher de menu:

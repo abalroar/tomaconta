@@ -1,0 +1,3053 @@
+{
+  "source_rows": 1246790,
+  "source_archive_hashes_ok": [
+    true,
+    true
+  ],
+  "empty_runtime_reads_bundle": true,
+  "institution_count": 173,
+  "institutions_with_accounting_difference": [
+    {
+      "code": "C0080642",
+      "name": "PORTO SEGURO - PRUDENCIAL",
+      "checks": 16,
+      "differences": [
+        {
+          "check": "DRE: resultado apresentado x grupos 7 + 8",
+          "period": "202606",
+          "difference": 0.05999979376792908,
+          "tolerance": 0.02,
+          "status": "Divergência",
+          "note": ""
+        }
+      ],
+      "unavailable": 0
+    }
+  ],
+  "afinz_checks": [
+    {
+      "check": "DRE: resultado apresentado x grupos 7 + 8",
+      "period": "202512",
+      "difference": 2.60770320892334e-08,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": ""
+    },
+    {
+      "check": "DRE: 4060 x IFData Rel. 4",
+      "period": "202512",
+      "difference": 1918803.949999934,
+      "tolerance": 0.02,
+      "status": "Divergência",
+      "note": "Divergência pode refletir retificação ou composição. O 4060 é a fonte da DRE apresentada."
+    },
+    {
+      "check": "DRE: resultado apresentado x grupos 7 + 8",
+      "period": "202606",
+      "difference": 1.1920928955078125e-07,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": ""
+    },
+    {
+      "check": "DRE: 4060 x IFData Rel. 4",
+      "period": "202606",
+      "difference": -5.960464477539063e-08,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Divergência pode refletir retificação ou composição. O 4060 é a fonte da DRE apresentada."
+    },
+    {
+      "check": "Balanço: Ativo = Passivo + PL",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": ""
+    },
+    {
+      "check": "Balanço: composição do Ativo x grupos 1 + 2",
+      "period": "202512",
+      "difference": -4.76837158203125e-07,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": ""
+    },
+    {
+      "check": "Balanço: composição do Passivo x grupos 4 + 5",
+      "period": "202512",
+      "difference": -4.76837158203125e-07,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": ""
+    },
+    {
+      "check": "Balanço: subcontas apresentadas de credit",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": ""
+    },
+    {
+      "check": "Balanço: subcontas apresentadas de others",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": ""
+    },
+    {
+      "check": "Balanço: subcontas apresentadas de fixed",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": ""
+    },
+    {
+      "check": "Balanço: subcontas apresentadas de deposits",
+      "period": "202512",
+      "difference": 2.384185791015625e-07,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": ""
+    },
+    {
+      "check": "Balanço x IFData: Ativo",
+      "period": "202512",
+      "difference": 4.76837158203125e-07,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": ""
+    },
+    {
+      "check": "Balanço x IFData: PL",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": ""
+    },
+    {
+      "check": "Conciliação patrimonial: PL 4066 x PL 4060 + resultado",
+      "period": "202512",
+      "difference": 5.960464477539063e-08,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": ""
+    },
+    {
+      "check": "Capital: CET1 calculado x índice reportado",
+      "period": "202512",
+      "difference": -2.7755575615628914e-17,
+      "tolerance": 1e-08,
+      "status": "OK",
+      "note": ""
+    },
+    {
+      "check": "Capital: Basileia calculada x índice reportado",
+      "period": "202512",
+      "difference": 4.996003610813204e-16,
+      "tolerance": 1e-08,
+      "status": "OK",
+      "note": ""
+    },
+    {
+      "check": "Capital: Nível I calculado x índice reportado",
+      "period": "202512",
+      "difference": -2.7755575615628914e-17,
+      "tolerance": 1e-08,
+      "status": "OK",
+      "note": ""
+    },
+    {
+      "check": "Balanço: Ativo = Passivo + PL",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": ""
+    },
+    {
+      "check": "Balanço: composição do Ativo x grupos 1 + 2",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": ""
+    },
+    {
+      "check": "Balanço: composição do Passivo x grupos 4 + 5",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": ""
+    },
+    {
+      "check": "Balanço: subcontas apresentadas de credit",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": ""
+    },
+    {
+      "check": "Balanço: subcontas apresentadas de others",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": ""
+    },
+    {
+      "check": "Balanço: subcontas apresentadas de fixed",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": ""
+    },
+    {
+      "check": "Balanço: subcontas apresentadas de deposits",
+      "period": "202606",
+      "difference": -4.76837158203125e-07,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": ""
+    },
+    {
+      "check": "Balanço x IFData: Ativo",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": ""
+    },
+    {
+      "check": "Balanço x IFData: PL",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": ""
+    },
+    {
+      "check": "Conciliação patrimonial: PL 4066 x PL 4060 + resultado",
+      "period": "202606",
+      "difference": 5.960464477539063e-08,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": ""
+    },
+    {
+      "check": "Capital: CET1 calculado x índice reportado",
+      "period": "202606",
+      "difference": -3.122502256758253e-17,
+      "tolerance": 1e-08,
+      "status": "OK",
+      "note": ""
+    },
+    {
+      "check": "Capital: Basileia calculada x índice reportado",
+      "period": "202606",
+      "difference": -2.7755575615628914e-17,
+      "tolerance": 1e-08,
+      "status": "OK",
+      "note": ""
+    },
+    {
+      "check": "Capital: Nível I calculado x índice reportado",
+      "period": "202606",
+      "difference": 4.5102810375396984e-17,
+      "tolerance": 1e-08,
+      "status": "OK",
+      "note": ""
+    },
+    {
+      "check": "Carteira: C1–C5 + demais componentes x Total Rel. 16",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": ""
+    },
+    {
+      "check": "Carteira: Rel. 2 x Rel. 16 (perímetros distintos)",
+      "period": "202512",
+      "difference": 10095996.489999771,
+      "tolerance": 0.02,
+      "status": "Divergência",
+      "note": "Teste informativo. Carteira contábil e universo do Rel. 16 podem diferir; não se força igualdade."
+    },
+    {
+      "check": "Carteira: C1–C5 + demais componentes x Total Rel. 16",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": ""
+    },
+    {
+      "check": "Carteira: Rel. 2 x Rel. 16 (perímetros distintos)",
+      "period": "202606",
+      "difference": -3209851.1800000668,
+      "tolerance": 0.02,
+      "status": "Divergência",
+      "note": "Teste informativo. Carteira contábil e universo do Rel. 16 podem diferir; não se força igualdade."
+    },
+    {
+      "check": "Subcontas 4060: 1000000009 — Ativo Realizável",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 1100000002 — DISPONIBILIDADES",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 1120000006 — Depósitos Bancários",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 1130000003 — Reservas Livres",
+      "period": "202512",
+      "difference": -5.820766091346741e-11,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 1150000007 — Disponibilidades em Moedas Estrangeiras",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 1300000008 — TÍTULOS E VALORES MOBILIÁRIOS E INSTRUMENTOS FINANCEIROS DERIVATIVOS",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 1310000005 — Livres",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 1360000000 — Vinculados à Prestação de Garantias",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 1400000001 — RELAÇÕES INTERFINANCEIRAS",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 1410000008 — Direitos Junto a Participantes de Sistema de Liquidação e de Arranjo de Pagamento",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 1420000005 — Créditos Vinculados",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 1490000004 — (-) Provisão Para Perdas Associadas a Risco de Crédito",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 1600000007 — OPERAÇÕES DE CRÉDITO",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 1610000004 — Empréstimos e Direitos Creditórios Descontados",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 1800000003 — OUTROS CRÉDITOS",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 1830000004 — Rendas a Receber",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 1880000009 — Diversos",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 1900000006 — OUTROS VALORES E BENS",
+      "period": "202512",
+      "difference": 5.960464477539063e-08,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 1980000002 — Outros Valores e Bens",
+      "period": "202512",
+      "difference": 5.820766091346741e-11,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 1990000009 — Despesas Pagas Antecipadamente",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 2000000008 — Ativo Permanente",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 2200000004 — IMOBILIZADO DE USO",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 2250000009 — Ativo Imobilizado de Uso",
+      "period": "202512",
+      "difference": -4.656612873077393e-10,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 2500000003 — INTANGÍVEL",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 2510000000 — Ativos Intangíveis",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 3000000007 — Compensação Ativa",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 3040000005 — Custódia de Valores",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 3090000000 — Controle",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 3200000003 — INSTRUMENTOS FINANCEIROS- CLASSIFICAÇÃO E COMPOSIÇÃO",
+      "period": "202512",
+      "difference": -4.76837158203125e-07,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 3210000000 — Instrumentos Financeiros - Classificação por Categorias",
+      "period": "202512",
+      "difference": 4.76837158203125e-07,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 3230000004 — Composição de Carteiras de Títulos e Valores Mobiliários",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 3260000005 — Composição de Carteiras de Operações de Crédito",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 3300000006 — INSTRUMENTOS FINANCEIROS E ARRENDAMENTO- RISCO DE CRÉDITO",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 3310000003 — Ativos Financeiros - Classificação por Estágios de Risco de Crédito",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 3320000000 — Ativos Financeiros - Classificação por Carteiras de Provisão",
+      "period": "202512",
+      "difference": 1.1920928955078125e-07,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 3340000004 — Compromissos de Crédito e Crédito a Liberar",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 3800000001 — CONTROLE DE OBRIGAÇÕES DE NATUREZA LEGAL OU REGULAMENTAR",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 3820000005 — Entidades externas",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 3880000007 — Controles de Natureza Tributária",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 4000000006 — Passivo Exigível",
+      "period": "202512",
+      "difference": 4.76837158203125e-07,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 4100000009 — DEPÓSITOS",
+      "period": "202512",
+      "difference": -2.384185791015625e-07,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 4110000006 — Depósitos à Vista",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 4150000004 — Depósitos a Prazo",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 4300000005 — OUTROS INSTRUMENTOS DE DÍVIDA",
+      "period": "202512",
+      "difference": 1.4901161193847656e-08,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 4340000003 — Recursos de Debêntures",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 4390000008 — Instrumentos de Dívida com Cláusulas de Subordinação",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 4400000008 — RELAÇÕES INTERFINANCEIRAS",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 4410000005 — Obrigações junto a Participantes de Sistema de Liquidação e de Arranjo de Pagamento",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 4600000004 — OBRIGAÇÕES POR EMPRÉSTIMOS E REPASSES",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 4620000008 — Empréstimos no País - Outras Instituições",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 4900000003 — OUTRAS OBRIGAÇÕES",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 4910000000 — Cobrança e Arrecadação de Tributos e Assemelhados",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 4940000001 — Fiscais e Previdenciárias",
+      "period": "202512",
+      "difference": 7.450580596923828e-09,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 4990000006 — Diversas",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 6000000004 — Patrimônio Líquido",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 6100000007 — PATRIMÔNIO LÍQUIDO",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 6110000004 — Capital Social",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 6150000002 — Reservas de Lucros",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 6160000009 — (+/-) Ajustes de Avaliação Patrimonial",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 6180000003 — (+/-) Lucros ou Prejuízos Acumulados",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 7000000003 — Resultado Credor",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 7100000006 — RECEITAS OPERACIONAIS",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 7110000003 — Rendas de Operações de Crédito",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 7140000004 — Rendas de Aplicações Interfinanceiras de Liquidez",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 7150000001 — Rendas com Títulos e Valores Mobiliários e Instrumentos Financeiros Derivativos",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 7160000008 — Rendas de Outras Operações Com Características de Crédito",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 7170000005 — Receita de Prestação de Serviços",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 7180000002 — Rendas de Investimentos",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 7190000009 — Outras Receitas Operacionais",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 7300000002 — RECEITAS NÃO OPERACIONAIS",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 7390000005 — Outras Receitas Não Operacionais",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 7900000000 — APURAÇÃO DE RESULTADO",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 7940000008 — Tributos sobre o Lucro",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 8000000002 — Resultado Devedor",
+      "period": "202512",
+      "difference": -1.1920928955078125e-07,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 8100000005 — (-) DESPESAS OPERACIONAIS",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 8110000002 — (-) Despesas de Captação",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 8120000009 — (-) Despesas de Obrigações por Empréstimos e Repasses",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 8160000007 — (-) Despesas de Investimentos",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 8170000004 — (-) Despesas Administrativas",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 8180000001 — (-) Aprovisionamentos e Ajustes Patrimoniais",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 8190000008 — (-) Outras Despesas Operacionais",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 8300000001 — (-) DESPESAS NÃO OPERACIONAIS",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 8310000008 — (-) Prejuízos em Transações com Valores e Bens",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 8390000004 — (-) Outras Despesas Não Operacionais",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 8900000009 — (-) APURAÇÃO DE RESULTADO",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 8940000007 — (-) Tributos sobre o Lucro",
+      "period": "202512",
+      "difference": -7.450580596923828e-09,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 9000000001 — Compensação Passiva",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 9040000009 — Custódia de Valores",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 9090000004 — Controle",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 9200000007 — INSTRUMENTOS FINANCEIROS- CLASSIFICAÇÃO E COMPOSIÇÃO DAS CARTEIRAS",
+      "period": "202512",
+      "difference": -4.76837158203125e-07,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 9210000004 — Instrumentos Financeiros - Classificação por Categorias",
+      "period": "202512",
+      "difference": 4.76837158203125e-07,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 9230000008 — Composição de Carteiras de Títulos e Valores Mobiliários",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 9260000009 — Composição de Carteiras de Operações de Crédito",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 9300000000 — INSTRUMENTOS FINANCEIROS E ARRENDAMENTO- RISCO DE CRÉDITO",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 9310000007 — Ativos Financeiros - Classificação por Estágios de Risco de Crédito",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 9320000004 — Ativos Financeiros - Classificação por Carteiras de Provisão",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 9340000008 — Compromissos de Crédito e Crédito a Liberar",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 9800000005 — OBRIGAÇÕES DE NATUREZA LEGAL OU REGULAMENTAR - CONTROLE",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 9820000009 — Entidades externas",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 9880000001 — Controles de Natureza Tributária",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 1000000009 — Ativo Realizável",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 1100000002 — DISPONIBILIDADES",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 1120000006 — Depósitos Bancários",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 1130000003 — Reservas Livres",
+      "period": "202512",
+      "difference": -5.820766091346741e-11,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 1150000007 — Disponibilidades em Moedas Estrangeiras",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 1300000008 — TÍTULOS E VALORES MOBILIÁRIOS E INSTRUMENTOS FINANCEIROS DERIVATIVOS",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 1310000005 — Livres",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 1360000000 — Vinculados à Prestação de Garantias",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 1400000001 — RELAÇÕES INTERFINANCEIRAS",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 1410000008 — Direitos Junto a Participantes de Sistema de Liquidação e de Arranjo de Pagamento",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 1420000005 — Créditos Vinculados",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 1490000004 — (-) Provisão Para Perdas Associadas a Risco de Crédito",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 1600000007 — OPERAÇÕES DE CRÉDITO",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 1610000004 — Empréstimos e Direitos Creditórios Descontados",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 1800000003 — OUTROS CRÉDITOS",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 1830000004 — Rendas a Receber",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 1880000009 — Diversos",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 1900000006 — OUTROS VALORES E BENS",
+      "period": "202512",
+      "difference": 5.960464477539063e-08,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 1980000002 — Outros Valores e Bens",
+      "period": "202512",
+      "difference": 5.820766091346741e-11,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 1990000009 — Despesas Pagas Antecipadamente",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 2000000008 — Ativo Permanente",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 2200000004 — IMOBILIZADO DE USO",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 2250000009 — Ativo Imobilizado de Uso",
+      "period": "202512",
+      "difference": -4.656612873077393e-10,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 2500000003 — INTANGÍVEL",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 2510000000 — Ativos Intangíveis",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 3000000007 — Compensação Ativa",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 3040000005 — Custódia de Valores",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 3090000000 — Controle",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 3200000003 — INSTRUMENTOS FINANCEIROS- CLASSIFICAÇÃO E COMPOSIÇÃO",
+      "period": "202512",
+      "difference": -4.76837158203125e-07,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 3210000000 — Instrumentos Financeiros - Classificação por Categorias",
+      "period": "202512",
+      "difference": 4.76837158203125e-07,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 3230000004 — Composição de Carteiras de Títulos e Valores Mobiliários",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 3260000005 — Composição de Carteiras de Operações de Crédito",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 3300000006 — INSTRUMENTOS FINANCEIROS E ARRENDAMENTO- RISCO DE CRÉDITO",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 3310000003 — Ativos Financeiros - Classificação por Estágios de Risco de Crédito",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 3320000000 — Ativos Financeiros - Classificação por Carteiras de Provisão",
+      "period": "202512",
+      "difference": 1.1920928955078125e-07,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 3340000004 — Compromissos de Crédito e Crédito a Liberar",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 3800000001 — CONTROLE DE OBRIGAÇÕES DE NATUREZA LEGAL OU REGULAMENTAR",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 3820000005 — Entidades externas",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 3880000007 — Controles de Natureza Tributária",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 4000000006 — Passivo Exigível",
+      "period": "202512",
+      "difference": 4.76837158203125e-07,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 4100000009 — DEPÓSITOS",
+      "period": "202512",
+      "difference": -2.384185791015625e-07,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 4110000006 — Depósitos à Vista",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 4150000004 — Depósitos a Prazo",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 4300000005 — OUTROS INSTRUMENTOS DE DÍVIDA",
+      "period": "202512",
+      "difference": 1.4901161193847656e-08,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 4340000003 — Recursos de Debêntures",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 4390000008 — Instrumentos de Dívida com Cláusulas de Subordinação",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 4400000008 — RELAÇÕES INTERFINANCEIRAS",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 4410000005 — Obrigações junto a Participantes de Sistema de Liquidação e de Arranjo de Pagamento",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 4600000004 — OBRIGAÇÕES POR EMPRÉSTIMOS E REPASSES",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 4620000008 — Empréstimos no País - Outras Instituições",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 4900000003 — OUTRAS OBRIGAÇÕES",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 4910000000 — Cobrança e Arrecadação de Tributos e Assemelhados",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 4940000001 — Fiscais e Previdenciárias",
+      "period": "202512",
+      "difference": 7.450580596923828e-09,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 4990000006 — Diversas",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 6000000004 — Patrimônio Líquido",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 6100000007 — PATRIMÔNIO LÍQUIDO",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 6110000004 — Capital Social",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 6160000009 — (+/-) Ajustes de Avaliação Patrimonial",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 6180000003 — (+/-) Lucros ou Prejuízos Acumulados",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 9000000001 — Compensação Passiva",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 9040000009 — Custódia de Valores",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 9090000004 — Controle",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 9200000007 — INSTRUMENTOS FINANCEIROS- CLASSIFICAÇÃO E COMPOSIÇÃO DAS CARTEIRAS",
+      "period": "202512",
+      "difference": -4.76837158203125e-07,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 9210000004 — Instrumentos Financeiros - Classificação por Categorias",
+      "period": "202512",
+      "difference": 4.76837158203125e-07,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 9230000008 — Composição de Carteiras de Títulos e Valores Mobiliários",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 9260000009 — Composição de Carteiras de Operações de Crédito",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 9300000000 — INSTRUMENTOS FINANCEIROS E ARRENDAMENTO- RISCO DE CRÉDITO",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 9310000007 — Ativos Financeiros - Classificação por Estágios de Risco de Crédito",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 9320000004 — Ativos Financeiros - Classificação por Carteiras de Provisão",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 9340000008 — Compromissos de Crédito e Crédito a Liberar",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 9800000005 — OBRIGAÇÕES DE NATUREZA LEGAL OU REGULAMENTAR - CONTROLE",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 9820000009 — Entidades externas",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 9880000001 — Controles de Natureza Tributária",
+      "period": "202512",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 1000000009 — Ativo Realizável",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 1100000002 — DISPONIBILIDADES",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 1120000006 — Depósitos Bancários",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 1130000003 — Reservas Livres",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 1150000007 — Disponibilidades em Moedas Estrangeiras",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 1300000008 — TÍTULOS E VALORES MOBILIÁRIOS E INSTRUMENTOS FINANCEIROS DERIVATIVOS",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 1310000005 — Livres",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 1340000006 — Vinculados ao Banco Central",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 1360000000 — Vinculados à Prestação de Garantias",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 1400000001 — RELAÇÕES INTERFINANCEIRAS",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 1410000008 — Direitos Junto a Participantes de Sistema de Liquidação e de Arranjo de Pagamento",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 1420000005 — Créditos Vinculados",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 1490000004 — (-) Provisão Para Perdas Associadas a Risco de Crédito",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 1600000007 — OPERAÇÕES DE CRÉDITO",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 1610000004 — Empréstimos e Direitos Creditórios Descontados",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 1620000001 — Financiamentos",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 1800000003 — OUTROS CRÉDITOS",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 1830000004 — Rendas a Receber",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 1880000009 — Diversos",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 1890000006 — (-) Provisões para Outros Créditos",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 1900000006 — OUTROS VALORES E BENS",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 1980000002 — Outros Valores e Bens",
+      "period": "202606",
+      "difference": -2.3283064365386963e-10,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 1990000009 — Despesas Pagas Antecipadamente",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 2000000008 — Ativo Permanente",
+      "period": "202606",
+      "difference": -4.656612873077393e-10,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 2200000004 — IMOBILIZADO DE USO",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 2250000009 — Ativo Imobilizado de Uso",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 2500000003 — INTANGÍVEL",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 2510000000 — Ativos Intangíveis",
+      "period": "202606",
+      "difference": 2.3283064365386963e-10,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 3000000007 — Compensação Ativa",
+      "period": "202606",
+      "difference": 3.814697265625e-06,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 3040000005 — Custódia de Valores",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 3090000000 — Controle",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 3200000003 — INSTRUMENTOS FINANCEIROS- CLASSIFICAÇÃO E COMPOSIÇÃO",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 3210000000 — Instrumentos Financeiros - Classificação por Categorias",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 3230000004 — Composição de Carteiras de Títulos e Valores Mobiliários",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 3260000005 — Composição de Carteiras de Operações de Crédito",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 3300000006 — INSTRUMENTOS FINANCEIROS E ARRENDAMENTO- RISCO DE CRÉDITO",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 3310000003 — Ativos Financeiros - Classificação por Estágios de Risco de Crédito",
+      "period": "202606",
+      "difference": 2.384185791015625e-07,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 3320000000 — Ativos Financeiros - Classificação por Carteiras de Provisão",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 3340000004 — Compromissos de Crédito e Crédito a Liberar",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 3800000001 — CONTROLE DE OBRIGAÇÕES DE NATUREZA LEGAL OU REGULAMENTAR",
+      "period": "202606",
+      "difference": -1.9073486328125e-06,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 3820000005 — Entidades externas",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 3880000007 — Controles de Natureza Tributária",
+      "period": "202606",
+      "difference": -1.1920928955078125e-07,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 4000000006 — Passivo Exigível",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 4100000009 — DEPÓSITOS",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 4110000006 — Depósitos à Vista",
+      "period": "202606",
+      "difference": 1.1641532182693481e-10,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 4150000004 — Depósitos a Prazo",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 4300000005 — OUTROS INSTRUMENTOS DE DÍVIDA",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 4340000003 — Recursos de Debêntures",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 4390000008 — Instrumentos de Dívida com Cláusulas de Subordinação",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 4400000008 — RELAÇÕES INTERFINANCEIRAS",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 4410000005 — Obrigações junto a Participantes de Sistema de Liquidação e de Arranjo de Pagamento",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 4900000003 — OUTRAS OBRIGAÇÕES",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 4910000000 — Cobrança e Arrecadação de Tributos e Assemelhados",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 4940000001 — Fiscais e Previdenciárias",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 4990000006 — Diversas",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 6000000004 — Patrimônio Líquido",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 6100000007 — PATRIMÔNIO LÍQUIDO",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 6110000004 — Capital Social",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 6160000009 — (+/-) Ajustes de Avaliação Patrimonial",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 6180000003 — (+/-) Lucros ou Prejuízos Acumulados",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 7000000003 — Resultado Credor",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 7100000006 — RECEITAS OPERACIONAIS",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 7110000003 — Rendas de Operações de Crédito",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 7140000004 — Rendas de Aplicações Interfinanceiras de Liquidez",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 7150000001 — Rendas com Títulos e Valores Mobiliários e Instrumentos Financeiros Derivativos",
+      "period": "202606",
+      "difference": 3.725290298461914e-09,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 7160000008 — Rendas de Outras Operações Com Características de Crédito",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 7170000005 — Receita de Prestação de Serviços",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 7190000009 — Outras Receitas Operacionais",
+      "period": "202606",
+      "difference": -1.4901161193847656e-08,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 7300000002 — RECEITAS NÃO OPERACIONAIS",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 7390000005 — Outras Receitas Não Operacionais",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 7900000000 — APURAÇÃO DE RESULTADO",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 7940000008 — Tributos sobre o Lucro",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 8000000002 — Resultado Devedor",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 8100000005 — (-) DESPESAS OPERACIONAIS",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 8110000002 — (-) Despesas de Captação",
+      "period": "202606",
+      "difference": -2.9802322387695312e-08,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 8120000009 — (-) Despesas de Obrigações por Empréstimos e Repasses",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 8170000004 — (-) Despesas Administrativas",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 8180000001 — (-) Aprovisionamentos e Ajustes Patrimoniais",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 8190000008 — (-) Outras Despesas Operacionais",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 8300000001 — (-) DESPESAS NÃO OPERACIONAIS",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 8390000004 — (-) Outras Despesas Não Operacionais",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 8900000009 — (-) APURAÇÃO DE RESULTADO",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 8940000007 — (-) Tributos sobre o Lucro",
+      "period": "202606",
+      "difference": -4.656612873077393e-10,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 9000000001 — Compensação Passiva",
+      "period": "202606",
+      "difference": 3.814697265625e-06,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 9040000009 — Custódia de Valores",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 9090000004 — Controle",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 9200000007 — INSTRUMENTOS FINANCEIROS- CLASSIFICAÇÃO E COMPOSIÇÃO DAS CARTEIRAS",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 9210000004 — Instrumentos Financeiros - Classificação por Categorias",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 9230000008 — Composição de Carteiras de Títulos e Valores Mobiliários",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 9260000009 — Composição de Carteiras de Operações de Crédito",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 9300000000 — INSTRUMENTOS FINANCEIROS E ARRENDAMENTO- RISCO DE CRÉDITO",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 9310000007 — Ativos Financeiros - Classificação por Estágios de Risco de Crédito",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 9320000004 — Ativos Financeiros - Classificação por Carteiras de Provisão",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 9340000008 — Compromissos de Crédito e Crédito a Liberar",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 9800000005 — OBRIGAÇÕES DE NATUREZA LEGAL OU REGULAMENTAR - CONTROLE",
+      "period": "202606",
+      "difference": -1.9073486328125e-06,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 9820000009 — Entidades externas",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4060: 9880000001 — Controles de Natureza Tributária",
+      "period": "202606",
+      "difference": -1.1920928955078125e-07,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 1000000009 — Ativo Realizável",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 1100000002 — DISPONIBILIDADES",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 1120000006 — Depósitos Bancários",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 1130000003 — Reservas Livres",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 1150000007 — Disponibilidades em Moedas Estrangeiras",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 1300000008 — TÍTULOS E VALORES MOBILIÁRIOS E INSTRUMENTOS FINANCEIROS DERIVATIVOS",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 1310000005 — Livres",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 1340000006 — Vinculados ao Banco Central",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 1360000000 — Vinculados à Prestação de Garantias",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 1400000001 — RELAÇÕES INTERFINANCEIRAS",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 1410000008 — Direitos Junto a Participantes de Sistema de Liquidação e de Arranjo de Pagamento",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 1420000005 — Créditos Vinculados",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 1490000004 — (-) Provisão Para Perdas Associadas a Risco de Crédito",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 1600000007 — OPERAÇÕES DE CRÉDITO",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 1610000004 — Empréstimos e Direitos Creditórios Descontados",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 1620000001 — Financiamentos",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 1800000003 — OUTROS CRÉDITOS",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 1830000004 — Rendas a Receber",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 1880000009 — Diversos",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 1890000006 — (-) Provisões para Outros Créditos",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 1900000006 — OUTROS VALORES E BENS",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 1980000002 — Outros Valores e Bens",
+      "period": "202606",
+      "difference": -2.3283064365386963e-10,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 1990000009 — Despesas Pagas Antecipadamente",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 2000000008 — Ativo Permanente",
+      "period": "202606",
+      "difference": -4.656612873077393e-10,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 2200000004 — IMOBILIZADO DE USO",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 2250000009 — Ativo Imobilizado de Uso",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 2500000003 — INTANGÍVEL",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 2510000000 — Ativos Intangíveis",
+      "period": "202606",
+      "difference": 2.3283064365386963e-10,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 3000000007 — Compensação Ativa",
+      "period": "202606",
+      "difference": 3.814697265625e-06,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 3040000005 — Custódia de Valores",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 3090000000 — Controle",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 3200000003 — INSTRUMENTOS FINANCEIROS- CLASSIFICAÇÃO E COMPOSIÇÃO",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 3210000000 — Instrumentos Financeiros - Classificação por Categorias",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 3230000004 — Composição de Carteiras de Títulos e Valores Mobiliários",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 3260000005 — Composição de Carteiras de Operações de Crédito",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 3300000006 — INSTRUMENTOS FINANCEIROS E ARRENDAMENTO- RISCO DE CRÉDITO",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 3310000003 — Ativos Financeiros - Classificação por Estágios de Risco de Crédito",
+      "period": "202606",
+      "difference": 2.384185791015625e-07,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 3320000000 — Ativos Financeiros - Classificação por Carteiras de Provisão",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 3340000004 — Compromissos de Crédito e Crédito a Liberar",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 3800000001 — CONTROLE DE OBRIGAÇÕES DE NATUREZA LEGAL OU REGULAMENTAR",
+      "period": "202606",
+      "difference": -1.9073486328125e-06,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 3820000005 — Entidades externas",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 3880000007 — Controles de Natureza Tributária",
+      "period": "202606",
+      "difference": -1.1920928955078125e-07,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 4000000006 — Passivo Exigível",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 4100000009 — DEPÓSITOS",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 4110000006 — Depósitos à Vista",
+      "period": "202606",
+      "difference": 1.1641532182693481e-10,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 4150000004 — Depósitos a Prazo",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 4300000005 — OUTROS INSTRUMENTOS DE DÍVIDA",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 4340000003 — Recursos de Debêntures",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 4390000008 — Instrumentos de Dívida com Cláusulas de Subordinação",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 4400000008 — RELAÇÕES INTERFINANCEIRAS",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 4410000005 — Obrigações junto a Participantes de Sistema de Liquidação e de Arranjo de Pagamento",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 4900000003 — OUTRAS OBRIGAÇÕES",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 4910000000 — Cobrança e Arrecadação de Tributos e Assemelhados",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 4940000001 — Fiscais e Previdenciárias",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 4990000006 — Diversas",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 6000000004 — Patrimônio Líquido",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 6100000007 — PATRIMÔNIO LÍQUIDO",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 6110000004 — Capital Social",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 6160000009 — (+/-) Ajustes de Avaliação Patrimonial",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 6180000003 — (+/-) Lucros ou Prejuízos Acumulados",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 9000000001 — Compensação Passiva",
+      "period": "202606",
+      "difference": 3.814697265625e-06,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 9040000009 — Custódia de Valores",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 9090000004 — Controle",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 9200000007 — INSTRUMENTOS FINANCEIROS- CLASSIFICAÇÃO E COMPOSIÇÃO DAS CARTEIRAS",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 9210000004 — Instrumentos Financeiros - Classificação por Categorias",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 9230000008 — Composição de Carteiras de Títulos e Valores Mobiliários",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 9260000009 — Composição de Carteiras de Operações de Crédito",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 9300000000 — INSTRUMENTOS FINANCEIROS E ARRENDAMENTO- RISCO DE CRÉDITO",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 9310000007 — Ativos Financeiros - Classificação por Estágios de Risco de Crédito",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 9320000004 — Ativos Financeiros - Classificação por Carteiras de Provisão",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 9340000008 — Compromissos de Crédito e Crédito a Liberar",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 9800000005 — OBRIGAÇÕES DE NATUREZA LEGAL OU REGULAMENTAR - CONTROLE",
+      "period": "202606",
+      "difference": -1.9073486328125e-06,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 9820000009 — Entidades externas",
+      "period": "202606",
+      "difference": 0.0,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    },
+    {
+      "check": "Subcontas 4066: 9880000001 — Controles de Natureza Tributária",
+      "period": "202606",
+      "difference": -1.1920928955078125e-07,
+      "tolerance": 0.02,
+      "status": "OK",
+      "note": "Diferenças podem indicar granularidade parcial no arquivo público; não são compensadas por ajustes artificiais."
+    }
+  ]
+}

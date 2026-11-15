@@ -187,6 +187,7 @@ def collect_cache_diagnostics(
                 if include_hashes
                 else None
             ),
+            "metadata_sha256": sha256_file(cache.arquivo_metadata) if include_hashes else None,
             "release_repo": release.repo,
             "release_tag": release.tag,
             "release_base_url": release.release_base_url,
@@ -220,17 +221,18 @@ def evaluate_alignment_gates(
             for valor in actual_refs.values()
             if valor
         }
+        unknown_periods = [name for name, value in actual_refs.items() if not value]
         expected_raw = expected.get(gate_key) or expected.get(spec.get("periodicity", ""))
         expected_ref = normalize_period_reference(expected_raw) if expected_raw else ""
 
-        success = not missing and len(actual_values) == 1
+        success = not missing and not unknown_periods and len(actual_values) == 1
         if expected_ref:
             success = success and actual_values == {expected_ref}
 
         if missing:
             message = f"caches ausentes: {', '.join(missing)}"
-        elif not actual_values:
-            message = "período máximo indisponível nas metadata locais"
+        elif unknown_periods:
+            message = "período máximo indisponível nas metadata locais: " + ", ".join(unknown_periods)
         elif len(actual_values) > 1:
             message = "desalinhado: períodos máximos diferentes entre caches"
         elif expected_ref and actual_values != {expected_ref}:

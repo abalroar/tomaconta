@@ -48,6 +48,12 @@ from .base import (
     CacheResult,
     BaseCache,
 )
+from .official_store import (
+    ProtocolDataStore, RevisionSnapshot, LocalRevisionStore,
+    OfficialStoreError, OfficialReadOnlyError, RevisionCorrupt, RevisionNotFound,
+    RevisionConflict, StoreNotInitialized, begin_official_read,
+    get_official_read_snapshot, store_from_env, resolve_official_path,
+)
 
 from .manager import (
     CacheManager,
@@ -269,6 +275,10 @@ def get_manager() -> CacheManager:
     """Retorna instancia global do gerenciador de cache."""
     from .release_config import get_release_config
 
+    if get_official_read_snapshot() is not None:
+        from .compat import _get_manager
+        return _get_manager()
+
     global _manager, _manager_release_tag
     release_tag = get_release_config().tag
     if _manager is None or _manager_release_tag != release_tag:
@@ -476,4 +486,8 @@ __all__ = [
     "get_capital_cache_info",
     "get_campos_capital_info",
     "ler_info_cache_capital",
+    "ProtocolDataStore", "RevisionSnapshot", "LocalRevisionStore",
+    "OfficialStoreError", "OfficialReadOnlyError", "RevisionCorrupt", "RevisionNotFound",
+    "RevisionConflict", "StoreNotInitialized", "begin_official_read",
+    "get_official_read_snapshot", "store_from_env", "resolve_official_path",
 ]

@@ -116,8 +116,8 @@ def test_camada_curada_cobre_os_periodos_oferecidos_pela_aba():
     assert not ausentes, f"períodos sem cobertura na camada curada: {ausentes}"
 
 
-def test_artefatos_publicados_chegam_ate_mar26():
-    """Trava a regressão do Mar-26 nos artefatos versionados."""
+def test_artefatos_publicados_chegam_ate_jun26():
+    """Trava a cobertura de Jun-26 e preserva Mar-26 nos artefatos versionados."""
     for caminho in (
         "data/bundled/principal/dados.parquet",
         "data/bundled/critical_screens/dados.parquet",
@@ -127,7 +127,8 @@ def test_artefatos_publicados_chegam_ate_mar26():
             for p in pd.read_parquet(caminho, columns=["Período"])["Período"].dropna()
         }
         assert "1/2026" in periodos, f"{caminho} não cobre 1/2026 (Mar-26)"
-        assert app1._periodo_mais_recente(sorted(periodos)) == "1/2026"
+        assert "2/2026" in periodos, f"{caminho} não cobre 2/2026 (Jun-26)"
+        assert app1._periodo_mais_recente(sorted(periodos)) == "2/2026"
 
 
 # ------------------------------------------------ artefato bundled imutável

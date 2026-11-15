@@ -1,0 +1,25 @@
+{
+  "schema_version": 2,
+  "groups": [
+    {
+      "name": "Bancos privados de grande porte",
+      "base": "Consolidada / Prudencial",
+      "members": [
+        {"id": "C0080099", "label": "ITAU - PRUDENCIAL"},
+        {"id": "C0080075", "label": "BRADESCO - PRUDENCIAL"},
+        {"id": "C0080185", "label": "SANTANDER - PRUDENCIAL"}
+      ],
+      "updated_at": "2026-10-09"
+    },
+    {
+      "name": "Bancos comerciais individuais",
+      "base": "Individual",
+      "members": [
+        {"id": "60701190", "label": "ITAÚ UNIBANCO S.A."},
+        {"id": "60746948", "label": "BANCO BRADESCO S.A."},
+        {"id": "90400888", "label": "BANCO SANTANDER (BRASIL) S.A."}
+      ],
+      "updated_at": "2026-10-09"
+    }
+  ]
+}

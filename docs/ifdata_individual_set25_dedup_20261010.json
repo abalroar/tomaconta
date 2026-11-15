@@ -1,0 +1,375 @@
+{
+  "period": "3/2025",
+  "operation": "unique_official_cells_before_pivot",
+  "verified_at_utc": "2026-10-10T20:26:16.191169+00:00",
+  "sources": {
+    "principal_individual": {
+      "url": "https://olinda.bcb.gov.br/olinda/servico/IFDATA/versao/v1/odata/IfDataValores(AnoMes=202509,TipoInstituicao=3,Relatorio='1')?$format=json&$top=500000",
+      "sha256": "8a10681afde214e0b9f7933e4855e605f866cd8d5c0f64e85fa83204b1c1dce4",
+      "bytes": 8617089,
+      "raw_records": 33684,
+      "unique_records": 11228,
+      "exact_duplicate_records": 22456
+    },
+    "dre_individual": {
+      "url": "https://olinda.bcb.gov.br/olinda/servico/IFDATA/versao/v1/odata/IfDataValores(AnoMes=202509,TipoInstituicao=3,Relatorio='4')?$format=json&$top=500000",
+      "sha256": "1bc09beff7f8826740dbccff908e5707e2a973f7cc05ba1b5d628a7ff0ecae67",
+      "bytes": 102915510,
+      "raw_records": 250224,
+      "unique_records": 83408,
+      "exact_duplicate_records": 166816
+    }
+  },
+  "individual_identity": "CodInst",
+  "individual_scope": "Rel. 1 + Rel. 4; sem Rel. 2/16 prudencial",
+  "publication_id": "tomaconta-individual-set25-dedup-20261010-v1",
+  "principal_reconciliation": {
+    "Ativo Total": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    },
+    "Captações": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    },
+    "Carteira de Crédito": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    },
+    "Lucro Líquido": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    },
+    "Passivo Exigível": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    },
+    "Patrimônio Líquido": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    },
+    "Títulos e Valores Mobiliários": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    }
+  },
+  "dre_reconciliation": {
+    "Ajuste a Valor Justo e Ajuste de Hedge de Valor Justo de Aplicações Interfinanceiras de Liquidez (a3)": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    },
+    "Ajuste a Valor Justo e Ajuste de Hedge de Valor Justo de Operações de Crédito (c3)": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    },
+    "Ajuste a Valor Justo e Ajuste de Hedge de Valor Justo de TVM (b3)": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    },
+    "Ajuste de Hedge de Valor Justo de Captações (g3)": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    },
+    "Ajuste de Variação Cambial de Aplicações Interfinanceiras de Liquidez (a2)": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    },
+    "Ajuste de Variação Cambial de Captações (g2)": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    },
+    "Ajuste de Variação Cambial de Operações de Crédito (c2)": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    },
+    "Ajuste de Variação Cambial de TVM (b2)": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    },
+    "Ativo Total": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    },
+    "Despesa de Juros com Captações (g1)": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    },
+    "Despesas Administrativas (p)": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    },
+    "Despesas Tributárias (r)": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    },
+    "Despesas de Captações (g)": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    },
+    "Despesas de Instrumentos de Dívida Elegíveis a Capital (h)": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    },
+    "Despesas de Pessoal (o)": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    },
+    "Imposto de Renda e Contribuição Social (x)": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    },
+    "Juros Sobre Capital Próprio de Cooperativas (aa)": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    },
+    "Lucro Líquido (z) = (w) + (x) + (y)": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    },
+    "Outras Despesas (u)": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    },
+    "Outras Receitas (t)": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    },
+    "Outras Receitas / Despesas (v)= (m) + (n) + (o) + (p) + (q) + (r) + (s) + (t) + (u)": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    },
+    "Outras Rendas de Prestação de Serviços (n)": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    },
+    "Outros Resultados com Transações de Pagamento (l3)": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    },
+    "Outros Resultados de Captações (g4)": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    },
+    "Outros Resultados de Intermediação Financeira (j)": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    },
+    "Outros Resultados de Operações de Crédito (c4)": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    },
+    "Outros Resultados de TVM (b4)": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    },
+    "Participações no Lucro (y)": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    },
+    "Receita de Juros com Aplicações Interfinanceiras de Liquidez (a1)": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    },
+    "Receita de Juros com Operações de Crédito (c1)": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    },
+    "Receita de Juros com TVM (b1)": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    },
+    "Rendas de Aplicações Interfinanceiras de Liquidez (a)": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    },
+    "Rendas de Arrendamento Financeiro (d)": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    },
+    "Rendas de Operações de Crédito (c)": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    },
+    "Rendas de Outras Operações com Características de Concessão de Crédito (e)": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    },
+    "Rendas de Tarifas Bancárias (m)": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    },
+    "Rendas de Títulos e Valores Mobiliários (b)": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    },
+    "Resultado antes da Tributação e Participações (w) = (k) + (l) + (v)": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    },
+    "Resultado com Derivativos (i)": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    },
+    "Resultado com Perda Esperada (f)": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    },
+    "Resultado com Perda Esperada de Aplicações Interfinanceiras de Liquidez (f1)": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    },
+    "Resultado com Perda Esperada de Arrendamento (f4)": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    },
+    "Resultado com Perda Esperada de Operações de Crédito (f3)": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    },
+    "Resultado com Perda Esperada de Outras Operações com Características de Concessão de Crédito (f5)": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    },
+    "Resultado com Perda Esperada de Outros Ativos Geradores de Renda (f6)": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    },
+    "Resultado com Perda Esperada de TVM (f2)": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    },
+    "Resultado com Perdas Esperadas de Outras Operações (q)": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    },
+    "Resultado com Serviços por Transações de Pagamento (l1)": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    },
+    "Resultado com Transações de Pagamento (l)": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    },
+    "Resultado de Intermediação Financeira (k) = (a) + (b) + (c) + (d) + (e) + (f) + (g) + (h) + (i) + (j)": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    },
+    "Resultado de Participações (s)": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    },
+    "Resultados de Perda Esperada com Transações de Pagamento (l2)": {
+      "comparable_cells": 1592,
+      "triple_matches": 1592,
+      "official_missing_cells": 12
+    }
+  },
+  "other_quarters_preserved": true,
+  "records": {
+    "principal_individual": 28114,
+    "dre_individual": 28063,
+    "derived_metrics_individual": 140315
+  },
+  "assets": [
+    {
+      "asset": "principal_individual_dados.parquet",
+      "path": "data/bundled/principal_individual/dados.parquet",
+      "sha256": "1f46c2bca56ccde4531f09aa6235e164b152a26fa1da76e7d6aa053234868724",
+      "bytes": 2208395
+    },
+    {
+      "asset": "principal_individual_metadata.json",
+      "path": "data/bundled/principal_individual/metadata.json",
+      "sha256": "19f38b3e39c663b116d239424466a8871417ad233e5341b3cc3d67604829eabe",
+      "bytes": 4286
+    },
+    {
+      "asset": "dre_individual_dados.parquet",
+      "path": "data/bundled/dre_individual/dados.parquet",
+      "sha256": "9091635d6663da6164305f7d2d7647008e17221d2992259f9e98c31bab0c28f0",
+      "bytes": 5483995
+    },
+    {
+      "asset": "dre_individual_metadata.json",
+      "path": "data/bundled/dre_individual/metadata.json",
+      "sha256": "684f4fffcce8a83d2133e8831660c72d1adcf9c19c09bd5d74e1e2dd58e948ae",
+      "bytes": 8478
+    },
+    {
+      "asset": "derived_metrics_individual_dados.parquet",
+      "path": "data/bundled/derived_metrics_individual/dados.parquet",
+      "sha256": "9200c89260d552f52cb52133bbd8ff51b572ae4a8119d9ee6cf4ecd82b1b8591",
+      "bytes": 593195
+    },
+    {
+      "asset": "derived_metrics_individual_metadata.json",
+      "path": "data/bundled/derived_metrics_individual/metadata.json",
+      "sha256": "0b2ff13c5b6ae0f71adc19ec3be419927b4e31ba7a544b597c4b6757047d64ed",
+      "bytes": 2845
+    },
+    {
+      "asset": "manifest.json",
+      "path": "data/cache/manifest.json",
+      "sha256": "7525e649b8392d0e36b00a3fdb7c8cff5cff0f754458069a15ffb0c2134a9b4c",
+      "bytes": 45824
+    }
+  ]
+}

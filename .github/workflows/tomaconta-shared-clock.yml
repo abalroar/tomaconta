@@ -1,0 +1,39 @@
+name: Relógio da atualização compartilhada Toma Conta
+
+on:
+  schedule:
+    - cron: '4,9,14,19,24,29,34,39,44,49,54,59 * * * *'
+
+permissions: {}
+
+concurrency:
+  group: tomaconta-shared-clock-main
+  cancel-in-progress: false
+
+jobs:
+  wake:
+    if: >-
+      github.repository_id == '1141557164' &&
+      github.repository_owner_id == '255978345' &&
+      github.ref == 'refs/heads/main' &&
+      github.event.repository.private == false &&
+      github.event_name == 'schedule' &&
+      vars.TOMACONTA_SHARED_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: scripts/tomaconta_shared_clock.py
+      - name: Consultar a fila e acordar o executor
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TOMACONTA_SHARED_ENABLED: ${{ vars.TOMACONTA_SHARED_ENABLED }}
+          TOMACONTA_REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
+        run: python scripts/tomaconta_shared_clock.py

@@ -14,6 +14,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 import app1  # noqa: E402
+from tabs.peers_table import table_html  # noqa: E402
+from utils.peers_table_model import build_query, period_sort  # noqa: E402
 from utils.ifdata_cache import CacheManager, load_critical_screens_slice  # noqa: E402
 from utils.ifdata_cache.critical_screens import (  # noqa: E402
     _load_bloprud_periods,
@@ -195,7 +197,7 @@ def _benchmark_peers_server_path() -> dict:
     valores, colunas_usadas, faltas, delta_flags, delta_context, tooltips = app1._montar_tabela_peers(
         df,
         [PEERS_INSTITUICAO],
-        periodos_sel,
+        periodos_ext,
         perf={},
         extra_values_precomputed=extra,
         allow_capital_fallback=False,
@@ -203,15 +205,17 @@ def _benchmark_peers_server_path() -> dict:
     sub["montar_tabela_s"] = time.perf_counter() - t0
 
     t0 = time.perf_counter()
-    html = app1._render_peers_table_html(
-        [PEERS_INSTITUICAO],
-        periodos_sel,
-        valores,
-        colunas_usadas,
-        delta_flags,
-        delta_context,
-        tooltips,
+    status = app1._build_peers_status_lookup(
+        df_base=df, bancos=[PEERS_INSTITUICAO], periodos=periodos_sel,
+        valores=valores, colunas_usadas=colunas_usadas,
     )
+    query = build_query(
+        df, [PEERS_INSTITUICAO], sorted(periodos_sel, key=period_sort),
+        PEERS_METRICAS_RENDER, valores, status,
+        base="Consolidada / Prudencial", cache_token=critical_token,
+        scale="R$ bilhões", mode="year", queried_at="Benchmark local",
+    )
+    html = table_html(query)
     sub["render_html_s"] = time.perf_counter() - t0
     sub["html_len"] = len(html)
     sub["faltas"] = sorted(faltas)

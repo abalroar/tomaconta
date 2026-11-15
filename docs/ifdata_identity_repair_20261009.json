@@ -1,0 +1,621 @@
+{
+  "repairs": [
+    {
+      "cache": "passivo",
+      "tier": "bundled",
+      "path": "data/bundled/passivo/dados.parquet",
+      "records": 63403,
+      "unresolved": 1406,
+      "unresolved_by_period": {
+        "4/2025": 1406
+      },
+      "periodo": "202512",
+      "names_repaired": 1406,
+      "registry_sha256": "1a0d1ec17cbe1b677a2dc28052ab58ceb138d27fde700665dfea129f63553b6a",
+      "source": "https://olinda.bcb.gov.br/olinda/servico/IFDATA/versao/v1/odata/IfDataCadastro(AnoMes=202512); https://www3.bcb.gov.br/ifdata/",
+      "before_sha256": "3bf105e5aba390385045c7ad3790b30657badee965b59d88631326c56cabe3c9",
+      "after_sha256": "e4d281074c43348d9a485235b97f422412d4db94ec0564c40f8e3d97ddbb9119",
+      "numeric_values_unchanged": true,
+      "repaired_at_utc": "20261009T194237Z"
+    }
+  ],
+  "after": [
+    {
+      "cache": "ativo",
+      "tier": "bundled",
+      "path": "data/bundled/ativo/dados.parquet",
+      "records": 63403,
+      "unresolved": 0,
+      "unresolved_by_period": {}
+    },
+    {
+      "cache": "capital",
+      "tier": "bundled",
+      "path": "data/bundled/capital/dados.parquet",
+      "records": 61653,
+      "unresolved": 0,
+      "unresolved_by_period": {}
+    },
+    {
+      "cache": "carteira_instrumentos",
+      "tier": "bundled",
+      "path": "data/bundled/carteira_instrumentos/dados.parquet",
+      "records": 8018,
+      "unresolved": 0,
+      "unresolved_by_period": {}
+    },
+    {
+      "cache": "carteira_pf",
+      "tier": "bundled",
+      "path": "data/bundled/carteira_pf/dados.parquet",
+      "records": 6649,
+      "unresolved": 0,
+      "unresolved_by_period": {}
+    },
+    {
+      "cache": "carteira_pj",
+      "tier": "bundled",
+      "path": "data/bundled/carteira_pj/dados.parquet",
+      "records": 6649,
+      "unresolved": 0,
+      "unresolved_by_period": {}
+    },
+    {
+      "cache": "critical_screens",
+      "tier": "bundled",
+      "path": "data/bundled/critical_screens/dados.parquet",
+      "records": 63379,
+      "unresolved": 0,
+      "unresolved_by_period": {}
+    },
+    {
+      "cache": "derived_metrics",
+      "tier": "bundled",
+      "path": "data/bundled/derived_metrics/dados.parquet",
+      "records": 317015,
+      "unresolved": 0,
+      "unresolved_by_period": {}
+    },
+    {
+      "cache": "derived_metrics_individual",
+      "tier": "bundled",
+      "path": "data/bundled/derived_metrics_individual/dados.parquet",
+      "records": 140315,
+      "unresolved": 0,
+      "unresolved_by_period": {}
+    },
+    {
+      "cache": "dre",
+      "tier": "bundled",
+      "path": "data/bundled/dre/dados.parquet",
+      "records": 63403,
+      "unresolved": 0,
+      "unresolved_by_period": {}
+    },
+    {
+      "cache": "dre_individual",
+      "tier": "bundled",
+      "path": "data/bundled/dre_individual/dados.parquet",
+      "records": 28063,
+      "unresolved": 0,
+      "unresolved_by_period": {}
+    },
+    {
+      "cache": "passivo",
+      "tier": "bundled",
+      "path": "data/bundled/passivo/dados.parquet",
+      "records": 63403,
+      "unresolved": 0,
+      "unresolved_by_period": {}
+    },
+    {
+      "cache": "principal",
+      "tier": "bundled",
+      "path": "data/bundled/principal/dados.parquet",
+      "records": 63459,
+      "unresolved": 0,
+      "unresolved_by_period": {}
+    },
+    {
+      "cache": "principal_individual",
+      "tier": "bundled",
+      "path": "data/bundled/principal_individual/dados.parquet",
+      "records": 28114,
+      "unresolved": 0,
+      "unresolved_by_period": {}
+    }
+  ],
+  "inventory_summary": {
+    "parquet_files": 3761,
+    "name_columns": {
+      "Instituição": 29,
+      "instituicao_nome_observado": 3673,
+      "NOME_INSTITUICAO": 3,
+      "NOME_CONGL": 3
+    },
+    "dataset_groups": {
+      "ativo": 2,
+      "bloprudencial": 2,
+      "capital": 2,
+      "carteira_instrumentos": 2,
+      "carteira_pf": 2,
+      "carteira_pj": 2,
+      "cosif_4010": 1,
+      "critical_screens": 4,
+      "derived_metrics": 3,
+      "derived_metrics_individual": 2,
+      "dre": 2,
+      "dre_individual": 2,
+      "mercado_credito_sgs": 3,
+      "passivo": 2,
+      "principal": 2,
+      "principal_individual": 2,
+      "scr_data": 35,
+      "spb_meios_pagamento": 12,
+      "taxas_juros_historico": 3679
+    },
+    "taxas_dim_instituicoes": [
+      {
+        "tier": "cache",
+        "root": "primary",
+        "rows": 277,
+        "unresolved": 0
+      },
+      {
+        "tier": "cache",
+        "root": "release_worktree",
+        "rows": 279,
+        "unresolved": 0
+      }
+    ],
+    "effective_name_loss": [
+      {
+        "cache": "passivo",
+        "periodo": "202512",
+        "rows": 1406,
+        "copies": [
+          "runtime",
+          "published_bundle"
+        ]
+      }
+    ],
+    "perimeter_specific_empty_fields": [
+      {
+        "cache": "bloprudencial",
+        "periodo": "202606",
+        "field": "NOME_INSTITUICAO",
+        "rows": 98,
+        "available_field": "NOME_CONGL",
+        "name": "CBSF DTVM - PRUDENCIAL"
+      },
+      {
+        "cache": "cosif_4010",
+        "periodo": "202606",
+        "field": "NOME_CONGL",
+        "rows": 345835,
+        "available_field": "NOME_INSTITUICAO"
+      }
+    ]
+  },
+  "active_release_v2_before": [
+    {
+      "asset": "ativo_dados.parquet",
+      "exists": true,
+      "bytes": 5447032,
+      "sha256": "c789dd4d112a6a9a77d99dacf68c5183bd5bcd1319ae7cc9e34607250460e548",
+      "rows": 60658,
+      "unresolved": 0,
+      "by_period": {}
+    },
+    {
+      "asset": "capital_dados.parquet",
+      "exists": true,
+      "bytes": 3931529,
+      "sha256": "cd49c182889e0d48060fba995acc533bb027a4190a10d84d029771a6b57107c0",
+      "rows": 59004,
+      "unresolved": 0,
+      "by_period": {}
+    },
+    {
+      "asset": "carteira_instrumentos_dados.parquet",
+      "exists": true,
+      "bytes": 298504,
+      "sha256": "a939c26e1bde6783d79a8719542f9ca6572e8b4439022e881fb551df4ec5cf41",
+      "rows": 5551,
+      "unresolved": 0,
+      "by_period": {}
+    },
+    {
+      "asset": "carteira_pf_dados.parquet",
+      "exists": true,
+      "bytes": 276513,
+      "sha256": "152bc30cebe695f396747b13b2cb7cb22966d737164c4b98bafc9aaea8dc40e2",
+      "rows": 4145,
+      "unresolved": 0,
+      "by_period": {}
+    },
+    {
+      "asset": "carteira_pj_dados.parquet",
+      "exists": true,
+      "bytes": 224903,
+      "sha256": "167117880ac0e11a47747e8fbab8b404bbd0fece726cb77ff8d64e4f2d6fd8d6",
+      "rows": 4145,
+      "unresolved": 0,
+      "by_period": {}
+    },
+    {
+      "asset": "critical_screens_dados.parquet",
+      "exists": true,
+      "bytes": 13932365,
+      "sha256": "20641239d439364530aa2ad681725cecd25a22336b4c96a2810b2a01fac93c0d",
+      "rows": 60578,
+      "unresolved": 0,
+      "by_period": {}
+    },
+    {
+      "asset": "derived_metrics_dados.parquet",
+      "exists": true,
+      "bytes": 226146,
+      "sha256": "5f70b6852c419e631c754d1ceeeaf58f7b3903473084148a066cff3c70af909f",
+      "rows": 121316,
+      "unresolved": 0,
+      "by_period": {}
+    },
+    {
+      "asset": "derived_metrics_individual_dados.parquet",
+      "exists": true,
+      "bytes": 119161,
+      "sha256": "8bcd4fefabe89faa5cf1216cfde830de0ba077d57778275069c229709b21f8b1",
+      "rows": 14506,
+      "unresolved": 24,
+      "by_period": {
+        "1/2025": 6,
+        "2/2025": 6,
+        "3/2025": 6,
+        "4/2025": 4,
+        "1/2026": 2
+      }
+    },
+    {
+      "asset": "dre_dados.parquet",
+      "exists": true,
+      "bytes": 10848466,
+      "sha256": "e55597f65a8c32b9ab9ab94a6e870d6131d42c035c0737329357fb847c45cea2",
+      "rows": 60658,
+      "unresolved": 0,
+      "by_period": {}
+    },
+    {
+      "asset": "dre_individual_dados.parquet",
+      "exists": true,
+      "bytes": 1718645,
+      "sha256": "c63d867c9727fb8be4e92551ba0b8a86d96fd1c725ed66ed35633678c16a2ba4",
+      "rows": 7253,
+      "unresolved": 12,
+      "by_period": {
+        "1/2025": 3,
+        "2/2025": 3,
+        "3/2025": 3,
+        "4/2025": 2,
+        "1/2026": 1
+      }
+    },
+    {
+      "asset": "passivo_dados.parquet",
+      "exists": true,
+      "bytes": 4926075,
+      "sha256": "80c44afa56133b94b7bc9b4a75185db2d85ea958b2a4d647b601efcb2e9f2a4e",
+      "rows": 60658,
+      "unresolved": 1406,
+      "by_period": {
+        "4/2025": 1406
+      }
+    },
+    {
+      "asset": "principal_dados.parquet",
+      "exists": true,
+      "bytes": 5264969,
+      "sha256": "c6cd2d49d9f3b52e0fc7fff595750cd57835781bddaf0f73dfb8fa2d855c3bb6",
+      "rows": 60658,
+      "unresolved": 0,
+      "by_period": {}
+    },
+    {
+      "asset": "principal_individual_dados.parquet",
+      "exists": true,
+      "bytes": 778995,
+      "sha256": "add36e18806e236a0798039818867a35922349fb3719478431363212c473a479",
+      "rows": 7253,
+      "unresolved": 271,
+      "by_period": {
+        "3/2025": 68,
+        "4/2025": 68,
+        "1/2025": 67,
+        "2/2025": 67,
+        "1/2026": 1
+      }
+    },
+    {
+      "asset": "manifest.json",
+      "exists": true,
+      "bytes": 22097,
+      "sha256": "6ffe245611441690a48561c1396077bc52e30616694260bb66974d5ddaf72c5c"
+    },
+    {
+      "asset": "passivo_metadata.json",
+      "exists": true,
+      "bytes": 2186,
+      "sha256": "2be6bf26c616b6253f6a2b48491bc85b6fc15a2219bc85938e6d03826f95cc9f"
+    }
+  ],
+  "active_release_v2_repairs": [
+    {
+      "cache": "derived_metrics_individual",
+      "tier": "cache",
+      "path": "data/cache/derived_metrics_individual/dados.parquet",
+      "records": 14506,
+      "unresolved": 24,
+      "unresolved_by_period": {
+        "1/2025": 6,
+        "2/2025": 6,
+        "3/2025": 6,
+        "4/2025": 4,
+        "1/2026": 2
+      },
+      "periodos": [
+        "202503",
+        "202506",
+        "202509",
+        "202512",
+        "202603"
+      ],
+      "names_repaired": 24,
+      "registry_sha256_by_period": {
+        "202503": "2c842660b7c37e154c6724753409c5df5bb8f6668ce7078733c4ba909a9e143c",
+        "202506": "01467c73c6fe9f2f4771a2436dd4c3ebd18b1a9c9aa7d6c1314ed6f1bcde82c0",
+        "202509": "c672da4dc86edc4453b1fb2aec1cd2816a0f20b4e81801239803c67d80f88964",
+        "202512": "1a0d1ec17cbe1b677a2dc28052ab58ceb138d27fde700665dfea129f63553b6a",
+        "202603": "89298ecef94a7b2746bbb3deab1c7717e3805ea9d374b40cf57cdca0a39fc3fb"
+      },
+      "source": "https://olinda.bcb.gov.br/olinda/servico/IFDATA/versao/v1/odata/IfDataCadastro(AnoMes=202503); https://olinda.bcb.gov.br/olinda/servico/IFDATA/versao/v1/odata/IfDataCadastro(AnoMes=202506); https://olinda.bcb.gov.br/olinda/servico/IFDATA/versao/v1/odata/IfDataCadastro(AnoMes=202509); https://olinda.bcb.gov.br/olinda/servico/IFDATA/versao/v1/odata/IfDataCadastro(AnoMes=202512); https://www3.bcb.gov.br/ifdata/; https://olinda.bcb.gov.br/olinda/servico/IFDATA/versao/v1/odata/IfDataCadastro(AnoMes=202603); https://www3.bcb.gov.br/ifdata/",
+      "before_sha256": "8bcd4fefabe89faa5cf1216cfde830de0ba077d57778275069c229709b21f8b1",
+      "after_sha256": "9da64e377b1e21a25b5743c697fe3bcbc489787483eb4555b49e43c5836632b9",
+      "numeric_values_unchanged": true,
+      "repaired_at_utc": "20261009T200152Z"
+    },
+    {
+      "cache": "dre_individual",
+      "tier": "cache",
+      "path": "data/cache/dre_individual/dados.parquet",
+      "records": 7253,
+      "unresolved": 12,
+      "unresolved_by_period": {
+        "1/2025": 3,
+        "2/2025": 3,
+        "3/2025": 3,
+        "4/2025": 2,
+        "1/2026": 1
+      },
+      "periodos": [
+        "202503",
+        "202506",
+        "202509",
+        "202512",
+        "202603"
+      ],
+      "names_repaired": 12,
+      "registry_sha256_by_period": {
+        "202503": "2c842660b7c37e154c6724753409c5df5bb8f6668ce7078733c4ba909a9e143c",
+        "202506": "01467c73c6fe9f2f4771a2436dd4c3ebd18b1a9c9aa7d6c1314ed6f1bcde82c0",
+        "202509": "c672da4dc86edc4453b1fb2aec1cd2816a0f20b4e81801239803c67d80f88964",
+        "202512": "1a0d1ec17cbe1b677a2dc28052ab58ceb138d27fde700665dfea129f63553b6a",
+        "202603": "89298ecef94a7b2746bbb3deab1c7717e3805ea9d374b40cf57cdca0a39fc3fb"
+      },
+      "source": "https://olinda.bcb.gov.br/olinda/servico/IFDATA/versao/v1/odata/IfDataCadastro(AnoMes=202503); https://olinda.bcb.gov.br/olinda/servico/IFDATA/versao/v1/odata/IfDataCadastro(AnoMes=202506); https://olinda.bcb.gov.br/olinda/servico/IFDATA/versao/v1/odata/IfDataCadastro(AnoMes=202509); https://olinda.bcb.gov.br/olinda/servico/IFDATA/versao/v1/odata/IfDataCadastro(AnoMes=202512); https://www3.bcb.gov.br/ifdata/; https://olinda.bcb.gov.br/olinda/servico/IFDATA/versao/v1/odata/IfDataCadastro(AnoMes=202603); https://www3.bcb.gov.br/ifdata/",
+      "before_sha256": "c63d867c9727fb8be4e92551ba0b8a86d96fd1c725ed66ed35633678c16a2ba4",
+      "after_sha256": "686c35328811b54bfbcb3c199e3f5a625f0241647283304f8ef0e2101182b7e4",
+      "numeric_values_unchanged": true,
+      "repaired_at_utc": "20261009T200152Z"
+    },
+    {
+      "cache": "passivo",
+      "tier": "cache",
+      "path": "data/cache/passivo/dados.parquet",
+      "records": 60658,
+      "unresolved": 1406,
+      "unresolved_by_period": {
+        "4/2025": 1406
+      },
+      "periodos": [
+        "202512"
+      ],
+      "names_repaired": 1406,
+      "registry_sha256_by_period": {
+        "202512": "1a0d1ec17cbe1b677a2dc28052ab58ceb138d27fde700665dfea129f63553b6a"
+      },
+      "source": "https://olinda.bcb.gov.br/olinda/servico/IFDATA/versao/v1/odata/IfDataCadastro(AnoMes=202512); https://www3.bcb.gov.br/ifdata/",
+      "before_sha256": "80c44afa56133b94b7bc9b4a75185db2d85ea958b2a4d647b601efcb2e9f2a4e",
+      "after_sha256": "5313998f6a765f92a651fd10ad6bc087d97a51fb8f121559d5ef2efae4baa51f",
+      "numeric_values_unchanged": true,
+      "repaired_at_utc": "20261009T200152Z"
+    },
+    {
+      "cache": "principal_individual",
+      "tier": "cache",
+      "path": "data/cache/principal_individual/dados.parquet",
+      "records": 7253,
+      "unresolved": 271,
+      "unresolved_by_period": {
+        "3/2025": 68,
+        "4/2025": 68,
+        "1/2025": 67,
+        "2/2025": 67,
+        "1/2026": 1
+      },
+      "periodos": [
+        "202503",
+        "202506",
+        "202509",
+        "202512",
+        "202603"
+      ],
+      "names_repaired": 271,
+      "registry_sha256_by_period": {
+        "202509": "c672da4dc86edc4453b1fb2aec1cd2816a0f20b4e81801239803c67d80f88964",
+        "202512": "1a0d1ec17cbe1b677a2dc28052ab58ceb138d27fde700665dfea129f63553b6a",
+        "202503": "2c842660b7c37e154c6724753409c5df5bb8f6668ce7078733c4ba909a9e143c",
+        "202506": "01467c73c6fe9f2f4771a2436dd4c3ebd18b1a9c9aa7d6c1314ed6f1bcde82c0",
+        "202603": "89298ecef94a7b2746bbb3deab1c7717e3805ea9d374b40cf57cdca0a39fc3fb"
+      },
+      "source": "https://olinda.bcb.gov.br/olinda/servico/IFDATA/versao/v1/odata/IfDataCadastro(AnoMes=202509); https://olinda.bcb.gov.br/olinda/servico/IFDATA/versao/v1/odata/IfDataCadastro(AnoMes=202512); https://www3.bcb.gov.br/ifdata/; https://olinda.bcb.gov.br/olinda/servico/IFDATA/versao/v1/odata/IfDataCadastro(AnoMes=202503); https://olinda.bcb.gov.br/olinda/servico/IFDATA/versao/v1/odata/IfDataCadastro(AnoMes=202506); https://olinda.bcb.gov.br/olinda/servico/IFDATA/versao/v1/odata/IfDataCadastro(AnoMes=202603); https://www3.bcb.gov.br/ifdata/",
+      "before_sha256": "add36e18806e236a0798039818867a35922349fb3719478431363212c473a479",
+      "after_sha256": "3d70534e19c82d3de978f2fcae2344ed4aace147cdfb0604dbcacad8e9c35feb",
+      "numeric_values_unchanged": true,
+      "repaired_at_utc": "20261009T200152Z"
+    }
+  ],
+  "active_release_v2_after": [
+    {
+      "cache": "derived_metrics_individual",
+      "tier": "cache",
+      "path": "data/cache/derived_metrics_individual/dados.parquet",
+      "records": 14506,
+      "unresolved": 0,
+      "unresolved_by_period": {}
+    },
+    {
+      "cache": "dre_individual",
+      "tier": "cache",
+      "path": "data/cache/dre_individual/dados.parquet",
+      "records": 7253,
+      "unresolved": 0,
+      "unresolved_by_period": {}
+    },
+    {
+      "cache": "passivo",
+      "tier": "cache",
+      "path": "data/cache/passivo/dados.parquet",
+      "records": 60658,
+      "unresolved": 0,
+      "unresolved_by_period": {}
+    },
+    {
+      "cache": "principal_individual",
+      "tier": "cache",
+      "path": "data/cache/principal_individual/dados.parquet",
+      "records": 7253,
+      "unresolved": 0,
+      "unresolved_by_period": {}
+    }
+  ],
+  "live_olinda_extraction": {
+    "periodo": "202512",
+    "rows": 1406,
+    "names_valid": true,
+    "message": "OK",
+    "source": "https://olinda.bcb.gov.br/olinda/servico/IFDATA/versao/v1/odata/IfDataCadastro(AnoMes=202512); https://www3.bcb.gov.br/ifdata/",
+    "sample": [
+      {
+        "CodInst": "C0080099",
+        "Instituição": "ITAU - PRUDENCIAL"
+      },
+      {
+        "CodInst": "C0084930",
+        "Instituição": "LISTO SCD - PRUDENCIAL"
+      }
+    ]
+  },
+  "published_release_assets": {
+    "v1.1-cache": [
+      {
+        "asset": "passivo_metadata.json",
+        "sha256": "494bb71877069d05ea8f02a9c424c0e4c8c93422da4729753f2dc2b344300938",
+        "bytes": 4957,
+        "verified": true
+      },
+      {
+        "asset": "manifest.json",
+        "sha256": "744afc6005618512554fe3eb2e3ed54d4d8ef7f5efaa723599ddaf05f1171248",
+        "bytes": 44598,
+        "verified": true
+      },
+      {
+        "asset": "passivo_dados.parquet",
+        "sha256": "e4d281074c43348d9a485235b97f422412d4db94ec0564c40f8e3d97ddbb9119",
+        "bytes": 5160555,
+        "verified": true,
+        "rows": 63403,
+        "unresolved": 0,
+        "numeric_values_unchanged": true
+      }
+    ],
+    "v2.0-cache": [
+      {
+        "asset": "principal_individual_metadata.json",
+        "sha256": "7df9468eb572413f967d8d5d9bd54230098cc8766d65b46147f575f8ffa474bb",
+        "bytes": 2155,
+        "verified": true
+      },
+      {
+        "asset": "dre_individual_dados.parquet",
+        "sha256": "686c35328811b54bfbcb3c199e3f5a625f0241647283304f8ef0e2101182b7e4",
+        "bytes": 1718615,
+        "verified": true,
+        "rows": 7253,
+        "unresolved": 0,
+        "numeric_values_unchanged": true
+      },
+      {
+        "asset": "passivo_metadata.json",
+        "sha256": "02f84c14a8425389d1131caa35a2986ca8b6b89824e2dece28e94c8ee98db2c2",
+        "bytes": 2866,
+        "verified": true
+      },
+      {
+        "asset": "derived_metrics_individual_metadata.json",
+        "sha256": "a36b83fea6c9a88a472277c9b8fb95ee9c067570f53a3e2ac79bbe8539d8a9a5",
+        "bytes": 2242,
+        "verified": true
+      },
+      {
+        "asset": "manifest.json",
+        "sha256": "ba7c72845d2d73639be698c0787f8e0bee35a2d1c2ffe628fc000b1296b9449e",
+        "bytes": 29314,
+        "verified": true
+      },
+      {
+        "asset": "principal_individual_dados.parquet",
+        "sha256": "3d70534e19c82d3de978f2fcae2344ed4aace147cdfb0604dbcacad8e9c35feb",
+        "bytes": 778530,
+        "verified": true,
+        "rows": 7253,
+        "unresolved": 0,
+        "numeric_values_unchanged": true
+      },
+      {
+        "asset": "passivo_dados.parquet",
+        "sha256": "5313998f6a765f92a651fd10ad6bc087d97a51fb8f121559d5ef2efae4baa51f",
+        "bytes": 4915896,
+        "verified": true,
+        "rows": 60658,
+        "unresolved": 0,
+        "numeric_values_unchanged": true
+      },
+      {
+        "asset": "derived_metrics_individual_dados.parquet",
+        "sha256": "9da64e377b1e21a25b5743c697fe3bcbc489787483eb4555b49e43c5836632b9",
+        "bytes": 119183,
+        "verified": true,
+        "rows": 14506,
+        "unresolved": 0,
+        "numeric_values_unchanged": true
+      },
+      {
+        "asset": "dre_individual_metadata.json",
+        "sha256": "e2c770e9a57284f13415b1e1ee09fa6148d29ded3b5dbf101041d959dab0db8f",
+        "bytes": 5346,
+        "verified": true
+      }
+    ]
+  }
+}

@@ -1,3 +1,4 @@
+import hashlib
 import json
 from io import BytesIO
 from pathlib import Path
@@ -7,6 +8,8 @@ import pandas as pd
 import pytest
 
 from utils.ifdata_cache.release_config import ReleaseConfig
+from utils.ifdata_cache.base import BaseCache, CacheConfig, CacheResult
+from utils.ifdata_cache.critical_screens import _load_source_cache
 from utils.ifdata_cache.derived_metrics import DerivedMetricsIndividualCache
 from utils.ifdata_cache.release_ops import (
     _hydrate_source_caches,
@@ -82,6 +85,36 @@ class _HydrateManager:
         )
 
 
+class _RealHydrationCache(BaseCache):
+    def __init__(self, root):
+        super().__init__(CacheConfig(
+            nome="support", descricao="Fonte de suporte", subdir="support",
+            colunas_obrigatorias=["Instituição", "Período", "Valor"],
+        ), root)
+
+    def baixar_remoto(self):
+        raise AssertionError("Leitura de suporte bundled não deve consultar HTTP")
+
+    def extrair_periodo(self, periodo, **kwargs):
+        return CacheResult(False, "Extração fora do escopo do teste")
+
+
+def _write_support_bundle(cache, *, publication_id=None):
+    data = pd.DataFrame({"Instituição": ["Banco suporte"], "Período": ["2/2026"], "Valor": [2.0]})
+    cache.bundled_dir.mkdir(parents=True, exist_ok=True)
+    path = cache.bundled_dir / cache.config.arquivo_dados
+    data.to_parquet(path, index=False)
+    metadata = {
+        "total_registros": len(data), "colunas": list(data.columns), "periodos": ["2/2026"],
+        "integridade": {"versao": 1, "geracao": "test", "arquivo_dados": path.name,
+                        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(), "tamanho_bytes": path.stat().st_size},
+    }
+    if publication_id:
+        metadata["publication_id"] = publication_id
+    (cache.bundled_dir / cache.config.arquivo_metadata).write_text(json.dumps(metadata), encoding="utf-8")
+    return data
+
+
 class _Response:
     def __init__(self, status_code: int, payload=None, text: str = "", headers: dict | None = None):
         self.status_code = status_code
@@ -134,6 +167,8 @@ def test_get_postprocess_targets_maps_base_caches():
     assert get_postprocess_targets(["principal"]) == ["derived_metrics", "critical_screens"]
     assert get_postprocess_targets(["dre_individual"]) == ["derived_metrics_individual"]
     assert get_postprocess_targets(["bloprudencial"]) == ["critical_screens"]
+    assert get_postprocess_targets(["carteira_instrumentos"]) == ["derived_metrics", "critical_screens"]
+    assert get_postprocess_targets(["ativo"]) == ["derived_metrics", "critical_screens"]
 
 
 def test_get_publishable_bundle_skips_failed_gate_targets():
@@ -250,6 +285,86 @@ def test_hydrate_source_caches_falls_back_to_remote_when_local_missing():
     assert manager.calls == [("capital", True)]
     assert details[0]["source"] == "github_releases"
     assert details[0]["forced_remote"] is True
+
+
+def test_hydrate_selected_source_never_replaces_missing_local_with_old_remote():
+    manager = _HydrateManager({"principal": _HydrateCache(name="principal", exists=False)})
+    details, failures = _hydrate_source_caches(manager, ["principal"], local_first=["principal"])
+    assert failures
+    assert details[0]["status"] == "erro"
+    assert manager.calls == []
+
+
+def test_hydrate_readable_bundle_without_runtime_is_consumable_by_critical_sources_without_http(tmp_path, monkeypatch):
+    cache = _RealHydrationCache(tmp_path)
+    expected = _write_support_bundle(cache, publication_id="current")
+    manager = _HydrateManager({"support": cache})
+
+    def no_http(*args, **kwargs):
+        raise AssertionError("Suporte bundled legível não deve fazer HTTP")
+
+    monkeypatch.setattr("requests.get", no_http)
+    assert not cache.existe()
+    assert cache.existe_leitura()
+    details, failures = _hydrate_source_caches(manager, ["support"])
+    assert failures == []
+    assert manager.calls == []
+    assert details[0]["status"] == "ok" and not details[0]["forced_remote"]
+    pd.testing.assert_frame_equal(_load_source_cache(manager, "support"), expected)
+    assert not cache.arquivo_dados_runtime.exists()
+
+
+def test_hydrate_selected_source_rejects_readable_bundle_when_runtime_was_not_saved(tmp_path):
+    cache = _RealHydrationCache(tmp_path)
+    _write_support_bundle(cache, publication_id="current")
+    manager = _HydrateManager({"support": cache})
+    details, failures = _hydrate_source_caches(manager, ["support"], local_first=["support"])
+    assert failures
+    assert details[0]["status"] == "erro"
+    assert not details[0]["forced_remote"]
+    assert manager.calls == []
+
+
+def test_hydrate_invalid_bundled_pair_falls_back_to_remote_and_critical_consumer_rejects_it(tmp_path):
+    cache = _RealHydrationCache(tmp_path)
+    changed = _write_support_bundle(cache, publication_id="current")
+    changed["Valor"] = 99.0
+    changed.to_parquet(cache.bundled_dir / cache.config.arquivo_dados, index=False)
+    manager = _HydrateManager({"support": cache})
+    details, failures = _hydrate_source_caches(manager, ["support"])
+    assert failures == []
+    assert manager.calls == [("support", True)]
+    assert details[0]["source"] == "github_releases" and details[0]["forced_remote"]
+    with pytest.raises(RuntimeError, match="gerações diferentes|corrompidos"):
+        _load_source_cache(manager, "support")
+
+
+def test_hydrate_selected_source_rejects_existing_runtime_that_resolves_to_published_bundle(tmp_path):
+    cache = _RealHydrationCache(tmp_path)
+    runtime = pd.DataFrame({"Instituição": ["Banco suporte"], "Período": ["1/2026"], "Valor": [1.0]})
+    assert cache.salvar_local(runtime, fonte="api").sucesso
+    _write_support_bundle(cache, publication_id="current")
+    assert cache.existe()
+    assert cache.coherent_read_paths()[0].parent == cache.bundled_dir
+    manager = _HydrateManager({"support": cache})
+    details, failures = _hydrate_source_caches(manager, ["support"], local_first=["support"])
+    assert failures
+    assert details[0]["status"] == "erro"
+    assert "geração de runtime" in details[0]["message"]
+    assert manager.calls == []
+
+
+def test_hydrate_selected_source_accepts_current_managed_runtime_without_http(tmp_path):
+    cache = _RealHydrationCache(tmp_path)
+    data = _write_support_bundle(cache, publication_id="current")
+    data["Valor"] = 3.0
+    assert cache.salvar_local(data, fonte="api").sucesso
+    manager = _HydrateManager({"support": cache})
+    details, failures = _hydrate_source_caches(manager, ["support"], local_first=["support"])
+    assert failures == []
+    assert details[0]["status"] == "ok"
+    assert manager.calls == []
+    pd.testing.assert_frame_equal(_load_source_cache(manager, "support"), data)
 
 
 def test_write_manifest_and_collect_assets(tmp_path: Path, monkeypatch):

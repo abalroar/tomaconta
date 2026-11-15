@@ -176,7 +176,7 @@ def test_html_has_clean_grid_without_decorative_hatched_column():
     assert "tc-4966-marker" not in rendered
     assert '<col style="width:14px">' not in rendered
     assert "border-collapse: collapse" in rendered
-    assert "--tc-line: #dddddd" in rendered
+    assert "--tc-line: #DEDEDE" in rendered
     assert 'role="region"' in rendered
     assert 'tabindex="0"' in rendered
     assert rendered.count('<tbody data-group=') == 3
@@ -270,10 +270,27 @@ def test_percentage_format_preserves_rates_below_half_percent():
     assert format_percentage(-0.0001, 0) == "0%"
 
 
+def test_qoq_reference_is_explicit_and_period_values_are_centered_in_html_and_excel():
+    model = _model()
+    rendered = render_carteira_4966_html(model)
+    assert "QoQ vs Dez/25" in rendered
+    assert "↑ +10,00%" in rendered
+    assert "min-width: 0; text-align: center" in rendered
+    assert "background: #EC7000" in rendered
+    wb = openpyxl.load_workbook(BytesIO(build_carteira_4966_excel(model)))
+    sheet = wb["Modelo 4966"]
+    assert any(c.value == "QoQ vs Dez/25" for row in sheet for c in row)
+    assert any(c.value == "↑ +10,00%" for row in sheet for c in row)
+    assert sheet["B2"].fill.fgColor.rgb == "FFEC7000"
+    row = next(r for r in range(1, sheet.max_row + 1) if sheet.cell(r, 1).value == "Carteira total")
+    assert sheet.cell(row, 2).alignment.horizontal == "center"
+    assert sheet.cell(row, 3).alignment.horizontal == "center"
+
+
 def test_excel_matches_row_spec_order_units_without_hatched_marker_column():
     workbook = openpyxl.load_workbook(BytesIO(build_carteira_4966_excel(_model())), data_only=True)
 
-    assert workbook.sheetnames == ["Modelo 4966", "Alertas qualidade", "Glossário"]
+    assert workbook.sheetnames == ["Modelo 4966", "Alertas qualidade", "Glossário", "Variações"]
     sheet = workbook["Modelo 4966"]
     assert sheet["A1"].value == TITLE
     assert sheet["A2"].value == "Indicador"
@@ -481,7 +498,7 @@ def test_reliable_pdd_ratio_has_no_uncertainty_marker():
     rendered = render_carteira_4966_html(model)
     ratio_row = _html_row(rendered, "PDD / Carteira Total (%)")
 
-    assert _visible_text(ratio_row) == "40,00%"
+    assert _visible_text(ratio_row) == "40,00%Base N/D"
     assert "Alerta de confiabilidade" not in ratio_row
 
     workbook = openpyxl.load_workbook(
@@ -705,7 +722,7 @@ def test_pdd_above_portfolio_is_flagged_in_html_audit_and_excel():
         BytesIO(build_carteira_4966_excel(model)),
         data_only=True,
     )
-    assert workbook.sheetnames == ["Modelo 4966", "Alertas qualidade", "Glossário"]
+    assert workbook.sheetnames == ["Modelo 4966", "Alertas qualidade", "Glossário", "Variações"]
     alerts = workbook["Alertas qualidade"]
     assert alerts["B2"].value == "Não confiável"
     assert alerts["F2"].value == pytest.approx(1.2)

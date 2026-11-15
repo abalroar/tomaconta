@@ -1,0 +1,80 @@
+{
+  "timestamp_salvamento": "2026-09-10T22:26:08.309691",
+  "fonte": "ifdata_web",
+  "total_registros": 6649,
+  "colunas": [
+    "Instituição",
+    "Período",
+    "A Vencer Acima de 5400 Dias",
+    "A Vencer Entre 1081 a 1800 Dias",
+    "A Vencer Entre 1081 a 1800 dias",
+    "A Vencer Entre 1801 a 5400 Dias",
+    "A Vencer Entre 361 a 1080 Dias",
+    "A Vencer Entre 91 a 360 Dias",
+    "A Vencer em até 90 Dias",
+    "A vencer Acima de 5400 Dias",
+    "Total",
+    "Total Exterior Pessoa Física",
+    "Total da Carteira de Pessoa Física",
+    "Vencido a Partir de 15 Dias",
+    "CodInst"
+  ],
+  "formato": "parquet",
+  "periodos": [
+    "1/2025",
+    "1/2026",
+    "2/2025",
+    "2/2026",
+    "3/2025"
+  ],
+  "total_periodos": 5,
+  "extra": {
+    "operacao": "Salvamento final: 06/2026 até 06/2026",
+    "ifdata_web": {
+      "periodo": "202606",
+      "source": "https://www3.bcb.gov.br/ifdata/",
+      "files": {
+        "relatorios2025a2030.json": {
+          "url": "https://www3.bcb.gov.br/ifdata/rest/relatorios2025a2030",
+          "sha256": "27e8cfa788db41ccfefdaab35e6494e4dd0719f4ffdc76e4d8aa3bc95483cdb1",
+          "bytes": 3056883
+        },
+        "info202606.json": {
+          "url": "https://www3.bcb.gov.br/ifdata/rest/arquivos?nomeArquivo=ifdata_2025_2030%2F%2F202606%2Finfo202606.json",
+          "sha256": "7493e647feff953cb74c45a1d45b823c4660717e750879e3475923fd4a142098",
+          "bytes": 188694
+        },
+        "cadastro202606_1009.json": {
+          "url": "https://www3.bcb.gov.br/ifdata/rest/arquivos?nomeArquivo=ifdata_2025_2030%2F%2F202606%2Fcadastro202606_1009.json",
+          "sha256": "16894c0d6a6ddb6ec62df8c79de3ff2db91edd5c3d03ea3661551c9f32653a52",
+          "bytes": 742446
+        },
+        "cadastro202606_1006.json": {
+          "url": "https://www3.bcb.gov.br/ifdata/rest/arquivos?nomeArquivo=ifdata_2025_2030%2F%2F202606%2Fcadastro202606_1006.json",
+          "sha256": "65c4f70679aae9fb0866b50f930466d850383deb4df67f6a4c4b3ed9ed126e69",
+          "bytes": 867692
+        },
+        "dados202606_1.json": {
+          "url": "https://www3.bcb.gov.br/ifdata/rest/arquivos?nomeArquivo=ifdata_2025_2030%2F%2F202606%2Fdados202606_1.json",
+          "sha256": "bb7e68afe8464c023fb453748ea4d3009c0c7af828328483ac98f9ae36edf8e6",
+          "bytes": 15662001
+        },
+        "dados202606_5.json": {
+          "url": "https://www3.bcb.gov.br/ifdata/rest/arquivos?nomeArquivo=ifdata_2025_2030%2F%2F202606%2Fdados202606_5.json",
+          "sha256": "a2b28dff2b82883135326c74a8bcb477b5937379da8b17a8d964c0934c07c3ad",
+          "bytes": 1073613
+        },
+        "dados202606_3.json": {
+          "url": "https://www3.bcb.gov.br/ifdata/rest/arquivos?nomeArquivo=ifdata_2025_2030%2F%2F202606%2Fdados202606_3.json",
+          "sha256": "4404c6186ac6febb122078dd40dd02e51041100e54c5e0ac4cc5fc7e337a9275",
+          "bytes": 5724840
+        }
+      },
+      "registros_periodo": 1101,
+      "unidade": "R$; razões em decimal"
+    }
+  },
+  "publication_id": "tomaconta-jun26-20260911-v1",
+  "sha256": "81c5286a908d1fec685c4fad8a8be6579f8553aefaae793633a6d018595503b4",
+  "release_tag": "v1.1-cache"
+}

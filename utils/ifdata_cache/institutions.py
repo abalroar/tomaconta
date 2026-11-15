@@ -77,6 +77,10 @@ def _significant_institution_tokens(nome: str | None) -> Tuple[str, ...]:
 
 
 def _project_root(base_dir: Path | None = None) -> Path:
+    from .official_store import get_official_read_snapshot
+    snapshot = get_official_read_snapshot(base_dir)
+    if snapshot is not None:
+        return snapshot.root
     if base_dir is not None:
         return base_dir.resolve()
     return Path(__file__).resolve().parents[2]
@@ -117,6 +121,10 @@ def _load_conglomerados_local_csv(base_dir: Path) -> List[dict]:
     caminho = base_dir / "conglomerados.csv"
     if not caminho.exists():
         return []
+    from .official_store import get_official_read_snapshot
+    snapshot = get_official_read_snapshot(base_dir)
+    if snapshot is not None:
+        caminho = snapshot.resolve("conglomerados.csv")
     texto = caminho.read_text(encoding="utf-8", errors="ignore")
     return _parse_conglomerados_csv_text(texto)
 
@@ -148,6 +156,10 @@ def _load_conglomerados_bloprudencial_fallback(base_dir: Path) -> List[dict]:
 
     conglomerados: Dict[str, dict] = {}
     for caminho in candidatos:
+        from .official_store import get_official_read_snapshot
+        snapshot = get_official_read_snapshot(base_dir)
+        if snapshot is not None:
+            caminho = snapshot.resolve(caminho.name)
         try:
             with caminho.open("r", encoding="latin1", errors="ignore", newline="") as fp:
                 leitor = csv.reader(fp, delimiter=";")
@@ -196,6 +208,12 @@ def _load_conglomerados_bloprudencial_fallback(base_dir: Path) -> List[dict]:
 def load_conglomerados_catalog(base_dir: Path | None = None) -> List[dict]:
     """Carrega catálogo oficial de conglomerados."""
     root = _project_root(base_dir)
+    from .official_store import get_official_read_snapshot
+    snapshot = get_official_read_snapshot(root)
+    if snapshot is not None:
+        for name in snapshot.manifest["files"]:
+            if name == "conglomerados.csv" or ("/" not in name and "BLOPRUDENCIAL" in name and name.endswith(".CSV")):
+                snapshot.resolve(name)
     return copy.deepcopy(_load_conglomerados_catalog_cached(str(root)))
 
 
@@ -210,6 +228,9 @@ def _load_conglomerados_catalog_cached(root_str: str) -> List[dict]:
     if dados:
         return dados
 
+    from .official_store import get_official_read_snapshot, OfficialStoreError
+    if get_official_read_snapshot(root) is not None:
+        raise OfficialStoreError("Revisão oficial sem catálogo legível de conglomerados")
     return _load_conglomerados_api()
 
 
@@ -410,6 +431,7 @@ def canonicalize_institution_dataframe(
     out = df.copy()
     code_to_name = build_code_to_name_map(out, *list(extra_frames))
     code_columns = [col for col in ("CodInst", "COD_INST", "cod_inst", "CODINST") if col in out.columns]
+    canonical_by_name: Dict[str, str] = {}
 
     def _resolve_name(row: pd.Series) -> str:
         raw_name = str(row.get(name_column) or "").strip()
@@ -426,7 +448,11 @@ def canonicalize_institution_dataframe(
         if (is_placeholder_institution_name(raw_name) or parece_codigo_instituicao(raw_name)) and code_key:
             nome_base = code_to_name.get(code_key) or resolver_nome_instituicao(code_key, raw_name)
 
-        return canonicalize_institution_name(nome_base, catalog_map=catalog, base_dir=base_dir)
+        if nome_base not in canonical_by_name:
+            canonical_by_name[nome_base] = canonicalize_institution_name(
+                nome_base, catalog_map=catalog, base_dir=base_dir
+            )
+        return canonical_by_name[nome_base]
 
     out[name_column] = out.apply(_resolve_name, axis=1)
     return out

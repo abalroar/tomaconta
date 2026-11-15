@@ -22,11 +22,6 @@ def _patch_relatorio_16_sources(monkeypatch, raw_values: pd.DataFrame) -> None:
         "extrair_valores",
         lambda periodo, relatorio, tipo_instituicao=1: raw_values.copy(),
     )
-    monkeypatch.setattr(
-        extractor,
-        "_resolver_nomes_instituicoes",
-        lambda frame, periodo: frame,
-    )
 
 
 def test_relatorio_16_exact_api_duplicates_are_not_summed(monkeypatch):

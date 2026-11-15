@@ -38,6 +38,7 @@ import pandas as pd
 import requests
 
 from .base import BaseCache, CacheConfig, CacheResult
+from .update_state import locked_cache_update, mutation_lock
 from .release_config import build_release_base_url, get_release_config
 
 logger = logging.getLogger("ifdata_cache")
@@ -963,18 +964,53 @@ class SCRDataCache(BaseCache):
 
     @property
     def manifest_path(self) -> Path:
-        return self.cache_dir / "historico_manifest.json"
+        return self._official_path(self.cache_dir / "historico_manifest.json")
 
     def dimension_paths(self) -> Dict[str, Path]:
-        return {
+        paths = {
             "produto": self.cache_dir / "dim_produto.parquet",
             "porte": self.cache_dir / "dim_porte.parquet",
             "geo": self.cache_dir / "dim_geo.parquet",
             "segmento": self.cache_dir / "dim_segmento.parquet",
         }
+        return {key: self._official_path(path) for key, path in paths.items()}
 
     def annual_path(self, ano: Any) -> Path:
-        return self.annual_dir / f"{ano}.parquet"
+        return self._official_path(self.annual_dir / f"{ano}.parquet")
+
+    @property
+    def pending_dir(self) -> Path:
+        return self.staging_dir / "pending"
+
+    def _candidate_years(self) -> List[int]:
+        return sorted({int(path.stem) for path in self.pending_dir.glob("[0-9][0-9][0-9][0-9].parquet")})
+
+    def _seed_current_annuals(self) -> None:
+        """Preserva anos do resumo publicado quando o runtime ainda não tem seus detalhes."""
+        if not self.arquivo_dados.exists():
+            return
+        metadata = self._load_json(self.arquivo_metadata)
+        years = metadata.get("anos_materializados")
+        if years is None:
+            bases = pd.read_parquet(self.arquivo_dados, columns=["data_base"])["data_base"]
+            years = sorted(set(bases.astype(str).str[:4]))
+        for item in years:
+            year = int(item)
+            candidate = self.pending_dir / f"{year}.parquet"
+            if self.annual_path(year).exists() and not candidate.exists():
+                continue
+            if not candidate.exists() and not self._baixar_asset(self.annual_release_url(year), candidate):
+                raise RuntimeError(f"Histórico {year} não pôde ser preservado; resumo vigente mantido")
+            data = pd.read_parquet(candidate)
+            validar_fato_anual(data, ano=str(year))
+            pairs = data[["modalidade", "submodalidade", "modalidade_bcb", "data_base"]].drop_duplicates()
+            pairs.to_parquet(self.pending_dir / f"pares_produto_{year}.parquet", index=False)
+
+    def _runtime_paths(self) -> List[Path]:
+        years = sorted(set(self.anos_locais()) | set(self._candidate_years()))
+        return [*super()._runtime_paths(), *self.dimension_paths().values(), self.manifest_path,
+                *[self.annual_path(year) for year in years],
+                *[self.staging_dir / f"pares_produto_{year}.parquet" for year in years]]
 
     def annual_asset_name(self, ano: Any) -> str:
         return f"{self.config.nome}_ano_{ano}.parquet"
@@ -1029,6 +1065,7 @@ class SCRDataCache(BaseCache):
         self._garantir_diretorio()
         self.staging_dir.mkdir(parents=True, exist_ok=True)
         self.annual_dir.mkdir(parents=True, exist_ok=True)
+        self.pending_dir.mkdir(parents=True, exist_ok=True)
 
     def _log_local(
         self,
@@ -1040,12 +1077,9 @@ class SCRDataCache(BaseCache):
             callback(mensagem)
         self._log(nivel, mensagem)
 
-    @staticmethod
-    def _save_json(path: Path, payload: Dict[str, Any]) -> None:
+    def _save_json(self, path: Path, payload: Dict[str, Any]) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
-        )
+        self._write_json_atomic(path, payload)
 
     @staticmethod
     def _load_json(path: Path) -> Dict[str, Any]:
@@ -1161,6 +1195,7 @@ class SCRDataCache(BaseCache):
         pares_produto = pd.concat(pares, ignore_index=True).drop_duplicates()
         return fato, pares_produto
 
+    @locked_cache_update
     def materializar_ano(
         self,
         ano: int,
@@ -1188,12 +1223,12 @@ class SCRDataCache(BaseCache):
             )
             relatorio = validar_fato_anual(fato, ano=str(ano))
 
-            destino = self.annual_path(ano)
+            destino = self.pending_dir / f"{ano}.parquet"
             temporario = destino.with_suffix(".parquet.tmp")
             fato.to_parquet(temporario, compression="zstd", index=False)
             temporario.replace(destino)
 
-            pares_path = self.staging_dir / f"pares_produto_{ano}.parquet"
+            pares_path = self.pending_dir / f"pares_produto_{ano}.parquet"
             pares_produto.to_parquet(pares_path, index=False)
         finally:
             if not manter_zip and zip_path.exists():
@@ -1217,6 +1252,7 @@ class SCRDataCache(BaseCache):
         )
         return registro
 
+    @locked_cache_update
     def materialize_history(
         self,
         *,
@@ -1232,11 +1268,13 @@ class SCRDataCache(BaseCache):
         são pulados — o rebuild mensal baixa só o ano corrente.
         """
         self._garantir_estrutura()
+        self._seed_current_annuals()
         ano_final = ano_final or datetime.now().year
         anos = list(range(max(ano_inicial, PRIMEIRO_ANO), ano_final + 1))
 
         checkpoint = self._load_json(self.checkpoint_path)
-        registros: Dict[str, Any] = dict(checkpoint.get("anos", {}))
+        published = self._load_json(self.manifest_path)
+        registros: Dict[str, Any] = {**published.get("anos", {}), **checkpoint.get("anos", {})}
         falhas: Dict[str, str] = {}
 
         with requests.Session() as session:
@@ -1275,7 +1313,10 @@ class SCRDataCache(BaseCache):
                     },
                 )
 
-        if not self.anos_locais():
+        if falhas:
+            return CacheResult(False, f"Anos com falha: {sorted(falhas)}; versão anterior preservada",
+                               metadata={"falhas": falhas, "finalized": False}, fonte="nenhum")
+        if not (self.anos_locais() or self._candidate_years()):
             return CacheResult(
                 sucesso=False,
                 mensagem=f"Nenhum slice anual materializado. Falhas: {falhas}",
@@ -1305,13 +1346,14 @@ class SCRDataCache(BaseCache):
         log_callback: Optional[Callable[[str], None]] = None,
     ) -> Dict[str, Any]:
         """Constrói ``dados.parquet``, as dimensões e os manifestos."""
-        anos = self.anos_locais()
+        anos = sorted(set(self.anos_locais()) | set(self._candidate_years()))
         self._log_local("info", "Consolidando resumo por região...", log_callback)
 
         resumos: List[pd.DataFrame] = []
         segmentos_observados: List[pd.DataFrame] = []
         for ano in anos:
-            fato = pd.read_parquet(self.annual_path(ano))
+            candidate = self.pending_dir / f"{ano}.parquet"
+            fato = pd.read_parquet(candidate if candidate.exists() else self.annual_path(ano))
             resumos.append(agregar_resumo(fato))
             segmentos_observados.append(
                 fato[["segmento", "data_base"]].astype(str).drop_duplicates()
@@ -1327,13 +1369,11 @@ class SCRDataCache(BaseCache):
 
         temporario = self.cache_dir / "dados.parquet.tmp"
         resumo.to_parquet(temporario, compression="zstd", index=False)
-        temporario.replace(self.arquivo_dados)
 
         self._log_local("info", "Construindo dimensões...", log_callback)
-        pares = [
-            pd.read_parquet(path)
-            for path in sorted(self.staging_dir.glob("pares_produto_*.parquet"))
-        ]
+        pair_paths = {path.name: path for path in self.staging_dir.glob("pares_produto_*.parquet")}
+        pair_paths.update({path.name: path for path in self.pending_dir.glob("pares_produto_*.parquet")})
+        pares = [pd.read_parquet(path) for path in pair_paths.values()]
         dim_produto = construir_dim_produto(
             pd.concat(pares, ignore_index=True).drop_duplicates()
             if pares
@@ -1348,10 +1388,15 @@ class SCRDataCache(BaseCache):
         )
 
         caminhos = self.dimension_paths()
-        dim_produto.to_parquet(caminhos["produto"], index=False)
-        construir_dim_porte().to_parquet(caminhos["porte"], index=False)
-        construir_dim_geo().to_parquet(caminhos["geo"], index=False)
-        dim_segmento.to_parquet(caminhos["segmento"], index=False)
+        candidates = {}
+        for key, data in (("produto", dim_produto), ("porte", construir_dim_porte()),
+                          ("geo", construir_dim_geo()), ("segmento", dim_segmento)):
+            candidate = caminhos[key].with_suffix(".parquet.tmp")
+            data.to_parquet(candidate, index=False)
+            candidates[caminhos[key]] = candidate
+        for year in self._candidate_years():
+            candidates[self.annual_path(year)] = self.pending_dir / f"{year}.parquet"
+            candidates[self.staging_dir / f"pares_produto_{year}.parquet"] = self.pending_dir / f"pares_produto_{year}.parquet"
 
         data_bases = sorted(resumo["data_base"].astype(str).unique().tolist())
         finalizado_em = datetime.now().isoformat()
@@ -1370,21 +1415,27 @@ class SCRDataCache(BaseCache):
             "unidade_monetaria": "R$ mil",
             "schema_version": 2,
         }
-        self._save_json(self.arquivo_metadata, metadata)
+        manifest_candidate = self.manifest_path.with_suffix(".json.tmp")
         self._save_json(
-            self.manifest_path,
+            manifest_candidate,
             {
                 "finalizado_em": finalizado_em,
                 "fonte": SCR_PAGINA_URL,
                 "metodologia": SCR_METODOLOGIA_URL,
                 "linhas_resumo": int(len(resumo)),
-                "bytes_resumo": self.arquivo_dados.stat().st_size,
+                "bytes_resumo": temporario.stat().st_size,
                 "anos": registros,
                 "falhas": falhas,
                 "quebras_de_serie": QUEBRAS_DE_SERIE,
             },
         )
-        return metadata
+        candidates[self.manifest_path] = manifest_candidate
+        saved = self.salvar_arquivo_local(temporario, metadata, candidates)
+        if not saved.sucesso:
+            raise RuntimeError(saved.mensagem)
+        for candidate in [temporario, *candidates.values()]:
+            candidate.unlink(missing_ok=True)
+        return saved.metadata
 
     # -- consumo -----------------------------------------------------------
 
@@ -1397,57 +1448,79 @@ class SCRDataCache(BaseCache):
         if resposta.status_code != 200:
             self._log("warning", f"Asset indisponível ({resposta.status_code}): {url}")
             return False
-        destino.parent.mkdir(parents=True, exist_ok=True)
-        if destino.suffix == ".json":
-            destino.write_text(resposta.text, encoding="utf-8")
-        else:
-            destino.write_bytes(resposta.content)
+        try:
+            with mutation_lock(self.base_dir):
+                destino.parent.mkdir(parents=True, exist_ok=True)
+                temporario = destino.with_name(f".{destino.name}.download.tmp")
+                temporario.write_bytes(resposta.content)
+                if destino.suffix == ".json":
+                    json.loads(temporario.read_text(encoding="utf-8"))
+                elif destino.suffix == ".parquet":
+                    import pyarrow.parquet as pq
+                    for _ in pq.ParquetFile(temporario).iter_batches(batch_size=50_000):
+                        pass
+                self._sync_file(temporario)
+                temporario.replace(destino)
+                self._sync_directory(destino.parent)
+        except Exception as exc:
+            self._log("warning", f"Asset não ativado: {exc}")
+            return False
         return True
+
+    def _local_assets_result(self) -> Optional[CacheResult]:
+        """Lê uma geração completa sem exigir a trava de outra atualização."""
+        try:
+            data_path, metadata_path = self.coherent_read_paths()
+            parent = data_path.parent
+            dimensions = {key: parent / path.name for key, path in self.dimension_paths().items()}
+            manifest_path = parent / self.manifest_path.name
+            if not (data_path.exists() and metadata_path.exists() and manifest_path.exists()
+                    and all(path.exists() for path in dimensions.values())):
+                return None
+            data_before = data_path.stat()
+            metadata_before = metadata_path.read_bytes()
+            metadata = json.loads(metadata_before)
+            if not isinstance(metadata, dict) or not isinstance(json.loads(manifest_path.read_bytes()), dict):
+                return None
+            if not (self._parquet_tem_colunas(data_path, RESUMO_REQUIRED_COLUMNS)
+                    and self._parquet_tem_colunas(dimensions["produto"],
+                                                 ["modalidade", "submodalidade", "modalidade_bcb"])):
+                return None
+            import pyarrow.parquet as pq
+            rows = pq.ParquetFile(data_path).metadata.num_rows
+            if not rows or metadata.get("total_registros", rows) != rows:
+                return None
+            for path in dimensions.values():
+                if not pq.ParquetFile(path).metadata.num_rows:
+                    return None
+            self._validate_file_identity(data_path, metadata_path)
+            data_after = data_path.stat()
+            if (metadata_path.read_bytes() != metadata_before
+                    or (data_before.st_ino, data_before.st_size, data_before.st_mtime_ns)
+                    != (data_after.st_ino, data_after.st_size, data_after.st_mtime_ns)):
+                return None
+            return CacheResult(True, "Assets do SCR.data já disponíveis localmente.",
+                               metadata=metadata, fonte="cache_local")
+        except (OSError, ValueError, TypeError, KeyError):
+            # Snapshot removido ou promoção concorrente: a próxima leitura
+            # resolve novamente a geração, sem afirmar disponibilidade vazia.
+            return None
 
     def bootstrap_local_assets(self, *, force: bool = False) -> CacheResult:
         """Garante resumo, metadata, manifesto e dimensões localmente."""
+        if not force:
+            local = self._local_assets_result()
+            if local is not None:
+                return local
         caminhos = self.dimension_paths()
-        if (
-            not force
-            and self.arquivo_dados.exists()
-            and self.arquivo_metadata.exists()
-            and all(path.exists() for path in caminhos.values())
-            and self._parquet_tem_colunas(self.arquivo_dados, RESUMO_REQUIRED_COLUMNS)
-            and self._parquet_tem_colunas(
-                caminhos["produto"],
-                ["modalidade", "submodalidade", "modalidade_bcb"],
-            )
-        ):
-            return CacheResult(
-                sucesso=True,
-                mensagem="Assets do SCR.data já disponíveis localmente.",
-                fonte="cache_local",
-            )
-
-        self._garantir_diretorio()
-
-        if not self._baixar_asset(self.github_release_parquet_url, self.arquivo_dados):
-            return CacheResult(
-                sucesso=False,
-                mensagem=(
-                    "Resumo do SCR.data não encontrado no release. "
-                    "Rode `python tools/update_caches_cli.py --tipo scr_data` para materializá-lo."
-                ),
-                fonte="nenhum",
-            )
-
-        self._baixar_asset(self.github_release_metadata_url, self.arquivo_metadata)
-        self._baixar_asset(self.github_release_manifest_url, self.manifest_path)
-        for chave, path in caminhos.items():
-            self._baixar_asset(
-                f"{self.release_base_url}/{self.config.nome}_dim_{chave}.parquet", path
-            )
-
-        return CacheResult(
-            sucesso=True,
-            mensagem="Assets do SCR.data baixados do release.",
-            fonte="github_releases",
-        )
+        urls = {
+            self.arquivo_dados_runtime: self.github_release_parquet_url,
+            self.arquivo_metadata_runtime: self.github_release_metadata_url,
+            self.manifest_path: self.github_release_manifest_url,
+            **{path: f"{self.release_base_url}/{self.config.nome}_dim_{key}.parquet"
+               for key, path in caminhos.items()},
+        }
+        return self.baixar_arquivos_local(urls, timeout=REQUEST_TIMEOUT, headers=REQUEST_HEADERS)
 
     def carregar_detalhe(
         self,
@@ -1469,6 +1542,8 @@ class SCRDataCache(BaseCache):
         for ano in alvo:
             caminho = self.annual_path(ano)
             schema_atual = self._parquet_tem_colunas(caminho, FACT_REQUIRED_COLUMNS)
+            if self._official_snapshot is not None and not schema_atual:
+                raise SCRQualityError(f"{ano}: slice da revisão oficial usa schema incompatível")
             if not schema_atual and baixar_ausentes:
                 self.annual_dir.mkdir(parents=True, exist_ok=True)
                 self._baixar_asset(self.annual_release_url(ano), caminho)
@@ -1536,6 +1611,7 @@ class SCRDataCache(BaseCache):
             return resultado
         return self.carregar_local()
 
+    @locked_cache_update
     def extrair_periodo(self, periodo: str, **kwargs) -> CacheResult:
         """Materializa o ano de uma data-base ``YYYY-MM`` ou ``YYYY``.
 

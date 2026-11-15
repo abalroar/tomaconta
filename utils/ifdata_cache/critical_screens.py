@@ -15,6 +15,7 @@ import pandas as pd
 
 from .availability import display_period_to_api, filter_supported_periods
 from .base import BaseCache, CacheConfig, CacheResult
+from .update_state import locked_cache_update
 from .bloprudencial import load_bloprudencial_df_cached
 from .diagnostics import max_period_from_metadata, normalize_period_reference, sha256_file
 from .derived_metrics import (
@@ -235,16 +236,21 @@ class CriticalScreensCache(BaseCache):
 
     @property
     def read_data_file(self) -> Path:
-        """Artefato canônico de runtime: bundle versionado quando disponível."""
-        return self.bundled_data_file if self.bundled_data_file.exists() else self.arquivo_dados
+        """Usa o runtime da publicação atual, com precedência legada preservada."""
+        if self.bundled_data_file.exists() and not self._publication_metadata():
+            return self.bundled_data_file
+        return self.coherent_read_paths()[0]
 
     @property
     def read_metadata_file(self) -> Path:
-        return self.bundled_metadata_file if self.bundled_metadata_file.exists() else self.arquivo_metadata
+        if self.bundled_data_file.exists() and not self._publication_metadata():
+            return self.bundled_metadata_file
+        return self.coherent_read_paths()[1]
 
     def bundle_available(self) -> bool:
         return self.bundled_data_file.exists() and self.bundled_metadata_file.exists()
 
+    @locked_cache_update
     def bootstrap_local_from_bundle(self) -> CacheResult:
         """Replica e valida o bundle sem materializar o parquet em pandas."""
         if not self.bundle_available():
@@ -255,34 +261,18 @@ class CriticalScreensCache(BaseCache):
             )
 
         try:
-            self._garantir_diretorio()
-            shutil.copy2(self.bundled_data_file, self.arquivo_dados_runtime)
-            shutil.copy2(self.bundled_metadata_file, self.arquivo_metadata_runtime)
+            metadata = _read_metadata_if_exists(self.bundled_metadata_file) or {}
+            result = self.salvar_arquivo_local(self.bundled_data_file, metadata)
+            if result.sucesso:
+                result.fonte = "bundle_local"
+                result.mensagem = f"Artefato bundled disponível localmente: {result.metadata['total_registros']:,} registros"
+            return result
         except Exception as exc:
             return CacheResult(
                 sucesso=False,
-                mensagem=f"Falha ao copiar artefato bundled: {exc}",
+                mensagem=f"Artefato bundled não ativado: {exc}",
                 fonte="nenhum",
             )
-        try:
-            import pyarrow.parquet as pq
-
-            total_registros = int(pq.ParquetFile(self.arquivo_dados).metadata.num_rows)
-        except Exception as exc:
-            return CacheResult(
-                sucesso=False,
-                mensagem=f"Artefato bundled copiado, mas o parquet é inválido: {exc}",
-                fonte="nenhum",
-            )
-
-        metadata = _read_metadata_if_exists(self.arquivo_metadata) or {}
-        metadata.setdefault("total_registros", total_registros)
-        return CacheResult(
-            sucesso=True,
-            mensagem=f"Artefato bundled disponível localmente: {total_registros:,} registros",
-            metadata=metadata,
-            fonte="bundle_local",
-        )
 
     def sync_bundle_from_local(self) -> CacheResult:
         """Atualiza o artefato bundled a partir do cache local atual."""
@@ -401,6 +391,12 @@ def _missing_local_source_caches(cache_manager: "CacheManager") -> list[str]:
     return missing
 
 
+def _reader_cache_manager(root: Path):
+    from .manager import CacheManager
+    from .official_store import get_official_read_snapshot
+    return CacheManager() if get_official_read_snapshot(root) is not None else CacheManager(root)
+
+
 def get_critical_screens_runtime_status(
     *,
     base_dir: Path | None = None,
@@ -415,10 +411,11 @@ def get_critical_screens_runtime_status(
     root = Path(base_dir).resolve() if base_dir else Path(__file__).resolve().parents[2]
     from .manager import CacheManager
 
-    cache_manager = manager or CacheManager(root)
+    cache_manager = manager or _reader_cache_manager(root)
     cache = CriticalScreensCache(root)
 
-    local_metadata = _read_metadata_if_exists(cache.arquivo_metadata)
+    cache.get_info()  # Recupera uma promoção interrompida antes de avaliar a versão.
+    local_metadata = _read_metadata_if_exists(cache.arquivo_metadata_runtime)
     bundled_metadata = _read_metadata_if_exists(cache.bundled_metadata_file)
 
     local_ready = cache.existe() and _critical_screens_runtime_schema_valid(local_metadata)
@@ -435,8 +432,17 @@ def get_critical_screens_runtime_status(
     )
     missing_local_sources = _missing_local_source_caches(cache_manager)
     can_materialize_from_local_sources = not missing_local_sources
+    integrity = (local_metadata or {}).get("integridade") or {}
+    managed_current = bool(
+        local_ready and cache._publication_metadata() and not cache._prefer_publication_bundle()
+        and integrity.get("sha256") == local_sha256
+        and _read_metadata_if_exists(cache._integrity_file) == integrity
+    )
 
-    if bundle_differs_from_local:
+    if managed_current:
+        mode = "use_local"
+        message = "geração local validada sobre a publicação vigente está pronta para runtime"
+    elif bundle_differs_from_local:
         mode = "bootstrap_bundle"
         message = "SHA do runtime diverge do bundle versionado e deve ser substituído"
     elif bundle_newer_than_local:
@@ -525,6 +531,14 @@ def _pick_exact_cols(df: Optional[pd.DataFrame], candidates: Sequence[str]) -> L
 def _coerce_numeric_value(value) -> Optional[float]:
     if value is None or pd.isna(value):
         return None
+    if type(value) in (int, float) or (
+        isinstance(value, (np.integer, np.floating)) and not isinstance(value, np.timedelta64)
+    ):
+        try:
+            return float(value)
+        except OverflowError:
+            # Preserve pandas' handling of integers outside float's range.
+            pass
     try:
         coerced = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
     except Exception:
@@ -1187,6 +1201,14 @@ def _normalize_bloprud_frame(
 
 def _load_bloprud_cached(manager: "CacheManager", periodos_display: Sequence[str]) -> pd.DataFrame:
     try:
+        cache = manager.get_cache("bloprudencial") if hasattr(manager, "get_cache") else None
+        periods = [display_period_to_api(p) for p in periodos_display if display_period_to_api(p)]
+        parquet_path = getattr(cache, "arquivo_dados", None)
+        if parquet_path is not None and parquet_path.exists() and periods:
+            from .bloprudencial_cache import load_bloprudencial_parquet_slice
+            return _normalize_bloprud_frame(
+                load_bloprudencial_parquet_slice(cache, periodos_yyyymm=periods), periodos_display,
+            )
         resultado = manager.carregar("bloprudencial")
     except Exception as exc:
         logger.warning("[CACHE:CRITICAL_SCREENS] Falha ao carregar cache persistido BLOPRUDENCIAL: %s", exc)
@@ -1300,8 +1322,11 @@ def critical_screens_needs_refresh(
     root = Path(base_dir).resolve() if base_dir else Path(__file__).resolve().parents[2]
     from .manager import CacheManager
 
-    cache_manager = manager or CacheManager(root)
+    cache_manager = manager or _reader_cache_manager(root)
     cache = CriticalScreensCache(root)
+    if cache._official_snapshot is not None:
+        cache._official_bootstrap_result()
+        return False
     if not cache.existe() or not cache.arquivo_metadata.exists():
         return True
 
@@ -1437,6 +1462,9 @@ def _build_dre_ratios_lookup(
 
     try:
         df_dre_base, colunas_dre = _prepare_base_dre(df_dre)
+        # O merge de captações cria RangeIndex; recortes históricos precisam
+        # usar o mesmo índice antes de alinhar numerador e denominador.
+        df_dre_base = df_dre_base.reset_index(drop=True)
         df_principal_base = _prepare_base_principal(df_principal)
     except Exception:
         return {}
@@ -2137,7 +2165,7 @@ def _load_source_cache(
     if allow_remote_source_download:
         resultado = manager.carregar(cache_name)
     else:
-        if not cache.existe():
+        if not getattr(cache, "existe_leitura", cache.existe)():
             raise RuntimeError(
                 f"{cache_name}: cache local ausente; rematerialização exige fontes locais "
                 "preparadas previamente ou allow_remote_source_download=True"
@@ -2162,7 +2190,7 @@ def materialize_critical_screens_cache(
     root = Path(base_dir).resolve() if base_dir else Path(__file__).resolve().parents[2]
     from .manager import CacheManager
 
-    cache_manager = manager or CacheManager(root)
+    cache_manager = manager or _reader_cache_manager(root)
     cache = CriticalScreensCache(root)
 
     if cache.existe() and not force and not periodos:
@@ -2179,6 +2207,7 @@ def materialize_critical_screens_cache(
                 )
         return result
 
+    cache._assert_writable()
     try:
         loaded = {
             cache_name: _load_source_cache(
@@ -2531,7 +2560,7 @@ def _load_runtime_passivo_support(
 
     from .manager import CacheManager
 
-    manager = CacheManager(base_dir)
+    manager = _reader_cache_manager(base_dir)
     result_passivo = manager.carregar("passivo")
     result_principal = manager.carregar("principal")
     if (

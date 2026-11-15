@@ -1,0 +1,154 @@
+{
+  "timestamp_salvamento": "2026-09-10T17:41:07.911882",
+  "fonte": "bcb_cosif",
+  "total_registros": 345835,
+  "colunas": [
+    "DATA_BASE",
+    "DOCUMENTO",
+    "CNPJ",
+    "AGENCIA",
+    "NOME_INSTITUICAO",
+    "COD_CONGL",
+    "NOME_CONGL",
+    "TAXONOMIA",
+    "CONTA",
+    "NOME_CONTA",
+    "SALDO",
+    "Período",
+    "GRUPO_FONTE",
+    "ARQUIVO_FONTE"
+  ],
+  "formato": "parquet",
+  "periodos": [
+    "202606"
+  ],
+  "total_periodos": 1,
+  "extra": {
+    "fontes_por_periodo": {
+      "202606": [
+        {
+          "grupo": "Bancos",
+          "url": "https://www.bcb.gov.br/content/estabilidadefinanceira/cosif/Bancos/202606BANCOS.csv.zip",
+          "arquivo": "202606BANCOS.csv.zip",
+          "sha256_zip": "591d04f66f7c9888c7736c697650769e350ab41c5ef241ed112ef3ecd89fa379",
+          "csv": "202606BANCOS.CSV",
+          "preambulo": [
+            "Balancete/Balanco Geral (Documentos: 4010 - 4016 - 4020 - 4026)",
+            "Data de geracao dos dados: 2026-08-31",
+            "Fonte: Instituicoes financeiras"
+          ],
+          "documentos_na_fonte": {
+            "4010": 51265,
+            "4016": 36292
+          },
+          "registros_4010": 51265,
+          "instituicoes_4010": 169
+        },
+        {
+          "grupo": "Cooperativas-de-credito",
+          "url": "https://www.bcb.gov.br/content/estabilidadefinanceira/cosif/Cooperativas-de-credito/202606COOPERATIVAS.csv.zip",
+          "arquivo": "202606COOPERATIVAS.csv.zip",
+          "sha256_zip": "2618eb5bddc668ec0b4e87f3eb724324a995c65de153b26a2fc3ea764587ec52",
+          "csv": "202606COOPERATIVAS.CSV",
+          "preambulo": [
+            "Balancete/Balanco Geral (Documentos: 4010 - 4016 - 4020 - 4026)",
+            "Data de geracao dos dados: 2026-08-31",
+            "Fonte: Instituicoes financeiras"
+          ],
+          "documentos_na_fonte": {
+            "4010": 182583,
+            "4016": 125093
+          },
+          "registros_4010": 182583,
+          "instituicoes_4010": 747
+        },
+        {
+          "grupo": "Administradoras-de-consorcios",
+          "url": "https://www.bcb.gov.br/content/estabilidadefinanceira/cosif/Administradoras-de-consorcios/202606CONSORCIOS.csv.zip",
+          "arquivo": "202606CONSORCIOS.csv.zip",
+          "sha256_zip": "7c68d6e33d359f1b178ddd491591065a46e28496f004282dfb3cd79fe08831dc",
+          "csv": "202606CONSORCIOS.CSV",
+          "preambulo": [
+            "Balancete/Balanco Geral (Documentos: 4010 - 4016 - 4020 - 4026)",
+            "Data de geracao dos dados: 2026-08-31",
+            "Fonte: Instituicoes financeiras"
+          ],
+          "documentos_na_fonte": {
+            "4010": 15236,
+            "4016": 9811,
+            "4110": 3462
+          },
+          "registros_4010": 15236,
+          "instituicoes_4010": 124
+        },
+        {
+          "grupo": "Sociedades",
+          "url": "https://www.bcb.gov.br/content/estabilidadefinanceira/cosif/Sociedades/202606SOCIEDADES.csv.zip",
+          "arquivo": "202606SOCIEDADES.csv.zip",
+          "sha256_zip": "f43b02678bdd78f18dcdf5eac476a7d8d85b2c6012c6d5b8c8aea488e8b661c5",
+          "csv": "202606SOCIEDADES.CSV",
+          "preambulo": [
+            "Balancete/Balanco Geral (Documentos: 4010 - 4016 - 4020 - 4026)",
+            "Data de geracao dos dados: 2026-08-31",
+            "Fonte: Instituicoes financeiras"
+          ],
+          "documentos_na_fonte": {
+            "4010": 96474,
+            "4016": 64336
+          },
+          "registros_4010": 96474,
+          "instituicoes_4010": 710
+        },
+        {
+          "grupo": "Instituicoes-em-regime-especial",
+          "url": "https://www.bcb.gov.br/content/estabilidadefinanceira/cosif/Instituicoes-em-regime-especial/202606LIQUIDACAO.csv.zip",
+          "arquivo": "202606LIQUIDACAO.csv.zip",
+          "sha256_zip": "d8dada0ef60fd07d8b2860911a4583923f14810fbd6b7dac1f5b1901954ed57f",
+          "csv": "202606LIQUIDACAO.CSV",
+          "preambulo": [
+            "Balancete/Balanco Geral (Documentos: 4010 - 4016 - 4020 - 4026)",
+            "Data de geracao dos dados: 2026-08-31",
+            "Fonte: Instituicoes financeiras"
+          ],
+          "documentos_na_fonte": {
+            "4010": 277,
+            "4016": 187
+          },
+          "registros_4010": 277,
+          "instituicoes_4010": 2
+        }
+      ]
+    }
+  },
+  "schema_version": "cosif_4010_v1",
+  "documento": "4010",
+  "perimetro": "individual",
+  "unidade": "R$",
+  "release_tag": "v1.1-cache",
+  "sha256": "6ce0d2bcd1a3f823bdb7d4ee5a776100e27b888c297dd3ff1bbe4ebc34a42953",
+  "cobertura": {
+    "202606": {
+      "registros": 345835,
+      "instituicoes": 1752,
+      "contas": 1114,
+      "saldos_ausentes": 0,
+      "grupos": {
+        "Administradoras-de-consorcios": 124,
+        "Bancos": 169,
+        "Cooperativas-de-credito": 747,
+        "Instituicoes-em-regime-especial": 2,
+        "Sociedades": 710
+      },
+      "fgc": {
+        "AR": {
+          "conta": "3822000003",
+          "instituicoes": 270
+        },
+        "VR": {
+          "conta": "9822500002",
+          "instituicoes": 107
+        }
+      }
+    }
+  }
+}

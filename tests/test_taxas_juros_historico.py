@@ -597,3 +597,82 @@ def test_load_taxas_juros_historico_recent_daily_display_preserves_official_gaps
     assert pd.isna(taxas_b.iloc[0])
     assert taxas_b.iloc[1] == 8.1
     assert pd.isna(taxas_b.iloc[2])
+
+
+def test_daily_display_accepts_historical_bounds_preserving_endpoints_gaps_and_zero(tmp_path):
+    cache = TaxasJurosHistoricoCache(tmp_path)
+    cache.cache_dir.mkdir(parents=True, exist_ok=True)
+    official_ends = pd.to_datetime([
+        "2026-01-02", "2026-01-09", "2026-01-16", "2026-01-23", "2026-01-30", "2026-07-31",
+    ])
+    pd.DataFrame({
+        "inicio_periodo": official_ends - pd.Timedelta(days=4),
+        "fim_periodo": official_ends,
+        "tipo_modalidade": "D",
+        "ano_inicio": official_ends.year,
+    }).to_parquet(cache.dimension_paths()["datas"], index=False)
+    facts = []
+    for bank, date, rate in [
+        ("11111111", "2026-01-02", 99.0),
+        ("11111111", "2026-01-09", 0.0),
+        ("22222222", "2026-01-16", 8.1),
+        ("11111111", "2026-01-23", 7.3),
+        ("11111111", "2026-01-30", 99.0),
+        ("11111111", "2026-07-31", 99.0),
+    ]:
+        end = pd.Timestamp(date)
+        facts.append({
+            "tipo_modalidade": "D",
+            "inicio_periodo": end - pd.Timedelta(days=4),
+            "fim_periodo": end,
+            "ano_inicio": end.year,
+            "codigo_segmento": "1",
+            "segmento": "Pessoa Física",
+            "codigo_modalidade": "402101",
+            "modalidade": "Cheque especial",
+            "institution_key": f"cnpj8:{bank}",
+            "institution_key_quality": "cnpj8",
+            "cnpj8_raw": bank,
+            "instituicao_nome_observado": f"Nome observado {bank}",
+            "posicao": 1,
+            "taxa_juros_ao_mes": rate,
+            "taxa_juros_ao_ano": rate * 12,
+        })
+    pd.DataFrame(facts).to_parquet(cache.arquivo_dados, index=False)
+    fact_before = cache.arquivo_dados.read_bytes()
+    calendar_before = cache.dimension_paths()["datas"].read_bytes()
+
+    display, meta = load_taxas_juros_historico_recent_daily_display(
+        cache,
+        codigo_segmento="1",
+        codigo_modalidade="402101",
+        institution_keys=["cnpj8:11111111", "cnpj8:22222222"],
+        institution_label_by_key={"cnpj8:11111111": "Banco A", "cnpj8:22222222": "Banco B"},
+        window_start="2026-01-09",
+        window_end="2026-01-23",
+    )
+
+    assert meta["anchor_date"] == "2026-01-23"
+    assert meta["window_start"] == "2026-01-09"
+    assert meta["calendar_points"] == 3
+    assert len(display) == 6
+    expected_dates = pd.to_datetime(["2026-01-09", "2026-01-16", "2026-01-23"]).tolist()
+    banks = {
+        name: frame.sort_values("Fim Período")
+        for name, frame in display.groupby("Instituição Financeira")
+    }
+    assert set(banks) == {"Banco A", "Banco B"}
+    for frame in banks.values():
+        assert frame["Fim Período"].tolist() == expected_dates
+    pd.testing.assert_series_equal(
+        banks["Banco A"]["Taxa Mensal (%)"].reset_index(drop=True),
+        pd.Series([0.0, float("nan"), 7.3], name="Taxa Mensal (%)"),
+        check_dtype=False,
+    )
+    pd.testing.assert_series_equal(
+        banks["Banco B"]["Taxa Mensal (%)"].reset_index(drop=True),
+        pd.Series([float("nan"), 8.1, float("nan")], name="Taxa Mensal (%)"),
+        check_dtype=False,
+    )
+    assert cache.arquivo_dados.read_bytes() == fact_before
+    assert cache.dimension_paths()["datas"].read_bytes() == calendar_before

@@ -357,7 +357,7 @@ def test_rodape_reporta_supressao_e_notas(fato_multiperiodo):
     assert rodape["primeira_data_base_disponivel"] == S.PRIMEIRA_DATA_BASE
     assert "supressao" in rodape
     assert any("CEP" in nota for nota in rodape["notas"])
-    assert any("IF.data" in nota for nota in rodape["notas"])
+    assert any("IFData" in nota for nota in rodape["notas"])
     assert all(fonte["url"].startswith("https://") for fonte in rodape["fontes"])
 
 
@@ -396,7 +396,13 @@ def test_rota_existe_e_e_unica():
 
 def test_menu_registra_a_aba():
     fonte = _app_source()
-    assert '"Estatísticas Crédito BC": ["mercado_credito_sgs", "scr_data"]' in fonte
+    dependencies = next(
+        ast.literal_eval(node.value) for node in ast.parse(fonte).body
+        if isinstance(node, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id == "CACHE_DEPENDENCIAS_POR_ABA" for target in node.targets
+        )
+    )
+    assert {"mercado_credito_sgs", "scr_data"}.issubset(dependencies["Estatísticas Crédito BC"])
     mercado = (APP_PATH.parent / "tabs" / "mercado_credito.py").read_text(encoding="utf-8")
     assert '"Inad por Faixa de Renda"' in mercado
     assert "render_scr_inadimplencia(get_cache_manager)" in mercado
@@ -436,7 +442,7 @@ def test_rota_nunca_tira_media_de_percentual():
 
 def test_rota_cacheia_o_carregamento_pesado():
     fonte = _scr_route_source()
-    assert "@st.cache_data" in fonte
+    assert "@revision_cache_data" in fonte
     assert "def _detalhe(" in fonte
 
 
@@ -447,7 +453,15 @@ def test_rota_renderiza_todas_as_secoes():
     assert "px.choropleth" in fonte
     assert "_figura_heatmap_ufs" not in fonte
     assert '"Recorte", ["uf", "regiao"]' in fonte
-    assert '"Baixar PPTX desta aba"' in fonte
+    assert "gráficos desta aba em PPTX" in fonte
+    # O mapa ganha rótulo fixo por UF e escala da casa; a barra por UF, que é
+    # o que vai no PPTX, também fica na tela.
+    assert "_rotulos_do_mapa" in fonte
+    assert "color_continuous_scale=ESCALA_MAPA" in fonte
+    # Construtores no nível do módulo: o deck completo os monta sem Streamlit.
+    assert "def figura_por_uf(" in fonte
+    assert "def figura_painel(" in fonte
+    assert "def figura_por_regiao(" in fonte
 
 
 def test_rota_protege_secoes_que_exigem_grao_completo():
@@ -456,10 +470,19 @@ def test_rota_protege_secoes_que_exigem_grao_completo():
     assert "Por segmento de IF" not in fonte
 
 
-def test_rota_coloca_alertas_no_popover_e_remove_rodape_verbose():
+def test_rota_mostra_alertas_de_legibilidade_na_superficie():
+    """O aviso fica junto do controle que o causou, não dentro do popover.
+
+    Escondido no "i", o alerta de "9 linhas no mesmo painel" nunca era lido a
+    tempo de mudar a seleção.
+    """
     fonte = _scr_route_source()
     assert 'st.popover("i"' in fonte
-    assert "Alertas de legibilidade" in fonte
+    assert "avaliar_legibilidade" in fonte
+    # Visível, mas em uma linha só: quatro painéis geravam uma pilha de faixas
+    # amarelas que empurrava os gráficos para fora da tela.
+    assert 'st.caption("⚠︎ "' in fonte
+    assert "Alertas de legibilidade" not in fonte
     assert "scr_spec.rodape(" not in fonte
     assert "st.warning(_pn_texto" not in fonte
     assert "st.caption(f\"ℹ️" not in fonte
@@ -483,7 +506,6 @@ def test_rota_scr_expoe_somente_modalidades_oficiais():
 
 def test_rota_marca_quebras_de_serie():
     fonte = _scr_route_source()
-    assert "_marcar_quebras" in fonte
     assert "scr_spec.marcar_quebras" in fonte
 
 
@@ -677,7 +699,11 @@ def test_legibilidade_detecta_rotulos_colados():
     painel = T.construir_paineis(
         _fato(linhas), produtos=["PF - Outros créditos"], quebra="renda", incluir_total=False
     )[0]
+    # O detector continua existindo para inspeção, mas não vira mais aviso na
+    # tela: a rotina de posicionamento garante separação mínima em pixels.
     assert T.rotulos_sobrepostos(painel)
+    avisos = T.avaliar_legibilidade([painel])
+    assert not any("colados" in aviso["mensagem"] for aviso in avisos)
 
 
 def test_legibilidade_avisa_carteira_pequena():
@@ -696,3 +722,22 @@ def test_legibilidade_nao_reclama_de_painel_saudavel():
     )
     alertas = [a for a in T.avaliar_legibilidade(paineis) if a["nivel"] == "alerta"]
     assert not alertas
+
+
+def test_rampa_ordenada_tem_contraste_de_linha_no_branco():
+    """Nenhum degrau da rampa pode sumir no papel.
+
+    #CFCFCF, o antigo quarto degrau, ficava em 1,55:1: a linha e o rótulo dela
+    desapareciam no slide e na tela.
+    """
+    def luminancia(cor: str) -> float:
+        canais = [int(cor.lstrip("#")[i:i + 2], 16) / 255 for i in (0, 2, 4)]
+        linear = [
+            c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+            for c in canais
+        ]
+        return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+
+    for cor in T.RAMPA_ORDENADA:
+        contraste = 1.05 / (luminancia(cor) + 0.05)
+        assert contraste >= 3.0, f"{cor} fica em {contraste:.2f}:1 no branco"

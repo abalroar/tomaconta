@@ -291,6 +291,16 @@ def load_bloprudencial_df(
     force_refresh: bool = False,
 ) -> pd.DataFrame:
     yyyymm = _validate_yyyymm(yyyymm)
+    from .official_store import get_official_read_snapshot, OfficialReadOnlyError
+    directory = Path(cache_dir)
+    root = None if directory == DEFAULT_CACHE_DIR else directory.resolve().parents[2]
+    snapshot = get_official_read_snapshot(root)
+    if snapshot is not None:
+        if force_refresh:
+            raise OfficialReadOnlyError("Atualização de BLOPRUDENCIAL exige workspace privado do worker")
+        from .bloprudencial_cache import BloprudencialCache, load_bloprudencial_parquet_slice
+        return load_bloprudencial_parquet_slice(BloprudencialCache(snapshot.root),
+                                               periodos_yyyymm=[yyyymm])
     dirs = _ensure_dirs(Path(cache_dir))
 
     zip_path = download_bloprudencial_zip(yyyymm, cache_dir=dirs["base"], force_refresh=force_refresh)
@@ -340,8 +350,9 @@ def preload_bloprudencial(
 
 try:
     import streamlit as st
+    from .revision_cache import revision_cache_data
 
-    @st.cache_data(ttl=3600, max_entries=8, show_spinner=False)
+    @revision_cache_data(ttl=3600, max_entries=8, show_spinner=False)
     def load_bloprudencial_df_cached(
         yyyymm: str,
         cache_dir: str = str(DEFAULT_CACHE_DIR),

@@ -7,11 +7,6 @@ import app1
 from utils.ifdata_cache import CacheManager
 
 
-def _find_row_by_label(ws, label: str) -> int:
-    for row_idx in range(1, ws.max_row + 1):
-        if ws.cell(row=row_idx, column=1).value == label:
-            return row_idx
-    raise AssertionError(f"label not found: {label}")
 
 
 def _find_status_row(ws, instituicao: str, periodo: str, indicador: str) -> int:
@@ -53,96 +48,8 @@ def test_peers_individual_cache_must_match_curated_release_coverage():
     )
 
 
-def test_peers_raw_export_writes_numeric_values_without_visual_arrows():
-    bancos = ["TEST BANK - PRUDENCIAL"]
-    periodos = ["4/2025"]
-    valores = {
-        ("Ativo Total", "TEST BANK - PRUDENCIAL", "4/2025"): 1_500_000_000.0,
-        ("ROE Acumulado YTD (%)", "TEST BANK - PRUDENCIAL", "4/2025"): 0.125,
-    }
-    colunas_usadas = {
-        "Ativo Total": "Ativo Total",
-        "ROE Acumulado YTD (%)": "ROE Ac. Anualizado (%)",
-    }
-    delta_flags = {
-        ("Ativo Total", "TEST BANK - PRUDENCIAL", "4/2025"): "up",
-        ("ROE Acumulado YTD (%)", "TEST BANK - PRUDENCIAL", "4/2025"): "down",
-    }
-
-    output = app1._gerar_excel_peers_dados_puros(
-        bancos=bancos,
-        periodos=periodos,
-        valores=valores,
-        colunas_usadas=colunas_usadas,
-        delta_flags=delta_flags,
-    )
-
-    wb = load_workbook(BytesIO(output.getvalue()), data_only=True)
-    ws = wb["dados_numericos"]
-
-    ativo_row = _find_row_by_label(ws, "Ativo Total")
-    roe_row = _find_row_by_label(ws, "ROE Acumulado YTD (%)")
-
-    ativo_val = ws.cell(row=ativo_row, column=2).value
-    roe_val = ws.cell(row=roe_row, column=2).value
-
-    assert isinstance(ativo_val, (int, float))
-    assert isinstance(roe_val, (int, float))
-    assert ativo_val == 1_500_000_000.0
-    assert round(float(roe_val), 6) == 0.125
 
 
-def test_peers_raw_export_includes_analytical_status_sheet():
-    bancos = ["TEST BANK - PRUDENCIAL"]
-    periodos = ["4/2025"]
-    valores = {
-        ("Depósitos Totais", "TEST BANK - PRUDENCIAL", "4/2025"): 106.0,
-        ("Core Funding*", "TEST BANK - PRUDENCIAL", "4/2025"): None,
-    }
-    colunas_usadas = {
-        "Depósitos Totais": "Depósitos Totais",
-        "Core Funding*": "Core Funding*",
-    }
-    delta_flags = {}
-    df_base = pd.DataFrame(
-        [
-            {
-                "Instituição": "TEST BANK - PRUDENCIAL",
-                "Período": "4/2025",
-                "Depósitos Totais": 106.0,
-                "Trace::Depósitos Totais::Status": "fallback_components",
-                "Trace::Depósitos Totais::Campo Selecionado": None,
-                "Core Funding*": None,
-                "Trace::Core Funding::Status": "missing_required_component",
-                "Trace::Core Funding::Campo Selecionado": "Captações (e) + Instrumentos de Dívida Elegíveis a Capital (h)",
-                "Trace::Core Funding::Captações (e)": 210.0,
-                "Trace::Core Funding::Instrumentos de Dívida Elegíveis a Capital (h)": None,
-            }
-        ]
-    )
-
-    output = app1._gerar_excel_peers_dados_puros(
-        bancos=bancos,
-        periodos=periodos,
-        valores=valores,
-        colunas_usadas=colunas_usadas,
-        delta_flags=delta_flags,
-        df_base=df_base,
-    )
-
-    wb = load_workbook(BytesIO(output.getvalue()), data_only=True)
-    ws = wb["status_analitico"]
-
-    dep_row = _find_status_row(ws, "TEST BANK - PRUDENCIAL", "Dez/25", "Depósitos Totais")
-    core_row = _find_status_row(ws, "TEST BANK - PRUDENCIAL", "Dez/25", "Core Funding*")
-
-    assert ws.cell(row=dep_row, column=5).value == "fallback_components"
-    assert ws.cell(row=dep_row, column=6).value == "Soma dos subtipos a1..a6"
-    assert "soma dos subtipos" in str(ws.cell(row=dep_row, column=7).value).lower()
-
-    assert ws.cell(row=core_row, column=5).value == "missing_required_component"
-    assert ws.cell(row=core_row, column=6).value == "Captações (e) + Instrumentos de Dívida Elegíveis a Capital (h)"
-    assert "indisponível" in str(ws.cell(row=core_row, column=7).value).lower()
 
 
 def test_evolucao_raw_export_includes_analytical_status_sheet():
@@ -220,156 +127,14 @@ def test_evolucao_raw_export_includes_analytical_status_sheet():
     assert "pl médio" in str(ws.cell(row=roe_row, column=6).value).lower()
 
 
-def test_peers_ui_tooltips_include_fallback_and_unavailability_markers():
-    bancos = ["TEST BANK - PRUDENCIAL"]
-    periodos = ["4/2025"]
-    valores = {
-        ("Depósitos Totais", "TEST BANK - PRUDENCIAL", "4/2025"): 106.0,
-        ("Perda Esperada / Estágio 3", "TEST BANK - PRUDENCIAL", "4/2025"): None,
-    }
-    colunas_usadas = {
-        "Depósitos Totais": "Depósitos Totais",
-        "Perda Esperada / Estágio 3": "Perda Esperada / Estágio 3",
-    }
-    df_base = pd.DataFrame(
-        [
-            {
-                "Instituição": "TEST BANK - PRUDENCIAL",
-                "Período": "4/2025",
-                "Depósitos Totais": 106.0,
-                "Trace::Depósitos Totais::Status": "fallback_components",
-                "Trace::Depósitos Totais::Campo Selecionado": None,
-                "Perda Esperada / Estágio 3": None,
-                "Trace::Qualidade Carteira::Status": "source_structurally_unavailable",
-            }
-        ]
-    )
-
-    status_lookup = app1._build_peers_status_lookup(
-        df_base=df_base,
-        bancos=bancos,
-        periodos=periodos,
-        valores=valores,
-        colunas_usadas=colunas_usadas,
-    )
-    tooltips_ui, status_markers, marker_presence = app1._merge_peers_analytical_tooltips(
-        tooltips={},
-        status_lookup=status_lookup,
-    )
-    html = app1._render_peers_table_html(
-        bancos,
-        periodos,
-        valores,
-        colunas_usadas,
-        delta_flags={},
-        delta_context={},
-        tooltips=tooltips_ui,
-        status_markers=status_markers,
-    )
-
-    assert status_markers[("Depósitos Totais", "TEST BANK - PRUDENCIAL", "4/2025")] == "*"
-    assert status_markers[("Perda Esperada / Estágio 3", "TEST BANK - PRUDENCIAL", "4/2025")] == "†"
-    assert marker_presence["fallback"] is True
-    assert marker_presence["unavailable"] is True
-    assert "fallback_components" in tooltips_ui[("Depósitos Totais", "TEST BANK - PRUDENCIAL", "4/2025")]
-    assert "source_structurally_unavailable" in tooltips_ui[("Perda Esperada / Estágio 3", "TEST BANK - PRUDENCIAL", "4/2025")]
-    assert "N/D" in html
-    assert "status-mark--fallback" in html
-    assert "status-mark--unavailable" in html
 
 
-def test_peers_visual_export_also_includes_analytical_status_sheet():
-    bancos = ["TEST BANK - PRUDENCIAL"]
-    periodos = ["4/2025"]
-    valores = {
-        ("Depósitos Totais", "TEST BANK - PRUDENCIAL", "4/2025"): 106.0,
-    }
-    colunas_usadas = {"Depósitos Totais": "Depósitos Totais"}
-    df_base = pd.DataFrame(
-        [
-            {
-                "Instituição": "TEST BANK - PRUDENCIAL",
-                "Período": "4/2025",
-                "Depósitos Totais": 106.0,
-                "Trace::Depósitos Totais::Status": "fallback_components",
-                "Trace::Depósitos Totais::Campo Selecionado": None,
-            }
-        ]
-    )
-
-    output = app1._gerar_excel_peers_tabela(
-        bancos=bancos,
-        periodos=periodos,
-        valores=valores,
-        colunas_usadas=colunas_usadas,
-        delta_flags={},
-        df_base=df_base,
-    )
-
-    wb = load_workbook(BytesIO(output.getvalue()), data_only=True)
-    ws = wb["status_analitico"]
-    dep_row = _find_status_row(ws, "TEST BANK - PRUDENCIAL", "Dez/25", "Depósitos Totais")
-
-    assert ws.cell(row=dep_row, column=5).value == "fallback_components"
-    assert "subtipos" in str(ws.cell(row=dep_row, column=7).value).lower()
 
 
-def test_peers_visual_export_marks_cells_and_note_with_analytical_symbols():
-    bancos = ["TEST BANK - PRUDENCIAL"]
-    periodos = ["4/2025"]
-    valores = {
-        ("Depósitos Totais", "TEST BANK - PRUDENCIAL", "4/2025"): 106.0,
-        ("Perda Esperada / Estágio 3", "TEST BANK - PRUDENCIAL", "4/2025"): None,
-    }
-    colunas_usadas = {
-        "Depósitos Totais": "Depósitos Totais",
-        "Perda Esperada / Estágio 3": "Perda Esperada / Estágio 3",
-    }
-    df_base = pd.DataFrame(
-        [
-            {
-                "Instituição": "TEST BANK - PRUDENCIAL",
-                "Período": "4/2025",
-                "Depósitos Totais": 106.0,
-                "Trace::Depósitos Totais::Status": "fallback_components",
-                "Trace::Depósitos Totais::Campo Selecionado": None,
-                "Perda Esperada / Estágio 3": None,
-                "Trace::Qualidade Carteira::Status": "source_structurally_unavailable",
-            }
-        ]
-    )
-
-    output = app1._gerar_excel_peers_tabela(
-        bancos=bancos,
-        periodos=periodos,
-        valores=valores,
-        colunas_usadas=colunas_usadas,
-        delta_flags={},
-        df_base=df_base,
-    )
-
-    wb = load_workbook(BytesIO(output.getvalue()), data_only=True)
-    ws = wb["peers_tabela"]
-
-    dep_row = _find_row_by_label(ws, "Depósitos Totais")
-    est3_row = _find_row_by_label(ws, "Perda Esperada / Estágio 3")
-
-    assert ws.cell(row=3, column=1).value is not None
-    assert "símbolos visuais" in str(ws.cell(row=3, column=1).value).lower()
-    assert "status_analitico" in str(ws.cell(row=3, column=1).value).lower()
-    assert str(ws.cell(row=dep_row, column=2).value).endswith("*")
-    assert str(ws.cell(row=est3_row, column=2).value).endswith("†")
 
 
-def test_decorate_peers_visual_value_preserves_marker_and_delta_order():
-    assert app1._decorate_peers_visual_value("123,45 MM", status_marker="*", delta_flag="up") == "123,45 MM* ▲"
-    assert app1._decorate_peers_visual_value("N/D", status_marker="†", delta_flag=None) == "N/D†"
 
 
-def test_peers_base_dre_options_always_include_individual():
-    assert app1.PEERS_BASE_DRE_OPTIONS == ["Consolidada / Prudencial", "Individual"]
-    assert app1._normalizar_base_dre_peers("Consolidada") == "Consolidada / Prudencial"
-    assert app1._normalizar_base_dre_peers("Individual") == "Individual"
 
 
 def test_peers_static_configuration_preserves_sections_rows_and_ratio_contracts():
@@ -496,71 +261,9 @@ def test_peers_slice_recomputes_loss_coverage_and_formats_above_100_percent():
     assert app1._formatar_valor_peers(extra["Perda Esperada / Estágio 3"][chave], "Perda Esperada / Estágio 3") == "119,79%"
 
 
-def test_peers_outputs_force_chronological_order_and_native_percentage_scale():
-    banco = "GM - PRUDENCIAL"
-    periodos = ["1/2026", "4/2025", "3/2025", "4/2025"]
-    metric = "Perda Esperada / Estágio 3"
-    valores = {
-        (metric, banco, "3/2025"): 0.50,
-        (metric, banco, "4/2025"): 0.75,
-        (metric, banco, "1/2026"): 399.13 / 333.20,
-    }
-    colunas_usadas = {metric: None}
-    delta_flags = {}
-
-    html = app1._render_peers_table_html(
-        [banco],
-        periodos,
-        valores,
-        colunas_usadas,
-        delta_flags,
-    )
-    assert html.index("Set/25") < html.index("Dez/25") < html.index("Mar/26")
-    assert "119,79%" in html
-
-    visual = load_workbook(
-        BytesIO(
-            app1._gerar_excel_peers_tabela(
-                [banco],
-                periodos,
-                valores,
-                colunas_usadas,
-                delta_flags,
-            ).getvalue()
-        ),
-        data_only=True,
-    )["peers_tabela"]
-    assert [visual.cell(row=2, column=column).value for column in range(2, 5)] == [
-        "Set/25",
-        "Dez/25",
-        "Mar/26",
-    ]
-    visual_ratio_row = _find_row_by_label(visual, metric)
-    assert visual.cell(row=visual_ratio_row, column=4).value == "119,79%"
-
-    raw = load_workbook(
-        BytesIO(
-            app1._gerar_excel_peers_dados_puros(
-                [banco],
-                periodos,
-                valores,
-                colunas_usadas,
-                delta_flags,
-            ).getvalue()
-        ),
-        data_only=True,
-    )["dados_numericos"]
-    assert [raw.cell(row=2, column=column).value for column in range(2, 5)] == [
-        "Set/25",
-        "Dez/25",
-        "Mar/26",
-    ]
-    raw_ratio = raw.cell(row=_find_row_by_label(raw, metric), column=4)
-    assert abs(raw_ratio.value - (399.13 / 333.20)) < 1e-12
-    assert raw_ratio.number_format == "0.00%"
 
 
-def test_peers_generic_missing_value_gets_unavailability_note_and_marker():
+def test_peers_generic_missing_value_preserves_analytical_reason():
     bancos = ["TEST BANK - PRUDENCIAL"]
     periodos = ["4/2025"]
     valores = {
@@ -584,13 +287,6 @@ def test_peers_generic_missing_value_gets_unavailability_note_and_marker():
         valores=valores,
         colunas_usadas=colunas_usadas,
     )
-    tooltips_ui, status_markers, marker_presence = app1._merge_peers_analytical_tooltips(
-        tooltips={},
-        status_lookup=status_lookup,
-    )
 
     assert status_lookup[("Ativo Total", "TEST BANK - PRUDENCIAL", "4/2025")]["Status analítico"] == "missing"
     assert "base curada" in str(status_lookup[("Ativo Total", "TEST BANK - PRUDENCIAL", "4/2025")]["Observação"]).lower()
-    assert status_markers[("Ativo Total", "TEST BANK - PRUDENCIAL", "4/2025")] == "†"
-    assert marker_presence["unavailable"] is True
-    assert "sem valor disponível" in tooltips_ui[("Ativo Total", "TEST BANK - PRUDENCIAL", "4/2025")].lower()

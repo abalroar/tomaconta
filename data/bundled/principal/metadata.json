@@ -1,7 +1,7 @@
 {
-  "timestamp_salvamento": "2026-06-22T15:10:21.643393",
-  "fonte": "api",
-  "total_registros": 62061,
+  "timestamp_salvamento": "2026-09-10T22:25:56.059101",
+  "fonte": "ifdata_web",
+  "total_registros": 63459,
   "colunas": [
     "Instituição",
     "Período",
@@ -21,7 +21,9 @@
     "Passivo Exigível",
     "Patrimônio de Referência para Comparação com o RWA (e)",
     "Títulos e Valores Mobiliários",
-    "CodInst"
+    "CodInst",
+    "Número de Agências",
+    "Número de Postos de Atendimento"
   ],
   "formato": "parquet",
   "periodos": [
@@ -48,6 +50,7 @@
     "2/2023",
     "2/2024",
     "2/2025",
+    "2/2026",
     "3/2015",
     "3/2016",
     "3/2017",
@@ -71,8 +74,49 @@
     "4/2024",
     "4/2025"
   ],
-  "total_periodos": 45,
+  "total_periodos": 46,
   "extra": {
-    "operacao": "Salvamento final: 03/2026 até 03/2026"
-  }
+    "operacao": "Salvamento final: 06/2026 até 06/2026",
+    "ifdata_web": {
+      "periodo": "202606",
+      "source": "https://www3.bcb.gov.br/ifdata/",
+      "files": {
+        "relatorios2025a2030.json": {
+          "url": "https://www3.bcb.gov.br/ifdata/rest/relatorios2025a2030",
+          "sha256": "27e8cfa788db41ccfefdaab35e6494e4dd0719f4ffdc76e4d8aa3bc95483cdb1",
+          "bytes": 3056883
+        },
+        "info202606.json": {
+          "url": "https://www3.bcb.gov.br/ifdata/rest/arquivos?nomeArquivo=ifdata_2025_2030%2F%2F202606%2Finfo202606.json",
+          "sha256": "7493e647feff953cb74c45a1d45b823c4660717e750879e3475923fd4a142098",
+          "bytes": 188694
+        },
+        "cadastro202606_1009.json": {
+          "url": "https://www3.bcb.gov.br/ifdata/rest/arquivos?nomeArquivo=ifdata_2025_2030%2F%2F202606%2Fcadastro202606_1009.json",
+          "sha256": "16894c0d6a6ddb6ec62df8c79de3ff2db91edd5c3d03ea3661551c9f32653a52",
+          "bytes": 742446
+        },
+        "cadastro202606_1006.json": {
+          "url": "https://www3.bcb.gov.br/ifdata/rest/arquivos?nomeArquivo=ifdata_2025_2030%2F%2F202606%2Fcadastro202606_1006.json",
+          "sha256": "65c4f70679aae9fb0866b50f930466d850383deb4df67f6a4c4b3ed9ed126e69",
+          "bytes": 867692
+        },
+        "dados202606_1.json": {
+          "url": "https://www3.bcb.gov.br/ifdata/rest/arquivos?nomeArquivo=ifdata_2025_2030%2F%2F202606%2Fdados202606_1.json",
+          "sha256": "bb7e68afe8464c023fb453748ea4d3009c0c7af828328483ac98f9ae36edf8e6",
+          "bytes": 15662001
+        },
+        "dados202606_5.json": {
+          "url": "https://www3.bcb.gov.br/ifdata/rest/arquivos?nomeArquivo=ifdata_2025_2030%2F%2F202606%2Fdados202606_5.json",
+          "sha256": "a2b28dff2b82883135326c74a8bcb477b5937379da8b17a8d964c0934c07c3ad",
+          "bytes": 1073613
+        }
+      },
+      "registros_periodo": 1398,
+      "unidade": "R$; razões em decimal"
+    }
+  },
+  "publication_id": "tomaconta-jun26-20260911-v1",
+  "sha256": "539e940a4ababbbea349a67c448bf46de087db92b01897cdf95911220b33bdcc",
+  "release_tag": "v1.1-cache"
 }

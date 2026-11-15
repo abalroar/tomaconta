@@ -6,6 +6,23 @@ from openpyxl import load_workbook
 import app1
 
 
+def test_evolucao_visual_export_uses_requested_indicator_titles():
+    labels = {
+        "ROE Ac. Anualizado (%)": "ROE Anualizado",
+        "Índice de Capital Principal (CET1)": "Capital Principal -CET1 (%)",
+        "Índice de Capital T1 (%)": "Capital Nível 1 (%)",
+        "Índice de Basileia Total (%)": "Índice de Basileia Total (%)",
+    }
+    frame = pd.DataFrame([{"Métrica": metric, "dez-25": "13,3%"} for metric in labels])
+    output = app1._gerar_excel_evolucao_tabela_visual(
+        df_show=frame, periodos_cols=["dez-25"], instituicao="ITAU - PRUDENCIAL",
+        periodo_inicio="4/2025", periodo_final="4/2025",
+    )
+    sheet = load_workbook(BytesIO(output.getvalue()))["evolucao_visual"]
+    assert [sheet.cell(row, 1).value for row in range(4, 8)] == list(labels.values())
+    assert sheet["B3"].value == "Dez/25"
+
+
 def _find_status_row(ws, instituicao: str, periodo: str, indicador: str) -> int:
     for row_idx in range(2, ws.max_row + 1):
         if (

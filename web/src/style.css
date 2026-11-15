@@ -1,0 +1,20 @@
+:root{font-family:'Hanken Grotesk Variable','Hanken Grotesk',Arial,sans-serif;font-synthesis:none;color:#213e50;background:#fff;color-scheme:light}
+*{box-sizing:border-box}
+body{margin:0}
+button,input,select,textarea{font:inherit;color:inherit}
+button,a,input,select,summary{-webkit-tap-highlight-color:transparent}
+button{cursor:pointer;background:transparent;border:0;padding:0;border-radius:0}
+button:disabled{cursor:default;opacity:.55}
+a{color:inherit;text-underline-offset:4px}
+input,select{max-width:100%;caret-color:#315f78}
+button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible,summary:focus-visible{outline:2px solid #315f78;outline-offset:3px}
+::selection{background:#315f78;color:#fff}
+.tc-boot{min-height:70vh;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:16px;padding:28px;text-align:center;background:#e7eff1}
+.tc-boot strong{font-size:30px;font-weight:650;letter-spacing:-.035em}
+.tc-boot p{font-size:13px;color:#506a76;line-height:1.6;max-width:60ch;margin:0}
+.tc-boot button{font-size:13px;text-decoration:underline;text-underline-offset:4px;padding:10px}
+.tc-app-error{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:14px 34px;font-size:12px;line-height:1.6;background:#faf0ed;color:#8f342f}
+.tc-app-error button{flex-shrink:0;text-decoration:underline;text-underline-offset:3px}
+@media(max-width:680px){.tc-app-error{padding:14px 20px}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important}}
+@media print{.tc-app-nav,.tc-app-footer,.tc-export-menu,.institution-search,.institution-toolbar,.institution-tabs,.tc-section-controls{display:none!important}.tc-page-content{padding:0!important}.institution-block,.tc-chart-panel{break-inside:avoid}.institution-dashboard,.tc-series-grid{display:block!important}.institution-block,.tc-chart-panel{margin-bottom:24px}}

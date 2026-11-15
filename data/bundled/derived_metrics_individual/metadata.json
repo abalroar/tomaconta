@@ -1,0 +1,98 @@
+{
+  "timestamp_salvamento": "2026-10-10T20:26:16.191169+00:00",
+  "fonte": "derivado",
+  "total_registros": 140315,
+  "colunas": [
+    "Instituição",
+    "Período",
+    "Métrica",
+    "Valor",
+    "Unidade",
+    "CodInst"
+  ],
+  "formato": "parquet",
+  "periodos": [
+    "1/2022",
+    "1/2023",
+    "1/2024",
+    "1/2025",
+    "1/2026",
+    "2/2022",
+    "2/2023",
+    "2/2024",
+    "2/2025",
+    "2/2026",
+    "3/2022",
+    "3/2023",
+    "3/2024",
+    "3/2025",
+    "4/2022",
+    "4/2023",
+    "4/2024",
+    "4/2025"
+  ],
+  "total_periodos": 18,
+  "extra": {
+    "denominador_zero_ou_nan": {
+      "Desp PDD / Resultado Intermediação Fin. Bruto": 18767,
+      "Desp Captação / Captação": 8162,
+      "Custo de Crédito (%)": 21171,
+      "Custo de Crédito / Receita de Crédito (%)": 21370,
+      "Ativos Problemáticos / Carteira Total": 28063
+    },
+    "period_type": "trimestral",
+    "periodos_detectados": [
+      "1/2022",
+      "1/2023",
+      "1/2024",
+      "1/2025",
+      "1/2026",
+      "2/2022",
+      "2/2023",
+      "2/2024",
+      "2/2025",
+      "2/2026",
+      "3/2022",
+      "3/2023",
+      "3/2024",
+      "3/2025",
+      "4/2022",
+      "4/2023",
+      "4/2024",
+      "4/2025"
+    ],
+    "cache_origem_dre": "dre_individual",
+    "cache_origem_principal": "principal_individual",
+    "cache_origem_ativo": "",
+    "carteira_fonte": "fallback_principal:Carteira de Crédito",
+    "official_cell_dedup_repair": {
+      "period": "3/2025",
+      "operation": "unique_official_cells_before_pivot",
+      "verified_at_utc": "2026-10-10T20:26:16.191169+00:00",
+      "sources": {
+        "principal_individual": {
+          "url": "https://olinda.bcb.gov.br/olinda/servico/IFDATA/versao/v1/odata/IfDataValores(AnoMes=202509,TipoInstituicao=3,Relatorio='1')?$format=json&$top=500000",
+          "sha256": "8a10681afde214e0b9f7933e4855e605f866cd8d5c0f64e85fa83204b1c1dce4",
+          "bytes": 8617089,
+          "raw_records": 33684,
+          "unique_records": 11228,
+          "exact_duplicate_records": 22456
+        },
+        "dre_individual": {
+          "url": "https://olinda.bcb.gov.br/olinda/servico/IFDATA/versao/v1/odata/IfDataValores(AnoMes=202509,TipoInstituicao=3,Relatorio='4')?$format=json&$top=500000",
+          "sha256": "1bc09beff7f8826740dbccff908e5707e2a973f7cc05ba1b5d628a7ff0ecae67",
+          "bytes": 102915510,
+          "raw_records": 250224,
+          "unique_records": 83408,
+          "exact_duplicate_records": 166816
+        }
+      },
+      "individual_identity": "CodInst",
+      "individual_scope": "Rel. 1 + Rel. 4; sem Rel. 2/16 prudencial"
+    },
+    "cache_origem_carteira_instrumentos": ""
+  },
+  "publication_id": "tomaconta-individual-set25-dedup-20261010-v1",
+  "release_tag": "v1.1-cache",
+  "sha256": "9200c89260d552f52cb52133bbd8ff51b572ae4a8119d9ee6cf4ecd82b1b8591"
+}

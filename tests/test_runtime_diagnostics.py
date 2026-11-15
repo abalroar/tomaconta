@@ -90,6 +90,18 @@ def test_build_runtime_manifest_reads_metadata_and_gate(tmp_path):
     assert manifest["gates"]["snapshot_peers"]["success"]
 
 
+def test_alignment_gate_blocks_present_cache_with_unknown_period():
+    records = {
+        "principal": {"exists": True, "max_period_ref": "202603"},
+        "capital": {"exists": True, "max_period_ref": ""},
+    }
+    gates = evaluate_alignment_gates(records, gate_specs={
+        "rankings": {"caches": ["principal", "capital"], "periodicity": "quarterly"},
+    })
+    assert gates["rankings"]["success"] is False
+    assert "capital" in gates["rankings"]["message"]
+
+
 def test_placeholder_helpers_identify_remaining_placeholders():
     df = pd.DataFrame(
         {

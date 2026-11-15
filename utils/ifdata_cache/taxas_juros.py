@@ -268,6 +268,8 @@ class TaxasJurosCache(BaseCache):
         page_size = MAX_RECORDS
         total_fetched = 0
         has_more = True
+        truncation_detected = False
+        pages_requested = 0
 
         while has_more:
             skip = page * page_size
@@ -285,6 +287,7 @@ class TaxasJurosCache(BaseCache):
 
                 log(f"Requisição página {page + 1}: $skip={skip}, $top={page_size}")
 
+                pages_requested += 1
                 response = requests.get(API_URL, params=params, timeout=REQUEST_TIMEOUT * 3)
 
                 if response.status_code != 200:
@@ -318,6 +321,7 @@ class TaxasJurosCache(BaseCache):
                     # Limite de segurança (máximo 50 páginas = 7.5M registros)
                     if page >= 50:
                         log("AVISO: Limite de 50 páginas atingido!")
+                        truncation_detected = True
                         has_more = False
 
             except requests.exceptions.Timeout:
@@ -402,16 +406,16 @@ class TaxasJurosCache(BaseCache):
         log(f"  - Produtos únicos: {produtos_unicos}")
         log(f"  - Instituições únicas: {instituicoes_unicas}")
         log(f"  - Períodos únicos (datas): {periodos_unicos}")
-        log(f"  - Páginas processadas: {page + 1}")
-        log(f"  - Truncamento: {'NÃO' if not has_more or page < 49 else 'POSSÍVEL (verificar)'}")
+        log(f"  - Páginas processadas: {pages_requested}")
+        log(f"  - Truncamento: {'POSSÍVEL (limite de páginas)' if truncation_detected else 'NÃO'}")
         log("=" * 50)
 
         if progress_callback:
             progress_callback(1.0, f"Extração concluída: {len(df):,} registros")
 
         return CacheResult(
-            sucesso=True,
-            mensagem=f"Extraídos {len(df):,} registros ({produtos_unicos} produtos, {instituicoes_unicas} instituições, {periodos_unicos} períodos)",
+            sucesso=not truncation_detected,
+            mensagem=("Extração incompleta: limite de 50 páginas atingido. " if truncation_detected else "") + f"Extraídos {len(df):,} registros ({produtos_unicos} produtos, {instituicoes_unicas} instituições, {periodos_unicos} períodos)",
             dados=df,
             fonte="api",
             metadata={
@@ -419,10 +423,10 @@ class TaxasJurosCache(BaseCache):
                 "produtos_unicos": produtos_unicos,
                 "instituicoes_unicas": instituicoes_unicas,
                 "periodos_unicos": periodos_unicos,
-                "paginas_processadas": page + 1,
+                "paginas_processadas": pages_requested,
                 "data_inicio": data_inicio,
                 "data_fim": data_fim,
-                "truncado": has_more and page >= 49
+                "truncado": truncation_detected
             }
         )
 

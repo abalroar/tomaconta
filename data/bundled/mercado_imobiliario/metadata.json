@@ -1,0 +1,1654 @@
+{
+  "periodos": [
+    "201404",
+    "201405",
+    "201406",
+    "201407",
+    "201408",
+    "201409",
+    "201410",
+    "201411",
+    "201412",
+    "201501",
+    "201502",
+    "201503",
+    "201504",
+    "201505",
+    "201506",
+    "201507",
+    "201508",
+    "201509",
+    "201510",
+    "201511",
+    "201512",
+    "201601",
+    "201602",
+    "201603",
+    "201604",
+    "201605",
+    "201606",
+    "201607",
+    "201608",
+    "201609",
+    "201610",
+    "201611",
+    "201612",
+    "201701",
+    "201702",
+    "201703",
+    "201704",
+    "201705",
+    "201706",
+    "201707",
+    "201708",
+    "201709",
+    "201710",
+    "201711",
+    "201712",
+    "201801",
+    "201802",
+    "201803",
+    "201804",
+    "201805",
+    "201806",
+    "201807",
+    "201808",
+    "201809",
+    "201810",
+    "201811",
+    "201812",
+    "201901",
+    "201902",
+    "201903",
+    "201904",
+    "201905",
+    "201906",
+    "201907",
+    "201908",
+    "201909",
+    "201910",
+    "201911",
+    "201912",
+    "202001",
+    "202002",
+    "202003",
+    "202004",
+    "202005",
+    "202006",
+    "202007",
+    "202008",
+    "202009",
+    "202010",
+    "202011",
+    "202012",
+    "202101",
+    "202102",
+    "202103",
+    "202104",
+    "202105",
+    "202106",
+    "202107",
+    "202108",
+    "202109",
+    "202110",
+    "202111",
+    "202112",
+    "202201",
+    "202202",
+    "202203",
+    "202204",
+    "202205",
+    "202206",
+    "202207",
+    "202208",
+    "202209",
+    "202210",
+    "202211",
+    "202212",
+    "202301",
+    "202302",
+    "202303",
+    "202304",
+    "202305",
+    "202306",
+    "202307",
+    "202308",
+    "202309",
+    "202310",
+    "202311",
+    "202312",
+    "202401",
+    "202402",
+    "202403",
+    "202404",
+    "202405",
+    "202406",
+    "202407",
+    "202408",
+    "202409",
+    "202410",
+    "202411",
+    "202412",
+    "202501",
+    "202502",
+    "202503",
+    "202504",
+    "202505",
+    "202506",
+    "202507",
+    "202508",
+    "202509",
+    "202510",
+    "202511",
+    "202512",
+    "202601",
+    "202602",
+    "202603",
+    "202604",
+    "202605",
+    "202606",
+    "202607",
+    "202608"
+  ],
+  "total_periodos": 149,
+  "cobertura_graficos": {
+    "contratacao_valor_pf": {
+      "inicio": "2014-04",
+      "fim": "2026-08",
+      "historico": false
+    },
+    "contratacao_indexador_pf": {
+      "inicio": "2014-04",
+      "fim": "2026-08",
+      "historico": false
+    },
+    "contratacao_taxa_pf": {
+      "inicio": "2014-04",
+      "fim": "2026-08",
+      "historico": false
+    },
+    "contratacao_ltv_pf": {
+      "inicio": "2014-04",
+      "fim": "2026-08",
+      "historico": false
+    },
+    "contratacao_valor_pj": {
+      "inicio": "2014-04",
+      "fim": "2026-08",
+      "historico": false
+    },
+    "contratacao_indexador_pj": {
+      "inicio": "2014-04",
+      "fim": "2026-08",
+      "historico": false
+    },
+    "contratacao_taxa_pj": {
+      "inicio": "2014-04",
+      "fim": "2026-08",
+      "historico": false
+    },
+    "estoque_carteira_pf": {
+      "inicio": "2014-04",
+      "fim": "2026-08",
+      "historico": false
+    },
+    "estoque_indexador_pf": {
+      "inicio": "2014-04",
+      "fim": "2026-08",
+      "historico": false
+    },
+    "estoque_risco_pf": {
+      "inicio": "2014-04",
+      "fim": "2024-12",
+      "historico": true
+    },
+    "estoque_inadimplencia_pf": {
+      "inicio": "2014-04",
+      "fim": "2026-08",
+      "historico": false
+    },
+    "estoque_problematico_pf": {
+      "inicio": "2014-04",
+      "fim": "2026-08",
+      "historico": false
+    },
+    "estoque_parcela_pf": {
+      "inicio": "2016-03",
+      "fim": "2026-08",
+      "historico": false
+    },
+    "estoque_carteira_pj": {
+      "inicio": "2014-04",
+      "fim": "2026-08",
+      "historico": false
+    },
+    "estoque_indexador_pj": {
+      "inicio": "2014-04",
+      "fim": "2026-08",
+      "historico": false
+    },
+    "estoque_risco_pj": {
+      "inicio": "2014-04",
+      "fim": "2024-12",
+      "historico": true
+    },
+    "estoque_inadimplencia_pj": {
+      "inicio": "2014-04",
+      "fim": "2026-08",
+      "historico": false
+    },
+    "estoque_problematico_pj": {
+      "inicio": "2014-04",
+      "fim": "2026-08",
+      "historico": false
+    },
+    "imoveis_tipo": {
+      "inicio": "2018-01",
+      "fim": "2026-07",
+      "historico": false
+    },
+    "imoveis_dormitorio": {
+      "inicio": "2018-01",
+      "fim": "2026-07",
+      "historico": false
+    },
+    "imoveis_area": {
+      "inicio": "2018-01",
+      "fim": "2026-07",
+      "historico": false
+    },
+    "imoveis_implantacao": {
+      "inicio": "2018-01",
+      "fim": "2026-07",
+      "historico": false
+    },
+    "imoveis_valor": {
+      "inicio": "2018-01",
+      "fim": "2026-07",
+      "historico": false
+    },
+    "imoveis_garantia": {
+      "inicio": "2018-01",
+      "fim": "2026-07",
+      "historico": false
+    }
+  },
+  "competencias_fonte": {
+    "credito": "2026-08",
+    "imoveis": "2026-07"
+  },
+  "catalog_version": 1,
+  "series": 3571,
+  "timestamp_salvamento": "2026-11-05T09:53:10.918121",
+  "fonte": "Olinda/MercadoImobiliario/BCB",
+  "total_registros": 403936,
+  "colunas": [
+    "data",
+    "info",
+    "valor",
+    "grafico",
+    "categoria",
+    "linha",
+    "uf"
+  ],
+  "formato": "parquet",
+  "extra": {
+    "finalized": true,
+    "falhas": [],
+    "inicio_solicitado": "2014-04-01",
+    "fim_solicitado": "2026-11-05",
+    "consultas": [
+      {
+        "periodo": "2014-05",
+        "registros_fonte": 2366,
+        "registros_escopo": 2347,
+        "sha256_resposta": "f653ea58fcc94a682031600eb0d5c92c5f620e3c6cdb87d804651539e4c0d774",
+        "consulta": "Data eq '2014-05-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "7e1357606bd7a3bd8c21fcc5c74e3dac527cd9e6e9eda4ce98cdf95e153b03ec"
+      },
+      {
+        "periodo": "2014-06",
+        "registros_fonte": 2395,
+        "registros_escopo": 2376,
+        "sha256_resposta": "201e2b56a9b2448c327beb177aa63cb61bd0a005ea351e917703f78861bd0d33",
+        "consulta": "Data eq '2014-06-30'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "c92540e372fff4137b576df8806388a6244636554922d2da7736c11db973f27a"
+      },
+      {
+        "periodo": "2014-04",
+        "registros_fonte": 2362,
+        "registros_escopo": 2343,
+        "sha256_resposta": "c0594ecd3d1f9c4f298bb653b4a8dfa4ba1d80170a44bbf53dd6e7ef6f871342",
+        "consulta": "Data eq '2014-04-30'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "b267a6ead99832473df57037379ca818d2c2e08330b73ee85825f5057434e92a"
+      },
+      {
+        "periodo": "2014-08",
+        "registros_fonte": 2363,
+        "registros_escopo": 2344,
+        "sha256_resposta": "5d683b4996c470526e0c672d34a5361a7183e1fddebfcabe09e4c93e401169ad",
+        "consulta": "Data eq '2014-08-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "3a4620ed8c8a8d40909df257398f4e5131551e6cae30bf1c011c9ffe60ef130b"
+      },
+      {
+        "periodo": "2014-07",
+        "registros_fonte": 2372,
+        "registros_escopo": 2353,
+        "sha256_resposta": "aeb0512752dc52197f57840a91b731e5f6c589f0112e2e7ec4a0efdf81fea24f",
+        "consulta": "Data eq '2014-07-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "394ba662b387312e7d08268890baed241686bccab91143aad241da2a9b0c0571"
+      },
+      {
+        "periodo": "2014-09",
+        "registros_fonte": 2383,
+        "registros_escopo": 2364,
+        "sha256_resposta": "efa6e5213fb29a344ad2d4c1bd4f9d1051c7003ad863a37ef5a41181a2f745f7",
+        "consulta": "Data eq '2014-09-30'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "f430bccb2f46926da01b99e01d6104cc844fd6647d3ae870222987e38f6185ca"
+      },
+      {
+        "periodo": "2014-10",
+        "registros_fonte": 2376,
+        "registros_escopo": 2357,
+        "sha256_resposta": "c001932ba326de036258bd1aa34c04583ed812f57fe07c6f21336a824173e89a",
+        "consulta": "Data eq '2014-10-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "ca8823ed56aa04a0d077b014993f65d638a04cfcd90b17bd12254210e15abe01"
+      },
+      {
+        "periodo": "2014-11",
+        "registros_fonte": 2370,
+        "registros_escopo": 2351,
+        "sha256_resposta": "d2e061af31327564533063f0ad7c71bcad8233dab8356090422b27db34e1da01",
+        "consulta": "Data eq '2014-11-30'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "c6dce2c04cba8d8e0d5c9a2bd367d0251e0894fced79445e6282f00c023caf45"
+      },
+      {
+        "periodo": "2014-12",
+        "registros_fonte": 2378,
+        "registros_escopo": 2359,
+        "sha256_resposta": "32c491051f465e642e4b84d1329108700d1521170bdb317eb6e4a7c6fad159d0",
+        "consulta": "Data eq '2014-12-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "6138e3326b5564f609f2bbf411bffe65d9854eac813567f384d85614f4afdf19"
+      },
+      {
+        "periodo": "2015-01",
+        "registros_fonte": 2351,
+        "registros_escopo": 2332,
+        "sha256_resposta": "1c1ff93f421f066f83cf5b1711c852285d0ffb39a8e66b9ee911f8107810b3db",
+        "consulta": "Data eq '2015-01-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "f2d9540757ec3bdbb0be062017ed0fa1bb84287f1969730d3a4afc9e89573cf4"
+      },
+      {
+        "periodo": "2015-03",
+        "registros_fonte": 2370,
+        "registros_escopo": 2351,
+        "sha256_resposta": "56a9ad341e28b52f1907a74ad01105b67c4ddf24400794a8449260a5162a1f19",
+        "consulta": "Data eq '2015-03-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "1bded3d9ccdffd100bd0adf8397386faefd4a475d16cfc8c943599a07c9c093c"
+      },
+      {
+        "periodo": "2015-02",
+        "registros_fonte": 2367,
+        "registros_escopo": 2348,
+        "sha256_resposta": "3b493843c5b669afae34927a6f94d363285ce3fe778bcc9d9f8e8071f0d01784",
+        "consulta": "Data eq '2015-02-28'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "6c58c897298924caf382dccb81e478646f556b68fd3849b4d24e126b3a14dd1a"
+      },
+      {
+        "periodo": "2015-04",
+        "registros_fonte": 2368,
+        "registros_escopo": 2349,
+        "sha256_resposta": "258cde0220e75524d8e40302ab67d2548c92da5f750ad56f85ecf758cfc21e09",
+        "consulta": "Data eq '2015-04-30'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "483d5fc708926a7ee6ff11a5d92e667b5eafe7811a2be27d830e1dec84e8b3f3"
+      },
+      {
+        "periodo": "2015-05",
+        "registros_fonte": 2379,
+        "registros_escopo": 2360,
+        "sha256_resposta": "260cf522428f8ded1b1412185973b4f75a26c758879dc2d47245a43734769337",
+        "consulta": "Data eq '2015-05-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "339c0a3eba24662f8645babb2a75fe198f7ccbd045b010b360204143ad2411f8"
+      },
+      {
+        "periodo": "2015-07",
+        "registros_fonte": 2377,
+        "registros_escopo": 2358,
+        "sha256_resposta": "68db72ef1e62afb9e836766c177e9d27618c983a9f84d160e4e06e3039cc4669",
+        "consulta": "Data eq '2015-07-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "337fccc8d56e48ab77a86f746dbb54ebeb9901fc33ffbe8be752c08e8167ce6f"
+      },
+      {
+        "periodo": "2015-06",
+        "registros_fonte": 2370,
+        "registros_escopo": 2351,
+        "sha256_resposta": "6bdbfbae49c6f6ff621af945e23d2634ea0567d532233084a2803aaa11346e7c",
+        "consulta": "Data eq '2015-06-30'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "8aaf48150dac5a7c84f7d74de2e02f79558b4a13b103d128cd79b2d92d4b7dd6"
+      },
+      {
+        "periodo": "2015-08",
+        "registros_fonte": 2375,
+        "registros_escopo": 2356,
+        "sha256_resposta": "884a8e7985dfc9bbdda0bbd0c8c4aed937cb13a88901eef93b2a012a193b6a43",
+        "consulta": "Data eq '2015-08-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "85b92dda87b8187ecbae13f000d41f0e3802eb445820d417da696f2ca161fb09"
+      },
+      {
+        "periodo": "2015-10",
+        "registros_fonte": 2370,
+        "registros_escopo": 2351,
+        "sha256_resposta": "0e4d3c82b16810341ce9e0eefe3c5a037ebf400006042fce0e9fb3dddcd87ad7",
+        "consulta": "Data eq '2015-10-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "7082918e545c004dab3065e705ec219529b296f907f6472a90315d34ebd110de"
+      },
+      {
+        "periodo": "2015-09",
+        "registros_fonte": 2378,
+        "registros_escopo": 2359,
+        "sha256_resposta": "df53c1ad86db4da43c09de3370fefeeb07e72b85ff69f70327643fc227c34e4c",
+        "consulta": "Data eq '2015-09-30'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "4e376825521185b93c9c2dbb780efccfb89558f79bccf8c200db44e0f764317d"
+      },
+      {
+        "periodo": "2015-11",
+        "registros_fonte": 2552,
+        "registros_escopo": 2533,
+        "sha256_resposta": "69f663eba5bbd164ad111148eeed7bc1174d319d365e54bbfa2b08d4f2f7abf2",
+        "consulta": "Data eq '2015-11-30'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "b6556a7ab0000d025d55d1a069167949fbd5498e90f001e164e20bc2870faaf9"
+      },
+      {
+        "periodo": "2016-02",
+        "registros_fonte": 2466,
+        "registros_escopo": 2447,
+        "sha256_resposta": "53b4e5fa4beb246f31b84204f6862bc39dd41b610f006abf803e811f1dcd861a",
+        "consulta": "Data eq '2016-02-29'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "c7ec2f3561c5731b0008b45c5ce4733c5e9e935511e3c07c30f40c0a3244e471"
+      },
+      {
+        "periodo": "2015-12",
+        "registros_fonte": 2535,
+        "registros_escopo": 2516,
+        "sha256_resposta": "a98759c9cc94203617f6172aea8780efe7bcf10d66ba4bb0c5aad6ef191b04b0",
+        "consulta": "Data eq '2015-12-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "c5d503875b90d8ae7e2fb731a9b7c1d63c7df6a0f8f95ba94ddec5a00cdfe054"
+      },
+      {
+        "periodo": "2016-01",
+        "registros_fonte": 2462,
+        "registros_escopo": 2443,
+        "sha256_resposta": "74c7428f59788686d9151fabc61ff11fddd0e9ddddfe962ceae1e20985ac9bbc",
+        "consulta": "Data eq '2016-01-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "c7e3616baaf92c9662caebf0b19a715d15a06b3e8251c273f001e26ad6a9f53c"
+      },
+      {
+        "periodo": "2016-04",
+        "registros_fonte": 2638,
+        "registros_escopo": 2619,
+        "sha256_resposta": "08148f3941447a9d2caca6e808b6af65ddce29154ba587c57756874b7d18795b",
+        "consulta": "Data eq '2016-04-30'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "2bb1fd00eddad8fee8a42b0cce4965c6977796ada077d30a0478aa9e3fcd0429"
+      },
+      {
+        "periodo": "2016-03",
+        "registros_fonte": 2641,
+        "registros_escopo": 2622,
+        "sha256_resposta": "cd60afb0e47941df544c08aa6cdeca2b2bcb08899546a20ce7f6834b9a48736a",
+        "consulta": "Data eq '2016-03-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "f56851ba2bfac9deb79dc52a78a0295502deff05888862e10a44f056495f8a35"
+      },
+      {
+        "periodo": "2016-05",
+        "registros_fonte": 2598,
+        "registros_escopo": 2579,
+        "sha256_resposta": "03a222df004b36c0de9bb1506ab17cb3a02770e82cc21ae5bf010eecf97ba0bf",
+        "consulta": "Data eq '2016-05-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "aa9806b72dd392a2ae8ce3e4844ff13e693483a6a9639fc4a28b7d6b6dfabe45"
+      },
+      {
+        "periodo": "2016-08",
+        "registros_fonte": 2637,
+        "registros_escopo": 2618,
+        "sha256_resposta": "93aac637e379aceb31284f652d5d024b3a8e148ca43ca24f20464a4a842aa59d",
+        "consulta": "Data eq '2016-08-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "47cb651be259942643b362e7d90f120e063c28c21ba251ea62ddf33da7a79f54"
+      },
+      {
+        "periodo": "2016-07",
+        "registros_fonte": 2615,
+        "registros_escopo": 2596,
+        "sha256_resposta": "1eee6c6d138ee4b98647e3388af0fccd55b2c19754891fc3d1d3ad8ad241c107",
+        "consulta": "Data eq '2016-07-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "f3d3fe64ff26763dfee3eca0103520be66f4cb4ca3c91849c2f17e5510cb1ad0"
+      },
+      {
+        "periodo": "2016-06",
+        "registros_fonte": 2667,
+        "registros_escopo": 2648,
+        "sha256_resposta": "a73f0ccc72a4502b5d1eb816a33251ccdef155635f5595dda169612f26443c01",
+        "consulta": "Data eq '2016-06-30'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "df582de049a6c99f5dd459593eb8d2fb2116b238931e3a891eb563f3b58efaaf"
+      },
+      {
+        "periodo": "2016-10",
+        "registros_fonte": 2638,
+        "registros_escopo": 2619,
+        "sha256_resposta": "5ec543e90e11968cf018ed9a0935073acde4b1323db7ab623fd2226d6f9d095e",
+        "consulta": "Data eq '2016-10-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "74cf8da0fa0e14f0e64a3479086208d56991359c107e7cf1998a76c0f2d26881"
+      },
+      {
+        "periodo": "2016-09",
+        "registros_fonte": 2643,
+        "registros_escopo": 2624,
+        "sha256_resposta": "9f9738e5bd0e936cb22ce83fc2e984e69da73b458f7b238e0445ff6d04d99145",
+        "consulta": "Data eq '2016-09-30'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "a20b7d9f42ec279561e535b1837bd166360b15e6bc42cd14d58038262e7cc8b9"
+      },
+      {
+        "periodo": "2016-11",
+        "registros_fonte": 2626,
+        "registros_escopo": 2607,
+        "sha256_resposta": "9d49530915c169f839dbb7d67f34d1a7eee8728945f80734dfc75dc6a7c64bd8",
+        "consulta": "Data eq '2016-11-30'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "4f247421559906588e0e0f4790a4dad87d47bb9280c05fb54ed52743a0ebe5df"
+      },
+      {
+        "periodo": "2016-12",
+        "registros_fonte": 2660,
+        "registros_escopo": 2641,
+        "sha256_resposta": "59b4c93ddd74571d9ab9f027cf241ec9f2cff27946cf6a5503ac615ebe0eb00a",
+        "consulta": "Data eq '2016-12-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "7c280cd245fc38dadca5b0d44fbf1f68b1496d54900777413c4e2668fa33bceb"
+      },
+      {
+        "periodo": "2017-01",
+        "registros_fonte": 2650,
+        "registros_escopo": 2631,
+        "sha256_resposta": "8a86761c3a529f5b4368d751221f7d02167a914e81998d833db78844aa574382",
+        "consulta": "Data eq '2017-01-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "0a082605dfce2c8571da17068b31737e68dcc26eddbd86fb9e6dc1a36118fed9"
+      },
+      {
+        "periodo": "2017-02",
+        "registros_fonte": 2648,
+        "registros_escopo": 2629,
+        "sha256_resposta": "746b43983c3beb23345b45b4bd870221ad7bbb88a12f53e274a70a48a79ba7c0",
+        "consulta": "Data eq '2017-02-28'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "aebb7a4b4e597e94fe6dcfd78638327edc9dc3aa7efaef247920ed54992c0866"
+      },
+      {
+        "periodo": "2017-04",
+        "registros_fonte": 2616,
+        "registros_escopo": 2597,
+        "sha256_resposta": "51b8508fb87e348dca94f0a7bc33a58e031f0a3631270cc5c6f21ecde2759e32",
+        "consulta": "Data eq '2017-04-30'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "c98cee5d6789d4f8dbbce50366263b03d8495903e3089e49f910f6bbd872a3fa"
+      },
+      {
+        "periodo": "2017-03",
+        "registros_fonte": 2637,
+        "registros_escopo": 2618,
+        "sha256_resposta": "aca58f44493786998ad88e5cd78f35b4c26d56bbf94f0fa130eee3d38467c835",
+        "consulta": "Data eq '2017-03-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "ea32748dae951828e582fb26448ed964d3dec98f5d0f8f83f220f6d655bea65e"
+      },
+      {
+        "periodo": "2017-05",
+        "registros_fonte": 2634,
+        "registros_escopo": 2615,
+        "sha256_resposta": "2dcc152a459dbd219e59a9c7346c8fc71e16c6c1c5295d6751c2f27a9c43d568",
+        "consulta": "Data eq '2017-05-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "15de24ed4fbb7926eed1e8f5a5d4f18b9ae8dd347be10063e620354cbfe13efd"
+      },
+      {
+        "periodo": "2017-06",
+        "registros_fonte": 2644,
+        "registros_escopo": 2625,
+        "sha256_resposta": "2991e7d9f246d3bdd5e1f6f310e221eb140b8c3ad8fefc74a86efc6693b87d54",
+        "consulta": "Data eq '2017-06-30'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "e0d8abb4fa4c7c53fa2933bd081563a0d9c643f15af485eea48ff60ee28c7f92"
+      },
+      {
+        "periodo": "2017-07",
+        "registros_fonte": 2642,
+        "registros_escopo": 2623,
+        "sha256_resposta": "24dac889397e3d6f2b780624498394976d468d0781f64d7ef8c59009d0170fe1",
+        "consulta": "Data eq '2017-07-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "4b16f916e45877ef15e97051d94344ba5813fbb90a47ec815cbe0f565d5f919c"
+      },
+      {
+        "periodo": "2017-08",
+        "registros_fonte": 2640,
+        "registros_escopo": 2621,
+        "sha256_resposta": "8564885563b308103c0108594d9e1b4652275ce98f0abfc7e5a212a66cebd90f",
+        "consulta": "Data eq '2017-08-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "b966d59578813154bafd80d5b5c85059bf483adad121327b36f8a7bb2a48e875"
+      },
+      {
+        "periodo": "2017-09",
+        "registros_fonte": 2623,
+        "registros_escopo": 2604,
+        "sha256_resposta": "22a68172cb7b79fdfcac58c66c4c92f53340d9034ef2254d0e382ee966d29516",
+        "consulta": "Data eq '2017-09-30'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "82fd87005099f4741221fb76f44442138fdb7061b0c9cec7d8efed3035839700"
+      },
+      {
+        "periodo": "2017-11",
+        "registros_fonte": 2598,
+        "registros_escopo": 2579,
+        "sha256_resposta": "d910541d59e47b75b2328aef40a909ca7dfa75bea3fe2f75acfe773e04e146e1",
+        "consulta": "Data eq '2017-11-30'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "2450321253e8c2389d15db9a7ea744af1475dbbbac527912534a385f75b0431e"
+      },
+      {
+        "periodo": "2017-10",
+        "registros_fonte": 2611,
+        "registros_escopo": 2592,
+        "sha256_resposta": "8efbf2ed48e7bd43ff0fe79c0e47cce76a255f6d6e24da035529c111b46b3013",
+        "consulta": "Data eq '2017-10-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "208e2e0eba605d17fecae1fbd03fa3056ce98bb695cb9c4e17f05ef15ef1b5cb"
+      },
+      {
+        "periodo": "2018-02",
+        "registros_fonte": 3024,
+        "registros_escopo": 3005,
+        "sha256_resposta": "3da67e091a3afd176cd65568ffc5bfcddb6be60a476a2723388915c66eaf8bee",
+        "consulta": "Data eq '2018-02-28'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "431fce6638007b820324107dcf95e7173d733e0fe5f7d3d9881b6897180ccbad"
+      },
+      {
+        "periodo": "2017-12",
+        "registros_fonte": 2621,
+        "registros_escopo": 2602,
+        "sha256_resposta": "d240492d56954874623230b8d02961876c3ded81b886f50339b48b0071df0945",
+        "consulta": "Data eq '2017-12-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "6d936f5c34917e8fc04648842abd934cf7de5def95cb99962564c168e17e780c"
+      },
+      {
+        "periodo": "2018-01",
+        "registros_fonte": 3007,
+        "registros_escopo": 2988,
+        "sha256_resposta": "eb0246a064c92faff39ed814db37638d187fadd5536fd8fba19b496fd5b2df6b",
+        "consulta": "Data eq '2018-01-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "d2551324600ae53a1df0c75ca4f9784e4215ff80f173849e6a7452fc6fbc944d"
+      },
+      {
+        "periodo": "2018-04",
+        "registros_fonte": 3068,
+        "registros_escopo": 3049,
+        "sha256_resposta": "22900a9e6c69e6df35c4380d4ab5cfe62489e91784b801da79b79aa8ff45b0e0",
+        "consulta": "Data eq '2018-04-30'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "f9c67ab2306971759b8e1b1134d79b5161ff5c6d8b559ceca7a788e81831fdc1"
+      },
+      {
+        "periodo": "2018-05",
+        "registros_fonte": 3040,
+        "registros_escopo": 3021,
+        "sha256_resposta": "ce084cf12df93324ad57ad949f0d44065f511dfde181026858045a8a420ac34e",
+        "consulta": "Data eq '2018-05-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "4fc7dd2b08684394c5332b86b38823e2f8e1d9def773075aa2fce4e7304df309"
+      },
+      {
+        "periodo": "2018-03",
+        "registros_fonte": 3047,
+        "registros_escopo": 3028,
+        "sha256_resposta": "6352e863fab726275a812137adb0e13d006e2af81aa30570bb635b94423a24dd",
+        "consulta": "Data eq '2018-03-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "adca78bcd464a82fe1eac2f6582a5c43adf1c32441e65856edba3929206ab7d4"
+      },
+      {
+        "periodo": "2018-07",
+        "registros_fonte": 3015,
+        "registros_escopo": 2996,
+        "sha256_resposta": "9941bcbf337fc971c729f351848c53d26fae26b2ce3cb7bcdded7cc027ad7930",
+        "consulta": "Data eq '2018-07-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "cdd913b04468872a5d97173aafdb3ab91df8400409ba54640a1df3b61b485a65"
+      },
+      {
+        "periodo": "2018-09",
+        "registros_fonte": 2996,
+        "registros_escopo": 2977,
+        "sha256_resposta": "7140d688342314063f1da5ff04822b24f66b5b4854515b6f5380ed2bd5b20d01",
+        "consulta": "Data eq '2018-09-30'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "97d0fdbc704319954d6415980d20bd243dc55f5368ca902e59437c57eb5ed65a"
+      },
+      {
+        "periodo": "2018-06",
+        "registros_fonte": 3038,
+        "registros_escopo": 3019,
+        "sha256_resposta": "781d68cd0e38c499837a95899cb8ecc57c7d1f96708de858a7a093e1b4d212be",
+        "consulta": "Data eq '2018-06-30'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "869269f540ce5f4b9a76be44f93ff4dc08365c037a6a230fbee294c999551d6e"
+      },
+      {
+        "periodo": "2018-08",
+        "registros_fonte": 2989,
+        "registros_escopo": 2970,
+        "sha256_resposta": "809f1f090fdba0c72ddb6d18b67ef0af5a3b449798c6df2673625eda3c262b3a",
+        "consulta": "Data eq '2018-08-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "4e3e3febb8cf9d466e642eeee7f29ed728a352c2691f0fb004466f5080bf4cba"
+      },
+      {
+        "periodo": "2018-12",
+        "registros_fonte": 3005,
+        "registros_escopo": 2985,
+        "sha256_resposta": "ee4e87c86183997e75066d07804e3f14fd111d2ce35c16dcf7dfbe17a7ade411",
+        "consulta": "Data eq '2018-12-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "c56459123dd2ebf6fcc09dfc31a0ddc8eb7c729395c81f41c685877e6abbc1df"
+      },
+      {
+        "periodo": "2018-10",
+        "registros_fonte": 2996,
+        "registros_escopo": 2977,
+        "sha256_resposta": "4a2dfe3bc5b7825ed580be3aacfa2b9c7ad0dff54232d79ff51fa1d0f00bb45c",
+        "consulta": "Data eq '2018-10-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "e941a057f56aba03d039aa021e6ffaa089e5fd581b809827521e5c56cc94424c"
+      },
+      {
+        "periodo": "2018-11",
+        "registros_fonte": 3006,
+        "registros_escopo": 2986,
+        "sha256_resposta": "f06fbf37479a572faaf016fcf6543f0ee41a858ca5e35ebdb5bd16f17d7a40e1",
+        "consulta": "Data eq '2018-11-30'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "a0cc68a5ff618c9d8813439131f8ac4732c0461440cea9d8b6eb92428480d6ad"
+      },
+      {
+        "periodo": "2019-01",
+        "registros_fonte": 3050,
+        "registros_escopo": 3025,
+        "sha256_resposta": "237904ede42b7a85572c5bbb107ecdd3c7190a4061bf60e4469d655dfb8a2212",
+        "consulta": "Data eq '2019-01-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "063456ceb75418bb5bbe4903578efe13711e776ef1e9124348d7eb4e9b849ff3"
+      },
+      {
+        "periodo": "2019-04",
+        "registros_fonte": 3005,
+        "registros_escopo": 2980,
+        "sha256_resposta": "8d537fe5c9a3394474f3e044e83020cb4845c90486375162f9527d0db36b9b81",
+        "consulta": "Data eq '2019-04-30'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "698cb8d3ce4cca478be3eef455158fefb44bcdb47a5e333b9cebeadd99b81b39"
+      },
+      {
+        "periodo": "2019-02",
+        "registros_fonte": 3031,
+        "registros_escopo": 3006,
+        "sha256_resposta": "3360fb6024b0e0d384a0b0d4287c3856a3b6f8cd5b6360ce9f1596654dd2a094",
+        "consulta": "Data eq '2019-02-28'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "fa86ef5718e19f5d993b16a645da4e09efa136063b02f39445d118948d5d77d1"
+      },
+      {
+        "periodo": "2019-03",
+        "registros_fonte": 3011,
+        "registros_escopo": 2986,
+        "sha256_resposta": "a8d723cc2a2997807c204c97c788011dd378b6b8020271b9de6d6ce0405400f4",
+        "consulta": "Data eq '2019-03-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "b394aff2347d401dc3646dc0d0ad697b4744787c56259fc0de339947490c1b12"
+      },
+      {
+        "periodo": "2019-06",
+        "registros_fonte": 3018,
+        "registros_escopo": 2993,
+        "sha256_resposta": "75c0dc421dffc3ee4320d1c2ca64b74620ba4bfc83fd8e130432c8044c3f0594",
+        "consulta": "Data eq '2019-06-30'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "58dcff78c86c9c5a67bbea20e4f1183d4b49daaa6db64a354705da74d1de06e9"
+      },
+      {
+        "periodo": "2019-05",
+        "registros_fonte": 3023,
+        "registros_escopo": 2998,
+        "sha256_resposta": "88a7d7b504e958e71e50d6d7c881a4ccbb48a306f8c776493f0f1c7ef40f812c",
+        "consulta": "Data eq '2019-05-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "5f4c937ea2aee5bfec4e8020fc37203ebd3d41a134a277dc2dc449dcef7a1830"
+      },
+      {
+        "periodo": "2019-09",
+        "registros_fonte": 3020,
+        "registros_escopo": 2995,
+        "sha256_resposta": "98d5518ee524c866d12d5f2b2bbc6dfc15357fddc8e87499f8b36d11a8b30e83",
+        "consulta": "Data eq '2019-09-30'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "6c989e8d56845fee8740bb86cba5a6385cfaf4fd678075416a3c172ffd29b696"
+      },
+      {
+        "periodo": "2019-08",
+        "registros_fonte": 3045,
+        "registros_escopo": 3020,
+        "sha256_resposta": "c56e2f5c4c6357b316997f50c5606c66829042a2d84e5deac71bac3ca1ebcd84",
+        "consulta": "Data eq '2019-08-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "e6c5cb8993fc5c94f1ac6085bccdc9bfc4a1d896cc272de8d7361a594d6bbb3b"
+      },
+      {
+        "periodo": "2019-07",
+        "registros_fonte": 3053,
+        "registros_escopo": 3028,
+        "sha256_resposta": "89293ce0ca05c74685a4984c0951004469dbcb4aa21fa7c0554211d0763c9518",
+        "consulta": "Data eq '2019-07-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "a03d6fcb54db3c244367c5f1fb98a6ae2b4f128d2ada6e9629f7bc0124a78f38"
+      },
+      {
+        "periodo": "2019-10",
+        "registros_fonte": 3039,
+        "registros_escopo": 3014,
+        "sha256_resposta": "4f3ca9a55c93ae53f405facce342fd7e6b54178eb5532bba5fb0bbd774a6ae38",
+        "consulta": "Data eq '2019-10-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "5a2e143fd3297651f330828978b6142a61ab879b49fd20b5b66b699457e5ce03"
+      },
+      {
+        "periodo": "2019-11",
+        "registros_fonte": 3025,
+        "registros_escopo": 3000,
+        "sha256_resposta": "70498b7e351f18d7854859e852d9e7f13e496ae00143cc25bdc7d48443ace305",
+        "consulta": "Data eq '2019-11-30'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "c561f05e98d93f5c05a3fb976fbec5dc594453e672d1196df6a3daf142d0396b"
+      },
+      {
+        "periodo": "2019-12",
+        "registros_fonte": 3041,
+        "registros_escopo": 3016,
+        "sha256_resposta": "a35c91a56f4249e03cc5e5dc10950f2cd29a0a14c890cdc381d1193a6299b63d",
+        "consulta": "Data eq '2019-12-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "145a4429f6d33f302b94e7d648571a5553033c19f6f50abde3f867f1287a0252"
+      },
+      {
+        "periodo": "2020-03",
+        "registros_fonte": 3024,
+        "registros_escopo": 2999,
+        "sha256_resposta": "dd7a01ff5ac5304fcefd772b7fd4e5b551f92dc71178a1b4d364682015a691a4",
+        "consulta": "Data eq '2020-03-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "b95f03c063805bd0747a3b49ebff0bc0f6fea8229626a39d6c43911cec2eed4c"
+      },
+      {
+        "periodo": "2020-01",
+        "registros_fonte": 3021,
+        "registros_escopo": 2996,
+        "sha256_resposta": "2146b760876e7258bda90b35ebe50a839c137f244bc852d6bd743b3afbe0b5a0",
+        "consulta": "Data eq '2020-01-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "f1d2366ce50cdf02745044b647b87598ae2d33db5490a13c59689719e44e837e"
+      },
+      {
+        "periodo": "2020-02",
+        "registros_fonte": 3010,
+        "registros_escopo": 2985,
+        "sha256_resposta": "f447f2fd02aa173458e8d3cef4adad9bc20556531393daba594ad0561aa00093",
+        "consulta": "Data eq '2020-02-29'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "2c39bcada5ab70f8993c0ea1605e1ffbdaacd5e2065a22bcc77512a697c806ae"
+      },
+      {
+        "periodo": "2020-04",
+        "registros_fonte": 3034,
+        "registros_escopo": 3009,
+        "sha256_resposta": "215e585d57f7c1b78e7a09d3045d7801efdd519d6d073063b90ccc16c01100a7",
+        "consulta": "Data eq '2020-04-30'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "ff1853b85680b38fdb373f2f539953f0265a8914c08a8cff7b31c661d195f080"
+      },
+      {
+        "periodo": "2020-06",
+        "registros_fonte": 3039,
+        "registros_escopo": 3014,
+        "sha256_resposta": "6e2e9f358b4d505203c00ed9b5c842bf6fad51429c49d62e28c2ca8efaa85c00",
+        "consulta": "Data eq '2020-06-30'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "720b9270cb40ffde49d79b559a17372752a9e3f6bfb5a8d1100316133398b2e3"
+      },
+      {
+        "periodo": "2020-05",
+        "registros_fonte": 3040,
+        "registros_escopo": 3015,
+        "sha256_resposta": "c21c3601b40bfa9d1924935062c702afca35e0679a29eeb7a488b45a3efa9772",
+        "consulta": "Data eq '2020-05-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "b61cb8dbac33adb39547991f394c75ab91b692f634ec0fa9669a4936754dc47a"
+      },
+      {
+        "periodo": "2020-07",
+        "registros_fonte": 3028,
+        "registros_escopo": 3003,
+        "sha256_resposta": "32ecaa263378f6a205bf5ea9a283500e8749433f9bba1246fb04530b07ed2f10",
+        "consulta": "Data eq '2020-07-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "519d05e98cdd7069f8f215c10304522217a0c2d9aa2af24c4c1b4d6e936f0d5d"
+      },
+      {
+        "periodo": "2020-08",
+        "registros_fonte": 3034,
+        "registros_escopo": 3009,
+        "sha256_resposta": "49c965cc4b077b53fe834f1e8afd4e03e41b776a7a71f65a292a6b8e20b085a6",
+        "consulta": "Data eq '2020-08-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "f2a4fe5e4b5b8126ee6e8c591e65a94e012b13a260f01dbb635fd521774f2b23"
+      },
+      {
+        "periodo": "2020-09",
+        "registros_fonte": 3017,
+        "registros_escopo": 2992,
+        "sha256_resposta": "f734c08c92bb2ab2a19fcee20529cee1822159f768d0af7072d361820ce40bb2",
+        "consulta": "Data eq '2020-09-30'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "23405764e1f16fa704a05e597339e9060fae02e38bea356ced357637d47d9dd2"
+      },
+      {
+        "periodo": "2020-10",
+        "registros_fonte": 3027,
+        "registros_escopo": 3002,
+        "sha256_resposta": "4043ba66353f7f44cc5abc2a336968cfdc36a6720519b07a2637b0cbe8341c50",
+        "consulta": "Data eq '2020-10-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "fdf92b3e8fbba89590c1ceb20525e13291daac741113edd8f5e1935ee02942a1"
+      },
+      {
+        "periodo": "2020-11",
+        "registros_fonte": 3015,
+        "registros_escopo": 2990,
+        "sha256_resposta": "8e8d3222d63a55bb866a1348e73c12eaf1eaa13694b3e5a790a6e1ac84c9e3f9",
+        "consulta": "Data eq '2020-11-30'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "822c231fc85978ffe3fffb40a096eca1b72958307bfdfea93e884b2192cbbcc6"
+      },
+      {
+        "periodo": "2020-12",
+        "registros_fonte": 3050,
+        "registros_escopo": 3025,
+        "sha256_resposta": "4dcf34dc018996009af25590af940aaf27f567108cba1bed40ef314d6c5b09ac",
+        "consulta": "Data eq '2020-12-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "1cf653990afdd596e1ba5a1b08001418b57a1b9f1dcd1c5e847818cc9f612af0"
+      },
+      {
+        "periodo": "2021-02",
+        "registros_fonte": 3033,
+        "registros_escopo": 3008,
+        "sha256_resposta": "d80796956e66d50399f3dc0e53168df132b6d50cc6092c875b0e2b49ae899f1e",
+        "consulta": "Data eq '2021-02-28'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "6ea3d7756ea58fed63bc978515ab35a9bcc93a942083b22e89deb5fafbdcf508"
+      },
+      {
+        "periodo": "2021-01",
+        "registros_fonte": 3024,
+        "registros_escopo": 2999,
+        "sha256_resposta": "fcec25400688686f893bf718abf019fed82d33ab368b5e9976833aad4e03ad4a",
+        "consulta": "Data eq '2021-01-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "78201ae4bcd0e576bc3192fdac8b4b523972fdee526cd8637f545ddfdde2ebf9"
+      },
+      {
+        "periodo": "2021-04",
+        "registros_fonte": 3035,
+        "registros_escopo": 3010,
+        "sha256_resposta": "c4b7b77c1203f3ded9d2cd19cd1aa7f5d5d944788d149aae0a670b56fc403c75",
+        "consulta": "Data eq '2021-04-30'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "c0bbc6d8528a7161382f92d8fc4e3578adf4802353976fc4bb5b88bd5ea11f96"
+      },
+      {
+        "periodo": "2021-03",
+        "registros_fonte": 3040,
+        "registros_escopo": 3015,
+        "sha256_resposta": "b1a2a51dd2e354e8441bfd7daa985bd3469bcdf0a305d618a9ca8747ef015cc1",
+        "consulta": "Data eq '2021-03-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "bbffd0c6b595275ecd00dc94d754097b9b752132851a73bf00e35cc08f68bc33"
+      },
+      {
+        "periodo": "2021-05",
+        "registros_fonte": 3045,
+        "registros_escopo": 3020,
+        "sha256_resposta": "bbaa85f2f6bf9ec0f7a5bb141a8c573adce2a00fc2b0fb58b18c71d91e0eb830",
+        "consulta": "Data eq '2021-05-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "d2bc947d97661a5901908be8959e838842736042db1f32894852cc299cd1b4ef"
+      },
+      {
+        "periodo": "2021-06",
+        "registros_fonte": 3067,
+        "registros_escopo": 3042,
+        "sha256_resposta": "e4db4ce6750c71df3eeea99862ef080155d45c54feb3e59b98763c52d2b62eaf",
+        "consulta": "Data eq '2021-06-30'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "065fceba27d077db341345a1ef6c7291bbeed7ba3f8c35daf2fa74f926f8273a"
+      },
+      {
+        "periodo": "2021-08",
+        "registros_fonte": 3079,
+        "registros_escopo": 3054,
+        "sha256_resposta": "0d9f6b3f80aa488be5b8b38130c71bb1d0119692ab70051ef9873d77480d86de",
+        "consulta": "Data eq '2021-08-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "c5fb423f74e80f7e00c72734c221ebb4ff8f22f52fe6d74aad84c06dc803fe7a"
+      },
+      {
+        "periodo": "2021-07",
+        "registros_fonte": 3048,
+        "registros_escopo": 3023,
+        "sha256_resposta": "b4ab3444ba6c9e2edeefa0bc441f7cef3eab22503fb42839c816d2099bc1cc84",
+        "consulta": "Data eq '2021-07-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "9d9aeb42921909f15c7642c68bf8a16aa65a1f545dae638f46649c89f28f8948"
+      },
+      {
+        "periodo": "2021-10",
+        "registros_fonte": 3068,
+        "registros_escopo": 3044,
+        "sha256_resposta": "b59fbd6bc6c5ce4ebbd6814e18846de25c0e5e047a00606b5fa6f326aa1a7a75",
+        "consulta": "Data eq '2021-10-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "4aee09e87572469d5db82d175f3b48d40392c4a83a9aaaf83eadd9420395fe33"
+      },
+      {
+        "periodo": "2021-11",
+        "registros_fonte": 3073,
+        "registros_escopo": 3049,
+        "sha256_resposta": "a34f3a7de5cc4da72c71cce9f8dc27f6cf4dc012950ca91def62bf82d5b4dce5",
+        "consulta": "Data eq '2021-11-30'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "1454dc2c701fcee9d48ae8418a15b705c5a0d4e8dcc20cd8e593e6502b7f4e6d"
+      },
+      {
+        "periodo": "2021-09",
+        "registros_fonte": 3052,
+        "registros_escopo": 3028,
+        "sha256_resposta": "dd4b0c5497558e2b5bffa2c1cccffbb3be665105183d73b8dc1194f7d70e4aed",
+        "consulta": "Data eq '2021-09-30'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "9ca905d4d1c305fa634d10a9f817dec72dd0b4f6f362e3e120efe22cf708f11a"
+      },
+      {
+        "periodo": "2022-01",
+        "registros_fonte": 3049,
+        "registros_escopo": 3025,
+        "sha256_resposta": "e44b10165a356a3ed60a663b60f0bf25acb65efac9d085dd6380b49c718f8c82",
+        "consulta": "Data eq '2022-01-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "b1e45cc67729e071f78ee545b90a583f8bc94478449486cd4d6c1ba90222f4fd"
+      },
+      {
+        "periodo": "2021-12",
+        "registros_fonte": 3055,
+        "registros_escopo": 3031,
+        "sha256_resposta": "4d81c2d7add758b43dfdc87c7ea0880497b9aa41de81a51f456e6802ad0ca725",
+        "consulta": "Data eq '2021-12-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "fc5100ffc2205af5273721d210d8ef264b8ed29a4cd54a21155022f00d288d1e"
+      },
+      {
+        "periodo": "2022-02",
+        "registros_fonte": 3067,
+        "registros_escopo": 3043,
+        "sha256_resposta": "7609a09b2445c347a6a228c6186ac74aaacf3be8c33ef0325ac4b2b384b13b10",
+        "consulta": "Data eq '2022-02-28'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "e25093578574e70630e03d18e337f73582a427a4b68eca3c3ba754d6a30fb10f"
+      },
+      {
+        "periodo": "2022-03",
+        "registros_fonte": 3057,
+        "registros_escopo": 3033,
+        "sha256_resposta": "1102c7deffe79ba9e7dc0d9b04925bfe9376e3abda98092d8dbe7c8e820310da",
+        "consulta": "Data eq '2022-03-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "a1a76795541a64bb7b342fe19f1ba470498353bda2bbc0b1de3d232ae2687a7b"
+      },
+      {
+        "periodo": "2022-06",
+        "registros_fonte": 3069,
+        "registros_escopo": 3044,
+        "sha256_resposta": "6f3a2a63975a06995bbae8895f7d1941e9d167a290153b44db7d80a2d909bb26",
+        "consulta": "Data eq '2022-06-30'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "1e579da60ed57d28e260d66c0272a687997947607e2f19839ab08686fb92cccc"
+      },
+      {
+        "periodo": "2022-07",
+        "registros_fonte": 3071,
+        "registros_escopo": 3046,
+        "sha256_resposta": "9f2d92b88b2907c8b9494de7e3c3e0d67d61fffacdc1a93e2fe1503053761835",
+        "consulta": "Data eq '2022-07-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "839e678f338cbef1ac841782349c2a11fc5158054e1d8ee7bc06733720acb813"
+      },
+      {
+        "periodo": "2022-08",
+        "registros_fonte": 3090,
+        "registros_escopo": 3065,
+        "sha256_resposta": "3081c2cfaf34ef4c9fd3341ad5200fab063be06fbf3895e6ea2e59821fd41263",
+        "consulta": "Data eq '2022-08-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "7186917d3c6f38eed892c9fdd54e912965a36043ea7d3c0e0a4443fb0159e5a8"
+      },
+      {
+        "periodo": "2022-05",
+        "registros_fonte": 3071,
+        "registros_escopo": 3046,
+        "sha256_resposta": "f7536b7153fc01995af5ea218211ee119b99bcad589c7314fc2058e64259dfb4",
+        "consulta": "Data eq '2022-05-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "4a2b6c34ad3b69a9462a671059735b89b8c22a3c852031a4548d30340e54fe16"
+      },
+      {
+        "periodo": "2022-04",
+        "registros_fonte": 3045,
+        "registros_escopo": 3020,
+        "sha256_resposta": "4e185633beab5c2204863a97cd93f9c0ff269c5624c451bd4e3176c0ac33066f",
+        "consulta": "Data eq '2022-04-30'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "46cd3bd4e4d3123d145d6f2c51ac5e5c43a505f3c3c2ac92a54ecb7a6e9c1ca5"
+      },
+      {
+        "periodo": "2022-09",
+        "registros_fonte": 3058,
+        "registros_escopo": 3033,
+        "sha256_resposta": "c04bb1ff994fece83b2a81795b5324d0b6ace4b016e2655af7554aeef5e16836",
+        "consulta": "Data eq '2022-09-30'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "001de93e674a536544f1244ab218a50a18b4396b45af2b491bfead6146e4bfad"
+      },
+      {
+        "periodo": "2022-10",
+        "registros_fonte": 3076,
+        "registros_escopo": 3051,
+        "sha256_resposta": "ed02354e62393ae1188246285f27a7a75f40a2a60c43f9f54fa61fcc3aa4f481",
+        "consulta": "Data eq '2022-10-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "6879e67ba3c066358f37268b90f6c50b61b0352a0e1d8d81fccc421b61b748a4"
+      },
+      {
+        "periodo": "2022-11",
+        "registros_fonte": 3071,
+        "registros_escopo": 3046,
+        "sha256_resposta": "4415e06f1bc764e669fe5ab7ad47ce0e82929a1f3244106b5d35c295694ba898",
+        "consulta": "Data eq '2022-11-30'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "f613fc2c8ecfc11d418e5086cdddb78c960da42eee5abc1e9e92a0c4b04796c1"
+      },
+      {
+        "periodo": "2022-12",
+        "registros_fonte": 3065,
+        "registros_escopo": 3040,
+        "sha256_resposta": "6c7ffa29cfbc016c38e0ba4f4d1f3924446d4d84eb808753b4f36eedf8910a60",
+        "consulta": "Data eq '2022-12-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "f4061230f687a1cd71eadd4b97724953c0841f0ec9bdbbb27a5283575a59c549"
+      },
+      {
+        "periodo": "2023-01",
+        "registros_fonte": 3043,
+        "registros_escopo": 3018,
+        "sha256_resposta": "81bbcb2f8ca59b293bbb74ca97a2f2257201390e4ea6ad149e38f6714a5dbf5a",
+        "consulta": "Data eq '2023-01-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "ec1e371967d3b2c1da2736191609e823b2d03167699e085777215d520bcdab18"
+      },
+      {
+        "periodo": "2023-02",
+        "registros_fonte": 3036,
+        "registros_escopo": 3011,
+        "sha256_resposta": "b955bfd74c6c90c698e0db3e356fad47c0caf3ae53507929b899f4c28d957651",
+        "consulta": "Data eq '2023-02-28'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "10b43a884c86ab8f0e194c840e2dc994b61663b0e4c084d3254c49389e7ec3b3"
+      },
+      {
+        "periodo": "2023-03",
+        "registros_fonte": 3043,
+        "registros_escopo": 3018,
+        "sha256_resposta": "28c38d707f4c22104302b89de2c4902183adfb3c982dc64e1cadd333ecc06f40",
+        "consulta": "Data eq '2023-03-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "bd275e2a4ddf239b2d4be7eed99ae3337d485af0b8d719fbd0944be76c88021c"
+      },
+      {
+        "periodo": "2023-04",
+        "registros_fonte": 3041,
+        "registros_escopo": 3016,
+        "sha256_resposta": "bc6d0001f9e9683b85ee651543b9f25ae8b724ea54b432816a2a8d789d254cfa",
+        "consulta": "Data eq '2023-04-30'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "6ef94f0d8507fb2e3b1e1788b7fb81cbeeeb8d20510bf54f9ab3ab6e43336457"
+      },
+      {
+        "periodo": "2023-05",
+        "registros_fonte": 3046,
+        "registros_escopo": 3021,
+        "sha256_resposta": "b9a2f664b124a7c92d47c5d9d56594deb531f765bf8947fc3554993acd8e8a3d",
+        "consulta": "Data eq '2023-05-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "151b63716ee4cd643bba70e7b0ad686503bd269419a1db978a53a88dee5e2575"
+      },
+      {
+        "periodo": "2023-06",
+        "registros_fonte": 3060,
+        "registros_escopo": 3035,
+        "sha256_resposta": "30ebbe99cd2a1b83bca9b753d48af28825e7ef41a1750192b24a0f07ae446bcd",
+        "consulta": "Data eq '2023-06-30'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "a3873c7b238273abe35d592c2e9202dc3686d8a59ed2aeebc7d290b5f9a29747"
+      },
+      {
+        "periodo": "2023-08",
+        "registros_fonte": 3044,
+        "registros_escopo": 3019,
+        "sha256_resposta": "d286672b0ff1023c9507f80bbece8b4443978bf5288303f282d22f6e69b25fbc",
+        "consulta": "Data eq '2023-08-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "7f08d5c766e33cdb12af358e11704a1194dd71e2104a3133a30be75413078316"
+      },
+      {
+        "periodo": "2023-07",
+        "registros_fonte": 3055,
+        "registros_escopo": 3030,
+        "sha256_resposta": "045f9b2f1bd68ebdcff33b649be740bb71f1b96795a917acd9e8e5fc2f33fda2",
+        "consulta": "Data eq '2023-07-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "1b31dd6d23a3520139e10cd0f04ea6f679516ab076424835e4f38310151c6dae"
+      },
+      {
+        "periodo": "2023-09",
+        "registros_fonte": 3057,
+        "registros_escopo": 3032,
+        "sha256_resposta": "cf559938d27e6edcf282675201f8774b9c05ea548752438887f5f1dccefac804",
+        "consulta": "Data eq '2023-09-30'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "3da2856fafe00799d290479509ad8ba4df2693581e18d2f24bd79177178a59b1"
+      },
+      {
+        "periodo": "2023-10",
+        "registros_fonte": 3075,
+        "registros_escopo": 3050,
+        "sha256_resposta": "f1b552d704645d8abb28922d998acc1120a75e898430f111c3bac64ed4c5541b",
+        "consulta": "Data eq '2023-10-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "e3c2a9a1e4777df913dd49f750a934abe07e64055cfd3380cb8bdbdb8dc38178"
+      },
+      {
+        "periodo": "2023-11",
+        "registros_fonte": 3061,
+        "registros_escopo": 3036,
+        "sha256_resposta": "b646ec42d6a30bda6e03997c29be3f5092bc7f3a3c4e019cd9ee97ac2a364a3b",
+        "consulta": "Data eq '2023-11-30'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "12bad4f6464e48b98c35d9d762d1420309400871cf4fa2e49b8bc445822766f1"
+      },
+      {
+        "periodo": "2023-12",
+        "registros_fonte": 3051,
+        "registros_escopo": 3026,
+        "sha256_resposta": "79f4d7e026099567e94012479b4d0781403fb8d8737224abea5661c68d3b5646",
+        "consulta": "Data eq '2023-12-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "5fbebec3acff73de93b38d13a635ac597515cf5778d3f9e4396c28af3b72cd14"
+      },
+      {
+        "periodo": "2024-01",
+        "registros_fonte": 3037,
+        "registros_escopo": 3012,
+        "sha256_resposta": "2afd112f039fb5e42d2f2ee15555e64ee98eab79c97f4a221f43ec02e2628123",
+        "consulta": "Data eq '2024-01-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "e70f254a91a460bb61b3aa56eaca199d90eb1851fc175762eeef663e5363bc6f"
+      },
+      {
+        "periodo": "2024-02",
+        "registros_fonte": 3032,
+        "registros_escopo": 3007,
+        "sha256_resposta": "b0c18b8adbadf86167209f741bb43a191dc5e2c07f966ff34a92e7de0a143ce0",
+        "consulta": "Data eq '2024-02-29'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "82e4e491522ba4be9ae8f21c7a434a793842284fc46873f49b392e9901f2acda"
+      },
+      {
+        "periodo": "2024-04",
+        "registros_fonte": 3033,
+        "registros_escopo": 3008,
+        "sha256_resposta": "e1045cc3ee4f0c15673e6698f57fb2cd94b35ea854bb6c033ceb3a70f1b86e7f",
+        "consulta": "Data eq '2024-04-30'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "c0b8a9956aeb64721dd115f1e8da4c3890e904d4ce173014096a7d4a5412b7e4"
+      },
+      {
+        "periodo": "2024-03",
+        "registros_fonte": 3052,
+        "registros_escopo": 3027,
+        "sha256_resposta": "c829af047201720024c9313e4eb52dabc7240067292c1e783301b25e9d5807c7",
+        "consulta": "Data eq '2024-03-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "17216286917b6b93b239ee261a79bf2497c9533891cf5a10feafb38821f8e7d9"
+      },
+      {
+        "periodo": "2024-05",
+        "registros_fonte": 3041,
+        "registros_escopo": 3016,
+        "sha256_resposta": "385aa8009856994995440361aa7fbc4a07995058b0afee1bed34ae597a428f5b",
+        "consulta": "Data eq '2024-05-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "103c2288c63bbe10f40809dd28ed98be7fd5da392760db22c6627acd8149f758"
+      },
+      {
+        "periodo": "2024-06",
+        "registros_fonte": 3021,
+        "registros_escopo": 2996,
+        "sha256_resposta": "3edd3ab7206238f78732506b25020ba91561dd82074d515de4ea2b1ef5d1c232",
+        "consulta": "Data eq '2024-06-30'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "4eda4375361c939211512eb55888e30b42ee19f5d9c12b60f0baedf7f245a511"
+      },
+      {
+        "periodo": "2024-07",
+        "registros_fonte": 3048,
+        "registros_escopo": 3023,
+        "sha256_resposta": "ab11cea11d61129dea05ea44c43c88a595d24207f5c068fe6cbb06eda11a8203",
+        "consulta": "Data eq '2024-07-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "bce041eced87eecbde4ba1c378a252b1d10cc6ae74cb9066b7f925aaa05d866d"
+      },
+      {
+        "periodo": "2024-08",
+        "registros_fonte": 3036,
+        "registros_escopo": 3011,
+        "sha256_resposta": "4f3c565749f67a871b0467b6021f85ad8a850537656a4b8a6b2900ebd3e34a40",
+        "consulta": "Data eq '2024-08-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "e405b2768b73f986454daec5e8c367dea4d45de2effda0d508d9110c546eb53a"
+      },
+      {
+        "periodo": "2024-09",
+        "registros_fonte": 3037,
+        "registros_escopo": 3012,
+        "sha256_resposta": "0d67a3ee2394c84a42ccb8e1dac37a9923ce9a25411cdff8a03f2cbc852f56d5",
+        "consulta": "Data eq '2024-09-30'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "a4b28febbf4399e0a00a7d7a2f04391eb153e89762a0aaec491f1adf016cf26c"
+      },
+      {
+        "periodo": "2024-10",
+        "registros_fonte": 3042,
+        "registros_escopo": 3017,
+        "sha256_resposta": "14c32fc1dba834c4b5ca39035a98165f66d539fff8ee1326f526491a97f81b09",
+        "consulta": "Data eq '2024-10-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "6e6800c735b067eec75dedef4e17fe527fc4ff58d02aedec401d595a285199bb"
+      },
+      {
+        "periodo": "2025-01",
+        "registros_fonte": 1976,
+        "registros_escopo": 1954,
+        "sha256_resposta": "219c57309abcc619d526dff913da014b1dfc43adabca341463b204bd81b1c4b3",
+        "consulta": "Data eq '2025-01-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "2451716f3bb1b9263ee896d4d7d4a9e9922d907bdead33238da8a58ca7f5a825"
+      },
+      {
+        "periodo": "2025-02",
+        "registros_fonte": 1973,
+        "registros_escopo": 1951,
+        "sha256_resposta": "133ffb10083bbdef61e25cc601dc1683bd53e85eba4ffced701b84c037f56566",
+        "consulta": "Data eq '2025-02-28'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "5a90533430c863237768875c29158fef8e29b85846392c1e9d143497e3e165c1"
+      },
+      {
+        "periodo": "2025-03",
+        "registros_fonte": 1980,
+        "registros_escopo": 1962,
+        "sha256_resposta": "9b9f34a40c8d6b1259be382102c4c58c2e46451a5fbbe733208b7f968916eaf4",
+        "consulta": "Data eq '2025-03-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "f7495fb8d43e8bfd9d19efb60d718ecb7f5022c7d4102343b46899aaef21569a"
+      },
+      {
+        "periodo": "2025-04",
+        "registros_fonte": 1992,
+        "registros_escopo": 1974,
+        "sha256_resposta": "2b89f9f3a4ec2ce76d2f48542b7941003755fad5206a23a4ad963966e063ad26",
+        "consulta": "Data eq '2025-04-30'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "c0992e7ac3eef929bfc2a1e08e86ee03c247a720f2ed462492d614bc5c4758a6"
+      },
+      {
+        "periodo": "2025-05",
+        "registros_fonte": 1968,
+        "registros_escopo": 1950,
+        "sha256_resposta": "43b76d13d7e779fd21210dcf6a4cda3babf0deefcd578c5b4097c5b6d8bc23aa",
+        "consulta": "Data eq '2025-05-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "f9f83f331e232e1491f8532a772a2f21a6617434637e8783d6793fb85e34e137"
+      },
+      {
+        "periodo": "2025-06",
+        "registros_fonte": 1957,
+        "registros_escopo": 1939,
+        "sha256_resposta": "85f418de9667ab116c3016246e1c8b5116fdd23c7f9dd108d919dc5a20065eed",
+        "consulta": "Data eq '2025-06-30'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "eb58d316b1593bd2cb1318c2e4b4e5d1135c383c1df79ea74cec9a28648b702d"
+      },
+      {
+        "periodo": "2025-07",
+        "registros_fonte": 1981,
+        "registros_escopo": 1963,
+        "sha256_resposta": "dd7a29e9d263787680be4b20be3fb46e61dd2fe5fd36963b0720acab58b93db2",
+        "consulta": "Data eq '2025-07-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "e5d92486aa5cd76e9e70d8e68f61b301845d91672c42eb1c7fe56aba295b1078"
+      },
+      {
+        "periodo": "2025-08",
+        "registros_fonte": 1943,
+        "registros_escopo": 1925,
+        "sha256_resposta": "7869bb4d4d0cdb09a6f50ba91eee97dcc7d765e1d9499aefe0664dfa6c1d91d7",
+        "consulta": "Data eq '2025-08-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "c91f046600ded26f69466a1c7746e939261da968d460f814c3f57aceb6b21f73"
+      },
+      {
+        "periodo": "2025-09",
+        "registros_fonte": 1948,
+        "registros_escopo": 1930,
+        "sha256_resposta": "ceb5a135e5e4d94ad5f9e7f3a91a74288247ddd39c3dd43e7a7c3a42a41b8578",
+        "consulta": "Data eq '2025-09-30'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "a4e954cd66dfba865096932056d88a2083bb0f6101c76ef5a10f891d83208d75"
+      },
+      {
+        "periodo": "2025-10",
+        "registros_fonte": 1963,
+        "registros_escopo": 1945,
+        "sha256_resposta": "30f201c53128c9a207b6af00db65b2fccf1ad2240cd305faa61dd6b5658fa8e1",
+        "consulta": "Data eq '2025-10-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "994ef4a9cd195376b136bd3655418a89e43a662f8a03e6aef29b795a5d022c80"
+      },
+      {
+        "periodo": "2025-11",
+        "registros_fonte": 1963,
+        "registros_escopo": 1945,
+        "sha256_resposta": "a140bbc016710ecbef98f381996e53bd5291c8ef4b7a440ffe436b767487700e",
+        "consulta": "Data eq '2025-11-30'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "c45fa60b92ec2600aaa7aaa6fd3b2805fa23dcf0b858774f67fb3f9685531e86"
+      },
+      {
+        "periodo": "2025-12",
+        "registros_fonte": 1957,
+        "registros_escopo": 1939,
+        "sha256_resposta": "f2eaf8c93ef14b199c9494177fb40334e7b2af974d7fb38e53e837e9382e1e55",
+        "consulta": "Data eq '2025-12-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "ae3d840abde9dd336d717e1bf8193f3b29c18b8b512b805bd41df58dd556b3c3"
+      },
+      {
+        "periodo": "2026-01",
+        "registros_fonte": 1946,
+        "registros_escopo": 1928,
+        "sha256_resposta": "3902ec17393ad009e64e9719082ec98985972c43a6b4f73c22657606aca06399",
+        "consulta": "Data eq '2026-01-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "9926dade2424d84ccca620e5e2b1e2c0338007f154a0b13f1fb479d329302489"
+      },
+      {
+        "periodo": "2026-02",
+        "registros_fonte": 1930,
+        "registros_escopo": 1912,
+        "sha256_resposta": "1b765d90308930259e7e395c80f1b7098d4555ef9e8d222c11bbcc129795cd87",
+        "consulta": "Data eq '2026-02-28'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "a3f07258c858e9728526ee440cd52ae5d04b03d0477d7420691bfb6f1ad2ea50"
+      },
+      {
+        "periodo": "2026-03",
+        "registros_fonte": 1947,
+        "registros_escopo": 1929,
+        "sha256_resposta": "c15b70da88c701fdf7cd3682cee0248ff6fa294ad9f687e3a5ad76b81c881ea2",
+        "consulta": "Data eq '2026-03-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "7a748a1cb4c368a942d265cdb35d70c79c8d368a3fdba3872499fcea474f2480"
+      },
+      {
+        "periodo": "2026-04",
+        "registros_fonte": 1954,
+        "registros_escopo": 1936,
+        "sha256_resposta": "99711400f08d832658625f8599b2dcaf6f8d1efbfa9c89a37ca0e2d7e967e9fe",
+        "consulta": "Data eq '2026-04-30'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "ab896b271efa4e1bcdd92953de2c2a80cea4b3e8e8564b4dd436c26d358662fb"
+      },
+      {
+        "periodo": "2026-05",
+        "registros_fonte": 1948,
+        "registros_escopo": 1931,
+        "sha256_resposta": "cb73ad06683b3b608d368f08e6929da8759307b2853beeaa26ff168824a09c6a",
+        "consulta": "Data eq '2026-05-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "09f9a738c52a4dbac55806accd3b51358eef978fd52d2e8c5825db983f26f778"
+      },
+      {
+        "periodo": "2026-06",
+        "registros_fonte": 1949,
+        "registros_escopo": 1931,
+        "sha256_resposta": "d3630c441e010b82b01ece30d049aac95fea4fee438ab1a6c78f58c7e19cfc57",
+        "consulta": "Data eq '2026-06-30'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "46412ea45fb0df795b71e0dd00def94835832d7543833f4adc743e0c6ac496f7"
+      },
+      {
+        "periodo": "2026-07",
+        "registros_fonte": 1942,
+        "registros_escopo": 1924,
+        "sha256_resposta": "41095052c5c069dbd4fd81f25c239b203e6799c412bd42671a8fecc0f75d42f1",
+        "consulta": "Data eq '2026-07-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "b80c4be34836c0af07b91b9fbfe2c50efde518ec0fd0170001b7f7e6bdb62c10"
+      },
+      {
+        "periodo": "2026-08",
+        "registros_fonte": 1569,
+        "registros_escopo": 1551,
+        "sha256_resposta": "28538da62c5a4b1d934311f5efddb635042c6aea760f4642ca94a3d803c0e1ec",
+        "consulta": "Data eq '2026-08-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "94433307a0988304f0ae4310be58685d6a292fe189bdaf615138c84ad5ce5171"
+      },
+      {
+        "periodo": "2024-11",
+        "registros_fonte": 3035,
+        "registros_escopo": 3010,
+        "sha256_resposta": "410fbe1194e695318d5578755bd833c7fa474c703f404c51697a30bb2b5b52ca",
+        "consulta": "Data eq '2024-11-30'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "93884eaf7f2a413a4c859f1a5ff0a395799c985721e8bbd4be5171271bbfc40c"
+      },
+      {
+        "periodo": "2024-12",
+        "registros_fonte": 3018,
+        "registros_escopo": 2993,
+        "sha256_resposta": "7dad25e2c537295e3b3015afe41a091a4d0308ecb021dfb1a71b2c2f93cb5929",
+        "consulta": "Data eq '2024-12-31'",
+        "endpoint": "https://olinda.bcb.gov.br/olinda/servico/MercadoImobiliario/versao/v1/odata/mercadoimobiliario",
+        "sha256_parquet": "a8b843d8a8d858577829ef37931e122ea93dafed1dabb8b90c80fa2194e37834"
+      }
+    ],
+    "revisao_historica": "Incremental revisa 12 meses; revisões anteriores exigem reprocessamento da janela.",
+    "bndu": "Excluído do escopo"
+  },
+  "integridade": {
+    "versao": 1,
+    "geracao": "13cf5d2fbad14aaaa371734081236c41",
+    "arquivo_dados": "dados.parquet",
+    "sha256": "abfb3f85fe3282d13015d0226533209c0fea4f3e8c7167cf02f562624f6458a4",
+    "tamanho_bytes": 2536569
+  },
+  "publication_id": "mercado-imobiliario-20261105-v1"
+}

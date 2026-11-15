@@ -142,9 +142,9 @@ NOTA_UF_CEP = (
 )
 
 NOTA_DIVERGENCIA = (
-    "Os números divergem do IF.data e dos balancetes COSIF por construção: o "
-    "SCR.data é montado a partir do documento 3040, operação a operação, e o "
-    "próprio BCB declara margem de tolerância contra os demonstrativos contábeis."
+    "SCR.data divulga agregados públicos das operações do documento 3040. "
+    "Os números podem diferir do IFData e dos balanços COSIF por cobertura, "
+    "critérios de apuração, tolerância de remessa e revisões. Confira a mesma data-base antes de comparar."
 )
 
 NOTA_PORTE_COMPARTILHADO = (
@@ -590,7 +590,7 @@ def marcar_quebras(fig, quebras: Sequence[Dict[str, str]]):
         fig.add_vline(
             x=quebra["data_base"],
             line_dash="dot",
-            line_color="#94a3b8",
+            line_color=COR_CINZA_MEDIO,
         )
         fig.add_annotation(
             x=quebra["data_base"],
@@ -599,7 +599,7 @@ def marcar_quebras(fig, quebras: Sequence[Dict[str, str]]):
             yanchor="bottom",
             text=quebra["data_base"],
             showarrow=False,
-            font=dict(size=10, color="#64748b"),
+            font=dict(size=11, color=COR_CINZA_ESCURO),
         )
     return fig
 
@@ -661,27 +661,35 @@ def descrever_secoes() -> pd.DataFrame:
 # de recorte (renda, região, segmento), a série no tempo. É o formato dos
 # quadrantes usados nos decks — e o mesmo que o export para PPTX reproduz.
 
-# Paleta Itaú BBA. Laranja institucional, preto e cinzas; nada fora disso.
-COR_LARANJA = "#EC7000"
-COR_PRETO = "#111111"
-COR_CINZA_ESCURO = "#4B4B4B"
-COR_CINZA_MEDIO = "#8F8F8F"
-COR_CINZA_CLARO = "#C9C9C9"
-COR_GRADE = "#E6E6E6"
-COR_TEXTO = "#3C3C3C"
+# Paleta Itaú BBA, definida em um único lugar: utils/sgs_credit_analytics.
+# Este módulo apenas reexporta, para que os cards do SCR e os do SGS não possam
+# mais divergir em preto, cinza ou cor de grade — o que acontecia antes.
+from utils.sgs_credit_analytics import (  # noqa: E402
+    COR_GRADE,
+    ITAU_BLACK as COR_PRETO,
+    ITAU_DARK_GRAY as COR_CINZA_ESCURO,
+    ITAU_LIGHT_GRAY as COR_CINZA_CLARO,
+    ITAU_MID_GRAY as COR_CINZA_MEDIO,
+    ITAU_ORANGE as COR_LARANJA,
+    PALETA_LINHA,
+)
+
+COR_TEXTO = COR_PRETO
 
 # Rampa para dimensões ORDENADAS (faixas de renda, porte). Vai do laranja, que
 # sinaliza o grupo sob estresse, aos cinzas escuros. É monotônica em luminosidade
 # para que a ordem da renda seja lida no próprio gradiente.
+# O degrau cinza mais claro começa em #949494, que é onde uma linha sobre papel
+# branco ainda chega a 3:1. #CFCFCF, o valor anterior, ficava em 1,55:1: a série
+# e o rótulo dela sumiam no fundo do slide.
 RAMPA_ORDENADA = [
-    "#EC7000", "#F0913A", "#F5B478", "#CFCFCF", "#A6A6A6", "#7D7D7D", "#545454",
+    "#EC7000", "#D47D1E", "#A34700", "#949494", "#757575", "#5C5C5C", "#3F3F3F",
 ]
 
-# Paleta para dimensões SEM ordem natural (região, segmento, produto).
-PALETA_CATEGORICA = [
-    "#EC7000", "#111111", "#8F8F8F", "#F5B478",
-    "#4B4B4B", "#C25C00", "#C9C9C9", "#6F6F6F",
-]
+# Paleta para dimensões SEM ordem natural (região, segmento, produto). É a
+# mesma dos gráficos de linha do SGS: contraste >= 3:1 no branco e ΔE >= 27,3
+# entre quaisquer duas. Séries além da quinta repetem cor com traço tracejado.
+PALETA_CATEGORICA = list(PALETA_LINHA)
 
 # O agregado ganha preto tracejado: distingue-se do fim da rampa sem sair da paleta.
 SERIE_TOTAL = "Todos"
@@ -847,6 +855,23 @@ def cores_das_series(
     return cores
 
 
+def tracejadas_das_series(
+    ordem: Sequence[str], quebra: QuebraSpec
+) -> List[str]:
+    """Séries que entram tracejadas: o agregado e as que repetem cor.
+
+    Numa dimensão categórica a paleta tem cinco cores distinguíveis; a sexta
+    série em diante reusa a cor da primeira, e o traço tracejado é o que volta
+    a separá-las. Numa dimensão ordenada a rampa é reamostrada e não repete,
+    então só o agregado fica tracejado.
+    """
+    categorias = [item for item in ordem if item != SERIE_TOTAL]
+    tracejadas = [SERIE_TOTAL] if SERIE_TOTAL in ordem else []
+    if not quebra.ordenada:
+        tracejadas.extend(categorias[len(PALETA_CATEGORICA):])
+    return tracejadas
+
+
 def _ordem_da_quebra(
     quebra: QuebraSpec, valores_presentes: Sequence[str], cliente: Optional[str]
 ) -> List[str]:
@@ -940,7 +965,7 @@ def construir_paineis(
             series=series.reset_index(drop=True),
             ordem_series=ordem,
             cores=cores_das_series(ordem, spec),
-            tracejadas=[SERIE_TOTAL] if SERIE_TOTAL in ordem else [],
+            tracejadas=tracejadas_das_series(ordem, spec),
             metrica=definicao.chave,
             carteira_final_rs_mil=carteira,
         ))
@@ -1020,17 +1045,10 @@ def avaliar_legibilidade(paineis: Sequence[PainelSpec]) -> List[Dict[str, str]]:
                 ),
             })
 
-        colisoes = rotulos_sobrepostos(painel)
-        if colisoes:
-            avisos.append({
-                "painel": painel.titulo,
-                "nivel": "info",
-                "mensagem": (
-                    "Rótulos do último ponto quase colados em "
-                    + "; ".join(f"{a} e {b}" for a, b in colisoes[:3])
-                    + ". No PPTX eles podem se sobrepor — ajuste manualmente se for para o deck."
-                ),
-            })
+        # O aviso de "rótulos quase colados" saiu daqui: a rotina que posiciona
+        # os rótulos do último ponto passou a garantir separação mínima em
+        # pixels, então o alerta descrevia um problema que não existe mais.
+        # ``rotulos_sobrepostos`` continua disponível para inspeção.
 
     return avisos
 

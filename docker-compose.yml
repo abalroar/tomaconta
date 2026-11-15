@@ -1,0 +1,22 @@
+# Um servidor, um disco: app e atualização enxergam o mesmo volume, exigência das travas de arquivo.
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8501:8501"
+    env_file: .env
+    volumes:
+      - cache:/app/data/cache
+
+  # docker compose run --rm atualizacao
+  atualizacao:
+    build: .
+    profiles: ["operacao"]
+    env_file: .env
+    command: ["python", "tools/update_all.py"]
+    volumes:
+      - cache:/app/data/cache
+
+volumes:
+  cache:
