@@ -33,7 +33,7 @@ def test_ratio_sums_the_three_obligations_and_ignores_clearing_and_memo_by_defau
     assert row.razao == pytest.approx(.20)
     assert model.build_series(_accounts([
         ("202606", "C1", "A", "44160000", 500e6), ("202606", "C1", "A", "13616000", 100e6), ("202606", "C1", "A", "13615000", 50e6),
-    ]), include_clearing=True).iloc[0].razao == pytest.approx(.30)
+    ]), sources=(model.COLLATERAL, model.CLEARING)).iloc[0].razao == pytest.approx(.30)
 
 
 def test_duplicate_keys_are_not_summed_and_immaterial_base_has_no_ratio():
@@ -59,7 +59,7 @@ def test_bundled_base_has_every_account_of_the_formula_and_reproduces_afinz():
     assert afinz.loc["202606", "razao"] == pytest.approx(.2264, abs=.0005)
     # Até jan/26 o colateral estava em 1.3.6.15; a opção de câmaras dá a série contínua.
     assert afinz.loc["202512", "garantia_total"] == 0
-    wide = model.build_series(accounts, include_clearing=True).query("COD_CONGL == 'C0083539'").set_index("DATA_BASE")
+    wide = model.build_series(accounts, sources=(model.COLLATERAL, model.CLEARING)).query("COD_CONGL == 'C0083539'").set_index("DATA_BASE")
     assert wide.loc["202512", "razao"] == pytest.approx(.1249, abs=.0005)
     table = model.detail_table(accounts, model.build_series(accounts), "C0083539")
     assert table.loc["Obrigações do arranjo", "202606"] == pytest.approx(table.iloc[:3]["202606"].sum())
@@ -98,3 +98,60 @@ def test_detail_shows_latest_month_first_in_millions():
     view = detail_view(model.detail_table(accounts, series, "C1"))
     assert list(view.columns)[:2] == ["Jun/26", "Mai/26"]
     assert view.loc["Obrigações do arranjo", "Jun/26"] == "500,0" and view.loc["Garantia / Obrigações", "Jun/26"] == "20,0%"
+
+
+def test_other_collateral_is_a_selectable_source_with_a_friendly_name():
+    accounts = _accounts([("202606", "C1", "A", "44160000", 500e6), ("202606", "C1", "A", "13620000", 100e6), ("202606", "C1", "A", "13616000", 25e6)])
+    assert model.build_series(accounts).iloc[0].razao == pytest.approx(.05)
+    assert model.build_series(accounts, sources=(model.OTHER,)).iloc[0].razao == pytest.approx(.20)
+    assert model.build_series(accounts, sources=(model.OTHER, model.COLLATERAL)).iloc[0].razao == pytest.approx(.25)
+    assert model.source_label((model.COLLATERAL,)) == "Garantias - Arranjo de Pagamento"
+    assert model.source_label((model.OTHER,)) == "Garantia - Outros"
+    assert model.source_label((model.OTHER, model.COLLATERAL)) == "Garantias - Arranjo + Outros"
+    with pytest.raises(ValueError):
+        model.build_series(accounts, sources=("inexistente",))
+    with pytest.raises(ValueError):
+        model.build_series(accounts, sources=())
+
+
+def test_table_header_and_help_name_the_chosen_account():
+    from tabs.arranjo_garantias import source_help
+    html = render_table(build_rows(_series(), ["C1"]), "202606", lambda values, **_: "", sources=(model.OTHER,))
+    assert "<th>Garantia - Outros</th>" in html and "Garantias - Arranjo de Pagamento" not in html
+    text = source_help((model.OTHER,))
+    assert "1.3.6.20" in text and "documento 4060" in text and "(1.3.6.20) ÷ (4.4.1.60 + 4.9.9.01 + 4.9.9.03)" in text and "3.0.9.77" in text
+
+
+def test_bundled_base_counts_who_is_covered_by_each_source():
+    """Em jun/26, aceitar Outros leva de 17 para 45 os conglomerados com razão positiva; PicPay só existe em Outros."""
+    accounts = model.load_accounts(SimpleNamespace(arquivo_dados=BUNDLE), today=date(2026, 11, 10))
+    def covered(sources):
+        month = model.build_series(accounts, sources=sources).query("DATA_BASE == '202606'")
+        return set(month[month.razao.gt(0)].COD_CONGL)
+    strict, wide = covered((model.COLLATERAL,)), covered((model.COLLATERAL, model.OTHER))
+    assert (len(strict), len(wide)) == (17, 45) and strict < wide
+    series = model.build_series(accounts, sources=(model.OTHER,))
+    picpay = series[series.NOME_CONGL.eq("PICPAY - PRUDENCIAL") & series.DATA_BASE.eq("202606")].iloc[0]
+    assert picpay.garantia == 0 and picpay.razao == pytest.approx(.1818, abs=.0005)
+
+
+def test_export_is_one_native_excel_table_with_the_requested_fonts():
+    from io import BytesIO
+
+    from openpyxl import load_workbook
+    accounts = _accounts([("202606", "C1", "BANCO A", "44160000", 400e6), ("202606", "C1", "BANCO A", "49901000", 100e6),
+                          ("202606", "C1", "BANCO A", "13620000", 100e6), ("202606", "C2", "BANCO B", "44160000", 500_000.0)])
+    series = model.build_series(accounts, sources=(model.OTHER,))
+    frame = model.export_frame(accounts, series, ["C1", "C2", "C9"], (model.OTHER,))
+    assert list(frame.columns) == list(model.EXPORT_COLUMNS) and len(frame) == 2
+    first = frame.iloc[0]
+    assert first["Obrigações do arranjo"] == 500 and first["4.9.9.01 Obrigações por transações"] == 100 and first["Data-base"] == "06/2026"
+    assert first["Garantia / Obrigações"] == pytest.approx(.2) and first["Fonte considerada"] == "Garantia - Outros" and first["Rubricas com saldo"] == "Outros"
+    assert pd.isna(frame.iloc[1]["Garantia / Obrigações"]) and frame.iloc[1]["Rubricas com saldo"] == "Nenhuma"
+    page = load_workbook(BytesIO(model.to_excel(frame))).active
+    table = page.tables["ObrigacoesArranjo"]
+    assert table.ref == "A1:O3" and not table.tableStyleInfo.showRowStripes
+    head, body = page["A1"], page["G2"]
+    assert (head.font.name, head.font.size, head.font.bold, head.font.color.rgb, head.fill.start_color.rgb) == ("Calibri", 14, True, "00FFFFFF", "00EC7000")
+    assert (body.font.name, body.font.size, body.font.bold, body.fill.fill_type) == ("Calibri", 12, False, None)
+    assert body.value == 500 and page["M2"].number_format == "0.0%" and page["M3"].value is None

@@ -15,13 +15,25 @@ from utils.peers_table_model import short_bank
 
 MENU = "Garantias de Arranjo"
 ALL_WITH_COLLATERAL = "Todas com garantia registrada"
-COLUMNS = (
-    (model.OBLIGATIONS, "Obrigações"),
-    ("garantia_total", "Garantia em títulos"),
-    (model.RATIO, "Garantia / Obrigações"),
-    (model.MEMO, "Garantias (controle)"),
-)
-LABELS = dict(COLUMNS)
+COLUMN_KEYS = (model.OBLIGATIONS, "garantia_total", model.RATIO, model.MEMO)
+
+
+def columns(sources=model.DEFAULT_SOURCES):
+    """A coluna da garantia leva o nome da rubrica escolhida."""
+    return ((model.OBLIGATIONS, "Obrigações"), ("garantia_total", model.source_label(sources)),
+            (model.RATIO, "Garantia / Obrigações"), (model.MEMO, "Garantias (controle)"))
+
+
+def source_help(sources) -> str:
+    """Texto do botão de informação: conta, origem e uso no cálculo."""
+    chosen = [source for source in model.SOURCES if source.key in set(sources)]
+    lines = [f"**{source.label}** · COSIF {source.code}, {source.account}. {source.reading}" for source in chosen]
+    lines.append("**Origem:** balancete prudencial do BCB, documento 4060, mensal, saldo em reais na data-base.")
+    numerator = " + ".join(source.code for source in chosen)
+    lines.append(f"**Cálculo:** Garantia / Obrigações = ({numerator}) ÷ (4.4.1.60 + 4.9.9.01 + 4.9.9.03). "
+                 "Sem razão quando as obrigações ficam abaixo de R$ 1 milhão.")
+    lines.append(f"**Garantias (controle):** {model.MEMO_READING}")
+    return "\n\n".join(lines)
 SPARK_MONTHS = 12
 CHART_DEFAULT = 5
 
@@ -69,7 +81,7 @@ def build_rows(series: pd.DataFrame, codes) -> list[dict]:
         month = own.loc[model.shift_period(period, 1)] if model.shift_period(period, 1) in own.index else None
         year = own.loc[model.shift_period(period, 12)] if model.shift_period(period, 12) in own.index else None
         cells = {}
-        for column, _ in COLUMNS:
+        for column in COLUMN_KEYS:
             show = percent if column == model.RATIO else money
             delta, tone = _delta(column, current[column], None if month is None else month[column])
             # Conta de controle zerada é ausência de registro, não garantia nula.
@@ -89,9 +101,9 @@ def sort_rows(rows, column, descending=True):
     return sorted(known, key=lambda row: row["cells"][column]["raw"], reverse=descending) + missing
 
 
-def render_table(rows, latest, sparkline, highlight=None) -> str:
+def render_table(rows, latest, sparkline, highlight=None, sources=model.DEFAULT_SOURCES) -> str:
     mark = lambda column: ' class="sorted"' if column == highlight else ""
-    head = "".join(f"<th{mark(column)}>{escape(label)}</th>" for column, label in COLUMNS)
+    head = "".join(f"<th{mark(column)}>{escape(label)}</th>" for column, label in columns(sources))
     html = [CSS, '<div class="tc-cockpit-wrap"><table class="tc-cockpit"><thead><tr><th>Instituição</th><th>Evolução · Garantia / Obrigações</th>', head, "</tr></thead><tbody>"]
     for row in rows:
         stale = f'<span class="date">{escape(period_label(row["period"]))}</span>' if row["period"] != latest else ""
@@ -99,7 +111,7 @@ def render_table(rows, latest, sparkline, highlight=None) -> str:
         cells = "".join(
             f'<td{mark(column)}><span class="val">{escape(row["cells"][column]["value"])}</span>'
             f'<span class="chg {row["cells"][column]["tone"]}" title="No mês; 12 meses: {escape(row["cells"][column]["annual"])}">{escape(row["cells"][column]["delta"])}</span></td>'
-            for column, _ in COLUMNS)
+            for column in COLUMN_KEYS)
         html.append(f'<tr><td>{escape(short_bank(row["name"]))}{stale}</td><td>{spark}</td>{cells}</tr>')
     html.append("</tbody></table></div>")
     return "".join(html)
@@ -164,10 +176,16 @@ def render(api):
     with top[0]:
         choice = st.selectbox("Recorte", [ALL_WITH_COLLATERAL, *portfolios], key="arranjo_recorte",
                               help="As carteiras são as salvas no Cockpit.")
-        clearing = st.toggle("Somar títulos em câmaras (1.3.6.15)", key="arranjo_camaras",
-                             help="Para quem registrava o colateral do arranjo em 1.3.6.15 antes de migrar para 1.3.6.16. "
-                                  "Em bancos com operações em bolsa, essa conta é margem de câmara e não se relaciona ao arranjo.")
-    series = model.build_series(accounts, include_clearing=clearing)
+        pick, info = st.columns([5, 1], vertical_alignment="bottom")
+        chosen = pick.pills("Fonte da garantia", [source.key for source in model.SOURCES], selection_mode="multi",
+                            default=list(model.DEFAULT_SOURCES), key="arranjo_fontes", format_func=lambda key: model.SOURCE_BY_KEY[key].short)
+        sources = tuple(source.key for source in model.SOURCES if source.key in set(chosen or ())) or model.DEFAULT_SOURCES
+        with info.popover("i", help="Conta COSIF, origem e uso no cálculo"):
+            st.markdown(source_help(sources))
+    source_name = model.source_label(sources)
+    signature = "-".join(sources)
+    labels = dict(columns(sources))
+    series = model.build_series(accounts, sources=sources)
     latest = series.DATA_BASE.max()
     names = series.drop_duplicates("COD_CONGL", keep="last").set_index("COD_CONGL").NOME_CONGL.to_dict()
     relevant = series[series[model.OBLIGATIONS].gt(0) | series.garantia_total.gt(0) | series[model.MEMO].gt(0)].COD_CONGL.unique()
@@ -175,7 +193,7 @@ def render(api):
     wanted = model.with_collateral(series, latest) if choice == ALL_WITH_COLLATERAL else portfolios[choice]
     default = [code for code in wanted if code in options]
     with top[1]:
-        codes = st.multiselect("Instituições", options, default=default, key=f"arranjo_codes_{choice}_{clearing}",
+        codes = st.multiselect("Instituições", options, default=default, key=f"arranjo_codes_{choice}_{signature}",
                                format_func=lambda code: short_bank(names[code]), placeholder="Busque e marque as instituições")
     if choice != ALL_WITH_COLLATERAL and len(default) < len(wanted):
         st.caption(f"{len(wanted) - len(default)} instituição(ões) da carteira sem contas de arranjo no balancete prudencial.")
@@ -183,23 +201,28 @@ def render(api):
         st.info("Selecione ao menos uma instituição.")
         return
     order_col, direction_col, _ = st.columns([1.4, 1.2, 3], vertical_alignment="bottom")
-    order = order_col.selectbox("Ordenar por", [column for column, _ in COLUMNS], key="arranjo_ordem", format_func=LABELS.get)
+    order = order_col.selectbox("Ordenar por", list(COLUMN_KEYS), key="arranjo_ordem", format_func=labels.get)
     direction = direction_col.segmented_control("Direção", ["Maior → menor", "Menor → maior"], default="Maior → menor",
                                                 key="arranjo_direcao", label_visibility="collapsed") or "Maior → menor"
     rows = sort_rows(build_rows(series, codes), order, direction == "Maior → menor")
     behind = sum(row["period"] != latest for row in rows)
     st.markdown(f"**Data-base: {escape(period_label(latest))}** · comparada com {escape(period_label(model.shift_period(latest, 1)))} (mês)"
                 + (f" · {behind} instituição(ões) com data anterior, indicada na linha" if behind else ""))
-    st.markdown(render_table(rows, latest, api["_snap_sparkline_svg"], order), unsafe_allow_html=True)
-    st.caption("Obrigações: 4.4.1.60 + 4.9.9.01 + 4.9.9.03. Garantia em títulos: 1.3.6.16"
-               + (" + 1.3.6.15" if clearing else "") + ". Garantias (controle): 3.0.9.77, publicada desde fev/2026 e fora da razão. "
+    st.markdown(f"Razão calculada com **{escape(source_name)}** ({' + '.join(model.SOURCE_BY_KEY[key].code for key in sources)}).")
+    st.markdown(render_table(rows, latest, api["_snap_sparkline_svg"], order, sources), unsafe_allow_html=True)
+    export = model.export_frame(accounts, series, [row["code"] for row in rows], sources)
+    st.download_button("Exportar obrigações (Excel)", model.to_excel(export), file_name=f"obrigacoes_arranjo_{latest}.xlsx",
+                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="arranjo_excel",
+                       help="Uma linha por instituição da tabela, em R$ milhões, com as três contas de obrigação e as rubricas de garantia.")
+    st.caption("Obrigações: 4.4.1.60 + 4.9.9.01 + 4.9.9.03. " + source_name + ": " + " + ".join(model.SOURCE_BY_KEY[key].code for key in sources)
+               + ". Garantias (controle): 3.0.9.77, publicada desde fev/2026 e fora da razão. "
                "Balancete prudencial 4060, mensal, desde jan/2025. A razão não é calculada com obrigações abaixo de R$ 1 milhão. "
                "Evolução: últimos 12 meses. Passe o mouse na variação para ver os 12 meses. "
                "O balancete não identifica o beneficiário da garantia nem garantias prestadas por terceiros, como fianças.")
 
     st.markdown("#### Ao longo do tempo")
     with_ratio = [row["code"] for row in sort_rows(rows, model.OBLIGATIONS) if any(v is not None for v in row["spark"])]
-    charted = st.multiselect("Instituições no gráfico", with_ratio, default=with_ratio[:CHART_DEFAULT], key=f"arranjo_grafico_{choice}_{clearing}",
+    charted = st.multiselect("Instituições no gráfico", with_ratio, default=with_ratio[:CHART_DEFAULT], key=f"arranjo_grafico_{choice}_{signature}",
                              format_func=lambda code: short_bank(names[code]))
     if charted:
         st.plotly_chart(ratio_figure(series, charted, names), width="stretch", config={"displayModeBar": False})
@@ -208,6 +231,6 @@ def render(api):
     code = st.selectbox("Instituição", [row["code"] for row in rows], key="arranjo_detalhe", format_func=lambda item: short_bank(names[item]))
     table = model.detail_table(accounts, series, code)
     st.dataframe(detail_view(table), width="stretch")
-    export = (table / 1.0).rename(columns=period_label)
-    st.download_button("Baixar CSV (R$)", export.to_csv(sep=";", decimal=",").encode("utf-8-sig"),
+    history = (table / 1.0).rename(columns=period_label)
+    st.download_button("Baixar CSV (R$)", history.to_csv(sep=";", decimal=",").encode("utf-8-sig"),
                        file_name=f"garantias_arranjo_{code}.csv", mime="text/csv", key="arranjo_csv")
