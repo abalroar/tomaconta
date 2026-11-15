@@ -14,6 +14,7 @@ MODULES = (
     Module("Snapshot", "Instituição", "Visão consolidada dos principais indicadores, variações e qualidade dos dados."),
     Module("Rankings", "Comparação", "Ordenação por indicador e período, com filtros e exportação das instituições selecionadas."),
     Module("Tabela de Peers", "Comparação", "Bancos e períodos lado a lado, variação trimestral ou anual, grupos salvos e cálculo sob clique."),
+    Module("Peer Adquirentes", "Comparação", "Stone, PagBank, Mercado Pago, CloudWalk e SumUp lado a lado no conglomerado prudencial, com exportação."),
     Module("Conselho e Diretoria", "Governança", "Composição dos órgãos por conglomerado e instituição participante."),
     Module("Evolução", "Histórico", "Séries e indicadores por instituição, com gráfico e tabela editáveis no mesmo slide."),
     Module("Scatter Plot", "Relações", "Comparação entre dois indicadores, com tamanho de bolha e filtros por instituição."),

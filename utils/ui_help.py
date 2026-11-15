@@ -40,6 +40,7 @@ MODULE_CAPTIONS = {
     "Cockpit": "Sua carteira, uma linha por banco · IFData trimestral · Mesmas regras do Snapshot.",
     "Rankings": "Posições entre as instituições com dados no recorte · IFData trimestral · Visão prudencial e instituições independentes.",
     "Tabela de Peers": "Comparação por instituição e data-base · IFData trimestral · Fonte e denominador identificados por indicador.",
+    "Peer Adquirentes": "Cinco instituições de pagamento lado a lado · IFData trimestral, conglomerado prudencial · Leiaute da Res. 4.966 desde mar/2025.",
     "Conselho e Diretoria": "Cadastro e administradores disponíveis no BCB · Consulta atual, sem série histórica completa de mandatos.",
     "Evolução": "Histórico de balanço, resultado e capital · IFData trimestral · Mudanças no grupo e na contabilidade podem alterar a série.",
     "Scatter Plot": "Comparação entre indicadores na mesma data-base · IFData trimestral · Confira a cobertura das variáveis selecionadas.",

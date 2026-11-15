@@ -723,6 +723,9 @@ MODULE_GUIDES = (
         ("ifdata", "ifdata_credit", "cosif_prudential"), "A tendência é um saldo de sinais em 12 meses, não uma avaliação de crédito. Abra o Snapshot para ver os detalhes."),
     ModuleGuide("Tabela de Peers", "Comparar um conjunto escolhido de instituições por métricas de capital, carteira, resultado e captação.",
         ("ifdata", "ifdata_credit", "cosif_prudential"), "Escolha pares com porte, atividade, período e perímetro comparáveis. Veja as regras de cada razão."),
+    ModuleGuide("Peer Adquirentes", "Comparar Stone, PagBank, Mercado Pago, CloudWalk e SumUp em resultado, rentabilidade, funding, capital e crédito.",
+        ("ifdata",), "Só o conglomerado prudencial. A DRE publicada acumula por semestre: 2T e 4T saem por diferença. "
+        "Linhas do leiaute da Res. 4.966 aparecem como \"–\" até dez/24."),
     ModuleGuide("Conselho e Diretoria", "Consultar cargos e vínculos de administradores disponíveis no BCB.",
         ("registry",), "A consulta cadastral não reconstitui toda a história de mandatos e decisões."),
     ModuleGuide("Evolução", "Acompanhar a trajetória dos indicadores de instituições selecionadas.",

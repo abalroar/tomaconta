@@ -7,7 +7,7 @@ import streamlit as st
 
 NAVIGATION_GROUPS = (
     ("Instituições", (
-        "Cockpit", "Snapshot", "Rankings", "Tabela de Peers", "Evolução", "Scatter Plot",
+        "Cockpit", "Snapshot", "Rankings", "Tabela de Peers", "Peer Adquirentes", "Evolução", "Scatter Plot",
         "Conselho e Diretoria",
     )),
     ("Contábil e crédito", (
