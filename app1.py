@@ -15826,6 +15826,7 @@ MENU_PRINCIPAL = [
     "Snapshot",
     "Rankings",
     "Peers (Tabela)",
+    "Peer Adquirentes",
     "Conselho e Diretoria",
     "Evolução",
     "Scatter Plot",
@@ -26593,6 +26594,11 @@ elif menu == "Meios de Pagamento (SPB)":
                         width="stretch",
                     )
 
+
+elif menu == "Peer Adquirentes":
+    from tabs.peer_adquirentes import render_peer_adquirentes
+
+    render_peer_adquirentes()
 
 elif menu == "Estatísticas Crédito BC":
     from tabs.mercado_credito import render_mercado_credito
