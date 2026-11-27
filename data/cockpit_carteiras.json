@@ -63,9 +63,25 @@
         {
           "id": "C0084693",
           "label": "NU PAGAMENTOS - PRUDENCIAL"
+        },
+        {
+          "id": "C0080154",
+          "label": "BANRISUL - PRUDENCIAL"
+        },
+        {
+          "id": "C0081593",
+          "label": "BCO DO NORDESTE DO BRASIL S.A. - PRUDENCIAL"
+        },
+        {
+          "id": "C0081249",
+          "label": "BCO DA AMAZONIA S.A. - PRUDENCIAL"
+        },
+        {
+          "id": "C0081847",
+          "label": "BNDES - PRUDENCIAL"
         }
       ],
-      "atualizado_em": "2026-11-27T17:42:20+00:00"
+      "atualizado_em": "2026-11-27T17:45:11+00:00"
     },
     {
       "nome": "Matheus Prates",
