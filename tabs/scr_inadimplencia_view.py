@@ -282,6 +282,20 @@ def _memo_pptx(chave: str, construir):
     return memo["valor"]
 
 
+def carregar_competencias_scr(cache) -> tuple[str, ...]:
+    """Obtém as competências depois de disponibilizar os arquivos do SCR."""
+    resultado = cache.bootstrap_local_assets()
+    if not resultado.sucesso:
+        raise RuntimeError(resultado.mensagem)
+    periodos = (resultado.metadata or {}).get("periodos") or cache.get_info().get("periodos")
+    if not periodos:
+        datas = pd.read_parquet(cache.arquivo_dados, columns=["data_base"])
+        periodos = datas["data_base"].astype(str).unique().tolist()
+    if not periodos:
+        raise RuntimeError("Resumo SCR.data sem competências disponíveis")
+    return tuple(sorted(str(periodo) for periodo in periodos))
+
+
 def render_scr_inadimplencia(get_cache_manager) -> None:
     from utils import scr_data_query as scr_q
     from utils import scr_pptx_export as scr_pptx
@@ -309,17 +323,7 @@ def render_scr_inadimplencia(get_cache_manager) -> None:
         if cache is None:
             raise RuntimeError("Cache SCR.data não inicializado")
         try:
-            resultado = cache.bootstrap_local_assets()
-            if not resultado.sucesso:
-                raise RuntimeError(resultado.mensagem)
-            periodos = (resultado.metadata or {}).get("periodos") or cache.get_info().get("periodos") or []
-            if periodos:
-                return tuple(sorted(str(periodo) for periodo in periodos))
-            datas = pd.read_parquet(cache.arquivo_dados, columns=["data_base"])
-            periodos = tuple(sorted(datas["data_base"].astype(str).unique()))
-            if not periodos:
-                raise RuntimeError("Resumo SCR.data sem competências disponíveis")
-            return periodos
+            return carregar_competencias_scr(cache)
         except Exception as exc:
             # st.cache_data não memoriza exceções. Uma trava ocupada ou falha
             # de download pode ser tentada novamente no próximo rerun.

@@ -789,6 +789,7 @@ def _figuras_faixa_de_renda(
     """
     from tabs import scr_inadimplencia as scr_spec
     from tabs.scr_inadimplencia_view import (
+        carregar_competencias_scr,
         figura_painel,
         figura_por_regiao,
         figura_por_uf,
@@ -799,9 +800,7 @@ def _figuras_faixa_de_renda(
     cache = manager.get_cache("scr_data") if manager else None
     if cache is None:
         return []
-    periodos = sorted(str(p) for p in (cache.get_info().get("periodos") or []))
-    if not periodos:
-        return []
+    periodos = carregar_competencias_scr(cache)
     fim = pd.Timestamp(fim).to_period("M").to_timestamp() if fim is not None else pd.Timestamp(f"{periodos[-1]}-01")
     inicio = (pd.Timestamp(inicio).to_period("M").to_timestamp() if inicio is not None
               else fim - pd.DateOffset(months=scr_spec.JANELA_PADRAO_MESES - 1))
@@ -1038,6 +1037,10 @@ def _botao_deck_completo(
                 wide, get_cache_manager, metadata=metadata, modalidade_regiao=modalidade_regiao,
                 imobiliario_options=imobiliario_options,
                 progresso=lambda valor, texto: barra.progress(valor, text=texto),
+            )
+            # A primeira exportação pode ter instalado o SCR usado no arquivo.
+            memo["chave"] = _assinatura_deck(
+                wide, get_cache_manager, metadata, modalidade_regiao, imobiliario_options,
             )
         except Exception as exc:
             memo["erro"] = str(exc)

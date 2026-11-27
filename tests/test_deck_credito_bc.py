@@ -66,6 +66,9 @@ def gerenciador(janela):
     fato = _fato(linhas)
 
     class CacheSCRTeste:
+        def bootstrap_local_assets(self):
+            return SimpleNamespace(sucesso=True, metadata=self.get_info())
+
         def get_info(self):
             return {"periodos": [p.strftime("%Y-%m") for p in periodos]}
 
@@ -332,6 +335,19 @@ def test_faixa_de_renda_traz_todas_as_modalidades_pf(gerenciador):
     # A visão regional entra como barra por UF, já que mapa não é nativo.
     assert any("por UF" in titulo for titulo in titulos)
     assert any("por região" in titulo for titulo in titulos)
+
+
+def test_exportacao_por_renda_inicializa_scr_antes_de_consultar_periodos(gerenciador, monkeypatch):
+    from tabs import scr_inadimplencia as scr_spec
+
+    cache = gerenciador().get_cache("scr_data")
+    metadata = cache.get_info()
+    monkeypatch.setattr(cache, "get_info", lambda: {})
+    pronto = SimpleNamespace(sucesso=True, metadata=metadata)
+    monkeypatch.setattr(cache, "bootstrap_local_assets", lambda: pronto)
+
+    figuras = MC._figuras_faixa_de_renda(gerenciador)
+    assert len(figuras) == len(scr_spec.MODALIDADES_BCB_PF) + 2
 
 
 def test_mapa_nao_entra_no_deck(gerenciador):
@@ -737,6 +753,9 @@ def test_botao_so_gera_por_pedido_e_permite_tentar_novamente(monkeypatch, janela
 
     cliques, chamadas, downloads = [False], [], []
     estado = {}
+    info_scr = {}
+    cache_scr = SimpleNamespace(get_info=info_scr.copy)
+    manager = SimpleNamespace(get_cache=lambda nome: cache_scr if nome == "scr_data" else None)
     st = SimpleNamespace(
         session_state=estado,
         markdown=lambda *args, **kwargs: None,
@@ -758,25 +777,27 @@ def test_botao_so_gera_por_pedido_e_permite_tentar_novamente(monkeypatch, janela
         chamadas.append(True)
         if len(chamadas) == 1:
             raise RuntimeError("falha temporária")
+        info_scr["periodos"] = ["2026-07"]
         return b"arquivo", {"completo": True, "cobertura": [{"erro": ""}],
                             "paineis": 1, "slides": 1, "secoes_glossario": 1}
 
     monkeypatch.setattr(MC, "_deck_completo", gerar)
-    MC._botao_deck_completo(janela, None)
+    MC._botao_deck_completo(janela, lambda: manager)
     assert chamadas == []
     cliques[0] = True
-    MC._botao_deck_completo(janela, None)
+    MC._botao_deck_completo(janela, lambda: manager)
     assert estado["_deck_completo_memo"]["erro"] == "falha temporária"
     assert downloads == []
-    MC._botao_deck_completo(janela, None)
+    MC._botao_deck_completo(janela, lambda: manager)
     assert len(chamadas) == 2
     assert downloads == [b"arquivo"]
     cliques[0] = False
-    MC._botao_deck_completo(janela, None)
+    MC._botao_deck_completo(janela, lambda: manager)
     assert len(chamadas) == 2
+    assert downloads == [b"arquivo", b"arquivo"]
     revisada = janela.copy()
     revisada.iloc[0, 0] = 123456.0
-    MC._botao_deck_completo(revisada, None)
+    MC._botao_deck_completo(revisada, lambda: manager)
     assert "valor" not in estado["_deck_completo_memo"]
 
 

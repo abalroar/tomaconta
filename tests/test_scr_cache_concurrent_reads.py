@@ -177,9 +177,10 @@ def _period_reader(fake_cache, monkeypatch):
     tree = ast.parse(source.read_text())
     node = next(node for node in ast.walk(tree)
                 if isinstance(node, ast.FunctionDef) and node.name == "_periodos_disponiveis")
+    from tabs.scr_inadimplencia_view import carregar_competencias_scr
     from utils.ifdata_cache.revision_cache import revision_cache_data
     namespace = {"st": st, "pd": pd, "_cache": lambda: fake_cache,
-                 "revision_cache_data": revision_cache_data}
+                 "revision_cache_data": revision_cache_data, "carregar_competencias_scr": carregar_competencias_scr}
     exec(compile(ast.Module(body=[node], type_ignores=[]), str(source), "exec"), namespace)
     reader = namespace["_periodos_disponiveis"]
     reader.clear()
