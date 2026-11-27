@@ -41,11 +41,14 @@ test('approved labels and stable colors retain exact group identity',()=>{
 
 test('real SFN total uses the four existing transformed components with their original unit',async()=>{
  const charts=await read('sfn.json'),original=structuredClone(charts);
- const total=creditTotalFromCharts(charts,{start:'2016-09',end:'2026-09'});
+ const total=creditTotalFromCharts(charts,{start:'2016-10',end:'2026-10'});
  assert.equal(total.series.length,1);assert.equal(total.unit,'R$ bi');assert.deepEqual(total.missingComponents,[]);
  assert.equal(total.series[0].data.length,121);assert.ok(total.series[0].data.every(point=>point[1]!=null));
- assert.equal(total.series[0].data[0][0],'2016-09-01');assert.equal(total.series[0].data.at(-1)[0],'2026-09-01');
- assert.ok(Math.abs(total.series[0].data.at(-1)[1]-7444.209)<1e-9);
+ assert.equal(total.series[0].data[0][0],'2016-10-01');assert.equal(total.series[0].data.at(-1)[0],'2026-10-01');
+ const series=await read('sgs-series.json');
+ const subtotal=codigo=>series.find(s=>s.code===codigo).data.find(([dia])=>dia==='2026-10-01')[1]/1000;
+ const oficial=subtotal(20540)+subtotal(20541);
+ assert.ok(Math.abs(total.series[0].data.at(-1)[1]-oficial)<=0.002);
  assert.deepEqual(charts,original);
 });
 

@@ -77,7 +77,9 @@ test('real riskseries endDecember2024 and rolling window follows their own compe
 
 test('real SCR dataarepercentpoints and Office conversionhappensonce',async()=>{
  const charts=await read('extra.json');const regional=charts.find(c=>c.id==='scr-7');
- assert.equal(regional.unit,'%');assert.equal(regional.percent,true);assert.equal(periodOf(regional),'07/2026');
+ const cartao=charts.find(c=>c.id==='scr-0');
+ assert.equal(regional.unit,'%');assert.equal(regional.percent,true);
+ assert.equal(periodOf(regional),periodOf(cartao).split(' a ').at(-1));
  assert.ok(regional.series[0].data.every(p=>/^[A-Z]{2}$/.test(p[0])));
  const values=regional.series[0].data.map(p=>p[1]);assert.ok(Math.max(...values)>1&&Math.max(...values)<100);
  const native=chartDataForPptx(regional)[0];assert.equal(native.values[0],values[0]/100);
