@@ -28,7 +28,7 @@
         "BC, séries SGS",
         "Estadão Conteúdo (27/11)"
       ],
-      "texto": "Com ajuste sazonal, o BC apurou R$ 727,5 bilhões em novas operações em outubro, ante R$ 721,1 bilhões em setembro (+0,9%). As concessões a famílias cresceram 1,3% e as de empresas, 0,1%. O direcionado às famílias passou de R$ 38,0 bilhões para R$ 43,9 bilhões, enquanto o livre PF recuou de R$ 354,7 bilhões para R$ 353,6 bilhões.\n\nAs tabelas 2 a 5 trazem outubro para o total, PF, PJ, livre, direcionado e os quatro cruzamentos de tomador e recursos. Cada total tem ajuste sazonal próprio. Nas modalidades ajustadas, capital de giro PJ, veículos PF e cartão à vista PF terminam em setembro no SGS. A queda de 5,1% no crédito livre em outubro, destacada pelo Estadão, corresponde ao fluxo sem ajuste sazonal."
+      "texto": "Em outubro, as concessões ajustadas subiram 0,9%, de R$ 721,1 bi para R$ 727,5 bi. PF avançou 1,3% e PJ, 0,1%. O direcionado às famílias passou de R$ 38,0 bi para R$ 43,9 bi.\n\nAs tabelas 2 a 5 trazem nove aberturas com ajuste próprio. Giro PJ, veículos PF e cartão à vista PF ajustados chegam a setembro no SGS. A queda de 5,1% no livre citada pelo Estadão refere-se ao fluxo sem ajuste."
     },
     "credito_estoque": {
       "titulo": "Estoque de crédito total",
@@ -38,7 +38,7 @@
         "BC, séries SGS",
         "Valor, saldo de crédito (27/11)"
       ],
-      "texto": "O estoque do SFN atingiu R$ 7,466 trilhões em outubro. O crescimento em 12 meses caiu de 8,5% em setembro para 7,8%, o menor ritmo desde fevereiro de 2020, como registrou o Valor. Em abril de 2025, a carteira ainda avançava 12,0% ao ano.\n\nO direcionado respondeu por R$ 26,2 bilhões dos R$ 28,5 bilhões acrescidos à carteira no mês. Em 12 meses, o saldo direcionado cresceu 11,1% e o livre, 5,4%. A desaceleração é mais intensa no crédito livre às empresas, que cresceu apenas 0,5% em termos nominais e encolheu 3,9% depois de descontado o IPCA."
+      "texto": "O saldo do SFN chegou a R$ 7,466 trilhões em outubro. A alta em 12 meses recuou de 8,5% para 7,8%, menor ritmo desde fevereiro de 2020.\n\nO direcionado respondeu por R$ 26,2 bi dos R$ 28,5 bi adicionados no mês. Em 12 meses, cresceu 11,1%, ante 5,4% no livre. No livre PJ, o saldo caiu 3,9% em termos reais."
     },
     "credito_tomador": {
       "titulo": "Por tomador",
@@ -47,7 +47,7 @@
         "BC, nota de 27/11",
         "BC, séries SGS"
       ],
-      "texto": "O saldo das famílias aumentou R$ 30,9 bilhões em outubro, para R$ 4,719 trilhões. Nas empresas, o saldo recuou R$ 2,5 bilhões, para R$ 2,747 trilhões. Em termos reais, a carteira ainda cresceu nos dois segmentos em 12 meses, com alta de 4,2% em PF e de 1,1% em PJ.\n\nNo crédito livre PJ, o desconto de duplicatas e outros recebíveis caiu 6,8% após a alta sazonal de setembro. O capital de giro também cedeu, com queda de 0,6% no mês e de 3,1% em 12 meses, em termos nominais. A sazonalidade ajuda a explicar a oscilação dos recebíveis. A queda anual do giro mostra uma fraqueza mais persistente no financiamento às empresas."
+      "texto": "Em outubro, as famílias acrescentaram R$ 30,9 bi ao saldo, que chegou a R$ 4,719 tri. Nas empresas, a carteira encolheu R$ 2,5 bi, para R$ 2,747 tri.\n\nNo livre PJ, o desconto de recebíveis caiu 6,8% após a alta sazonal de setembro. O capital de giro recuou 0,6% no mês e 3,1% em 12 meses."
     },
     "credito_produto": {
       "titulo": "Por produto",
@@ -57,7 +57,7 @@
         "BC, séries SGS",
         "Bradesco, call do 3T26"
       ],
-      "texto": "O saldo de consignado para trabalhadores do setor privado chegou a R$ 129,8 bilhões em outubro, com alta de 4,4% no mês e de 98,3% em 12 meses. O financiamento de veículos cresceu 1,0% no mês. Já no crédito pessoal sem consignação, o saldo avançou 0,1% e a inadimplência subiu de 11,05% para 11,48%.\n\nNo call do 3T26, o Bradesco relatou expansão no consignado privado e em veículos e redução da carteira de crédito pessoal sem garantia. Essa escolha ajuda a interpretar a diferença de ritmo entre produtos. Para acompanhar o risco do consignado privado em rápida expansão, vale distinguir o atraso dessa linha do índice de 3,90% do consignado agregado, que também inclui servidores públicos e beneficiários do INSS."
+      "texto": "O consignado privado chegou a R$ 129,8 bi em outubro, alta de 98,3% em um ano. No pessoal sem consignação, o saldo cresceu 0,1% no mês e a inadimplência passou de 11,05% para 11,48%.\n\nO Bradesco relatou expansão em consignado privado e veículos e redução no pessoal sem garantia. Para avaliar o consignado privado, acompanhe suas próprias safras. O índice de 3,90% do consignado agregado inclui servidores e beneficiários do INSS."
     },
     "credito_empresa": {
       "titulo": "Por tipo de empresa",
@@ -67,7 +67,7 @@
         "BC, tabelas de 27/11",
         "Itaú Unibanco, call do 3T26"
       ],
-      "texto": "A distância entre portes aumentou no último ano. Descontado o IPCA, o saldo de micro, pequenas e médias empresas caiu 2,1% até outubro, enquanto o das grandes cresceu 4,7%. As menores ainda respondiam por 47,9% do saldo classificado por porte. Na tabela 23 do BC, a inadimplência foi de 6,1% nesse grupo e de 0,7% nas grandes.\n\nNo call do 3T26, o Itaú atribuiu a qualidade da sua carteira de pequenas e médias empresas à seleção de clientes com melhores classificações de risco e à participação de programas de garantia. A gestão lembrou que o atraso pode aparecer antes do ressarcimento pelo fundo. Esse intervalo importa para interpretar a perda que efetivamente ficará com o credor."
+      "texto": "Em 12 meses, o saldo das micro, pequenas e médias empresas caiu 2,1% em termos reais e o das grandes cresceu 4,7%. Em outubro, a inadimplência foi de 6,1% e 0,7%, respectivamente. As menores detinham 47,9% do saldo classificado por porte.\n\nO Itaú citou melhores ratings nas PMEs e uso de fundos garantidores. O atraso aparece antes da honra da garantia, o que afeta o momento da recuperação."
     },
     "credito_controle": {
       "titulo": "Por controle",
@@ -76,7 +76,7 @@
         "BC, séries SGS",
         "BC, tabelas de 27/11"
       ],
-      "texto": "As instituições públicas responderam por R$ 16,3 bilhões dos R$ 28,5 bilhões de crescimento do saldo em outubro. As estrangeiras acrescentaram R$ 6,7 bilhões e as privadas nacionais, R$ 5,5 bilhões. As privadas nacionais continuaram com a maior parcela da carteira, 45,1%, seguidas pelas públicas, com 41,5%, e pelas estrangeiras, com 13,4%.\n\nA contribuição mensal das públicas convive com maior expansão das privadas nacionais em 12 meses. Em termos reais, o saldo cresceu 3,5% nas privadas nacionais, 2,9% nas estrangeiras e 2,6% nas públicas. O peso das públicas no mês veio acompanhado de alta na inadimplência desse grupo, de 4,53% para 4,64%."
+      "texto": "Dos R$ 28,5 bi de alta da carteira em outubro, R$ 16,3 bi vieram dos bancos públicos, R$ 6,7 bi dos estrangeiros e R$ 5,5 bi dos privados nacionais.\n\nEm 12 meses, os privados nacionais lideraram o crescimento real, com 3,5%, ante 2,9% nos estrangeiros e 2,6% nos públicos. Nos públicos, a inadimplência subiu de 4,53% para 4,64% no mês."
     },
     "situacao": {
       "titulo": "Situação dos agentes",
@@ -86,7 +86,7 @@
         "BC, séries SGS",
         "Valor, inadimplência (27/11)"
       ],
-      "texto": "Em setembro, as famílias destinaram 29,0% da renda ao serviço das dívidas, o maior valor da série disponível. Os juros passaram de 10,90% para 11,01% da renda, enquanto a parcela de amortização caiu de 18,03% para 18,01%. No mesmo período, o saldo das dívidas passou de 50,07% para 50,02% da renda acumulada em 12 meses.\n\nO pequeno recuo do endividamento trouxe pouco alívio ao orçamento mensal. Mesmo excluindo o financiamento habitacional, o serviço das dívidas consumiu 26,64% da renda em setembro. Essa pressão antecede o recorde de inadimplência no crédito livre PF registrado em outubro."
+      "texto": "Em setembro, o endividamento das famílias caiu de 50,07% para 50,02% da renda de 12 meses. O serviço da dívida atingiu o recorde de 29,02% da renda mensal.\n\nOs juros subiram de 10,90% para 11,01% da renda e a amortização passou de 18,03% para 18,01%. Mesmo excluindo o habitacional, as prestações consumiram 26,64% da renda."
     },
     "npl_pre_inad": {
       "titulo": "Pré-inadimplência e inadimplência",
@@ -97,7 +97,7 @@
         "Valor, inadimplência (27/11)",
         "Folha (27/11)"
       ],
-      "texto": "A carteira com atraso superior a 90 dias subiu de 4,99% para 5,10% do SFN em outubro. O índice chegou a 6,13% nas famílias e a 3,32% nas empresas. No livre, alcançou 8,20% em PF e 4,25% em PJ. O livre PF estava em 6,86% um ano antes e atingiu o recorde da série iniciada em 2011, como registraram o Valor e a Folha.\n\nNo direcionado, o índice subiu de 2,93% para 3,06%, com 3,61% em PF e 2,06% em PJ em outubro. Os atrasos de 15 a 90 dias no livre recuaram de 4,73% para 4,68% em PF e subiram de 2,64% para 2,75% em PJ. Em PJ, o aumento dos atrasos curtos acompanhou a alta dos créditos vencidos há mais de 90 dias."
+      "texto": "Em outubro, o atraso acima de 90 dias subiu de 4,99% para 5,10% do SFN. Ficou em 6,13% nas famílias e 3,32% nas empresas. No livre PF, chegou ao recorde de 8,20%, ante 6,86% um ano antes.\n\nNo livre PJ, o atraso de 15 a 90 dias passou de 2,64% para 2,75% e o superior a 90 dias, de 4,20% para 4,25%. No livre PF, o atraso curto recuou de 4,73% para 4,68%. No direcionado, a inadimplência subiu de 2,93% para 3,06%."
     },
     "npl_cobertura": {
       "titulo": "Cobertura e provisionamento",
@@ -106,7 +106,7 @@
         "BC, séries SGS",
         "Banco do Brasil, call do 3T26"
       ],
-      "texto": "As provisões permaneceram em 7,9% da carteira do SFN em outubro. Como a inadimplência acima de 90 dias subiu de 4,99% para 5,10%, a cobertura calculada caiu de 158,3% para 154,9%. O saldo provisionado passou a representar uma parcela menor do crédito em atraso, mesmo com estabilidade da provisão como percentual da carteira.\n\nNo call do 3T26, o Banco do Brasil informou ter constituído cerca de R$ 13 bilhões em provisões no agro durante o trimestre e descreveu a adoção de alienação fiduciária nas novas operações. O caso ilustra como a despesa com perdas pode se concentrar em um segmento. A cobertura mensal do SFN compara estoques e, isoladamente, tem alcance limitado para avaliar a suficiência das provisões de cada banco."
+      "texto": "A provisão ficou em 7,9% da carteira do SFN em outubro. Com a alta dos atrasos acima de 90 dias, a cobertura caiu de 158,3% para 154,9%.\n\nNo 3T26, o BB constituiu cerca de R$ 13 bi em provisões no agro e relatou uso de alienação fiduciária nas novas operações. Para avaliar o banco, acompanhe as recuperações no agro e a evolução das safras renegociadas."
     },
     "npl_faixa_renda": {
       "titulo": "Inadimplência por faixa de renda",
@@ -116,7 +116,7 @@
         "BC, SCR.data",
         "Santander Brasil, call do 3T26"
       ],
-      "texto": "Em setembro, no cartão PF do SCR, a inadimplência atingiu 14,42% para clientes com renda de até um salário mínimo, 8,39% na faixa de mais de cinco a dez e 3,93% acima de vinte. Em julho, os índices eram 13,47%, 7,51% e 4,76%. No conjunto dos portadores, a parcela da carteira ativa em atraso passou de 10,07% em julho a 10,62% em agosto e 10,85% em setembro.\n\nNo call do 3T26, o Santander Brasil relatou pressão nas linhas sem garantia entre clientes de baixa renda e, mais recentemente, de renda média. A evolução do cartão nessas faixas ajuda a contextualizar a observação da gestão. O SCR permite acompanhar a distribuição por renda até setembro. O SGS já informa o agregado do crédito livre PF de outubro."
+      "texto": "No cartão PF do SCR, a inadimplência de setembro foi de 14,42% até 1 salário mínimo, 8,39% para quem ganha mais de 5 e até 10, e 3,93% acima de 20. Em julho, as mesmas faixas registravam 13,47%, 7,51% e 4,76%.\n\nNo total do cartão PF, o índice subiu de 10,07% em julho para 10,62% em agosto e 10,85% em setembro. No call do 3T26, o Santander relatou pressão no crédito sem garantia entre clientes de renda baixa e média."
     },
     "taxas": {
       "titulo": "Taxas de juros e spread",
@@ -127,7 +127,7 @@
         "BC, séries SGS",
         "Valor, inadimplência (27/11)"
       ],
-      "texto": "O crédito livre ficou mais caro para os dois grupos em outubro. A taxa média das novas operações chegou a 62,6% ao ano em PF e a 25,1% em PJ. Os spreads correspondentes passaram de 48,5 para 49,2 pontos percentuais nas famílias e de 11,7 para 12,7 pontos nas empresas.\n\nNas famílias, o BC atribuiu cerca de metade da alta de 0,2 ponto percentual à mudança na composição das concessões. O crédito pessoal sem consignação subiu de 110,9% para 113,8% ao ano, enquanto o rotativo do cartão recuou de 451,6% para 446,0%. Nas empresas, o efeito das taxas dentro de cada modalidade foi de 0,6 ponto percentual e o da composição, de 0,1 ponto."
+      "texto": "Em outubro, as novas operações livres custaram 62,6% ao ano em PF e 25,1% em PJ. Os spreads subiram de 48,5 para 49,2 p.p. em PF e de 11,7 para 12,7 p.p. em PJ.\n\nO pessoal sem consignação encareceu de 110,9% para 113,8% ao ano. O rotativo caiu de 451,6% para 446,0%. Segundo o BC, a composição das concessões explicou cerca de metade da alta de 0,2 p.p. da taxa livre PF."
     }
   }
 }
