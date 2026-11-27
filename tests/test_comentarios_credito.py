@@ -65,6 +65,14 @@ def test_json_baixado_volta_a_carregar_no_mesmo_formato():
     assert json.loads(bytes_json.decode("utf-8")) == documento
 
 
+def test_fonte_com_referencia_abre_o_link_e_fonte_livre_preserva_o_rotulo():
+    from tabs.comentario_credito import _fonte_html
+
+    url = "https://www.bcb.gov.br/estatisticas/estatisticasmonetariascredito"
+    assert f'href="{url}"' in _fonte_html("Nota do BC", {"Nota do BC": url})
+    assert _fonte_html("Nota A & B", {}) == "Nota A &amp; B"
+
+
 def test_texto_e_marcado_como_desatualizado_quando_o_cache_avanca():
     texto = replace(comentario("concessoes"), data_base="2026-07")
     assert desatualizado(texto, "2026-08") is True

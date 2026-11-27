@@ -15,7 +15,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 def _spb_app() -> AppTest:
     source = (PROJECT_ROOT / "app1.py").read_text()
     start = source.index('elif menu == "Meios de Pagamento (SPB)":')
-    end = source.index('elif menu == "Estatísticas Crédito BC":', start)
+    end = source.index('\nelif menu == ', start)
     body = textwrap.dedent(source[start:end].split("\n", 1)[1])
     setup = f"""
 import sys
