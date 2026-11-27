@@ -15,7 +15,8 @@
     "Bradesco, call do 3T26": "https://filemanager-cdn.mziq.com/published/80f2e993-0a30-421a-9470-a4d5c8ad5e9f/8b5bb6a6-2b67-42ac-8659-96469190184a#page=2",
     "Banco do Brasil, call do 3T26": "https://filemanager-cdn.mziq.com/published/5760dff3-15e1-4962-9e81-322a0b3d0bbd/5ea4b364-0172-4cdc-bc81-83147c9ef6f8#page=11",
     "Santander Brasil, call do 3T26": "https://www.fool.com/earnings/call-transcripts/2026/10/29/santander-brasil-bsbr-q3-2026-earnings-call-transcript/",
-    "BC, SCR.data": "https://www.bcb.gov.br/estabilidadefinanceira/scrdata"
+    "BC, SCR.data": "https://www.bcb.gov.br/estabilidadefinanceira/scrdata",
+    "BC, arquivo mensal do SCR de 2026": "https://www.bcb.gov.br/pda/desig/scrdata_2026.zip"
   },
   "paginas": {
     "concessoes": {
@@ -27,7 +28,7 @@
         "BC, séries SGS",
         "Estadão Conteúdo (27/11)"
       ],
-      "texto": "As famílias puxaram a recuperação das concessões em outubro. Com ajuste sazonal, o BC apurou R$ 727,5 bilhões em novas operações, alta de 0,9% sobre setembro. O fluxo para pessoas físicas cresceu 1,3% e o das empresas, 0,1%. Na série de crédito livre sem ajuste, o Estadão destacou a queda de 5,1% no mês, para R$ 628,9 bilhões, concentrada nas empresas.\n\nNa abertura ajustada da nota, os desembolsos direcionados às famílias passaram de R$ 38,0 bilhões em setembro para R$ 43,9 bilhões em outubro. Os livres recuaram de R$ 354,7 bilhões para R$ 353,6 bilhões. O gráfico de desembolsos termina em setembro, última observação das nove séries ajustadas no SGS nesta consulta."
+      "texto": "Com ajuste sazonal, o BC apurou R$ 727,5 bilhões em novas operações em outubro, ante R$ 721,1 bilhões em setembro (+0,9%). As concessões a famílias cresceram 1,3% e as de empresas, 0,1%. O direcionado às famílias passou de R$ 38,0 bilhões para R$ 43,9 bilhões, enquanto o livre PF recuou de R$ 354,7 bilhões para R$ 353,6 bilhões.\n\nAs tabelas 2 a 5 trazem outubro para o total, PF, PJ, livre, direcionado e os quatro cruzamentos de tomador e recursos. Cada total tem ajuste sazonal próprio. Nas modalidades ajustadas, capital de giro PJ, veículos PF e cartão à vista PF terminam em setembro no SGS. A queda de 5,1% no crédito livre em outubro, destacada pelo Estadão, corresponde ao fluxo sem ajuste sazonal."
     },
     "credito_estoque": {
       "titulo": "Estoque de crédito total",
@@ -96,7 +97,7 @@
         "Valor, inadimplência (27/11)",
         "Folha (27/11)"
       ],
-      "texto": "A inadimplência acima de 90 dias no SFN subiu de 4,99% em setembro para 5,10% em outubro. No crédito livre às famílias, atingiu 8,20%, recorde da série iniciada em 2011, destacado pelo Valor e pela Folha. Um ano antes, era 6,86%. Na nota do BC, a alta em 12 meses é de 1,3 ponto percentual.\n\nOs atrasos de 15 a 90 dias tiveram direções diferentes no crédito livre. Em PF, caíram de 4,73% para 4,68%, mesmo com piora no pessoal sem consignação. Em PJ, subiram de 2,64% para 2,75%. A leve queda do atraso curto em PF ocorreu enquanto o estoque com mais de 90 dias ainda crescia. Uma queda persistente nos atrasos curtos seria um sinal favorável para os meses seguintes."
+      "texto": "A carteira com atraso superior a 90 dias subiu de 4,99% para 5,10% do SFN em outubro. O índice chegou a 6,13% nas famílias e a 3,32% nas empresas. No livre, alcançou 8,20% em PF e 4,25% em PJ. O livre PF estava em 6,86% um ano antes e atingiu o recorde da série iniciada em 2011, como registraram o Valor e a Folha.\n\nNo direcionado, o índice subiu de 2,93% para 3,06%, com 3,61% em PF e 2,06% em PJ em outubro. Os atrasos de 15 a 90 dias no livre recuaram de 4,73% para 4,68% em PF e subiram de 2,64% para 2,75% em PJ. Em PJ, o aumento dos atrasos curtos acompanhou a alta dos créditos vencidos há mais de 90 dias."
     },
     "npl_cobertura": {
       "titulo": "Cobertura e provisionamento",
@@ -109,13 +110,13 @@
     },
     "npl_faixa_renda": {
       "titulo": "Inadimplência por faixa de renda",
-      "data_base": "2026-07",
+      "data_base": "2026-09",
       "fontes": [
+        "BC, arquivo mensal do SCR de 2026",
         "BC, SCR.data",
-        "Santander Brasil, call do 3T26",
-        "BC, nota de 27/11"
+        "Santander Brasil, call do 3T26"
       ],
-      "texto": "No recorte de julho do SCR.data, a inadimplência acima de 90 dias no cartão de crédito PF foi de 13,5% na faixa de até um salário mínimo, 7,5% na faixa de mais de cinco até dez salários mínimos e 4,8% na de mais de vinte. A diferença de 8,7 pontos entre as faixas extremas citadas mostra quanto a média do cartão depende do perfil de renda dos clientes.\n\nNo call do 3T26, o Santander Brasil relatou pressão nas linhas sem garantia de clientes de baixa renda e, mais recentemente, também de renda média. A observação se refere à carteira do banco. O SGS de outubro traz o total de PF livre. A próxima abertura do SCR por renda permitirá verificar onde a alta dos atrasos se concentrou no sistema."
+      "texto": "Em setembro, no cartão PF do SCR, a inadimplência atingiu 14,42% para clientes com renda de até um salário mínimo, 8,39% na faixa de mais de cinco a dez e 3,93% acima de vinte. Em julho, os índices eram 13,47%, 7,51% e 4,76%. No conjunto dos portadores, a parcela da carteira ativa em atraso passou de 10,07% em julho a 10,62% em agosto e 10,85% em setembro.\n\nNo call do 3T26, o Santander Brasil relatou pressão nas linhas sem garantia entre clientes de baixa renda e, mais recentemente, de renda média. A evolução do cartão nessas faixas ajuda a contextualizar a observação da gestão. O SCR permite acompanhar a distribuição por renda até setembro. O SGS já informa o agregado do crédito livre PF de outubro."
     },
     "taxas": {
       "titulo": "Taxas de juros e spread",

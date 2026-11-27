@@ -392,6 +392,11 @@ def test_chart_export_uses_explicit_candidate_parquet_and_output(tmp_path):
     sgs = pd.read_parquet(sgs_path)
     sgs["valor"] = sgs["valor"] * 2
     sgs.to_parquet(sgs_path, index=False)
+    nome_anexo = "concessoes_ajustadas_tabelas.json"
+    anexo = sgs_path.with_name(nome_anexo)
+    tabelas = json.loads((ROOT / "data/bundled/mercado_credito_sgs" / nome_anexo).read_text())
+    tabelas["dados"][-1][1] += 1
+    anexo.write_text(json.dumps(tabelas))
     frame = pd.read_parquet(parquet)
     row = frame[(frame.uf == "br") & (frame.grafico == "contratacao_valor_pf") & (frame.linha == "")].iloc[-1]
     index = row.name
@@ -411,13 +416,16 @@ def test_chart_export_uses_explicit_candidate_parquet_and_output(tmp_path):
     assert manifest["sourceInputs"]["mercado_imobiliario"] == r.digest(parquet)
     assert manifest["sourceInputs"]["mercado_credito_sgs"] == r.digest(sgs_path)
     assert r.digest(parquet) != r.digest(ROOT / "data/bundled/mercado_imobiliario/dados.parquet")
-    original_sfn = json.loads((ROOT / "web/public/data/sfn.json").read_text())
     candidate_sfn = json.loads((out / "sfn.json").read_text())
-    original_series = original_sfn[0]["series"][0]["data"]
-    candidate_series = candidate_sfn[0]["series"][0]["data"]
-    for before, after in zip(original_series, candidate_series):
-        assert before[0] == after[0]
-        assert after[1] == (None if before[1] is None else before[1] * 2)
+    por_tomador = next(c for c in candidate_sfn if c["title"] == "Concessões ajustadas por tomador")
+    total = next(s for s in por_tomador["series"] if s["name"] == "Total SFN")
+    assert total["data"][-1] == [tabelas["dados"][-1][0] + "-01", tabelas["dados"][-1][1]]
+    assert manifest["sourceInputs"]["concessoes_ajustadas_tabelas"] == r.digest(anexo)
+    produtos = next(c for c in candidate_sfn if c["title"] == "Concessões livres ajustadas por modalidade")
+    giro = next(s for s in produtos["series"] if s["name"] == "Capital de giro PJ")
+    observacoes = {k: v for k, v in giro["data"] if v is not None}
+    esperado = sgs.loc[sgs.codigo == 28169].set_index("data").valor.div(1000)
+    assert observacoes == {dia.strftime("%Y-%m-%d"): valor for dia, valor in esperado.items()}
 
 
 def test_spb_refresh_forces_official_download_and_uses_candidate_root(tmp_path, monkeypatch):

@@ -134,6 +134,37 @@ def test_force_download_does_not_report_existing_generation_as_refresh(tmp_path)
     assert not result.sucesso
 
 
+def test_resumo_antigo_do_servidor_nao_substitui_a_geracao_local(tmp_path, monkeypatch):
+    cache = S.SCRDataCache(tmp_path)
+    _seed(cache)
+    metadata_local = cache.arquivo_metadata_runtime.read_bytes()
+    (tmp_path / "data/cache/manifest.json").write_text(json.dumps({"caches": {"scr_data": {"max_period": "2026-09"}}}))
+    assert cache._local_assets_result() is None
+    monkeypatch.setattr("requests.get", lambda url, **kwargs: SimpleNamespace(
+        status_code=200, content=b'{"periodo_final":"2026-07"}' if url.endswith("metadata.json") else b"candidato"))
+    result = cache.bootstrap_local_assets()
+    assert not result.sucesso and "2026-09" in result.mensagem
+    assert cache.arquivo_metadata_runtime.read_bytes() == metadata_local
+
+
+def test_arquivo_anual_antigo_com_mesmo_schema_exige_digest_do_manifesto(tmp_path, monkeypatch):
+    cache = S.SCRDataCache(tmp_path)
+    cache._garantir_estrutura()
+    antigo = pd.DataFrame([{col: ("2026-07" if col == "data_base" else 1) for col in S.FACT_COLUMNS}])
+    arquivo = cache.annual_path(2026)
+    antigo.to_parquet(arquivo, index=False)
+    candidato = tmp_path / "setembro.parquet"
+    antigo.assign(data_base="2026-09").to_parquet(candidato, index=False)
+    digest = cache._sha256(candidato)
+    cache.manifest_path.write_text(json.dumps({"anos": {"2026": {"sha256_parquet": digest}}}))
+    monkeypatch.setattr("requests.get", lambda *a, **kw: SimpleNamespace(status_code=200, content=b"incorreto"))
+    with pytest.raises(S.SCRQualityError, match="indisponível"):
+        cache.carregar_detalhe(anos=[2026])
+    assert pd.read_parquet(arquivo).data_base.tolist() == ["2026-07"]
+    monkeypatch.setattr("requests.get", lambda *a, **kw: SimpleNamespace(status_code=200, content=candidato.read_bytes()))
+    assert cache.carregar_detalhe(anos=[2026]).data_base.tolist() == ["2026-09"]
+
+
 def test_scr_bootstrap_reads_previous_complete_generation_during_promotion(tmp_path, monkeypatch):
     cache = S.SCRDataCache(tmp_path)
     _seed(cache, managed=True)

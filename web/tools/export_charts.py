@@ -26,10 +26,26 @@ def fig_json(fig,key,section):
     unit=fig.layout.yaxis.title.text or ''
     return {'id':key,'title':fig.layout.title.text or key,'section':section,'source':meta.get('source','BCB · SGS'),'unit':unit,'axes':[unit,fig.layout.yaxis2.title.text or unit] if any(t.yaxis=='y2' for t in fig.data) else [unit],'note':meta.get('source_note',''),'percent':'%' in unit,'stacked':fig.layout.barmode=='stack','series':series}
 sgs=pd.read_parquet(SOURCE_ROOT/'data/bundled/mercado_credito_sgs/dados.parquet');wide=to_wide(sgs);wide.attrs['full_history']=wide.copy()
+anexo = SOURCE_ROOT / 'data/bundled/mercado_credito_sgs/concessoes_ajustadas_tabelas.json'
+wide.attrs['arquivo_concessoes_bc'] = anexo
 charts=[]
+novos_ids = {
+    'sgs_concessoes_sa_tomador': 'concessoes-ajustadas-tomador',
+    'sgs_concessoes_sa_origem': 'concessoes-ajustadas-origem',
+    'sgs_concessoes_sa_modalidades': 'concessoes-ajustadas-modalidades',
+    'sgs_inad_tomador': 'inad-tomador',
+    'sgs_inad_origem': 'inad-origem',
+    'sgs_inad_direcionado': 'inad-direcionado',
+}
 for section,key,render in SECOES_DECK:
     if render:
-        for i,f in enumerate(_figuras_da_secao(render,wide)):charts.append(fig_json(f,f'{key}-{i}',section))
+        indice_legado = 0
+        for figura in _figuras_da_secao(render, wide):
+            chart_id = novos_ids.get(figura.layout.meta.get('chart_key'))
+            if chart_id is None:
+                chart_id = f'{key}-{indice_legado}'
+                indice_legado += 1
+            charts.append(fig_json(figura, chart_id, section))
 dump('sfn.json',charts)
 imob=pd.read_parquet(SOURCE_ROOT/'data/bundled/mercado_imobiliario/dados.parquet')
 specs=[{'id':s.key,'title':s.title,'section':s.section,'unit':s.unit,'scale':s.scale,'stacked':s.stacked,'note':s.note,'historical':s.historical,'prefix':s.prefix,'labels':s.labels} for s in CHARTS]
@@ -42,6 +58,9 @@ for uf in sorted(set(imob.uf)-{'na'}):
 dump('imob-catalog.json',specs)
 dump('sgs-series.json',[{'alias':a,'code':int(d.codigo.iloc[0]),'name':d.nome_oficial.iloc[0],'unit':d.unidade.iloc[0],'data':[[v.strftime('%Y-%m-%d'),value(n)] for v,n in zip(d.data,d.valor)]} for a,d in sgs.groupby('serie') if int(d.codigo.iloc[0])>0])
 manifest={'builtAt':pd.Timestamp.now(tz='UTC').isoformat(),'sourceCommit':os.environ.get('GITHUB_SHA') or os.environ.get('TOMACONTA_SOURCE_COMMIT'),'sourceInputs':{kind:hashlib.sha256((SOURCE_ROOT/'data/bundled'/kind/'dados.parquet').read_bytes()).hexdigest() for kind in ('mercado_credito_sgs','mercado_imobiliario')},'sources':[{'id':'sfn','name':'Séries SGS (competência por gráfico)','provider':'BCB · SGS','period':sgs.data.max().strftime('%Y-%m'),'rows':len(sgs),'url':'https://www.bcb.gov.br/estatisticas/estatisticasmonetariascredito'},{'id':'imob','name':'Mercado Imobiliário','provider':'BCB · Olinda','period':imob.data.max().strftime('%Y-%m'),'rows':len(imob),'url':'https://www.bcb.gov.br/estatisticas/mercadoimobiliario'}],'ufs':['br',*sorted(set(imob.uf)-{'na','br'})],'imobSections':list(dict.fromkeys(s.section for s in CHARTS)),'sfnSections':list(dict.fromkeys(c['section'] for c in charts)),'chartCount':len(charts)+24}
+if anexo.is_file():
+    manifest['sourceInputs']['concessoes_ajustadas_tabelas'] = hashlib.sha256(anexo.read_bytes()).hexdigest()
+    manifest['sources'][0].update(name='Crédito SFN (competência por gráfico)', provider='BCB · tabelas de crédito e SGS')
 if (OUT/'extra.json').exists():
     extra=json.loads((OUT/'extra.json').read_text())
     for key,name,provider in [('scr','Inadimplência por renda e região','BCB · SCR.data'),('spb','Meios de pagamento','BCB · Olinda/MPV')]:
