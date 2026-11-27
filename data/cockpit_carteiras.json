@@ -2,6 +2,56 @@
   "schema_version": 1,
   "carteiras": [
     {
+      "nome": "Leonardo Picca",
+      "membros": [
+        {
+          "id": "C0080738",
+          "label": "CAIXA ECONÔMICA FEDERAL - PRUDENCIAL"
+        },
+        {
+          "id": "C0080484",
+          "label": "VOTORANTIM - PRUDENCIAL"
+        },
+        {
+          "id": "C0080329",
+          "label": "BB - PRUDENCIAL"
+        },
+        {
+          "id": "C0080233",
+          "label": "PARANÁ BANCO - PRUDENCIAL"
+        },
+        {
+          "id": "C0080893",
+          "label": "BANCO BARI DE INVESTIMENTO E FINANCI. - PRUDENCIAL"
+        },
+        {
+          "id": "C0080271",
+          "label": "SOFISA - PRUDENCIAL"
+        },
+        {
+          "id": "C0082970",
+          "label": "CSILATINA A.M. S.A. - PRUDENCIAL"
+        },
+        {
+          "id": "C0082994",
+          "label": "CHG-MERIDIAN DO BRASIL AM S.A. - PRUDENCIAL"
+        },
+        {
+          "id": "C0080477",
+          "label": "INDUSTRIAL DO BRASIL - PRUDENCIAL"
+        },
+        {
+          "id": "C0081706",
+          "label": "BCO LUSO BRASILEIRO S.A. - PRUDENCIAL"
+        },
+        {
+          "id": "C0080941",
+          "label": "GENIAL - PRUDENCIAL"
+        }
+      ],
+      "atualizado_em": "2026-11-27T17:40:43+00:00"
+    },
+    {
       "nome": "Matheus Prates",
       "membros": [
         {
