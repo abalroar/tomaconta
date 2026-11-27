@@ -54,3 +54,5 @@ As falas descrevem a carteira e as decisões de cada administração no trimestr
 ## Validação local
 
 Os 2.170 testes da suíte passaram. A conferência das onze páginas pelo Streamlit verificou texto, links e competências. O PowerPoint gerado pela rotina do aplicativo continha 35 slides, 75 gráficos e os onze comentários integrais. O SHA-256 do Parquet é `c8316f8c65b87f6fc0c9410416fe582d6cd003a037fabc87ce8b43b8301ad191`.
+
+Na página pública, o JSON dos onze comentários conferiu byte a byte com o arquivo versionado. A primeira exportação, antes de visitar o painel por renda, revelou uma dependência dos arquivos locais do SCR. O exportador passou a carregar o SCR pela mesma rotina do painel. Em um diretório vazio, a rotina baixou a base com dados até julho e montou os nove gráficos de modalidades PF e distribuição regional.
