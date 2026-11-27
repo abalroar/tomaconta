@@ -70,6 +70,14 @@ def _competencia(valor: str) -> str:
         return valor
 
 
+def _fonte_html(nome: str, referencias: dict) -> str:
+    rotulo = escape(nome)
+    url = referencias.get(nome)
+    if isinstance(url, str) and url.startswith("https://"):
+        return f'<a href="{escape(url, quote=True)}" target="_blank" rel="noopener noreferrer">{rotulo}</a>'
+    return rotulo
+
+
 def render_comentario(
     chave: str, *, data_base_cache: str | None = None, titulo: str | None = None
 ) -> None:
@@ -134,7 +142,8 @@ def render_comentario(
         if atual.data_base:
             rodape.append(f"escrito sobre {_competencia(atual.data_base)}")
         if atual.fontes:
-            rodape.append("fontes: " + " · ".join(atual.fontes))
+            referencias = documento.get("referencias") or {}
+            rodape.append("fontes: " + " · ".join(_fonte_html(nome, referencias) for nome in atual.fontes))
         st.markdown(
             f'<div class="leitura-dado">{corpo}'
             + (f'<div class="leitura-rodape">{" — ".join(rodape)}</div>' if rodape else "")
