@@ -899,6 +899,7 @@ def _adicionar_painel(
     height: Emu,
     rotulo_serie_fn,
     cabecalho_compacto: bool = False,
+    exibir_fonte_na_grade: bool = False,
 ) -> Dict[str, Any]:
     """Desenha um card: cabeçalho e gráfico nativo."""
     if cabecalho_compacto:
@@ -909,7 +910,7 @@ def _adicionar_painel(
             texto=rotulo, tamanho=FONTE_TITULO_PT, cor=COR_TITULO, negrito=True,
         )
         altura_cabecalho = ALTURA_TITULO_COMPACTO
-        if getattr(painel, "mostrar_fonte_compacta", False):
+        if exibir_fonte_na_grade:
             _caixa_texto(
                 slide, left=left, top=top + altura_cabecalho, width=width, height=ALTURA_FONTE,
                 texto=painel.fonte, tamanho=FONTE_FONTE_PT, cor=COR_FONTE,
@@ -1520,6 +1521,7 @@ def _desenhar_grade(
     disponivel = int(SLIDE_ALTURA) - int(MARGEM) - topo_grade
     linhas = -(-len(paineis) // COLUNAS_GRADE)
     altura_celula = int((disponivel - (linhas - 1) * int(GUTTER_V)) / linhas)
+    exibir_fontes = any(getattr(painel, "mostrar_fonte_compacta", False) for painel in paineis)
 
     resumo: List[Dict[str, Any]] = []
     for posicao, painel in enumerate(paineis):
@@ -1538,6 +1540,7 @@ def _desenhar_grade(
             width=largura, height=Emu(altura_celula),
             rotulo_serie_fn=rotulo_serie_fn,
             cabecalho_compacto=True,
+            exibir_fonte_na_grade=exibir_fontes,
         ))
     return resumo
 

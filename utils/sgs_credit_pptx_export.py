@@ -174,7 +174,7 @@ def figura_para_painel(fig: Any, *, perfil: str | None = None) -> Any:
         rotular_todos_pontos=bool(meta.get("label_all_points", False)),
         estilo_taxas=taxas,
         preservar_lacunas=taxas or bool(meta.get("preservar_lacunas")),
-        mostrar_fonte_compacta=meta.get("source_provider") == "Olinda/MercadoImobiliario",
+        mostrar_fonte_compacta=bool(meta.get("source_footer")) or meta.get("source_provider") == "Olinda/MercadoImobiliario",
         formato_data=meta.get("formato_data") if taxas else None,
         cores_categorias=cores_categorias,
         inverter_categorias=horizontal and fig.layout.yaxis.autorange == "reversed",

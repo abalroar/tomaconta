@@ -994,13 +994,17 @@ class SCRDataCache(BaseCache):
         if years is None:
             bases = pd.read_parquet(self.arquivo_dados, columns=["data_base"])["data_base"]
             years = sorted(set(bases.astype(str).str[:4]))
+        registros = self._load_json(self.manifest_path).get("anos", {})
         for item in years:
             year = int(item)
             candidate = self.pending_dir / f"{year}.parquet"
-            if self.annual_path(year).exists() and not candidate.exists():
-                continue
-            if not candidate.exists() and not self._baixar_asset(self.annual_release_url(year), candidate):
-                raise RuntimeError(f"Histórico {year} não pôde ser preservado; resumo vigente mantido")
+            if not candidate.exists():
+                atual = self.annual_path(year)
+                esperado = registros.get(str(year), {}).get("sha256_parquet")
+                if atual.exists() and (not esperado or self._sha256(atual) == esperado):
+                    continue
+                if not self._baixar_asset(self.annual_release_url(year), candidate, sha256_esperado=esperado):
+                    raise RuntimeError(f"Histórico {year} não pôde ser preservado; resumo vigente mantido")
             data = pd.read_parquet(candidate)
             validar_fato_anual(data, ano=str(year))
             pairs = data[["modalidade", "submodalidade", "modalidade_bcb", "data_base"]].drop_duplicates()
@@ -1353,7 +1357,9 @@ class SCRDataCache(BaseCache):
         segmentos_observados: List[pd.DataFrame] = []
         for ano in anos:
             candidate = self.pending_dir / f"{ano}.parquet"
-            fato = pd.read_parquet(candidate if candidate.exists() else self.annual_path(ano))
+            arquivo = candidate if candidate.exists() else self.annual_path(ano)
+            registros.setdefault(str(ano), {})["sha256_parquet"] = self._sha256(arquivo)
+            fato = pd.read_parquet(arquivo)
             resumos.append(agregar_resumo(fato))
             segmentos_observados.append(
                 fato[["segmento", "data_base"]].astype(str).drop_duplicates()
@@ -1439,7 +1445,7 @@ class SCRDataCache(BaseCache):
 
     # -- consumo -----------------------------------------------------------
 
-    def _baixar_asset(self, url: str, destino: Path) -> bool:
+    def _baixar_asset(self, url: str, destino: Path, *, sha256_esperado: str | None = None) -> bool:
         try:
             resposta = requests.get(url, headers=REQUEST_HEADERS, timeout=REQUEST_TIMEOUT)
         except requests.RequestException as exc:
@@ -1447,6 +1453,9 @@ class SCRDataCache(BaseCache):
             return False
         if resposta.status_code != 200:
             self._log("warning", f"Asset indisponível ({resposta.status_code}): {url}")
+            return False
+        if sha256_esperado and hashlib.sha256(resposta.content).hexdigest() != sha256_esperado:
+            self._log("warning", f"Conteúdo recebido diverge do manifesto SCR: {destino.name}")
             return False
         try:
             with mutation_lock(self.base_dir):
@@ -1467,6 +1476,13 @@ class SCRDataCache(BaseCache):
             return False
         return True
 
+    def _validar_competencia_publicada(self, metadata: dict) -> None:
+        manifesto = self._load_json(self.base_dir / "data/cache/manifest.json")
+        publicada = manifesto.get("caches", {}).get("scr_data", {}).get("max_period") or ""
+        competencia = metadata.get("periodo_final") or max(metadata.get("periodos") or [""])
+        if competencia < publicada:
+            raise ValueError(f"O resumo do SCR termina em {competencia}. A competência publicada é {publicada}.")
+
     def _local_assets_result(self) -> Optional[CacheResult]:
         """Lê uma geração completa sem exigir a trava de outra atualização."""
         try:
@@ -1482,6 +1498,7 @@ class SCRDataCache(BaseCache):
             metadata = json.loads(metadata_before)
             if not isinstance(metadata, dict) or not isinstance(json.loads(manifest_path.read_bytes()), dict):
                 return None
+            self._validar_competencia_publicada(metadata)
             if not (self._parquet_tem_colunas(data_path, RESUMO_REQUIRED_COLUMNS)
                     and self._parquet_tem_colunas(dimensions["produto"],
                                                  ["modalidade", "submodalidade", "modalidade_bcb"])):
@@ -1520,7 +1537,9 @@ class SCRDataCache(BaseCache):
             **{path: f"{self.release_base_url}/{self.config.nome}_dim_{key}.parquet"
                for key, path in caminhos.items()},
         }
-        return self.baixar_arquivos_local(urls, timeout=REQUEST_TIMEOUT, headers=REQUEST_HEADERS)
+        return self.baixar_arquivos_local(
+            urls, timeout=REQUEST_TIMEOUT, headers=REQUEST_HEADERS, validar_metadata=self._validar_competencia_publicada,
+        )
 
     def carregar_detalhe(
         self,
@@ -1539,17 +1558,23 @@ class SCRDataCache(BaseCache):
             return pd.DataFrame(columns=FACT_COLUMNS)
 
         frames: List[pd.DataFrame] = []
+        registros = self._load_json(self.manifest_path).get("anos", {})
         for ano in alvo:
             caminho = self.annual_path(ano)
             schema_atual = self._parquet_tem_colunas(caminho, FACT_REQUIRED_COLUMNS)
+            esperado = registros.get(str(ano), {}).get("sha256_parquet")
+            if schema_atual and esperado:
+                schema_atual = self._sha256(caminho) == esperado
             if self._official_snapshot is not None and not schema_atual:
-                raise SCRQualityError(f"{ano}: slice da revisão oficial usa schema incompatível")
+                raise SCRQualityError(f"{ano}: arquivo anual incompatível com a revisão oficial do SCR")
             if not schema_atual and baixar_ausentes:
                 self.annual_dir.mkdir(parents=True, exist_ok=True)
-                self._baixar_asset(self.annual_release_url(ano), caminho)
-                schema_atual = self._parquet_tem_colunas(caminho, FACT_REQUIRED_COLUMNS)
+                baixado = self._baixar_asset(self.annual_release_url(ano), caminho, sha256_esperado=esperado)
+                schema_atual = baixado and self._parquet_tem_colunas(caminho, FACT_REQUIRED_COLUMNS)
             if schema_atual:
                 frames.append(pd.read_parquet(caminho))
+            elif esperado:
+                raise SCRQualityError(f"{ano}: a versão do arquivo anual prevista no manifesto SCR está indisponível")
             elif caminho.exists():
                 raise SCRQualityError(
                     f"{ano}: slice local usa schema antigo e o asset atualizado não foi obtido"

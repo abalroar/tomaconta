@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from functools import wraps
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 from uuid import uuid4
 
 import pandas as pd
@@ -771,7 +771,10 @@ class BaseCache(ABC):
             return CacheResult(False, f"Erro ao salvar parquet materializado: {exc}", fonte="nenhum")
 
     @_requires_workspace
-    def baixar_arquivos_local(self, urls: Dict[Path, str], *, timeout: int = 120, headers: Optional[Dict] = None) -> CacheResult:
+    def baixar_arquivos_local(
+        self, urls: Dict[Path, str], *, timeout: int = 120, headers: Optional[Dict] = None,
+        validar_metadata: Optional[Callable[[Dict], None]] = None,
+    ) -> CacheResult:
         """Baixa todos os artefatos obrigatórios antes de substituir o runtime."""
         from .update_state import mutation_lock
         import requests
@@ -793,6 +796,8 @@ class BaseCache(ABC):
                         candidate.write_bytes(response.content)
                         candidates[target] = candidate
                     metadata = json.loads(candidates[self.arquivo_metadata_runtime].read_text(encoding="utf-8"))
+                    if validar_metadata:
+                        validar_metadata(metadata)
                     extras = {target: source for target, source in candidates.items()
                               if target not in {self.arquivo_dados_runtime, self.arquivo_metadata_runtime}}
                     saved = self.salvar_arquivo_local(candidates[self.arquivo_dados_runtime], metadata, extras)

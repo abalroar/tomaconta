@@ -19,6 +19,8 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+from utils.concessoes_ajustadas_bc import MODALIDADES_SGS, concessoes_das_tabelas
+
 from utils.sgs_credit_analytics import (
     TAMANHO_ROTULO_BARRA_PX,
     _valid_trace_dates,
@@ -132,6 +134,7 @@ def _chart(fig: go.Figure, key: str) -> None:
     if _SILENCIOSO.get():
         colecionador = _EXPORT_FIGURES.get()
         if colecionador is not None and fig.data:
+            fig.update_layout(meta={**(fig.layout.meta or {}), "chart_key": key})
             colecionador.append(fig)
         return
     meta = fig.layout.meta if isinstance(fig.layout.meta, dict) else {}
@@ -162,7 +165,12 @@ def _chart(fig: go.Figure, key: str) -> None:
                 st.caption("Códigos das séries utilizadas:")
                 st.code("\n".join(meta.get("source_codes", [])), language=None)
             else:
-                st.markdown("**Séries BCB/SGS**")
+                if meta.get("source_provider") == "BC/TabelasCredito":
+                    st.markdown(meta["source_footer"])
+                    st.caption(meta["source_note"])
+                    st.markdown("**Séries correspondentes no SGS**")
+                else:
+                    st.markdown("**Séries BCB/SGS**")
                 if source_aliases:
                     for alias in source_aliases:
                         spec = SGS_SERIES[alias]
@@ -195,7 +203,10 @@ def _chart(fig: go.Figure, key: str) -> None:
     # jun/26 e jul/26 sem nada dizer isso.
     competencia = _competencia_do_card(fig)
     if competencia is not None:
-        st.caption(f"dados até {formatar_competencia(competencia)}")
+        rodape = f"dados até {formatar_competencia(competencia)}"
+        if meta.get("source_footer"):
+            rodape += f" · {meta['source_footer']}"
+        st.caption(rodape)
 
 
 def _leitura(
@@ -385,29 +396,44 @@ def _yoy_pp_frame(wide: pd.DataFrame, aliases: Sequence[str]) -> pd.DataFrame:
 
 def _render_concessoes(wide: pd.DataFrame) -> None:
     _leitura("concessoes", wide)
+    ajustadas, fonte = concessoes_das_tabelas(wide)
+    por_tomador = line_figure(
+        ajustadas, ["concessoes_sa_total", "concessoes_sa_pf", "concessoes_sa_pj"],
+        title="Concessões ajustadas por tomador", y_title="R$ bi", compacto=True,
+    )
+    por_recurso = line_figure(
+        ajustadas, ["concessoes_sa_livre", "concessoes_sa_direcionado"],
+        title="Concessões ajustadas por origem dos recursos", y_title="R$ bi", compacto=True,
+    )
     components = [
         "concessoes_sa_livre_pj",
         "concessoes_sa_direcionado_pj",
         "concessoes_sa_livre_pf",
         "concessoes_sa_direcionado_pf",
     ]
-    total = sum_columns(wide, components)
-    _chart(
-        stacked_figure(
-            wide,
-            components,
-            title="Desembolsos ajustados sazonalmente",
-            y_title="R$ bi",
-            scale=0.001,
-            total=total,
-            # Barra de largura total comporta rótulo em todo mês e um corpo
-            # de fonte maior sem apertar nada.
-            rotular_todos=True,
-            tamanho_rotulo=TAMANHO_ROTULO_BARRA_PX,
-        ),
-        "sgs_concessoes_sa",
+    por_abertura = stacked_figure(
+        ajustadas, components, title="Concessões ajustadas por tomador e origem dos recursos",
+        y_title="R$ bi", rotular_todos=True, tamanho_rotulo=TAMANHO_ROTULO_BARRA_PX,
     )
+    for figura in (por_tomador, por_recurso, por_abertura):
+        figura.update_layout(meta={**figura.layout.meta, **fonte})
+    _cards_em_grade([(por_tomador, "sgs_concessoes_sa_tomador"), (por_recurso, "sgs_concessoes_sa_origem")])
+    _chart(por_abertura, "sgs_concessoes_sa")
 
+    produtos = wide.reindex(columns=MODALIDADES_SGS).dropna(how="all").div(1000)
+    por_modalidade = line_figure(
+        produtos, MODALIDADES_SGS, title="Concessões livres ajustadas por modalidade", y_title="R$ bi",
+        labels=dict(zip(MODALIDADES_SGS, ("Capital de giro PJ", "Veículos PF", "Cartão à vista PF"))),
+    )
+    fonte_produtos = "BC · SGS 28169, 28170 e 28171"
+    por_modalidade.update_layout(meta={
+        **por_modalidade.layout.meta, "source": fonte_produtos, "source_footer": fonte_produtos,
+        "preservar_lacunas": True,
+    })
+    _chart(por_modalidade, "sgs_concessoes_sa_modalidades")
+
+    if not _SILENCIOSO.get():
+        st.markdown("#### Concessões sem ajuste sazonal e prazos")
     cards = [
         ("Concessões PJ — recursos livres", "concessoes_livre_pj", "prazo_livre_pj"),
         ("Concessões PJ — recursos direcionados", "concessoes_direcionado_pj", "prazo_direcionado_pj"),
@@ -928,9 +954,9 @@ def _deck_completo(
     blob, meta = exportar_deck_secoes_pptx(
         secoes,
         titulo_deck=TITLE if completo else f"{TITLE} · exportação parcial",
-        subtitulo_capa=(f"SGS e SCR.data · janela até {formatar_competencia(fim)} "
+        subtitulo_capa=(f"Tabelas de crédito, SGS e SCR.data · janela até {formatar_competencia(fim)} "
                         f"· início em {formatar_competencia(inicio)} · Mercado Imobiliário: {imob_options.get('uf', 'br').upper()}, competências por gráfico"),
-        rodape_capa="fonte: Banco Central do Brasil · BCData/SGS, SCR.data e Olinda/MercadoImobiliario",
+        rodape_capa="Banco Central do Brasil · Tabelas de crédito, BCData/SGS, SCR.data e Olinda/MercadoImobiliario",
     )
     meta.update(cobertura=cobertura, completo=completo, secoes_glossario=len(glossario) + 1,
                 periodo_inicial=inicio.strftime("%Y-%m"), periodo_final=fim.strftime("%Y-%m"),
@@ -1211,6 +1237,25 @@ def _render_npl_cards(wide: pd.DataFrame, selected: str) -> None:
         return
 
     _leitura("npl_pre_inad", wide)
+    por_tomador = line_figure(
+        wide, ["inad_total", "inad_pf", "inad_pj"], title="Inadimplência acima de 90 dias por tomador",
+        labels={"inad_total": "SFN"}, y_title="% da carteira", suffix="%", compacto=True,
+    )
+    por_origem = line_figure(
+        wide, ["inad_total", "inad_livre_total", "inad_direcionado_total"],
+        title="Inadimplência acima de 90 dias por origem dos recursos",
+        labels={"inad_total": "SFN", "inad_livre_total": "Livre", "inad_direcionado_total": "Direcionado"},
+        y_title="% da carteira", suffix="%", compacto=True,
+    )
+    no_direcionado = line_figure(
+        wide, ["inad_direcionado_total", "inad_direcionado_pf", "inad_direcionado_pj"],
+        title="Inadimplência acima de 90 dias no crédito direcionado",
+        labels={"inad_direcionado_total": "Total", "inad_direcionado_pf": "PF", "inad_direcionado_pj": "PJ"},
+        y_title="% da carteira", suffix="%", compacto=True,
+    )
+    for figura in (por_tomador, por_origem, no_direcionado):
+        figura.update_layout(meta={**figura.layout.meta, "source": "Banco Central · SGS", "source_footer": "Banco Central · SGS"})
+    _cards_em_grade([(por_tomador, "sgs_inad_tomador"), (por_origem, "sgs_inad_origem")])
     aggregate = [
         "pre_inad_livre_pf", "inad_livre_pf", "pre_inad_livre_pj",
         "inad_livre_pj", "pre_inad_livre_total", "inad_livre_total",
@@ -1246,6 +1291,7 @@ def _render_npl_cards(wide: pd.DataFrame, selected: str) -> None:
             ),
             "sgs_npl_aggregate",
         ),
+        (no_direcionado, "sgs_inad_direcionado"),
     ]
     _cards_em_grade(cards)
     _cards_em_grade([

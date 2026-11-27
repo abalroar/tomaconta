@@ -46,6 +46,7 @@ def chart(key, title, section, unit, series, note, source="BCB · Olinda/MPV_Dad
 
 def scr_charts(cache_dir: Path):
     from tabs.mercado_credito import _figuras_faixa_de_renda
+    from utils.ifdata_cache.base import CacheResult
 
     metadata = json.loads((cache_dir / "metadata.json").read_text())
     periods = sorted(metadata.get("periodos", []))
@@ -55,6 +56,9 @@ def scr_charts(cache_dir: Path):
     start = max(start, pd.Timestamp(year=min(available_years), month=1, day=1))
 
     class LocalCache:
+        def bootstrap_local_assets(self):
+            return CacheResult(True, "Competências do SCR da geração selecionada.", metadata=metadata)
+
         def get_info(self):
             return metadata
 
