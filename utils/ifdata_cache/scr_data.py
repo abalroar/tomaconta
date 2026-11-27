@@ -994,13 +994,17 @@ class SCRDataCache(BaseCache):
         if years is None:
             bases = pd.read_parquet(self.arquivo_dados, columns=["data_base"])["data_base"]
             years = sorted(set(bases.astype(str).str[:4]))
+        registros = self._load_json(self.manifest_path).get("anos", {})
         for item in years:
             year = int(item)
             candidate = self.pending_dir / f"{year}.parquet"
-            if self.annual_path(year).exists() and not candidate.exists():
-                continue
-            if not candidate.exists() and not self._baixar_asset(self.annual_release_url(year), candidate):
-                raise RuntimeError(f"Histórico {year} não pôde ser preservado; resumo vigente mantido")
+            if not candidate.exists():
+                atual = self.annual_path(year)
+                esperado = registros.get(str(year), {}).get("sha256_parquet")
+                if atual.exists() and (not esperado or self._sha256(atual) == esperado):
+                    continue
+                if not self._baixar_asset(self.annual_release_url(year), candidate, sha256_esperado=esperado):
+                    raise RuntimeError(f"Histórico {year} não pôde ser preservado; resumo vigente mantido")
             data = pd.read_parquet(candidate)
             validar_fato_anual(data, ano=str(year))
             pairs = data[["modalidade", "submodalidade", "modalidade_bcb", "data_base"]].drop_duplicates()
