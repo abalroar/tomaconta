@@ -79,9 +79,13 @@
         {
           "id": "C0081847",
           "label": "BNDES - PRUDENCIAL"
+        },
+        {
+          "id": "C0081517",
+          "label": "BANCO TOPÁZIO S.A. - PRUDENCIAL"
         }
       ],
-      "atualizado_em": "2026-11-27T17:45:11+00:00"
+      "atualizado_em": "2026-11-27T17:45:56+00:00"
     },
     {
       "nome": "Matheus Prates",
